@@ -439,7 +439,9 @@ impl<'a> LinterFactsBuilder<'a> {
             case_modifications,
             replacement_expansions,
             positional_parameter_trims,
-            subscript_spans,
+            suppressed_subscript_spans,
+            name_suppressing_subscript_spans,
+            arithmetic_only_suppressed_subscript_spans,
         } = surface_fragments.finish();
         let function_positional_parameter_facts = build_function_positional_parameter_facts(
             self.semantic,
@@ -451,8 +453,16 @@ impl<'a> LinterFactsBuilder<'a> {
             build_arithmetic_update_operator_spans(&self.file.body, self.semantic, self.source);
         let base_prefix_arithmetic_spans =
             build_base_prefix_arithmetic_spans(&self.file.body, self.source);
-        let subscript_index_reference_spans =
-            build_subscript_index_reference_spans(self.semantic, &subscript_spans);
+        let suppressed_subscript_reference_spans = build_suppressed_subscript_reference_spans(
+            self.semantic,
+            &suppressed_subscript_spans,
+            &arithmetic_only_suppressed_subscript_spans,
+        );
+        let name_suppressing_subscript_reference_spans =
+            build_name_suppressing_subscript_reference_spans(
+                self.semantic,
+                &name_suppressing_subscript_spans,
+            );
         pattern_exactly_one_extglob_spans.extend(surface_pattern_exactly_one_extglob_spans);
         pattern_charclass_spans.extend(surface_pattern_charclass_spans);
         let escape_scan_matches = build_escape_scan_matches(
@@ -585,7 +595,8 @@ impl<'a> LinterFactsBuilder<'a> {
             nested_presence_test_spans: presence_tested_names.nested_command_spans_by_name,
             presence_test_references_by_name: presence_tested_names.references_by_name,
             presence_test_names_by_name: presence_tested_names.names_by_name,
-            subscript_index_reference_spans,
+            suppressed_subscript_reference_spans,
+            name_suppressing_subscript_reference_spans,
             compound_assignment_value_word_spans,
             word_nodes,
             word_occurrences,

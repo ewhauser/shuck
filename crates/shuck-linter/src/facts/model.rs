@@ -20,7 +20,8 @@ pub struct LinterFacts<'a> {
     nested_presence_test_spans: FxHashMap<Name, Vec<Span>>,
     presence_test_references_by_name: FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
     presence_test_names_by_name: FxHashMap<Name, Vec<PresenceTestNameFact>>,
-    subscript_index_reference_spans: FxHashSet<FactSpan>,
+    suppressed_subscript_reference_spans: FxHashSet<FactSpan>,
+    name_suppressing_subscript_reference_spans: FxHashSet<FactSpan>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
     word_nodes: Vec<WordNode<'a>>,
     word_occurrences: Vec<WordOccurrence>,
@@ -355,8 +356,13 @@ impl<'a> LinterFacts<'a> {
             .unwrap_or(&[])
     }
 
-    pub fn is_subscript_index_reference(&self, span: Span) -> bool {
-        self.subscript_index_reference_spans
+    pub fn is_suppressed_subscript_reference(&self, span: Span) -> bool {
+        self.suppressed_subscript_reference_spans
+            .contains(&FactSpan::new(span))
+    }
+
+    pub fn is_name_suppressing_subscript_reference(&self, span: Span) -> bool {
+        self.name_suppressing_subscript_reference_spans
             .contains(&FactSpan::new(span))
     }
 
