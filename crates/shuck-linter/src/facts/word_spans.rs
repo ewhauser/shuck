@@ -5,6 +5,8 @@ use shuck_ast::{
     WordPartNode, ZshExpansionTarget,
 };
 
+use super::BacktickEscapedParameter;
+
 pub fn command_substitution_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_command_substitution_spans(&word.parts, &mut spans);
@@ -1605,6 +1607,520 @@ pub(crate) fn backtick_substitution_spans(source: &str) -> Vec<Span> {
     }
 
     spans
+}
+
+pub(crate) fn backtick_escaped_parameters(
+    source: &str,
+    backtick_spans: &[Span],
+) -> Vec<BacktickEscapedParameter> {
+    let mut spans = Vec::new();
+
+    for backtick_span in backtick_spans {
+        let mut index = backtick_span.start.offset.saturating_add('`'.len_utf8());
+        let end = backtick_span.end.offset.saturating_sub('`'.len_utf8());
+        let mut in_single_quote = false;
+        let mut in_double_quote = false;
+        let mut removed_escapes = 0usize;
+
+        while index < end {
+            let ch = source[index..]
+                .chars()
+                .next()
+                .expect("index should remain on UTF-8 boundaries");
+            let ch_len = ch.len_utf8();
+
+            match ch {
+                '\'' if !in_double_quote => {
+                    in_single_quote = !in_single_quote;
+                    index += ch_len;
+                }
+                '"' if !in_single_quote => {
+                    in_double_quote = !in_double_quote;
+                    index += ch_len;
+                }
+                '\\' if !in_single_quote => {
+                    let slash_offset = index;
+                    index += ch_len;
+                    if index >= end {
+                        continue;
+                    }
+
+                    let escaped = source[index..]
+                        .chars()
+                        .next()
+                        .expect("index should remain on UTF-8 boundaries");
+                    if escaped == '$'
+                        && !in_double_quote
+                        && let Some(parameter) =
+                            escaped_backtick_parameter_syntax(source, index, end)
+                    {
+                        let expansion_len = parameter.expansion_len();
+                        let diagnostic_start_offset = slash_offset.saturating_sub(removed_escapes);
+                        let Some(diagnostic_start) =
+                            position_at_offset(source, diagnostic_start_offset)
+                        else {
+                            index += escaped.len_utf8();
+                            continue;
+                        };
+                        let Some(diagnostic_end) =
+                            position_at_offset(source, diagnostic_start_offset + expansion_len)
+                        else {
+                            index += escaped.len_utf8();
+                            continue;
+                        };
+                        let Some(reference_start) = position_at_offset(source, index) else {
+                            index += escaped.len_utf8();
+                            continue;
+                        };
+                        let Some(reference_end) = position_at_offset(source, index + expansion_len)
+                        else {
+                            index += escaped.len_utf8();
+                            continue;
+                        };
+                        spans.push(BacktickEscapedParameter {
+                            name: parameter.name().cloned(),
+                            diagnostic_span: Span::from_positions(diagnostic_start, diagnostic_end),
+                            reference_span: Span::from_positions(reference_start, reference_end),
+                            standalone_command_name:
+                                escaped_backtick_parameter_is_standalone_command_name(
+                                    source,
+                                    *backtick_span,
+                                    slash_offset,
+                                    index + expansion_len,
+                                ),
+                        });
+                        removed_escapes += 1;
+                        index += expansion_len;
+                    } else {
+                        index += escaped.len_utf8();
+                    }
+                }
+                _ => {
+                    index += ch_len;
+                }
+            }
+        }
+    }
+
+    spans.sort_by_key(|parameter| {
+        (
+            parameter.diagnostic_span.start.offset,
+            parameter.diagnostic_span.end.offset,
+            parameter.reference_span.start.offset,
+            parameter.reference_span.end.offset,
+        )
+    });
+    spans.dedup();
+    spans
+}
+
+fn escaped_backtick_parameter_is_standalone_command_name(
+    source: &str,
+    backtick_span: Span,
+    slash_offset: usize,
+    expansion_end: usize,
+) -> bool {
+    let segment_start = backtick_command_segment_start(
+        source,
+        backtick_span.start.offset.saturating_add('`'.len_utf8()),
+        slash_offset,
+    );
+    let Some(prefix) = source.get(segment_start..slash_offset) else {
+        return false;
+    };
+    if !command_prefix_is_empty_or_assignments(prefix) {
+        return false;
+    }
+
+    let suffix_limit = backtick_span.end.offset.saturating_sub('`'.len_utf8());
+    escaped_reference_ends_standalone_word(source, expansion_end, suffix_limit)
+}
+
+fn backtick_command_segment_start(source: &str, start: usize, end: usize) -> usize {
+    let bytes = source.as_bytes();
+    let mut cursor = start;
+    let mut segment_start = start;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut escaped = false;
+
+    while cursor < end {
+        let byte = bytes[cursor];
+        if escaped {
+            escaped = false;
+            cursor += 1;
+            continue;
+        }
+        if byte == b'\\' && !in_single_quote {
+            escaped = true;
+            cursor += 1;
+            continue;
+        }
+
+        match byte {
+            b'\'' if !in_double_quote => in_single_quote = !in_single_quote,
+            b'"' if !in_single_quote => in_double_quote = !in_double_quote,
+            b'\n' | b';' if !in_single_quote && !in_double_quote => {
+                segment_start = cursor + 1;
+            }
+            b'&' | b'|' if !in_single_quote && !in_double_quote => {
+                let separator = byte;
+                cursor += 1;
+                while cursor < end && bytes[cursor] == separator {
+                    cursor += 1;
+                }
+                segment_start = cursor;
+                continue;
+            }
+            _ => {}
+        }
+
+        cursor += 1;
+    }
+
+    segment_start
+}
+
+fn command_prefix_is_empty_or_assignments(prefix: &str) -> bool {
+    let mut index = 0;
+    while index < prefix.len() {
+        skip_shell_whitespace(prefix.as_bytes(), &mut index);
+        if index >= prefix.len() {
+            return true;
+        }
+
+        let Some(end) = shell_word_end(prefix, index) else {
+            return false;
+        };
+        if simple_assignment_word(&prefix[index..end]) {
+            index = end;
+            continue;
+        }
+        if let Some(redirection_end) = redirection_prefix_end(prefix, index) {
+            index = redirection_end;
+            continue;
+        }
+        return false;
+    }
+    true
+}
+
+fn skip_shell_whitespace(bytes: &[u8], index: &mut usize) {
+    while *index < bytes.len() && bytes[*index].is_ascii_whitespace() {
+        *index += 1;
+    }
+}
+
+fn shell_word_end(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut index = start;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_single_quote {
+            if byte == b'\'' {
+                in_single_quote = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if byte == b'\\' {
+            index = advance_escaped_shell_char(text, index);
+            continue;
+        }
+
+        if !in_double_quote && byte.is_ascii_whitespace() {
+            break;
+        }
+
+        match byte {
+            b'\'' if !in_double_quote => {
+                in_single_quote = true;
+                index += 1;
+            }
+            b'"' => {
+                in_double_quote = !in_double_quote;
+                index += 1;
+            }
+            b'$' if bytes.get(index + 1) == Some(&b'(') => {
+                index = skip_balanced_shell_construct(text, index + 2, b'(', b')')?;
+            }
+            b'$' if bytes.get(index + 1) == Some(&b'{') => {
+                index = skip_balanced_shell_construct(text, index + 2, b'{', b'}')?;
+            }
+            b'<' | b'>' if !in_double_quote && bytes.get(index + 1) == Some(&b'(') => {
+                index = skip_balanced_shell_construct(text, index + 2, b'(', b')')?;
+            }
+            b'`' => {
+                index = skip_legacy_backtick_construct(text, index + 1)?;
+            }
+            _ => index = advance_shell_char(text, index),
+        }
+    }
+
+    (!in_single_quote && !in_double_quote).then_some(index)
+}
+
+fn skip_balanced_shell_construct(
+    text: &str,
+    mut index: usize,
+    open: u8,
+    close: u8,
+) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut depth = 1usize;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_single_quote {
+            if byte == b'\'' {
+                in_single_quote = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if byte == b'\\' {
+            index = advance_escaped_shell_char(text, index);
+            continue;
+        }
+
+        match byte {
+            b'\'' if !in_double_quote => {
+                in_single_quote = true;
+                index += 1;
+            }
+            b'"' => {
+                in_double_quote = !in_double_quote;
+                index += 1;
+            }
+            b'$' if bytes.get(index + 1) == Some(&b'(') => {
+                index = skip_balanced_shell_construct(text, index + 2, b'(', b')')?;
+            }
+            b'$' if bytes.get(index + 1) == Some(&b'{') => {
+                index = skip_balanced_shell_construct(text, index + 2, b'{', b'}')?;
+            }
+            b'<' | b'>' if !in_double_quote && bytes.get(index + 1) == Some(&b'(') => {
+                index = skip_balanced_shell_construct(text, index + 2, b'(', b')')?;
+            }
+            b'`' => {
+                index = skip_legacy_backtick_construct(text, index + 1)?;
+            }
+            _ if byte == open && !in_double_quote => {
+                depth += 1;
+                index += 1;
+            }
+            _ if byte == close && !in_double_quote => {
+                depth -= 1;
+                index += 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => index = advance_shell_char(text, index),
+        }
+    }
+
+    None
+}
+
+fn skip_legacy_backtick_construct(text: &str, mut index: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_single_quote {
+            if byte == b'\'' {
+                in_single_quote = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if byte == b'\\' {
+            index = advance_escaped_shell_char(text, index);
+            continue;
+        }
+
+        match byte {
+            b'\'' if !in_double_quote => {
+                in_single_quote = true;
+                index += 1;
+            }
+            b'"' => {
+                in_double_quote = !in_double_quote;
+                index += 1;
+            }
+            b'`' if !in_double_quote => return Some(index + 1),
+            _ => index = advance_shell_char(text, index),
+        }
+    }
+
+    None
+}
+
+fn advance_escaped_shell_char(text: &str, index: usize) -> usize {
+    let next = advance_shell_char(text, index);
+    if next < text.len() {
+        advance_shell_char(text, next)
+    } else {
+        next
+    }
+}
+
+fn advance_shell_char(text: &str, index: usize) -> usize {
+    text[index..]
+        .chars()
+        .next()
+        .map_or(index + 1, |ch| index + ch.len_utf8())
+}
+
+fn simple_assignment_word(word: &str) -> bool {
+    let Some(eq) = word.find('=') else {
+        return false;
+    };
+    let name = word[..eq].strip_suffix('+').unwrap_or(&word[..eq]);
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+fn redirection_prefix_end(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut operator_start = start;
+    while operator_start < bytes.len() && bytes[operator_start].is_ascii_digit() {
+        operator_start += 1;
+    }
+
+    let operator_len = redirection_operator_len(text.get(operator_start..)?)?;
+    let mut target_start = operator_start + operator_len;
+    skip_shell_whitespace(bytes, &mut target_start);
+    if target_start >= text.len() {
+        return None;
+    }
+
+    shell_word_end(text, target_start)
+}
+
+fn redirection_operator_len(text: &str) -> Option<usize> {
+    [
+        "&>>", "<<<", "<>", ">>", "<<", "<&", ">&", ">|", "&>", "<", ">",
+    ]
+    .into_iter()
+    .find(|operator| text.starts_with(operator))
+    .map(str::len)
+}
+
+fn escaped_reference_ends_standalone_word(source: &str, start: usize, limit: usize) -> bool {
+    let Some(rest) = source.get(start..limit) else {
+        return false;
+    };
+    rest.chars().next().is_none_or(|ch| {
+        ch.is_whitespace() || matches!(ch, ';' | '&' | '|' | '<' | '>' | '(' | ')')
+    })
+}
+
+enum EscapedBacktickParameterSyntax {
+    Simple {
+        name: shuck_ast::Name,
+        expansion_len: usize,
+    },
+    ComplexUnsafe {
+        expansion_len: usize,
+    },
+}
+
+impl EscapedBacktickParameterSyntax {
+    fn name(&self) -> Option<&shuck_ast::Name> {
+        match self {
+            Self::Simple { name, .. } => Some(name),
+            Self::ComplexUnsafe { .. } => None,
+        }
+    }
+
+    fn expansion_len(&self) -> usize {
+        match self {
+            Self::Simple { expansion_len, .. } | Self::ComplexUnsafe { expansion_len } => {
+                *expansion_len
+            }
+        }
+    }
+}
+
+fn escaped_backtick_parameter_syntax(
+    source: &str,
+    dollar_offset: usize,
+    end: usize,
+) -> Option<EscapedBacktickParameterSyntax> {
+    let next_offset = dollar_offset + '$'.len_utf8();
+    let next = source.get(next_offset..end)?.chars().next()?;
+
+    if matches!(next, '?' | '#' | '@' | '*' | '!' | '$' | '-') {
+        return None;
+    }
+    if next.is_ascii_digit() {
+        return Some(EscapedBacktickParameterSyntax::Simple {
+            name: shuck_ast::Name::new(next.to_string()),
+            expansion_len: "$0".len(),
+        });
+    }
+    if next == '{' {
+        let close_relative = source.get(next_offset + '{'.len_utf8()..end)?.find('}')?;
+        let close_offset = next_offset + '{'.len_utf8() + close_relative;
+        let inner = source.get(next_offset + '{'.len_utf8()..close_offset)?;
+        let first = inner.chars().next()?;
+        if matches!(first, '?' | '#' | '@' | '*' | '!' | '$' | '-') {
+            return None;
+        }
+        let name_text = inner
+            .chars()
+            .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+            .collect::<String>();
+        if name_text.is_empty() {
+            return None;
+        }
+        let expansion_len = close_offset + '}'.len_utf8() - dollar_offset;
+        if name_text.len() == inner.len() {
+            return Some(EscapedBacktickParameterSyntax::Simple {
+                name: shuck_ast::Name::new(name_text),
+                expansion_len,
+            });
+        }
+        let operator = &inner[name_text.len()..];
+        if operator.starts_with(":+") || operator.starts_with('+') {
+            return None;
+        }
+        return Some(EscapedBacktickParameterSyntax::ComplexUnsafe { expansion_len });
+    }
+    if next.is_ascii_alphabetic() || next == '_' {
+        let mut cursor = next_offset;
+        while cursor < end {
+            let ch = source[cursor..]
+                .chars()
+                .next()
+                .expect("cursor should remain on UTF-8 boundaries");
+            if !(ch.is_ascii_alphanumeric() || ch == '_') {
+                break;
+            }
+            cursor += ch.len_utf8();
+        }
+        let name = source.get(next_offset..cursor)?;
+        return Some(EscapedBacktickParameterSyntax::Simple {
+            name: shuck_ast::Name::new(name),
+            expansion_len: cursor - dollar_offset,
+        });
+    }
+
+    None
 }
 
 fn continued_line_chain_start(
@@ -4120,9 +4636,9 @@ mod tests {
 
     use super::{
         all_elements_array_expansion_part_spans, array_expansion_part_spans,
-        command_substitution_part_spans, find_extglob_bounds,
-        line_has_escaped_newline_continuation, position_at_offset, scalar_expansion_part_spans,
-        shellcheck_collapsed_backtick_part_span_in_source,
+        backtick_escaped_parameters, backtick_substitution_spans, command_substitution_part_spans,
+        find_extglob_bounds, line_has_escaped_newline_continuation, position_at_offset,
+        scalar_expansion_part_spans, shellcheck_collapsed_backtick_part_span_in_source,
         unquoted_all_elements_array_expansion_part_spans,
         unquoted_command_substitution_part_spans_in_source,
         unquoted_dollar_paren_command_substitution_part_spans_in_source,
@@ -5432,6 +5948,36 @@ printf '%s\\n' \"${arr[@]}\" \"x${arr[@]}\" \"x${!arr[@]}\" \"x${arr[@]:1}\" \"x
             shellcheck_collapsed_backtick_part_span_in_source(span, source),
             span
         );
+    }
+
+    #[test]
+    fn backtick_escaped_parameters_keep_quoted_assignment_prefixes_together() {
+        let source = "`VAR=\"a b\" OTHER=$(printf '%s\\n' value) \\$cmd arg`";
+        let backtick_spans = backtick_substitution_spans(source);
+        let escaped = backtick_escaped_parameters(source, &backtick_spans);
+
+        assert_eq!(escaped.len(), 1);
+        assert!(escaped[0].standalone_command_name);
+    }
+
+    #[test]
+    fn backtick_escaped_parameters_accept_append_assignment_prefixes() {
+        let source = "`VAR+=x \\$cmd arg`";
+        let backtick_spans = backtick_substitution_spans(source);
+        let escaped = backtick_escaped_parameters(source, &backtick_spans);
+
+        assert_eq!(escaped.len(), 1);
+        assert!(escaped[0].standalone_command_name);
+    }
+
+    #[test]
+    fn backtick_escaped_parameters_accept_redirection_prefixes() {
+        let source = "`>/tmp/out 2>\"/tmp err\" FOO=bar \\$cmd arg`";
+        let backtick_spans = backtick_substitution_spans(source);
+        let escaped = backtick_escaped_parameters(source, &backtick_spans);
+
+        assert_eq!(escaped.len(), 1);
+        assert!(escaped[0].standalone_command_name);
     }
 
     #[test]

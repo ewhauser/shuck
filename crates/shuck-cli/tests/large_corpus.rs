@@ -55,7 +55,10 @@ const LARGE_CORPUS_STATIC_IGNORE_SUFFIXES: &[&str] = &[
     "super-linter__super-linter__test__linters__bash__shell_bad_1.sh",
     "super-linter__super-linter__test__linters__bash_exec__shell_bad_1.sh",
     "alpinelinux__aports__community__starship__starship.plugin.zsh",
+    "CISOfy__lynis__include__tests_ports_packages",
     "google__oss-fuzz__infra__chronos__coverage_test_collection.py",
+    "moovweb__gvm__examples__native__configure",
+    "moovweb__gvm__examples__native__ltmain.sh",
     "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh",
 ];
 const LARGE_CORPUS_STATIC_ZSH_OVERRIDE_SUFFIXES: &[&str] = &[

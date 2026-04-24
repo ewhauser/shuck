@@ -48,10 +48,11 @@ use shuck_ast::{
     ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef,
     HeredocBodyPartNode, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
     PatternPart, Position, PrefixMatchKind, Redirect, RedirectKind, SelectCommand, SimpleCommand,
-    SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript, SubscriptSelector, TextRange,
-    TextSize, VarRef, WhileCommand, Word, WordPart, WordPartNode, ZshExpansionOperation,
-    ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob, is_shell_variable_name,
-    static_command_name_text, static_word_text, word_is_standalone_status_capture,
+    SourceText, Span, StaticCommandWrapperTarget, Stmt, StmtSeq, StmtTerminator, Subscript,
+    SubscriptSelector, TextRange, TextSize, VarRef, WhileCommand, Word, WordPart, WordPartNode,
+    ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    is_shell_variable_name, static_command_name_text, static_command_wrapper_target_index,
+    static_word_text, word_is_standalone_status_capture,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;

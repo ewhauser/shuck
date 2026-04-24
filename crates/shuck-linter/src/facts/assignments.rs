@@ -5,6 +5,7 @@ pub struct DeclarationAssignmentProbe {
     target_name: Box<str>,
     target_name_span: Span,
     has_command_substitution: bool,
+    status_capture: bool,
 }
 
 impl DeclarationAssignmentProbe {
@@ -26,6 +27,10 @@ impl DeclarationAssignmentProbe {
 
     pub fn has_command_substitution(&self) -> bool {
         self.has_command_substitution
+    }
+
+    pub fn status_capture(&self) -> bool {
+        self.status_capture
     }
 }
 
@@ -2214,6 +2219,7 @@ fn build_declaration_assignment_probes<'a>(
                         source,
                         zsh_options,
                     ),
+                    status_capture: word_is_standalone_status_capture(word),
                 })
             })
             .collect::<Vec<_>>()
@@ -2268,10 +2274,15 @@ fn build_simple_command_declaration_assignment_probes<'a>(
                     value_text,
                     zsh_options,
                 ),
+                status_capture: assignment_value_text_is_standalone_status_capture(value_text),
             })
         })
         .collect::<Vec<_>>()
         .into_boxed_slice()
+}
+
+fn assignment_value_text_is_standalone_status_capture(text: &str) -> bool {
+    matches!(text, "$?" | "${?}" | "\"$?\"" | "\"${?}\"")
 }
 
 fn contiguous_word_groups<'a>(words: &'a [&'a Word]) -> Vec<&'a [&'a Word]> {

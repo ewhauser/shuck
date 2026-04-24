@@ -67,6 +67,7 @@ pub struct LinterFacts<'a> {
     condition_status_capture_spans: Vec<Span>,
     command_substitution_command_spans: Vec<Span>,
     backtick_substitution_spans: Vec<Span>,
+    backtick_escaped_parameters: Vec<BacktickEscapedParameter>,
     backtick_command_name_spans: Vec<Span>,
     dollar_question_after_command_spans: Vec<Span>,
     assignment_like_command_name_spans: Vec<Span>,
@@ -490,22 +491,21 @@ impl<'a> LinterFacts<'a> {
             .filter(|brace| brace.expands())
             .map(|brace| brace.span)
             .collect::<Vec<_>>();
+        let unquoted_command_substitution_spans = fact.unquoted_command_substitution_spans();
 
-        if !word_occurrence_is_double_quoted_command_substitution_only(
-            &self.word_nodes,
-            self.word_occurrence(id),
-            self.source,
-        ) {
-            for command in &self.commands {
-                if contains_span_strictly(fact.span(), command.span()) {
-                    for nested_id in self.word_occurrence_ids_for_command(command.id()) {
-                        split_sensitive_spans.extend(
-                            self.word_occurrence_ref(*nested_id)
-                                .scalar_expansion_spans()
-                                .iter()
-                                .copied(),
-                        );
-                    }
+        for command in &self.commands {
+            if contains_span_strictly(fact.span(), command.span())
+                && unquoted_command_substitution_spans
+                    .iter()
+                    .any(|span| contains_span_strictly(*span, command.span()))
+            {
+                for nested_id in self.word_occurrence_ids_for_command(command.id()) {
+                    split_sensitive_spans.extend(
+                        self.word_occurrence_ref(*nested_id)
+                            .scalar_expansion_spans()
+                            .iter()
+                            .copied(),
+                    );
                 }
             }
         }
@@ -673,6 +673,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn backtick_substitution_spans(&self) -> &[Span] {
         &self.backtick_substitution_spans
+    }
+
+    pub fn backtick_escaped_parameters(&self) -> &[BacktickEscapedParameter] {
+        &self.backtick_escaped_parameters
     }
 
     pub fn backtick_command_name_spans(&self) -> &[Span] {

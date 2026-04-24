@@ -1,8 +1,8 @@
 use shuck_ast::Span;
 
 use super::{
-    BacktickFragmentFact, CommandFact, ExpansionContext, SingleQuotedFragmentFact, WordNode,
-    WordOccurrence, word_spans,
+    BacktickFragmentFact, CommandFact, ExpansionContext, SingleQuotedFragmentFact, WordFactContext,
+    WordFactHostKind, WordNode, WordOccurrence, word_spans,
 };
 use crate::FileContext;
 use crate::context::FileContextTag;
@@ -97,12 +97,10 @@ pub(super) fn build_escape_scan_matches(
 
     let mut matches = Vec::new();
 
-    for fact in occurrences.iter().filter(|fact| {
-        is_relevant_word_context(match fact.context {
-            super::WordFactContext::Expansion(context) => Some(context),
-            super::WordFactContext::CaseSubject | super::WordFactContext::ArithmeticCommand => None,
-        })
-    }) {
+    for fact in occurrences
+        .iter()
+        .filter(|fact| is_relevant_word_occurrence(fact))
+    {
         let grep_style_argument = is_grep_style_argument(commands, nodes, fact);
         let tr_operand_argument = is_tr_operand_argument(commands, nodes, fact);
         let expansion_context = match fact.context {
@@ -389,6 +387,16 @@ fn is_relevant_word_context(context: Option<ExpansionContext>) -> bool {
                 | ExpansionContext::CasePattern
         )
     )
+}
+
+fn is_relevant_word_occurrence(fact: &WordOccurrence) -> bool {
+    match fact.context {
+        WordFactContext::Expansion(ExpansionContext::CommandName) => {
+            fact.host_kind == WordFactHostKind::CommandWrapperTarget
+        }
+        WordFactContext::Expansion(context) => is_relevant_word_context(Some(context)),
+        WordFactContext::CaseSubject | WordFactContext::ArithmeticCommand => false,
+    }
 }
 
 fn is_assignment_value_context(context: Option<ExpansionContext>) -> bool {
