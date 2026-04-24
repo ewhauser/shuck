@@ -5525,6 +5525,74 @@ check_status
     }
 
     #[test]
+    fn declaration_function_name_operands_do_not_create_variable_bindings() {
+        let source = "\
+declare -f -F config_unset >/dev/null
+export -f helper
+readonly -f locked
+typeset -f typed
+";
+        let model = model(source);
+        let function_operand_names = ["config_unset", "helper", "locked", "typed"];
+
+        for name in function_operand_names {
+            assert!(
+                model.bindings().iter().all(|binding| binding.name != name),
+                "{name} should be treated as a function name, not a variable binding"
+            );
+            assert!(
+                model.references().iter().all(|reference| {
+                    reference.name != name || reference.kind != ReferenceKind::DeclarationName
+                }),
+                "{name} should not create a declaration-name variable reference"
+            );
+        }
+    }
+
+    #[test]
+    fn declaration_plus_function_flags_keep_name_operands_as_variables() {
+        let source = "\
+declare +f config_unset
+declare +F config_maybe
+declare -f +f config_after_toggle
+declare +f config_before -f helper_function
+declare -f hidden_function +f config_after
+typeset +f typed
+";
+        let model = model(source);
+        let variable_operand_names = [
+            "config_unset",
+            "config_maybe",
+            "config_after_toggle",
+            "config_before",
+            "config_after",
+            "typed",
+        ];
+
+        for name in variable_operand_names {
+            assert!(
+                model.bindings().iter().any(|binding| binding.name == name
+                    && matches!(binding.kind, BindingKind::Declaration(_))),
+                "{name} should be treated as a variable declaration"
+            );
+        }
+
+        let function_operand_names = ["helper_function", "hidden_function"];
+        for name in function_operand_names {
+            assert!(
+                model.bindings().iter().all(|binding| binding.name != name),
+                "{name} should be treated as a function name, not a variable binding"
+            );
+            assert!(
+                model.references().iter().all(|reference| {
+                    reference.name != name || reference.kind != ReferenceKind::DeclarationName
+                }),
+                "{name} should not create a declaration-name variable reference"
+            );
+        }
+    }
+
+    #[test]
     fn repeated_name_only_local_reuses_existing_same_scope_binding() {
         let source = "f() { local foo=1; local foo; echo \"$foo\"; }\n";
         let model = model(source);

@@ -1316,4 +1316,32 @@ mod tests {
         assert_eq!(err.exit_code, 3);
         assert!(err.message.contains("unrecognized option"));
     }
+
+    #[test]
+    fn compat_mode_reports_declaration_only_c001_targets() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let script = tempdir.path().join("script.sh");
+        std::fs::write(&script, "#!/bin/bash\nf(){\n  local cur\n}\nf\n").unwrap();
+        let options = CompatOptions {
+            color: CompatColorMode::Never,
+            format: CompatFormat::Json1,
+            severity: CompatSeverityThreshold::Style,
+            wiki_link_count: 0,
+            shell: Some("bash".to_owned()),
+            check_sourced: false,
+            external_sources: false,
+            source_paths: Vec::new(),
+            files: vec![script],
+            enabled_rules: RuleSet::from_iter([Rule::UnusedAssignment]),
+            report_environment_style_names: false,
+            shellcheck_map: ShellCheckCodeMap::default(),
+        };
+
+        let report = analyze_files(&options, tempdir.path()).unwrap();
+
+        assert_eq!(report.diagnostics.len(), 1);
+        assert_eq!(report.diagnostics[0].code, 2034);
+        assert_eq!(report.diagnostics[0].line, 3);
+        assert_eq!(report.diagnostics[0].column, 9);
+    }
 }

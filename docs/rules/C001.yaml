@@ -11,7 +11,7 @@ shells:
   - dash
   - ksh
 description: A variable is assigned but never read later, so the statement has no effect on the script's behavior.
-rationale: Remove dead assignments, or export the value if a child process needs it. C001 follows ShellCheck for resolved indirect-expansion targets such as `${!name}`; set `[lint.rule-options.c001].treat-indirect-expansion-targets-as-used = true` only if those targets should count as live reads in your project.
+rationale: Remove dead assignments, or export the value if a child process needs it. C001 reports declaration-only bindings such as `local name` and `declare name`, since an unused local slot can be just as stale as an initialized assignment. C001 follows ShellCheck for resolved indirect-expansion targets such as `${!name}`; set `[lint.rule-options.c001].treat-indirect-expansion-targets-as-used = true` only if those targets should count as live reads in your project.
 safe_fix: false
 fix_description: "Rename the reported unused assignment target to `_`."
 source:

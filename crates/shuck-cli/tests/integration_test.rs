@@ -550,6 +550,34 @@ treat-indirect-expansion-targets-as-used = true
 }
 
 #[test]
+fn check_c001_flags_declaration_only_targets_by_default() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "\
+[lint]
+select = ['C001']
+",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("script.sh"),
+        "#!/bin/bash\nf(){\n  local cur\n  declare words\n}\nf\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise", "script.sh"]);
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("warning[C001]"))
+        .stdout(predicate::str::contains("cur"))
+        .stdout(predicate::str::contains("words"));
+}
+
+#[test]
 fn check_per_file_ignores_skip_matching_files() {
     let tempdir = tempdir().unwrap();
     fs::write(

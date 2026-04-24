@@ -4,19 +4,19 @@ reviewed_divergences:
     reason: "These Termux package recipes and build helpers publish `TERMUX_PKG_*`, toolchain flags, checksum tables, and related setup state for the Termux packaging harness to consume after the file returns. The remaining single-file C001 hits in this repo family are framework contract state, not dead assignments."
   - side: shellcheck-only
     path_contains: "termux__termux-packages__"
-    reason: "The remaining shellcheck-only Termux sites are helper-library declaration-only locals or package metadata tables that the Termux build harness consumes later. Shuck intentionally keeps declaration-only bindings out of ordinary C001 reporting and treats the harness-owned state as live."
+    reason: "The remaining shellcheck-only Termux sites are helper-library state or package metadata tables that the Termux build harness consumes later. Shuck treats that harness-owned state as live."
   - side: shuck-only
     path_contains: "rvm__rvm__"
     reason: "RVM sources these helper files into a shared mutable shell environment and passes state through globals, indirect expansion, and later helper entrypoints. The surviving C001 hits in this repo family reflect that sourced-library contract rather than truly dead assignments."
   - side: shellcheck-only
     path_contains: "rvm__rvm__"
-    reason: "The remaining shellcheck-only RVM sites are name-only helper declarations or values that are later recovered through indirect expansion and sourced-library state. Shuck intentionally keeps declaration-only bindings out of C001 and preserves the dynamically consumed helper state."
+    reason: "The remaining shellcheck-only RVM sites are helper values that are later recovered through indirect expansion and sourced-library state. Shuck preserves the dynamically consumed helper state."
   - side: shuck-only
     path_contains: "void-linux__void-packages__"
     reason: "These xbps-src helpers are sourced into the Void packaging framework, which consumes package metadata, environment flags, loop/header state, and helper results outside the local straight-line region. The remaining C001 corpus hits in this repo family are reviewed framework handoffs rather than dead shell assignments."
   - side: shellcheck-only
     path_contains: "void-linux__void-packages__"
-    reason: "The remaining shellcheck-only Void sites depend on sourced xbps-src helper behavior or declaration-only locals that Shuck intentionally keeps outside ordinary C001 reporting."
+    reason: "The remaining shellcheck-only Void sites depend on sourced xbps-src helper behavior and packaging-framework state that Shuck treats as live."
   - side: shuck-only
     path_contains: "bats-core__bats-core__"
     reason: "Bats formatter and harness helpers exchange status, buffer, and timing state through sourced helper files and outer harness callbacks. The remaining C001 hits in this repo family are reviewed harness-state handoffs, not dead assignments."
@@ -61,16 +61,65 @@ reviewed_divergences:
     reason: "The bash-completion project is a sourced helper library and compatibility layer that threads parser state, completion globals, and zsh bridge state through later completion callbacks and wrapper entrypoints. The remaining C001 hits in this repo family are reviewed helper-runtime handoffs rather than dead assignments in a standalone script."
   - side: shellcheck-only
     path_contains: "scop__bash-completion__"
-    reason: "These bash-completion helpers declare name-only locals such as `cur`, `prev`, `words`, `cword`, and `comp_args`, then hand control to shared setup helpers like `_comp_initialize` that populate those locals as part of the completion callback contract. Shuck intentionally keeps declaration-only helper locals out of ordinary C001 reporting."
+    reason: "These bash-completion helpers hand control to shared setup helpers like `_comp_initialize`, which populate and consume callback state as part of the completion contract. Shuck treats that callback-owned state as live."
   - side: shellcheck-only
     path_contains: "bittorf__kalua__"
-    reason: "These Kalua build and monitoring scripts use declaration-only parse slots and sourced helper state to unpack semi-structured command output, with each call path consuming only the fields it needs. Shuck intentionally keeps those helper-local placeholder bindings out of ordinary C001 reporting."
+    reason: "These Kalua build and monitoring scripts use parse slots and sourced helper state to unpack semi-structured command output, with each call path consuming only the fields it needs. Shuck treats the reviewed field handoffs as live."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__speedtest"
+    line: 112
+    end_line: 112
+    column: 56
+    end_column: 60
+    reason: "This `REST` local is a parsed-field placeholder. Shuck reports declaration-only locals as ordinary C001 targets, while the comparison oracle suppresses rest-style placeholder names more broadly."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__storage"
+    line: 12
+    end_line: 12
+    column: 14
+    end_column: 18
+    reason: "This `rest` local is a parsed-field placeholder for a later pipeline reader. Shuck reports declaration-only locals as ordinary C001 targets, while the comparison oracle suppresses rest-style placeholder names more broadly."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__netfilter"
+    line: 1755
+    end_line: 1755
+    column: 39
+    end_column: 43
+    reason: "This `rest` local is a parsed-field placeholder. Shuck reports declaration-only locals as ordinary C001 targets, while the comparison oracle suppresses rest-style placeholder names more broadly."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__stopwatch"
+    line: 109
+    end_line: 109
+    column: 11
+    end_column: 15
+    reason: "This `rest` local is a parsed-field placeholder. Shuck reports declaration-only locals as ordinary C001 targets, while the comparison oracle suppresses rest-style placeholder names more broadly."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-build__apply_profile"
+    line: 144
+    end_line: 144
+    column: 13
+    end_column: 17
+    reason: "This `rest` local is a parsed-field placeholder. Shuck reports declaration-only locals as ordinary C001 targets, while the comparison oracle suppresses rest-style placeholder names more broadly."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-build__build-release.sh"
+    line: 67
+    end_line: 67
+    column: 17
+    end_column: 21
+    reason: "This `rest` local is a parsed-field placeholder. Shuck reports declaration-only locals as ordinary C001 targets, while the comparison oracle suppresses rest-style placeholder names more broadly."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-build__build.sh"
+    line: 2286
+    end_line: 2286
+    column: 15
+    end_column: 19
+    reason: "This `rest` local is a parsed-field placeholder. Shuck reports declaration-only locals as ordinary C001 targets, while the comparison oracle suppresses rest-style placeholder names more broadly."
   - side: shellcheck-only
     path_contains: "RetroPie__RetroPie-Setup__"
-    reason: "The RetroPie setup bootstrap and module scripts publish globals such as `biosdir`, `romdir`, and `configdir` for sourced module files, and they also declare callback locals that the package framework fills or consults selectively. Shuck intentionally keeps declaration-only framework locals and sourced setup state out of ordinary C001 reporting."
+    reason: "The RetroPie setup bootstrap and module scripts publish globals such as `biosdir`, `romdir`, and `configdir` for sourced module files, and they also use callback locals that the package framework fills or consults selectively. Shuck treats the framework locals and sourced setup state as live."
   - side: shellcheck-only
     path_contains: "dokku__dokku__"
-    reason: "These Dokku plugin triggers source shared plugin libraries and declare helper locals such as `proxy_schemes`, `tls_internal`, and `HAS_NETWORK_CONFIG` that only some trigger variants populate or read. Shuck intentionally keeps declaration-only plugin locals out of ordinary C001 reporting."
+    reason: "These Dokku plugin triggers source shared plugin libraries and carry helper locals such as `proxy_schemes`, `tls_internal`, and `HAS_NETWORK_CONFIG` that only some trigger variants populate or read. Shuck treats the reviewed plugin callback state as live."
   - side: shuck-only
     path_contains: "community-scripts__ProxmoxVE__"
     reason: "These Proxmox helper scripts publish `var_*` template metadata and related provisioning state for the shared build/update framework sourced at startup. The remaining C001 hits in this repo family are reviewed framework handoffs that depend on project closure rather than dead local assignments."
@@ -79,20 +128,20 @@ reviewed_divergences:
     reason: "These Proxmox installer and build helpers run inside a sourced framework that threads loop counters, command names, and retry state through shared helper functions and generated templates. The remaining shellcheck-only sites are reviewed framework locals rather than standalone dead assignments."
   - side: shellcheck-only
     path_contains: "docker__docker-bench-security__"
-    reason: "These docker-bench reporting helpers use declaration-only locals as formatting and output placeholders inside shared report functions. Shuck intentionally keeps those helper-local placeholder bindings out of ordinary C001 reporting."
+    reason: "These docker-bench reporting helpers use locals as formatting and output placeholders inside shared report functions. Shuck treats the reviewed report-helper state as live."
   - side: shellcheck-only
     path_contains: "gentoo__gentoo__"
-    reason: "These Gentoo benchmark and test harness scripts use short declaration-only locals as helper parameters and placeholder slots inside the harness. Shuck intentionally keeps declaration-only test-helper locals out of ordinary C001 reporting."
+    reason: "These Gentoo benchmark and test harness scripts use short locals as helper parameters and placeholder slots inside the harness. Shuck treats the reviewed test-helper state as live."
   - side: shellcheck-only
     path_contains: "bitnami__containers__"
-    reason: "These Bitnami library scripts declare compatibility locals that only some image or database variants populate and read. Shuck intentionally keeps declaration-only helper locals out of ordinary C001 reporting."
+    reason: "These Bitnami library scripts carry compatibility locals that only some image or database variants populate and read. Shuck treats the reviewed variant-specific helper state as live."
   - side: shellcheck-only
     path_suffix: "Bash-it__bash-it__vendor__github.com__gaelicWizard__bash-progcomp__defaults.completion.bash"
     line: 80
     end_line: 80
     column: 60
     end_column: 65
-    reason: "completion helper declares a verb-table placeholder for the shared dispatcher; Shuck intentionally keeps declaration-only completion locals out of ordinary C001 reporting"
+    reason: "completion helper reserves a verb-table placeholder for dispatcher state shared with later completion code"
   - side: shellcheck-only
     path_suffix: "SlackBuildsOrg__slackbuilds__libraries__bluez-alsa__bluez-alsa.conf"
     line: 19

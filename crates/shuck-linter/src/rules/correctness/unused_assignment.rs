@@ -206,16 +206,19 @@ fn all_reportable_assignment_spans_suppressed(
 }
 
 fn is_intentionally_unused_binding(binding: &Binding) -> bool {
-    is_underscore_name(binding.name.as_str())
-        || (matches!(binding.kind, BindingKind::ReadTarget)
-            && matches!(binding.name.as_str(), "rest" | "REST"))
+    is_underscore_name(binding.name.as_str()) || is_intentionally_unused_read_placeholder(binding)
+}
+
+fn is_intentionally_unused_read_placeholder(binding: &Binding) -> bool {
+    matches!(binding.kind, BindingKind::ReadTarget)
+        && matches!(binding.name.as_str(), "rest" | "REST")
 }
 
 fn is_underscore_name(name: &str) -> bool {
     name.starts_with('_')
 }
 
-fn is_reportable_unused_assignment(kind: BindingKind, attributes: BindingAttributes) -> bool {
+fn is_reportable_unused_assignment(kind: BindingKind, _attributes: BindingAttributes) -> bool {
     match kind {
         BindingKind::Assignment
         | BindingKind::ArrayAssignment
@@ -226,25 +229,29 @@ fn is_reportable_unused_assignment(kind: BindingKind, attributes: BindingAttribu
         | BindingKind::GetoptsTarget
         | BindingKind::ArithmeticAssignment => true,
         BindingKind::AppendAssignment | BindingKind::ParameterDefaultAssignment => false,
-        BindingKind::Declaration(_) => {
-            attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
-        }
+        BindingKind::Declaration(_) => true,
         BindingKind::FunctionDefinition | BindingKind::Imported | BindingKind::Nameref => false,
     }
 }
 
 fn participates_in_unused_assignment_family(
     kind: BindingKind,
-    attributes: BindingAttributes,
+    _attributes: BindingAttributes,
 ) -> bool {
-    is_reportable_unused_assignment(kind, attributes)
-        || matches!(
-            kind,
-            BindingKind::LoopVariable
-                | BindingKind::AppendAssignment
-                | BindingKind::ParameterDefaultAssignment
-                | BindingKind::Declaration(_)
-        )
+    matches!(
+        kind,
+        BindingKind::Assignment
+            | BindingKind::ArrayAssignment
+            | BindingKind::LoopVariable
+            | BindingKind::ReadTarget
+            | BindingKind::MapfileTarget
+            | BindingKind::PrintfTarget
+            | BindingKind::GetoptsTarget
+            | BindingKind::ArithmeticAssignment
+            | BindingKind::AppendAssignment
+            | BindingKind::ParameterDefaultAssignment
+            | BindingKind::Declaration(_)
+    )
 }
 
 fn binding_counts_as_used_family_member(
@@ -496,6 +503,20 @@ done
     }
 
     #[test]
+    fn function_declaration_queries_do_not_create_unused_variable_targets() {
+        let source = "\
+#!/bin/bash
+if ! declare -f -F config_unset >/dev/null; then
+  :
+fi
+eval \"$(declare -f cd)\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn plain_rest_names_are_reported() {
         let source = "#!/bin/bash\nrest=1\nREST=2\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
@@ -503,6 +524,41 @@ done
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "rest");
         assert_eq!(diagnostics[1].span.slice(source), "REST");
+    }
+
+    #[test]
+    fn read_rest_placeholders_do_not_hide_real_dead_assignments() {
+        let source = "\
+#!/bin/bash
+rest=1
+read -r field rest
+printf '%s\\n' \"$field\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "rest");
+        assert_eq!(diagnostics[0].span.start.line, 2);
+    }
+
+    #[test]
+    fn read_rest_placeholders_do_not_hide_branch_declarations() {
+        let source = "\
+#!/bin/bash
+f(){
+  if cond; then
+    local rest
+  else
+    read -r _ rest
+  fi
+}
+f
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "rest");
+        assert_eq!(diagnostics[0].span.start.line, 4);
     }
 
     #[test]
@@ -768,13 +824,14 @@ foo=1
     }
 
     #[test]
-    fn unused_uninitialized_local_branches_do_not_hide_dead_assignments() {
+    fn unused_uninitialized_local_branches_report_the_last_dead_binding() {
         let source =
             "#!/bin/bash\nf(){\n  if a; then\n    foo=1\n  else\n    local foo\n  fi\n}\nf\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.line, 6);
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
     }
 
     #[test]
@@ -792,6 +849,23 @@ foo=1
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 5);
+    }
+
+    #[test]
+    fn reports_declaration_only_bindings_by_default() {
+        let source = "\
+#!/bin/bash
+f(){
+  local cur
+  declare words
+}
+f
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "cur");
+        assert_eq!(diagnostics[1].span.slice(source), "words");
     }
 
     #[test]

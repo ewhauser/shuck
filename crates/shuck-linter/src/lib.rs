@@ -2118,6 +2118,23 @@ printf '%s\\n' \"${!name}\"
     }
 
     #[test]
+    fn unused_assignment_reports_declaration_only_targets_by_default() {
+        let source = "\
+#!/bin/bash
+f(){
+  local cur
+  declare words
+}
+f
+";
+        let diagnostics = lint(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "cur");
+        assert_eq!(diagnostics[1].span.slice(source), "words");
+    }
+
+    #[test]
     fn unused_assignment_keeps_dynamic_target_arrays_live() {
         let diagnostics = lint(
             "\
@@ -3767,9 +3784,8 @@ printf '%s\\n' \"$([ -n \"$missing\" ] && printf '%s' \"$missing\")\"
     }
 
     #[test]
-    fn unread_name_only_declarations_are_not_flagged() {
-        let diagnostics = lint(
-            "\
+    fn unread_name_only_declarations_are_flagged() {
+        let source = "\
 #!/bin/bash
 f() {
   local foo
@@ -3777,11 +3793,13 @@ f() {
   typeset baz
 }
 f
-",
-            &LinterSettings::for_rule(Rule::UnusedAssignment),
-        );
+";
+        let diagnostics = lint(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics.len(), 3);
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
+        assert_eq!(diagnostics[1].span.slice(source), "bar");
+        assert_eq!(diagnostics[2].span.slice(source), "baz");
     }
 
     #[test]
