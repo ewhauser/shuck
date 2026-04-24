@@ -965,6 +965,7 @@ fn lint_with_context(
         analyzed_paths: Some(Arc::new(explicit.into_iter().collect())),
         per_file_ignores: Default::default(),
         report_environment_style_names: options.report_environment_style_names,
+        resolve_source_closure: options.external_sources,
         rule_options,
     };
 

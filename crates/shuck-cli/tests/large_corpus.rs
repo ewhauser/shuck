@@ -982,15 +982,12 @@ fn large_corpus_conforms_with_shellcheck() {
         build_shellcheck_filter_codes(cfg.selected_rules, cfg.mapped_only);
     let shellcheck_cache = ShellCheckCache::new(&cfg.cache_dir, &shellcheck);
     shellcheck_cache.prepare(&fixtures, &discover_worktree_roots());
-    let linter_settings = build_large_corpus_linter_settings(cfg.selected_rules, cfg.mapped_only);
+    let linter_settings =
+        build_large_corpus_compat_linter_settings(cfg.selected_rules, cfg.mapped_only);
     let supported_fixtures =
         select_supported_large_corpus_fixtures(&fixtures, Some(&supported_shells));
     let skipped_unsupported_shells = fixtures.len().saturating_sub(supported_fixtures.len());
-    let shuck_path_resolver = large_corpus_source_resolver(
-        cfg.selected_rules.as_ref(),
-        shellcheck_filter_codes.as_ref(),
-        &supported_fixtures,
-    );
+    let shuck_path_resolver = None;
 
     let failure_collection =
         collect_fixture_failures(&supported_fixtures, cfg.keep_going, |fixture| {
@@ -2622,19 +2619,12 @@ fn build_large_corpus_linter_settings(
     settings.with_c063_report_unreached_nested_definitions(true)
 }
 
-fn large_corpus_source_resolver(
-    selected_rules: Option<&shuck_linter::RuleSet>,
-    shellcheck_filter_codes: Option<&HashSet<u32>>,
-    supported_fixtures: &[&LargeCorpusFixture],
-) -> Option<Arc<LargeCorpusPathResolver>> {
-    if large_corpus_uses_single_file_c001_oracle(selected_rules, shellcheck_filter_codes) {
-        // C001 follows ShellCheck's single-file oracle here. Resolving sourced
-        // files changes assignment liveness and turns project-closure context
-        // into unrelated rule deltas.
-        return None;
-    }
-
-    Some(Arc::new(LargeCorpusPathResolver::new(supported_fixtures)))
+fn build_large_corpus_compat_linter_settings(
+    selected_rules: Option<shuck_linter::RuleSet>,
+    mapped_only: bool,
+) -> shuck_linter::LinterSettings {
+    build_large_corpus_linter_settings(selected_rules, mapped_only)
+        .with_resolve_source_closure(false)
 }
 
 fn large_corpus_uses_single_file_c001_oracle(
@@ -3651,7 +3641,7 @@ mod tests {
     }
 
     #[test]
-    fn mixed_rule_large_corpus_filter_keeps_source_resolver_even_with_c001_only_codes() {
+    fn mixed_rule_large_corpus_filter_is_not_c001_only_even_with_c001_only_codes() {
         let selected_rules = shuck_linter::RuleSet::from_iter([
             shuck_linter::Rule::UnusedAssignment,
             shuck_linter::Rule::MixedAndOrInCondition,
@@ -3663,6 +3653,42 @@ mod tests {
             Some(&selected_rules),
             Some(&shellcheck_codes)
         ));
+    }
+
+    #[test]
+    fn default_large_corpus_comparison_disables_source_closure() {
+        let settings = build_large_corpus_compat_linter_settings(None, false);
+
+        assert!(!settings.resolve_source_closure);
+    }
+
+    #[test]
+    fn mixed_c001_c006_large_corpus_comparison_disables_source_closure() {
+        let selected_rules = shuck_linter::RuleSet::from_iter([
+            shuck_linter::Rule::UnusedAssignment,
+            shuck_linter::Rule::UndefinedVariable,
+        ]);
+
+        let settings = build_large_corpus_compat_linter_settings(Some(selected_rules), false);
+
+        assert!(!settings.resolve_source_closure);
+        assert!(
+            settings
+                .rules
+                .contains(shuck_linter::Rule::UnusedAssignment)
+        );
+        assert!(
+            settings
+                .rules
+                .contains(shuck_linter::Rule::UndefinedVariable)
+        );
+    }
+
+    #[test]
+    fn large_corpus_timing_settings_keep_source_closure_enabled() {
+        let settings = build_large_corpus_linter_settings(None, false);
+
+        assert!(settings.resolve_source_closure);
     }
 
     #[test]

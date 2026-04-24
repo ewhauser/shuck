@@ -2410,6 +2410,7 @@ pub fn build_with_observer_at_path_with_resolver(
             file_entry_contract: None,
             analyzed_paths: None,
             shell_profile: None,
+            resolve_source_closure: true,
         },
     )
 }
@@ -2432,7 +2433,9 @@ fn build_semantic_model(
     if let Some(contract) = options.file_entry_contract {
         model.apply_file_entry_contract(contract, file);
     }
-    if let Some(source_path) = options.source_path {
+    if options.resolve_source_closure
+        && let Some(source_path) = options.source_path
+    {
         let (
             synthetic_reads,
             imported_bindings,
