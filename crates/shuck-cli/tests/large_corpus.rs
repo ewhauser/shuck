@@ -2638,9 +2638,11 @@ fn large_corpus_uses_single_file_c001_oracle(
     selected_rules: Option<&shuck_linter::RuleSet>,
     shellcheck_filter_codes: Option<&HashSet<u32>>,
 ) -> bool {
-    selected_rules.is_some_and(|rules| {
-        rules.len() == 1 && rules.contains(shuck_linter::Rule::UnusedAssignment)
-    }) || shellcheck_filter_codes.is_some_and(|codes| {
+    if let Some(rules) = selected_rules {
+        return rules.len() == 1 && rules.contains(shuck_linter::Rule::UnusedAssignment);
+    }
+
+    shellcheck_filter_codes.is_some_and(|codes| {
         codes.len() == 1
             && shuck_linter::ShellCheckCodeMap::default()
                 .code_for_rule(shuck_linter::Rule::UnusedAssignment)
@@ -3625,6 +3627,21 @@ mod tests {
         ));
         assert!(large_corpus_uses_single_file_c001_oracle(
             None,
+            Some(&shellcheck_codes)
+        ));
+    }
+
+    #[test]
+    fn mixed_rule_large_corpus_filter_keeps_source_resolver_even_with_c001_only_codes() {
+        let selected_rules = shuck_linter::RuleSet::from_iter([
+            shuck_linter::Rule::UnusedAssignment,
+            shuck_linter::Rule::MixedAndOrInCondition,
+        ]);
+        let shellcheck_codes = build_selected_shellcheck_codes(&selected_rules);
+
+        assert_eq!(shellcheck_codes, HashSet::from([2034]));
+        assert!(!large_corpus_uses_single_file_c001_oracle(
+            Some(&selected_rules),
             Some(&shellcheck_codes)
         ));
     }

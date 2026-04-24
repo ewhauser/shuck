@@ -2659,6 +2659,28 @@ build() { :; }
     }
 
     #[test]
+    fn assignment_definition_span_keeps_quoted_associative_subscript_text() {
+        let source = "\
+declare -A a
+a[\"]=x\"]=1
+";
+        let model = model(source);
+        let binding = model
+            .bindings()
+            .iter()
+            .find(|binding| binding.name == "a" && binding.kind == BindingKind::ArrayAssignment)
+            .expect("expected subscripted assignment binding");
+
+        let BindingOrigin::Assignment {
+            definition_span, ..
+        } = binding.origin
+        else {
+            panic!("expected assignment origin");
+        };
+        assert_eq!(definition_span.slice(source), "a[\"]=x\"]");
+    }
+
+    #[test]
     fn classifies_loop_and_parameter_default_origins() {
         let source = "\
 for size in 16 32; do

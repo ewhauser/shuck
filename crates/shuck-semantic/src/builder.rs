@@ -4356,35 +4356,22 @@ fn binding_origin_for_assignment(assignment: &Assignment, source: &str) -> Bindi
 }
 
 fn assignment_target_span(assignment: &Assignment, source: &str) -> Span {
-    if assignment.target.subscript.is_none() {
+    let Some(subscript) = assignment.target.subscript.as_ref() else {
         return assignment.target.name_span;
+    };
+
+    let subscript_end = subscript.syntax_source_text().span().end;
+    if source
+        .get(subscript_end.offset..)
+        .is_some_and(|rest| rest.starts_with(']'))
+    {
+        return Span::from_positions(
+            assignment.target.name_span.start,
+            subscript_end.advanced_by("]"),
+        );
     }
 
-    let mut cursor = assignment.span.start;
-    let mut target_end = assignment.target.name_span.end;
-    let mut bracket_depth = 0usize;
-    let mut chars = assignment.span.slice(source).chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        let part_start = cursor;
-        cursor.advance(ch);
-        match ch {
-            '[' => bracket_depth += 1,
-            ']' if bracket_depth > 0 => {
-                bracket_depth -= 1;
-                target_end = cursor;
-            }
-            '=' if bracket_depth == 0 => {
-                return Span::from_positions(assignment.target.name_span.start, part_start);
-            }
-            '+' if bracket_depth == 0 && chars.peek() == Some(&'=') => {
-                return Span::from_positions(assignment.target.name_span.start, part_start);
-            }
-            _ => {}
-        }
-    }
-
-    Span::from_positions(assignment.target.name_span.start, target_end)
+    assignment.target.name_span
 }
 
 fn loop_binding_origin_for_words(words: Option<&[Word]>) -> LoopValueOrigin {
