@@ -1732,17 +1732,32 @@ fn static_alias_definition_text(words: &[&Word], source: &str) -> Option<String>
 fn contains_positional_parameter_reference(value: &str) -> bool {
     let bytes = value.as_bytes();
     let mut index = 0usize;
-    while let Some(relative) = value[index..].find('$') {
-        let dollar = index + relative;
-        index = dollar + 1;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+
+    while let Some(byte) = bytes.get(index).copied() {
+        match byte {
+            b'\'' if !in_double_quotes => {
+                in_single_quotes = !in_single_quotes;
+                index += 1;
+                continue;
+            }
+            b'"' if !in_single_quotes && !is_escaped_dollar(value, index) => {
+                in_double_quotes = !in_double_quotes;
+                index += 1;
+                continue;
+            }
+            b'$' if !in_single_quotes && !is_escaped_dollar(value, index) => {}
+            _ => {
+                index += 1;
+                continue;
+            }
+        }
+
+        index += 1;
         let Some(next) = bytes.get(index).copied() else {
             return false;
         };
-
-        if is_escaped_dollar(value, dollar) {
-            index += 1;
-            continue;
-        }
 
         if is_positional_parameter_start(next) {
             return true;
@@ -1752,7 +1767,9 @@ fn contains_positional_parameter_reference(value: &str) -> bool {
             return true;
         }
 
-        index += 1;
+        if next == b'{' {
+            index += 1;
+        }
     }
     false
 }

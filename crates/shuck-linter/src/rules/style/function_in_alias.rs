@@ -29,6 +29,7 @@ mod tests {
 alias first='echo $1'
 alias rest='printf \"%s\\n\" \"$@\"'
 alias conditional='echo ${1+\"$@\"}'
+alias escaped_then_pos='echo \\$$1'
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionInAlias));
 
@@ -41,6 +42,7 @@ alias conditional='echo ${1+\"$@\"}'
                 "first='echo $1'",
                 "rest='printf \"%s\\n\" \"$@\"'",
                 "conditional='echo ${1+\"$@\"}'",
+                "escaped_then_pos='echo \\$$1'",
             ]
         );
     }
@@ -56,6 +58,7 @@ alias brace='echo {a,b}'
 alias func='helper() { echo hi; }'
 alias literal='echo \\$1'
 alias literal_braced='echo \\${1}'
+alias quoted='echo '\"'\"'$1'\"'\"''
 alias double=\"echo $1\"
 alias -p
 ";

@@ -2393,9 +2393,11 @@ fn builds_function_in_alias_spans_from_static_alias_definitions() {
 alias first='echo $1'
 alias rest='printf \"%s\\n\" \"$@\"'
 alias conditional='${1+\"$@\"}'
+alias escaped_then_pos='echo \\$$1'
 alias func='helper() { echo hi; }'
 alias literal='echo \\$1'
 alias literal_braced='echo \\${1}'
+alias quoted='echo '\"'\"'$1'\"'\"''
 alias runtime=$BAR
 ";
 
@@ -2410,6 +2412,7 @@ alias runtime=$BAR
                 "first='echo $1'",
                 "rest='printf \"%s\\n\" \"$@\"'",
                 "conditional='${1+\"$@\"}'",
+                "escaped_then_pos='echo \\$$1'",
             ]
         );
     });
