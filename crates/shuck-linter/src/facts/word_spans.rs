@@ -5,6 +5,8 @@ use shuck_ast::{
     WordPartNode, ZshExpansionTarget,
 };
 
+use super::NamedSpan;
+
 pub fn command_substitution_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_command_substitution_spans(&word.parts, &mut spans);
@@ -1605,6 +1607,137 @@ pub(crate) fn backtick_substitution_spans(source: &str) -> Vec<Span> {
     }
 
     spans
+}
+
+pub(crate) fn backtick_escaped_parameters(source: &str, backtick_spans: &[Span]) -> Vec<NamedSpan> {
+    let mut spans = Vec::new();
+
+    for backtick_span in backtick_spans {
+        let mut index = backtick_span.start.offset.saturating_add('`'.len_utf8());
+        let end = backtick_span.end.offset.saturating_sub('`'.len_utf8());
+        let mut in_single_quote = false;
+        let mut in_double_quote = false;
+        let mut removed_escapes = 0usize;
+
+        while index < end {
+            let ch = source[index..]
+                .chars()
+                .next()
+                .expect("index should remain on UTF-8 boundaries");
+            let ch_len = ch.len_utf8();
+
+            match ch {
+                '\'' if !in_double_quote => {
+                    in_single_quote = !in_single_quote;
+                    index += ch_len;
+                }
+                '"' if !in_single_quote => {
+                    in_double_quote = !in_double_quote;
+                    index += ch_len;
+                }
+                '\\' if !in_single_quote => {
+                    let slash_offset = index;
+                    index += ch_len;
+                    if index >= end {
+                        continue;
+                    }
+
+                    let escaped = source[index..]
+                        .chars()
+                        .next()
+                        .expect("index should remain on UTF-8 boundaries");
+                    if escaped == '$'
+                        && !in_double_quote
+                        && let Some((name, expansion_len)) =
+                            escaped_backtick_parameter_syntax_len(source, index, end)
+                    {
+                        let diagnostic_start = slash_offset.saturating_sub(removed_escapes);
+                        let Some(start) = position_at_offset(source, diagnostic_start) else {
+                            index += escaped.len_utf8();
+                            continue;
+                        };
+                        let Some(finish) =
+                            position_at_offset(source, diagnostic_start + expansion_len)
+                        else {
+                            index += escaped.len_utf8();
+                            continue;
+                        };
+                        spans.push(NamedSpan {
+                            name,
+                            span: Span::from_positions(start, finish),
+                        });
+                        removed_escapes += 1;
+                        index += expansion_len;
+                    } else {
+                        index += escaped.len_utf8();
+                    }
+                }
+                _ => {
+                    index += ch_len;
+                }
+            }
+        }
+    }
+
+    spans.sort_by_key(|named| (named.span.start.offset, named.span.end.offset));
+    spans.dedup();
+    spans
+}
+
+fn escaped_backtick_parameter_syntax_len(
+    source: &str,
+    dollar_offset: usize,
+    end: usize,
+) -> Option<(shuck_ast::Name, usize)> {
+    let next_offset = dollar_offset + '$'.len_utf8();
+    let next = source.get(next_offset..end)?.chars().next()?;
+
+    if matches!(next, '?' | '#' | '@' | '*' | '!' | '$' | '-') {
+        return None;
+    }
+    if next.is_ascii_digit() {
+        return Some((shuck_ast::Name::new(next.to_string()), "$0".len()));
+    }
+    if next == '{' {
+        let close_relative = source.get(next_offset + '{'.len_utf8()..end)?.find('}')?;
+        let close_offset = next_offset + '{'.len_utf8() + close_relative;
+        let inner = source.get(next_offset + '{'.len_utf8()..close_offset)?;
+        let first = inner.chars().next()?;
+        if matches!(first, '?' | '#' | '@' | '*' | '!' | '$' | '-') {
+            return None;
+        }
+        let name = inner
+            .chars()
+            .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+            .collect::<String>();
+        if name.is_empty() {
+            return None;
+        }
+        return Some((
+            shuck_ast::Name::new(name),
+            close_offset + '}'.len_utf8() - dollar_offset,
+        ));
+    }
+    if next.is_ascii_alphabetic() || next == '_' {
+        let mut cursor = next_offset;
+        while cursor < end {
+            let ch = source[cursor..]
+                .chars()
+                .next()
+                .expect("cursor should remain on UTF-8 boundaries");
+            if !(ch.is_ascii_alphanumeric() || ch == '_') {
+                break;
+            }
+            cursor += ch.len_utf8();
+        }
+        let name = source.get(next_offset..cursor)?;
+        return Some((
+            shuck_ast::Name::new(name.to_owned()),
+            cursor - dollar_offset,
+        ));
+    }
+
+    None
 }
 
 fn continued_line_chain_start(

@@ -1,4 +1,5 @@
 use rustc_hash::FxHashSet;
+use shuck_ast::Span;
 
 use crate::{
     Checker, ExpansionContext, Rule, SafeValueIndex, SafeValueQuery, ShellDialect, Violation,
@@ -32,6 +33,7 @@ pub fn unquoted_expansion(checker: &mut Checker) {
         checker.facts(),
         source,
     );
+    let array_assignment_split_spans = collect_array_assignment_split_candidate_spans(checker);
 
     let mut spans = Vec::new();
     for fact in checker.facts().word_facts() {
@@ -43,20 +45,19 @@ pub fn unquoted_expansion(checker: &mut Checker) {
             source,
             fact,
         );
-    }
-    for fact in checker.facts().arithmetic_command_word_facts() {
-        collect_word_fact_reports(
-            checker,
-            &colon_command_ids,
+        collect_array_assignment_split_reports(
             &mut safe_values,
             &mut spans,
             source,
             fact,
+            &array_assignment_split_spans,
         );
     }
-
-    drop(safe_values);
-
+    for escaped in checker.facts().backtick_escaped_parameters() {
+        if !safe_values.name_reference_is_safe(&escaped.name, escaped.span, SafeValueQuery::Argv) {
+            spans.push(escaped.span);
+        }
+    }
     for span in spans {
         checker.report_dedup(UnquotedExpansion, span);
     }
@@ -76,7 +77,6 @@ fn collect_word_fact_reports(
     if !should_check_context(context, checker.shell()) {
         return;
     }
-
     report_word_expansions(
         spans,
         safe_values,
@@ -85,6 +85,50 @@ fn collect_word_fact_reports(
         context,
         colon_command_ids.contains(&fact.command_id()),
     );
+}
+
+fn collect_array_assignment_split_candidate_spans(checker: &Checker) -> Vec<Span> {
+    let mut spans = checker
+        .facts()
+        .array_assignment_split_word_facts()
+        .flat_map(|fact| {
+            let command_substitution_spans = fact.command_substitution_spans();
+            fact.array_assignment_split_scalar_expansion_spans()
+                .iter()
+                .copied()
+                .filter(move |span| {
+                    command_substitution_spans
+                        .iter()
+                        .any(|outer| span_contains(*outer, *span))
+                })
+        })
+        .collect::<Vec<_>>();
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.dedup();
+    spans
+}
+
+fn collect_array_assignment_split_reports(
+    safe_values: &mut SafeValueIndex<'_>,
+    spans: &mut Vec<Span>,
+    source: &str,
+    fact: WordOccurrenceRef<'_, '_>,
+    candidate_spans: &[Span],
+) {
+    if candidate_spans.is_empty() {
+        return;
+    }
+
+    for (part, part_span) in fact.parts_with_spans() {
+        if !candidate_spans.contains(&part_span) {
+            continue;
+        }
+        if safe_values.part_is_safe(part, part_span, SafeValueQuery::Argv) {
+            continue;
+        }
+
+        spans.push(fact.diagnostic_part_span(part, part_span, source));
+    }
 }
 
 fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool {
@@ -98,8 +142,12 @@ fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool 
     }
 }
 
+fn span_contains(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
+}
+
 fn report_word_expansions(
-    spans: &mut Vec<shuck_ast::Span>,
+    spans: &mut Vec<Span>,
     safe_values: &mut SafeValueIndex<'_>,
     source: &str,
     fact: WordOccurrenceRef<'_, '_>,
@@ -1365,44 +1413,46 @@ template=\"${template/IMG_DOWNLOAD_SIZE/$(stat -c %s ${image_file}.xz)}\"
     }
 
     #[test]
-    fn reports_dynamic_values_inside_parameter_replacement_arithmetic_expansions() {
+    fn skips_dynamic_values_inside_parameter_replacement_arithmetic_expansions() {
         let source = "\
 #!/bin/bash
 printf '%s\\n' \"${template/IMG_OFFSET/$(( $(cat file) $1 step ))}\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
-                .collect::<Vec<_>>(),
-            vec!["$1"]
-        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]
-    fn reports_dynamic_values_inside_parameter_default_arithmetic_expansions() {
+    fn skips_dynamic_values_inside_parameter_default_arithmetic_expansions() {
         let source = "\
 #!/bin/bash
 printf '%s\\n' \"${value:-$(( $(cat file) $1 step ))}\" \"${value:=$(( $2 + 1 ))}\" \"${value:+$(( $3 + 1 ))}\" \"${value:?$(( $4 + 1 ))}\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
-                .collect::<Vec<_>>(),
-            vec!["$1", "$2", "$3", "$4"]
-        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]
-    fn reports_dynamic_values_inside_arithmetic_shell_words() {
+    fn skips_dynamic_values_inside_arithmetic_shell_words() {
         let source = "\
 #!/bin/sh
 printf '%s' \"$(( $(cat file) $1 step ))\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_scalar_expansions_that_split_through_array_assignments() {
+        let source = "\
+#!/bin/bash
+MODE_ID+=($group-$id)
+MODE_CUR=($(get_${HAS_MODESET}_mode_info \"${mode_id[*]}\"))
+arr=(\"$(printf '%s\\n' $quoted_outer)\")
+arr=($PPID $HOME)
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
@@ -1411,7 +1461,32 @@ printf '%s' \"$(( $(cat file) $1 step ))\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$1"]
+            vec!["${HAS_MODESET}", "$quoted_outer"]
+        );
+    }
+
+    #[test]
+    fn reports_escaped_parameters_in_legacy_backticks() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+printf '%s\\n' `echo \\$1 \\$HOME \\$SAFE \\$PPID`
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    (
+                        diagnostic.span.start.line,
+                        diagnostic.span.start.column,
+                        diagnostic.span.end.line,
+                        diagnostic.span.end.column,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![(3, 21, 3, 23), (3, 24, 3, 29)]
         );
     }
 
@@ -1637,7 +1712,189 @@ FILE=$(basename $URL)
     fn skips_safe_numeric_shell_variables() {
         let source = "\
 #!/bin/bash
-printf '%s\\n' $(ps -o comm= -p $PPID)
+printf '%s\\n' $(ps -o comm= -p $PPID) $UID $EUID $RANDOM $OPTIND $SECONDS $LINENO $BASHPID
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_unknown_values_in_uncalled_function_bodies() {
+        let source = "\
+#!/bin/sh
+unused() {
+  echo $1 $value
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$1", "$value"]
+        );
+    }
+
+    #[test]
+    fn keeps_called_function_arguments_unsafe() {
+        let source = "\
+#!/bin/sh
+called() {
+  echo $1 $value
+}
+called \"$@\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$1", "$value"]
+        );
+    }
+
+    #[test]
+    fn skips_status_capture_bindings_with_local_declarations() {
+        let source = "\
+#!/bin/bash
+function first() {
+  local return_value
+  other \"$@\"
+  return_value=$?
+  if [ $return_value -eq 64 ]; then :; fi
+  return $return_value
+}
+second() {
+  local return_value
+  for x in \"$@\"; do
+    y=$(cat \"$x\")
+    return_value=$?
+    if [ $return_value -ne 0 ]; then return $return_value; fi
+  done
+}
+first \"$@\"
+second \"$@\"
+exit $?
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_status_capture_declarations_with_initializers() {
+        let source = "\
+#!/bin/bash
+cleanup() {
+  rm -f -- \"$1\" || {
+    \\typeset ret=$?
+    return $ret
+  }
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn uses_static_loop_values_from_static_function_call_sites() {
+        let source = "\
+#!/bin/bash
+run() {
+  LDFLAGS=\"-fuse-ld=${linker}\"
+  cc ${CFLAGS} ${LDFLAGS}
+}
+for linker in gold bfd lld; do
+  run
+done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CFLAGS}"]
+        );
+    }
+
+    #[test]
+    fn uses_static_loop_values_after_prior_local_declarations() {
+        let source = "\
+#!/bin/bash
+run() {
+  LDFLAGS=\"-fuse-ld=${linker}\"
+  cc ${CFLAGS} ${LDFLAGS}
+}
+main() {
+  local linker
+  for linker in gold bfd lld; do
+    run
+  done
+}
+main
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CFLAGS}"]
+        );
+    }
+
+    #[test]
+    fn uses_safe_top_level_bindings_at_static_function_call_sites() {
+        let source = "\
+#!/bin/sh
+RETVAL=0
+prog=daemon
+start() {
+  if [ $RETVAL -eq 0 ]; then
+    touch /var/lock/subsys/$prog
+  fi
+  return $RETVAL
+}
+case \"$1\" in
+  start) start ;;
+esac
+exit $RETVAL
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn uses_safe_top_level_bindings_through_static_dispatch_helpers() {
+        let source = "\
+#!/bin/sh
+RETVAL=0
+prog=daemon
+start () {
+  RETVAL=$?
+  if [ $RETVAL -eq 0 ]; then
+    touch /var/lock/subsys/$prog
+  fi
+  return $RETVAL
+}
+restart () {
+  start
+}
+case \"$1\" in
+  start) start ;;
+  restart) restart ;;
+esac
+exit $RETVAL
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 

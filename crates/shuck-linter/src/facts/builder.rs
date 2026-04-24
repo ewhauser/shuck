@@ -576,6 +576,10 @@ impl<'a> LinterFactsBuilder<'a> {
         let command_parent_ids = build_command_parent_ids(&commands);
         let command_dominance_barrier_flags = build_command_dominance_barrier_flags(&commands);
 
+        let backtick_substitution_spans = word_spans::backtick_substitution_spans(source);
+        let backtick_escaped_parameters =
+            word_spans::backtick_escaped_parameters(source, &backtick_substitution_spans);
+
         LinterFacts {
             source,
             shell: self.shell,
@@ -646,7 +650,8 @@ impl<'a> LinterFactsBuilder<'a> {
             trailing_directive_comment_spans,
             condition_status_capture_spans,
             command_substitution_command_spans,
-            backtick_substitution_spans: word_spans::backtick_substitution_spans(source),
+            backtick_substitution_spans,
+            backtick_escaped_parameters,
             backtick_command_name_spans,
             dollar_question_after_command_spans,
             assignment_like_command_name_spans,
