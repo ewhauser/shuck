@@ -1830,7 +1830,7 @@ fn infer_parse_dialect_from_source(
     path: Option<&Path>,
 ) -> shuck_parser::ShellDialect {
     if let Some(interpreter) = shebang_interpreter(source) {
-        return parse_dialect_from_name(&interpreter).unwrap_or(shuck_parser::ShellDialect::Bash);
+        return parse_dialect_from_name(interpreter).unwrap_or(shuck_parser::ShellDialect::Bash);
     }
 
     infer_parse_dialect_from_path(path).unwrap_or(shuck_parser::ShellDialect::Bash)
@@ -1841,7 +1841,7 @@ pub(crate) fn infer_explicit_parse_dialect_from_source(
     path: Option<&Path>,
 ) -> Option<shuck_parser::ShellDialect> {
     if let Some(interpreter) = shebang_interpreter(source)
-        && let Some(dialect) = parse_dialect_from_name(&interpreter)
+        && let Some(dialect) = parse_dialect_from_name(interpreter)
     {
         return Some(dialect);
     }
