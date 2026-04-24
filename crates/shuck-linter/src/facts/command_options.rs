@@ -1886,6 +1886,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
 
             if pending_dynamic_option_arg {
                 pending_dynamic_option_arg = false;
+                saw_separate_option_argument = true;
                 index += 1;
                 continue;
             }
@@ -1901,6 +1902,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
         if !text.starts_with('-') || text == "-" {
             if pending_dynamic_option_arg {
                 pending_dynamic_option_arg = false;
+                saw_separate_option_argument = true;
                 index += 1;
                 continue;
             }

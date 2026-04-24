@@ -1489,6 +1489,7 @@ grep -m 1 '*implicit-after-option' data.txt
 grep -m1 '*implicit-after-attached-option' data.txt
 grep -A 1 -e '*explicit-after-option' data.txt
 grep -e '*explicit-before-option' -A 1 data.txt
+grep -$dynamic_option 1 -e '*explicit-after-dynamic-option' data.txt
 ";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
@@ -1520,6 +1521,7 @@ grep -e '*explicit-before-option' -A 1 data.txt
             ("'*implicit-after-attached-option'", true, false),
             ("'*explicit-after-option'", true, true),
             ("'*explicit-before-option'", true, false),
+            ("'*explicit-after-dynamic-option'", true, true),
         ]
     );
 }
