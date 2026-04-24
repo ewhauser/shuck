@@ -79,6 +79,7 @@ use crate::source_closure::ImportedBindingContractSite;
 use crate::zsh_options::ZshOptionAnalysis;
 
 const MAX_FUNCTIONS_FOR_TERMINATION_REACHABILITY: usize = 200;
+const MAX_TERMINATION_REACHABILITY_WORK: usize = 20_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct SpanKey {
@@ -1660,10 +1661,12 @@ impl<'model> SemanticAnalysis<'model> {
             .values()
             .map(|bindings| bindings.len())
             .sum::<usize>();
-        let skip_termination_reachability =
-            function_count > MAX_FUNCTIONS_FOR_TERMINATION_REACHABILITY;
 
         let cfg = self.cfg();
+        let skip_termination_reachability = function_count
+            > MAX_FUNCTIONS_FOR_TERMINATION_REACHABILITY
+            || function_count.saturating_mul(cfg.blocks().len())
+                > MAX_TERMINATION_REACHABILITY_WORK;
         let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
         let script_terminators = cfg
             .script_terminators()
@@ -2532,53 +2535,58 @@ fn all_paths_terminate_before_natural_exit(
 ) -> bool {
     let mut saw_termination = false;
     let cacheable = shadow_blocks.is_empty();
+    let mut context = TerminationPathContext {
+        cfg,
+        script_terminators,
+        natural_exits,
+        unreachable,
+        shadow_blocks,
+        empty_shadow_cache,
+        cacheable,
+        saw_termination: &mut saw_termination,
+    };
     starts.iter().copied().all(|start| {
-        path_terminates_before_natural_exit(
-            start,
-            cfg,
-            script_terminators,
-            natural_exits,
-            unreachable,
-            shadow_blocks,
-            &mut FxHashSet::default(),
-            &mut saw_termination,
-            empty_shadow_cache,
-            cacheable,
-        )
-    }) && saw_termination
+        path_terminates_before_natural_exit(start, &mut FxHashSet::default(), &mut context)
+    }) && *context.saw_termination
+}
+
+struct TerminationPathContext<'a, 'cache, 'seen> {
+    cfg: &'a ControlFlowGraph,
+    script_terminators: &'a FxHashSet<BlockId>,
+    natural_exits: &'a FxHashSet<BlockId>,
+    unreachable: &'a FxHashSet<BlockId>,
+    shadow_blocks: &'a FxHashSet<BlockId>,
+    empty_shadow_cache: &'cache mut FxHashMap<BlockId, bool>,
+    cacheable: bool,
+    saw_termination: &'seen mut bool,
 }
 
 fn path_terminates_before_natural_exit(
     block: BlockId,
-    cfg: &ControlFlowGraph,
-    script_terminators: &FxHashSet<BlockId>,
-    natural_exits: &FxHashSet<BlockId>,
-    unreachable: &FxHashSet<BlockId>,
-    shadow_blocks: &FxHashSet<BlockId>,
     visiting: &mut FxHashSet<BlockId>,
-    saw_termination: &mut bool,
-    empty_shadow_cache: &mut FxHashMap<BlockId, bool>,
-    cacheable: bool,
+    context: &mut TerminationPathContext<'_, '_, '_>,
 ) -> bool {
-    if cacheable && let Some(cached) = empty_shadow_cache.get(&block) {
+    if context.cacheable
+        && let Some(cached) = context.empty_shadow_cache.get(&block)
+    {
         if *cached {
-            *saw_termination = true;
+            *context.saw_termination = true;
         }
         return *cached;
     }
-    if unreachable.contains(&block) || shadow_blocks.contains(&block) {
+    if context.unreachable.contains(&block) || context.shadow_blocks.contains(&block) {
         return false;
     }
-    if script_terminators.contains(&block) {
-        *saw_termination = true;
-        if cacheable {
-            empty_shadow_cache.insert(block, true);
+    if context.script_terminators.contains(&block) {
+        *context.saw_termination = true;
+        if context.cacheable {
+            context.empty_shadow_cache.insert(block, true);
         }
         return true;
     }
-    if natural_exits.contains(&block) {
-        if cacheable {
-            empty_shadow_cache.insert(block, false);
+    if context.natural_exits.contains(&block) {
+        if context.cacheable {
+            context.empty_shadow_cache.insert(block, false);
         }
         return false;
     }
@@ -2586,26 +2594,15 @@ fn path_terminates_before_natural_exit(
         return false;
     }
 
-    let successors = cfg.successors(block);
+    let successors = context.cfg.successors(block);
     let terminates = !successors.is_empty()
         && successors.iter().all(|(successor, _)| {
-            path_terminates_before_natural_exit(
-                *successor,
-                cfg,
-                script_terminators,
-                natural_exits,
-                unreachable,
-                shadow_blocks,
-                visiting,
-                saw_termination,
-                empty_shadow_cache,
-                cacheable,
-            )
+            path_terminates_before_natural_exit(*successor, visiting, context)
         });
 
     visiting.remove(&block);
-    if cacheable {
-        empty_shadow_cache.insert(block, terminates);
+    if context.cacheable {
+        context.empty_shadow_cache.insert(block, terminates);
     }
     terminates
 }
