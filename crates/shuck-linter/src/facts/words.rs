@@ -3318,6 +3318,25 @@ struct WordFactCollector<'out, 'a, 'norm> {
     surface: &'out mut SurfaceFragmentSink<'a>,
 }
 
+fn simple_command_wrapper_target_index(command: &SimpleCommand, source: &str) -> Option<usize> {
+    let command_name = static_command_name_text(&command.name, source)?;
+    let word_count = 1 + command.args.len();
+    match static_command_wrapper_target_index(word_count, 0, command_name.as_ref(), |index| {
+        static_word_text(simple_command_word_at(command, index), source)
+    }) {
+        StaticCommandWrapperTarget::Wrapper { target_index } => target_index,
+        StaticCommandWrapperTarget::NotWrapper => None,
+    }
+}
+
+fn simple_command_word_at(command: &SimpleCommand, index: usize) -> &Word {
+    if index == 0 {
+        &command.name
+    } else {
+        &command.args[index - 1]
+    }
+}
+
 impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     fn new(
         source: &'a str,
@@ -3522,6 +3541,21 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         let surface_context = self.surface_context();
         match command {
             Command::Simple(command) => {
+                if let Some(target_index) = simple_command_wrapper_target_index(command, self.source)
+                {
+                    let target_word = simple_command_word_at(command, target_index);
+                    if static_word_text(target_word, self.source).is_none() {
+                        self.push_word_with_surface(
+                            target_word,
+                            WordFactContext::Expansion(ExpansionContext::CommandName),
+                            WordFactHostKind::Direct,
+                            surface_context,
+                        );
+                    } else {
+                        self.collect_surface_only_word(target_word, surface_context);
+                    }
+                }
+
                 if static_word_text(&command.name, self.source).is_none() {
                     self.push_word_with_surface(
                         &command.name,
@@ -3560,6 +3594,9 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             Command::Simple(command) => {
                 let surface_context = self.surface_context();
                 let surface_command_name = surface_context.command_name();
+                let wrapper_target_arg_index =
+                    simple_command_wrapper_target_index(command, self.source)
+                        .and_then(|index| index.checked_sub(1));
                 let trap_command =
                     static_word_text(&command.name, self.source).as_deref() == Some("trap");
                 let trap_action = trap_command
@@ -3577,7 +3614,10 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     self.surface
                         .collect_split_suspect_closing_quote_fragment_in_words(&command.args);
                 }
-                for word in &command.args {
+                for (arg_index, word) in command.args.iter().enumerate() {
+                    if wrapper_target_arg_index == Some(arg_index) {
+                        continue;
+                    }
                     let base_surface_word_context = if variable_set_operand
                         .is_some_and(|operand| std::ptr::eq(word, operand))
                     {

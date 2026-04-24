@@ -123,4 +123,5 @@ pub struct BacktickEscapedParameter {
     pub name: Option<Name>,
     pub diagnostic_span: Span,
     pub reference_span: Span,
+    pub standalone_command_name: bool,
 }

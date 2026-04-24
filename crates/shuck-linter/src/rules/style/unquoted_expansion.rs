@@ -54,6 +54,9 @@ pub fn unquoted_expansion(checker: &mut Checker) {
         );
     }
     for escaped in checker.facts().backtick_escaped_parameters() {
+        if escaped.standalone_command_name {
+            continue;
+        }
         if !escaped.name.as_ref().is_some_and(|name| {
             safe_values.name_reference_is_safe(name, escaped.reference_span, SafeValueQuery::Argv)
         }) {
@@ -120,17 +123,42 @@ fn collect_array_assignment_split_reports(
     if candidate_spans.is_empty() {
         return;
     }
+    let Some(context) = fact.host_expansion_context() else {
+        return;
+    };
+    if !array_assignment_split_context_is_checked(context) {
+        return;
+    }
+    if context == ExpansionContext::CommandName
+        && !fact.has_literal_affixes()
+        && fact.parts_len() == 1
+    {
+        return;
+    }
 
     for (part, part_span) in fact.parts_with_spans() {
         if !candidate_spans.contains(&part_span) {
             continue;
         }
-        if safe_values.part_is_safe(part, part_span, SafeValueQuery::Argv) {
+        let affixed_command_name =
+            context == ExpansionContext::CommandName && fact.has_literal_affixes();
+        if safe_values.part_is_safe(part, part_span, SafeValueQuery::Argv) && !affixed_command_name
+        {
             continue;
         }
 
         spans.push(fact.diagnostic_part_span(part, part_span, source));
     }
+}
+
+fn array_assignment_split_context_is_checked(context: ExpansionContext) -> bool {
+    matches!(
+        context,
+        ExpansionContext::CommandName
+            | ExpansionContext::CommandArgument
+            | ExpansionContext::HereString
+            | ExpansionContext::RedirectTarget(_)
+    )
 }
 
 fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool {
@@ -1468,6 +1496,111 @@ arr=($PPID $HOME)
     }
 
     #[test]
+    fn reports_possibly_uninitialized_static_branch_bindings_in_array_assignments() {
+        let source = "\
+#!/bin/bash
+if command -v kms >/dev/null; then
+  HAS_MODESET=kms
+elif command -v xrandr >/dev/null; then
+  HAS_MODESET=x11
+fi
+
+mode_switch() {
+  if [ \"$HAS_MODESET\" = kms ]; then
+    MODE_CUR=($(get_${HAS_MODESET}_mode_info))
+  fi
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${HAS_MODESET}"]
+        );
+    }
+
+    #[test]
+    fn skips_standalone_safe_command_names_in_array_assignment_substitutions() {
+        let source = "\
+#!/bin/bash
+tool=/usr/bin/helper
+items=($($tool list))
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_standalone_dynamic_command_names_in_array_assignment_substitutions() {
+        let source = "\
+#!/bin/bash
+items=($($tool list))
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_for_lists_in_array_assignment_substitutions() {
+        let source = "\
+#!/bin/bash
+items=($(
+  for keyword in $keywords; do
+    printf '%s\\n' \"$keyword\"
+  done
+))
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn treats_wrapper_targets_as_command_names() {
+        let source = "\
+#!/bin/sh
+exec $SHELL $0 \"$@\"
+exec pre$x arg
+command $tool arg
+builtin $name arg
+case \"$1\" in
+  restart) $0 stop; exec $0 start ;;
+esac
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$0", "$x"]
+        );
+    }
+
+    #[test]
+    fn skips_safe_variables_that_share_names_with_functions() {
+        let source = "\
+#!/usr/bin/env bash
+check_gitlab=0
+check_gitlab() {
+  [ $check_gitlab = 1 ] && return 0
+}
+if check_gitlab; then
+  :
+fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_escaped_parameters_in_legacy_backticks() {
         let source = "\
 #!/bin/sh
@@ -1541,6 +1674,39 @@ printf '%s\\n' `echo \\${SAFE:-$fallback} \\${SAFE:+$fallback}`
                 .collect::<Vec<_>>(),
             vec![(2, 21, 2, 39)]
         );
+    }
+
+    #[test]
+    fn skips_escaped_backtick_standalone_command_names() {
+        let source = "\
+#!/bin/sh
+`\\$cmd`
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_escaped_backtick_command_arguments() {
+        let source = "\
+#!/bin/sh
+`echo \\$arg`
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_affixed_escaped_backtick_command_names() {
+        let source = "\
+#!/bin/sh
+`pre\\$cmd`
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
     }
 
     #[test]
@@ -1750,6 +1916,20 @@ printf '%s\\n' $n $s $glob $split $copy $alias
     }
 
     #[test]
+    fn skips_initialized_declaration_bindings_with_safe_values() {
+        let source = "\
+#!/bin/bash
+f() {
+  local name=abc i=0
+  printf '%s\\n' $name $i
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn skips_safe_literal_bindings_inside_nested_command_substitutions() {
         let source = "\
 #!/bin/bash
@@ -1765,7 +1945,7 @@ FILE=$(basename $URL)
     fn skips_safe_numeric_shell_variables() {
         let source = "\
 #!/bin/bash
-printf '%s\\n' $(ps -o comm= -p $PPID) $UID $EUID $RANDOM $OPTIND $SECONDS $LINENO $BASHPID
+printf '%s\\n' $(ps -o comm= -p $PPID) $UID $EUID $RANDOM $OPTIND $SECONDS $LINENO $BASHPID $COLUMNS
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
@@ -2125,6 +2305,52 @@ if [ $x -eq 0 ]; then :; fi
     }
 
     #[test]
+    fn skips_safe_assign_default_expansions_when_name_is_already_safe() {
+        let source = "\
+#!/bin/bash
+check_count() {
+  local i=0
+  [ ${i:=0} -eq 0 ]
+  test $i -ge 0
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_default_operator_operands_when_existing_value_is_safe() {
+        let source = "\
+#!/bin/bash
+value=abc
+printf '%s\\n' ${value:=$1} ${value:-$2}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_assign_default_after_maybe_uninitialized_binding() {
+        let source = "\
+#!/bin/bash
+if cond; then value=abc; fi
+printf '%s\\n' ${value:=fallback}
+printf '%s\\n' $value
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${value:=fallback}", "$value"]
+        );
+    }
+
+    #[test]
     fn reports_conditionally_sanitized_test_operands() {
         let source = "\
 #!/bin/bash
@@ -2393,6 +2619,31 @@ done
     }
 
     #[test]
+    fn reports_called_helper_mutations_even_when_callers_have_safe_bindings() {
+        let source = "\
+#!/bin/bash
+flag=-n
+set_flag() {
+  flag=$1
+}
+render() {
+  set_flag \"$1\"
+  printf '%s\\n' $flag
+}
+render value
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$flag"]
+        );
+    }
+
+    #[test]
     fn reports_helper_globals_with_mixed_safe_and_unsafe_caller_branches() {
         let source = "\
 #!/bin/sh
@@ -2496,6 +2747,114 @@ safe_path_b
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_tilde_path_bindings_shellcheck_treats_as_field_safe() {
+        let source = "\
+#!/bin/bash
+file=~/.launch-bristol
+if [ -e $file ]; then
+  dflt=\"$(cat $file)\"
+fi
+> $file.new
+mv $file.new $file
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_self_referential_static_suffix_bindings() {
+        let path = Path::new("/tmp/example.SlackBuild");
+        let source = "\
+#!/bin/bash
+LIBDIR=lib
+if [ \"$ARCH\" = \"x86_64\" ]; then
+  LIBDIR=\"$LIBDIR\"64
+fi
+mkdir -p /pkg/usr/$LIBDIR/clap
+";
+        let diagnostics = test_snippet_at_path(
+            path,
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_status_bindings_when_local_initializer_covers_helper_updates() {
+        let source = "\
+#!/bin/sh
+deploy() {
+  err_code=0
+  if ! remote; then
+    return $err_code
+  fi
+}
+
+remote() {
+  err_code=$?
+  return $err_code
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_safe_bindings_after_exit_inside_nested_command_substitution() {
+        let source = "\
+#!/bin/bash
+name=package-name
+version=1
+list=$(echo file || (echo error; exit 1))
+mkdir -p /pkg/usr/doc/$name-$version
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_exhaustive_static_branch_bindings_inside_brace_expansion() {
+        let source = "\
+#!/bin/bash
+if [ \"$ARCH\" = \"i586\" ]; then
+  LIBDIRSUFFIX=\"\"
+elif [ \"$ARCH\" = \"x86_64\" ]; then
+  LIBDIRSUFFIX=\"64\"
+else
+  LIBDIRSUFFIX=\"\"
+fi
+mkdir -p /pkg/usr/{bin,lib${LIBDIRSUFFIX}}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_definite_empty_overwrite_inside_brace_expansion() {
+        let source = "\
+#!/bin/sh
+x=64
+x=
+echo {pre,$x}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$x"]
+        );
     }
 
     #[test]

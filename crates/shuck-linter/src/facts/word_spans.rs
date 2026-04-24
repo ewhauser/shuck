@@ -1681,6 +1681,13 @@ pub(crate) fn backtick_escaped_parameters(
                             name: parameter.name().cloned(),
                             diagnostic_span: Span::from_positions(diagnostic_start, diagnostic_end),
                             reference_span: Span::from_positions(reference_start, reference_end),
+                            standalone_command_name:
+                                escaped_backtick_parameter_is_standalone_command_name(
+                                    source,
+                                    *backtick_span,
+                                    slash_offset,
+                                    index + expansion_len,
+                                ),
                         });
                         removed_escapes += 1;
                         index += expansion_len;
@@ -1705,6 +1712,102 @@ pub(crate) fn backtick_escaped_parameters(
     });
     spans.dedup();
     spans
+}
+
+fn escaped_backtick_parameter_is_standalone_command_name(
+    source: &str,
+    backtick_span: Span,
+    slash_offset: usize,
+    expansion_end: usize,
+) -> bool {
+    let segment_start = backtick_command_segment_start(
+        source,
+        backtick_span.start.offset.saturating_add('`'.len_utf8()),
+        slash_offset,
+    );
+    let Some(prefix) = source.get(segment_start..slash_offset) else {
+        return false;
+    };
+    if !command_prefix_is_empty_or_assignments(prefix) {
+        return false;
+    }
+
+    let suffix_limit = backtick_span.end.offset.saturating_sub('`'.len_utf8());
+    escaped_reference_ends_standalone_word(source, expansion_end, suffix_limit)
+}
+
+fn backtick_command_segment_start(source: &str, start: usize, end: usize) -> usize {
+    let bytes = source.as_bytes();
+    let mut cursor = start;
+    let mut segment_start = start;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut escaped = false;
+
+    while cursor < end {
+        let byte = bytes[cursor];
+        if escaped {
+            escaped = false;
+            cursor += 1;
+            continue;
+        }
+        if byte == b'\\' && !in_single_quote {
+            escaped = true;
+            cursor += 1;
+            continue;
+        }
+
+        match byte {
+            b'\'' if !in_double_quote => in_single_quote = !in_single_quote,
+            b'"' if !in_single_quote => in_double_quote = !in_double_quote,
+            b'\n' | b';' if !in_single_quote && !in_double_quote => {
+                segment_start = cursor + 1;
+            }
+            b'&' | b'|' if !in_single_quote && !in_double_quote => {
+                let separator = byte;
+                cursor += 1;
+                while cursor < end && bytes[cursor] == separator {
+                    cursor += 1;
+                }
+                segment_start = cursor;
+                continue;
+            }
+            _ => {}
+        }
+
+        cursor += 1;
+    }
+
+    segment_start
+}
+
+fn command_prefix_is_empty_or_assignments(prefix: &str) -> bool {
+    let mut words = prefix.split_whitespace().peekable();
+    if words.peek().is_none() {
+        return true;
+    }
+    words.all(simple_assignment_word)
+}
+
+fn simple_assignment_word(word: &str) -> bool {
+    let Some(eq) = word.find('=') else {
+        return false;
+    };
+    let name = &word[..eq];
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+fn escaped_reference_ends_standalone_word(source: &str, start: usize, limit: usize) -> bool {
+    let Some(rest) = source.get(start..limit) else {
+        return false;
+    };
+    rest.chars().next().is_none_or(|ch| {
+        ch.is_whitespace() || matches!(ch, ';' | '&' | '|' | '<' | '>' | '(' | ')')
+    })
 }
 
 enum EscapedBacktickParameterSyntax {
