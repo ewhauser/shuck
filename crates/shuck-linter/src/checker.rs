@@ -137,15 +137,6 @@ impl<'a> Checker<'a> {
         self.file_context
     }
 
-    pub fn is_suppressed_at(&self, rule: Rule, span: Span) -> bool {
-        let Ok(line) = u32::try_from(span.start.line) else {
-            return false;
-        };
-
-        self.suppression_index
-            .is_some_and(|index| index.is_suppressed(rule, line))
-    }
-
     pub fn first_parse_error(&self) -> Option<(usize, usize)> {
         self.first_parse_error
     }
