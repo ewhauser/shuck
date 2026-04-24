@@ -61,6 +61,24 @@ f() {
     }
 
     #[test]
+    fn ignores_continue_inside_function_loop_brace_group() {
+        let source = "\
+#!/bin/bash
+f() {
+  for gpu in \"${gpus[@]}\"; do
+    [[ \"$gpu\" == Intel ]] && { unset -v gpu; continue; }
+  done
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ContinueOutsideLoopInFunction),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn ignores_continue_inside_function_subshells() {
         let source = "\
 #!/bin/sh

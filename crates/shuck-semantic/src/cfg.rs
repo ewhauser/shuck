@@ -1644,11 +1644,15 @@ impl<'a> GraphBuilder<'a> {
         let condition_seq = self.build_sequence(ranges.condition, loops);
         let entry = condition_seq.entry.or_else(|| Some(self.empty_block()));
         let mut false_exits = condition_seq.exits.clone();
+        let mut false_cause = false_exits
+            .is_empty()
+            .then_some(condition_seq.terminal_cause)
+            .flatten();
 
         let then_start = self.blocks.len();
         let then_seq = self.build_sequence(ranges.then_branch, loops);
-        if condition_seq.exits.is_empty()
-            && let Some(cause) = condition_seq.terminal_cause
+        if false_exits.is_empty()
+            && let Some(cause) = false_cause
         {
             self.mark_unreachable_blocks_since(then_start, cause);
         }
@@ -1658,17 +1662,24 @@ impl<'a> GraphBuilder<'a> {
             }
         }
 
-        let mut branch_exits = then_seq.exits;
-        let mut branch_cause = branch_exits
-            .is_empty()
-            .then_some(then_seq.terminal_cause)
-            .flatten();
+        let then_reachable = !condition_seq.exits.is_empty();
+        let mut branch_exits = if then_reachable {
+            then_seq.exits
+        } else {
+            Vec::new()
+        };
+        let mut branch_cause = if then_reachable && branch_exits.is_empty() {
+            then_seq.terminal_cause
+        } else {
+            None
+        };
 
         for elif_branch in self.program.elif_branches(ranges.elif_branches) {
+            let elif_reachable = !false_exits.is_empty();
             let elif_start = self.blocks.len();
             let elif_cond = self.build_sequence(elif_branch.condition, loops);
             if false_exits.is_empty()
-                && let Some(cause) = branch_cause
+                && let Some(cause) = false_cause
             {
                 self.mark_unreachable_blocks_since(elif_start, cause);
             }
@@ -1680,9 +1691,18 @@ impl<'a> GraphBuilder<'a> {
 
             let elif_body_start = self.blocks.len();
             let elif_body_seq = self.build_sequence(elif_branch.body, loops);
-            if elif_cond.exits.is_empty()
-                && let Some(cause) = elif_cond.terminal_cause
-            {
+            let elif_body_reachable = elif_reachable && !elif_cond.exits.is_empty();
+            let elif_cond_cause = elif_cond
+                .exits
+                .is_empty()
+                .then_some(elif_cond.terminal_cause)
+                .flatten();
+            let elif_body_unreachable_cause = if elif_reachable {
+                elif_cond_cause
+            } else {
+                false_cause
+            };
+            if !elif_body_reachable && let Some(cause) = elif_body_unreachable_cause {
                 self.mark_unreachable_blocks_since(elif_body_start, cause);
             }
             if let Some(body_entry) = elif_body_seq.entry {
@@ -1691,28 +1711,43 @@ impl<'a> GraphBuilder<'a> {
                 }
             }
 
-            let previous_false_cause = false_exits.is_empty().then_some(branch_cause).flatten();
-            false_exits = elif_cond.exits;
+            false_exits = if elif_reachable {
+                elif_cond.exits
+            } else {
+                Vec::new()
+            };
+            false_cause = if false_exits.is_empty() {
+                if elif_reachable {
+                    elif_cond_cause
+                } else {
+                    false_cause
+                }
+            } else {
+                None
+            };
             let elif_body_cause = elif_body_seq
                 .exits
                 .is_empty()
                 .then_some(elif_body_seq.terminal_cause)
                 .flatten();
-            append_unique_block_ids(&mut branch_exits, &elif_body_seq.exits);
-            branch_cause = if branch_exits.is_empty() {
-                merge_terminal_causes(
-                    self.program.command(command).span,
-                    [branch_cause, previous_false_cause, elif_body_cause],
-                )
-            } else {
-                None
-            };
+            if elif_body_reachable {
+                append_unique_block_ids(&mut branch_exits, &elif_body_seq.exits);
+                branch_cause = if branch_exits.is_empty() {
+                    merge_terminal_causes(
+                        self.program.command(command).span,
+                        [branch_cause, elif_body_cause],
+                    )
+                } else {
+                    None
+                };
+            }
         }
 
+        let else_reachable = !false_exits.is_empty();
         let else_start = self.blocks.len();
         let else_seq = self.build_sequence(ranges.else_branch, loops);
         if false_exits.is_empty()
-            && let Some(cause) = branch_cause
+            && let Some(cause) = false_cause
         {
             self.mark_unreachable_blocks_since(else_start, cause);
         }
@@ -1720,23 +1755,37 @@ impl<'a> GraphBuilder<'a> {
             for exit in &false_exits {
                 self.add_edge(*exit, else_entry, EdgeKind::ConditionalFalse);
             }
-            let else_cause = else_seq
-                .exits
-                .is_empty()
-                .then_some(else_seq.terminal_cause)
-                .flatten();
-            branch_exits.extend(else_seq.exits);
-            branch_cause = if branch_exits.is_empty() {
-                merge_terminal_causes(
+            if else_reachable {
+                let else_cause = else_seq
+                    .exits
+                    .is_empty()
+                    .then_some(else_seq.terminal_cause)
+                    .flatten();
+                append_unique_block_ids(&mut branch_exits, &else_seq.exits);
+                branch_cause = if branch_exits.is_empty() {
+                    merge_terminal_causes(
+                        self.program.command(command).span,
+                        [branch_cause, else_cause],
+                    )
+                } else {
+                    None
+                };
+            } else if branch_exits.is_empty() {
+                branch_cause = merge_terminal_causes(
                     self.program.command(command).span,
-                    [branch_cause, else_cause],
-                )
+                    [branch_cause, false_cause],
+                );
             } else {
-                None
-            };
+                branch_cause = None;
+            }
         } else {
             branch_exits.extend(false_exits);
-            if !branch_exits.is_empty() {
+            if branch_exits.is_empty() {
+                branch_cause = merge_terminal_causes(
+                    self.program.command(command).span,
+                    [branch_cause, false_cause],
+                );
+            } else {
                 branch_cause = None;
             }
         }

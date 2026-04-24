@@ -3948,6 +3948,24 @@ done
     }
 
     #[test]
+    fn unreachable_after_exit_ignores_loop_control_if_branches_and_following_code() {
+        let source = "\
+#!/bin/bash
+while true; do
+  if break; then
+    printf '%s\\n' after_true
+  else
+    printf '%s\\n' after_false
+  fi
+  printf '%s\\n' after_if
+done
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn unreachable_after_exit_reports_after_brace_group_defined_exit_helpers() {
         let source = "\
 #!/bin/bash

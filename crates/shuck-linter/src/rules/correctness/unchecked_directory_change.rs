@@ -129,6 +129,21 @@ cd /tmp && pwd
     }
 
     #[test]
+    fn ignores_directory_change_inside_checked_subshell_group() {
+        let source = "\
+make_tar() {
+  (cd \"$DIST_ROOT/unix/\"; tar -czf \"../out.tgz\" out) || die
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UncheckedDirectoryChange),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn reports_cd_in_following_list_position() {
         let source = "echo start && cd /tmp\n";
         let diagnostics = test_snippet(

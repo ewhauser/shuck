@@ -889,12 +889,22 @@ impl SemanticModel {
     pub fn flow_context_at(&self, span: &Span) -> Option<&FlowContext> {
         self.flow_contexts
             .iter()
-            .find_map(|(candidate, context)| (candidate == span).then_some(context))
+            .rfind(|(candidate, _)| candidate == span)
+            .map(|(_, context)| context)
             .or_else(|| {
-                self.flow_contexts.iter().find_map(|(candidate, context)| {
-                    (contains_span(*candidate, *span) || contains_span(*span, *candidate))
-                        .then_some(context)
-                })
+                self.flow_contexts
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, (candidate, _))| {
+                        contains_span(*candidate, *span) || contains_span(*span, *candidate)
+                    })
+                    .min_by_key(|(index, (candidate, _))| {
+                        (
+                            candidate.end.offset.saturating_sub(candidate.start.offset),
+                            std::cmp::Reverse(*index),
+                        )
+                    })
+                    .map(|(_, (_, context))| context)
             })
     }
 
@@ -5790,6 +5800,38 @@ DESCRIPTION=\"${DESCRIPTION:-Deployment metadata updated}\"
             "echo dead"
         );
         assert_eq!(dead_code[0].cause.slice(source).trim_end(), "exit 0");
+    }
+
+    #[test]
+    fn loop_control_condition_keeps_unreachable_if_tree_causes() {
+        let source = "\
+while true; do
+  if break; then
+    printf '%s\\n' after_true
+  else
+    printf '%s\\n' after_false
+  fi
+  printf '%s\\n' after_if
+done
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let dead_code = analysis.dead_code();
+        let unreachable = dead_code
+            .iter()
+            .flat_map(|entry| entry.unreachable.iter())
+            .map(|span| span.slice(source).trim_end().to_owned())
+            .collect::<Vec<_>>();
+
+        assert!(unreachable.contains(&"printf '%s\\n' after_true".to_owned()));
+        assert!(unreachable.contains(&"printf '%s\\n' after_false".to_owned()));
+        assert!(unreachable.contains(&"printf '%s\\n' after_if".to_owned()));
+        assert!(
+            dead_code
+                .iter()
+                .all(|entry| entry.cause_kind == UnreachableCauseKind::LoopControl),
+            "dead code: {dead_code:?}"
+        );
     }
 
     #[test]

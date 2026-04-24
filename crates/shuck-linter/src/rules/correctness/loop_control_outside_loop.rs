@@ -122,6 +122,24 @@ done
     }
 
     #[test]
+    fn ignores_loop_control_inside_function_loop_brace_group() {
+        let source = "\
+#!/bin/bash
+f() {
+  for op in a; do
+    if [[ \"$op\" == a ]]; then { echo ok; break; }; fi
+  done
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LoopControlOutsideLoop),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn ignores_continue_inside_functions() {
         let source = "\
 #!/bin/sh
