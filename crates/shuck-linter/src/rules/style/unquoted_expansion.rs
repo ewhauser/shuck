@@ -240,6 +240,7 @@ mod tests {
         let source = "\
 #!/bin/bash
 printf '%s\\n' prefix${name}suffix ${arr[0]} ${arr[@]}
+printf '%s\\n' ${arr[@]:-fallback} ${arr[*]:-fallback} ${arr[@]@Q} ${arr[*]@Q} ${arr[0]:-fallback}
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
@@ -248,7 +249,13 @@ printf '%s\\n' prefix${name}suffix ${arr[0]} ${arr[@]}
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["${name}", "${arr[0]}"]
+            vec![
+                "${name}",
+                "${arr[0]}",
+                "${arr[*]:-fallback}",
+                "${arr[*]@Q}",
+                "${arr[0]:-fallback}"
+            ]
         );
     }
 
@@ -2565,6 +2572,60 @@ fn_backup_compression
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_safe_option_flags_after_explicit_unset_baseline() {
+        let source = "\
+#!/bin/bash
+unset keep
+unset pipeline_ref
+unset pipe_keep | cat
+(unset subshell_keep)
+unset -n nameref_keep
+unset empty_only
+if [ \"$1\" = yes ]; then
+  keep=-k
+fi
+if [ \"$1\" = ref ]; then
+  pipeline_ref=-k
+fi
+if [ \"$1\" = pipe ]; then
+  pipe_keep=-k
+fi
+if [ \"$1\" = sub ]; then
+  subshell_keep=-k
+fi
+if [ \"$1\" = name ]; then
+  nameref_keep=-k
+fi
+if [ \"$1\" = no ]; then
+  empty_only=
+fi
+if [ \"$2\" = yes ]; then
+  missing=-v
+fi
+python-build $keep $pipe_keep $subshell_keep $nameref_keep $empty_only $missing
+python-build $pipeline_ref | cat
+unset only
+python-build $only
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "$pipe_keep",
+                "$subshell_keep",
+                "$nameref_keep",
+                "$empty_only",
+                "$missing",
+                "$only"
+            ]
+        );
     }
 
     #[test]

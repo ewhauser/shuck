@@ -991,6 +991,31 @@ fn collect_array_expansion_spans(
             {
                 spans.push(part.span);
             }
+            WordPart::ParameterExpansion {
+                reference,
+                operator,
+                ..
+            } if !matches!(operator, ParameterOp::UseReplacement)
+                && reference.has_array_selector()
+                && (!quoted || !only_unquoted) =>
+            {
+                spans.push(part.span);
+            }
+            WordPart::IndirectExpansion {
+                reference,
+                operator,
+                ..
+            } if !matches!(operator, Some(ParameterOp::UseReplacement))
+                && reference.has_array_selector()
+                && (!quoted || !only_unquoted) =>
+            {
+                spans.push(part.span);
+            }
+            WordPart::Transformation { reference, .. }
+                if reference.has_array_selector() && (!quoted || !only_unquoted) =>
+            {
+                spans.push(part.span);
+            }
             WordPart::ArraySlice { .. } | WordPart::ArrayIndices(_)
                 if !quoted || !only_unquoted =>
             {
@@ -2625,14 +2650,18 @@ fn collect_scalar_expansion_spans(
             WordPart::Variable(name) if matches!(name.as_str(), "@" | "*") => {}
             WordPart::Variable(_)
             | WordPart::ArithmeticExpansion { .. }
-            | WordPart::ParameterExpansion { .. }
             | WordPart::Length(_)
             | WordPart::ArrayLength(_)
             | WordPart::Substring { .. }
-            | WordPart::IndirectExpansion { .. }
-            | WordPart::PrefixMatch { .. }
-            | WordPart::Transformation { .. } => {
+            | WordPart::PrefixMatch { .. } => {
                 if !only_unquoted || !quoted {
+                    spans.push(part.span);
+                }
+            }
+            WordPart::ParameterExpansion { reference, .. }
+            | WordPart::IndirectExpansion { reference, .. }
+            | WordPart::Transformation { reference, .. } => {
+                if !reference.has_array_selector() && (!only_unquoted || !quoted) {
                     spans.push(part.span);
                 }
             }
@@ -3998,6 +4027,14 @@ fn parameter_is_array_like(parameter: &ParameterExpansion) -> bool {
             BourneParameterExpansion::Access { reference } => reference.has_array_selector(),
             BourneParameterExpansion::Indices { .. } => true,
             BourneParameterExpansion::Slice { reference, .. } => reference.has_array_selector(),
+            BourneParameterExpansion::Operation {
+                reference,
+                operator,
+                ..
+            } => !matches!(operator, ParameterOp::UseReplacement) && reference.has_array_selector(),
+            BourneParameterExpansion::Transformation { reference, .. } => {
+                reference.has_array_selector()
+            }
             _ => false,
         },
         ParameterExpansionSyntax::Zsh(_) => false,
@@ -4032,10 +4069,12 @@ fn parameter_is_scalar_like(parameter: &ParameterExpansion) -> bool {
         ParameterExpansionSyntax::Bourne(syntax) => match syntax {
             BourneParameterExpansion::Access { reference } => !reference.has_array_selector(),
             BourneParameterExpansion::Length { .. }
-            | BourneParameterExpansion::Indirect { .. }
-            | BourneParameterExpansion::PrefixMatch { .. }
-            | BourneParameterExpansion::Operation { .. }
-            | BourneParameterExpansion::Transformation { .. } => true,
+            | BourneParameterExpansion::PrefixMatch { .. } => true,
+            BourneParameterExpansion::Indirect { reference, .. }
+            | BourneParameterExpansion::Operation { reference, .. }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                !reference.has_array_selector()
+            }
             BourneParameterExpansion::Indices { .. } => false,
             BourneParameterExpansion::Slice { reference, .. } => !reference.has_array_selector(),
         },
@@ -4071,6 +4110,9 @@ fn part_uses_star_splat(part: &WordPart) -> bool {
         WordPart::Variable(name) => name.as_str() == "*",
         WordPart::ArrayAccess(reference) => var_ref_uses_star_splat(reference),
         WordPart::Parameter(parameter) => parameter_uses_star_splat(parameter),
+        WordPart::ParameterExpansion { reference, .. }
+        | WordPart::IndirectExpansion { reference, .. }
+        | WordPart::Transformation { reference, .. } => var_ref_uses_star_splat(reference),
         _ => false,
     }
 }
@@ -4261,7 +4303,11 @@ fn parameter_uses_star_splat(parameter: &ParameterExpansion) -> bool {
 
     match syntax {
         BourneParameterExpansion::Access { reference }
-        | BourneParameterExpansion::Slice { reference, .. } => var_ref_uses_star_splat(reference),
+        | BourneParameterExpansion::Slice { reference, .. }
+        | BourneParameterExpansion::Operation { reference, .. }
+        | BourneParameterExpansion::Transformation { reference, .. } => {
+            var_ref_uses_star_splat(reference)
+        }
         _ => false,
     }
 }
@@ -4676,21 +4722,29 @@ mod tests {
 
     #[test]
     fn array_expansion_spans_only_return_array_like_parts() {
-        let source = "printf '%s\\n' ${arr[@]} ${arr[0]}\n";
+        let source = "printf '%s\\n' ${arr[@]} ${arr[@]+fallback} ${arr[*]:-fallback} ${arr[*]@Q} ${arr[0]}\n";
         let output = Parser::new(source).parse().unwrap();
         let command = &output.file.body[0].command;
         let shuck_ast::Command::Simple(command) = command else {
             panic!("expected simple command");
         };
 
-        let spans = array_expansion_part_spans(&command.args[1], source);
-        assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0].slice(source), "${arr[@]}");
+        let spans = command
+            .args
+            .iter()
+            .skip(1)
+            .flat_map(|word| array_expansion_part_spans(word, source))
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            spans,
+            vec!["${arr[@]}", "${arr[*]:-fallback}", "${arr[*]@Q}"]
+        );
     }
 
     #[test]
     fn scalar_expansion_spans_ignore_array_splats_and_command_substitutions() {
-        let source = "printf '%s\\n' prefix${name}suffix ${arr[@]} ${arr[0]} $(date)\n";
+        let source = "printf '%s\\n' prefix${name}suffix ${arr[@]} ${arr[0]} ${arr[@]:-fallback} ${arr[*]:-fallback} ${arr[@]@Q} ${arr[*]@Q} ${arr[0]:-fallback} $(date)\n";
         let output = Parser::new(source).parse().unwrap();
         let command = &output.file.body[0].command;
         let shuck_ast::Command::Simple(command) = command else {
@@ -4717,6 +4771,29 @@ mod tests {
         );
         assert!(
             scalar_expansion_part_spans(&command.args[4], source).is_empty(),
+            "array splats with default operators should be left to array rules"
+        );
+        assert!(
+            scalar_expansion_part_spans(&command.args[5], source).is_empty(),
+            "star-selector array splats with default operators should be left to array rules"
+        );
+        assert!(
+            scalar_expansion_part_spans(&command.args[6], source).is_empty(),
+            "array splat transformations should be left to array rules"
+        );
+        assert!(
+            scalar_expansion_part_spans(&command.args[7], source).is_empty(),
+            "star-splat transformations should stay on the star-parameter path"
+        );
+        assert_eq!(
+            scalar_expansion_part_spans(&command.args[8], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[0]:-fallback}"]
+        );
+        assert!(
+            scalar_expansion_part_spans(&command.args[9], source).is_empty(),
             "command substitutions should be left to S004"
         );
     }
@@ -5473,7 +5550,7 @@ printf '%s\\n' \"$BASH_SOURCE\" \"${BASH_SOURCE}\" \"$(dirname \"$BASH_SOURCE\")
     #[test]
     fn word_unquoted_star_splat_spans_tracks_star_selector_forms_only() {
         let source = "\
-printf '%s\\n' $* ${*} ${*:1} ${arr[*]} ${arr[*]:1:2} ${!arr[*]} ${arr[@]} ${arr[@]:1} ${arr[0]} \"$*\" \"${arr[*]}\"
+printf '%s\\n' $* ${*} ${*:1} ${arr[*]} ${arr[*]:1:2} ${arr[*]:-fallback} ${arr[*]@Q} ${!arr[*]} ${arr[@]} ${arr[@]:1} ${arr[0]} \"$*\" \"${arr[*]}\"
 ";
         let output = Parser::new(source).parse().unwrap();
         let command = &output.file.body[0].command;
@@ -5490,14 +5567,22 @@ printf '%s\\n' $* ${*} ${*:1} ${arr[*]} ${arr[*]:1:2} ${!arr[*]} ${arr[@]} ${arr
 
         assert_eq!(
             spans,
-            vec!["$*", "${*}", "${*:1}", "${arr[*]}", "${arr[*]:1:2}"]
+            vec![
+                "$*",
+                "${*}",
+                "${*:1}",
+                "${arr[*]}",
+                "${arr[*]:1:2}",
+                "${arr[*]:-fallback}",
+                "${arr[*]@Q}"
+            ]
         );
     }
 
     #[test]
     fn word_unquoted_star_parameter_spans_tracks_star_selector_forms_only() {
         let source = "\
-printf '%s\\n' $* ${arr[*]} ${arr[*]:1:2} ${!arr[*]} ${arr[@]} ${arr[@]:1} ${arr[0]} \"$*\" \"${arr[*]}\"
+printf '%s\\n' $* ${arr[*]} ${arr[*]:1:2} ${arr[*]:-fallback} ${arr[*]@Q} ${!arr[*]} ${arr[@]} ${arr[@]:1} ${arr[0]} \"$*\" \"${arr[*]}\"
 ";
         let output = Parser::new(source).parse().unwrap();
         let command = &output.file.body[0].command;
@@ -5515,7 +5600,16 @@ printf '%s\\n' $* ${arr[*]} ${arr[*]:1:2} ${!arr[*]} ${arr[@]} ${arr[@]:1} ${arr
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
 
-        assert_eq!(spans, vec!["$*", "${arr[*]}", "${arr[*]:1:2}"]);
+        assert_eq!(
+            spans,
+            vec![
+                "$*",
+                "${arr[*]}",
+                "${arr[*]:1:2}",
+                "${arr[*]:-fallback}",
+                "${arr[*]@Q}"
+            ]
+        );
     }
 
     #[test]

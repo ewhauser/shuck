@@ -1018,6 +1018,37 @@ unset parts[\"$key\"] extra
 }
 
 #[test]
+fn parses_unset_nameref_mode_separately_from_variable_mode() {
+    let source = "\
+#!/bin/bash
+unset -n ref
+unset -v value
+unset -xn unknown
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, ShellDialect::Bash);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+    let unsets = facts
+        .commands()
+        .iter()
+        .filter(|fact| fact.effective_name_is("unset"))
+        .filter_map(|fact| fact.options().unset())
+        .collect::<Vec<_>>();
+
+    assert_eq!(unsets.len(), 3);
+    assert!(unsets[0].nameref_mode());
+    assert!(!unsets[0].function_mode);
+    assert!(unsets[0].options_parseable());
+    assert!(!unsets[1].nameref_mode());
+    assert!(unsets[1].options_parseable());
+    assert!(unsets[2].nameref_mode());
+    assert!(!unsets[2].options_parseable());
+}
+
+#[test]
 fn records_unset_array_subscript_details_in_operand_facts() {
     let source = "\
 #!/bin/bash

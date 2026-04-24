@@ -108,6 +108,7 @@ pub struct PrintfCommandFacts<'a> {
 #[derive(Debug, Clone)]
 pub struct UnsetCommandFacts<'a> {
     pub function_mode: bool,
+    nameref_mode: bool,
     operand_words: Box<[&'a Word]>,
     operand_facts: Box<[UnsetOperandFact<'a>]>,
     prefix_match_operand_spans: Box<[Span]>,
@@ -125,6 +126,14 @@ impl<'a> UnsetCommandFacts<'a> {
 
     pub(crate) fn operand_facts(&self) -> &[UnsetOperandFact<'a>] {
         &self.operand_facts
+    }
+
+    pub(crate) fn options_parseable(&self) -> bool {
+        self.options_parseable
+    }
+
+    pub(crate) fn nameref_mode(&self) -> bool {
+        self.nameref_mode
     }
 
     pub fn targets_function_name(&self, source: &str, target_name: &str) -> bool {
@@ -3326,6 +3335,7 @@ fn printf_uses_q_format(word: &Word, source: &str) -> bool {
 
 fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts<'a> {
     let mut function_mode = false;
+    let mut nameref_mode = false;
     let mut parsing_options = true;
     let mut options_parseable = true;
     let mut operands = Vec::new();
@@ -3352,8 +3362,13 @@ fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts
             }
 
             if text.starts_with('-') && text != "-" {
-                if text[1..].chars().any(|flag| flag == 'f') {
-                    function_mode = true;
+                for flag in text[1..].chars() {
+                    match flag {
+                        'f' => function_mode = true,
+                        'n' => nameref_mode = true,
+                        'v' => {}
+                        _ => options_parseable = false,
+                    }
                 }
                 continue;
             }
@@ -3368,6 +3383,7 @@ fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts
 
     UnsetCommandFacts {
         function_mode,
+        nameref_mode,
         operand_words: operands.into_boxed_slice(),
         operand_facts: operand_facts.into_boxed_slice(),
         prefix_match_operand_spans: prefix_match_operand_spans.into_boxed_slice(),
