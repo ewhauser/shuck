@@ -55,12 +55,10 @@ fn span_matches_short_circuit_skip(
             return false;
         }
 
-        let span_index = list
-            .segments()
+        list.segments()
             .iter()
-            .position(|segment| span_starts_in(span, segment.span()));
-
-        span_index.is_some_and(|index| index > 0)
+            .enumerate()
+            .any(|(index, segment)| index > 0 && span.start == segment.span().start)
     })
 }
 
@@ -81,10 +79,6 @@ fn list_starts_with_condition(list: &ListFact<'_>, commands: &[CommandFact<'_>])
             command.effective_or_literal_name(),
             Some("[" | "test" | "true" | "false")
         )
-}
-
-fn span_starts_in(inner: Span, outer: Span) -> bool {
-    outer.start.offset <= inner.start.offset && inner.start.offset < outer.end.offset
 }
 
 fn outermost_unreachable_spans(mut spans: Vec<shuck_ast::Span>) -> Vec<shuck_ast::Span> {

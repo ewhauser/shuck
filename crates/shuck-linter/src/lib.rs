@@ -4672,6 +4672,20 @@ error() {
     }
 
     #[test]
+    fn unreachable_after_exit_reports_nested_dead_code_in_skipped_short_circuit_segments() {
+        let source = "\
+#!/bin/bash
+check() {
+  [ \"$1\" = stop ] && { return 0; echo inner; } && echo tail
+}
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "echo inner");
+    }
+
+    #[test]
     fn unreachable_after_exit_keeps_dead_two_segment_short_circuit_tail() {
         let source = "\
 #!/bin/bash
