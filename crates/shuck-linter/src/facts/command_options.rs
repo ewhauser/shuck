@@ -127,6 +127,10 @@ impl<'a> UnsetCommandFacts<'a> {
         &self.operand_facts
     }
 
+    pub(crate) fn options_parseable(&self) -> bool {
+        self.options_parseable
+    }
+
     pub fn targets_function_name(&self, source: &str, target_name: &str) -> bool {
         if !self.function_mode || !self.options_parseable {
             return false;

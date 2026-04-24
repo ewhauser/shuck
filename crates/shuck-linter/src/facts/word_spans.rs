@@ -2625,14 +2625,18 @@ fn collect_scalar_expansion_spans(
             WordPart::Variable(name) if matches!(name.as_str(), "@" | "*") => {}
             WordPart::Variable(_)
             | WordPart::ArithmeticExpansion { .. }
-            | WordPart::ParameterExpansion { .. }
             | WordPart::Length(_)
             | WordPart::ArrayLength(_)
             | WordPart::Substring { .. }
-            | WordPart::IndirectExpansion { .. }
-            | WordPart::PrefixMatch { .. }
-            | WordPart::Transformation { .. } => {
+            | WordPart::PrefixMatch { .. } => {
                 if !only_unquoted || !quoted {
+                    spans.push(part.span);
+                }
+            }
+            WordPart::ParameterExpansion { reference, .. }
+            | WordPart::IndirectExpansion { reference, .. }
+            | WordPart::Transformation { reference, .. } => {
+                if !reference.has_array_selector() && (!only_unquoted || !quoted) {
                     spans.push(part.span);
                 }
             }
@@ -4032,10 +4036,12 @@ fn parameter_is_scalar_like(parameter: &ParameterExpansion) -> bool {
         ParameterExpansionSyntax::Bourne(syntax) => match syntax {
             BourneParameterExpansion::Access { reference } => !reference.has_array_selector(),
             BourneParameterExpansion::Length { .. }
-            | BourneParameterExpansion::Indirect { .. }
-            | BourneParameterExpansion::PrefixMatch { .. }
-            | BourneParameterExpansion::Operation { .. }
-            | BourneParameterExpansion::Transformation { .. } => true,
+            | BourneParameterExpansion::PrefixMatch { .. } => true,
+            BourneParameterExpansion::Indirect { reference, .. }
+            | BourneParameterExpansion::Operation { reference, .. }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                !reference.has_array_selector()
+            }
             BourneParameterExpansion::Indices { .. } => false,
             BourneParameterExpansion::Slice { reference, .. } => !reference.has_array_selector(),
         },
@@ -4690,7 +4696,7 @@ mod tests {
 
     #[test]
     fn scalar_expansion_spans_ignore_array_splats_and_command_substitutions() {
-        let source = "printf '%s\\n' prefix${name}suffix ${arr[@]} ${arr[0]} $(date)\n";
+        let source = "printf '%s\\n' prefix${name}suffix ${arr[@]} ${arr[0]} ${arr[@]:-fallback} ${arr[*]:-fallback} ${arr[@]@Q} ${arr[0]:-fallback} $(date)\n";
         let output = Parser::new(source).parse().unwrap();
         let command = &output.file.body[0].command;
         let shuck_ast::Command::Simple(command) = command else {
@@ -4717,6 +4723,25 @@ mod tests {
         );
         assert!(
             scalar_expansion_part_spans(&command.args[4], source).is_empty(),
+            "array splats with default operators should be left to array rules"
+        );
+        assert!(
+            scalar_expansion_part_spans(&command.args[5], source).is_empty(),
+            "star-selector array splats with default operators should be left to array rules"
+        );
+        assert!(
+            scalar_expansion_part_spans(&command.args[6], source).is_empty(),
+            "array splat transformations should be left to array rules"
+        );
+        assert_eq!(
+            scalar_expansion_part_spans(&command.args[7], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[0]:-fallback}"]
+        );
+        assert!(
+            scalar_expansion_part_spans(&command.args[8], source).is_empty(),
             "command substitutions should be left to S004"
         );
     }

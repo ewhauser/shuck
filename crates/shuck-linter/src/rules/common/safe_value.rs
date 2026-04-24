@@ -316,6 +316,9 @@ impl<'a> SafeValueIndex<'a> {
         let bindings_cover_all_paths = helper_bindings.is_empty()
             && needs_arg_path_coverage
             && self.bindings_cover_all_paths_to_reference(&bindings, name, at);
+        let unset_covers_reference = needs_arg_path_coverage
+            && !bindings.is_empty()
+            && self.unset_command_covers_reference(name, at);
         let direct_bindings_cover_all_paths =
             needs_arg_path_coverage && !helper_bindings.is_empty() && {
                 let direct_bindings = bindings
@@ -333,6 +336,7 @@ impl<'a> SafeValueIndex<'a> {
         if helper_bindings.is_empty()
             && needs_arg_path_coverage
             && !bindings_cover_all_paths
+            && !unset_covers_reference
             && (!outer_bindings_cover_callers || !reference_is_inside_function)
         {
             return false;
@@ -357,6 +361,7 @@ impl<'a> SafeValueIndex<'a> {
                 .any(|binding_id| self.binding_dominates_reference(binding_id, name, at));
             if !has_dominating_binding
                 && !bindings_cover_all_paths
+                && !unset_covers_reference
                 && !bindings
                     .iter()
                     .copied()
@@ -882,6 +887,32 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         true
+    }
+
+    fn unset_command_covers_reference(&self, name: &Name, at: Span) -> bool {
+        self.facts.structural_commands().any(|command| {
+            command.span().end.offset <= at.start.offset
+                && command
+                    .options()
+                    .unset()
+                    .is_some_and(|unset| self.unset_targets_variable_name(unset, name))
+                && self.command_blocks_cover_all_paths_to_reference(command, name, at)
+        })
+    }
+
+    fn unset_targets_variable_name(
+        &self,
+        unset: &crate::facts::UnsetCommandFacts<'a>,
+        name: &Name,
+    ) -> bool {
+        if unset.function_mode || !unset.options_parseable() {
+            return false;
+        }
+
+        unset.operand_facts().iter().any(|operand| {
+            operand.array_subscript().is_none()
+                && static_word_text(operand.word(), self.source).as_deref() == Some(name.as_str())
+        })
     }
 
     fn reference_is_safe(&mut self, reference: &VarRef, at: Span, query: SafeValueQuery) -> bool {
