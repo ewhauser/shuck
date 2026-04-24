@@ -4285,7 +4285,7 @@ impl<'a> Parser<'a> {
 
     /// Parse commands until one of the terminating keywords
     fn parse_compound_list_until(&mut self, terminators: KeywordSet) -> Result<Vec<Stmt>> {
-        let mut stmts = Vec::with_capacity(4);
+        let mut stmts = Vec::new();
 
         loop {
             self.skip_command_separators()?;
