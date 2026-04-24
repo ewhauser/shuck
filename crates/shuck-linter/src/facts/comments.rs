@@ -339,6 +339,33 @@ fn build_commented_continuation_comment_spans(source: &str, indexer: &Indexer) -
         .collect()
 }
 
+fn build_comment_double_quote_nesting_spans(source: &str) -> Vec<Span> {
+    source_lines_with_offsets(source)
+        .enumerate()
+        .filter_map(|(line_index, source_line)| {
+            let line = source_line.text.trim_end_matches('\r');
+            let comment_start = line.find('#')?;
+            if !line[..comment_start].trim().is_empty() {
+                return None;
+            }
+
+            let comment_text = &line[comment_start..];
+            let parameter_start = comment_text.find("$0")?;
+            let quoted_positional = comment_text[parameter_start..]
+                .find("\"$@\"")
+                .map(|offset| parameter_start + offset)?;
+            let expansion_start = comment_start + quoted_positional + 1;
+            Some(line_slice_span(
+                line_index + 1,
+                source_line.offset,
+                line,
+                expansion_start,
+                2,
+            ))
+        })
+        .collect()
+}
+
 fn build_trailing_directive_comment_spans(
     file: &File,
     case_items: &[CaseItemFact<'_>],

@@ -62,6 +62,7 @@ pub struct LinterFacts<'a> {
     non_absolute_shebang_span: Option<Span>,
     errexit_enabled_anywhere: bool,
     commented_continuation_comment_spans: Vec<Span>,
+    comment_double_quote_nesting_spans: Vec<Span>,
     trailing_directive_comment_spans: Vec<Span>,
     condition_status_capture_spans: Vec<Span>,
     command_substitution_command_spans: Vec<Span>,
@@ -652,6 +653,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn commented_continuation_comment_spans(&self) -> &[Span] {
         &self.commented_continuation_comment_spans
+    }
+
+    pub fn comment_double_quote_nesting_spans(&self) -> &[Span] {
+        &self.comment_double_quote_nesting_spans
     }
 
     pub fn trailing_directive_comment_spans(&self) -> &[Span] {

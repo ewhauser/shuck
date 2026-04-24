@@ -1077,6 +1077,7 @@ pub(crate) struct WordNodeDerived {
     unquoted_array_expansion_spans: Box<[Span]>,
     command_substitution_spans: Box<[Span]>,
     unquoted_command_substitution_spans: Box<[Span]>,
+    unquoted_dollar_paren_command_substitution_spans: Box<[Span]>,
     double_quoted_expansion_spans: Box<[Span]>,
     unquoted_literal_between_double_quoted_segments_spans: Box<[Span]>,
 }
@@ -1293,6 +1294,12 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
 
     pub fn unquoted_command_substitution_spans(self) -> &'facts [Span] {
         &self.derived().unquoted_command_substitution_spans
+    }
+
+    pub fn unquoted_dollar_paren_command_substitution_spans(self) -> &'facts [Span] {
+        &self
+            .derived()
+            .unquoted_dollar_paren_command_substitution_spans
     }
 
     pub fn double_quoted_expansion_spans(self) -> &'facts [Span] {
@@ -3247,6 +3254,11 @@ fn derive_word_fact_data(word: &Word, source: &str) -> WordNodeDerived {
         unquoted_command_substitution_spans:
             word_spans::unquoted_command_substitution_part_spans_in_source(word, source)
                 .into_boxed_slice(),
+        unquoted_dollar_paren_command_substitution_spans:
+            word_spans::unquoted_dollar_paren_command_substitution_part_spans_in_source(
+                word, source,
+            )
+            .into_boxed_slice(),
         double_quoted_expansion_spans: double_quoted_expansion_part_spans(word).into_boxed_slice(),
         unquoted_literal_between_double_quoted_segments_spans:
             build_unquoted_literal_between_double_quoted_segments_spans(word, source)
