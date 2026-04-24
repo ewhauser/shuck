@@ -35,13 +35,13 @@ pub fn unused_assignment(checker: &mut Checker) {
         .unused_assignments_with_options(checker.rule_options().c001.semantic_options());
     let unused_binding_ids = unused_bindings.iter().copied().collect::<HashSet<_>>();
     let mut families_with_used_bindings = HashSet::new();
-    let mut suppressed_families = HashSet::new();
+    let mut suppressed_binding_offsets_by_family = HashMap::<BindingFamilyKey, Vec<usize>>::new();
     let mut unused_bindings_by_family = HashMap::<BindingFamilyKey, Vec<_>>::new();
     let mut last_unused_binding_by_family = HashMap::new();
     let mut family_keys = HashMap::with_capacity(semantic.bindings().len());
 
     for binding in semantic.bindings() {
-        if is_intentionally_unused_name(binding.name.as_str()) {
+        if is_intentionally_unused_binding(binding) {
             continue;
         }
 
@@ -50,7 +50,7 @@ pub fn unused_assignment(checker: &mut Checker) {
 
     for reference in semantic.references() {
         if matches!(reference.kind, ReferenceKind::DeclarationName)
-            || is_intentionally_unused_name(reference.name.as_str())
+            || is_underscore_name(reference.name.as_str())
         {
             continue;
         }
@@ -59,7 +59,7 @@ pub fn unused_assignment(checker: &mut Checker) {
     }
 
     for binding in semantic.bindings() {
-        if is_intentionally_unused_name(binding.name.as_str()) {
+        if is_intentionally_unused_binding(binding) {
             continue;
         }
 
@@ -68,8 +68,12 @@ pub fn unused_assignment(checker: &mut Checker) {
         }
 
         let family = binding_family_key(&family_keys, binding.id);
-        if checker.is_suppressed_at(Rule::UnusedAssignment, report_span_for_binding(binding)) {
-            suppressed_families.insert(family.clone());
+        let report_span = report_span_for_binding(binding);
+        if checker.is_suppressed_at(Rule::UnusedAssignment, report_span) {
+            suppressed_binding_offsets_by_family
+                .entry(family.clone())
+                .or_default()
+                .push(report_span.start.offset);
         }
 
         if binding.attributes.contains(BindingAttributes::EXPORTED) {
@@ -84,7 +88,7 @@ pub fn unused_assignment(checker: &mut Checker) {
 
     for binding_id in unused_bindings {
         let binding = semantic.binding(*binding_id);
-        if is_intentionally_unused_name(binding.name.as_str()) {
+        if is_intentionally_unused_binding(binding) {
             continue;
         }
 
@@ -117,15 +121,19 @@ pub fn unused_assignment(checker: &mut Checker) {
 
     let mut reportable_bindings = Vec::new();
     for family in unused_bindings_by_family.keys() {
-        if suppressed_families.contains(family) {
-            continue;
-        }
-
         if families_with_used_bindings.contains(family) {
             continue;
         }
 
         if let Some(binding_id) = last_unused_binding_by_family.get(family).copied() {
+            let binding = semantic.binding(binding_id);
+            let report_offset = report_span_for_binding(binding).start.offset;
+            if suppressed_binding_offsets_by_family
+                .get(family)
+                .is_some_and(|offsets| offsets.iter().any(|offset| *offset >= report_offset))
+            {
+                continue;
+            }
             reportable_bindings.push(binding_id);
         }
     }
@@ -161,8 +169,14 @@ pub fn unused_assignment(checker: &mut Checker) {
     }
 }
 
-fn is_intentionally_unused_name(name: &str) -> bool {
-    name.starts_with('_') || matches!(name, "rest" | "REST")
+fn is_intentionally_unused_binding(binding: &Binding) -> bool {
+    is_underscore_name(binding.name.as_str())
+        || (matches!(binding.kind, BindingKind::ReadTarget)
+            && matches!(binding.name.as_str(), "rest" | "REST"))
+}
+
+fn is_underscore_name(name: &str) -> bool {
+    name.starts_with('_')
 }
 
 fn is_reportable_unused_assignment(kind: BindingKind, attributes: BindingAttributes) -> bool {
@@ -410,11 +424,21 @@ done
     }
 
     #[test]
-    fn rest_names_are_treated_as_intentional_placeholders() {
+    fn read_rest_names_are_treated_as_intentional_placeholders() {
         let source = "#!/bin/bash\nread -r cron_id rest\nprintf '%s\\n' \"$cron_id\"\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn plain_rest_names_are_reported() {
+        let source = "#!/bin/bash\nrest=1\nREST=2\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "rest");
+        assert_eq!(diagnostics[1].span.slice(source), "REST");
     }
 
     #[test]

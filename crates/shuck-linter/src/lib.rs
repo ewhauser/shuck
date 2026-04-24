@@ -1723,11 +1723,20 @@ printf '%s\\n' \"${!args_var}\"
     #[test]
     fn unused_assignment_ignores_leading_underscore_bindings() {
         let diagnostics = lint_for_rule(
-            "#!/bin/bash\n_unused=1\n__unused=2\nrest=3\nREST=4\n",
+            "#!/bin/bash\n_unused=1\n__unused=2\n",
             Rule::UnusedAssignment,
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unused_assignment_reports_plain_rest_bindings() {
+        let diagnostics = lint_for_rule("#!/bin/bash\nrest=1\nREST=2\n", Rule::UnusedAssignment);
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[1].span.start.line, 3);
     }
 
     #[test]
@@ -4150,12 +4159,13 @@ foo=1
     }
 
     #[test]
-    fn unused_assignment_family_suppressed_by_shellcheck_directive_on_later_binding() {
+    fn unused_assignment_suppression_stays_on_matching_binding_line() {
         let source = "\
 #!/bin/bash
-flaghash[x]=1
+:
 # shellcheck disable=SC2034
-declare -A flaghash
+foo=1
+foo=2
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
@@ -4177,7 +4187,8 @@ declare -A flaghash
             &LinterSettings::default(),
             Some(&suppressions),
         );
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 5);
     }
 
     #[test]

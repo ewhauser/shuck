@@ -156,6 +156,7 @@ fn run_fixture(fixture: &Fixture) -> Result<()> {
         shuck_linter::LinterRuleOptions::default(),
         &file_context,
         None,
+        None,
     );
 
     for (probe_id, expected) in &fixture.option_probes {

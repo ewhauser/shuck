@@ -2028,12 +2028,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.visit_conditional_expr_into(&expr.right, flow, nested_regions);
             }
             ConditionalExpr::Unary(expr) => {
-                if expr.op == ConditionalUnaryOp::VariableSet {
-                    if let Some((name, span)) =
+                if expr.op == ConditionalUnaryOp::VariableSet
+                    && let Some((name, span)) =
                         variable_set_test_operand_name(&expr.expr, self.source)
-                    {
-                        self.add_reference_if_bound(&name, ReferenceKind::ConditionalOperand, span);
-                    }
+                {
+                    self.add_reference_if_bound(&name, ReferenceKind::ConditionalOperand, span);
                 }
                 self.visit_conditional_expr_into(&expr.expr, flow, nested_regions);
             }

@@ -119,20 +119,12 @@ pub struct SyntheticRead {
 }
 
 /// Behavior flags for unused-assignment analysis.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct UnusedAssignmentAnalysisOptions {
     /// Whether a resolved scalar indirect-expansion target like `${!name}` counts as a use
     /// of the target. ShellCheck-compatible analysis leaves this disabled. Array-like
     /// targets such as `name=arr[@]; ${!name}` stay live in both modes.
     pub treat_indirect_expansion_targets_as_used: bool,
-}
-
-impl Default for UnusedAssignmentAnalysisOptions {
-    fn default() -> Self {
-        Self {
-            treat_indirect_expansion_targets_as_used: false,
-        }
-    }
 }
 
 #[allow(missing_docs)]
