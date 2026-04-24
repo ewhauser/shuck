@@ -141,6 +141,26 @@ echo \"left \"`printf '%s' value`\" right\"
     }
 
     #[test]
+    fn reports_multiline_quoted_comment_like_quote_nesting_pattern() {
+        let source = "\
+#!/bin/sh
+text=\"
+# script's $0 value, followed by \"$@\".
+\"
+printf '%s\\n' \"$text\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DoubleQuoteNesting));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$@"]
+        );
+    }
+
+    #[test]
     fn ignores_heredoc_payload_comment_like_quote_nesting_pattern() {
         let source = "\
 #!/bin/sh
