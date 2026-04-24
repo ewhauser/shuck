@@ -119,4 +119,43 @@ printf '%s\\n' \"$seed_name\" \"$hint_name\"
                 .all(|diagnostic| diagnostic.span.start.line == 3)
         );
     }
+
+    #[test]
+    fn parameter_guard_flow_suppresses_later_reads_of_the_guarded_name() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' \"${defaulted:-fallback}\" \"$defaulted\"
+printf '%s\\n' \"${assigned:=fallback}\" \"$assigned\"
+printf '%s\\n' \"${required:?missing}\" \"$required\"
+printf '%s\\n' \"${replacement:+alt}\" \"$replacement\"
+printf '%s\\n' \"$before_default\" \"${before_default:-fallback}\" \"$plain_missing\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$before_default", "$plain_missing"]
+        );
+    }
+
+    #[test]
+    fn parameter_guard_flow_does_not_escape_conditional_operands() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' \"${outer:+${nested_default:-fallback}}\" \"$outer\" \"$nested_default\"
+printf '%s\\n' \"${other:+${nested_replacement:+alt}}\" \"$other\" \"$nested_replacement\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$nested_default", "$nested_replacement"]
+        );
+    }
 }

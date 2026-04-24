@@ -5,8 +5,8 @@ use shuck_ast::{
     AnonymousFunctionCommand, ArithmeticAssignOp, ArithmeticExpr, ArithmeticExprNode,
     ArithmeticLvalue, ArithmeticUnaryOp, ArrayElem, ArrayExpr, ArrayKind, Assignment,
     AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command,
-    CompoundCommand, ConditionalExpr, ConditionalUnaryOp, DeclOperand, File, FunctionDef,
-    HeredocBody, HeredocBodyPart, HeredocBodyPartNode, Name, ParameterExpansion,
+    CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclOperand, File,
+    FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, Name, ParameterExpansion,
     ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind, PatternPart, PatternPartNode,
     Span, StaticCommandWrapperTarget, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart,
     WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
@@ -49,6 +49,7 @@ pub(crate) struct BuildOutput {
     pub(crate) reference_index: FxHashMap<Name, SmallVec<[ReferenceId; 2]>>,
     pub(crate) predefined_runtime_refs: FxHashSet<ReferenceId>,
     pub(crate) guarded_parameter_refs: FxHashSet<ReferenceId>,
+    pub(crate) parameter_guard_flow_refs: FxHashSet<ReferenceId>,
     pub(crate) defaulting_parameter_operand_refs: FxHashSet<ReferenceId>,
     pub(crate) binding_index: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     pub(crate) resolved: FxHashMap<ReferenceId, BindingId>,
@@ -78,6 +79,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     reference_index: FxHashMap<Name, SmallVec<[ReferenceId; 2]>>,
     predefined_runtime_refs: FxHashSet<ReferenceId>,
     guarded_parameter_refs: FxHashSet<ReferenceId>,
+    parameter_guard_flow_refs: FxHashSet<ReferenceId>,
     defaulting_parameter_operand_refs: FxHashSet<ReferenceId>,
     binding_index: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     resolved: FxHashMap<ReferenceId, BindingId>,
@@ -101,6 +103,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     command_stack: Vec<Span>,
     guarded_parameter_operand_depth: u32,
     defaulting_parameter_operand_depth: u32,
+    short_circuit_condition_depth: u32,
 }
 
 fn semantic_statement_span(stmt: &Stmt) -> Span {
@@ -176,6 +179,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             reference_index: FxHashMap::default(),
             predefined_runtime_refs: FxHashSet::default(),
             guarded_parameter_refs: FxHashSet::default(),
+            parameter_guard_flow_refs: FxHashSet::default(),
             defaulting_parameter_operand_refs: FxHashSet::default(),
             binding_index: FxHashMap::default(),
             resolved: FxHashMap::default(),
@@ -199,6 +203,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             command_stack: Vec::new(),
             guarded_parameter_operand_depth: 0,
             defaulting_parameter_operand_depth: 0,
+            short_circuit_condition_depth: 0,
         };
         let file_commands = builder.visit_stmt_seq(&file.body, FlowState::default());
         builder.recorded_program.set_file_commands(file_commands);
@@ -216,6 +221,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             reference_index: builder.reference_index,
             predefined_runtime_refs: builder.predefined_runtime_refs,
             guarded_parameter_refs: builder.guarded_parameter_refs,
+            parameter_guard_flow_refs: builder.parameter_guard_flow_refs,
             defaulting_parameter_operand_refs: builder.defaulting_parameter_operand_refs,
             binding_index: builder.binding_index,
             resolved: builder.resolved,
@@ -1449,7 +1455,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     reference.span,
                 );
                 if parameter_operator_guards_unset_reference(operator) {
-                    self.guarded_parameter_refs.insert(reference_id);
+                    self.record_guarded_parameter_reference(reference_id);
                 }
                 if matches!(operator, ParameterOp::AssignDefault) {
                     self.add_parameter_default_binding(reference);
@@ -1791,7 +1797,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         span,
                     );
                     if parameter_operator_guards_unset_reference(operator) {
-                        self.guarded_parameter_refs.insert(reference_id);
+                        self.record_guarded_parameter_reference(reference_id);
                     }
                     if matches!(operator, ParameterOp::AssignDefault) {
                         self.add_parameter_default_binding(reference);
@@ -1998,6 +2004,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn record_guarded_parameter_reference(&mut self, reference_id: ReferenceId) {
+        self.guarded_parameter_refs.insert(reference_id);
+        if self.defaulting_parameter_operand_depth == 0 && self.short_circuit_condition_depth == 0 {
+            self.parameter_guard_flow_refs.insert(reference_id);
+        }
+    }
+
     fn visit_pattern_part(
         &mut self,
         part: &'a PatternPart,
@@ -2040,7 +2053,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         match expression {
             ConditionalExpr::Binary(expr) => {
                 self.visit_conditional_expr_into(&expr.left, flow, nested_regions);
-                self.visit_conditional_expr_into(&expr.right, flow, nested_regions);
+                if matches!(expr.op, ConditionalBinaryOp::And | ConditionalBinaryOp::Or) {
+                    self.short_circuit_condition_depth += 1;
+                    self.visit_conditional_expr_into(&expr.right, flow, nested_regions);
+                    self.short_circuit_condition_depth -= 1;
+                } else {
+                    self.visit_conditional_expr_into(&expr.right, flow, nested_regions);
+                }
             }
             ConditionalExpr::Unary(expr) => {
                 if expr.op == ConditionalUnaryOp::VariableSet

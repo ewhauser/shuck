@@ -432,6 +432,7 @@ pub struct SemanticModel {
     reference_index: FxHashMap<Name, SmallVec<[ReferenceId; 2]>>,
     predefined_runtime_refs: FxHashSet<ReferenceId>,
     guarded_parameter_refs: FxHashSet<ReferenceId>,
+    parameter_guard_flow_refs: FxHashSet<ReferenceId>,
     defaulting_parameter_operand_refs: FxHashSet<ReferenceId>,
     binding_index: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     resolved: FxHashMap<ReferenceId, BindingId>,
@@ -544,6 +545,7 @@ impl SemanticModel {
             reference_index,
             predefined_runtime_refs: built.predefined_runtime_refs,
             guarded_parameter_refs: built.guarded_parameter_refs,
+            parameter_guard_flow_refs: built.parameter_guard_flow_refs,
             defaulting_parameter_operand_refs: built.defaulting_parameter_operand_refs,
             binding_index: built.binding_index,
             resolved: built.resolved,
@@ -1199,6 +1201,7 @@ impl SemanticModel {
             references: &self.references,
             predefined_runtime_refs: &self.predefined_runtime_refs,
             guarded_parameter_refs: &self.guarded_parameter_refs,
+            parameter_guard_flow_refs: &self.parameter_guard_flow_refs,
             resolved: &self.resolved,
             call_sites: &self.call_sites,
             indirect_targets_by_reference: &self.indirect_targets_by_reference,
@@ -6514,6 +6517,100 @@ printf '%s\\n' \"$config_path\" \"$still_missing\"
             })
             .unwrap();
         assert_eq!(binding.span.slice(source), "${config_path:=/tmp/default}");
+    }
+
+    #[test]
+    fn parameter_guard_flow_initializes_later_c006_reads() {
+        let source = "\
+printf '%s\\n' \"${defaulted:-fallback}\"
+printf '%s\\n' \"${assigned:=fallback}\"
+printf '%s\\n' \"${required:?missing}\"
+printf '%s\\n' \"${replacement:+alt}\"
+printf '%s\\n' \"$defaulted\" \"$assigned\" \"$required\" \"$replacement\" \"$still_missing\"
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(
+            &["defaulted", "assigned", "required", "replacement"],
+            &uninitialized,
+        );
+        assert_names_present(&["still_missing"], &uninitialized);
+    }
+
+    #[test]
+    fn parameter_guard_flow_respects_same_command_order() {
+        let source = "\
+printf '%s\\n' \
+  \"${same_default:-fallback}\" \"$same_default\" \
+  \"${same_assigned:=fallback}\" \"$same_assigned\" \
+  \"${same_required:?missing}\" \"$same_required\" \
+  \"${same_replacement:+alt}\" \"$same_replacement\" \
+  \"$before_default\" \"${before_default:-fallback}\" \
+  \"$still_missing\"
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(
+            &[
+                "same_default",
+                "same_assigned",
+                "same_required",
+                "same_replacement",
+            ],
+            &uninitialized,
+        );
+        assert_names_present(&["before_default", "still_missing"], &uninitialized);
+    }
+
+    #[test]
+    fn parameter_guard_flow_does_not_escape_conditional_operands() {
+        let source = "\
+printf '%s\\n' \"${outer:+${nested_default:-fallback}}\" \"$outer\" \"$nested_default\"
+printf '%s\\n' \"${other:+${nested_replacement:+alt}}\" \"$other\" \"$nested_replacement\"
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["outer", "other"], &uninitialized);
+        assert_names_present(&["nested_default", "nested_replacement"], &uninitialized);
+    }
+
+    #[test]
+    fn parameter_guard_flow_does_not_escape_short_circuit_conditionals() {
+        let source = "\
+flag=
+[[ ${left_guard:-fallback} && $flag ]]
+printf '%s\\n' \"$left_guard\"
+[[ $flag && ${right_and:-fallback} ]]
+printf '%s\\n' \"$right_and\"
+flag=1
+[[ $flag || ${right_or:+alt} ]]
+printf '%s\\n' \"$right_or\"
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["left_guard"], &uninitialized);
+        assert_names_present(&["right_and", "right_or"], &uninitialized);
+    }
+
+    #[test]
+    fn non_assigning_parameter_guard_flow_does_not_create_bindings() {
+        let source = "\
+: \"${defaulted:-fallback}\" \"${replacement:+alt}\"
+";
+        let model = model(source);
+
+        assert!(model.bindings_for(&Name::from("defaulted")).is_empty());
+        assert!(model.bindings_for(&Name::from("replacement")).is_empty());
+        assert!(
+            model
+                .analysis()
+                .summarize_scope_provided_bindings(ScopeId(0))
+                .is_empty()
+        );
     }
 
     #[test]

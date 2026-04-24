@@ -3111,19 +3111,33 @@ printf '%s %s\\n' \"$missing\" \"$also_missing\"
     }
 
     #[test]
-    fn undefined_variable_uses_first_plain_read_after_ignored_occurrences() {
+    fn undefined_variable_parameter_guard_flow_respects_same_command_order() {
         let source = "\
 #!/bin/sh
-printf '%s\\n' \"${guarded:-fallback}\"
-printf '%s\\n' \"$guarded\"
-printf '%s\\n' \"$guarded\"
+printf '%s\\n' \"$before_default\" \"${before_default:-fallback}\"
+printf '%s\\n' \"${guarded:-fallback}\" \"$guarded\"
+printf '%s\\n' \"$plain_missing\"
 ";
         let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
-        assert!(diagnostics[0].message.contains("guarded"));
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics.len(), 2);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("before_default")
+                    && diagnostic.span.start.line == 2)
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("plain_missing")
+                    && diagnostic.span.start.line == 4)
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("guarded"))
+        );
     }
 
     #[test]

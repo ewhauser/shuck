@@ -73,6 +73,7 @@ pub(crate) struct DataflowContext<'a> {
     pub(crate) references: &'a [Reference],
     pub(crate) predefined_runtime_refs: &'a FxHashSet<ReferenceId>,
     pub(crate) guarded_parameter_refs: &'a FxHashSet<ReferenceId>,
+    pub(crate) parameter_guard_flow_refs: &'a FxHashSet<ReferenceId>,
     pub(crate) resolved: &'a FxHashMap<ReferenceId, BindingId>,
     pub(crate) call_sites: &'a FxHashMap<Name, SmallVec<[CallSite; 2]>>,
     pub(crate) indirect_targets_by_reference: &'a FxHashMap<ReferenceId, Vec<BindingId>>,
@@ -90,6 +91,7 @@ pub(crate) struct ExactVariableDataflow {
     unreachable_blocks: DenseBitSet,
     reaching_definitions: OnceLock<DenseReachingDefinitions>,
     initialized_name_states: OnceLock<DenseInitializedNameStates>,
+    c006_initialized_name_states: OnceLock<DenseInitializedNameStates>,
     scope_components: OnceLock<Vec<ExactScopeComponent>>,
 }
 
@@ -118,6 +120,32 @@ impl ExactVariableDataflow {
                 context.bindings,
                 &self.binding_data,
                 context.entry_bindings,
+            )
+        })
+    }
+
+    fn c006_initialized_name_states<'a>(
+        &'a self,
+        context: &DataflowContext<'_>,
+    ) -> &'a DenseInitializedNameStates {
+        self.c006_initialized_name_states.get_or_init(|| {
+            let extra_initialized_names = context
+                .parameter_guard_flow_refs
+                .iter()
+                .copied()
+                .filter_map(|reference_id| {
+                    let reference = &context.references[reference_id.index()];
+                    let block = self.reference_blocks[reference_id.index()]?;
+                    let name = self.names.get(&reference.name)?;
+                    Some((block, name))
+                })
+                .collect::<Vec<_>>();
+            compute_initialized_name_states_dense_with_extra_name_gens(
+                context.cfg,
+                context.bindings,
+                &self.binding_data,
+                context.entry_bindings,
+                &extra_initialized_names,
             )
         })
     }
@@ -227,6 +255,7 @@ pub(crate) fn build_exact_variable_dataflow(
         unreachable_blocks,
         reaching_definitions: OnceLock::new(),
         initialized_name_states: OnceLock::new(),
+        c006_initialized_name_states: OnceLock::new(),
         scope_components: OnceLock::new(),
     }
 }
@@ -261,7 +290,7 @@ fn analyze_uninitialized_references_exact(
     context: &DataflowContext<'_>,
     exact: &ExactVariableDataflow,
 ) -> Vec<UninitializedReference> {
-    let initialized_name_states = exact.initialized_name_states(context);
+    let initialized_name_states = exact.c006_initialized_name_states(context);
     let maybe_defined = &initialized_name_states.maybe_in;
     let definitely_defined = &initialized_name_states.definite_in;
 
@@ -303,8 +332,12 @@ fn analyze_uninitialized_references_exact(
         let Some(name_id) = exact.names.get(&reference.name) else {
             continue;
         };
-        let maybe = maybe_defined[block_id.index()].contains(name_id.index());
-        let definite = definitely_defined[block_id.index()].contains(name_id.index());
+        let same_block_guard = parameter_guard_flow_precedes_reference_in_same_block(
+            context, exact, reference, block_id,
+        );
+        let maybe = maybe_defined[block_id.index()].contains(name_id.index()) || same_block_guard;
+        let definite =
+            definitely_defined[block_id.index()].contains(name_id.index()) || same_block_guard;
 
         if !maybe {
             uninitialized_references.push(UninitializedReference {
@@ -320,6 +353,27 @@ fn analyze_uninitialized_references_exact(
     }
 
     uninitialized_references
+}
+
+fn parameter_guard_flow_precedes_reference_in_same_block(
+    context: &DataflowContext<'_>,
+    exact: &ExactVariableDataflow,
+    reference: &Reference,
+    block_id: BlockId,
+) -> bool {
+    context
+        .parameter_guard_flow_refs
+        .iter()
+        .copied()
+        .any(|guard_id| {
+            guard_id != reference.id
+                && exact.reference_blocks[guard_id.index()] == Some(block_id)
+                && {
+                    let guard = &context.references[guard_id.index()];
+                    guard.name == reference.name
+                        && guard.span.start.offset < reference.span.start.offset
+                }
+        })
 }
 
 fn reference_resolves_to_file_entry_contract_variable(
@@ -1375,6 +1429,22 @@ fn compute_initialized_name_states_dense(
     binding_data: &DenseBindingData,
     entry_bindings: &[BindingId],
 ) -> DenseInitializedNameStates {
+    compute_initialized_name_states_dense_with_extra_name_gens(
+        cfg,
+        bindings,
+        binding_data,
+        entry_bindings,
+        &[],
+    )
+}
+
+fn compute_initialized_name_states_dense_with_extra_name_gens(
+    cfg: &ControlFlowGraph,
+    bindings: &[Binding],
+    binding_data: &DenseBindingData,
+    entry_bindings: &[BindingId],
+    extra_initialized_names: &[(BlockId, NameId)],
+) -> DenseInitializedNameStates {
     let entry_blocks = entry_binding_root_blocks(cfg);
     let block_count = cfg.blocks().len();
     let name_count = binding_data.bindings_for_name.len();
@@ -1398,6 +1468,11 @@ fn compute_initialized_name_states_dense(
                 None => {}
             }
         }
+    }
+
+    for (block, name) in extra_initialized_names {
+        maybe_gen[block.index()].insert(name.index());
+        definite_gen[block.index()].insert(name.index());
     }
 
     let mut entry_maybe = DenseBitSet::new(name_count);
