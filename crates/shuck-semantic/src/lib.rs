@@ -1828,19 +1828,8 @@ fn infer_parse_dialect_from_source(
     path: Option<&Path>,
 ) -> shuck_parser::ShellDialect {
     if let Some(line) = source.lines().next().map(str::trim)
-        && let Some(line) = line.strip_prefix("#!").map(str::trim)
+        && let Some(interpreter) = shuck_parser::shebang::interpreter_name(line)
     {
-        let mut parts = line.split_whitespace();
-        let first = parts.next();
-        let interpreter = first
-            .and_then(|first| {
-                if Path::new(first).file_name()?.to_str()? == "env" {
-                    parts.next()
-                } else {
-                    Path::new(first).file_name()?.to_str()
-                }
-            })
-            .unwrap_or_default();
         return match interpreter.to_ascii_lowercase().as_str() {
             "sh" | "dash" | "ksh" | "posix" => shuck_parser::ShellDialect::Posix,
             "mksh" => shuck_parser::ShellDialect::Mksh,
@@ -1869,17 +1858,7 @@ fn bash_runtime_vars_enabled(source: &str, path: Option<&Path>) -> bool {
 }
 
 fn infer_bash_from_shebang(source: &str) -> Option<bool> {
-    let first_line = source.lines().next()?.trim();
-    let line = first_line.strip_prefix("#!")?.trim();
-
-    let mut parts = line.split_whitespace();
-    let first = parts.next()?;
-    let interpreter = if Path::new(first).file_name()?.to_str()? == "env" {
-        parts.next()?
-    } else {
-        Path::new(first).file_name()?.to_str()?
-    };
-
+    let interpreter = shuck_parser::shebang::interpreter_name(source.lines().next()?)?;
     Some(interpreter.eq_ignore_ascii_case("bash"))
 }
 
@@ -6186,6 +6165,44 @@ printf '%s\\n' still_reachable
 
         assert_names_absent(&names, &unresolved);
         assert_names_absent(&names, &uninitialized);
+    }
+
+    #[test]
+    fn env_split_bash_shebang_enables_bash_runtime_vars() {
+        let source = bash_runtime_source("#!/usr/bin/env -S bash -e");
+        let model = model(&source);
+        let names = [
+            "LINENO",
+            "FUNCNAME",
+            "BASH_SOURCE",
+            "BASH_LINENO",
+            "RANDOM",
+            "BASH_REMATCH",
+            "READLINE_LINE",
+            "BASH_VERSION",
+            "BASH_VERSINFO",
+            "OSTYPE",
+            "HISTCONTROL",
+            "HISTSIZE",
+        ];
+
+        let unresolved = unresolved_names(&model);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&names, &unresolved);
+        assert_names_absent(&names, &uninitialized);
+    }
+
+    #[test]
+    fn inferred_profile_honors_env_split_shebang() {
+        assert_eq!(
+            infer_parse_dialect_from_source("#!/usr/bin/env -S sh -e\n:\n", None),
+            ShellDialect::Posix
+        );
+        assert_eq!(
+            infer_parse_dialect_from_source("#!/usr/bin/env -S zsh -f\nprint ok\n", None),
+            ShellDialect::Zsh
+        );
     }
 
     #[test]

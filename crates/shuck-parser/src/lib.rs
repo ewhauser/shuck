@@ -10,6 +10,8 @@ mod error;
 #[allow(missing_docs)]
 /// Parsing entrypoints, lexer types, and shell-profile configuration.
 pub mod parser;
+/// Shebang parsing helpers shared by Shuck crates.
+pub mod shebang;
 
 /// Error types returned by parser operations.
 pub use error::{Error, Result};

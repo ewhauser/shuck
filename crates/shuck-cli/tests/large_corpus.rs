@@ -2336,14 +2336,7 @@ fn resolve_shell(path: &Path, src: &[u8]) -> String {
 }
 
 fn unsupported_large_corpus_shebang_shell(first_line: &str) -> Option<&str> {
-    let line = first_line.strip_prefix("#!")?.trim();
-    let mut parts = line.split_whitespace();
-    let first = parts.next()?;
-    let interpreter = if Path::new(first).file_name()?.to_str()? == "env" {
-        parts.find(|part| !part.starts_with('-'))?
-    } else {
-        Path::new(first).file_name()?.to_str()?
-    };
+    let interpreter = shuck_parser::shebang::interpreter_name(first_line)?;
 
     match interpreter.to_ascii_lowercase().as_str() {
         "fish" | "csh" | "tcsh" => Some(interpreter),
@@ -2856,6 +2849,14 @@ mod tests {
     }
 
     #[test]
+    fn resolve_shell_env_split_bash_shebang() {
+        assert_eq!(
+            resolve_shell(Path::new("script"), b"#!/usr/bin/env -S bash -e\n"),
+            "bash"
+        );
+    }
+
+    #[test]
     fn resolve_shell_dash_maps_to_sh() {
         assert_eq!(resolve_shell(Path::new("script"), b"#!/bin/dash\n"), "sh");
     }
@@ -2869,6 +2870,14 @@ mod tests {
     fn resolve_shell_fish_shebang_stays_unsupported() {
         assert_eq!(
             resolve_shell(Path::new("script"), b"#!/usr/bin/env fish\n"),
+            "fish"
+        );
+    }
+
+    #[test]
+    fn resolve_shell_env_split_fish_shebang_stays_unsupported() {
+        assert_eq!(
+            resolve_shell(Path::new("script"), b"#!/usr/bin/env -S fish -e\n"),
             "fish"
         );
     }

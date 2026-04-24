@@ -296,20 +296,8 @@ impl FormatOptions for ResolvedShellFormatOptions {
 
 fn infer_dialect(source: &str, path: Option<&Path>) -> ParseDialect {
     if let Some(first_line) = source.lines().next()
-        && let Some(shebang) = first_line.strip_prefix("#!")
+        && let Some(interpreter) = shuck_parser::shebang::interpreter_name(first_line)
     {
-        let mut parts = shebang.split_whitespace();
-        let first = parts.next().unwrap_or_default();
-        let interpreter = if Path::new(first)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name == "env")
-        {
-            parts.next().unwrap_or_default()
-        } else {
-            first
-        };
-        let interpreter = interpreter.rsplit('/').next().unwrap_or_default();
         return ParseDialect::from_name(interpreter);
     }
 

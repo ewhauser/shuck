@@ -49,17 +49,7 @@ impl ShellDialect {
     }
 
     fn infer_from_shebang(source: &str) -> Option<Self> {
-        let first_line = source.lines().next()?.trim();
-        let line = first_line.strip_prefix("#!")?.trim();
-
-        let mut parts = line.split_whitespace();
-        let first = parts.next()?;
-        let interpreter = if Path::new(first).file_name()?.to_str()? == "env" {
-            parts.next()?
-        } else {
-            Path::new(first).file_name()?.to_str()?
-        };
-
+        let interpreter = shuck_parser::shebang::interpreter_name(source.lines().next()?)?;
         Some(Self::from_name(interpreter))
     }
 
@@ -95,6 +85,12 @@ mod tests {
     #[test]
     fn infers_from_shebang_before_extension() {
         let inferred = ShellDialect::infer("#!/usr/bin/env bash\nlocal foo=bar\n", None);
+        assert_eq!(inferred, ShellDialect::Bash);
+    }
+
+    #[test]
+    fn infers_from_env_split_shebang_before_extension() {
+        let inferred = ShellDialect::infer("#!/usr/bin/env -S bash -e\nlocal foo=bar\n", None);
         assert_eq!(inferred, ShellDialect::Bash);
     }
 
