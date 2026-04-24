@@ -670,17 +670,12 @@ impl<'a> ArithmeticParser<'a> {
     }
 
     fn lex_identifier_or_word(&mut self, start: usize) -> Result<Token> {
+        let bytes = self.input.as_bytes();
         let mut end = start;
-        while let Some(ch) = self.char_at(end) {
-            if is_ident_continue(ch) {
-                end += ch.len_utf8();
-            } else {
-                break;
-            }
+        while end < bytes.len() && is_ident_continue_byte(bytes[end]) {
+            end += 1;
         }
-        if matches!(self.char_at(end), Some('$' | '"' | '\'' | '`' | '\\'))
-            || matches!(self.char_at(end), Some(ch) if !self.is_arithmetic_boundary(ch) && !ch.is_whitespace())
-        {
+        if self.starts_arithmetic_shell_word_tail_at(end) {
             self.index = start;
             return self.lex_shell_word(start);
         }
@@ -692,17 +687,12 @@ impl<'a> ArithmeticParser<'a> {
     }
 
     fn lex_number(&mut self, start: usize) -> Result<Token> {
+        let bytes = self.input.as_bytes();
         let mut end = start;
-        while let Some(ch) = self.char_at(end) {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '#' | '_') {
-                end += ch.len_utf8();
-            } else {
-                break;
-            }
+        while end < bytes.len() && is_number_literal_byte(bytes[end]) {
+            end += 1;
         }
-        if matches!(self.char_at(end), Some('$' | '"' | '\'' | '`' | '\\'))
-            || matches!(self.char_at(end), Some(ch) if !self.is_arithmetic_boundary(ch) && !ch.is_whitespace())
-        {
+        if self.starts_arithmetic_shell_word_tail_at(end) {
             self.index = start;
             return self.lex_shell_word(start);
         }
@@ -746,7 +736,7 @@ impl<'a> ArithmeticParser<'a> {
         let mut index = start;
         while index < self.input.len() {
             let ch = self.require_char_at(index)?;
-            if index > start && (ch.is_whitespace() || self.is_arithmetic_boundary(ch)) {
+            if index > start && (ch.is_whitespace() || Self::is_arithmetic_boundary(ch)) {
                 break;
             }
             index = match ch {
@@ -1246,28 +1236,59 @@ impl<'a> ArithmeticParser<'a> {
         )
     }
 
-    fn is_arithmetic_boundary(&self, ch: char) -> bool {
+    fn starts_arithmetic_shell_word_tail_at(&self, index: usize) -> bool {
+        let Some(&byte) = self.input.as_bytes().get(index) else {
+            return false;
+        };
+        if byte.is_ascii() {
+            return Self::starts_arithmetic_shell_word_tail_ascii(byte);
+        }
+        self.char_at(index)
+            .is_some_and(Self::starts_arithmetic_shell_word_tail)
+    }
+
+    fn starts_arithmetic_shell_word_tail(ch: char) -> bool {
+        if ch.is_ascii() {
+            Self::starts_arithmetic_shell_word_tail_ascii(ch as u8)
+        } else {
+            !ch.is_whitespace()
+        }
+    }
+
+    fn starts_arithmetic_shell_word_tail_ascii(byte: u8) -> bool {
+        match byte {
+            b'$' | b'"' | b'\'' | b'`' | b'\\' => true,
+            byte if byte.is_ascii_whitespace() => false,
+            _ => !Self::is_arithmetic_boundary_ascii(byte),
+        }
+    }
+
+    fn is_arithmetic_boundary(ch: char) -> bool {
+        ch.is_ascii() && Self::is_arithmetic_boundary_ascii(ch as u8)
+    }
+
+    fn is_arithmetic_boundary_ascii(byte: u8) -> bool {
         matches!(
-            ch,
-            '(' | ')'
-                | '['
-                | ']'
-                | '?'
-                | ':'
-                | ','
-                | '+'
-                | '-'
-                | '*'
-                | '/'
-                | '%'
-                | '<'
-                | '>'
-                | '='
-                | '!'
-                | '~'
-                | '&'
-                | '^'
-                | '|'
+            byte,
+            b'(' | b')'
+                | b'['
+                | b']'
+                | b'?'
+                | b':'
+                | b','
+                | b'+'
+                | b'-'
+                | b'*'
+                | b'/'
+                | b'%'
+                | b'<'
+                | b'>'
+                | b'='
+                | b'!'
+                | b'~'
+                | b'&'
+                | b'^'
+                | b'|'
         )
     }
 
@@ -1290,6 +1311,14 @@ fn is_ident_start(ch: char) -> bool {
 
 fn is_ident_continue(ch: char) -> bool {
     ch == '_' || ch.is_ascii_alphanumeric()
+}
+
+fn is_ident_continue_byte(byte: u8) -> bool {
+    byte == b'_' || byte.is_ascii_alphanumeric()
+}
+
+fn is_number_literal_byte(byte: u8) -> bool {
+    byte == b'#' || byte == b'_' || byte.is_ascii_alphanumeric()
 }
 
 fn is_special_parameter(ch: char) -> bool {
