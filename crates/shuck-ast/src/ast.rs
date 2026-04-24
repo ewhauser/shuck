@@ -256,7 +256,7 @@ pub struct Stmt {
     /// Whether this statement was prefixed with `!`.
     pub negated: bool,
     /// Redirections attached to the statement.
-    pub redirects: Vec<Redirect>,
+    pub redirects: Box<[Redirect]>,
     /// Optional `;` or `&` terminator in the containing sequence.
     pub terminator: Option<StmtTerminator>,
     /// Source span of the terminator token when present.
@@ -301,7 +301,7 @@ pub struct SimpleCommand {
     /// Command arguments
     pub args: Vec<Word>,
     /// Variable assignments before the command
-    pub assignments: Vec<Assignment>,
+    pub assignments: Box<[Assignment]>,
     /// Source span of this command
     pub span: Span,
 }
@@ -316,7 +316,7 @@ pub struct DeclClause {
     /// Parsed declaration operands.
     pub operands: Vec<DeclOperand>,
     /// Variable assignments before the declaration clause.
-    pub assignments: Vec<Assignment>,
+    pub assignments: Box<[Assignment]>,
     /// Source span of this command.
     pub span: Span,
 }
@@ -456,7 +456,7 @@ pub struct BreakCommand {
     /// Additional operands preserved for fidelity
     pub extra_args: Vec<Word>,
     /// Variable assignments before the builtin
-    pub assignments: Vec<Assignment>,
+    pub assignments: Box<[Assignment]>,
     /// Source span of this command
     pub span: Span,
 }
@@ -469,7 +469,7 @@ pub struct ContinueCommand {
     /// Additional operands preserved for fidelity
     pub extra_args: Vec<Word>,
     /// Variable assignments before the builtin
-    pub assignments: Vec<Assignment>,
+    pub assignments: Box<[Assignment]>,
     /// Source span of this command
     pub span: Span,
 }
@@ -482,7 +482,7 @@ pub struct ReturnCommand {
     /// Additional operands preserved for fidelity
     pub extra_args: Vec<Word>,
     /// Variable assignments before the builtin
-    pub assignments: Vec<Assignment>,
+    pub assignments: Box<[Assignment]>,
     /// Source span of this command
     pub span: Span,
 }
@@ -495,7 +495,7 @@ pub struct ExitCommand {
     /// Additional operands preserved for fidelity
     pub extra_args: Vec<Word>,
     /// Variable assignments before the builtin
-    pub assignments: Vec<Assignment>,
+    pub assignments: Box<[Assignment]>,
     /// Source span of this command
     pub span: Span,
 }
@@ -3938,7 +3938,7 @@ mod tests {
             leading_comments: vec![],
             command,
             negated: false,
-            redirects: vec![],
+            redirects: Box::default(),
             terminator: None,
             terminator_span: None,
             inline_comment: None,
@@ -3948,7 +3948,7 @@ mod tests {
 
     fn stmt_with_redirects(command: Command, redirects: Vec<Redirect>) -> Stmt {
         Stmt {
-            redirects,
+            redirects: redirects.into_boxed_slice(),
             ..stmt(command)
         }
     }
@@ -3966,7 +3966,7 @@ mod tests {
         SimpleCommand {
             name: Word::literal(name),
             args,
-            assignments: vec![],
+            assignments: Box::default(),
             span: Span::new(),
         }
     }
@@ -4816,7 +4816,8 @@ mod tests {
             assignments: vec![assignment(
                 plain_ref("FOO"),
                 AssignmentValue::Scalar(Word::literal("bar")),
-            )],
+            )]
+            .into_boxed_slice(),
             ..simple_command("env", vec![])
         };
         assert_eq!(cmd.assignments.len(), 1);
@@ -4831,7 +4832,7 @@ mod tests {
         let cmd = BuiltinCommand::Break(BreakCommand {
             depth: Some(Word::literal("2")),
             extra_args: vec![Word::literal("extra")],
-            assignments: vec![],
+            assignments: Box::default(),
             span: Span::new(),
         });
 
@@ -4853,7 +4854,8 @@ mod tests {
                 assignments: vec![assignment(
                     plain_ref("FOO"),
                     AssignmentValue::Scalar(Word::literal("bar")),
-                )],
+                )]
+                .into_boxed_slice(),
                 span: Span::new(),
             })),
             vec![Redirect {
@@ -5202,7 +5204,7 @@ mod tests {
         let builtin = Command::Builtin(BuiltinCommand::Exit(ExitCommand {
             code: Some(Word::literal("1")),
             extra_args: vec![],
-            assignments: vec![],
+            assignments: Box::default(),
             span: Span::new(),
         }));
         assert!(matches!(builtin, Command::Builtin(_)));
