@@ -5,8 +5,8 @@ use shuck_ast::{
     AnonymousFunctionCommand, ArithmeticAssignOp, ArithmeticExpr, ArithmeticExprNode,
     ArithmeticLvalue, ArithmeticUnaryOp, ArrayElem, ArrayExpr, ArrayKind, Assignment,
     AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command,
-    CompoundCommand, ConditionalExpr, ConditionalUnaryOp, DeclOperand, File, FunctionDef,
-    HeredocBody, HeredocBodyPart, HeredocBodyPartNode, Name, ParameterExpansion,
+    CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclOperand, File,
+    FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, Name, ParameterExpansion,
     ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind, PatternPart, PatternPartNode,
     Span, StaticCommandWrapperTarget, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart,
     WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
@@ -103,6 +103,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     command_stack: Vec<Span>,
     guarded_parameter_operand_depth: u32,
     defaulting_parameter_operand_depth: u32,
+    short_circuit_condition_depth: u32,
 }
 
 fn semantic_statement_span(stmt: &Stmt) -> Span {
@@ -202,6 +203,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             command_stack: Vec::new(),
             guarded_parameter_operand_depth: 0,
             defaulting_parameter_operand_depth: 0,
+            short_circuit_condition_depth: 0,
         };
         let file_commands = builder.visit_stmt_seq(&file.body, FlowState::default());
         builder.recorded_program.set_file_commands(file_commands);
@@ -2004,7 +2006,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn record_guarded_parameter_reference(&mut self, reference_id: ReferenceId) {
         self.guarded_parameter_refs.insert(reference_id);
-        if self.defaulting_parameter_operand_depth == 0 {
+        if self.defaulting_parameter_operand_depth == 0 && self.short_circuit_condition_depth == 0 {
             self.parameter_guard_flow_refs.insert(reference_id);
         }
     }
@@ -2051,7 +2053,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         match expression {
             ConditionalExpr::Binary(expr) => {
                 self.visit_conditional_expr_into(&expr.left, flow, nested_regions);
-                self.visit_conditional_expr_into(&expr.right, flow, nested_regions);
+                if matches!(expr.op, ConditionalBinaryOp::And | ConditionalBinaryOp::Or) {
+                    self.short_circuit_condition_depth += 1;
+                    self.visit_conditional_expr_into(&expr.right, flow, nested_regions);
+                    self.short_circuit_condition_depth -= 1;
+                } else {
+                    self.visit_conditional_expr_into(&expr.right, flow, nested_regions);
+                }
             }
             ConditionalExpr::Unary(expr) => {
                 if expr.op == ConditionalUnaryOp::VariableSet

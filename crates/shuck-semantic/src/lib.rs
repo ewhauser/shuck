@@ -6578,6 +6578,25 @@ printf '%s\\n' \"${other:+${nested_replacement:+alt}}\" \"$other\" \"$nested_rep
     }
 
     #[test]
+    fn parameter_guard_flow_does_not_escape_short_circuit_conditionals() {
+        let source = "\
+flag=
+[[ ${left_guard:-fallback} && $flag ]]
+printf '%s\\n' \"$left_guard\"
+[[ $flag && ${right_and:-fallback} ]]
+printf '%s\\n' \"$right_and\"
+flag=1
+[[ $flag || ${right_or:+alt} ]]
+printf '%s\\n' \"$right_or\"
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["left_guard"], &uninitialized);
+        assert_names_present(&["right_and", "right_or"], &uninitialized);
+    }
+
+    #[test]
     fn non_assigning_parameter_guard_flow_does_not_create_bindings() {
         let source = "\
 : \"${defaulted:-fallback}\" \"${replacement:+alt}\"
