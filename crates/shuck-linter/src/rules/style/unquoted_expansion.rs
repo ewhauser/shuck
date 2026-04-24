@@ -1699,6 +1699,17 @@ printf '%s\\n' `echo \\${SAFE:-$fallback} \\${SAFE:+$fallback}`
     }
 
     #[test]
+    fn skips_escaped_backtick_command_names_after_append_assignment_prefixes() {
+        let source = "\
+#!/bin/sh
+`VAR+=x \\$cmd arg`
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_escaped_backtick_command_arguments() {
         let source = "\
 #!/bin/sh
@@ -2336,6 +2347,20 @@ check_count() {
 #!/bin/bash
 value=abc
 printf '%s\\n' ${value:=$1} ${value:-$2}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_default_operator_operands_when_safe_value_can_be_empty() {
+        let source = "\
+#!/bin/bash
+if cond; then use=\"\"; else use=ok; fi
+if cond; then assign=\"\"; else assign=ok; fi
+if cond; then err=\"\"; else err=ok; fi
+printf '%s\\n' ${use:-$1} ${assign:=$2} ${err:?$3}
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 

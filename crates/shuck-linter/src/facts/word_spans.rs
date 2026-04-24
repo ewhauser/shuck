@@ -1981,7 +1981,7 @@ fn simple_assignment_word(word: &str) -> bool {
     let Some(eq) = word.find('=') else {
         return false;
     };
-    let name = &word[..eq];
+    let name = word[..eq].strip_suffix('+').unwrap_or(&word[..eq]);
     let mut chars = name.chars();
     chars
         .next()
@@ -5922,6 +5922,16 @@ printf '%s\\n' \"${arr[@]}\" \"x${arr[@]}\" \"x${!arr[@]}\" \"x${arr[@]:1}\" \"x
     #[test]
     fn backtick_escaped_parameters_keep_quoted_assignment_prefixes_together() {
         let source = "`VAR=\"a b\" OTHER=$(printf '%s\\n' value) \\$cmd arg`";
+        let backtick_spans = backtick_substitution_spans(source);
+        let escaped = backtick_escaped_parameters(source, &backtick_spans);
+
+        assert_eq!(escaped.len(), 1);
+        assert!(escaped[0].standalone_command_name);
+    }
+
+    #[test]
+    fn backtick_escaped_parameters_accept_append_assignment_prefixes() {
+        let source = "`VAR+=x \\$cmd arg`";
         let backtick_spans = backtick_substitution_spans(source);
         let escaped = backtick_escaped_parameters(source, &backtick_spans);
 
