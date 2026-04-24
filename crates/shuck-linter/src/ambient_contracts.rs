@@ -484,9 +484,13 @@ fn line_invokes_completion_initializer_command(line: &str) -> bool {
             continue;
         }
 
-        if ch == '#' && previous.is_none_or(char::is_whitespace) {
+        if ch == '#' && shell_comment_can_start_after(previous) {
             if let Some(start) = token_start.take()
-                && completion_initializer_token(&line[start..index], &mut command_position)
+                && completion_initializer_token(
+                    &line[start..index],
+                    &line[index..],
+                    &mut command_position,
+                )
             {
                 return true;
             }
@@ -500,7 +504,11 @@ fn line_invokes_completion_initializer_command(line: &str) -> bool {
         }
 
         if let Some(start) = token_start.take()
-            && completion_initializer_token(&line[start..index], &mut command_position)
+            && completion_initializer_token(
+                &line[start..index],
+                &line[index..],
+                &mut command_position,
+            )
         {
             return true;
         }
@@ -515,12 +523,16 @@ fn line_invokes_completion_initializer_command(line: &str) -> bool {
         previous = Some(ch);
     }
 
-    token_start
-        .is_some_and(|start| completion_initializer_token(&line[start..], &mut command_position))
+    token_start.is_some_and(|start| {
+        completion_initializer_token(&line[start..], "", &mut command_position)
+    })
 }
 
-fn completion_initializer_token(token: &str, command_position: &mut bool) -> bool {
-    if *command_position && is_completion_initializer_command(token) {
+fn completion_initializer_token(token: &str, following: &str, command_position: &mut bool) -> bool {
+    if *command_position
+        && is_completion_initializer_command(token)
+        && !starts_function_definition_suffix(following)
+    {
         return true;
     }
 
@@ -530,6 +542,14 @@ fn completion_initializer_token(token: &str, command_position: &mut bool) -> boo
 
     *command_position = shell_control_token_keeps_command_position(token);
     false
+}
+
+fn shell_comment_can_start_after(previous: Option<char>) -> bool {
+    previous.is_none_or(|ch| ch.is_whitespace() || matches!(ch, ';' | '&' | '|' | '(' | '{'))
+}
+
+fn starts_function_definition_suffix(following: &str) -> bool {
+    following.trim_start().starts_with("()")
 }
 
 fn is_completion_initializer_command(token: &str) -> bool {
@@ -893,6 +913,42 @@ _example() {
         let source = "\
 _example() {
   my_init_completion_wrapper || return
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+";
+
+        let contract = contract_for(path, source).unwrap();
+
+        assert!(!has_initialized_binding(&contract, "cur"));
+        assert!(!has_initialized_binding(&contract, "cword"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn bash_completion_paths_with_initializer_definition_do_not_initialize_contracts() {
+        let path = Path::new("/tmp/bash-completion/completions/example.bash");
+        let source = "\
+_init_completion() {
+  :
+}
+_example() {
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+";
+
+        let contract = contract_for(path, source).unwrap();
+
+        assert!(!has_initialized_binding(&contract, "cur"));
+        assert!(!has_initialized_binding(&contract, "cword"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn bash_completion_paths_with_separator_comment_do_not_initialize_contracts() {
+        let path = Path::new("/tmp/bash-completion/completions/example.bash");
+        let source = "\
+noop;# _init_completion later
+_example() {
   printf '%s\\n' \"$cur\" \"$cword\"
 }
 ";
