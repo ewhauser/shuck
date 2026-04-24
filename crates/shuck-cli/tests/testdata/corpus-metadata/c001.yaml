@@ -79,6 +79,41 @@ reviewed_divergences:
     column: 14
     end_column: 18
     reason: "This `rest` local is a parsed-field placeholder for a later pipeline reader. Shuck reports declaration-only locals as ordinary C001 targets, while the comparison oracle suppresses rest-style placeholder names more broadly."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__netfilter"
+    line: 1755
+    end_line: 1755
+    column: 39
+    end_column: 43
+    reason: "This `rest` local is a parsed-field placeholder. Shuck reports declaration-only locals as ordinary C001 targets, while the comparison oracle suppresses rest-style placeholder names more broadly."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__stopwatch"
+    line: 109
+    end_line: 109
+    column: 11
+    end_column: 15
+    reason: "This `rest` local is a parsed-field placeholder. Shuck reports declaration-only locals as ordinary C001 targets, while the comparison oracle suppresses rest-style placeholder names more broadly."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-build__apply_profile"
+    line: 144
+    end_line: 144
+    column: 13
+    end_column: 17
+    reason: "This `rest` local is a parsed-field placeholder. Shuck reports declaration-only locals as ordinary C001 targets, while the comparison oracle suppresses rest-style placeholder names more broadly."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-build__build-release.sh"
+    line: 67
+    end_line: 67
+    column: 17
+    end_column: 21
+    reason: "This `rest` local is a parsed-field placeholder. Shuck reports declaration-only locals as ordinary C001 targets, while the comparison oracle suppresses rest-style placeholder names more broadly."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-build__build.sh"
+    line: 2286
+    end_line: 2286
+    column: 15
+    end_column: 19
+    reason: "This `rest` local is a parsed-field placeholder. Shuck reports declaration-only locals as ordinary C001 targets, while the comparison oracle suppresses rest-style placeholder names more broadly."
   - side: shellcheck-only
     path_contains: "RetroPie__RetroPie-Setup__"
     reason: "The RetroPie setup bootstrap and module scripts publish globals such as `biosdir`, `romdir`, and `configdir` for sourced module files, and they also use callback locals that the package framework fills or consults selectively. Shuck treats the framework locals and sourced setup state as live."

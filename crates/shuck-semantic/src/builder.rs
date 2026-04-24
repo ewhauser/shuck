@@ -484,17 +484,24 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let flags = declaration_flags(&command.operands, self.source);
         let global_flag_enabled =
             declaration_flag_is_enabled(&command.operands, self.source, 'g').unwrap_or(false);
-        let name_operands_are_function_names =
-            declaration_name_operands_are_function_names(&command.operands, self.source);
         self.declarations.push(Declaration {
             builtin,
             span: command.span,
             operands: declaration_operands(&command.operands, self.source),
         });
 
+        let mut name_operands_are_function_names = false;
         for operand in &command.operands {
             match operand {
-                DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                DeclOperand::Flag(word) => {
+                    update_declaration_function_name_mode(
+                        word,
+                        self.source,
+                        &mut name_operands_are_function_names,
+                    );
+                    self.visit_word_into(word, WordVisitKind::Expansion, flow, &mut nested_regions);
+                }
+                DeclOperand::Dynamic(word) => {
                     self.visit_word_into(word, WordVisitKind::Expansion, flow, &mut nested_regions);
                 }
                 DeclOperand::Name(name) => {
@@ -3282,11 +3289,6 @@ fn declaration_flags(operands: &[DeclOperand], source: &str) -> FxHashSet<char> 
     flags
 }
 
-fn declaration_name_operands_are_function_names(operands: &[DeclOperand], source: &str) -> bool {
-    declaration_flag_is_enabled(operands, source, 'f').unwrap_or(false)
-        || declaration_flag_is_enabled(operands, source, 'F').unwrap_or(false)
-}
-
 fn declaration_flag_is_enabled(
     operands: &[DeclOperand],
     source: &str,
@@ -3314,6 +3316,26 @@ fn declaration_flag_is_enabled(
         }
     }
     enabled
+}
+
+fn update_declaration_function_name_mode(word: &Word, source: &str, function_name_mode: &mut bool) {
+    let Some(text) = static_word_text(word, source) else {
+        return;
+    };
+    let mut chars = text.chars();
+    let Some(polarity) = chars.next() else {
+        return;
+    };
+    let enabled_for_operand = match polarity {
+        '-' => true,
+        '+' => false,
+        _ => return,
+    };
+    for flag in chars {
+        if matches!(flag, 'f' | 'F') {
+            *function_name_mode = enabled_for_operand;
+        }
+    }
 }
 
 fn declaration_operands(operands: &[DeclOperand], source: &str) -> Vec<DeclarationOperand> {

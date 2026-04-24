@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use shuck_semantic::{
-    Binding, BindingAttributes, BindingId, BindingKind, BindingOrigin, ReferenceKind, ScopeId,
+    Binding, BindingAttributes, BindingId, BindingKind, BindingOrigin, ReferenceKind,
 };
 
 use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
@@ -43,17 +43,9 @@ pub fn unused_assignment(checker: &mut Checker) {
     let mut unused_bindings_by_family = HashMap::<BindingFamilyKey, Vec<_>>::new();
     let mut last_unused_binding_by_family = HashMap::new();
     let mut family_keys = HashMap::with_capacity(semantic.bindings().len());
-    let mut intentional_placeholder_sites_by_family =
-        HashMap::<BindingFamilyKey, Vec<(usize, ScopeId)>>::new();
 
     for binding in semantic.bindings() {
         if is_intentionally_unused_binding(binding) {
-            if is_intentionally_unused_read_placeholder(binding) {
-                intentional_placeholder_sites_by_family
-                    .entry(binding.name.to_string())
-                    .or_default()
-                    .push((binding.span.start.offset, binding.scope));
-            }
             continue;
         }
 
@@ -105,13 +97,6 @@ pub fn unused_assignment(checker: &mut Checker) {
         }
 
         if !is_reportable_unused_assignment(binding.kind, binding.attributes) {
-            continue;
-        }
-
-        if uninitialized_declaration_precedes_intentional_placeholder(
-            binding,
-            &intentional_placeholder_sites_by_family,
-        ) {
             continue;
         }
 
@@ -227,23 +212,6 @@ fn is_intentionally_unused_binding(binding: &Binding) -> bool {
 fn is_intentionally_unused_read_placeholder(binding: &Binding) -> bool {
     matches!(binding.kind, BindingKind::ReadTarget)
         && matches!(binding.name.as_str(), "rest" | "REST")
-}
-
-fn uninitialized_declaration_precedes_intentional_placeholder(
-    binding: &Binding,
-    placeholder_sites_by_family: &HashMap<BindingFamilyKey, Vec<(usize, ScopeId)>>,
-) -> bool {
-    matches!(binding.kind, BindingKind::Declaration(_))
-        && !binding
-            .attributes
-            .contains(BindingAttributes::DECLARATION_INITIALIZED)
-        && placeholder_sites_by_family
-            .get(binding.name.as_str())
-            .is_some_and(|sites| {
-                sites.iter().any(|(offset, scope)| {
-                    *scope == binding.scope && *offset > binding.span.start.offset
-                })
-            })
 }
 
 fn is_underscore_name(name: &str) -> bool {
@@ -528,12 +496,7 @@ done
 
     #[test]
     fn read_rest_names_are_treated_as_intentional_placeholders() {
-        let source = "\
-#!/bin/bash
-local rest
-read -r cron_id rest
-printf '%s\\n' \"$cron_id\"
-";
+        let source = "#!/bin/bash\nread -r cron_id rest\nprintf '%s\\n' \"$cron_id\"\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert!(diagnostics.is_empty());
@@ -576,6 +539,26 @@ printf '%s\\n' \"$field\"
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "rest");
         assert_eq!(diagnostics[0].span.start.line, 2);
+    }
+
+    #[test]
+    fn read_rest_placeholders_do_not_hide_branch_declarations() {
+        let source = "\
+#!/bin/bash
+f(){
+  if cond; then
+    local rest
+  else
+    read -r _ rest
+  fi
+}
+f
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "rest");
+        assert_eq!(diagnostics[0].span.start.line, 4);
     }
 
     #[test]

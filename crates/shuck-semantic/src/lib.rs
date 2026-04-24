@@ -5555,6 +5555,8 @@ typeset -f typed
 declare +f config_unset
 declare +F config_maybe
 declare -f +f config_after_toggle
+declare +f config_before -f helper_function
+declare -f hidden_function +f config_after
 typeset +f typed
 ";
         let model = model(source);
@@ -5562,6 +5564,8 @@ typeset +f typed
             "config_unset",
             "config_maybe",
             "config_after_toggle",
+            "config_before",
+            "config_after",
             "typed",
         ];
 
@@ -5570,6 +5574,20 @@ typeset +f typed
                 model.bindings().iter().any(|binding| binding.name == name
                     && matches!(binding.kind, BindingKind::Declaration(_))),
                 "{name} should be treated as a variable declaration"
+            );
+        }
+
+        let function_operand_names = ["helper_function", "hidden_function"];
+        for name in function_operand_names {
+            assert!(
+                model.bindings().iter().all(|binding| binding.name != name),
+                "{name} should be treated as a function name, not a variable binding"
+            );
+            assert!(
+                model.references().iter().all(|reference| {
+                    reference.name != name || reference.kind != ReferenceKind::DeclarationName
+                }),
+                "{name} should not create a declaration-name variable reference"
             );
         }
     }
