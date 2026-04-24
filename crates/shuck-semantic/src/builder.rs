@@ -2752,11 +2752,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             } else {
                 0
             };
+            let clear_upper_bound = if self.completed_scopes.contains(&scope) {
+                usize::MAX
+            } else {
+                lookup_offset
+            };
             if self.binding_was_cleared_in_scope_between(
                 &binding.name,
                 scope,
                 clear_lower_bound,
-                lookup_offset,
+                clear_upper_bound,
             ) {
                 return true;
             }
