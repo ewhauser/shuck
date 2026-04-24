@@ -2077,6 +2077,36 @@ cleanup() {
     }
 
     #[test]
+    fn skips_status_capture_after_escaped_name_only_declarations() {
+        let source = "\
+#!/bin/bash
+cleanup() {
+  maybe_helper \"$1\"
+  \\typeset result other
+  false
+  result=$?
+  if (( result > 0 )); then
+    return $result
+  fi
+  return ${result:-0}
+}
+maybe_helper() {
+  \\typeset result
+  if [[ -n \"$1\" ]]; then
+    result=$?
+    return $result
+  fi
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion).with_resolve_source_closure(false),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_status_capture_declarations_after_unsafe_reassignments() {
         let source = "\
 #!/bin/bash

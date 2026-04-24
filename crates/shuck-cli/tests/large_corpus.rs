@@ -3729,20 +3729,10 @@ mod tests {
     }
 
     #[test]
-    fn load_all_rule_corpus_metadata_keeps_c001_review_entries_and_scoped_entries() {
+    fn load_all_rule_corpus_metadata_keeps_scoped_entries() {
         let metadata = load_all_rule_corpus_metadata();
 
-        assert!(metadata.get("C001").is_some_and(|rule_metadata| {
-            !rule_metadata.review_all_divergences
-                && rule_metadata
-                    .reviewed_divergences
-                    .iter()
-                    .all(|entry| !entry.rule_wide)
-                && rule_metadata.reviewed_divergences.iter().any(|entry| {
-                    !entry.rule_wide
-                        && entry.path_contains.as_deref() == Some("termux__termux-packages__")
-                })
-        }));
+        assert!(!metadata.contains_key("C001"));
         assert!(metadata.values().any(|rule_metadata| {
             rule_metadata.reviewed_divergences.iter().any(|entry| {
                 !entry.rule_wide && entry.path_suffix.is_some() && entry.line.is_some()

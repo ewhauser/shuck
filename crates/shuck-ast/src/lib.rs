@@ -9,6 +9,8 @@
 #[allow(missing_docs)]
 mod ast;
 #[allow(missing_docs)]
+mod command_resolution;
+#[allow(missing_docs)]
 mod name;
 #[allow(missing_docs)]
 mod span;
@@ -17,6 +19,8 @@ mod tokens;
 
 /// Parsed shell AST nodes and related syntax tree types.
 pub use ast::*;
+/// Static command-resolution helpers shared by semantic analysis and lint facts.
+pub use command_resolution::*;
 /// Identifier names used throughout the shell AST.
 pub use name::Name;
 /// Source positions, spans, and text range utilities.

@@ -36,6 +36,7 @@ impl C001RuleOptions {
     pub(crate) fn semantic_options(&self) -> UnusedAssignmentAnalysisOptions {
         UnusedAssignmentAnalysisOptions {
             treat_indirect_expansion_targets_as_used: self.treat_indirect_expansion_targets_as_used,
+            report_unreachable_assignments: true,
         }
     }
 }

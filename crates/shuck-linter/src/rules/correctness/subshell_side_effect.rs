@@ -58,6 +58,26 @@ printf '%s\\n' \"$items\"
     }
 
     #[test]
+    fn escaped_name_only_declarations_do_not_hide_later_outer_reads() {
+        let source = "\
+#!/bin/bash
+demo() {
+  ( \\typeset value; value=inner )
+  echo \"$value\"
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$value"]
+        );
+    }
+
+    #[test]
     fn reports_pipeline_child_assignments_that_do_not_escape() {
         let source = "\
 #!/bin/sh
