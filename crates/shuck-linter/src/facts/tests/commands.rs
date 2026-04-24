@@ -1481,6 +1481,50 @@ grep --regexp='*start' data.txt
 }
 
 #[test]
+fn grep_pattern_facts_track_shellcheck_style_pattern_position() {
+    let source = "\
+#!/bin/bash
+grep -e '*first' -e '*second' data.txt
+grep -m 1 '*implicit-after-option' data.txt
+grep -m1 '*implicit-after-attached-option' data.txt
+grep -A 1 -e '*explicit-after-option' data.txt
+grep -e '*explicit-before-option' -A 1 data.txt
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, ShellDialect::Bash);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+    let grep_patterns = facts
+        .commands()
+        .iter()
+        .filter(|fact| fact.effective_name_is("grep"))
+        .filter_map(|fact| fact.options().grep())
+        .flat_map(|grep| grep.patterns().iter())
+        .map(|pattern| {
+            (
+                pattern.span().slice(source),
+                pattern.is_first_pattern(),
+                pattern.follows_separate_option_argument(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        grep_patterns,
+        vec![
+            ("'*first'", true, false),
+            ("'*second'", false, false),
+            ("'*implicit-after-option'", true, true),
+            ("'*implicit-after-attached-option'", true, false),
+            ("'*explicit-after-option'", true, true),
+            ("'*explicit-before-option'", true, false),
+        ]
+    );
+}
+
+#[test]
 fn grep_pattern_facts_track_glob_style_star_confusion() {
     let source = "\
 #!/bin/bash
