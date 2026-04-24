@@ -83,6 +83,34 @@ reviewed_divergences:
     line: 15
     reason: "git-extras intentionally swaps in its own commit helper for this command wrapper after sourcing the shared Git helper library."
   - side: shuck-only
+    path_suffix: "ko1nksm__shellspec__helper__spec_helper.sh"
+    line: 113
+    reason: "ShellSpec's helper configuration creates nested mock output hooks for its DSL, and these are reached by framework indirection rather than plain direct calls."
+  - side: shuck-only
+    path_suffix: "ko1nksm__shellspec__helper__spec_helper.sh"
+    line: 117
+    reason: "ShellSpec's helper configuration creates nested mock output hooks for its DSL, and these are reached by framework indirection rather than plain direct calls."
+  - side: shuck-only
+    path_suffix: "ko1nksm__shellspec__helper__spec_helper.sh"
+    line: 121
+    reason: "ShellSpec's helper configuration creates nested mock output hooks for its DSL, and these are reached by framework indirection rather than plain direct calls."
+  - side: shuck-only
+    path_suffix: "ko1nksm__shellspec__lib__core__evaluation.sh"
+    line: 238
+    reason: "ShellSpec installs a nested test wrapper as part of its interceptor machinery, so the remaining C063 hit is framework setup rather than a dead nested helper."
+  - side: shuck-only
+    path_suffix: "ko1nksm__shellspec__lib__libexec__optparser__parser_definition.sh"
+    line: 301
+    reason: "ShellSpec's option-parser DSL creates extension-local helper names that are consumed through parser indirection rather than ordinary direct calls."
+  - side: shuck-only
+    path_suffix: "ko1nksm__shellspec__lib__libexec__optparser__parser_definition.sh"
+    line: 306
+    reason: "ShellSpec's option-parser DSL creates extension-local helper names that are consumed through parser indirection rather than ordinary direct calls."
+  - side: shuck-only
+    path_suffix: "xwmx__nb__nb"
+    line: 15574
+    reason: "nb's environment installer uses nested helper plumbing inside a dynamic command workflow, so this compat-only C063 hit is not a useful dead-function finding."
+  - side: shuck-only
     path_contains: "bitnami__containers__"
     reason: "Bitnami container libraries layer shared service wrappers and per-service overrides through sourced lib*.sh files, so the remaining Shuck-only C063 hits are framework hook replacements rather than dead definitions."
   - side: shellcheck-only

@@ -31,6 +31,7 @@ pub struct OverwrittenFunction {
 pub enum UnreachedFunctionReason {
     UnreachableDefinition,
     ScriptTerminates,
+    EnclosingFunctionUnreached,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

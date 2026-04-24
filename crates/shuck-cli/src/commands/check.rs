@@ -105,6 +105,7 @@ struct EffectivePerFileIgnore {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct EffectiveRuleOptions {
     c001_treat_indirect_expansion_targets_as_used: bool,
+    c063_report_unreached_nested_definitions: bool,
 }
 
 impl EffectiveCheckSettings {
@@ -169,6 +170,9 @@ impl EffectiveRuleOptions {
             c001_treat_indirect_expansion_targets_as_used: rule_options
                 .c001
                 .treat_indirect_expansion_targets_as_used,
+            c063_report_unreached_nested_definitions: rule_options
+                .c063
+                .report_unreached_nested_definitions,
         }
     }
 }
@@ -177,6 +181,8 @@ impl CacheKey for EffectiveRuleOptions {
     fn cache_key(&self, state: &mut CacheKeyHasher) {
         state.write_tag(b"effective-rule-options");
         self.c001_treat_indirect_expansion_targets_as_used
+            .cache_key(state);
+        self.c063_report_unreached_nested_definitions
             .cache_key(state);
     }
 }
@@ -880,6 +886,14 @@ fn linter_rule_options_for_lint_config(lint: &LintConfig) -> shuck_linter::Linte
         .and_then(|c001| c001.treat_indirect_expansion_targets_as_used)
     {
         rule_options.c001.treat_indirect_expansion_targets_as_used = value;
+    }
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.c063.as_ref())
+        .and_then(|c063| c063.report_unreached_nested_definitions)
+    {
+        rule_options.c063.report_unreached_nested_definitions = value;
     }
 
     rule_options
@@ -2941,6 +2955,46 @@ jobs:
         assert_eq!(second.cache_hits, 0);
         assert_eq!(second.cache_misses, 1);
         assert!(second.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn invalidates_cache_when_c063_rule_options_change() {
+        let tempdir = tempdir().unwrap();
+        let script = tempdir.path().join("script.sh");
+        fs::write(&script, "#!/bin/bash\nouter() {\n  inner() { :; }\n}\n").unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[lint]\nselect = ['C063']\n",
+        )
+        .unwrap();
+
+        let first = run_check_with_cwd(
+            &check_args(false),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        assert_eq!(first.cache_hits, 0);
+        assert_eq!(first.cache_misses, 1);
+        assert!(first.diagnostics.is_empty());
+
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[lint]\nselect = ['C063']\n\n[lint.rule-options.c063]\nreport-unreached-nested-definitions = true\n",
+        )
+        .unwrap();
+
+        let second = run_check_with_cwd(
+            &check_args(false),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        assert_eq!(second.cache_hits, 0);
+        assert_eq!(second.cache_misses, 1);
+        assert_eq!(second.diagnostics.len(), 1);
     }
 
     #[test]

@@ -955,6 +955,8 @@ fn lint_with_context(
         })?),
         source_paths: options.source_paths.clone(),
     };
+    let mut rule_options = shuck_linter::LinterRuleOptions::default();
+    rule_options.c063.report_unreached_nested_definitions = true;
     let settings = LinterSettings {
         rules: options.enabled_rules,
         severity_overrides: Default::default(),
@@ -963,7 +965,7 @@ fn lint_with_context(
         analyzed_paths: Some(Arc::new(explicit.into_iter().collect())),
         per_file_ignores: Default::default(),
         report_environment_style_names: options.report_environment_style_names,
-        rule_options: Default::default(),
+        rule_options,
     };
 
     let diagnostics = shuck_linter::lint_file_at_path_with_resolver_and_parse_result(

@@ -2607,7 +2607,7 @@ fn build_large_corpus_linter_settings(
     selected_rules: Option<shuck_linter::RuleSet>,
     mapped_only: bool,
 ) -> shuck_linter::LinterSettings {
-    if let Some(rules) = selected_rules {
+    let settings = if let Some(rules) = selected_rules {
         shuck_linter::LinterSettings::for_rules(rules.iter())
     } else if mapped_only {
         let mapped_rules: HashSet<_> = shuck_linter::ShellCheckCodeMap::default()
@@ -2617,7 +2617,9 @@ fn build_large_corpus_linter_settings(
         shuck_linter::LinterSettings::for_rules(mapped_rules)
     } else {
         shuck_linter::LinterSettings::default()
-    }
+    };
+
+    settings.with_c063_report_unreached_nested_definitions(true)
 }
 
 fn large_corpus_source_resolver(
