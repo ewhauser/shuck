@@ -6,14 +6,14 @@ pub struct CommandFact<'a> {
     nested_word_command: bool,
     normalized: NormalizedCommand<'a>,
     zsh_options: Option<ZshOptionState>,
-    redirect_facts: Box<[RedirectFact<'a>]>,
-    substitution_facts: Box<[SubstitutionFact]>,
+    redirect_facts: IdRange<RedirectFact<'a>>,
+    substitution_facts: IdRange<SubstitutionFact>,
     options: CommandOptionFacts<'a>,
-    scope_read_source_words: Box<[PathWordFact<'a>]>,
-    scope_name_read_uses: Box<[ComparableNameUse]>,
-    scope_heredoc_name_read_uses: Box<[ComparableNameUse]>,
-    scope_name_write_uses: Box<[ComparableNameUse]>,
-    declaration_assignment_probes: Box<[DeclarationAssignmentProbe]>,
+    scope_read_source_words: IdRange<PathWordFact<'a>>,
+    scope_name_read_uses: IdRange<ComparableNameUse>,
+    scope_heredoc_name_read_uses: IdRange<ComparableNameUse>,
+    scope_name_write_uses: IdRange<ComparableNameUse>,
+    declaration_assignment_probes: IdRange<DeclarationAssignmentProbe>,
     glued_closing_bracket_operand_span: Option<Span>,
     glued_closing_bracket_insert_offset: Option<usize>,
     linebreak_in_test_anchor_span: Option<Span>,
@@ -59,40 +59,12 @@ impl<'a> CommandFact<'a> {
         self.zsh_options.as_ref()
     }
 
-    pub fn redirect_facts(&self) -> &[RedirectFact<'a>] {
-        &self.redirect_facts
-    }
-
-    pub fn substitution_facts(&self) -> &[SubstitutionFact] {
-        &self.substitution_facts
-    }
-
     pub fn normalized(&self) -> &NormalizedCommand<'a> {
         &self.normalized
     }
 
     pub fn options(&self) -> &CommandOptionFacts<'a> {
         &self.options
-    }
-
-    pub fn scope_read_source_words(&self) -> &[PathWordFact<'a>] {
-        &self.scope_read_source_words
-    }
-
-    pub(crate) fn scope_name_read_uses(&self) -> &[ComparableNameUse] {
-        &self.scope_name_read_uses
-    }
-
-    pub(crate) fn scope_heredoc_name_read_uses(&self) -> &[ComparableNameUse] {
-        &self.scope_heredoc_name_read_uses
-    }
-
-    pub(crate) fn scope_name_write_uses(&self) -> &[ComparableNameUse] {
-        &self.scope_name_write_uses
-    }
-
-    pub fn declaration_assignment_probes(&self) -> &[DeclarationAssignmentProbe] {
-        &self.declaration_assignment_probes
     }
 
     pub fn glued_closing_bracket_operand_span(&self) -> Option<Span> {
@@ -213,14 +185,194 @@ impl<'a> CommandFact<'a> {
         self.options.file_operand_words()
     }
 
-    pub fn shellcheck_command_span(&self, source: &str) -> Option<Span> {
+}
+
+impl<'facts, 'a> CommandFactRef<'facts, 'a> {
+    pub fn id(self) -> CommandId {
+        self.fact.id()
+    }
+
+    pub fn key(self) -> FactSpan {
+        self.fact.key()
+    }
+
+    pub fn is_nested_word_command(self) -> bool {
+        self.fact.is_nested_word_command()
+    }
+
+    pub fn stmt(self) -> &'a Stmt {
+        self.fact.stmt()
+    }
+
+    pub fn command(self) -> &'a Command {
+        self.fact.command()
+    }
+
+    pub fn span(self) -> Span {
+        self.fact.span()
+    }
+
+    pub fn span_in_source(self, source: &str) -> Span {
+        self.fact.span_in_source(source)
+    }
+
+    pub fn redirects(self) -> &'a [Redirect] {
+        self.fact.redirects()
+    }
+
+    pub fn zsh_options(self) -> Option<&'facts ZshOptionState> {
+        self.fact.zsh_options.as_ref()
+    }
+
+    pub fn redirect_facts(self) -> &'facts [RedirectFact<'a>] {
+        self.store.redirect_facts(self.fact.redirect_facts)
+    }
+
+    pub fn substitution_facts(self) -> &'facts [SubstitutionFact] {
+        self.store.substitution_facts(self.fact.substitution_facts)
+    }
+
+    pub fn scope_read_source_words(self) -> &'facts [PathWordFact<'a>] {
+        self.store
+            .scope_read_source_words(self.fact.scope_read_source_words)
+    }
+
+    pub(crate) fn scope_name_read_uses(self) -> &'facts [ComparableNameUse] {
+        self.store.scope_name_read_uses(self.fact.scope_name_read_uses)
+    }
+
+    pub(crate) fn scope_heredoc_name_read_uses(self) -> &'facts [ComparableNameUse] {
+        self.store
+            .scope_heredoc_name_read_uses(self.fact.scope_heredoc_name_read_uses)
+    }
+
+    pub(crate) fn scope_name_write_uses(self) -> &'facts [ComparableNameUse] {
+        self.store
+            .scope_name_write_uses(self.fact.scope_name_write_uses)
+    }
+
+    pub fn declaration_assignment_probes(self) -> &'facts [DeclarationAssignmentProbe] {
+        self.store
+            .declaration_assignment_probes(self.fact.declaration_assignment_probes)
+    }
+
+    pub fn normalized(self) -> &'facts NormalizedCommand<'a> {
+        &self.fact.normalized
+    }
+
+    pub fn options(self) -> &'facts CommandOptionFacts<'a> {
+        &self.fact.options
+    }
+
+    pub fn glued_closing_bracket_operand_span(self) -> Option<Span> {
+        self.fact.glued_closing_bracket_operand_span()
+    }
+
+    pub fn glued_closing_bracket_insert_offset(self) -> Option<usize> {
+        self.fact.glued_closing_bracket_insert_offset()
+    }
+
+    pub fn linebreak_in_test_anchor_span(self) -> Option<Span> {
+        self.fact.linebreak_in_test_anchor_span()
+    }
+
+    pub fn linebreak_in_test_insert_offset(self) -> Option<usize> {
+        self.fact.linebreak_in_test_insert_offset()
+    }
+
+    pub fn simple_test(self) -> Option<&'facts SimpleTestFact<'a>> {
+        self.fact.simple_test.as_ref()
+    }
+
+    pub fn conditional(self) -> Option<&'facts ConditionalFact<'a>> {
+        self.fact.conditional.as_ref()
+    }
+
+    pub fn literal_name(self) -> Option<&'facts str> {
+        self.fact.normalized.literal_name.as_deref()
+    }
+
+    pub fn effective_name(self) -> Option<&'facts str> {
+        self.fact.normalized.effective_name.as_deref()
+    }
+
+    pub fn effective_or_literal_name(self) -> Option<&'facts str> {
+        self.fact.normalized.effective_or_literal_name()
+    }
+
+    pub fn effective_name_is(self, name: &str) -> bool {
+        self.fact.effective_name_is(name)
+    }
+
+    pub fn static_utility_name(self) -> Option<&'facts str> {
+        self.effective_or_literal_name()
+    }
+
+    pub fn static_utility_name_is(self, name: &str) -> bool {
+        self.static_utility_name() == Some(name)
+    }
+
+    pub fn wrappers(self) -> &'facts [WrapperKind] {
+        &self.fact.normalized.wrappers
+    }
+
+    pub fn has_wrapper(self, wrapper: WrapperKind) -> bool {
+        self.fact.has_wrapper(wrapper)
+    }
+
+    pub fn declaration(self) -> Option<&'facts NormalizedDeclaration<'a>> {
+        self.fact.normalized.declaration.as_ref()
+    }
+
+    pub fn body_span(self) -> Span {
+        self.fact.body_span()
+    }
+
+    pub fn body_name_word(self) -> Option<&'a Word> {
+        self.fact.body_name_word()
+    }
+
+    pub fn body_word_span(self) -> Option<Span> {
+        self.fact.body_word_span()
+    }
+
+    pub fn body_word_contains_template_placeholder(self, source: &str) -> bool {
+        self.fact.body_word_contains_template_placeholder(source)
+    }
+
+    pub fn body_word_has_suspicious_quoted_command_trailer(
+        self,
+        source: &str,
+        trailing_literal_char: Option<char>,
+    ) -> bool {
+        self.fact
+            .body_word_has_suspicious_quoted_command_trailer(source, trailing_literal_char)
+    }
+
+    pub fn body_word_has_hash_suffix(self, source: &str) -> bool {
+        self.fact.body_word_has_hash_suffix(source)
+    }
+
+    pub fn bracket_command_name_needs_separator(self, source: &str) -> bool {
+        self.fact.bracket_command_name_needs_separator(source)
+    }
+
+    pub fn body_args(self) -> &'facts [&'a Word] {
+        self.fact.normalized.body_args()
+    }
+
+    pub fn file_operand_words(self) -> &'facts [&'a Word] {
+        self.fact.options.file_operand_words()
+    }
+
+    pub fn shellcheck_command_span(self, source: &str) -> Option<Span> {
         command_span_with_redirects_and_shellcheck_tail(self, source)
             .map(|span| trim_trailing_whitespace_span(span, source))
     }
 }
 
 fn pipeline_span_with_shellcheck_tail(
-    commands: &[CommandFact<'_>],
+    commands: CommandFacts<'_, '_>,
     pipeline: &PipelineFact<'_>,
     source: &str,
 ) -> Span {
@@ -230,8 +382,8 @@ fn pipeline_span_with_shellcheck_tail(
     let Some(last_segment) = pipeline.last_segment() else {
         unreachable!("pipeline has segments");
     };
-    let first = command_fact(commands, first_segment.command_id());
-    let last = command_fact(commands, last_segment.command_id());
+    let first = command_fact_ref(commands, first_segment.command_id());
+    let last = command_fact_ref(commands, last_segment.command_id());
     let last_end = last.span_in_source(source).end;
     let end = extend_over_shellcheck_trailing_inline_space(last_end, source);
 
@@ -242,7 +394,7 @@ fn pipeline_span_with_shellcheck_tail(
 }
 
 fn command_span_with_redirects_and_shellcheck_tail(
-    command: &CommandFact<'_>,
+    command: CommandFactRef<'_, '_>,
     source: &str,
 ) -> Option<Span> {
     let body_name = command.body_name_word()?;
@@ -505,11 +657,11 @@ fn background_semicolon_span(
 }
 
 fn build_scope_read_source_words<'a>(
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     pipelines: &[PipelineFact<'a>],
     if_condition_command_ids: &FxHashSet<CommandId>,
     source: &str,
-) -> Vec<Box<[PathWordFact<'a>]>> {
+) -> Vec<Vec<PathWordFact<'a>>> {
     let mut words_by_command = vec![Vec::new(); commands.len()];
 
     for command in commands {
@@ -555,12 +707,9 @@ fn build_scope_read_source_words<'a>(
     }
 
     words_by_command
-        .into_iter()
-        .map(Vec::into_boxed_slice)
-        .collect()
 }
 
-type ScopeNameUseBuckets = Vec<Box<[ComparableNameUse]>>;
+type ScopeNameUseBuckets = Vec<Vec<ComparableNameUse>>;
 type ScopeNameUseSets = (
     ScopeNameUseBuckets,
     ScopeNameUseBuckets,
@@ -568,7 +717,7 @@ type ScopeNameUseSets = (
 );
 
 fn build_scope_name_uses<'a>(
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     pipelines: &[PipelineFact<'a>],
     source: &str,
 ) -> ScopeNameUseSets {
@@ -639,23 +788,14 @@ fn build_scope_name_uses<'a>(
     }
 
     (
-        reads_by_command
-            .into_iter()
-            .map(Vec::into_boxed_slice)
-            .collect(),
-        heredoc_reads_by_command
-            .into_iter()
-            .map(Vec::into_boxed_slice)
-            .collect(),
-        writes_by_command
-            .into_iter()
-            .map(Vec::into_boxed_slice)
-            .collect(),
+        reads_by_command,
+        heredoc_reads_by_command,
+        writes_by_command,
     )
 }
 
 fn own_scope_read_source_words<'a>(
-    command: &CommandFact<'a>,
+    command: CommandFactRef<'_, 'a>,
     if_condition_command_ids: &FxHashSet<CommandId>,
     source: &str,
 ) -> Vec<PathWordFact<'a>> {
@@ -678,7 +818,7 @@ fn own_scope_read_source_words<'a>(
     words
 }
 
-fn own_scope_name_read_uses(command: &CommandFact<'_>, _source: &str) -> Vec<ComparableNameUse> {
+fn own_scope_name_read_uses(command: CommandFactRef<'_, '_>, _source: &str) -> Vec<ComparableNameUse> {
     let mut uses = Vec::new();
 
     for redirect in command.redirect_facts() {
@@ -702,7 +842,7 @@ fn own_scope_name_read_uses(command: &CommandFact<'_>, _source: &str) -> Vec<Com
 }
 
 fn own_scope_heredoc_name_read_uses(
-    command: &CommandFact<'_>,
+    command: CommandFactRef<'_, '_>,
     source: &str,
 ) -> Vec<ComparableNameUse> {
     let mut uses = Vec::new();
@@ -724,7 +864,7 @@ fn own_scope_heredoc_name_read_uses(
     uses
 }
 
-fn own_scope_name_write_uses(command: &CommandFact<'_>, _source: &str) -> Vec<ComparableNameUse> {
+fn own_scope_name_write_uses(command: CommandFactRef<'_, '_>, _source: &str) -> Vec<ComparableNameUse> {
     let mut uses = Vec::new();
 
     if let Some(read) = command.options().read() {
@@ -735,8 +875,8 @@ fn own_scope_name_write_uses(command: &CommandFact<'_>, _source: &str) -> Vec<Co
 }
 
 fn nested_scope_read_source_words<'a>(
-    commands: &[CommandFact<'a>],
-    command: &CommandFact<'a>,
+    commands: CommandFacts<'_, 'a>,
+    command: CommandFactRef<'_, 'a>,
     if_condition_command_ids: &FxHashSet<CommandId>,
     source: &str,
 ) -> Vec<PathWordFact<'a>> {
@@ -748,8 +888,8 @@ fn nested_scope_read_source_words<'a>(
 }
 
 fn nested_scope_name_read_uses(
-    commands: &[CommandFact<'_>],
-    command: &CommandFact<'_>,
+    commands: CommandFacts<'_, '_>,
+    command: CommandFactRef<'_, '_>,
     source: &str,
 ) -> Vec<ComparableNameUse> {
     commands
@@ -760,8 +900,8 @@ fn nested_scope_name_read_uses(
 }
 
 fn nested_scope_heredoc_name_read_uses(
-    commands: &[CommandFact<'_>],
-    command: &CommandFact<'_>,
+    commands: CommandFacts<'_, '_>,
+    command: CommandFactRef<'_, '_>,
     source: &str,
 ) -> Vec<ComparableNameUse> {
     commands
@@ -772,8 +912,8 @@ fn nested_scope_heredoc_name_read_uses(
 }
 
 fn nested_scope_name_write_uses(
-    commands: &[CommandFact<'_>],
-    command: &CommandFact<'_>,
+    commands: CommandFacts<'_, '_>,
+    command: CommandFactRef<'_, '_>,
     source: &str,
 ) -> Vec<ComparableNameUse> {
     commands
@@ -793,7 +933,7 @@ fn dedup_name_uses(uses: &mut Vec<ComparableNameUse>) {
     uses.retain(|name_use| seen.insert((name_use.key().clone(), FactSpan::new(name_use.span()))));
 }
 
-fn command_has_file_output_redirect(command: &CommandFact<'_>) -> bool {
+fn command_has_file_output_redirect(command: CommandFactRef<'_, '_>) -> bool {
     command.redirect_facts().iter().any(|redirect| {
         matches!(
             redirect.redirect().kind,
@@ -807,7 +947,7 @@ fn command_has_file_output_redirect(command: &CommandFact<'_>) -> bool {
     })
 }
 
-fn command_has_file_input_redirect(command: &CommandFact<'_>) -> bool {
+fn command_has_file_input_redirect(command: CommandFactRef<'_, '_>) -> bool {
     command.redirect_facts().iter().any(|redirect| {
         matches!(
             redirect.redirect().kind,
@@ -818,12 +958,12 @@ fn command_has_file_input_redirect(command: &CommandFact<'_>) -> bool {
     })
 }
 
-fn command_file_operand_words<'a>(command: &CommandFact<'a>) -> Vec<&'a Word> {
+fn command_file_operand_words<'a>(command: CommandFactRef<'_, 'a>) -> Vec<&'a Word> {
     command.file_operand_words().to_vec()
 }
 
 fn command_redirect_read_source_words<'a>(
-    command: &CommandFact<'a>,
+    command: CommandFactRef<'_, 'a>,
     source: &str,
 ) -> Vec<PathWordFact<'a>> {
     command
@@ -853,7 +993,7 @@ fn command_redirect_read_source_words<'a>(
 }
 
 fn command_simple_test_path_words<'a>(
-    command: &CommandFact<'a>,
+    command: CommandFactRef<'_, 'a>,
     source: &str,
 ) -> Vec<PathWordFact<'a>> {
     let Some(simple_test) = command.simple_test() else {
@@ -875,7 +1015,7 @@ fn command_simple_test_path_words<'a>(
 }
 
 fn command_conditional_path_words<'a>(
-    command: &CommandFact<'a>,
+    command: CommandFactRef<'_, 'a>,
     source: &str,
 ) -> Vec<PathWordFact<'a>> {
     let mut words = Vec::new();
@@ -1018,6 +1158,15 @@ fn command_fact<'a>(commands: &'a [CommandFact<'a>], id: CommandId) -> &'a Comma
     &commands[id.index()]
 }
 
+fn command_fact_ref<'facts, 'a>(
+    commands: CommandFacts<'facts, 'a>,
+    id: CommandId,
+) -> CommandFactRef<'facts, 'a> {
+    commands
+        .get(id.index())
+        .unwrap_or_else(|| panic!("command id {} must exist", id.index()))
+}
+
 fn build_command_parent_ids(commands: &[CommandFact<'_>]) -> Vec<Option<CommandId>> {
     let mut command_spans = commands
         .iter()
@@ -1103,6 +1252,14 @@ fn command_fact_for_stmt<'a>(
     command_ids_by_span: &CommandLookupIndex,
 ) -> Option<&'a CommandFact<'a>> {
     command_fact_for_command(&stmt.command, commands, command_ids_by_span)
+}
+
+fn command_fact_ref_for_stmt<'facts, 'a>(
+    stmt: &Stmt,
+    commands: CommandFacts<'facts, 'a>,
+    command_ids_by_span: &CommandLookupIndex,
+) -> Option<CommandFactRef<'facts, 'a>> {
+    command_id_for_command(&stmt.command, command_ids_by_span).map(|id| command_fact_ref(commands, id))
 }
 
 fn builtin_span(command: &BuiltinCommand) -> Span {

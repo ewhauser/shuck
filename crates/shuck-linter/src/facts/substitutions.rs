@@ -149,10 +149,10 @@ impl SubstitutionFact {
 }
 
 pub(super) fn build_substitution_facts<'a>(
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
-) -> Vec<Box<[SubstitutionFact]>> {
+) -> Vec<Vec<SubstitutionFact>> {
     commands
         .iter()
         .map(|fact| build_command_substitution_facts(fact, commands, command_ids_by_span, source))
@@ -160,11 +160,11 @@ pub(super) fn build_substitution_facts<'a>(
 }
 
 fn build_command_substitution_facts<'a>(
-    fact: &CommandFact<'a>,
-    commands: &[CommandFact<'a>],
+    fact: CommandFactRef<'_, 'a>,
+    commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
-) -> Box<[SubstitutionFact]> {
+) -> Vec<SubstitutionFact> {
     let mut substitutions = Vec::new();
     let mut substitution_index = FxHashMap::default();
     let context = SubstitutionFactBuildContext {
@@ -233,7 +233,7 @@ fn build_command_substitution_facts<'a>(
         );
     });
 
-    substitutions.into_boxed_slice()
+    substitutions
 }
 
 fn collect_or_update_word_substitution_facts<'a>(
@@ -276,7 +276,7 @@ fn collect_or_update_heredoc_body_substitution_facts<'a>(
 
 #[derive(Clone, Copy)]
 struct SubstitutionFactBuildContext<'a, 'b> {
-    commands: &'b [CommandFact<'a>],
+    commands: CommandFacts<'b, 'a>,
     command_ids_by_span: &'b CommandLookupIndex,
     source: &'b str,
 }
@@ -513,7 +513,7 @@ struct RedirectSummary {
 
 fn classify_substitution_body<'a>(
     body: &'a StmtSeq,
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> SubstitutionBodyFacts {
@@ -560,7 +560,7 @@ fn classify_substitution_body<'a>(
 
 fn summarize_stmt_seq_redirects<'a>(
     body: &'a StmtSeq,
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> RedirectSummary {
@@ -584,7 +584,7 @@ fn summarize_stmt_seq_redirects<'a>(
 
 fn summarize_stmt_redirects<'a>(
     stmt: &'a Stmt,
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> RedirectSummary {
@@ -630,12 +630,12 @@ fn summarize_stmt_redirects<'a>(
 fn summarize_command_redirects<'a>(
     command: &Command,
     redirects: &[Redirect],
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> RedirectSummary {
     if let Some(id) = command_id_for_command(command, command_ids_by_span) {
-        summarize_redirect_facts(command_fact(commands, id).redirect_facts(), source)
+        summarize_redirect_facts(command_fact_ref(commands, id).redirect_facts(), source)
     } else {
         let redirect_facts = build_redirect_facts(redirects, None, source, None);
         summarize_redirect_facts(&redirect_facts, source)
@@ -1001,7 +1001,7 @@ fn leading_dynamic_dash_literal_in_parts(
 
 fn substitution_body_contains_ls<'a>(
     body: &'a StmtSeq,
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     body.stmts
@@ -1011,7 +1011,7 @@ fn substitution_body_contains_ls<'a>(
 
 fn substitution_body_processed_ls_pipeline_spans<'a>(
     body: &'a StmtSeq,
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> Vec<Span> {
@@ -1035,7 +1035,7 @@ fn substitution_body_processed_ls_pipeline_spans<'a>(
 
 fn collect_processed_ls_pipeline_spans_in_stmt<'a>(
     stmt: &'a Stmt,
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
     spans: &mut Vec<Span>,
@@ -1103,11 +1103,11 @@ fn collect_pipeline_parts<'a>(
 
 fn stmt_is_raw_ls<'a>(
     stmt: &'a Stmt,
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> bool {
-    if let Some(fact) = command_fact_for_stmt(stmt, commands, command_ids_by_span) {
+    if let Some(fact) = command_fact_ref_for_stmt(stmt, commands, command_ids_by_span) {
         return fact.literal_name() == Some("ls") && fact.wrappers().is_empty();
     }
 
@@ -1117,12 +1117,12 @@ fn stmt_is_raw_ls<'a>(
 
 fn stmt_static_utility_name_is<'a>(
     stmt: &'a Stmt,
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
     name: &str,
 ) -> bool {
-    if let Some(fact) = command_fact_for_stmt(stmt, commands, command_ids_by_span) {
+    if let Some(fact) = command_fact_ref_for_stmt(stmt, commands, command_ids_by_span) {
         return fact.static_utility_name() == Some(name);
     }
 
@@ -1132,11 +1132,11 @@ fn stmt_static_utility_name_is<'a>(
 fn ls_command_span_before_pipe<'a>(
     stmt: &'a Stmt,
     operator_span: Span,
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> Span {
-    let start = command_fact_for_stmt(stmt, commands, command_ids_by_span)
+    let start = command_fact_ref_for_stmt(stmt, commands, command_ids_by_span)
         .and_then(|fact| fact.shellcheck_command_span(source))
         .unwrap_or_else(|| command::normalize_command(&stmt.command, source).body_span)
         .start;
@@ -1161,10 +1161,10 @@ fn substitution_body_contains_grep(body: &StmtSeq, source: &str) -> bool {
 
 fn stmt_contains_raw_ls<'a>(
     stmt: &'a Stmt,
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    command_fact_for_stmt(stmt, commands, command_ids_by_span)
+    command_fact_ref_for_stmt(stmt, commands, command_ids_by_span)
         .is_some_and(|fact| fact.literal_name() == Some("ls") && fact.wrappers().is_empty())
         || match &stmt.command {
             Command::Binary(binary) => {

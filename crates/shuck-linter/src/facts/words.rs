@@ -2002,7 +2002,7 @@ fn text_contains_echo_backslash_escape(text: &str, is_sensitive: fn(u8) -> bool)
 }
 
 fn build_echo_to_sed_substitution_spans<'a>(
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     pipelines: &[PipelineFact<'a>],
     backticks: &[BacktickFragmentFact],
     nodes: &[WordNode<'a>],
@@ -2041,7 +2041,7 @@ fn build_echo_to_sed_substitution_spans<'a>(
 }
 
 fn sc2001_like_pipeline_span<'a>(
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     pipeline: &PipelineFact<'a>,
     backticks: &[BacktickFragmentFact],
     nodes: &[WordNode<'a>],
@@ -2053,8 +2053,8 @@ fn sc2001_like_pipeline_span<'a>(
         return None;
     };
 
-    let left = command_fact(commands, left_segment.command_id());
-    let right = command_fact(commands, right_segment.command_id());
+    let left = command_fact_ref(commands, left_segment.command_id());
+    let right = command_fact_ref(commands, right_segment.command_id());
 
     if !command_is_plain_named(left, "echo") || !command_is_plain_named(right, "sed") {
         return None;
@@ -2115,7 +2115,7 @@ fn sc2001_like_pipeline_span<'a>(
 }
 
 fn sc2001_like_here_string_span(
-    command: &CommandFact<'_>,
+    command: CommandFactRef<'_, '_>,
     backticks: &[BacktickFragmentFact],
     source: &str,
 ) -> Option<Span> {
@@ -2143,24 +2143,27 @@ fn sc2001_like_here_string_span(
     command_span_with_redirects_and_shellcheck_tail(command, source)
 }
 
-fn command_is_plain_named(command: &CommandFact<'_>, name: &str) -> bool {
+fn command_is_plain_named(command: CommandFactRef<'_, '_>, name: &str) -> bool {
     command.effective_name_is(name) && command.wrappers().is_empty()
 }
 
 fn sc2001_like_backtick_pipeline_span(
-    commands: &[CommandFact<'_>],
+    commands: CommandFacts<'_, '_>,
     pipeline: &PipelineFact<'_>,
-    sed_command: &CommandFact<'_>,
+    sed_command: CommandFactRef<'_, '_>,
     source: &str,
 ) -> Option<Span> {
     let first_segment = pipeline.first_segment()?;
-    let first = command_fact(commands, first_segment.command_id());
+    let first = command_fact_ref(commands, first_segment.command_id());
     let start = first.body_name_word()?.span.start;
     let end = sc2001_like_backtick_sed_script_end(sed_command.body_args(), source)?;
     Some(Span::from_positions(start, end))
 }
 
-fn sc2001_like_backtick_command_span(command: &CommandFact<'_>, source: &str) -> Option<Span> {
+fn sc2001_like_backtick_command_span(
+    command: CommandFactRef<'_, '_>,
+    source: &str,
+) -> Option<Span> {
     let start = command.body_name_word()?.span.start;
     let end = sc2001_like_backtick_sed_script_end(command.body_args(), source)?;
     Some(Span::from_positions(start, end))
@@ -2280,7 +2283,7 @@ fn rewind_offset_by_chars(source: &str, mut offset: usize, count: usize) -> Opti
 }
 
 fn command_has_sc2001_like_sed_script(
-    command: &CommandFact<'_>,
+    command: CommandFactRef<'_, '_>,
     backticks: &[BacktickFragmentFact],
     source: &str,
 ) -> bool {
@@ -2297,7 +2300,7 @@ fn command_has_sc2001_like_sed_script(
 }
 
 fn command_is_inside_backtick_fragment(
-    command: &CommandFact<'_>,
+    command: CommandFactRef<'_, '_>,
     backticks: &[BacktickFragmentFact],
 ) -> bool {
     let span = command.span();

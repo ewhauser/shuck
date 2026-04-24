@@ -108,7 +108,7 @@ fn builtin_array_history_events(checker: &Checker<'_>) -> Vec<ArrayHistoryEvent>
 
 fn command_array_history_events(
     checker: &Checker<'_>,
-    command: &crate::facts::commands::CommandFact<'_>,
+    command: crate::facts::commands::CommandFactRef<'_, '_>,
 ) -> Vec<ArrayHistoryEvent> {
     if matches!(checker.shell(), ShellDialect::Bash) && command.effective_name_is("read") {
         return command
@@ -371,7 +371,7 @@ fn read_target_is_array_like(checker: &Checker<'_>, binding: &Binding) -> bool {
 
     binding_command(checker, binding)
         .filter(|command| command.effective_name_is("read"))
-        .filter(|command| !command_is_shadowed_function(checker, command))
+        .filter(|command| !command_is_shadowed_function(checker, *command))
         .and_then(|command| command.options().read())
         .is_some_and(|read| {
             read.array_target_name_uses()
@@ -401,10 +401,10 @@ fn mapfile_target_is_array_like(checker: &Checker<'_>, binding: &Binding) -> boo
         })
 }
 
-fn binding_command<'a>(
-    checker: &'a Checker<'_>,
+fn binding_command<'checker, 'ast>(
+    checker: &'checker Checker<'ast>,
     binding: &Binding,
-) -> Option<&'a crate::facts::commands::CommandFact<'a>> {
+) -> Option<crate::facts::commands::CommandFactRef<'checker, 'ast>> {
     checker
         .facts()
         .innermost_command_at(binding.span.start.offset)
@@ -420,7 +420,7 @@ fn binding_command<'a>(
 
 fn command_is_shadowed_function(
     checker: &Checker<'_>,
-    command: &crate::facts::commands::CommandFact<'_>,
+    command: crate::facts::commands::CommandFactRef<'_, '_>,
 ) -> bool {
     let Some(name_span) = command.body_word_span() else {
         return false;
@@ -469,7 +469,9 @@ fn command_name_has_visible_function_binding(
         })
 }
 
-fn command_forces_builtin_resolution(command: &crate::facts::commands::CommandFact<'_>) -> bool {
+fn command_forces_builtin_resolution(
+    command: crate::facts::commands::CommandFactRef<'_, '_>,
+) -> bool {
     let mut saw_forcing_wrapper = false;
 
     for wrapper in command.wrappers() {
@@ -484,7 +486,7 @@ fn command_forces_builtin_resolution(command: &crate::facts::commands::CommandFa
 
 fn command_wrapper_is_shadowed_function(
     checker: &Checker<'_>,
-    command: &crate::facts::commands::CommandFact<'_>,
+    command: crate::facts::commands::CommandFactRef<'_, '_>,
     at: shuck_ast::Span,
 ) -> bool {
     let mut lookup_bypasses_functions = false;

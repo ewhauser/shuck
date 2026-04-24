@@ -1,6 +1,6 @@
 use shuck_ast::{Span, static_word_text};
 
-use crate::{Checker, CommandFact, PipelineFact, Rule, Violation};
+use crate::{Checker, CommandFactRef, PipelineFact, Rule, Violation};
 
 pub struct GrepCountPipeline;
 
@@ -59,7 +59,7 @@ fn unsafe_grep_count_pipeline_spans(
         .collect()
 }
 
-fn command_body_span(fact: &CommandFact<'_>) -> Option<Span> {
+fn command_body_span(fact: CommandFactRef<'_, '_>) -> Option<Span> {
     let body_name = fact.body_name_word()?;
     let mut end = body_name.span.end;
 
@@ -79,11 +79,11 @@ fn command_body_span(fact: &CommandFact<'_>) -> Option<Span> {
     Some(Span::from_positions(body_name.span.start, end))
 }
 
-fn is_raw_utility_named(fact: &CommandFact<'_>, name: &str) -> bool {
+fn is_raw_utility_named(fact: CommandFactRef<'_, '_>, name: &str) -> bool {
     fact.literal_name() == Some(name) && fact.wrappers().is_empty()
 }
 
-fn wc_uses_line_count(fact: &CommandFact<'_>, source: &str) -> bool {
+fn wc_uses_line_count(fact: CommandFactRef<'_, '_>, source: &str) -> bool {
     fact.body_args().iter().any(|word| {
         static_word_text(word, source).is_some_and(|text| {
             text == "-l" || text == "--lines" || (text.starts_with('-') && text[1..].contains('l'))

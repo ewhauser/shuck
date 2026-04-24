@@ -539,7 +539,7 @@ impl<'a> SafeValueIndex<'a> {
     fn function_definition_command(
         &self,
         function: &FunctionDef,
-    ) -> Option<&crate::facts::CommandFact<'a>> {
+    ) -> Option<crate::facts::CommandFactRef<'a, 'a>> {
         self.facts.commands().iter().find(|command| {
             matches!(
                 command.command(),
@@ -593,7 +593,10 @@ impl<'a> SafeValueIndex<'a> {
         command.span_in_source(self.source).end.offset <= call_span.start.offset
     }
 
-    fn command_for_name_word_span(&self, span: Span) -> Option<&crate::facts::CommandFact<'a>> {
+    fn command_for_name_word_span(
+        &self,
+        span: Span,
+    ) -> Option<crate::facts::CommandFactRef<'a, 'a>> {
         self.facts.commands().iter().find(|command| {
             command
                 .body_name_word()
@@ -861,7 +864,7 @@ impl<'a> SafeValueIndex<'a> {
 
     fn command_blocks_cover_all_paths_to_reference(
         &self,
-        command: &crate::facts::CommandFact<'a>,
+        command: crate::facts::CommandFactRef<'_, 'a>,
         name: &Name,
         at: Span,
     ) -> bool {
@@ -2276,7 +2279,7 @@ fn build_case_cli_reachable_function_scopes(
                 && semantic
                     .ancestor_scopes(semantic.scope_at(command.span().start.offset))
                     .all(|scope| !matches!(semantic.scope(scope).kind, ScopeKind::Function(_)))
-                && command_fact_is_standalone_exit(command)
+                && command_fact_is_standalone_exit(*command)
         })
         .map(|command| command.span().start.offset)
         .min();
@@ -2300,7 +2303,7 @@ fn build_case_cli_reachable_function_scopes(
         .collect()
 }
 
-fn command_fact_is_standalone_exit(command: &crate::facts::CommandFact<'_>) -> bool {
+fn command_fact_is_standalone_exit(command: crate::facts::CommandFactRef<'_, '_>) -> bool {
     if command.stmt().negated
         || matches!(
             command.stmt().terminator,

@@ -7,6 +7,8 @@
 //! `shuck-linter`, `shuck-semantic`, and `shuck-formatter` consume them.
 
 #[allow(missing_docs)]
+mod arena;
+#[allow(missing_docs)]
 mod ast;
 #[allow(missing_docs)]
 mod command_resolution;
@@ -17,6 +19,8 @@ mod span;
 #[allow(missing_docs)]
 mod tokens;
 
+/// Compact typed arena index and list storage utilities.
+pub use arena::{IdRange, Idx, ListArena};
 /// Parsed shell AST nodes and related syntax tree types.
 pub use ast::*;
 /// Static command-resolution helpers shared by semantic analysis and lint facts.

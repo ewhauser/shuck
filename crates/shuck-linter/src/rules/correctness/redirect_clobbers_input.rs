@@ -28,7 +28,7 @@ pub fn redirect_clobbers_input(checker: &mut Checker) {
     checker.report_all_dedup(spans, || RedirectClobbersInput);
 }
 
-fn clobber_spans_for_command(fact: &crate::CommandFact<'_>) -> Vec<Span> {
+fn clobber_spans_for_command(fact: crate::CommandFactRef<'_, '_>) -> Vec<Span> {
     if fact.effective_name_is("echo") || fact.effective_name_is("printf") {
         return Vec::new();
     }

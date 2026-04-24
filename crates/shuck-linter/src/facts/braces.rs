@@ -1,7 +1,7 @@
 fn build_literal_brace_spans(
     nodes: &[WordNode<'_>],
     occurrences: &[WordOccurrence],
-    commands: &[CommandFact<'_>],
+    commands: CommandFacts<'_, '_>,
     source: &str,
     heredoc_ranges: &[TextRange],
 ) -> Vec<Span> {
@@ -204,7 +204,7 @@ fn span_is_active_brace_expansion_edge_in_source(span: Span, source: &str) -> bo
 }
 
 fn is_find_exec_placeholder_word(
-    commands: &[CommandFact<'_>],
+    commands: CommandFacts<'_, '_>,
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
     source: &str,
@@ -216,7 +216,7 @@ fn is_find_exec_placeholder_word(
         return false;
     }
 
-    let command = &commands[fact.command_id.index()];
+    let command = command_fact_ref(commands, fact.command_id);
     if command.has_wrapper(WrapperKind::FindExec) || command.has_wrapper(WrapperKind::FindExecDir) {
         return true;
     }
@@ -228,7 +228,7 @@ fn is_find_exec_placeholder_word(
     }) || line_has_find_exec_placeholder_context(source, occurrence_span(nodes, fact))
 }
 
-fn is_find_exec_command(command: &CommandFact<'_>, source: &str) -> bool {
+fn is_find_exec_command(command: CommandFactRef<'_, '_>, source: &str) -> bool {
     let is_find = command.static_utility_name_is("find")
         || command.body_name_word().is_some_and(|name_word| {
             name_word
@@ -293,7 +293,7 @@ fn line_has_find_exec_placeholder_context(source: &str, brace_span: Span) -> boo
 }
 
 fn is_xargs_replacement_word(
-    commands: &[CommandFact<'_>],
+    commands: CommandFacts<'_, '_>,
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
     source: &str,
@@ -302,7 +302,7 @@ fn is_xargs_replacement_word(
         return false;
     }
 
-    let command = &commands[fact.command_id.index()];
+    let command = command_fact_ref(commands, fact.command_id);
     if !command.effective_name_is("xargs") {
         return false;
     }
@@ -621,7 +621,7 @@ fn unclassified_literal_brace_spans(word: &Word, source: &str) -> Vec<Span> {
 }
 
 fn uncovered_command_brace_spans(
-    commands: &[CommandFact<'_>],
+    commands: CommandFacts<'_, '_>,
     source: &str,
     heredoc_ranges: &[TextRange],
 ) -> Vec<Span> {
@@ -1007,7 +1007,7 @@ fn closing_brace_ends_shell_group(text: &str, index: usize) -> bool {
 }
 
 fn unmatched_command_substitution_brace_spans(
-    commands: &[CommandFact<'_>],
+    commands: CommandFacts<'_, '_>,
     source: &str,
     heredoc_ranges: &[TextRange],
 ) -> Vec<Span> {

@@ -25,7 +25,7 @@ pub struct LinterFacts<'a> {
     word_nodes: Vec<WordNode<'a>>,
     word_occurrences: Vec<WordOccurrence>,
     word_index: FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
-    word_occurrence_ids_by_command: Vec<SmallVec<[WordOccurrenceId; 4]>>,
+    fact_store: FactStore<'a>,
     unquoted_command_argument_use_offsets: FxHashMap<Name, Vec<usize>>,
     array_assignment_split_word_ids: Vec<WordOccurrenceId>,
     brace_variable_before_bracket_spans: Vec<Span>,
@@ -178,8 +178,8 @@ impl<'a> LinterFacts<'a> {
         .build()
     }
 
-    pub fn commands(&self) -> &[CommandFact<'a>] {
-        &self.commands
+    pub fn commands(&self) -> CommandFacts<'_, 'a> {
+        CommandFacts::new(&self.commands, &self.fact_store)
     }
 
     pub fn malformed_bracket_test_spans(&self, source: &str) -> Vec<Span> {
@@ -234,18 +234,18 @@ impl<'a> LinterFacts<'a> {
             .unwrap_or_default()
     }
 
-    pub fn structural_commands(&self) -> impl Iterator<Item = &CommandFact<'a>> + '_ {
+    pub fn structural_commands(&self) -> impl Iterator<Item = CommandFactRef<'_, 'a>> + '_ {
         self.structural_command_ids
             .iter()
             .copied()
             .map(|id| self.command(id))
     }
 
-    pub fn command(&self, id: CommandId) -> &CommandFact<'a> {
-        &self.commands[id.index()]
+    pub fn command(&self, id: CommandId) -> CommandFactRef<'_, 'a> {
+        CommandFactRef::new(&self.commands[id.index()], &self.fact_store)
     }
 
-    pub fn innermost_command_at(&self, offset: usize) -> Option<&CommandFact<'a>> {
+    pub fn innermost_command_at(&self, offset: usize) -> Option<CommandFactRef<'_, 'a>> {
         self.innermost_command_id_at(offset)
             .map(|id| self.command(id))
     }
@@ -258,7 +258,7 @@ impl<'a> LinterFacts<'a> {
         self.command_parent_ids.get(id.index()).copied().flatten()
     }
 
-    pub fn command_parent(&self, id: CommandId) -> Option<&CommandFact<'a>> {
+    pub fn command_parent(&self, id: CommandId) -> Option<CommandFactRef<'_, 'a>> {
         self.command_parent_id(id)
             .map(|parent_id| self.command(parent_id))
     }
@@ -468,9 +468,7 @@ impl<'a> LinterFacts<'a> {
     }
 
     fn word_occurrence_ids_for_command(&self, id: CommandId) -> &[WordOccurrenceId] {
-        self.word_occurrence_ids_by_command
-            .get(id.index())
-            .map_or(&[], SmallVec::as_slice)
+        self.fact_store.word_occurrence_ids_for_command(id)
     }
 
     fn word_node(&self, id: WordNodeId) -> &WordNode<'a> {

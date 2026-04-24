@@ -1239,24 +1239,24 @@ fn substitution_body_is_line_oriented<'a>(
 
 fn substitution_body_is_pgrep_lookup<'a>(
     body: &'a StmtSeq,
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     matches!(
         body.as_slice(),
         [stmt]
-            if stmt_effective_or_literal_basename_is(stmt, "pgrep", commands, command_ids_by_span)
+            if stmt_effective_or_literal_basename_is_ref(stmt, "pgrep", commands, command_ids_by_span)
     )
 }
 
 fn substitution_body_is_seq_utility<'a>(
     body: &'a StmtSeq,
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     matches!(
         body.as_slice(),
-        [stmt] if stmt_effective_or_literal_basename_is(stmt, "seq", commands, command_ids_by_span)
+        [stmt] if stmt_effective_or_literal_basename_is_ref(stmt, "seq", commands, command_ids_by_span)
     )
 }
 
@@ -1367,14 +1367,14 @@ fn stmt_literal_name_is<'a>(
         == Some(name)
 }
 
-fn stmt_effective_or_literal_basename_is<'a>(
+fn stmt_effective_or_literal_basename_is_ref<'a>(
     stmt: &'a Stmt,
     name: &str,
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    command_fact_for_stmt(stmt, commands, command_ids_by_span)
-        .and_then(CommandFact::effective_or_literal_name)
+    command_fact_ref_for_stmt(stmt, commands, command_ids_by_span)
+        .and_then(CommandFactRef::effective_or_literal_name)
         .is_some_and(|command_name| {
             command_name == name || command_name.rsplit('/').next() == Some(name)
         })

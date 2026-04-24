@@ -49,7 +49,7 @@ pub fn declare_command(checker: &mut Checker) {
     }
 }
 
-fn portability_builtin_name(fact: &crate::CommandFact<'_>) -> Option<&'static str> {
+fn portability_builtin_name(fact: crate::CommandFactRef<'_, '_>) -> Option<&'static str> {
     match fact.effective_or_literal_name()? {
         "declare" => Some("declare"),
         "typeset" => Some("typeset"),
@@ -68,7 +68,7 @@ fn portability_builtin_name(fact: &crate::CommandFact<'_>) -> Option<&'static st
     }
 }
 
-fn declaration_command_anchor_span(fact: &crate::CommandFact<'_>, source: &str) -> Span {
+fn declaration_command_anchor_span(fact: crate::CommandFactRef<'_, '_>, source: &str) -> Span {
     let start = declaration_command_anchor_start(fact, source);
 
     if let Some(declaration) = fact.declaration() {
@@ -81,7 +81,7 @@ fn declaration_command_anchor_span(fact: &crate::CommandFact<'_>, source: &str) 
 }
 
 fn declaration_command_anchor_start(
-    fact: &crate::CommandFact<'_>,
+    fact: crate::CommandFactRef<'_, '_>,
     source: &str,
 ) -> shuck_ast::Position {
     if !fact.wrappers().is_empty() {
@@ -101,7 +101,7 @@ fn declaration_command_anchor_start(
         .unwrap_or_else(|| fact.span().start)
 }
 
-fn effective_name_span(fact: &crate::CommandFact<'_>, source: &str) -> Option<Span> {
+fn effective_name_span(fact: crate::CommandFactRef<'_, '_>, source: &str) -> Option<Span> {
     let word = fact.body_name_word()?;
     let name = fact.effective_or_literal_name()?;
     let text = word.span.slice(source);
@@ -114,7 +114,7 @@ fn effective_name_span(fact: &crate::CommandFact<'_>, source: &str) -> Option<Sp
 }
 
 fn declaration_anchor_end(
-    fact: &crate::CommandFact<'_>,
+    fact: crate::CommandFactRef<'_, '_>,
     mut end: shuck_ast::Position,
     source: &str,
 ) -> shuck_ast::Position {
@@ -127,7 +127,7 @@ fn declaration_anchor_end(
     clip_terminator(fact, end, source)
 }
 
-fn command_anchor_end(fact: &crate::CommandFact<'_>, source: &str) -> shuck_ast::Position {
+fn command_anchor_end(fact: crate::CommandFactRef<'_, '_>, source: &str) -> shuck_ast::Position {
     let end = fact
         .shellcheck_command_span(source)
         .map(|span| span.end)
@@ -136,7 +136,7 @@ fn command_anchor_end(fact: &crate::CommandFact<'_>, source: &str) -> shuck_ast:
 }
 
 fn clip_terminator(
-    fact: &crate::CommandFact<'_>,
+    fact: crate::CommandFactRef<'_, '_>,
     mut end: shuck_ast::Position,
     _source: &str,
 ) -> shuck_ast::Position {

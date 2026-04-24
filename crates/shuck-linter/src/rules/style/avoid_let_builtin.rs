@@ -30,7 +30,7 @@ pub fn avoid_let_builtin(checker: &mut Checker) {
     checker.report_all(spans, || AvoidLetBuiltin);
 }
 
-fn let_command_span(source: &str, fact: &crate::facts::CommandFact<'_>) -> Option<Span> {
+fn let_command_span(source: &str, fact: crate::facts::CommandFactRef<'_, '_>) -> Option<Span> {
     let name = fact.body_name_word()?;
     let mut end = fact
         .body_args()

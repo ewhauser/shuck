@@ -32,7 +32,7 @@ pub fn local_declare_combined(checker: &mut Checker) {
     checker.report_all_dedup(spans, || LocalDeclareCombined);
 }
 
-fn declaration_combination_span(fact: &crate::CommandFact<'_>) -> Option<shuck_ast::Span> {
+fn declaration_combination_span(fact: crate::CommandFactRef<'_, '_>) -> Option<shuck_ast::Span> {
     let declaration = fact.declaration()?;
     let expected = match declaration.kind {
         DeclarationKind::Local => "declare",

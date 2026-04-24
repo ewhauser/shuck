@@ -1,7 +1,7 @@
 use shuck_ast::Span;
 use shuck_semantic::{ScopeKind, SourceRef, SourceRefKind};
 
-use crate::{Checker, CommandFact, Rule, ShellDialect, Violation};
+use crate::{Checker, CommandFactRef, Rule, ShellDialect, Violation};
 
 use super::source_common::source_anchor_span_for_command_fact;
 
@@ -39,10 +39,10 @@ pub fn source_inside_function_in_sh(checker: &mut Checker) {
     checker.report_all(spans, || SourceInsideFunctionInSh);
 }
 
-fn source_command_for_ref<'a>(
-    checker: &'a Checker<'_>,
+fn source_command_for_ref<'checker, 'ast>(
+    checker: &'checker Checker<'ast>,
     source_ref: &SourceRef,
-) -> Option<&'a CommandFact<'a>> {
+) -> Option<CommandFactRef<'checker, 'ast>> {
     checker
         .facts()
         .commands()

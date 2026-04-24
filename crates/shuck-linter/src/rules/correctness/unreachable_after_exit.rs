@@ -1,4 +1,4 @@
-use crate::{Checker, CommandFact, ListFact, Rule, Violation, WrapperKind};
+use crate::{Checker, CommandFact, CommandFacts, ListFact, Rule, Violation, WrapperKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command as AstCommand, Name, Span};
 use shuck_semantic::{
@@ -246,7 +246,7 @@ fn span_is_inside_unreached_function(span: Span, function_spans: &[Span]) -> boo
 fn span_matches_short_circuit_skip(
     span: Span,
     short_circuit_lists: &[ListFact<'_>],
-    commands: &[CommandFact<'_>],
+    commands: CommandFacts<'_, '_>,
     semantic_analysis: &SemanticAnalysis<'_>,
 ) -> bool {
     short_circuit_lists.iter().any(|list| {
@@ -271,7 +271,7 @@ fn span_matches_short_circuit_skip(
 
 fn list_starts_with_condition(
     list: &ListFact<'_>,
-    commands: &[CommandFact<'_>],
+    commands: CommandFacts<'_, '_>,
     semantic_analysis: &SemanticAnalysis<'_>,
 ) -> bool {
     let Some(first_segment) = list.segments().first() else {
@@ -291,7 +291,7 @@ fn list_starts_with_condition(
             Some("[" | "test" | "true" | "false")
         );
 
-    starts_like_condition && !command_name_resolves_to_function(command, semantic_analysis)
+    starts_like_condition && !command_name_resolves_to_function(&command, semantic_analysis)
 }
 
 fn command_name_resolves_to_function(

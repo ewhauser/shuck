@@ -358,4 +358,3 @@ fn matches_assignment_ternary(
         && then_branch.assignment_target().is_some()
         && then_branch.assignment_target() == else_branch.assignment_target()
 }
-

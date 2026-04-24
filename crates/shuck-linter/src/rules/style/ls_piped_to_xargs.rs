@@ -34,7 +34,7 @@ pub fn ls_piped_to_xargs(checker: &mut Checker) {
     checker.report_all_dedup(spans, || LsPipedToXargs);
 }
 
-fn is_raw_command_named(fact: &crate::CommandFact<'_>, name: &str) -> bool {
+fn is_raw_command_named(fact: crate::CommandFactRef<'_, '_>, name: &str) -> bool {
     fact.literal_name() == Some(name) && fact.wrappers().is_empty()
 }
 

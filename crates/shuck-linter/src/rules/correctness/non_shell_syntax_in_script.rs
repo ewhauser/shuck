@@ -31,7 +31,7 @@ pub fn non_shell_syntax_in_script(checker: &mut Checker) {
 }
 
 fn non_shell_syntax_span(
-    command: &crate::CommandFact<'_>,
+    command: crate::CommandFactRef<'_, '_>,
     source: &str,
 ) -> Option<shuck_ast::Span> {
     if command.stmt().terminator != Some(StmtTerminator::Semicolon) {

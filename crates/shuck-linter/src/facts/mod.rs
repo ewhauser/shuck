@@ -46,13 +46,13 @@ use shuck_ast::{
     BraceSyntaxKind, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command,
     CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
     ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef,
-    HeredocBodyPartNode, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
-    PatternPart, Position, PrefixMatchKind, Redirect, RedirectKind, SelectCommand, SimpleCommand,
-    SourceText, Span, StaticCommandWrapperTarget, Stmt, StmtSeq, StmtTerminator, Subscript,
-    SubscriptSelector, TextRange, TextSize, VarRef, WhileCommand, Word, WordPart, WordPartNode,
-    ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
-    is_shell_variable_name, static_command_name_text, static_command_wrapper_target_index,
-    static_word_text, word_is_standalone_status_capture,
+    HeredocBodyPartNode, IdRange, ListArena, Name, ParameterExpansion, ParameterExpansionSyntax,
+    ParameterOp, Pattern, PatternPart, Position, PrefixMatchKind, Redirect, RedirectKind,
+    SelectCommand, SimpleCommand, SourceText, Span, StaticCommandWrapperTarget, Stmt, StmtSeq,
+    StmtTerminator, Subscript, SubscriptSelector, TextRange, TextSize, VarRef, WhileCommand, Word,
+    WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
+    ZshQualifiedGlob, is_shell_variable_name, static_command_name_text,
+    static_command_wrapper_target_index, static_word_text, word_is_standalone_status_capture,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -121,7 +121,10 @@ pub(crate) fn benchmark_normalize_commands(file: &File, source: &str) -> usize {
 
 #[allow(unused_imports)]
 pub(crate) mod core {
-    pub use super::{CommandId, FactSpan, SudoFamilyInvoker, WordNodeId, WordOccurrenceId};
+    pub use super::{
+        CommandFactRef, CommandFacts, CommandId, FactSpan, SudoFamilyInvoker, WordNodeId,
+        WordOccurrenceId,
+    };
 }
 
 #[allow(unused_imports)]
@@ -185,7 +188,7 @@ pub(crate) mod command_options {
 
 #[allow(unused_imports)]
 pub(crate) mod commands {
-    pub use super::CommandFact;
+    pub use super::{CommandFact, CommandFactRef};
 }
 
 #[allow(unused_imports)]

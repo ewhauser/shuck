@@ -655,7 +655,7 @@ fn build_redirect_facts<'a>(
     semantic: Option<&SemanticModel>,
     source: &str,
     zsh_options: Option<&ZshOptionState>,
-) -> Box<[RedirectFact<'a>]> {
+) -> Vec<RedirectFact<'a>> {
     redirects
         .iter()
         .map(|redirect| RedirectFact {
@@ -702,8 +702,7 @@ fn build_redirect_facts<'a>(
                 })
                 .into_boxed_slice(),
         })
-        .collect::<Vec<_>>()
-        .into_boxed_slice()
+        .collect()
 }
 
 fn brace_fd_redirection_span(redirect: &Redirect, source: &str) -> Option<Span> {

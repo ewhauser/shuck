@@ -2199,7 +2199,7 @@ fn build_declaration_assignment_probes<'a>(
     normalized: &NormalizedCommand<'a>,
     source: &str,
     zsh_options: Option<&ZshOptionState>,
-) -> Box<[DeclarationAssignmentProbe]> {
+) -> Vec<DeclarationAssignmentProbe> {
     if let Some(declaration) = normalized.declaration.as_ref() {
         return declaration
             .assignment_operands
@@ -2222,8 +2222,7 @@ fn build_declaration_assignment_probes<'a>(
                     status_capture: word_is_standalone_status_capture(word),
                 })
             })
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
+            .collect();
     }
 
     build_simple_command_declaration_assignment_probes(command, normalized, source, zsh_options)
@@ -2234,17 +2233,17 @@ fn build_simple_command_declaration_assignment_probes<'a>(
     normalized: &NormalizedCommand<'a>,
     source: &str,
     zsh_options: Option<&ZshOptionState>,
-) -> Box<[DeclarationAssignmentProbe]> {
+) -> Vec<DeclarationAssignmentProbe> {
     let Command::Simple(_) = command else {
-        return Vec::new().into_boxed_slice();
+        return Vec::new();
     };
 
     if !normalized.wrappers.is_empty() {
-        return Vec::new().into_boxed_slice();
+        return Vec::new();
     }
 
     let Some(kind) = simple_command_declaration_kind(normalized.effective_or_literal_name()) else {
-        return Vec::new().into_boxed_slice();
+        return Vec::new();
     };
     let word_groups = contiguous_word_groups(normalized.body_args());
     let readonly_flag = matches!(
@@ -2277,8 +2276,7 @@ fn build_simple_command_declaration_assignment_probes<'a>(
                 status_capture: assignment_value_text_is_standalone_status_capture(value_text),
             })
         })
-        .collect::<Vec<_>>()
-        .into_boxed_slice()
+        .collect()
 }
 
 fn assignment_value_text_is_standalone_status_capture(text: &str) -> bool {

@@ -58,11 +58,11 @@ pub use diagnostic::{Diagnostic, Severity};
 pub use facts::CommandSubstitutionKind;
 /// Extracted structural facts available to rules and callers.
 pub use facts::{
-    BacktickFragmentFact, CommandFact, CommandOptionFacts, ConditionalBareWordFact,
-    ConditionalBinaryFact, ConditionalFact, ConditionalMixedLogicalOperatorFact,
-    ConditionalNodeFact, ConditionalOperandFact, ConditionalOperatorFamily,
-    ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts, ExpansionAnalysis,
-    ExpansionContext, ExpansionHazards, ExpansionValueShape, FindCommandFacts,
+    BacktickFragmentFact, CommandFact, CommandFactRef, CommandFacts, CommandOptionFacts,
+    ConditionalBareWordFact, ConditionalBinaryFact, ConditionalFact,
+    ConditionalMixedLogicalOperatorFact, ConditionalNodeFact, ConditionalOperandFact,
+    ConditionalOperatorFamily, ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts,
+    ExpansionAnalysis, ExpansionContext, ExpansionHazards, ExpansionValueShape, FindCommandFacts,
     FindExecCommandFacts, FindExecShellCommandFacts, ForHeaderFact, FunctionCallArityFacts,
     FunctionHeaderFact, GrepPatternSourceKind, LegacyArithmeticFragmentFact, ListFact,
     ListOperatorFact, LoopHeaderWordFact, PathWordFact, PipelineFact, PipelineOperatorFact,
