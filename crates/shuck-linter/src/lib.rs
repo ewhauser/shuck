@@ -4311,6 +4311,22 @@ run && exit 0 || sleep 15
     }
 
     #[test]
+    fn unreachable_after_exit_skips_dead_short_circuit_exit_guards() {
+        let source = "\
+#!/bin/bash
+exit 0
+cleanup || exit 1
+echo after
+printf '%s\\n' later
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "echo after");
+        assert_eq!(diagnostics[1].span.slice(source), "printf '%s\\n' later");
+    }
+
+    #[test]
     fn unused_assignment_respects_disabled_rule() {
         let diagnostics = lint(
             "#!/bin/sh\nfoo=1\n",
