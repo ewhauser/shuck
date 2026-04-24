@@ -1110,6 +1110,14 @@ fn summarize_helper(
     context: &SourceClosureLookupContext<'_>,
 ) -> FileContract {
     let canonical_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let requested_key = HelperSummaryKey {
+        path: canonical_path.clone(),
+        shell_profile: ShellProfileKey::from_profile(&context.shell_profile),
+    };
+    if let Some(summary) = summaries.get(&requested_key) {
+        return summary.clone();
+    }
+
     let Ok(source) = fs::read_to_string(&canonical_path) else {
         return FileContract::default();
     };
@@ -1119,7 +1127,9 @@ fn summarize_helper(
         shell_profile: ShellProfileKey::from_profile(&shell_profile),
     };
     if let Some(summary) = summaries.get(&key) {
-        return summary.clone();
+        let summary = summary.clone();
+        summaries.insert(requested_key, summary.clone());
+        return summary;
     }
     if !active.insert(key.clone()) {
         return FileContract::default();
@@ -1135,6 +1145,7 @@ fn summarize_helper(
     );
     active.remove(&key);
     summaries.insert(key, summary.clone());
+    summaries.insert(requested_key, summary.clone());
     summary
 }
 
@@ -1327,7 +1338,6 @@ mod tests {
     use shuck_parser::parser::ShellDialect;
     #[cfg(windows)]
     use std::fs;
-    #[cfg(windows)]
     use tempfile::tempdir;
 
     #[test]
@@ -1371,6 +1381,34 @@ coproc loader { . \"$2\"; }
 
         assert_eq!(source_call_count, 2);
         assert_eq!(facts.source_templates.len(), 2);
+    }
+
+    #[test]
+    fn summarize_helper_reuses_request_profile_cache_hit_before_reading() {
+        let temp = tempdir().unwrap();
+        let helper = temp.path().join("helper");
+        std::fs::write(&helper, "#!/bin/zsh\nloaded_value=ok\n").unwrap();
+        let canonical_helper = std::fs::canonicalize(&helper).unwrap();
+
+        let context = SourceClosureLookupContext {
+            source_path_resolver: None,
+            analyzed_paths: None,
+            shell_profile: ShellProfile::native(ParseShellDialect::Bash),
+        };
+        let mut summaries = FxHashMap::default();
+        let mut active = FxHashSet::default();
+
+        let first = summarize_helper(&canonical_helper, &mut summaries, &mut active, &context);
+        assert!(first.provided_bindings.iter().any(|binding| {
+            binding.name.as_str() == "loaded_value"
+                && binding.kind == ProvidedBindingKind::Variable
+                && binding.certainty == ContractCertainty::Definite
+        }));
+
+        std::fs::remove_file(&helper).unwrap();
+
+        let second = summarize_helper(&canonical_helper, &mut summaries, &mut active, &context);
+        assert_eq!(second, first);
     }
 
     #[cfg(windows)]
