@@ -4492,6 +4492,29 @@ exit 0
     }
 
     #[test]
+    fn unreachable_after_exit_reports_inside_later_defined_transitive_functions() {
+        let source = "\
+#!/bin/bash
+main() {
+  helper
+}
+helper() {
+  return 0
+  printf '%s\\n' still_reported
+}
+main
+exit 0
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "printf '%s\\n' still_reported"
+        );
+    }
+
+    #[test]
     fn unreachable_after_exit_reports_inside_called_nested_functions_before_exit() {
         let source = "\
 #!/bin/bash

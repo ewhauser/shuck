@@ -95,7 +95,7 @@ fn statically_reachable_function_bindings(
     checker: &Checker<'_>,
     scope_bindings: &FxHashMap<ScopeId, BindingId>,
 ) -> FxHashSet<BindingId> {
-    let mut edges = FxHashMap::<Option<BindingId>, Vec<BindingId>>::default();
+    let mut calls_by_caller = FxHashMap::<Option<BindingId>, Vec<StaticFunctionCall>>::default();
 
     for command in checker.facts().commands() {
         let Some(name) = command.effective_or_literal_name() else {
@@ -111,25 +111,69 @@ fn statically_reachable_function_bindings(
         else {
             continue;
         };
-        if name_span.start.offset < checker.semantic().binding(callee).span.start.offset {
-            continue;
-        }
         let caller = enclosing_function_binding(checker, scope_bindings, name_span);
-        edges.entry(caller).or_default().push(callee);
+        calls_by_caller
+            .entry(caller)
+            .or_default()
+            .push(StaticFunctionCall { callee, name_span });
     }
 
     let mut reachable = FxHashSet::default();
-    let mut worklist = edges.remove(&None).unwrap_or_default();
-    while let Some(binding) = worklist.pop() {
-        if !reachable.insert(binding) {
+    let mut latest_entry_offsets = FxHashMap::<BindingId, usize>::default();
+    let mut worklist = calls_by_caller
+        .remove(&None)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|call| {
+            static_call_can_resolve_at_entry(
+                checker,
+                call.callee,
+                call.name_span,
+                call.name_span.start.offset,
+            )
+            .then_some((call.callee, call.name_span.start.offset))
+        })
+        .collect::<Vec<_>>();
+
+    while let Some((binding, entry_offset)) = worklist.pop() {
+        if latest_entry_offsets
+            .get(&binding)
+            .is_some_and(|latest_entry| *latest_entry >= entry_offset)
+        {
             continue;
         }
-        if let Some(callees) = edges.get(&Some(binding)) {
-            worklist.extend(callees.iter().copied());
+        latest_entry_offsets.insert(binding, entry_offset);
+        reachable.insert(binding);
+
+        if let Some(callees) = calls_by_caller.get(&Some(binding)) {
+            worklist.extend(callees.iter().filter_map(|call| {
+                static_call_can_resolve_at_entry(checker, call.callee, call.name_span, entry_offset)
+                    .then_some((call.callee, entry_offset))
+            }));
         }
     }
 
     reachable
+}
+
+#[derive(Clone, Copy)]
+struct StaticFunctionCall {
+    callee: BindingId,
+    name_span: Span,
+}
+
+fn static_call_can_resolve_at_entry(
+    checker: &Checker<'_>,
+    callee: BindingId,
+    name_span: Span,
+    entry_offset: usize,
+) -> bool {
+    let callee_binding = checker.semantic().binding(callee);
+    name_span.start.offset >= callee_binding.span.start.offset
+        || (matches!(
+            checker.semantic().scope(callee_binding.scope).kind,
+            ScopeKind::File
+        ) && entry_offset >= callee_binding.span.start.offset)
 }
 
 fn function_bindings_by_scope(checker: &Checker<'_>) -> FxHashMap<ScopeId, BindingId> {
