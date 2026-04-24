@@ -1749,6 +1749,13 @@ fn contains_positional_parameter_reference(value: &str) -> bool {
                 index += 1;
                 continue;
             }
+            b'#' if !in_single_quotes
+                && !in_double_quotes
+                && !is_escaped_dollar(value, index)
+                && starts_comment(value, index) =>
+            {
+                return false;
+            }
             b'$' if !in_single_quotes && !is_escaped_dollar(value, index) => {}
             _ => {
                 index += 1;
@@ -1779,6 +1786,10 @@ fn contains_positional_parameter_reference(value: &str) -> bool {
         }
     }
     false
+}
+
+fn starts_comment(value: &str, hash: usize) -> bool {
+    hash == 0 || value.as_bytes()[hash - 1].is_ascii_whitespace()
 }
 
 fn is_escaped_dollar(value: &str, dollar: usize) -> bool {
@@ -6916,9 +6927,12 @@ mod word_classification_tests {
         assert!(contains_positional_parameter_reference("echo ${!1}"));
         assert!(contains_positional_parameter_reference(r"echo \$$1"));
         assert!(contains_positional_parameter_reference(r"echo \'$1"));
+        assert!(contains_positional_parameter_reference("echo hi# $1"));
         assert!(!contains_positional_parameter_reference(r"echo \$1"));
         assert!(!contains_positional_parameter_reference(r"echo \${1}"));
         assert!(!contains_positional_parameter_reference("echo '$1'"));
+        assert!(!contains_positional_parameter_reference("echo hi # $1"));
+        assert!(!contains_positional_parameter_reference("echo hi; # $1"));
         assert!(!contains_positional_parameter_reference("echo $$1"));
     }
 
