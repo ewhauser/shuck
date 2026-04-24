@@ -7385,6 +7385,60 @@ main() {
     }
 
     #[test]
+    fn sourceable_file_return_before_helper_keeps_helper_exit_calls_non_terminating() {
+        let source = "\
+already_loaded() {
+  :
+}
+[ -n \"$loaded\" ] && return
+loaded=1
+exit_script() {
+  exit 0
+}
+main() {
+  exit_script
+  printf '%s\\n' still_reachable
+}
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
+    fn sourceable_file_return_after_helper_keeps_helper_exit_calls_terminating() {
+        let source = "\
+main() {
+  exit_script
+  printf '%s\\n' never
+}
+{
+  exit_script() {
+    exit 0
+  }
+  return
+}
+";
+        let model = model(source);
+        let unreachable = model
+            .analysis()
+            .dead_code()
+            .iter()
+            .flat_map(|dead_code| dead_code.unreachable.iter())
+            .map(|span| span.slice(source).to_owned())
+            .collect::<Vec<_>>();
+
+        assert!(
+            unreachable.contains(&"printf '%s\\n' never\n".to_owned()),
+            "unreachable spans: {unreachable:?}"
+        );
+    }
+
+    #[test]
     fn brace_group_function_definitions_can_make_later_calls_terminating() {
         let source = "\
 {

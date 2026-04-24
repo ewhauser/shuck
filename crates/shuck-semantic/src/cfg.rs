@@ -514,10 +514,7 @@ fn compute_script_terminating_call_spans(
     bindings: &[Binding],
     call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
 ) -> FxHashSet<SpanKey> {
-    if program.function_body_scopes.is_empty()
-        || call_sites.is_empty()
-        || file_entry_can_return_before_function_definitions(program, bindings)
-    {
+    if program.function_body_scopes.is_empty() || call_sites.is_empty() {
         return FxHashSet::default();
     }
 
@@ -562,20 +559,11 @@ fn compute_script_terminating_call_spans(
     terminating_call_spans
 }
 
-fn file_entry_can_return_before_function_definitions(
+fn file_entry_can_return_before_function_definition(
     program: &RecordedProgram,
-    bindings: &[Binding],
+    function_definition_offset: usize,
 ) -> bool {
-    let Some(first_function_offset) = bindings
-        .iter()
-        .filter(|binding| matches!(binding.kind, BindingKind::FunctionDefinition))
-        .map(|binding| binding.span.start.offset)
-        .min()
-    else {
-        return false;
-    };
-
-    command_range_can_return_before(program, program.file_commands(), first_function_offset)
+    command_range_can_return_before(program, program.file_commands(), function_definition_offset)
 }
 
 fn command_range_can_return_before(
@@ -590,14 +578,6 @@ fn command_range_can_return_before(
         .any(|command| command_can_return_before(program, command, before_offset))
 }
 
-fn command_range_can_return(program: &RecordedProgram, commands: RecordedCommandRange) -> bool {
-    program
-        .commands_in(commands)
-        .iter()
-        .copied()
-        .any(|command| command_can_return(program, command))
-}
-
 fn command_can_return_before(
     program: &RecordedProgram,
     command_id: RecordedCommandId,
@@ -608,18 +588,14 @@ fn command_can_return_before(
         return false;
     }
 
-    command_can_return(program, command_id)
-}
-
-fn command_can_return(program: &RecordedProgram, command_id: RecordedCommandId) -> bool {
     match program.command(command_id).kind {
-        RecordedCommandKind::Return => true,
+        RecordedCommandKind::Return => command.span.start.offset < before_offset,
         RecordedCommandKind::List { first, rest } => {
-            command_can_return(program, first)
+            command_can_return_before(program, first, before_offset)
                 || program
                     .list_items(rest)
                     .iter()
-                    .any(|item| command_can_return(program, item.command))
+                    .any(|item| command_can_return_before(program, item.command, before_offset))
         }
         RecordedCommandKind::If {
             condition,
@@ -627,26 +603,29 @@ fn command_can_return(program: &RecordedProgram, command_id: RecordedCommandId) 
             elif_branches,
             else_branch,
         } => {
-            command_range_can_return(program, condition)
-                || command_range_can_return(program, then_branch)
+            command_range_can_return_before(program, condition, before_offset)
+                || command_range_can_return_before(program, then_branch, before_offset)
                 || program.elif_branches(elif_branches).iter().any(|branch| {
-                    command_range_can_return(program, branch.condition)
-                        || command_range_can_return(program, branch.body)
+                    command_range_can_return_before(program, branch.condition, before_offset)
+                        || command_range_can_return_before(program, branch.body, before_offset)
                 })
-                || command_range_can_return(program, else_branch)
+                || command_range_can_return_before(program, else_branch, before_offset)
         }
         RecordedCommandKind::BraceGroup { body }
         | RecordedCommandKind::For { body }
         | RecordedCommandKind::Select { body }
-        | RecordedCommandKind::ArithmeticFor { body } => command_range_can_return(program, body),
+        | RecordedCommandKind::ArithmeticFor { body } => {
+            command_range_can_return_before(program, body, before_offset)
+        }
         RecordedCommandKind::While { condition, body }
         | RecordedCommandKind::Until { condition, body } => {
-            command_range_can_return(program, condition) || command_range_can_return(program, body)
+            command_range_can_return_before(program, condition, before_offset)
+                || command_range_can_return_before(program, body, before_offset)
         }
         RecordedCommandKind::Case { arms } => program
             .case_arms(arms)
             .iter()
-            .any(|arm| command_range_can_return(program, arm.commands)),
+            .any(|arm| command_range_can_return_before(program, arm.commands, before_offset)),
         RecordedCommandKind::Linear
         | RecordedCommandKind::Break { .. }
         | RecordedCommandKind::Continue { .. }
@@ -686,6 +665,12 @@ fn resolve_script_terminating_call_spans(
                 continue;
             };
             if !always_exiting_scopes.contains(&scope) {
+                continue;
+            }
+            if file_entry_can_return_before_function_definition(
+                program,
+                resolver.bindings[binding.index()].span.start.offset,
+            ) {
                 continue;
             }
             let command_span = recorded_command_span_for_call_site(program, site);
