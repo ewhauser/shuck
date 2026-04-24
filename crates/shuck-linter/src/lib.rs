@@ -619,6 +619,25 @@ mod tests {
         lint_path(path, &LinterSettings::for_rule(rule))
     }
 
+    fn lint_path_for_rule_with_resolver(
+        path: &Path,
+        rule: Rule,
+        source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    ) -> Vec<Diagnostic> {
+        let source = fs::read_to_string(path).unwrap();
+        let output = Parser::new(&source).parse().unwrap();
+        let indexer = Indexer::new(&source, &output);
+        lint_file_at_path_with_resolver(
+            &output.file,
+            &source,
+            &indexer,
+            &LinterSettings::for_rule(rule),
+            None,
+            Some(path),
+            source_path_resolver,
+        )
+    }
+
     fn lint_named_source(path: &Path, source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
@@ -3530,6 +3549,49 @@ use_flag() {
         let diagnostics = lint_path_for_rule(&main, Rule::UnusedAssignment);
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn generic_dynamic_source_function_writes_do_not_initialize_c006_reads() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("tests/main.sh");
+        let helper = temp.path().join("scripts/helper.sh");
+        fs::create_dir_all(main.parent().unwrap()).unwrap();
+        fs::create_dir_all(helper.parent().unwrap()).unwrap();
+        let source = "\
+#!/bin/sh
+helper_root=/tmp
+. \"$helper_root/scripts/helper.sh\"
+set_flag
+printf '%s\\n' \"$flag\"
+";
+        fs::write(&main, source).unwrap();
+        fs::write(
+            &helper,
+            "\
+set_flag() {
+  flag=1
+}
+",
+        )
+        .unwrap();
+
+        let main_path = main.clone();
+        let helper_path = helper.clone();
+        let resolver = move |source_path: &Path, candidate: &str| {
+            if source_path == main_path.as_path() && candidate == "scripts/helper.sh" {
+                vec![helper_path.clone()]
+            } else {
+                Vec::new()
+            }
+        };
+
+        let diagnostics =
+            lint_path_for_rule_with_resolver(&main, Rule::UndefinedVariable, Some(&resolver));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert_eq!(diagnostics[0].span.slice(source), "$flag");
     }
 
     #[test]

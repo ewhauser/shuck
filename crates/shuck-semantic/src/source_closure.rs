@@ -54,6 +54,7 @@ struct ImportedFunctionContractSite {
     scope: ScopeId,
     span: Span,
     certainty: ContractCertainty,
+    trust_provided_bindings: bool,
     contract: FunctionContract,
 }
 
@@ -119,22 +120,27 @@ fn collect_source_closure_contracts_with_cache(
 
         let (contract, resolved, explicit) =
             merge_contracts_for_candidates(source_path, candidates, summaries, active, context);
+        let trust_provided_bindings =
+            source_ref_can_import_provided_bindings(&source_ref.kind, template);
         source_ref_resolutions.push(classify_source_ref_resolution(&source_ref.kind, resolved));
         source_ref_explicitness.push(explicit);
         source_ref_diagnostic_classes
             .push(classify_source_ref_diagnostic_class(source_ref, template));
-        for provided in contract.provided_bindings.iter().cloned() {
-            imported_bindings.push(ImportedBindingContractSite {
-                scope,
-                span: source_ref.span,
-                origin_paths: binding_origin_paths(&contract, &provided),
-                binding: provided,
-            });
+        if trust_provided_bindings {
+            for provided in contract.provided_bindings.iter().cloned() {
+                imported_bindings.push(ImportedBindingContractSite {
+                    scope,
+                    span: source_ref.span,
+                    origin_paths: binding_origin_paths(&contract, &provided),
+                    binding: provided,
+                });
+            }
         }
         imported_functions.extend(imported_function_sites_for_contract(
             scope,
             source_ref.span,
             &contract,
+            trust_provided_bindings,
         ));
         for name in contract.required_reads {
             synthetic_reads.push(SyntheticRead {
@@ -160,13 +166,18 @@ fn collect_source_closure_contracts_with_cache(
                     name: name.clone(),
                 });
             }
-            for binding in &function_site.contract.provided_bindings {
-                imported_bindings.push(ImportedBindingContractSite {
-                    scope: call.scope,
-                    span: call.span,
-                    binding: binding_for_imported_function_call(binding, function_site.certainty),
-                    origin_paths: Vec::new(),
-                });
+            if function_site.trust_provided_bindings {
+                for binding in &function_site.contract.provided_bindings {
+                    imported_bindings.push(ImportedBindingContractSite {
+                        scope: call.scope,
+                        span: call.span,
+                        binding: binding_for_imported_function_call(
+                            binding,
+                            function_site.certainty,
+                        ),
+                        origin_paths: Vec::new(),
+                    });
+                }
             }
         }
 
@@ -243,6 +254,27 @@ fn classify_source_ref_resolution(kind: &SourceRefKind, resolved: bool) -> Sourc
                 SourceRefResolution::Unresolved
             }
         }
+    }
+}
+
+fn source_ref_can_import_provided_bindings(
+    kind: &SourceRefKind,
+    template: Option<&SourcePathTemplate>,
+) -> bool {
+    match kind {
+        SourceRefKind::Literal(_) | SourceRefKind::Directive(_) => true,
+        SourceRefKind::DirectiveDevNull => false,
+        SourceRefKind::Dynamic | SourceRefKind::SingleVariableStaticTail { .. } => {
+            template.is_some_and(template_has_current_source_anchor)
+        }
+    }
+}
+
+fn template_has_current_source_anchor(template: &SourcePathTemplate) -> bool {
+    match template {
+        SourcePathTemplate::Interpolated(parts) => parts
+            .iter()
+            .any(|part| matches!(part, TemplatePart::SourceDir | TemplatePart::SourceFile)),
     }
 }
 
@@ -326,6 +358,7 @@ fn imported_function_sites_for_contract(
     scope: ScopeId,
     span: Span,
     contract: &FileContract,
+    trust_provided_bindings: bool,
 ) -> Vec<ImportedFunctionContractSite> {
     contract
         .provided_functions
@@ -335,6 +368,7 @@ fn imported_function_sites_for_contract(
             scope,
             span,
             certainty: function_contract_certainty(contract, &function.name),
+            trust_provided_bindings,
             contract: function,
         })
         .collect()
