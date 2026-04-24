@@ -253,6 +253,7 @@ fn analyze_file_at_path_with_resolver_and_shell(
             file_entry_contract,
             analyzed_paths,
             shell_profile: Some(shell_profile),
+            resolve_source_closure: settings.resolve_source_closure,
         },
     );
     let checker = Checker::new(
@@ -3937,6 +3938,52 @@ flag=1
         let diagnostics = lint_path_for_rule(&main, Rule::UnusedAssignment);
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn disabled_source_closure_reports_assignment_only_read_by_sourced_helper() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("lib.sh");
+        let source = "\
+#!/bin/sh
+foo=1
+. ./lib.sh
+";
+        fs::write(&main, source).unwrap();
+        fs::write(&helper, "printf '%s\\n' \"$foo\"\n").unwrap();
+
+        let diagnostics = lint_path(
+            &main,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_resolve_source_closure(false),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
+    }
+
+    #[test]
+    fn disabled_source_closure_reports_read_only_assigned_by_sourced_helper() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("lib.sh");
+        let source = "\
+#!/bin/sh
+. ./lib.sh
+printf '%s\\n' \"$foo\"
+";
+        fs::write(&main, source).unwrap();
+        fs::write(&helper, "foo=1\n").unwrap();
+
+        let diagnostics = lint_path(
+            &main,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_resolve_source_closure(false),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert_eq!(diagnostics[0].span.slice(source), "$foo");
     }
 
     #[test]

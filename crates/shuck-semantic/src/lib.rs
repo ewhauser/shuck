@@ -2410,6 +2410,7 @@ pub fn build_with_observer_at_path_with_resolver(
             file_entry_contract: None,
             analyzed_paths: None,
             shell_profile: None,
+            resolve_source_closure: true,
         },
     )
 }
@@ -2439,14 +2440,31 @@ fn build_semantic_model(
             source_ref_resolutions,
             source_ref_explicitness,
             source_ref_diagnostic_classes,
-        ) = source_closure::collect_source_closure_contracts(
-            &model,
-            file,
-            source,
-            source_path,
-            options.source_path_resolver,
-            options.analyzed_paths,
-        );
+        ) = if options.resolve_source_closure {
+            source_closure::collect_source_closure_contracts(
+                &model,
+                file,
+                source,
+                source_path,
+                options.source_path_resolver,
+                options.analyzed_paths,
+            )
+        } else {
+            let (source_ref_resolutions, source_ref_explicitness, source_ref_diagnostic_classes) =
+                source_closure::collect_source_ref_metadata(
+                    &model,
+                    source_path,
+                    options.source_path_resolver,
+                    options.analyzed_paths,
+                );
+            (
+                Vec::new(),
+                Vec::new(),
+                source_ref_resolutions,
+                source_ref_explicitness,
+                source_ref_diagnostic_classes,
+            )
+        };
         model.apply_source_contracts(
             synthetic_reads,
             imported_bindings,

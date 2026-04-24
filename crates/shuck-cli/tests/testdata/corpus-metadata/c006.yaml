@@ -143,9 +143,6 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "void-linux__void-packages__common__environment__setup__replace-interpreter.sh"
     reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__environment__setup__sourcepkg.sh"
-    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
   - side: shellcheck-only
     path_suffix: "docker-library__official-images__test__config.sh"
     reason: "This generated test matrix is just a bundle of image-to-test mappings, so the ShellCheck-only C006 hits are the literal associative-array keys in those compound assignments rather than live variable reads."
@@ -174,9 +171,6 @@ reviewed_divergences:
     path_suffix: "juewuy__ShellCrash__scripts__libs__logger.sh"
     reason: "This logger helper pushes to multiple notification backends using values injected by the broader ShellCrash runtime, so the remaining ShellCheck-only reads are framework-managed settings rather than script-local variables."
   - side: shellcheck-only
-    path_suffix: "HariSekhon__DevOps-Bash-tools__bigdata__cloudera_navigator_audit_logs.sh"
-    reason: "This audit-log helper relies on a date source and timestamp value supplied by the wider Bash-tools library, so the ShellCheck-only read is the expected library contract around time formatting."
-  - side: shellcheck-only
     path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__configedit.sh"
     reason: "This RetroPie menu helper filters config paths from the shared configuration root, so the ShellCheck-only read is the surrounding module's directory context rather than an uninitialized local."
   - side: shellcheck-only
@@ -194,42 +188,9 @@ reviewed_divergences:
   - side: shellcheck-only
     path_suffix: "leebaird__discover__dev-api-scanner.sh"
     reason: "This scanner builds an output filename from the current CORS origin, and the remaining ShellCheck-only anchor is the lower-case slug fragment inside that generated path. We review this one file narrowly instead of broadening C006 around the helper's filename templating."
-  - side: shellcheck-only
-    path_suffix: "gentoo__gentoo__sys-apps__memtest86+__files__39_memtest86+-r2"
-    reason: "This GRUB menu helper sources grub-mkconfig_lib and only uses grub_tab to indent generated submenu output, so the remaining ShellCheck-only hit is a sourced helper contract rather than a missing local assignment."
-  - side: shellcheck-only
-    path_suffix: "gentoo__gentoo__sys-apps__memtest86+__files__39_memtest86+-r3"
-    reason: "This GRUB menu helper sources grub-mkconfig_lib and only uses grub_tab to indent generated submenu output, so the remaining ShellCheck-only hit is a sourced helper contract rather than a missing local assignment."
   - side: shuck-only
     path_suffix: "233boy__v2ray__src__old.sh"
     reason: "This legacy V2Ray helper threads transport choice through sourced installer plumbing, so the remaining C006 read is a repo-local runtime handoff rather than a free-standing missing assignment."
-  - side: shuck-only
-    path_suffix: "Bash-it__bash-it__bash_it.sh"
-    reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
-  - side: shuck-only
-    path_suffix: "Bash-it__bash-it__completion__available__docker.completion.bash"
-    reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
-  - side: shuck-only
-    path_suffix: "Bash-it__bash-it__completion__available__git.completion.bash"
-    reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
-  - side: shuck-only
-    path_suffix: "Bash-it__bash-it__completion__available__ng.completion.bash"
-    reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
-  - side: shuck-only
-    path_suffix: "Bash-it__bash-it__completion__available__svn.completion.bash"
-    reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
-  - side: shuck-only
-    path_suffix: "Bash-it__bash-it__completion__available__travis.completion.bash"
-    reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
-  - side: shuck-only
-    path_suffix: "Bash-it__bash-it__plugins__available__latex.plugin.bash"
-    reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
-  - side: shuck-only
-    path_suffix: "Bash-it__bash-it__scripts__reloader.bash"
-    reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
-  - side: shuck-only
-    path_suffix: "Bash-it__bash-it__themes__liquidprompt__liquidprompt.theme.bash"
-    reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
   - side: shuck-only
     path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_backup.sh"
     reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."

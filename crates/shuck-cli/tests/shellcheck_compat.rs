@@ -31,6 +31,12 @@ fn comment_by_code(comments: &[Value], code: u64) -> &Value {
         .unwrap()
 }
 
+fn has_comment(comments: &[Value], file: &str, code: u64) -> bool {
+    comments.iter().any(|comment| {
+        comment["file"].as_str() == Some(file) && comment["code"].as_u64() == Some(code)
+    })
+}
+
 #[test]
 fn env_activation_uses_shellcheck_surface() {
     let mut cmd = compat_cmd();
@@ -150,6 +156,29 @@ fn compat_json1_uses_metadata_info_level_for_sc1091() {
     let comments = json1_comments(&output);
     let sc1091 = comment_by_code(&comments, 1091);
     assert_eq!(sc1091["level"].as_str(), Some("info"));
+}
+
+#[test]
+fn compat_no_external_sources_keeps_explicit_sourced_files_available_for_sc1091() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("main.sh"), "#!/bin/sh\n. ./lib.sh\n").unwrap();
+    fs::write(tempdir.path().join("lib.sh"), "#!/bin/sh\necho ok\n").unwrap();
+
+    let output = run_compat(
+        [
+            "--norc",
+            "--include=SC1091",
+            "-f",
+            "json1",
+            "main.sh",
+            "lib.sh",
+        ]
+        .as_slice(),
+        tempdir.path(),
+    );
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(json1_comments(&output), Vec::<Value>::new());
 }
 
 #[test]
@@ -380,6 +409,83 @@ fn compat_check_sourced_reports_resolved_source_diagnostics() {
         .code(1)
         .stdout(predicate::str::contains("\"file\":\"lib.sh\""))
         .stdout(predicate::str::contains("\"code\":2086"));
+}
+
+#[test]
+fn compat_external_sources_controls_c001_source_closure() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("main.sh"),
+        "#!/bin/sh\nfoo=1\n. ./lib.sh\n",
+    )
+    .unwrap();
+    fs::write(tempdir.path().join("lib.sh"), "printf '%s\\n' \"$foo\"\n").unwrap();
+
+    let output = run_compat(
+        &["--norc", "--include=SC2034", "-f", "json1", "main.sh"],
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let comments = json1_comments(&output);
+    assert!(has_comment(&comments, "main.sh", 2034));
+
+    let output = run_compat(
+        &["--norc", "-x", "--include=SC2034", "-f", "json1", "main.sh"],
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert!(json1_comments(&output).is_empty());
+}
+
+#[test]
+fn compat_external_sources_controls_c006_source_closure() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("main.sh"),
+        "#!/bin/sh\n. ./lib.sh\nprintf '%s\\n' \"$foo\"\n",
+    )
+    .unwrap();
+    fs::write(tempdir.path().join("lib.sh"), "foo=1\n").unwrap();
+
+    let output = run_compat(
+        &["--norc", "--include=SC2154", "-f", "json1", "main.sh"],
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let comments = json1_comments(&output);
+    assert!(has_comment(&comments, "main.sh", 2154));
+
+    let output = run_compat(
+        &["--norc", "-x", "--include=SC2154", "-f", "json1", "main.sh"],
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert!(json1_comments(&output).is_empty());
+}
+
+#[test]
+fn compat_check_sourced_does_not_imply_source_closure() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("main.sh"),
+        "#!/bin/sh\nfoo=1\n. ./lib.sh\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("lib.sh"),
+        "#!/bin/sh\nprintf '%s\\n' \"$foo\"\nbar=1\n",
+    )
+    .unwrap();
+
+    let output = run_compat(
+        &["--norc", "-a", "--include=SC2034", "-f", "json1", "main.sh"],
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(1));
+
+    let comments = json1_comments(&output);
+    assert!(has_comment(&comments, "main.sh", 2034));
+    assert!(has_comment(&comments, "lib.sh", 2034));
 }
 
 #[test]

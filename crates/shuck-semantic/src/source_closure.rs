@@ -36,6 +36,12 @@ type SourceClosureContractResult = (
     Vec<SourceRefDiagnosticClass>,
 );
 
+type SourceRefMetadataResult = (
+    Vec<SourceRefResolution>,
+    Vec<bool>,
+    Vec<SourceRefDiagnosticClass>,
+);
+
 #[derive(Clone)]
 struct SourceClosureLookupContext<'a> {
     source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
@@ -111,6 +117,48 @@ pub(crate) fn collect_source_closure_contracts(
         contracts.source_ref_resolutions,
         contracts.source_ref_explicitness,
         contracts.source_ref_diagnostic_classes,
+    )
+}
+
+pub(crate) fn collect_source_ref_metadata(
+    model: &SemanticModel,
+    source_path: &Path,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    analyzed_paths: Option<&FxHashSet<PathBuf>>,
+) -> SourceRefMetadataResult {
+    let facts = collect_ast_facts(model);
+    let call_args_by_scope = resolve_literal_call_args_by_scope(model, &facts.calls);
+    let context = SourceClosureLookupContext {
+        source_path_resolver,
+        analyzed_paths,
+        shell_profile: model.shell_profile().clone(),
+    };
+    let mut source_ref_resolutions = Vec::new();
+    let mut source_ref_explicitness = Vec::new();
+    let mut source_ref_diagnostic_classes = Vec::new();
+
+    for source_ref in model.source_refs() {
+        let scope = model.scope_at(source_ref.span.start.offset);
+        let template = facts.source_templates.get(&SpanKey::new(source_ref.span));
+        let candidates = source_candidates(
+            &source_ref.kind,
+            template,
+            call_args_by_scope.get(&scope).map(Vec::as_slice),
+            source_path,
+        );
+        let (resolved, explicit) =
+            source_ref_metadata_for_candidates(source_path, candidates, &context);
+
+        source_ref_resolutions.push(classify_source_ref_resolution(&source_ref.kind, resolved));
+        source_ref_explicitness.push(explicit);
+        source_ref_diagnostic_classes
+            .push(classify_source_ref_diagnostic_class(source_ref, template));
+    }
+
+    (
+        source_ref_resolutions,
+        source_ref_explicitness,
+        source_ref_diagnostic_classes,
     )
 }
 
@@ -243,12 +291,9 @@ fn merge_contracts_for_candidates(
         let resolved_paths =
             resolve_helper_paths(source_path, &candidate, context.source_path_resolver);
         resolved |= !resolved_paths.is_empty();
-        explicit |= resolved_paths.iter().any(|path| {
-            context.analyzed_paths.is_some_and(|paths| {
-                paths.contains(path)
-                    || paths.contains(&fs::canonicalize(path).unwrap_or_else(|_| path.clone()))
-            })
-        });
+        explicit |= resolved_paths
+            .iter()
+            .any(|path| path_is_explicitly_analyzed(path, context.analyzed_paths));
         for resolved_path in resolved_paths {
             contracts.push(summarize_helper(&resolved_path, summaries, active, context));
         }
@@ -258,6 +303,32 @@ fn merge_contracts_for_candidates(
         resolved,
         explicit,
     )
+}
+
+fn source_ref_metadata_for_candidates(
+    source_path: &Path,
+    candidates: impl IntoIterator<Item = String>,
+    context: &SourceClosureLookupContext<'_>,
+) -> (bool, bool) {
+    let mut resolved = false;
+    let mut explicit = false;
+    for candidate in candidates {
+        let resolved_paths =
+            resolve_helper_paths(source_path, &candidate, context.source_path_resolver);
+        resolved |= !resolved_paths.is_empty();
+        explicit |= resolved_paths
+            .iter()
+            .any(|path| path_is_explicitly_analyzed(path, context.analyzed_paths));
+    }
+
+    (resolved, explicit)
+}
+
+fn path_is_explicitly_analyzed(path: &Path, analyzed_paths: Option<&FxHashSet<PathBuf>>) -> bool {
+    analyzed_paths.is_some_and(|paths| {
+        paths.contains(path)
+            || paths.contains(&fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
+    })
 }
 
 fn classify_source_ref_resolution(kind: &SourceRefKind, resolved: bool) -> SourceRefResolution {

@@ -274,11 +274,25 @@ impl FileContract {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct SemanticBuildOptions<'a> {
     pub source_path: Option<&'a Path>,
     pub source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
     pub file_entry_contract: Option<FileContract>,
     pub analyzed_paths: Option<&'a rustc_hash::FxHashSet<PathBuf>>,
     pub shell_profile: Option<ShellProfile>,
+    pub resolve_source_closure: bool,
+}
+
+impl Default for SemanticBuildOptions<'_> {
+    fn default() -> Self {
+        Self {
+            source_path: None,
+            source_path_resolver: None,
+            file_entry_contract: None,
+            analyzed_paths: None,
+            shell_profile: None,
+            resolve_source_closure: true,
+        }
+    }
 }

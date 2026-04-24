@@ -270,6 +270,7 @@ fn prepare_word_facts_input(
             file_entry_contract: None,
             analyzed_paths: None,
             shell_profile: Some(shell_profile_for_large_corpus_shell(&fixture.shell)),
+            resolve_source_closure: true,
         },
     );
 

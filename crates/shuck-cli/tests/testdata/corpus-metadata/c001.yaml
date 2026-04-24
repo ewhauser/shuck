@@ -1,7 +1,4 @@
 reviewed_divergences:
-  - side: shuck-only
-    path_contains: "termux__termux-packages__"
-    reason: "These Termux package recipes and build helpers publish `TERMUX_PKG_*`, toolchain flags, checksum tables, and related setup state for the Termux packaging harness to consume after the file returns. The remaining single-file C001 hits in this repo family are framework contract state, not dead assignments."
   - side: shellcheck-only
     path_contains: "termux__termux-packages__"
     reason: "The remaining shellcheck-only Termux sites are helper-library state or package metadata tables that the Termux build harness consumes later. Shuck treats that harness-owned state as live."
@@ -12,59 +9,14 @@ reviewed_divergences:
     path_contains: "rvm__rvm__"
     reason: "The remaining shellcheck-only RVM sites are helper values that are later recovered through indirect expansion and sourced-library state. Shuck preserves the dynamically consumed helper state."
   - side: shuck-only
-    path_contains: "void-linux__void-packages__"
-    reason: "These xbps-src helpers are sourced into the Void packaging framework, which consumes package metadata, environment flags, loop/header state, and helper results outside the local straight-line region. The remaining C001 corpus hits in this repo family are reviewed framework handoffs rather than dead shell assignments."
-  - side: shellcheck-only
-    path_contains: "void-linux__void-packages__"
-    reason: "The remaining shellcheck-only Void sites depend on sourced xbps-src helper behavior and packaging-framework state that Shuck treats as live."
-  - side: shuck-only
-    path_contains: "bats-core__bats-core__"
-    reason: "Bats formatter and harness helpers exchange status, buffer, and timing state through sourced helper files and outer harness callbacks. The remaining C001 hits in this repo family are reviewed harness-state handoffs, not dead assignments."
-  - side: shellcheck-only
-    path_contains: "bats-core__bats-core__"
-    reason: "The remaining shellcheck-only Bats sites depend on the outer harness contract and sourced helper plumbing that Shuck does not treat as ordinary dead assignments."
-  - side: shuck-only
     path_suffix: "dylanaraps__neofetch__neofetch"
     reason: "This Neofetch script builds a generated config surface and then interprets those option variables and helper names through later config-driven entrypoints. The remaining C001 hits are reviewed config-template state rather than dead assignments."
-  - side: shuck-only
-    path_contains: "megastep__makeself__"
-    reason: "Makeself threads header flags and archive settings through generated stub output and later extraction-time behavior. The remaining C001 hits are reviewed archive-metadata handoffs rather than dead assignments in the local file."
-  - side: shuck-only
-    path_suffix: "dehydrated-io__dehydrated__docs__examples__hook.sh"
-    reason: "This example hook documents the callback contract by binding positional parameters that are described in comments and intended for user customization. The remaining C001 hits are reviewed example-hook parameters, not accidental dead assignments."
-  - side: shuck-only
-    path_contains: "nvm-sh__nvm__"
-    reason: "These NVM helpers and test fixtures thread state through sourced shell setup, test harness callbacks, and shell-collapsed compatibility paths. The surviving C001 hits in this repo family are reviewed harness or shell-collapse divergences rather than ordinary dead assignments."
-  - side: shuck-only
-    path_contains: "acmesh-official__acme.sh__"
-    reason: "acme.sh helper modules exchange state through sourced helper functions, hook callbacks, and module-level globals. The remaining C001 hits in this repo family are reviewed helper-state handoffs rather than dead assignments."
-  - side: shuck-only
-    path_contains: "asdf-vm__asdf__"
-    reason: "asdf helper scripts pass state through sourced command libraries and later helper entrypoints. The remaining C001 hits in this repo family are reviewed library-state handoffs rather than dead assignments."
-  - side: shuck-only
-    path_contains: "pi-hole__pi-hole__"
-    reason: "These Pi-hole maintenance scripts thread installer and runtime state through sourced helpers and later callback-style entrypoints. The remaining C001 hits in this repo family are reviewed helper-state handoffs rather than dead assignments."
   - side: shuck-only
     path_contains: "romkatv__powerlevel10k__"
     reason: "Powerlevel10k setup helpers pass transient state through generated shell code and later prompt initialization paths. The remaining C001 hits in this repo family are reviewed prompt-state handoffs rather than dead assignments."
   - side: shuck-only
-    path_contains: "sstephenson__bats__"
-    reason: "These legacy Bats harness helpers exchange state through sourced callbacks and outer harness control flow. The remaining C001 hits in this repo family are reviewed harness-state handoffs rather than dead assignments."
-  - side: shuck-only
-    path_contains: "pyenv__pyenv__"
-    reason: "These pyenv rehash and python-build helpers exchange state through sourced helper libraries, plugin hooks, and later tool entrypoints. The remaining C001 hits in this repo family are reviewed library-state handoffs rather than dead assignments."
-  - side: shuck-only
-    path_contains: "tj__n__"
-    reason: "These `n` installer helpers and tests pass transient state through helper functions and outer test harness calls. The remaining C001 hits in this repo family are reviewed harness-state handoffs rather than dead assignments."
-  - side: shuck-only
     path_contains: "scop__bash-completion__"
     reason: "The bash-completion project is a sourced helper library and compatibility layer that threads parser state, completion globals, and zsh bridge state through later completion callbacks and wrapper entrypoints. The remaining C001 hits in this repo family are reviewed helper-runtime handoffs rather than dead assignments in a standalone script."
-  - side: shellcheck-only
-    path_contains: "scop__bash-completion__"
-    reason: "These bash-completion helpers hand control to shared setup helpers like `_comp_initialize`, which populate and consume callback state as part of the completion contract. Shuck treats that callback-owned state as live."
-  - side: shellcheck-only
-    path_contains: "bittorf__kalua__"
-    reason: "These Kalua build and monitoring scripts use parse slots and sourced helper state to unpack semi-structured command output, with each call path consuming only the fields it needs. Shuck treats the reviewed field handoffs as live."
   - side: shuck-only
     path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__speedtest"
     line: 112
@@ -114,167 +66,9 @@ reviewed_divergences:
     column: 15
     end_column: 19
     reason: "This `rest` local is a parsed-field placeholder. Shuck reports declaration-only locals as ordinary C001 targets, while the comparison oracle suppresses rest-style placeholder names more broadly."
-  - side: shellcheck-only
-    path_contains: "RetroPie__RetroPie-Setup__"
-    reason: "The RetroPie setup bootstrap and module scripts publish globals such as `biosdir`, `romdir`, and `configdir` for sourced module files, and they also use callback locals that the package framework fills or consults selectively. Shuck treats the framework locals and sourced setup state as live."
-  - side: shellcheck-only
-    path_contains: "dokku__dokku__"
-    reason: "These Dokku plugin triggers source shared plugin libraries and carry helper locals such as `proxy_schemes`, `tls_internal`, and `HAS_NETWORK_CONFIG` that only some trigger variants populate or read. Shuck treats the reviewed plugin callback state as live."
   - side: shuck-only
     path_contains: "community-scripts__ProxmoxVE__"
     reason: "These Proxmox helper scripts publish `var_*` template metadata and related provisioning state for the shared build/update framework sourced at startup. The remaining C001 hits in this repo family are reviewed framework handoffs that depend on project closure rather than dead local assignments."
-  - side: shellcheck-only
-    path_contains: "community-scripts__ProxmoxVE__"
-    reason: "These Proxmox installer and build helpers run inside a sourced framework that threads loop counters, command names, and retry state through shared helper functions and generated templates. The remaining shellcheck-only sites are reviewed framework locals rather than standalone dead assignments."
-  - side: shellcheck-only
-    path_contains: "docker__docker-bench-security__"
-    reason: "These docker-bench reporting helpers use locals as formatting and output placeholders inside shared report functions. Shuck treats the reviewed report-helper state as live."
-  - side: shellcheck-only
-    path_contains: "gentoo__gentoo__"
-    reason: "These Gentoo benchmark and test harness scripts use short locals as helper parameters and placeholder slots inside the harness. Shuck treats the reviewed test-helper state as live."
-  - side: shellcheck-only
-    path_contains: "bitnami__containers__"
-    reason: "These Bitnami library scripts carry compatibility locals that only some image or database variants populate and read. Shuck treats the reviewed variant-specific helper state as live."
-  - side: shellcheck-only
-    path_suffix: "Bash-it__bash-it__vendor__github.com__gaelicWizard__bash-progcomp__defaults.completion.bash"
-    line: 80
-    end_line: 80
-    column: 60
-    end_column: 65
-    reason: "completion helper reserves a verb-table placeholder for dispatcher state shared with later completion code"
-  - side: shellcheck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__libraries__bluez-alsa__bluez-alsa.conf"
-    line: 19
-    end_line: 19
-    column: 1
-    end_column: 14
-    reason: "config value is consumed by rc.bluez-alsa after sourcing the file"
-  - side: shellcheck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__misc__g15daemon__rc.g15daemon.conf"
-    line: 8
-    end_line: 8
-    column: 1
-    end_column: 11
-    reason: "plugin table entry is consumed by rc.g15daemon after sourcing the config"
-  - side: shellcheck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__misc__g15daemon__rc.g15daemon.conf"
-    line: 9
-    end_line: 9
-    column: 1
-    end_column: 17
-    reason: "plugin parameter table entry is consumed by rc.g15daemon after sourcing the config"
-  - side: shellcheck-only
-    path_suffix: "233boy__v2ray__install.sh"
-    line: 424
-    end_line: 424
-    column: 5
-    end_column: 19
-    reason: "install mode flag is consumed by the dynamically sourced core.sh helper"
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_details.sh"
-    line: 19
-    end_line: 19
-    column: 2
-    end_column: 5
-    reason: "loop variable is consumed by the sibling query_gamedig.sh helper invoked in the loop"
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_postdetails.sh"
-    line: 35
-    end_line: 35
-    column: 2
-    end_column: 5
-    reason: "loop variable is consumed by the sibling query_gamedig.sh helper invoked in the loop"
-  - side: shellcheck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__ham__rtl-sdr__rtl-sdr.SlackBuild"
-    line: 119
-    end_line: 119
-    column: 3
-    end_column: 6
-    reason: "reviewed one-off loop-header compatibility gap for the unused packaging loop counter in this fixture"
-  - side: shellcheck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__network__nagios__nagios.SlackBuild"
-    line: 46
-    end_line: 46
-    column: 1
-    end_column: 4
-    reason: "reviewed one-off loop-header compatibility gap for the relative-path builder counter in this fixture"
-  - side: shellcheck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__network__openconnect__vpnc-script"
-    line: 589
-    end_line: 589
-    column: 5
-    end_column: 8
-    reason: "reviewed one-off loop-header compatibility gap for the tun-device retry counter in this fixture"
-  - side: shellcheck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__system__PrintNode__rc.PrintNode"
-    line: 46
-    end_line: 46
-    column: 9
-    end_column: 12
-    reason: "reviewed one-off loop-header compatibility gap for the shutdown wait counter in this fixture"
-  - side: shellcheck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__system__efi-sync__file__rc.efi-sync.new"
-    line: 33
-    end_line: 33
-    column: 3
-    end_column: 6
-    reason: "reviewed one-off loop-header compatibility gap for the shutdown polling counter in this fixture"
-  - side: shellcheck-only
-    path_suffix: "alpinelinux__aports__.githooks__pre-commit"
-    line: 70
-    end_line: 70
-    column: 34
-    end_column: 41
-    reason: "checksum helper reserves a parsed content slot alongside checksum and filename, but this path only consumes the other fields"
-  - side: shellcheck-only
-    path_suffix: "alpinelinux__aports__community__tea__bash_autocomplete"
-    line: 7
-    end_line: 7
-    column: 20
-    end_column: 24
-    reason: "completion helper keeps a declaration-only placeholder alongside the shared bash-completion locals"
-  - side: shellcheck-only
-    path_suffix: "dockur__windows__src__install.sh"
-    line: 382
-    end_line: 382
-    column: 27
-    end_column: 33
-    reason: "bootdisk extractor reserves alternate total-size slots for image layouts that this path does not consume"
-  - side: shellcheck-only
-    path_suffix: "dockur__windows__src__install.sh"
-    line: 383
-    end_line: 383
-    column: 33
-    end_column: 39
-    reason: "bootdisk extractor reserves alternate hard-link slots for image layouts that this path does not consume"
-  - side: shellcheck-only
-    path_suffix: "dockur__windows__src__install.sh"
-    line: 383
-    end_line: 383
-    column: 47
-    end_column: 53
-    reason: "bootdisk extractor reserves alternate hard-link slots for image layouts that this path does not consume"
-  - side: shellcheck-only
-    path_suffix: "google__oss-fuzz__infra__base-images__base-clang__checkout_build_install_llvm.sh"
-    line: 83
-    end_line: 83
-    column: 3
-    end_column: 6
-    reason: "reviewed one-off loop-header compatibility gap for the clone retry counter in this fixture"
-  - side: shellcheck-only
-    path_suffix: "google__oss-fuzz__infra__base-images__base-clang__checkout_build_install_llvm_ubuntu_20_04.sh"
-    line: 83
-    end_line: 83
-    column: 3
-    end_column: 6
-    reason: "reviewed one-off loop-header compatibility gap for the clone retry counter in this fixture"
-  - side: shellcheck-only
-    path_suffix: "google__oss-fuzz__infra__base-images__base-clang__checkout_build_install_llvm_ubuntu_24_04.sh"
-    line: 82
-    end_line: 82
-    column: 3
-    end_column: 6
-    reason: "reviewed one-off loop-header compatibility gap for the clone retry counter in this fixture"
   - side: shellcheck-only
     path_suffix: "leebaird__discover__dev-api-scanner.sh"
     line: 561
@@ -283,44 +77,9 @@ reviewed_divergences:
     end_column: 51
     reason: "documentation endpoint extraction stages a lowercase helper name that this path never reads before handing off to the later uppercase endpoint queue"
   - side: shellcheck-only
-    path_suffix: "moovweb__gvm__examples__native__ltmain.sh"
-    line: 1249
-    end_line: 1249
-    column: 2
-    end_column: 5
-    reason: "reviewed one-off loop-header compatibility gap for the fixed-count libtool probe counter in this fixture"
-  - side: shuck-only
-    path_suffix: "moovweb__gvm__examples__native__configure"
-    line: 747
-    end_line: 747
-    column: 1
-    end_column: 15
-    reason: "generated configure script reads this substitution list in a later reporting block that the current parser recovery path does not surface to C001"
-  - side: shellcheck-only
-    path_suffix: "moovweb__gvm__scripts__completion"
-    line: 6
-    end_line: 6
-    column: 12
-    end_column: 16
-    reason: "completion helper keeps a declaration-only placeholder alongside the shared bash-completion locals"
-  - side: shellcheck-only
     path_suffix: "nvie__gitflow__git-flow"
     line: 85
     end_line: 85
     column: 18
     end_column: 31
     reason: "shFlags owns this generated flag binding after DEFINE_boolean wires the parser state"
-  - side: shellcheck-only
-    path_suffix: "openrc__openrc__sh__rc-cgroup.sh"
-    line: 176
-    end_line: 176
-    column: 22
-    end_column: 28
-    reason: "cgroup event parser carries an extra declaration-only scratch slot in this helper path"
-  - side: shellcheck-only
-    path_suffix: "swoodford__aws__ec2-ami-encrypted-ebs-boot-volume.sh"
-    line: 280
-    end_line: 280
-    column: 3
-    end_column: 6
-    reason: "reviewed one-off loop-header compatibility gap for the AMI availability polling counter in this fixture"

@@ -64,6 +64,7 @@ pub struct LinterSettings {
     pub analyzed_paths: Option<Arc<FxHashSet<PathBuf>>>,
     pub per_file_ignores: Arc<CompiledPerFileIgnoreList>,
     pub report_environment_style_names: bool,
+    pub resolve_source_closure: bool,
     pub rule_options: LinterRuleOptions,
 }
 
@@ -83,6 +84,7 @@ impl Default for LinterSettings {
             analyzed_paths: None,
             per_file_ignores: Arc::new(CompiledPerFileIgnoreList::default()),
             report_environment_style_names: false,
+            resolve_source_closure: true,
             rule_options: LinterRuleOptions::default(),
         }
     }
@@ -220,6 +222,11 @@ impl LinterSettings {
         self.rule_options
             .c001
             .treat_indirect_expansion_targets_as_used = value;
+        self
+    }
+
+    pub fn with_resolve_source_closure(mut self, value: bool) -> Self {
+        self.resolve_source_closure = value;
         self
     }
 
