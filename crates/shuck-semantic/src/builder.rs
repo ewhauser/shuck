@@ -2740,6 +2740,28 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             })
     }
 
+    fn binding_was_cleared_before_lookup(
+        &self,
+        binding: &Binding,
+        lookup_scope: ScopeId,
+        lookup_offset: usize,
+    ) -> bool {
+        for scope in ancestor_scopes(&self.scopes, lookup_scope) {
+            if self.binding_was_cleared_in_scope_between(
+                &binding.name,
+                scope,
+                binding.span.start.offset,
+                lookup_offset,
+            ) {
+                return true;
+            }
+            if scope == binding.scope {
+                break;
+            }
+        }
+        false
+    }
+
     fn has_uncleared_local_binding_in_scope(
         &self,
         name: &Name,
@@ -2890,10 +2912,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 .map(|binding_id| {
                     let binding = &self.bindings[binding_id.index()];
                     binding.attributes.contains(BindingAttributes::ASSOC)
-                        && !self.binding_was_cleared_in_scope_between(
-                            &binding.name,
-                            binding.scope,
-                            binding.span.start.offset,
+                        && !self.binding_was_cleared_before_lookup(
+                            binding,
+                            self.current_scope(),
                             reference.name_span.start.offset,
                         )
                 })
