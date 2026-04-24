@@ -209,25 +209,32 @@ fn name_only_declaration_history_events(checker: &Checker<'_>) -> Vec<ArrayHisto
 }
 
 fn declaration_array_flag_enabled(declaration: &Declaration) -> bool {
-    let mut array_flag = false;
+    let mut indexed_array_flag = false;
+    let mut associative_array_flag = false;
 
     for operand in &declaration.operands {
         let DeclarationOperand::Flag { flags, .. } = operand else {
             continue;
         };
 
-        if let Some(flags) = flags.strip_prefix('-') {
-            if flags.chars().any(|flag| matches!(flag, 'a' | 'A')) {
-                array_flag = true;
+        let Some((enabled, flags)) = flags
+            .strip_prefix('-')
+            .map(|flags| (true, flags))
+            .or_else(|| flags.strip_prefix('+').map(|flags| (false, flags)))
+        else {
+            continue;
+        };
+
+        for flag in flags.chars() {
+            match flag {
+                'a' => indexed_array_flag = enabled,
+                'A' => associative_array_flag = enabled,
+                _ => {}
             }
-        } else if let Some(flags) = flags.strip_prefix('+')
-            && flags.chars().any(|flag| matches!(flag, 'a' | 'A'))
-        {
-            array_flag = false;
         }
     }
 
-    array_flag
+    indexed_array_flag || associative_array_flag
 }
 
 fn push_reset_event(
@@ -604,6 +611,32 @@ declare -ga indexed
 indexed=value
 declare -A assoc=([key]=value)
 declare -gA assoc
+assoc=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["indexed", "assoc"],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn declaration_array_flag_removals_keep_the_other_array_kind() {
+        let source = "\
+#!/bin/bash
+declare -a indexed=(one)
+declare -a +A indexed
+indexed=value
+declare -A assoc=([key]=value)
+declare -A +a assoc
 assoc=value
 ";
         let diagnostics = test_snippet(
