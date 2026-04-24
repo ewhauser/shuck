@@ -5550,6 +5550,31 @@ typeset -f typed
     }
 
     #[test]
+    fn declaration_plus_function_flags_keep_name_operands_as_variables() {
+        let source = "\
+declare +f config_unset
+declare +F config_maybe
+declare -f +f config_after_toggle
+typeset +f typed
+";
+        let model = model(source);
+        let variable_operand_names = [
+            "config_unset",
+            "config_maybe",
+            "config_after_toggle",
+            "typed",
+        ];
+
+        for name in variable_operand_names {
+            assert!(
+                model.bindings().iter().any(|binding| binding.name == name
+                    && matches!(binding.kind, BindingKind::Declaration(_))),
+                "{name} should be treated as a variable declaration"
+            );
+        }
+    }
+
+    #[test]
     fn repeated_name_only_local_reuses_existing_same_scope_binding() {
         let source = "f() { local foo=1; local foo; echo \"$foo\"; }\n";
         let model = model(source);

@@ -484,7 +484,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let flags = declaration_flags(&command.operands, self.source);
         let global_flag_enabled =
             declaration_flag_is_enabled(&command.operands, self.source, 'g').unwrap_or(false);
-        let name_operands_are_function_names = declaration_name_operands_are_function_names(&flags);
+        let name_operands_are_function_names =
+            declaration_name_operands_are_function_names(&command.operands, self.source);
         self.declarations.push(Declaration {
             builtin,
             span: command.span,
@@ -3281,8 +3282,9 @@ fn declaration_flags(operands: &[DeclOperand], source: &str) -> FxHashSet<char> 
     flags
 }
 
-fn declaration_name_operands_are_function_names(flags: &FxHashSet<char>) -> bool {
-    flags.contains(&'f') || flags.contains(&'F')
+fn declaration_name_operands_are_function_names(operands: &[DeclOperand], source: &str) -> bool {
+    declaration_flag_is_enabled(operands, source, 'f').unwrap_or(false)
+        || declaration_flag_is_enabled(operands, source, 'F').unwrap_or(false)
 }
 
 fn declaration_flag_is_enabled(
