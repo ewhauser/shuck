@@ -386,6 +386,81 @@ fn test_posix_function_allows_if_body() {
 }
 
 #[test]
+fn test_posix_function_parses_negated_bracket_if_body() {
+    let input = "\
+recent_file(){
+    if ! [ -f \"$file\" ]; then
+        return 1
+    elif find \"$file\" -mtime -\"$days\" -print | grep -q .; then
+        return 0
+    else
+        local days_ago_in_seconds
+        days_ago_in_seconds=\"$(date -d \"$days days ago\" '+%s')\"
+        if is_mac; then
+            if [ \"$(stat -f '%m' \"$file\")\" -ge \"$days_ago_in_seconds\" ]; then
+                return 0
+            else
+                return 1
+            fi
+        elif [ \"$(stat -c '%Y' \"$file\")\" -ge \"$days_ago_in_seconds\" ]; then
+            return 0
+        else
+            return 1
+        fi
+    fi
+}
+";
+    let parsed = Parser::new(input).parse().unwrap();
+
+    assert!(matches!(
+        expect_function(&parsed.file.body[0]).body.command,
+        AstCommand::Compound(..)
+    ));
+}
+
+#[test]
+fn test_posix_function_allows_single_quoted_zsh_glob_control_text_in_body() {
+    let input = "\
+parse_hint(){
+    printf '%s\\n' 'literal (# marker)' \"$@\"
+}
+";
+    let parsed = Parser::new(input).parse().unwrap();
+
+    assert_eq!(parsed.file.body.len(), 1);
+}
+
+#[test]
+fn test_simple_command_allows_nft_brace_literals_inside_and_block() {
+    let input = "\
+start_nftables() {
+    [ \"$tun_statu\" = true ] && {
+        nft add chain inet fw4 forward { type filter hook forward priority filter \\; } 2>/dev/null
+        nft add chain inet fw4 input { type filter hook input priority filter \\; } 2>/dev/null
+    }
+}
+";
+    let parsed = Parser::new(input).parse().unwrap();
+
+    assert_eq!(parsed.file.body.len(), 1);
+    let function = expect_function(&parsed.file.body[0]);
+    assert!(matches!(function.body.command, AstCommand::Compound(..)));
+}
+
+#[test]
+fn test_function_keyword_allows_plus_name_in_bash() {
+    let input = "function run++ () {\n  ((run_count+=1))\n}\nrun++\n";
+    let parsed = Parser::new(input).parse().unwrap();
+
+    assert_eq!(parsed.file.body.len(), 2);
+    let function = expect_function(&parsed.file.body[0]);
+    assert_eq!(
+        function.static_names().next().map(|name| name.as_str()),
+        Some("run++")
+    );
+}
+
+#[test]
 fn test_function_body_rejects_simple_command() {
     let parser = Parser::new("f() echo hi\n");
     assert!(

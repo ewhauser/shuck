@@ -52,6 +52,8 @@ pub struct ControlFlowGraph {
     predecessors: FxHashMap<BlockId, Vec<BlockId>>,
     entry: BlockId,
     exits: Vec<BlockId>,
+    natural_exits: Vec<BlockId>,
+    script_terminators: Vec<BlockId>,
     unreachable: Vec<BlockId>,
     pub(crate) scope_entries: FxHashMap<ScopeId, BlockId>,
     pub(crate) scope_exits: FxHashMap<ScopeId, Vec<BlockId>>,
@@ -82,6 +84,14 @@ impl ControlFlowGraph {
 
     pub fn exits(&self) -> &[BlockId] {
         &self.exits
+    }
+
+    pub fn natural_exits(&self) -> &[BlockId] {
+        &self.natural_exits
+    }
+
+    pub fn script_terminators(&self) -> &[BlockId] {
+        &self.script_terminators
     }
 
     pub fn scope_entry(&self, scope: ScopeId) -> Option<BlockId> {
@@ -1218,6 +1228,7 @@ struct GraphBuilder<'a> {
     command_blocks: FxHashMap<SpanKey, Vec<BlockId>>,
     unreachable_causes: FxHashMap<BlockId, UnreachableCause>,
     scope_entries: FxHashMap<ScopeId, BlockId>,
+    script_terminators: Vec<BlockId>,
 }
 
 pub(crate) fn build_control_flow_graph(
@@ -1245,11 +1256,17 @@ pub(crate) fn build_control_flow_graph(
         command_blocks: FxHashMap::default(),
         unreachable_causes: FxHashMap::default(),
         scope_entries: FxHashMap::default(),
+        script_terminators: Vec::new(),
     };
 
     let file = builder.build_sequence(program.file_commands(), &[]);
     let entry = file.entry.unwrap_or_else(|| builder.empty_block());
     builder.scope_entries.insert(ScopeId(0), entry);
+    let mut natural_exits = if file.entry.is_none() {
+        vec![entry]
+    } else {
+        file.exits.clone()
+    };
     let file_exits = if file.exits.is_empty() {
         vec![entry]
     } else {
@@ -1264,6 +1281,11 @@ pub(crate) fn build_control_flow_graph(
         let function = builder.build_sequence(*commands, &[]);
         let function_entry = function.entry.unwrap_or_else(|| builder.empty_block());
         builder.scope_entries.insert(*scope, function_entry);
+        if function.entry.is_none() {
+            natural_exits.push(function_entry);
+        } else {
+            natural_exits.extend(function.exits.iter().copied());
+        }
         let function_exits = if function.exits.is_empty() {
             vec![function_entry]
         } else {
@@ -1283,6 +1305,8 @@ pub(crate) fn build_control_flow_graph(
         predecessors,
         entry,
         exits,
+        natural_exits,
+        script_terminators: builder.script_terminators,
         unreachable,
         scope_entries: builder.scope_entries,
         scope_exits,
@@ -1360,6 +1384,7 @@ impl<'a> GraphBuilder<'a> {
                     .script_terminating_calls
                     .contains(&SpanKey::new(command.span))
                 {
+                    self.script_terminators.push(block);
                     Vec::new()
                 } else {
                     vec![block]
@@ -1401,6 +1426,9 @@ impl<'a> GraphBuilder<'a> {
             }
             RecordedCommandKind::Return | RecordedCommandKind::Exit => {
                 let block = self.command_block(command.span);
+                if matches!(command.kind, RecordedCommandKind::Exit) {
+                    self.script_terminators.push(block);
+                }
                 SequenceResult {
                     entry: Some(block),
                     exits: Vec::new(),

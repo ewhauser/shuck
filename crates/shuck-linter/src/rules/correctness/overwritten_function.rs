@@ -2,10 +2,19 @@ use crate::context::FileContextTag;
 use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 use shuck_semantic::{
     BindingKind, BindingOrigin, OverwrittenFunction as SemanticOverwrittenFunction,
+    UnreachedFunction as SemanticUnreachedFunction, UnreachedFunctionReason,
 };
+
+#[derive(Clone, Copy)]
+pub enum FunctionNotReachedReason {
+    Overwritten,
+    ScriptTerminates,
+    UnreachableDefinition,
+}
 
 pub struct OverwrittenFunction {
     pub name: String,
+    pub reason: FunctionNotReachedReason,
 }
 
 impl Violation for OverwrittenFunction {
@@ -16,19 +25,35 @@ impl Violation for OverwrittenFunction {
     }
 
     fn message(&self) -> String {
-        format!(
-            "function `{}` is overwritten before any direct call can reach it",
-            self.name
-        )
+        match self.reason {
+            FunctionNotReachedReason::Overwritten => format!(
+                "function `{}` is overwritten before any direct call can reach it",
+                self.name
+            ),
+            FunctionNotReachedReason::ScriptTerminates
+            | FunctionNotReachedReason::UnreachableDefinition => format!(
+                "function `{}` cannot be reached by a direct call before the script terminates",
+                self.name
+            ),
+        }
     }
 
     fn fix_title(&self) -> Option<String> {
-        Some("delete the earlier overwritten function definition".to_owned())
+        match self.reason {
+            FunctionNotReachedReason::Overwritten => {
+                Some("delete the earlier overwritten function definition".to_owned())
+            }
+            FunctionNotReachedReason::ScriptTerminates
+            | FunctionNotReachedReason::UnreachableDefinition => {
+                Some("delete the function definition that cannot be reached".to_owned())
+            }
+        }
     }
 }
 
 pub fn overwritten_function(checker: &mut Checker) {
     let overwritten = checker.semantic_analysis().overwritten_functions().to_vec();
+    let unreached = checker.semantic_analysis().unreached_functions().to_vec();
 
     for overwritten in overwritten {
         if overwritten.first_called {
@@ -38,22 +63,56 @@ pub fn overwritten_function(checker: &mut Checker) {
             continue;
         }
 
-        let binding = checker.semantic().binding(overwritten.first);
-        let definition_span = match &binding.origin {
-            BindingOrigin::FunctionDefinition { definition_span } => *definition_span,
-            _ => binding.span,
-        };
-
-        checker.report_diagnostic_dedup(
-            Diagnostic::new(
-                OverwrittenFunction {
-                    name: overwritten.name.to_string(),
-                },
-                definition_span,
-            )
-            .with_fix(Fix::unsafe_edit(Edit::deletion(definition_span))),
+        report_function_definition(
+            checker,
+            overwritten.first,
+            overwritten.name.to_string(),
+            FunctionNotReachedReason::Overwritten,
         );
     }
+
+    for unreached in unreached {
+        if should_suppress_unreached(checker, &unreached) {
+            continue;
+        }
+
+        let reason = match unreached.reason {
+            UnreachedFunctionReason::UnreachableDefinition => {
+                FunctionNotReachedReason::UnreachableDefinition
+            }
+            UnreachedFunctionReason::ScriptTerminates => FunctionNotReachedReason::ScriptTerminates,
+        };
+        report_function_definition(
+            checker,
+            unreached.binding,
+            unreached.name.to_string(),
+            reason,
+        );
+    }
+}
+
+fn report_function_definition(
+    checker: &mut Checker<'_>,
+    binding_id: shuck_semantic::BindingId,
+    name: String,
+    reason: FunctionNotReachedReason,
+) {
+    let binding = checker.semantic().binding(binding_id);
+    let definition_span = match &binding.origin {
+        BindingOrigin::FunctionDefinition { definition_span } => *definition_span,
+        _ => binding.span,
+    };
+    let diagnostic_span = trim_trailing_whitespace(definition_span, checker.source());
+
+    checker.report_diagnostic_dedup(
+        Diagnostic::new(OverwrittenFunction { name, reason }, diagnostic_span)
+            .with_fix(Fix::unsafe_edit(Edit::deletion(definition_span))),
+    );
+}
+
+fn trim_trailing_whitespace(span: shuck_ast::Span, source: &str) -> shuck_ast::Span {
+    let trimmed = span.slice(source).trim_end_matches(char::is_whitespace);
+    shuck_ast::Span::from_positions(span.start, span.start.advanced_by(trimmed))
 }
 
 fn should_suppress_overwrite(
@@ -101,6 +160,13 @@ fn should_suppress_overwrite(
                     first.span.end.offset,
                     second.span.start.offset,
                 )))
+}
+
+fn should_suppress_unreached(checker: &Checker<'_>, unreached: &SemanticUnreachedFunction) -> bool {
+    let binding = checker.semantic().binding(unreached.binding);
+
+    matches!(binding.kind, BindingKind::Imported)
+        || checker.file_context().has_tag(FileContextTag::ShellSpec)
 }
 
 fn unset_function_between(
@@ -317,6 +383,88 @@ myfunc
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn functions_before_script_termination_report() {
+        let source = "\
+myfunc() { echo hi; }
+exit 0
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
+        assert_eq!(diagnostics[0].span.start.line, 1);
+    }
+
+    #[test]
+    fn functions_at_plain_eof_do_not_report() {
+        let source = "myfunc() { echo hi; }\n";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn direct_calls_before_script_termination_do_not_report() {
+        let source = "\
+myfunc() { echo hi; }
+myfunc
+exit 0
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unreachable_function_definitions_report() {
+        let source = "\
+exit 0
+myfunc() { echo hi; }
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+    }
+
+    #[test]
+    fn unreachable_function_definitions_report_alongside_unreachable_code() {
+        let source = "\
+exit 0
+myfunc() { echo hi; }
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rules([Rule::OverwrittenFunction, Rule::UnreachableAfterExit]),
+        );
+        let rules = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.rule)
+            .collect::<Vec<_>>();
+
+        assert!(rules.contains(&Rule::OverwrittenFunction));
+        assert!(rules.contains(&Rule::UnreachableAfterExit));
     }
 
     #[test]

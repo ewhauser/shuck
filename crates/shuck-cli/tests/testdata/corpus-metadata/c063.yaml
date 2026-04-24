@@ -64,6 +64,14 @@ reviewed_divergences:
     line: 71
     reason: "RetroPie swaps in its own fatal-error helper for the package-management workflow after sourcing the shared setup library, so the overwrite is intentional."
   - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__runcommand__runcommand.sh"
+    line: 883
+    reason: "RetroPie's optional user menu helper is reached through runtime menu-file discovery, so this termination-only C063 hit is framework dispatch rather than a dead definition."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__openconnect__vpnc-script"
+    line: 210
+    reason: "The OpenConnect route helper is used by branch-selected route functions and command-substitution pipelines, so this termination-only C063 hit reflects dispatch shape rather than a dead definition."
+  - side: shuck-only
     path_suffix: "community-scripts__ProxmoxVE__vm__owncloud-vm.sh"
     line: 452
     reason: "This ProxmoxVE provisioning script replaces the sourced start helper in a later execution branch as part of its workflow setup."

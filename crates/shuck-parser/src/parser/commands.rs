@@ -4546,8 +4546,8 @@ impl<'a> Parser<'a> {
                 }
                 // Inside brace groups, a bare `}` can still be a literal
                 // argument like `echo }`, but only when it's separated from the
-                // preceding token by whitespace and isn't introducing an outer
-                // redirect on the brace group itself.
+                // preceding token by whitespace. Closers are handled in command
+                // position by the enclosing brace parser.
                 Some(TokenKind::RightBrace) if right_brace_is_literal_argument => {
                     words.push(Word::literal_with_span("}", self.current_span));
                     self.advance();
