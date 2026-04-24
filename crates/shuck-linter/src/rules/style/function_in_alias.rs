@@ -59,6 +59,7 @@ alias func='helper() { echo hi; }'
 alias literal='echo \\$1'
 alias literal_braced='echo \\${1}'
 alias quoted='echo '\"'\"'$1'\"'\"''
+alias pid='echo $$1'
 alias double=\"echo $1\"
 alias -p
 ";

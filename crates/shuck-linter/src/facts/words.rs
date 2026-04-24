@@ -1759,6 +1759,11 @@ fn contains_positional_parameter_reference(value: &str) -> bool {
             return false;
         };
 
+        if next == b'$' {
+            index += 1;
+            continue;
+        }
+
         if is_positional_parameter_start(next) {
             return true;
         }
