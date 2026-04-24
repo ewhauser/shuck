@@ -64,6 +64,7 @@ pub fn unused_assignment(checker: &mut Checker) {
 
     for binding in semantic.bindings() {
         if is_intentionally_unused_binding(binding) {
+            families_with_used_bindings.insert(binding.name.to_string());
             continue;
         }
 
@@ -215,7 +216,7 @@ fn is_underscore_name(name: &str) -> bool {
     name.starts_with('_')
 }
 
-fn is_reportable_unused_assignment(kind: BindingKind, attributes: BindingAttributes) -> bool {
+fn is_reportable_unused_assignment(kind: BindingKind, _attributes: BindingAttributes) -> bool {
     match kind {
         BindingKind::Assignment
         | BindingKind::ArrayAssignment
@@ -226,25 +227,29 @@ fn is_reportable_unused_assignment(kind: BindingKind, attributes: BindingAttribu
         | BindingKind::GetoptsTarget
         | BindingKind::ArithmeticAssignment => true,
         BindingKind::AppendAssignment | BindingKind::ParameterDefaultAssignment => false,
-        BindingKind::Declaration(_) => {
-            attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
-        }
+        BindingKind::Declaration(_) => true,
         BindingKind::FunctionDefinition | BindingKind::Imported | BindingKind::Nameref => false,
     }
 }
 
 fn participates_in_unused_assignment_family(
     kind: BindingKind,
-    attributes: BindingAttributes,
+    _attributes: BindingAttributes,
 ) -> bool {
-    is_reportable_unused_assignment(kind, attributes)
-        || matches!(
-            kind,
-            BindingKind::LoopVariable
-                | BindingKind::AppendAssignment
-                | BindingKind::ParameterDefaultAssignment
-                | BindingKind::Declaration(_)
-        )
+    matches!(
+        kind,
+        BindingKind::Assignment
+            | BindingKind::ArrayAssignment
+            | BindingKind::LoopVariable
+            | BindingKind::ReadTarget
+            | BindingKind::MapfileTarget
+            | BindingKind::PrintfTarget
+            | BindingKind::GetoptsTarget
+            | BindingKind::ArithmeticAssignment
+            | BindingKind::AppendAssignment
+            | BindingKind::ParameterDefaultAssignment
+            | BindingKind::Declaration(_)
+    )
 }
 
 fn binding_counts_as_used_family_member(
@@ -489,7 +494,26 @@ done
 
     #[test]
     fn read_rest_names_are_treated_as_intentional_placeholders() {
-        let source = "#!/bin/bash\nread -r cron_id rest\nprintf '%s\\n' \"$cron_id\"\n";
+        let source = "\
+#!/bin/bash
+local rest
+read -r cron_id rest
+printf '%s\\n' \"$cron_id\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn function_declaration_queries_do_not_create_unused_variable_targets() {
+        let source = "\
+#!/bin/bash
+if ! declare -f -F config_unset >/dev/null; then
+  :
+fi
+eval \"$(declare -f cd)\"
+";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert!(diagnostics.is_empty());
@@ -768,13 +792,14 @@ foo=1
     }
 
     #[test]
-    fn unused_uninitialized_local_branches_do_not_hide_dead_assignments() {
+    fn unused_uninitialized_local_branches_report_the_last_dead_binding() {
         let source =
             "#!/bin/bash\nf(){\n  if a; then\n    foo=1\n  else\n    local foo\n  fi\n}\nf\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.line, 6);
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
     }
 
     #[test]
@@ -792,6 +817,23 @@ foo=1
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 5);
+    }
+
+    #[test]
+    fn reports_declaration_only_bindings_by_default() {
+        let source = "\
+#!/bin/bash
+f(){
+  local cur
+  declare words
+}
+f
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "cur");
+        assert_eq!(diagnostics[1].span.slice(source), "words");
     }
 
     #[test]

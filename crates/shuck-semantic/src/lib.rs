@@ -5525,6 +5525,31 @@ check_status
     }
 
     #[test]
+    fn declaration_function_name_operands_do_not_create_variable_bindings() {
+        let source = "\
+declare -f -F config_unset >/dev/null
+export -f helper
+readonly -f locked
+typeset -f typed
+";
+        let model = model(source);
+        let function_operand_names = ["config_unset", "helper", "locked", "typed"];
+
+        for name in function_operand_names {
+            assert!(
+                model.bindings().iter().all(|binding| binding.name != name),
+                "{name} should be treated as a function name, not a variable binding"
+            );
+            assert!(
+                model.references().iter().all(|reference| {
+                    reference.name != name || reference.kind != ReferenceKind::DeclarationName
+                }),
+                "{name} should not create a declaration-name variable reference"
+            );
+        }
+    }
+
+    #[test]
     fn repeated_name_only_local_reuses_existing_same_scope_binding() {
         let source = "f() { local foo=1; local foo; echo \"$foo\"; }\n";
         let model = model(source);

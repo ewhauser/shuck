@@ -484,6 +484,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let flags = declaration_flags(&command.operands, self.source);
         let global_flag_enabled =
             declaration_flag_is_enabled(&command.operands, self.source, 'g').unwrap_or(false);
+        let name_operands_are_function_names = declaration_name_operands_are_function_names(&flags);
         self.declarations.push(Declaration {
             builtin,
             span: command.span,
@@ -503,13 +504,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         flow,
                         &mut nested_regions,
                     );
-                    self.visit_name_only_declaration_operand(
-                        builtin,
-                        &flags,
-                        global_flag_enabled,
-                        &name.name,
-                        name.span,
-                    );
+                    if !name_operands_are_function_names {
+                        self.visit_name_only_declaration_operand(
+                            builtin,
+                            &flags,
+                            global_flag_enabled,
+                            &name.name,
+                            name.span,
+                        );
+                    }
                 }
                 DeclOperand::Assignment(assignment) => {
                     let (scope, mut attributes) =
@@ -3276,6 +3279,10 @@ fn declaration_flags(operands: &[DeclOperand], source: &str) -> FxHashSet<char> 
         }
     }
     flags
+}
+
+fn declaration_name_operands_are_function_names(flags: &FxHashSet<char>) -> bool {
+    flags.contains(&'f') || flags.contains(&'F')
 }
 
 fn declaration_flag_is_enabled(

@@ -714,6 +714,15 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_reject_uninitialized_declaration_rule_option() {
+        let err = parse_config_override(
+            "lint.rule-options.c001.report-uninitialized-declarations = true",
+        )
+        .unwrap_err();
+        assert!(err.contains("unsupported `[lint.rule-options.c001]` option"));
+    }
+
+    #[test]
     fn inline_config_overrides_reject_unknown_lint_keys() {
         let err = parse_config_override("lint.preview = true").unwrap_err();
         assert!(err.contains("unsupported `[lint]` option `preview`"));
