@@ -4627,6 +4627,20 @@ run && exit 0 || sleep 15
     }
 
     #[test]
+    fn unreachable_after_exit_skips_dead_short_circuit_lists() {
+        let source = "\
+#!/bin/bash
+exit 0
+echo one && echo two
+echo after
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "echo after");
+    }
+
+    #[test]
     fn unreachable_after_exit_skips_dead_short_circuit_exit_guards() {
         let source = "\
 #!/bin/bash
@@ -4640,6 +4654,36 @@ printf '%s\\n' later
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "echo after");
         assert_eq!(diagnostics[1].span.slice(source), "printf '%s\\n' later");
+    }
+
+    #[test]
+    fn unreachable_after_exit_skips_dead_short_circuit_segments() {
+        let source = "\
+#!/bin/bash
+usage() { exit 0; }
+error() {
+  [ $# -eq 0 ] && usage && exit 0
+  echo after
+}
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn unreachable_after_exit_keeps_dead_two_segment_short_circuit_tail() {
+        let source = "\
+#!/bin/bash
+finish() { exit \"$1\"; }
+terminal() {
+  finish 34 && return 34
+}
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "return 34");
     }
 
     #[test]

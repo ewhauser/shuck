@@ -1,28 +1,41 @@
 reviewed_divergences:
   - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__firmware"
-    reason: "Residual C124 mismatch outside the loop-control cause filter: this fixture still has function-local return flow that Shuck treats more aggressively than the comparison oracle."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__net"
-    reason: "Residual C124 mismatch outside the loop-control cause filter: this fixture still has function-local return flow that Shuck treats more aggressively than the comparison oracle."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-build__build.sh"
-    reason: "Residual C124 mismatch outside the loop-control cause filter: this script still has guarded-return flow that Shuck treats more aggressively than the comparison oracle."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-monitoring__monitoring_standalone_generic.sh"
-    reason: "Residual C124 mismatch outside the loop-control cause filter: this helper still has early-return flow that Shuck treats more aggressively than the comparison oracle."
+    path_suffix: "juewuy__ShellCrash__scripts__menus__9_upgrade.sh"
+    line: 180
+    column: 13
+    reason: "The called update helper always reaches its final exit, so the success-message statement after that call is genuinely dead; the comparison oracle misses this helper-propagated termination in the sourced menu module."
   - side: shuck-only
     path_suffix: "juewuy__ShellCrash__scripts__menus__9_upgrade.sh"
-    reason: "Residual C124 mismatch outside the loop-control cause filter: this menu script still has dispatcher-return flow that Shuck treats more aggressively than the comparison oracle."
+    line: 181
+    column: 13
+    reason: "The called update helper always reaches its final exit, so the formatting statement after that call is genuinely dead; the comparison oracle misses this helper-propagated termination in the sourced menu module."
   - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
-    reason: "Residual C124 mismatch outside the loop-control cause filter: this sourced helper still has function-local return flow that Shuck treats more aggressively than the comparison oracle."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__scripts__lint-packages.sh"
-    reason: "Residual C124 mismatch outside the loop-control cause filter: this package linter still has early-return flow that Shuck treats more aggressively than the comparison oracle."
-  - side: shuck-only
-    path_suffix: "tj__git-extras__bin__git-scp"
-    reason: "Residual C124 mismatch outside the loop-control cause filter: this command-line helper still has exit-heavy usage flow that Shuck treats more aggressively than the comparison oracle."
+    path_suffix: "juewuy__ShellCrash__scripts__menus__9_upgrade.sh"
+    line: 182
+    column: 13
+    reason: "The called update helper already exits the shell, so this explicit exit cannot run; the comparison oracle misses this helper-propagated termination in the sourced menu module."
   - side: shuck-only
     path_suffix: "xwmx__nb__nb"
-    reason: "Residual C124 mismatch outside the loop-control cause filter: this large dispatcher still has return-heavy helper flow that Shuck treats more aggressively than the comparison oracle."
+    line: 12716
+    column: 5
+    reason: "Both branches immediately above return from the function, so the option-reset statement cannot execute when that outer branch is taken; the comparison oracle misses this branch-local dead statement in the large dispatcher."
+  - side: shuck-only
+    path_suffix: "xwmx__nb__nb"
+    line: 22569
+    column: 5
+    reason: "The preceding conditional handles both alternatives with returns, so the fallback response call cannot execute; the comparison oracle reports the surrounding function reachability but misses this internal dead branch."
+  - side: shuck-only
+    path_suffix: "xwmx__nb__nb"
+    line: 22571
+    column: 5
+    reason: "The preceding conditional handles both alternatives with returns, so the fallback return cannot execute; the comparison oracle reports the surrounding function reachability but misses this internal dead branch."
+  - side: shuck-only
+    path_suffix: "xwmx__nb__nb"
+    line: 25796
+    column: 5
+    reason: "The case statement has a catch-all arm and every arm leaves the function, so the loop shift after the case cannot execute; the comparison oracle misses this internal dead statement in the large dispatcher."
+  - side: shuck-only
+    path_suffix: "xwmx__nb__nb"
+    line: 27243
+    column: 39
+    reason: "The helper called earlier in this case arm always exits the shell, so the following return cannot execute; the comparison oracle reports the surrounding function reachability but misses this helper-propagated termination."

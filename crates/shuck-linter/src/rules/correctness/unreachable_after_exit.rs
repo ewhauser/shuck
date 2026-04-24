@@ -1,5 +1,5 @@
 use crate::{Checker, CommandFact, ListFact, Rule, Violation};
-use shuck_ast::{BinaryOp, Span};
+use shuck_ast::Span;
 use shuck_semantic::UnreachableCauseKind;
 
 pub struct UnreachableAfterExit;
@@ -16,7 +16,8 @@ impl Violation for UnreachableAfterExit {
 
 pub fn unreachable_after_exit(checker: &mut Checker) {
     let source = checker.source();
-    let short_circuit_guard_spans = short_circuit_exit_guard_spans(checker);
+    let short_circuit_lists = checker.facts().lists();
+    let commands = checker.facts().commands();
     let unreachable_spans = outermost_unreachable_spans(
         checker
             .semantic_analysis()
@@ -24,7 +25,7 @@ pub fn unreachable_after_exit(checker: &mut Checker) {
             .iter()
             .filter(|dead_code| dead_code.cause_kind != UnreachableCauseKind::LoopControl)
             .flat_map(|dead_code| dead_code.unreachable.iter().copied())
-            .filter(|span| !short_circuit_guard_spans.contains(span))
+            .filter(|span| !span_matches_short_circuit_skip(*span, short_circuit_lists, commands))
             .collect::<Vec<_>>(),
     );
 
@@ -36,37 +37,54 @@ pub fn unreachable_after_exit(checker: &mut Checker) {
     }
 }
 
-fn short_circuit_exit_guard_spans(checker: &Checker) -> Vec<Span> {
-    let commands = checker.facts().commands();
-    checker
-        .facts()
-        .lists()
-        .iter()
-        .filter(|list| list_is_exit_guard(list, commands))
-        .map(ListFact::span)
-        .collect()
+fn span_matches_short_circuit_skip(
+    span: Span,
+    short_circuit_lists: &[ListFact<'_>],
+    commands: &[CommandFact<'_>],
+) -> bool {
+    short_circuit_lists.iter().any(|list| {
+        if span == list.span() {
+            return true;
+        }
+
+        if list.segments().len() < 3 || !span_contained_by(span, list.span()) {
+            return false;
+        }
+
+        if !list_starts_with_condition(list, commands) {
+            return false;
+        }
+
+        let span_index = list
+            .segments()
+            .iter()
+            .position(|segment| span_starts_in(span, segment.span()));
+
+        span_index.is_some_and(|index| index > 0)
+    })
 }
 
-fn list_is_exit_guard(list: &ListFact<'_>, commands: &[CommandFact<'_>]) -> bool {
-    if list
-        .operators()
-        .last()
-        .is_none_or(|operator| operator.op() != BinaryOp::Or)
-    {
-        return false;
-    }
-
-    let Some(terminator_id) = list.segments().last().map(|segment| segment.command_id()) else {
+fn list_starts_with_condition(list: &ListFact<'_>, commands: &[CommandFact<'_>]) -> bool {
+    let Some(first_segment) = list.segments().first() else {
         return false;
     };
-    let Some(terminator) = commands
+    let Some(command) = commands
         .iter()
-        .find(|command| command.id() == terminator_id)
+        .find(|command| command.id() == first_segment.command_id())
     else {
         return false;
     };
 
-    matches!(terminator.static_utility_name(), Some("exit" | "return"))
+    command.simple_test().is_some()
+        || command.conditional().is_some()
+        || matches!(
+            command.effective_or_literal_name(),
+            Some("[" | "test" | "true" | "false")
+        )
+}
+
+fn span_starts_in(inner: Span, outer: Span) -> bool {
+    outer.start.offset <= inner.start.offset && inner.start.offset < outer.end.offset
 }
 
 fn outermost_unreachable_spans(mut spans: Vec<shuck_ast::Span>) -> Vec<shuck_ast::Span> {
