@@ -1001,6 +1001,7 @@ fn large_corpus_conforms_with_shellcheck() {
                 &shellcheck_index,
                 &shellcheck_rule_index,
                 &corpus_metadata,
+                cfg.selected_rules.as_ref(),
                 shellcheck_filter_codes.as_ref(),
                 shuck_path_resolver.clone(),
             )
@@ -1253,6 +1254,7 @@ fn evaluate_fixture_compatibility(
     shellcheck_index: &HashMap<String, String>,
     shellcheck_rule_index: &HashMap<u32, Vec<String>>,
     corpus_metadata: &HashMap<String, RuleCorpusMetadataDocument>,
+    selected_rules: Option<&shuck_linter::RuleSet>,
     shellcheck_filter_codes: Option<&HashSet<u32>>,
     shuck_path_resolver: Option<Arc<LargeCorpusPathResolver>>,
 ) -> FixtureEvaluation {
@@ -1305,12 +1307,12 @@ fn evaluate_fixture_compatibility(
                 details.push("shellcheck parsed fixture successfully".into());
             }
             evaluation.harness_failure = Some(FixtureFailure {
-                kind: shuck_parse_failure_kind(shellcheck_filter_codes),
+                kind: shuck_parse_failure_kind(selected_rules, shellcheck_filter_codes),
                 message: format_fixture_failure(&fixture.path, &details),
             });
         } else {
             evaluation.harness_failure = Some(FixtureFailure {
-                kind: shuck_parse_failure_kind(shellcheck_filter_codes),
+                kind: shuck_parse_failure_kind(selected_rules, shellcheck_filter_codes),
                 message: format_fixture_failure(&fixture.path, &[format!("shuck error: {err}")]),
             });
         }
@@ -1510,8 +1512,11 @@ fn merge_fixture_evaluation(
     }
 }
 
-fn shuck_parse_failure_kind(shellcheck_filter_codes: Option<&HashSet<u32>>) -> FixtureFailureKind {
-    if large_corpus_uses_single_file_c001_oracle(None, shellcheck_filter_codes) {
+fn shuck_parse_failure_kind(
+    selected_rules: Option<&shuck_linter::RuleSet>,
+    shellcheck_filter_codes: Option<&HashSet<u32>>,
+) -> FixtureFailureKind {
+    if large_corpus_uses_single_file_c001_oracle(selected_rules, shellcheck_filter_codes) {
         FixtureFailureKind::Warning
     } else {
         FixtureFailureKind::Other
@@ -3644,6 +3649,33 @@ mod tests {
             Some(&selected_rules),
             Some(&shellcheck_codes)
         ));
+    }
+
+    #[test]
+    fn parse_failure_kind_uses_selected_rules_before_collapsed_shellcheck_codes() {
+        let selected_rules = shuck_linter::RuleSet::from_iter([
+            shuck_linter::Rule::UnusedAssignment,
+            shuck_linter::Rule::MixedAndOrInCondition,
+        ]);
+        let shellcheck_codes = build_selected_shellcheck_codes(&selected_rules);
+
+        assert_eq!(shellcheck_codes, HashSet::from([2034]));
+        assert_eq!(
+            shuck_parse_failure_kind(Some(&selected_rules), Some(&shellcheck_codes)),
+            FixtureFailureKind::Other
+        );
+    }
+
+    #[test]
+    fn parse_failure_kind_downgrades_true_c001_only_runs() {
+        let selected_rules =
+            shuck_linter::RuleSet::from_iter([shuck_linter::Rule::UnusedAssignment]);
+        let shellcheck_codes = build_selected_shellcheck_codes(&selected_rules);
+
+        assert_eq!(
+            shuck_parse_failure_kind(Some(&selected_rules), Some(&shellcheck_codes)),
+            FixtureFailureKind::Warning
+        );
     }
 
     #[test]
