@@ -2747,10 +2747,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         lookup_offset: usize,
     ) -> bool {
         for scope in ancestor_scopes(&self.scopes, lookup_scope) {
+            let clear_lower_bound = if scope == binding.scope {
+                binding.span.start.offset
+            } else {
+                0
+            };
             if self.binding_was_cleared_in_scope_between(
                 &binding.name,
                 scope,
-                binding.span.start.offset,
+                clear_lower_bound,
                 lookup_offset,
             ) {
                 return true;
