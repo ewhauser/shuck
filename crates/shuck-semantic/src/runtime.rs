@@ -7,11 +7,13 @@ const COMMON_PREINITIALIZED: &[&str] = &[
     "OPTERR",
     "USER",
     "HOME",
+    "HOSTNAME",
     "SHELL",
     "PWD",
     "TERM",
     "PATH",
     "CDPATH",
+    "LD_LIBRARY_PATH",
     "LANG",
     "SUDO_USER",
     "DOAS_USER",
@@ -135,7 +137,7 @@ impl RuntimePrelude {
     pub(crate) fn implicit_reads_for_simple_command(
         &self,
         command_name: &Name,
-        _args: &[Word],
+        _args: &[&Word],
         _source: &str,
     ) -> &'static [&'static str] {
         match command_name.as_str() {

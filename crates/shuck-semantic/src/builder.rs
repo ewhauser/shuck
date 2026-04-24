@@ -6,12 +6,12 @@ use shuck_ast::{
     ArithmeticLvalue, ArithmeticUnaryOp, ArrayElem, ArrayExpr, ArrayKind, Assignment,
     AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command,
     CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclOperand, File,
-    FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, Name, ParameterExpansion,
-    ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind, PatternPart, PatternPartNode,
-    Span, StaticCommandWrapperTarget, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart,
-    WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
-    static_command_name_text, static_command_wrapper_target_index, static_word_text,
-    try_static_word_parts_text,
+    FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, Name, NormalizedCommand,
+    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind,
+    PatternPart, PatternPartNode, Span, StaticCommandWrapperTarget, Stmt, StmtSeq, Subscript,
+    VarRef, Word, WordPart, WordPartNode, WrapperKind, ZshExpansionOperation, ZshExpansionTarget,
+    ZshGlobSegment, normalize_command_words, static_command_name_text,
+    static_command_wrapper_target_index, static_word_text, try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::{ShellProfile, ZshEmulationMode};
@@ -367,10 +367,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             &mut nested_regions,
         );
 
-        if let Some(name) = static_command_name_text(&command.name, self.source)
+        let command_words = std::iter::once(&command.name)
+            .chain(command.args.iter())
+            .collect::<Vec<_>>();
+        let normalized = normalize_command_words(&command_words, self.source)
+            .expect("simple commands always have a name");
+
+        if let Some(name) = normalized.literal_name.as_deref()
             && !name.is_empty()
         {
-            let callee = Name::from(name.as_ref());
+            let callee = Name::from(name);
             let scope = self.current_scope();
             let call_site = CallSite {
                 callee: callee.clone(),
@@ -387,8 +393,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 SpanKey::new(command.span),
                 self.command_stack.last().copied().unwrap_or(command.span),
             );
+        }
 
-            self.classify_special_simple_command(&callee, command, flow);
+        if let Some(name) = normalized.effective_name.as_deref()
+            && !name.is_empty()
+        {
+            let callee = Name::from(name);
+            if resolved_command_can_affect_current_shell(&normalized) {
+                self.classify_special_simple_command(&callee, &normalized, command.span, flow);
+            }
         }
 
         self.record_command(command.span, nested_regions, RecordedCommandKind::Linear)
@@ -526,6 +539,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     let (scope, mut attributes) =
                         self.declaration_scope_and_attributes(builtin, &flags, global_flag_enabled);
                     attributes |= BindingAttributes::DECLARATION_INITIALIZED;
+                    if flags.contains(&'p') {
+                        attributes |= BindingAttributes::EXTERNALLY_CONSUMED;
+                    }
                     let kind = if attributes.contains(BindingAttributes::NAMEREF) {
                         BindingKind::Nameref
                     } else {
@@ -1093,8 +1109,23 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             binding_origin_for_assignment(assignment, self.source),
             attributes,
         );
+        self.record_prompt_assignment_references(assignment);
         if let Some(hint) = indirect_target_hint(assignment, self.source) {
             self.indirect_target_hints.insert(binding, hint);
+        }
+    }
+
+    fn record_prompt_assignment_references(&mut self, assignment: &'a Assignment) {
+        if assignment.target.name.as_str() != "PS1" {
+            return;
+        }
+
+        let AssignmentValue::Scalar(word) = &assignment.value else {
+            return;
+        };
+
+        for (name, span) in prompt_assignment_reference_names(word, self.source) {
+            self.add_reference(&name, ReferenceKind::ImplicitRead, span);
         }
     }
 
@@ -2387,16 +2418,17 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     fn classify_special_simple_command(
         &mut self,
         name: &Name,
-        command: &shuck_ast::SimpleCommand,
+        normalized: &NormalizedCommand<'a>,
+        command_span: Span,
         flow: FlowState,
     ) {
+        let args = normalized.body_args();
+        let name_span = normalized.body_word_span().unwrap_or(command_span);
         match name.as_str() {
             "read" => {
-                let read_assigns_array = read_assigns_array(&command.args, self.source);
+                let read_assigns_array = read_assigns_array(args, self.source);
                 for (target_index, (argument, span)) in
-                    iter_read_targets(&command.args, self.source)
-                        .into_iter()
-                        .enumerate()
+                    iter_read_targets(args, self.source).into_iter().enumerate()
                 {
                     let target_attributes = if read_assigns_array && target_index == 0 {
                         BindingAttributes::ARRAY
@@ -2417,17 +2449,17 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 }
                 for implicit_read in
                     self.runtime
-                        .implicit_reads_for_simple_command(name, &command.args, self.source)
+                        .implicit_reads_for_simple_command(name, args, self.source)
                 {
                     let implicit_name = Name::from(*implicit_read);
                     self.add_reference_if_bound(
                         &implicit_name,
                         ReferenceKind::ImplicitRead,
-                        command.span,
+                        command_span,
                     );
                 }
             }
-            "mapfile" | "readarray" => match mapfile_target(&command.args, self.source) {
+            "mapfile" | "readarray" => match mapfile_target(args, self.source) {
                 Some(MapfileTarget::Explicit(argument, span)) => {
                     self.add_binding(
                         &argument,
@@ -2446,9 +2478,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         &Name::from("MAPFILE"),
                         BindingKind::MapfileTarget,
                         self.current_scope(),
-                        command.name.span,
+                        name_span,
                         BindingOrigin::BuiltinTarget {
-                            definition_span: command.name.span,
+                            definition_span: name_span,
                             kind: BuiltinBindingTargetKind::Mapfile,
                         },
                         BindingAttributes::ARRAY,
@@ -2457,7 +2489,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 None => {}
             },
             "printf" => {
-                if let Some((argument, span)) = printf_v_target(&command.args, self.source) {
+                if let Some((argument, span)) = printf_v_target(args, self.source) {
                     self.add_binding(
                         &argument,
                         BindingKind::PrintfTarget,
@@ -2472,7 +2504,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 }
             }
             "getopts" => {
-                if let Some((argument, span)) = getopts_target(&command.args, self.source) {
+                if let Some((argument, span)) = getopts_target(args, self.source) {
                     self.add_binding(
                         &argument,
                         BindingKind::GetoptsTarget,
@@ -2486,11 +2518,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     );
                 }
             }
-            "eval" => self.record_eval_argument_references(&command.args),
+            "eval" => self.record_eval_argument_references(args),
             "source" | "." => {
-                if let Some(argument) = command.args.first() {
-                    let source_span = self.command_stack.last().copied().unwrap_or(command.span);
-                    let kind = self.classify_source_ref(command.span.line(), argument);
+                if let Some(argument) = args.first().copied() {
+                    let source_span = self.command_stack.last().copied().unwrap_or(command_span);
+                    let kind = self.classify_source_ref(command_span.line(), argument);
                     self.source_refs.push(SourceRef {
                         diagnostic_class: classify_source_ref_diagnostic_class(
                             argument,
@@ -2505,20 +2537,161 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     });
                 }
             }
-            "unset" => self.record_unset_variable_targets(&command.args, flow),
+            "unset" => self.record_unset_variable_targets(args, flow),
+            "export" | "local" | "declare" | "typeset" | "readonly" => {
+                self.visit_simple_declaration_command(name.as_str(), args, command_span);
+            }
+            _ if name.as_str().starts_with("DEFINE_") => {
+                self.visit_command_defined_variable(args);
+            }
             _ => {}
         }
     }
 
-    fn record_eval_argument_references(&mut self, args: &[Word]) {
-        for argument in args {
+    fn visit_simple_declaration_command(
+        &mut self,
+        command_name: &str,
+        args: &[&'a Word],
+        command_span: Span,
+    ) {
+        let Some(builtin) = declaration_builtin_name(command_name) else {
+            return;
+        };
+
+        let mut flags = FxHashSet::default();
+        let mut global_flag_enabled = false;
+        let mut name_operands_are_function_names = false;
+        let mut parsing_options = true;
+        let mut operands = Vec::new();
+
+        for argument in args.iter().copied() {
+            if parsing_options {
+                if let Some(text) = static_word_text(argument, self.source) {
+                    if text == "--" {
+                        parsing_options = false;
+                        continue;
+                    }
+
+                    if simple_declaration_option_word(&text) {
+                        update_simple_declaration_flags(
+                            &text,
+                            &mut flags,
+                            &mut global_flag_enabled,
+                            &mut name_operands_are_function_names,
+                        );
+                        operands.push(simple_declaration_flag_operand(argument, text.as_ref()));
+                        continue;
+                    }
+                }
+
+                parsing_options = false;
+            }
+
+            let Some(text) = static_word_text(argument, self.source) else {
+                operands.push(DeclarationOperand::DynamicWord {
+                    span: argument.span,
+                });
+                continue;
+            };
+
+            if name_operands_are_function_names {
+                operands.push(DeclarationOperand::DynamicWord {
+                    span: argument.span,
+                });
+                continue;
+            }
+
+            if let Some(assignment) =
+                parse_simple_declaration_assignment(argument, text.as_ref(), self.source)
+            {
+                let (scope, mut attributes) =
+                    self.declaration_scope_and_attributes(builtin, &flags, global_flag_enabled);
+                attributes |= BindingAttributes::DECLARATION_INITIALIZED;
+                if assignment.array_like {
+                    attributes |= BindingAttributes::ARRAY;
+                }
+                if flags.contains(&'p') {
+                    attributes |= BindingAttributes::EXTERNALLY_CONSUMED;
+                }
+                let kind = if attributes.contains(BindingAttributes::NAMEREF) {
+                    BindingKind::Nameref
+                } else {
+                    BindingKind::Declaration(builtin)
+                };
+                let origin = BindingOrigin::Assignment {
+                    definition_span: assignment.target_span,
+                    value: assignment.value_origin,
+                };
+                self.add_binding(
+                    &assignment.name,
+                    kind,
+                    scope,
+                    assignment.name_span,
+                    origin,
+                    attributes,
+                );
+                operands.push(DeclarationOperand::Assignment {
+                    name: assignment.name,
+                    name_span: assignment.name_span,
+                    value_span: assignment.value_span,
+                    append: assignment.append,
+                });
+                continue;
+            }
+
+            if let Some((name, span)) = named_target_word(argument, self.source) {
+                self.visit_name_only_declaration_operand(
+                    builtin,
+                    &flags,
+                    global_flag_enabled,
+                    &name,
+                    span,
+                );
+                operands.push(DeclarationOperand::Name { name, span });
+            } else {
+                operands.push(DeclarationOperand::DynamicWord {
+                    span: argument.span,
+                });
+            }
+        }
+
+        self.declarations.push(Declaration {
+            builtin,
+            span: command_span,
+            operands,
+        });
+    }
+
+    fn visit_command_defined_variable(&mut self, args: &[&Word]) {
+        let Some((flag_name, span)) = args
+            .first()
+            .copied()
+            .and_then(|word| named_target_word(word, self.source))
+        else {
+            return;
+        };
+        let generated = Name::from(format!("FLAGS_{}", flag_name.as_str()));
+        self.add_binding(
+            &generated,
+            BindingKind::Declaration(DeclarationBuiltin::Declare),
+            self.current_scope(),
+            span,
+            BindingOrigin::Declaration {
+                definition_span: span,
+            },
+            BindingAttributes::empty(),
+        );
+    }
+
+    fn record_eval_argument_references(&mut self, args: &[&Word]) {
+        for argument in args.iter().copied() {
             for (name, span) in eval_argument_reference_names(argument, self.source) {
                 self.add_reference_if_bound(&name, ReferenceKind::ImplicitRead, span);
             }
         }
     }
 
-    fn record_unset_variable_targets(&mut self, args: &[Word], flow: FlowState) {
+    fn record_unset_variable_targets(&mut self, args: &[&Word], flow: FlowState) {
         if flow.conditionally_executed {
             return;
         }
@@ -2528,7 +2701,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let mut nameref_mode = false;
         let mut parsing_options = true;
 
-        for argument in args {
+        for argument in args.iter().copied() {
             let Some(text) = static_word_text(argument, self.source) else {
                 if parsing_options {
                     return;
@@ -3275,6 +3448,17 @@ fn declaration_builtin(name: &Name) -> DeclarationBuiltin {
     }
 }
 
+fn declaration_builtin_name(name: &str) -> Option<DeclarationBuiltin> {
+    match name {
+        "declare" => Some(DeclarationBuiltin::Declare),
+        "local" => Some(DeclarationBuiltin::Local),
+        "export" => Some(DeclarationBuiltin::Export),
+        "readonly" => Some(DeclarationBuiltin::Readonly),
+        "typeset" => Some(DeclarationBuiltin::Typeset),
+        _ => None,
+    }
+}
+
 fn declaration_flags(operands: &[DeclOperand], source: &str) -> FxHashSet<char> {
     let mut flags = FxHashSet::default();
     for operand in operands {
@@ -3287,6 +3471,48 @@ fn declaration_flags(operands: &[DeclOperand], source: &str) -> FxHashSet<char> 
         }
     }
     flags
+}
+
+fn simple_declaration_option_word(text: &str) -> bool {
+    let mut chars = text.chars();
+    let Some(polarity) = chars.next() else {
+        return false;
+    };
+    matches!(polarity, '-' | '+')
+        && !matches!(text, "-" | "+")
+        && !text.starts_with("--")
+        && chars.all(|flag| flag.is_ascii_alphabetic())
+}
+
+fn update_simple_declaration_flags(
+    text: &str,
+    flags: &mut FxHashSet<char>,
+    global_flag_enabled: &mut bool,
+    function_name_mode: &mut bool,
+) {
+    let enabled_for_operand = text.starts_with('-');
+    for flag in text.chars().skip(1) {
+        if enabled_for_operand {
+            flags.insert(flag);
+        } else {
+            flags.remove(&flag);
+        }
+
+        if flag == 'g' {
+            *global_flag_enabled = enabled_for_operand;
+        }
+        if matches!(flag, 'f' | 'F') {
+            *function_name_mode = enabled_for_operand;
+        }
+    }
+}
+
+fn simple_declaration_flag_operand(word: &Word, text: &str) -> DeclarationOperand {
+    DeclarationOperand::Flag {
+        flag: text.chars().nth(1).unwrap_or('-'),
+        flags: text.to_owned(),
+        span: word.span,
+    }
 }
 
 fn declaration_flag_is_enabled(
@@ -3527,7 +3753,7 @@ fn is_name_fragment(value: &str) -> bool {
         .all(|character| character.is_ascii_alphanumeric() || character == '_')
 }
 
-fn iter_read_targets(args: &[Word], source: &str) -> Vec<(Name, Span)> {
+fn iter_read_targets(args: &[&Word], source: &str) -> Vec<(Name, Span)> {
     let options = parse_read_options(args, source);
     let mut targets = Vec::new();
 
@@ -3547,7 +3773,7 @@ fn iter_read_targets(args: &[Word], source: &str) -> Vec<(Name, Span)> {
     targets
 }
 
-fn read_assigns_array(args: &[Word], source: &str) -> bool {
+fn read_assigns_array(args: &[&Word], source: &str) -> bool {
     parse_read_options(args, source).assigns_array
 }
 
@@ -3558,7 +3784,7 @@ struct ParsedReadOptions {
     array_target: Option<(Name, Span)>,
 }
 
-fn parse_read_options(args: &[Word], source: &str) -> ParsedReadOptions {
+fn parse_read_options(args: &[&Word], source: &str) -> ParsedReadOptions {
     let mut assigns_array = false;
     let mut array_target = None;
     let mut index = 0;
@@ -3625,7 +3851,7 @@ enum MapfileTarget {
     Implicit,
 }
 
-fn mapfile_target(args: &[Word], source: &str) -> Option<MapfileTarget> {
+fn mapfile_target(args: &[&Word], source: &str) -> Option<MapfileTarget> {
     let mut index = 0;
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
@@ -3666,7 +3892,7 @@ fn mapfile_flag_takes_value(flag: char) -> bool {
     matches!(flag, 'C' | 'c' | 'd' | 'n' | 'O' | 's' | 'u')
 }
 
-fn printf_v_target(args: &[Word], source: &str) -> Option<(Name, Span)> {
+fn printf_v_target(args: &[&Word], source: &str) -> Option<(Name, Span)> {
     args.windows(2).find_map(|window| {
         (static_word_text(&window[0], source).as_deref() == Some("-v"))
             .then_some(&window[1])
@@ -3674,7 +3900,7 @@ fn printf_v_target(args: &[Word], source: &str) -> Option<(Name, Span)> {
     })
 }
 
-fn getopts_target(args: &[Word], source: &str) -> Option<(Name, Span)> {
+fn getopts_target(args: &[&Word], source: &str) -> Option<(Name, Span)> {
     args.get(1).and_then(|word| named_target_word(word, source))
 }
 
@@ -3764,6 +3990,31 @@ fn eval_argument_reference_names(word: &Word, source: &str) -> Vec<(Name, Span)>
         &decoded.source_offsets,
         word.span,
     )
+}
+
+fn prompt_assignment_reference_names(word: &Word, source: &str) -> Vec<(Name, Span)> {
+    let Some(text) = static_word_text(word, source) else {
+        return Vec::new();
+    };
+    scan_prompt_parameter_reference_names(text.as_ref(), word.span)
+}
+
+fn scan_prompt_parameter_reference_names(text: &str, span: Span) -> Vec<(Name, Span)> {
+    let mut references = Vec::new();
+    let mut chars = text.char_indices().peekable();
+    while let Some((index, ch)) = chars.next() {
+        if ch != '$' {
+            continue;
+        }
+
+        let after_dollar = index + ch.len_utf8();
+        let Some((name_start, name_end)) = parameter_name_bounds_after_dollar(text, after_dollar)
+        else {
+            continue;
+        };
+        references.push((Name::from(&text[name_start..name_end]), span));
+    }
+    references
 }
 
 struct DecodedEvalText {
@@ -3967,9 +4218,103 @@ fn simple_command_has_name(command: &shuck_ast::SimpleCommand, source: &str) -> 
     !matches!(static_word_text(&command.name, source).as_deref(), Some(""))
 }
 
+fn resolved_command_can_affect_current_shell(command: &NormalizedCommand<'_>) -> bool {
+    command.wrappers.iter().all(|wrapper| {
+        matches!(
+            wrapper,
+            WrapperKind::Command | WrapperKind::Builtin | WrapperKind::Noglob
+        )
+    })
+}
+
 fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
     let text = static_word_text(word, source)?;
     is_name(&text).then_some((Name::from(text.as_ref()), word.span))
+}
+
+#[derive(Debug, Clone)]
+struct SimpleDeclarationAssignment {
+    name: Name,
+    name_span: Span,
+    target_span: Span,
+    value_span: Span,
+    append: bool,
+    array_like: bool,
+    value_origin: AssignmentValueOrigin,
+}
+
+fn parse_simple_declaration_assignment(
+    word: &Word,
+    text: &str,
+    source: &str,
+) -> Option<SimpleDeclarationAssignment> {
+    let name_end = variable_name_end(text)?;
+    let name = &text[..name_end];
+    let mut index = name_end;
+    let mut array_like = false;
+
+    if text.as_bytes().get(index) == Some(&b'[') {
+        let subscript_end = text[index..].find(']')? + index + 1;
+        index = subscript_end;
+        array_like = true;
+    }
+
+    let append = if text.as_bytes().get(index) == Some(&b'+') {
+        index += 1;
+        true
+    } else {
+        false
+    };
+
+    if text.as_bytes().get(index) != Some(&b'=') {
+        return None;
+    }
+
+    let value_start = index + 1;
+    let name_span = word_text_offset_span(word.span, source, 0, name_end);
+    let target_span =
+        word_text_offset_span(word.span, source, 0, if append { index - 1 } else { index });
+    let value_span = word_text_offset_span(word.span, source, value_start, text.len());
+    let value_origin = if text[value_start..].trim_start().starts_with('(') {
+        AssignmentValueOrigin::ArrayOrCompound
+    } else {
+        AssignmentValueOrigin::Unknown
+    };
+
+    Some(SimpleDeclarationAssignment {
+        name: Name::from(name),
+        name_span,
+        target_span,
+        value_span,
+        append,
+        array_like,
+        value_origin,
+    })
+}
+
+fn variable_name_end(text: &str) -> Option<usize> {
+    let mut chars = text.char_indices();
+    let (_, first) = chars.next()?;
+    if !is_name_start_character(first) {
+        return None;
+    }
+    let mut end = first.len_utf8();
+    for (index, ch) in chars {
+        if !is_name_character(ch) {
+            break;
+        }
+        end = index + ch.len_utf8();
+    }
+    Some(end)
+}
+
+fn word_text_offset_span(span: Span, source: &str, start: usize, end: usize) -> Span {
+    let source_text = span.slice(source);
+    let start = start.min(source_text.len());
+    let end = end.min(source_text.len()).max(start);
+    let start = span.start.advanced_by(&source_text[..start]);
+    let end = span.start.advanced_by(&source_text[..end]);
+    Span::from_positions(start, end)
 }
 
 fn read_attached_array_target(

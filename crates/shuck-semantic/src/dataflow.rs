@@ -539,7 +539,9 @@ fn analyze_unused_assignments_exact(
         let Some(block_id) = exact.reference_blocks[reference_index] else {
             continue;
         };
-        if exact.unreachable_blocks.contains(block_id.index()) {
+        if exact.unreachable_blocks.contains(block_id.index())
+            && !options.report_unreachable_assignments
+        {
             continue;
         }
 
@@ -600,7 +602,9 @@ fn analyze_unused_assignments_exact(
         let Some(block_id) = command_block_for_span(context.cfg, synthetic_read.span) else {
             continue;
         };
-        if exact.unreachable_blocks.contains(block_id.index()) {
+        if exact.unreachable_blocks.contains(block_id.index())
+            && !options.report_unreachable_assignments
+        {
             continue;
         }
         used_bindings.or_intersection_with(
@@ -615,7 +619,9 @@ fn analyze_unused_assignments_exact(
                 let Some(block_id) = command_block_for_span(context.cfg, call.span) else {
                     continue;
                 };
-                if exact.unreachable_blocks.contains(block_id.index()) {
+                if exact.unreachable_blocks.contains(block_id.index())
+                    && !options.report_unreachable_assignments
+                {
                     continue;
                 }
                 mark_reaching_defs_for_names_used(
@@ -655,7 +661,8 @@ fn analyze_unused_assignments_exact(
             binding.kind,
             BindingKind::FunctionDefinition | BindingKind::Imported
         ) || context.runtime.is_always_used_binding(&binding.name)
-            || exact.unreachable_blocks.contains(block_id.index())
+            || (exact.unreachable_blocks.contains(block_id.index())
+                && !options.report_unreachable_assignments)
             || used_bindings.contains(binding.id.index())
         {
             continue;
@@ -680,11 +687,17 @@ fn analyze_unused_assignments_exact(
             reason,
         });
     }
+    let no_unreachable_blocks = DenseBitSet::new(context.cfg.blocks().len());
+    let unreachable_blocks = if options.report_unreachable_assignments {
+        &no_unreachable_blocks
+    } else {
+        &exact.unreachable_blocks
+    };
     let unused_assignment_ids = collapse_redundant_branch_unused_assignment_ids(
         context.cfg,
         context.bindings,
         &exact.binding_blocks,
-        &exact.unreachable_blocks,
+        unreachable_blocks,
         &unused_assignments,
     );
 

@@ -34,9 +34,22 @@ pub fn unused_assignment(checker: &mut Checker) {
         return;
     }
 
-    let unused_bindings = checker
+    let mut unused_bindings = checker
         .semantic_analysis()
-        .unused_assignments_with_options(checker.rule_options().c001.semantic_options());
+        .unused_assignments_with_options(checker.rule_options().c001.semantic_options())
+        .to_vec();
+    for binding in semantic.bindings() {
+        if matches!(binding.kind, BindingKind::ReadTarget)
+            && binding.references.is_empty()
+            && !binding
+                .attributes
+                .contains(BindingAttributes::EXTERNALLY_CONSUMED)
+            && !semantic.is_runtime_consumed_binding(binding.id)
+            && !unused_bindings.contains(&binding.id)
+        {
+            unused_bindings.push(binding.id);
+        }
+    }
     let unused_binding_ids = unused_bindings.iter().copied().collect::<HashSet<_>>();
     let mut families_with_used_bindings = HashSet::new();
     let mut suppressed_binding_offsets_by_family = HashMap::<BindingFamilyKey, Vec<usize>>::new();
@@ -90,7 +103,7 @@ pub fn unused_assignment(checker: &mut Checker) {
         }
     }
 
-    for binding_id in unused_bindings {
+    for binding_id in &unused_bindings {
         let binding = semantic.binding(*binding_id);
         if is_intentionally_unused_binding(binding) {
             continue;
@@ -206,12 +219,20 @@ fn all_reportable_assignment_spans_suppressed(
 }
 
 fn is_intentionally_unused_binding(binding: &Binding) -> bool {
-    is_underscore_name(binding.name.as_str()) || is_intentionally_unused_read_placeholder(binding)
+    is_underscore_name(binding.name.as_str()) || is_intentionally_unused_placeholder(binding)
 }
 
-fn is_intentionally_unused_read_placeholder(binding: &Binding) -> bool {
+fn is_intentionally_unused_placeholder(binding: &Binding) -> bool {
+    if !matches!(binding.name.as_str(), "rest" | "REST") {
+        return false;
+    }
+
     matches!(binding.kind, BindingKind::ReadTarget)
-        && matches!(binding.name.as_str(), "rest" | "REST")
+        || (matches!(binding.kind, BindingKind::Declaration(_))
+            && binding.attributes.contains(BindingAttributes::LOCAL)
+            && !binding
+                .attributes
+                .contains(BindingAttributes::DECLARATION_INITIALIZED))
 }
 
 fn is_underscore_name(name: &str) -> bool {
@@ -285,7 +306,7 @@ fn binding_counts_as_used_family_member(
             .attributes
             .contains(BindingAttributes::DECLARATION_INITIALIZED)
     {
-        return !binding.references.is_empty();
+        return false;
     }
 
     true
@@ -527,6 +548,74 @@ eval \"$(declare -f cd)\"
     }
 
     #[test]
+    fn shell_runtime_environment_assignments_are_suppressed() {
+        let source = "\
+#!/bin/bash
+HOSTNAME=example
+LD_LIBRARY_PATH=/tmp/lib
+APP_NAME=demo
+declare -Ap ADD=([de]=Deutsch)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "APP_NAME");
+    }
+
+    #[test]
+    fn name_only_rest_declarations_are_placeholders() {
+        let source = "\
+#!/bin/bash
+f() {
+  local rest
+  local REST
+}
+f
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn uppercase_references_do_not_hide_lowercase_read_targets() {
+        let source = "#!/bin/bash\nread -r endpoint\necho \"$ENDPOINT\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "endpoint");
+    }
+
+    #[test]
+    fn runtime_consumed_read_targets_are_not_reintroduced() {
+        let source = "\
+#!/bin/bash
+read -d '' -ra COMPREPLY < <(compgen -W \"one two\" -- \"$cur\")
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unreachable_assignments_are_still_checked() {
+        let source = "\
+#!/bin/bash
+f() {
+  return 1
+  dead=1
+  used=1
+  printf '%s\\n' \"$used\"
+}
+f
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "dead");
+    }
+
+    #[test]
     fn read_rest_placeholders_do_not_hide_real_dead_assignments() {
         let source = "\
 #!/bin/bash
@@ -542,7 +631,7 @@ printf '%s\\n' \"$field\"
     }
 
     #[test]
-    fn read_rest_placeholders_do_not_hide_branch_declarations() {
+    fn rest_placeholders_are_ignored_across_branch_shapes() {
         let source = "\
 #!/bin/bash
 f(){
@@ -556,9 +645,7 @@ f
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "rest");
-        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
@@ -615,6 +702,20 @@ fi
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 4);
         assert_eq!(diagnostics[0].span.slice(source), "emoji[smile]");
+    }
+
+    #[test]
+    fn array_element_reads_keep_the_family_live() {
+        let source = "\
+#!/bin/bash
+declare -A map
+map[used]=1
+printf '%s\\n' \"${map[used]}\"
+map[dead]=2
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

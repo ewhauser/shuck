@@ -130,6 +130,9 @@ pub struct UnusedAssignmentAnalysisOptions {
     /// of the target. ShellCheck-compatible analysis leaves this disabled. Array-like
     /// targets such as `name=arr[@]; ${!name}` stay live in both modes.
     pub treat_indirect_expansion_targets_as_used: bool,
+    /// Whether assignments in statically unreachable blocks should still be eligible
+    /// for unused-assignment reporting.
+    pub report_unreachable_assignments: bool,
 }
 
 /// Behavior flags for unreached-function analysis.
@@ -757,6 +760,12 @@ impl SemanticModel {
                 )
             })
         })
+    }
+
+    pub fn is_runtime_consumed_binding(&self, binding_id: BindingId) -> bool {
+        self.bindings
+            .get(binding_id.index())
+            .is_some_and(|binding| self.runtime.is_always_used_binding(&binding.name))
     }
 
     pub fn required_before(&self, name: &Name, scope: ScopeId, offset: usize) -> bool {
@@ -3635,6 +3644,82 @@ printf '%s\\n' \"$pkgname\"
         assert!(matches!(
             binding_for_name(&model, "pkgname").origin,
             BindingOrigin::Imported { .. }
+        ));
+    }
+
+    #[test]
+    fn escaped_declarations_create_name_bindings() {
+        let source = "\\typeset result temp_flags\nprintf '%s\\n' \"$result\"\n";
+        let model = model(source);
+        let unused = model.analysis().unused_assignments().to_vec();
+
+        assert!(binding_for_name(&model, "result").references.len() > 0);
+        assert_eq!(binding_names(&model, &unused), vec!["temp_flags"]);
+        assert!(matches!(
+            binding_for_name(&model, "temp_flags").kind,
+            BindingKind::Declaration(DeclarationBuiltin::Typeset)
+        ));
+    }
+
+    #[test]
+    fn escaped_exported_declarations_keep_exported_attributes() {
+        let source = "\\typeset -x rvm_hook\nrvm_hook=after_update\n";
+        let model = model(source);
+        let bindings = model.bindings_for(&Name::from("rvm_hook"));
+
+        assert!(
+            bindings.iter().any(|binding_id| {
+                model
+                    .binding(*binding_id)
+                    .attributes
+                    .contains(BindingAttributes::EXPORTED)
+            }),
+            "expected an exported rvm_hook declaration"
+        );
+    }
+
+    #[test]
+    fn wrapped_read_creates_read_target_bindings() {
+        let source = "builtin read -${flag} 1 -s -r anykey\n";
+        let model = model(source);
+        let anykey = binding_for_name(&model, "anykey");
+
+        assert!(matches!(anykey.kind, BindingKind::ReadTarget));
+        assert!(matches!(
+            anykey.origin,
+            BindingOrigin::BuiltinTarget {
+                kind: BuiltinBindingTargetKind::Read,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn command_wrapped_printf_v_creates_target_binding() {
+        let source = "command printf -v rendered '%s' value\n";
+        let model = model(source);
+        let rendered = binding_for_name(&model, "rendered");
+
+        assert!(matches!(rendered.kind, BindingKind::PrintfTarget));
+        assert!(matches!(
+            rendered.origin,
+            BindingOrigin::BuiltinTarget {
+                kind: BuiltinBindingTargetKind::Printf,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn shflags_define_commands_create_flag_bindings() {
+        let source = "DEFINE_boolean show_commands false 'show commands' s\n";
+        let model = model(source);
+        let binding = binding_for_name(&model, "FLAGS_show_commands");
+
+        assert_eq!(binding.span.slice(source), "show_commands");
+        assert!(matches!(
+            binding.kind,
+            BindingKind::Declaration(DeclarationBuiltin::Declare)
         ));
     }
 
@@ -6812,6 +6897,7 @@ printf '%s\\n' \"${!name}\"
                 .analysis()
                 .unused_assignments_with_options(UnusedAssignmentAnalysisOptions {
                     treat_indirect_expansion_targets_as_used: true,
+                    report_unreachable_assignments: false,
                 }),
         );
 
@@ -6836,6 +6922,7 @@ printf '%s\\n' \"${!args_var}\"
                 .analysis()
                 .unused_assignments_with_options(UnusedAssignmentAnalysisOptions {
                     treat_indirect_expansion_targets_as_used: false,
+                    report_unreachable_assignments: false,
                 }),
         );
 
@@ -6851,12 +6938,41 @@ printf '%s\\n' \"${!args_var}\"
         let compat_unused = analysis
             .unused_assignments_with_options(UnusedAssignmentAnalysisOptions {
                 treat_indirect_expansion_targets_as_used: false,
+                report_unreachable_assignments: false,
             })
             .to_vec();
 
         assert!(analysis.exact_variable_dataflow.get().is_none());
         assert!(analysis.dataflow.get().is_none());
         assert_eq!(binding_names(&model, &compat_unused), vec!["unused"]);
+    }
+
+    #[test]
+    fn unused_assignment_options_can_report_unreachable_assignments() {
+        let source = "\
+#!/bin/bash
+f() {
+  return 1
+  dead=1
+  used=1
+  printf '%s\\n' \"$used\"
+}
+f
+";
+        let model = model(source);
+        let default_unused = binding_names(&model, model.analysis().unused_assignments());
+        let compat_unused = binding_names(
+            &model,
+            model
+                .analysis()
+                .unused_assignments_with_options(UnusedAssignmentAnalysisOptions {
+                    treat_indirect_expansion_targets_as_used: false,
+                    report_unreachable_assignments: true,
+                }),
+        );
+
+        assert!(!default_unused.iter().any(|name| name == "dead"));
+        assert_eq!(compat_unused, vec!["dead"]);
     }
 
     #[test]

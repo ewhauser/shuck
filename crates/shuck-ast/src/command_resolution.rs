@@ -1,0 +1,513 @@
+use std::borrow::Cow;
+
+use crate::{
+    Assignment, BuiltinCommand, Command, CompoundCommand, DeclClause, DeclOperand, Position,
+    Redirect, SimpleCommand, Span, StaticCommandWrapperTarget, Word, static_command_name_text,
+    static_command_wrapper_target_index, static_word_text,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WrapperKind {
+    Noglob,
+    Command,
+    Builtin,
+    Exec,
+    Busybox,
+    FindExec,
+    FindExecDir,
+    SudoFamily,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeclarationKind {
+    Export,
+    Local,
+    Declare,
+    Typeset,
+    Other(String),
+}
+
+impl DeclarationKind {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Export => "export",
+            Self::Local => "local",
+            Self::Declare => "declare",
+            Self::Typeset => "typeset",
+            Self::Other(name) => name.as_str(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NormalizedDeclaration<'a> {
+    pub kind: DeclarationKind,
+    pub readonly_flag: bool,
+    pub span: Span,
+    pub head_span: Span,
+    pub redirects: &'a [Redirect],
+    pub assignments: &'a [Assignment],
+    pub operands: &'a [DeclOperand],
+    pub assignment_operands: Vec<&'a Assignment>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NormalizedCommand<'a> {
+    pub literal_name: Option<Cow<'a, str>>,
+    pub effective_name: Option<Cow<'a, str>>,
+    pub wrappers: Vec<WrapperKind>,
+    pub body_span: Span,
+    pub body_word_span: Option<Span>,
+    pub body_words: Vec<&'a Word>,
+    pub declaration: Option<NormalizedDeclaration<'a>>,
+}
+
+impl<'a> NormalizedCommand<'a> {
+    pub fn effective_or_literal_name(&self) -> Option<&str> {
+        self.effective_name
+            .as_deref()
+            .or(self.literal_name.as_deref())
+    }
+
+    pub fn effective_name_is(&self, name: &str) -> bool {
+        self.effective_name.as_deref() == Some(name)
+    }
+
+    pub fn effective_basename_is(&self, name: &str) -> bool {
+        self.effective_name
+            .as_deref()
+            .is_some_and(|effective_name| command_basename(effective_name) == name)
+    }
+
+    pub fn has_wrapper(&self, wrapper: WrapperKind) -> bool {
+        self.wrappers.contains(&wrapper)
+    }
+
+    pub fn body_name_word(&self) -> Option<&'a Word> {
+        self.body_words.first().copied()
+    }
+
+    pub fn body_word_span(&self) -> Option<Span> {
+        self.body_word_span
+    }
+
+    pub fn body_args(&self) -> &[&'a Word] {
+        self.body_words.split_first().map_or(&[], |(_, rest)| rest)
+    }
+}
+
+pub fn normalize_command<'a>(command: &'a Command, source: &'a str) -> NormalizedCommand<'a> {
+    match command {
+        Command::Simple(command) => normalize_simple_command(command, source),
+        Command::Decl(command) => normalize_decl_command(command, source),
+        Command::Builtin(command) => NormalizedCommand {
+            literal_name: Some(Cow::Borrowed(builtin_name(command))),
+            effective_name: Some(Cow::Borrowed(builtin_name(command))),
+            wrappers: Vec::new(),
+            body_span: builtin_span(command),
+            body_word_span: None,
+            body_words: Vec::new(),
+            declaration: None,
+        },
+        Command::Binary(command) => empty_normalized_command(command.span),
+        Command::Compound(command) => empty_normalized_command(compound_span(command)),
+        Command::Function(command) => empty_normalized_command(command.span),
+        Command::AnonymousFunction(command) => empty_normalized_command(command.span),
+    }
+}
+
+fn normalize_simple_command<'a>(
+    command: &'a SimpleCommand,
+    source: &'a str,
+) -> NormalizedCommand<'a> {
+    let words = std::iter::once(&command.name)
+        .chain(command.args.iter())
+        .collect::<Vec<_>>();
+    let Some(normalized) = normalize_command_words(words.as_slice(), source) else {
+        unreachable!("simple commands always have a name");
+    };
+    normalized
+}
+
+pub fn normalize_command_words<'a>(
+    words: &[&'a Word],
+    source: &'a str,
+) -> Option<NormalizedCommand<'a>> {
+    let first_word = words.first().copied()?;
+    let literal_name = static_command_name_text(first_word, source);
+    let mut effective_name = literal_name.clone();
+    let mut wrappers = Vec::new();
+    let mut body_span = first_word.span;
+    let mut body_word_span = Some(first_word.span);
+    let mut body_start = literal_name.as_ref().map(|_| 0usize);
+    let mut current_index = 0usize;
+
+    while let Some(current_name) = effective_name.as_deref() {
+        let Some(resolution) =
+            resolve_command_resolution(words, current_index, current_name, source)
+        else {
+            break;
+        };
+
+        match resolution {
+            CommandResolution::Alias {
+                effective_name: resolved_name,
+                body_index,
+            } => {
+                body_span = words[body_index].span;
+                body_word_span = Some(words[body_index].span);
+                body_start = Some(body_index);
+                effective_name = Some(Cow::Owned(resolved_name));
+                break;
+            }
+            CommandResolution::Wrapper { kind, target_index } => {
+                wrappers.push(kind);
+
+                let Some(target_index) = target_index else {
+                    effective_name = None;
+                    body_word_span = None;
+                    body_start = None;
+                    break;
+                };
+
+                body_span = words[target_index].span;
+                body_word_span = Some(words[target_index].span);
+                effective_name = static_command_name_text(words[target_index], source);
+                body_start = effective_name.as_ref().map(|_| target_index);
+                current_index = target_index;
+
+                if effective_name.is_none() {
+                    break;
+                }
+            }
+        }
+    }
+
+    Some(NormalizedCommand {
+        literal_name,
+        effective_name,
+        wrappers,
+        body_span,
+        body_word_span,
+        body_words: body_start.map_or_else(Vec::new, |start| words[start..].to_vec()),
+        declaration: None,
+    })
+}
+
+fn normalize_decl_command<'a>(command: &'a DeclClause, source: &'a str) -> NormalizedCommand<'a> {
+    let raw_kind = command.variant.as_ref();
+    let assignment_operands = command
+        .operands
+        .iter()
+        .filter_map(|operand| match operand {
+            DeclOperand::Assignment(assignment) => Some(assignment),
+            DeclOperand::Flag(_) | DeclOperand::Name(_) | DeclOperand::Dynamic(_) => None,
+        })
+        .collect::<Vec<_>>();
+
+    NormalizedCommand {
+        literal_name: Some(Cow::Borrowed(raw_kind)),
+        effective_name: Some(Cow::Borrowed(raw_kind)),
+        wrappers: Vec::new(),
+        body_span: command.variant_span,
+        body_word_span: None,
+        body_words: Vec::new(),
+        declaration: Some(NormalizedDeclaration {
+            kind: declaration_kind(raw_kind),
+            readonly_flag: declaration_has_readonly_flag(command, source),
+            span: command.span,
+            head_span: declaration_head_span(command),
+            redirects: &[],
+            assignments: &command.assignments,
+            operands: &command.operands,
+            assignment_operands,
+        }),
+    }
+}
+
+fn declaration_kind(raw_kind: &str) -> DeclarationKind {
+    match raw_kind {
+        "export" => DeclarationKind::Export,
+        "local" => DeclarationKind::Local,
+        "declare" => DeclarationKind::Declare,
+        "typeset" => DeclarationKind::Typeset,
+        _ => DeclarationKind::Other(raw_kind.to_owned()),
+    }
+}
+
+fn declaration_has_readonly_flag(command: &DeclClause, source: &str) -> bool {
+    matches!(command.variant.as_ref(), "local" | "declare" | "typeset")
+        && command.operands.iter().any(|operand| {
+            let DeclOperand::Flag(word) = operand else {
+                return false;
+            };
+
+            static_word_text(word, source)
+                .is_some_and(|text| text.starts_with('-') && text.contains('r'))
+        })
+}
+
+fn declaration_head_span(command: &DeclClause) -> Span {
+    let end = command
+        .operands
+        .last()
+        .map_or(command.variant_span.end, declaration_operand_head_end);
+    Span::from_positions(command.variant_span.start, end)
+}
+
+fn declaration_operand_head_end(operand: &DeclOperand) -> Position {
+    match operand {
+        DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => word.span.end,
+        DeclOperand::Name(name) => name.span.end,
+        DeclOperand::Assignment(assignment) => assignment.target.name_span.end,
+    }
+}
+
+fn empty_normalized_command<'a>(span: Span) -> NormalizedCommand<'a> {
+    NormalizedCommand {
+        literal_name: None,
+        effective_name: None,
+        wrappers: Vec::new(),
+        body_span: span,
+        body_word_span: None,
+        body_words: Vec::new(),
+        declaration: None,
+    }
+}
+
+fn compound_span(command: &CompoundCommand) -> Span {
+    match command {
+        CompoundCommand::If(command) => command.span,
+        CompoundCommand::For(command) => command.span,
+        CompoundCommand::Repeat(command) => command.span,
+        CompoundCommand::Foreach(command) => command.span,
+        CompoundCommand::ArithmeticFor(command) => command.span,
+        CompoundCommand::While(command) => command.span,
+        CompoundCommand::Until(command) => command.span,
+        CompoundCommand::Case(command) => command.span,
+        CompoundCommand::Select(command) => command.span,
+        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
+            commands.span
+        }
+        CompoundCommand::Arithmetic(command) => command.span,
+        CompoundCommand::Time(command) => command.span,
+        CompoundCommand::Conditional(command) => command.span,
+        CompoundCommand::Coproc(command) => command.span,
+        CompoundCommand::Always(command) => command.span,
+    }
+}
+
+enum CommandResolution {
+    Alias {
+        effective_name: String,
+        body_index: usize,
+    },
+    Wrapper {
+        kind: WrapperKind,
+        target_index: Option<usize>,
+    },
+}
+
+fn resolve_command_resolution(
+    words: &[&Word],
+    current_index: usize,
+    current_name: &str,
+    source: &str,
+) -> Option<CommandResolution> {
+    match current_name {
+        "noglob" | "command" | "builtin" | "exec" => Some(resolve_shared_wrapper(
+            words,
+            current_index,
+            current_name,
+            source,
+        )),
+        "busybox" => Some(CommandResolution::Wrapper {
+            kind: WrapperKind::Busybox,
+            target_index: words.get(current_index + 1).map(|_| current_index + 1),
+        }),
+        "find" => {
+            find_exec_target_index(words, current_index, source).map(|(kind, target_index)| {
+                CommandResolution::Wrapper {
+                    kind,
+                    target_index: Some(target_index),
+                }
+            })
+        }
+        "sudo" | "doas" | "run0" => Some(CommandResolution::Wrapper {
+            kind: WrapperKind::SudoFamily,
+            target_index: sudo_family_target_index(words, current_index, source),
+        }),
+        "git" => git_filter_branch_resolution(words, current_index, source),
+        "mumps" => mumps_run_resolution(words, current_index, source),
+        _ => None,
+    }
+}
+
+fn resolve_shared_wrapper(
+    words: &[&Word],
+    current_index: usize,
+    current_name: &str,
+    source: &str,
+) -> CommandResolution {
+    let kind = match current_name {
+        "noglob" => WrapperKind::Noglob,
+        "command" => WrapperKind::Command,
+        "builtin" => WrapperKind::Builtin,
+        "exec" => WrapperKind::Exec,
+        _ => unreachable!("caller only passes shared wrappers"),
+    };
+    let StaticCommandWrapperTarget::Wrapper { target_index } =
+        static_command_wrapper_target_index(words.len(), current_index, current_name, |index| {
+            static_word_text(words[index], source)
+        })
+    else {
+        unreachable!("shared wrapper name should resolve to a wrapper target");
+    };
+
+    CommandResolution::Wrapper { kind, target_index }
+}
+
+fn find_exec_target_index(
+    words: &[&Word],
+    current_index: usize,
+    source: &str,
+) -> Option<(WrapperKind, usize)> {
+    let mut fallback = None;
+
+    for index in current_index + 1..words.len() {
+        let Some(arg) = static_word_text(words[index], source) else {
+            continue;
+        };
+        match arg.as_ref() {
+            "-exec" | "-ok" => {
+                if fallback.is_none() {
+                    fallback = words
+                        .get(index + 1)
+                        .map(|_| (WrapperKind::FindExec, index + 1));
+                }
+            }
+            "-execdir" => {
+                return words
+                    .get(index + 1)
+                    .map(|_| (WrapperKind::FindExecDir, index + 1));
+            }
+            "-okdir" => {
+                if fallback.is_none() {
+                    fallback = words
+                        .get(index + 1)
+                        .map(|_| (WrapperKind::FindExec, index + 1));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fallback
+}
+
+fn sudo_family_target_index(words: &[&Word], current_index: usize, source: &str) -> Option<usize> {
+    let mut index = current_index + 1;
+
+    while index < words.len() {
+        let Some(arg) = static_word_text(words[index], source) else {
+            return Some(index);
+        };
+
+        if arg == "--" {
+            return words.get(index + 1).map(|_| index + 1);
+        }
+
+        if !arg.starts_with('-') || arg == "-" {
+            return Some(index);
+        }
+
+        if arg.len() == 2 && matches!(arg.as_ref(), "-l" | "-v" | "-V") {
+            return None;
+        }
+
+        if sudo_option_takes_value(arg.as_ref()) {
+            if arg.len() == 2 {
+                words.get(index + 1)?;
+                index += 2;
+            } else {
+                index += 1;
+            }
+            continue;
+        }
+
+        if arg.starts_with("--") && !matches!(arg.as_ref(), "--preserve-env" | "--login") {
+            return None;
+        }
+
+        index += 1;
+    }
+
+    None
+}
+
+fn sudo_option_takes_value(arg: &str) -> bool {
+    matches!(
+        arg.chars().nth(1),
+        Some('u' | 'g' | 'h' | 'p' | 'C' | 'D' | 'R' | 'T' | 'r' | 't')
+    )
+}
+
+fn git_filter_branch_resolution(
+    words: &[&Word],
+    current_index: usize,
+    source: &str,
+) -> Option<CommandResolution> {
+    (words
+        .get(current_index + 1)
+        .and_then(|word| static_word_text(word, source))
+        .as_deref()
+        == Some("filter-branch"))
+    .then(|| CommandResolution::Alias {
+        effective_name: "git filter-branch".to_owned(),
+        body_index: current_index + 1,
+    })
+}
+
+fn mumps_run_resolution(
+    words: &[&Word],
+    current_index: usize,
+    source: &str,
+) -> Option<CommandResolution> {
+    let run_flag = words
+        .get(current_index + 1)
+        .and_then(|word| static_word_text(word, source))?;
+    let entrypoint = words
+        .get(current_index + 2)
+        .and_then(|word| static_word_text(word, source))?;
+
+    if run_flag == "-run" && matches!(entrypoint.as_ref(), "%XCMD" | "LOOP%XCMD") {
+        Some(CommandResolution::Alias {
+            effective_name: format!("mumps -run {entrypoint}"),
+            body_index: current_index + 2,
+        })
+    } else {
+        None
+    }
+}
+
+fn builtin_name(command: &BuiltinCommand) -> &'static str {
+    match command {
+        BuiltinCommand::Break(_) => "break",
+        BuiltinCommand::Continue(_) => "continue",
+        BuiltinCommand::Return(_) => "return",
+        BuiltinCommand::Exit(_) => "exit",
+    }
+}
+
+fn builtin_span(command: &BuiltinCommand) -> Span {
+    match command {
+        BuiltinCommand::Break(command) => command.span,
+        BuiltinCommand::Continue(command) => command.span,
+        BuiltinCommand::Return(command) => command.span,
+        BuiltinCommand::Exit(command) => command.span,
+    }
+}
+
+fn command_basename(name: &str) -> &str {
+    name.rsplit('/').next().unwrap_or(name)
+}
