@@ -991,9 +991,27 @@ fn collect_array_expansion_spans(
             {
                 spans.push(part.span);
             }
-            WordPart::ParameterExpansion { reference, .. }
-            | WordPart::IndirectExpansion { reference, .. }
-            | WordPart::Transformation { reference, .. }
+            WordPart::ParameterExpansion {
+                reference,
+                operator,
+                ..
+            } if !matches!(operator, ParameterOp::UseReplacement)
+                && reference.has_array_selector()
+                && (!quoted || !only_unquoted) =>
+            {
+                spans.push(part.span);
+            }
+            WordPart::IndirectExpansion {
+                reference,
+                operator,
+                ..
+            } if !matches!(operator, Some(ParameterOp::UseReplacement))
+                && reference.has_array_selector()
+                && (!quoted || !only_unquoted) =>
+            {
+                spans.push(part.span);
+            }
+            WordPart::Transformation { reference, .. }
                 if reference.has_array_selector() && (!quoted || !only_unquoted) =>
             {
                 spans.push(part.span);
@@ -4008,9 +4026,13 @@ fn parameter_is_array_like(parameter: &ParameterExpansion) -> bool {
         ParameterExpansionSyntax::Bourne(syntax) => match syntax {
             BourneParameterExpansion::Access { reference } => reference.has_array_selector(),
             BourneParameterExpansion::Indices { .. } => true,
-            BourneParameterExpansion::Slice { reference, .. }
-            | BourneParameterExpansion::Operation { reference, .. }
-            | BourneParameterExpansion::Transformation { reference, .. } => {
+            BourneParameterExpansion::Slice { reference, .. } => reference.has_array_selector(),
+            BourneParameterExpansion::Operation {
+                reference,
+                operator,
+                ..
+            } => !matches!(operator, ParameterOp::UseReplacement) && reference.has_array_selector(),
+            BourneParameterExpansion::Transformation { reference, .. } => {
                 reference.has_array_selector()
             }
             _ => false,
@@ -4700,16 +4722,24 @@ mod tests {
 
     #[test]
     fn array_expansion_spans_only_return_array_like_parts() {
-        let source = "printf '%s\\n' ${arr[@]} ${arr[0]}\n";
+        let source = "printf '%s\\n' ${arr[@]} ${arr[@]+fallback} ${arr[*]:-fallback} ${arr[*]@Q} ${arr[0]}\n";
         let output = Parser::new(source).parse().unwrap();
         let command = &output.file.body[0].command;
         let shuck_ast::Command::Simple(command) = command else {
             panic!("expected simple command");
         };
 
-        let spans = array_expansion_part_spans(&command.args[1], source);
-        assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0].slice(source), "${arr[@]}");
+        let spans = command
+            .args
+            .iter()
+            .skip(1)
+            .flat_map(|word| array_expansion_part_spans(word, source))
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            spans,
+            vec!["${arr[@]}", "${arr[*]:-fallback}", "${arr[*]@Q}"]
+        );
     }
 
     #[test]

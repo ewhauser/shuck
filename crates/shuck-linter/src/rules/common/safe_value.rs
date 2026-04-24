@@ -909,16 +909,15 @@ impl<'a> SafeValueIndex<'a> {
         let command = self.facts.command(command_id);
         let scope = self.semantic.scope_at(command.span().start.offset);
 
-        for scope in self.semantic.ancestor_scopes(scope) {
-            match self.semantic.scope(scope).kind {
-                ScopeKind::Subshell | ScopeKind::CommandSubstitution | ScopeKind::Pipeline => {
-                    return false;
-                }
-                ScopeKind::Function(_) | ScopeKind::File => return true,
-            }
-        }
-
-        true
+        self.semantic
+            .ancestor_scopes(scope)
+            .next()
+            .is_none_or(|scope| {
+                matches!(
+                    self.semantic.scope(scope).kind,
+                    ScopeKind::Function(_) | ScopeKind::File
+                )
+            })
     }
 
     fn unset_targets_variable_name(
