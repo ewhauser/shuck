@@ -1789,7 +1789,12 @@ fn contains_positional_parameter_reference(value: &str) -> bool {
 }
 
 fn starts_comment(value: &str, hash: usize) -> bool {
-    hash == 0 || value.as_bytes()[hash - 1].is_ascii_whitespace()
+    hash == 0
+        || value.as_bytes()[hash - 1].is_ascii_whitespace()
+        || matches!(
+            value.as_bytes()[hash - 1],
+            b';' | b'&' | b'|' | b'(' | b')' | b'{' | b'}'
+        )
 }
 
 fn is_escaped_dollar(value: &str, dollar: usize) -> bool {
@@ -6933,6 +6938,8 @@ mod word_classification_tests {
         assert!(!contains_positional_parameter_reference("echo '$1'"));
         assert!(!contains_positional_parameter_reference("echo hi # $1"));
         assert!(!contains_positional_parameter_reference("echo hi; # $1"));
+        assert!(!contains_positional_parameter_reference("echo hi;# $1"));
+        assert!(!contains_positional_parameter_reference("echo hi &&# $1"));
         assert!(!contains_positional_parameter_reference("echo $$1"));
     }
 
