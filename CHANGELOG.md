@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.0.21](https://github.com/ewhauser/shuck/compare/v0.0.20...v0.0.21) (2026-04-24)
+
+
+### Bug Fixes
+
+* **cli:** include analyzed paths in check cache key ([#532](https://github.com/ewhauser/shuck/issues/532)) ([3a010c8](https://github.com/ewhauser/shuck/commit/3a010c8db2859939b1122b85b4adc62421a35c58))
+* **linter:** add C006 parameter guard flow ([#539](https://github.com/ewhauser/shuck/issues/539)) ([9df2595](https://github.com/ewhauser/shuck/commit/9df25953d35eeeee0491123343c40a194343d169))
+* **linter:** align C001 with ShellCheck corpus ([#501](https://github.com/ewhauser/shuck/issues/501)) ([b37f85b](https://github.com/ewhauser/shuck/commit/b37f85b26a51a5b14abb8cf38c07d625d40df7cb))
+* **linter:** align C124 unreachable causes ([#533](https://github.com/ewhauser/shuck/issues/533)) ([0bc715e](https://github.com/ewhauser/shuck/commit/0bc715eda800435ff11cd684c5868caf6afd8457))
+* **linter:** broaden ambient runtime contracts ([#541](https://github.com/ewhauser/shuck/issues/541)) ([01aabd0](https://github.com/ewhauser/shuck/commit/01aabd003c87bd6aa4d37021c62529b107300c79))
+* **linter:** broaden C063 function reachability ([#537](https://github.com/ewhauser/shuck/issues/537)) ([3b6bde9](https://github.com/ewhauser/shuck/commit/3b6bde9c57e2d0909b4b88c0d9c997c858d33ea0))
+* **linter:** improve S001 ShellCheck parity ([#521](https://github.com/ewhauser/shuck/issues/521)) ([24ad0a6](https://github.com/ewhauser/shuck/commit/24ad0a6067d9419a74f8cb6c6c3f1420c0e5c714))
+* **linter:** match C063 nested function reachability ([#542](https://github.com/ewhauser/shuck/issues/542)) ([7f99c9d](https://github.com/ewhauser/shuck/commit/7f99c9df12ac2b239c9373fd10ca974cd19c1289))
+* **linter:** skip C124 short-circuit exit guards ([#540](https://github.com/ewhauser/shuck/issues/540)) ([8fed78b](https://github.com/ewhauser/shuck/commit/8fed78b15bad71a6210f9e3d4f4efbb83adf9cef))
+* recognize env -S shebangs ([#534](https://github.com/ewhauser/shuck/issues/534)) ([81438ac](https://github.com/ewhauser/shuck/commit/81438ac647c778675117f3d8b9472baf18af39ab))
+* **semantic:** infer sourced helper parse profiles ([#535](https://github.com/ewhauser/shuck/issues/535)) ([5e912b6](https://github.com/ewhauser/shuck/commit/5e912b6161bc3e30c044ca5072922d3bc1cf8e1c))
+
 ## [0.0.20](https://github.com/ewhauser/shuck/compare/v0.0.19...v0.0.20) (2026-04-24)
 
 
