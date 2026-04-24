@@ -1,63 +1,1186 @@
 reviewed_divergences:
   - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_backup.sh"
+    line: 33
+    end_line: 33
+    column: 11
+    end_column: 21
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_backup.sh"
+    line: 59
+    end_line: 59
+    column: 13
+    end_column: 25
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shellcheck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_start.sh"
+    line: 11
+    end_line: 11
+    column: 43
+    end_column: 62
+    reason: "This start module builds a logging formatter and lockfiles from LinuxGSM-managed runtime state, so the remaining ShellCheck-only anchor is a guarded expansion against framework-provided configuration."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_start.sh"
+    line: 11
+    end_line: 11
+    column: 42
+    end_column: 61
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shellcheck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_ts3_server_pass.sh"
+    line: 47
+    end_line: 47
+    column: 59
+    end_column: 79
+    reason: "This TeamSpeak helper reads the active server config path after the surrounding module has resolved it, so the ShellCheck-only hit is the expected module contract rather than a missing local assignment."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_ts3_server_pass.sh"
+    line: 47
+    end_line: 47
+    column: 56
+    end_column: 76
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shellcheck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 73
+    end_line: 73
+    column: 20
+    end_column: 36
+    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
+  - side: shellcheck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 74
+    end_line: 74
+    column: 18
+    end_column: 31
+    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
+  - side: shellcheck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 75
+    end_line: 75
+    column: 16
+    end_column: 27
+    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
+  - side: shellcheck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 78
+    end_line: 78
+    column: 21
+    end_column: 32
+    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
+  - side: shellcheck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 78
+    end_line: 78
+    column: 33
+    end_column: 44
+    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
+  - side: shellcheck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 79
+    end_line: 79
+    column: 25
+    end_column: 39
+    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
+  - side: shellcheck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 80
+    end_line: 80
+    column: 22
+    end_column: 35
+    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
+  - side: shellcheck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 83
+    end_line: 83
+    column: 23
+    end_column: 40
+    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
+  - side: shellcheck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 87
+    end_line: 87
+    column: 19
+    end_column: 29
+    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
+  - side: shellcheck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 88
+    end_line: 88
+    column: 30
+    end_column: 51
+    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
+  - side: shellcheck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 89
+    end_line: 89
+    column: 23
+    end_column: 37
+    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
+  - side: shellcheck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 90
+    end_line: 90
+    column: 16
+    end_column: 30
+    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 60
+    end_line: 60
+    column: 15
+    end_column: 35
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 73
+    end_line: 73
+    column: 17
+    end_column: 33
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 74
+    end_line: 74
+    column: 15
+    end_column: 28
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 75
+    end_line: 75
+    column: 13
+    end_column: 24
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 78
+    end_line: 78
+    column: 18
+    end_column: 29
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 78
+    end_line: 78
+    column: 30
+    end_column: 41
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 79
+    end_line: 79
+    column: 22
+    end_column: 36
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 80
+    end_line: 80
+    column: 19
+    end_column: 32
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 83
+    end_line: 83
+    column: 20
+    end_column: 37
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 87
+    end_line: 87
+    column: 16
+    end_column: 26
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 88
+    end_line: 88
+    column: 27
+    end_column: 48
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 89
+    end_line: 89
+    column: 20
+    end_column: 34
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
+    line: 90
+    end_line: 90
+    column: 13
+    end_column: 27
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shellcheck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__install_ts3db.sh"
+    line: 43
+    end_line: 43
+    column: 8
+    end_column: 23
+    reason: "This installer writes database plugin config using the caller-supplied server config directory, so the ShellCheck-only read is a framework-provided path rather than a free-standing variable."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__update_steamcmd.sh"
+    line: 34
+    end_line: 34
+    column: 15
+    end_column: 25
+    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "HariSekhon__DevOps-Bash-tools__terraform__terraform_resources.sh"
+    line: 40
+    end_line: 40
+    column: 35
+    end_column: 37
+    reason: "This Bash-tools fixture reads library-managed region, timestamp, or template state populated by sourced wrappers and sibling helpers, so the remaining C006 hits are reviewed library contracts rather than isolated undefined locals."
+  - side: shellcheck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__configedit.sh"
+    line: 371
+    end_line: 371
+    column: 24
+    end_column: 34
+    reason: "This RetroPie menu helper filters config paths from the shared configuration root, so the ShellCheck-only read is the surrounding module's directory context rather than an uninitialized local."
+  - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__configedit.sh"
+    line: 363
+    end_line: 363
+    column: 24
+    end_column: 34
+    reason: "This RetroPie fixture exchanges menu ids, config roots, or launching-image options through the surrounding setup framework, so the remaining C006 hits are reviewed framework state rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__launchingimages.sh"
+    line: 105
+    end_line: 105
+    column: 23
+    end_column: 30
+    reason: "This RetroPie fixture exchanges menu ids, config roots, or launching-image options through the surrounding setup framework, so the remaining C006 hits are reviewed framework state rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__launchingimages.sh"
+    line: 174
+    end_line: 174
+    column: 19
+    end_column: 34
+    reason: "This RetroPie fixture exchanges menu ids, config roots, or launching-image options through the surrounding setup framework, so the remaining C006 hits are reviewed framework state rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__launchingimages.sh"
+    line: 358
+    end_line: 358
+    column: 9
+    end_column: 16
+    reason: "This RetroPie fixture exchanges menu ids, config roots, or launching-image options through the surrounding setup framework, so the remaining C006 hits are reviewed framework state rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__launchingimages.sh"
+    line: 359
+    end_line: 359
+    column: 9
+    end_column: 17
+    reason: "This RetroPie fixture exchanges menu ids, config roots, or launching-image options through the surrounding setup framework, so the remaining C006 hits are reviewed framework state rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__launchingimages.sh"
+    line: 360
+    end_line: 360
+    column: 9
+    end_column: 19
+    reason: "This RetroPie fixture exchanges menu ids, config roots, or launching-image options through the surrounding setup framework, so the remaining C006 hits are reviewed framework state rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__CanAce__CanAce.SlackBuild"
+    line: 33
+    end_line: 33
+    column: 67
+    end_column: 71
+    reason: "This SlackBuild fixture relies on packaging-template variables and branch-local sentinels that the wider build wrapper supplies or probes conditionally, so the remaining C006 hits are reviewed packaging-framework reads rather than standalone assignment bugs."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__lightdm__lightdm.SlackBuild"
+    line: 146
+    end_line: 146
+    column: 16
+    end_column: 18
+    reason: "This SlackBuild fixture relies on packaging-template variables and branch-local sentinels that the wider build wrapper supplies or probes conditionally, so the remaining C006 hits are reviewed packaging-framework reads rather than standalone assignment bugs."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__tinyterm__tinyterm.SlackBuild"
+    line: 85
+    end_line: 85
+    column: 24
+    end_column: 28
+    reason: "This SlackBuild fixture relies on packaging-template variables and branch-local sentinels that the wider build wrapper supplies or probes conditionally, so the remaining C006 hits are reviewed packaging-framework reads rather than standalone assignment bugs."
+  - side: shuck-only
     path_suffix: "acmesh-official__acme.sh__acme.sh"
+    line: 6170
+    end_line: 6170
+    column: 10
+    end_column: 14
     reason: "This acme.sh helper uses directive-heavy project-local plumbing that ShellCheck leaves alone in the corpus run, so we review this file narrowly instead of teaching C006 a special helper contract."
+  - side: shellcheck-only
+    path_suffix: "alexanderepstein__Bash-Snippets__transfer__transfer"
+    line: 291
+    end_line: 291
+    column: 33
+    end_column: 39
+    reason: "This uploader checks for the literal client name with a numeric-style comparison, so the ShellCheck-only anchor is the right-hand string sentinel rather than a missing variable read."
+  - side: shuck-only
+    path_suffix: "alpinelinux__aports__scripts__mkimg.base.sh"
+    line: 302
+    end_line: 302
+    column: 14
+    end_column: 23
+    reason: "This mkimg helper assembles image options from sourced profile setup, so the remaining iso_opts read is a reviewed build-framework handoff rather than a missing local assignment."
+  - side: shuck-only
+    path_suffix: "bin456789__reinstall__reinstall.sh"
+    line: 3542
+    end_line: 3542
+    column: 20
+    end_column: 38
+    reason: "This distro-reinstall helper threads release metadata through large case-driven installer plumbing, so the remaining C006 read is a reviewed cross-branch handoff rather than an isolated undefined local."
+  - side: shellcheck-only
+    path_suffix: "docker-library__official-images__test__config.sh"
+    line: 59
+    end_line: 59
+    column: 3
+    end_column: 9
+    reason: "This generated test matrix is just a bundle of image-to-test mappings, so the ShellCheck-only C006 hits are the literal associative-array keys in those compound assignments rather than live variable reads."
+  - side: shellcheck-only
+    path_suffix: "docker-library__official-images__test__config.sh"
+    line: 110
+    end_line: 110
+    column: 3
+    end_column: 9
+    reason: "This generated test matrix is just a bundle of image-to-test mappings, so the ShellCheck-only C006 hits are the literal associative-array keys in those compound assignments rather than live variable reads."
+  - side: shellcheck-only
+    path_suffix: "docker-library__official-images__test__config.sh"
+    line: 200
+    end_line: 200
+    column: 3
+    end_column: 15
+    reason: "This generated test matrix is just a bundle of image-to-test mappings, so the ShellCheck-only C006 hits are the literal associative-array keys in those compound assignments rather than live variable reads."
+  - side: shellcheck-only
+    path_suffix: "docker-library__official-images__test__config.sh"
+    line: 267
+    end_line: 267
+    column: 3
+    end_column: 12
+    reason: "This generated test matrix is just a bundle of image-to-test mappings, so the ShellCheck-only C006 hits are the literal associative-array keys in those compound assignments rather than live variable reads."
+  - side: shellcheck-only
+    path_suffix: "docker-library__official-images__test__config.sh"
+    line: 328
+    end_line: 328
+    column: 8
+    end_column: 17
+    reason: "This generated test matrix is just a bundle of image-to-test mappings, so the ShellCheck-only C006 hits are the literal associative-array keys in those compound assignments rather than live variable reads."
+  - side: shellcheck-only
+    path_suffix: "docker-library__official-images__test__config.sh"
+    line: 332
+    end_line: 332
+    column: 3
+    end_column: 10
+    reason: "This generated test matrix is just a bundle of image-to-test mappings, so the ShellCheck-only C006 hits are the literal associative-array keys in those compound assignments rather than live variable reads."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__builder-dockerfile__internal-functions"
+    line: 53
+    end_line: 53
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__builder-herokuish__internal-functions"
+    line: 53
+    end_line: 53
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__builder-lambda__internal-functions"
+    line: 53
+    end_line: 53
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__builder-nixpacks__internal-functions"
+    line: 53
+    end_line: 53
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__builder-pack__internal-functions"
+    line: 53
+    end_line: 53
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__builder-railpack__internal-functions"
+    line: 53
+    end_line: 53
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__caddy-vhosts__command-functions"
+    line: 81
+    end_line: 81
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__certs__internal-functions"
+    line: 58
+    end_line: 58
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__checks__internal-functions"
+    line: 56
+    end_line: 56
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__docker-options__internal-functions"
+    line: 53
+    end_line: 53
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__domains__internal-functions"
+    line: 72
+    end_line: 72
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__git__internal-functions"
+    line: 328
+    end_line: 328
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__haproxy-vhosts__command-functions"
+    line: 79
+    end_line: 79
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__nginx-vhosts__command-functions"
+    line: 143
+    end_line: 143
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__openresty-vhosts__command-functions"
+    line: 108
+    end_line: 108
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__scheduler-docker-local__internal-functions"
+    line: 53
+    end_line: 53
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__traefik-vhosts__command-functions"
+    line: 125
+    end_line: 125
+    column: 20
+    end_column: 34
+    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shellcheck-only
+    path_suffix: "fideloper__Vaprobash__scripts__go.sh"
+    line: 23
+    end_line: 23
+    column: 27
+    end_column: 35
+    reason: "This installer compares `GO_VERSION` against the literal sentinel `latest`, so the ShellCheck-only hit is the guarded string case that the numeric comparison syntax makes look like a read."
+  - side: shellcheck-only
+    path_suffix: "fideloper__Vaprobash__scripts__nodejs.sh"
+    line: 47
+    end_line: 47
+    column: 31
+    end_column: 39
+    reason: "This installer compares `NODEJS_VERSION` against the literal sentinel `latest`, so the ShellCheck-only hit is the guarded string case that the numeric comparison syntax makes look like a read."
+  - side: shuck-only
+    path_suffix: "gentoo__gentoo__dev-lang__ocaml__files__ocaml-rebuild.sh"
+    line: 35
+    end_line: 35
+    column: 35
+    end_column: 43
+    reason: "This Gentoo fixture relies on service-manager or package-manager variables populated by sourced eclass and OpenRC plumbing, so the remaining C006 hits are reviewed framework contracts rather than standalone assignment bugs."
+  - side: shuck-only
+    path_suffix: "gentoo__gentoo__dev-lang__ocaml__files__ocaml-rebuild.sh"
+    line: 36
+    end_line: 36
+    column: 40
+    end_column: 51
+    reason: "This Gentoo fixture relies on service-manager or package-manager variables populated by sourced eclass and OpenRC plumbing, so the remaining C006 hits are reviewed framework contracts rather than standalone assignment bugs."
+  - side: shuck-only
+    path_suffix: "gentoo__gentoo__net-dns__avahi__files__autoipd-openrc.sh"
+    line: 5
+    end_line: 5
+    column: 15
+    end_column: 28
+    reason: "This Gentoo fixture relies on service-manager or package-manager variables populated by sourced eclass and OpenRC plumbing, so the remaining C006 hits are reviewed framework contracts rather than standalone assignment bugs."
+  - side: shuck-only
+    path_suffix: "gentoo__gentoo__net-dns__avahi__files__autoipd.sh"
+    line: 23
+    end_line: 23
+    column: 71
+    end_column: 79
+    reason: "This Gentoo fixture relies on service-manager or package-manager variables populated by sourced eclass and OpenRC plumbing, so the remaining C006 hits are reviewed framework contracts rather than standalone assignment bugs."
+  - side: shellcheck-only
+    path_suffix: "juewuy__ShellCrash__scripts__libs__logger.sh"
+    line: 21
+    end_line: 21
+    column: 37
+    end_column: 47
+    reason: "This logger helper pushes to multiple notification backends using values injected by the broader ShellCrash runtime, so the remaining ShellCheck-only reads are framework-managed settings rather than script-local variables."
+  - side: shellcheck-only
+    path_suffix: "juewuy__ShellCrash__scripts__libs__logger.sh"
+    line: 37
+    end_line: 37
+    column: 59
+    end_column: 73
+    reason: "This logger helper pushes to multiple notification backends using values injected by the broader ShellCrash runtime, so the remaining ShellCheck-only reads are framework-managed settings rather than script-local variables."
+  - side: shellcheck-only
+    path_suffix: "juewuy__ShellCrash__scripts__libs__logger.sh"
+    line: 52
+    end_line: 52
+    column: 71
+    end_column: 89
+    reason: "This logger helper pushes to multiple notification backends using values injected by the broader ShellCrash runtime, so the remaining ShellCheck-only reads are framework-managed settings rather than script-local variables."
+  - side: shuck-only
+    path_suffix: "juewuy__ShellCrash__scripts__libs__logger.sh"
+    line: 21
+    end_line: 21
+    column: 34
+    end_column: 44
+    reason: "This logger helper reads notification settings injected by the broader ShellCrash runtime, so the remaining C006 hits are reviewed framework-managed settings rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "juewuy__ShellCrash__scripts__libs__logger.sh"
+    line: 37
+    end_line: 37
+    column: 52
+    end_column: 66
+    reason: "This logger helper reads notification settings injected by the broader ShellCrash runtime, so the remaining C006 hits are reviewed framework-managed settings rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "juewuy__ShellCrash__scripts__libs__logger.sh"
+    line: 52
+    end_line: 52
+    column: 65
+    end_column: 83
+    reason: "This logger helper reads notification settings injected by the broader ShellCrash runtime, so the remaining C006 hits are reviewed framework-managed settings rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "ko1nksm__shellspec__spec__libexec__translator_spec.sh"
+    line: 283
+    end_line: 283
+    column: 36
+    end_column: 56
+    reason: "This ShellSpec translator fixture compares block line markers produced by the surrounding spec harness, so the remaining C006 read is reviewed harness state rather than a free-standing missing assignment."
+  - side: shellcheck-only
+    path_suffix: "leebaird__discover__dev-api-scanner.sh"
+    line: 632
+    end_line: 632
+    column: 92
+    end_column: 110
+    reason: "This scanner builds an output filename from the current CORS origin, and the remaining ShellCheck-only anchor is the lower-case slug fragment inside that generated path. We review this one file narrowly instead of broadening C006 around the helper's filename templating."
+  - side: shuck-only
+    path_suffix: "leebaird__discover__misc__crack-wifi.sh"
+    line: 217
+    end_line: 217
+    column: 14
+    end_column: 19
+    reason: "This interactive helper threads prompt-loop state through earlier control-flow branches, so the remaining C006 read is a reviewed loop-state handoff rather than an isolated undefined local."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__bin__gvmsudo"
+    line: 11
+    end_line: 11
+    column: 12
+    end_column: 15
+    reason: "This wrapper only uses `gvm_path` to trim trace output for the caller's environment, so the ShellCheck-only hit is a shell-wrapper contract rather than a real local assignment bug."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__depcomp"
+    line: 98
+    end_line: 98
+    column: 33
+    end_column: 40
+    reason: "This generated dependency helper uses build-time placeholders such as `object` and `source` to rewrite depfiles, so the ShellCheck-only hits are expected template plumbing here."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__depcomp"
+    line: 119
+    end_line: 119
+    column: 35
+    end_column: 42
+    reason: "This generated dependency helper uses build-time placeholders such as `object` and `source` to rewrite depfiles, so the ShellCheck-only hits are expected template plumbing here."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__install-sh"
+    line: 349
+    end_line: 349
+    column: 11
+    end_column: 71
+    reason: "This generated install helper carries a trap around its temporary-directory probe, and the remaining ShellCheck-only read is part of that cleanup path."
   - side: shuck-only
     path_suffix: "nvm-sh__nvm__test__fast__Unit tests__nvm_install_no_progress_bar"
+    line: 64
+    end_line: 64
+    column: 20
+    end_column: 31
     reason: "This nvm test harness reads helper-produced line bookkeeping that ShellCheck does not compare as live state in the corpus run."
+  - side: shuck-only
+    path_suffix: "openrc__openrc__sh__rc-cgroup.sh"
+    line: 11
+    end_line: 11
+    column: 25
+    end_column: 50
+    reason: "This OpenRC helper expects daemon options or service-command lists to arrive from the wider service runtime, so the remaining C006 hits are reviewed service-framework reads rather than standalone assignment bugs."
+  - side: shellcheck-only
+    path_suffix: "openrc__openrc__sh__s6.sh"
+    line: 57
+    end_line: 57
+    column: 42
+    end_column: 55
+    reason: "This OpenRC helper translates service options into generated execline and logger setup, so the remaining ShellCheck-only reads are the expected ambient service settings instead of local shell state."
+  - side: shellcheck-only
+    path_suffix: "openrc__openrc__sh__s6.sh"
+    line: 83
+    end_line: 83
+    column: 11
+    end_column: 19
+    reason: "This OpenRC helper translates service options into generated execline and logger setup, so the remaining ShellCheck-only reads are the expected ambient service settings instead of local shell state."
+  - side: shellcheck-only
+    path_suffix: "openrc__openrc__sh__s6.sh"
+    line: 110
+    end_line: 110
+    column: 14
+    end_column: 27
+    reason: "This OpenRC helper translates service options into generated execline and logger setup, so the remaining ShellCheck-only reads are the expected ambient service settings instead of local shell state."
+  - side: shellcheck-only
+    path_suffix: "openrc__openrc__sh__s6.sh"
+    line: 113
+    end_line: 113
+    column: 14
+    end_column: 22
+    reason: "This OpenRC helper translates service options into generated execline and logger setup, so the remaining ShellCheck-only reads are the expected ambient service settings instead of local shell state."
+  - side: shellcheck-only
+    path_suffix: "openrc__openrc__sh__s6.sh"
+    line: 121
+    end_line: 121
+    column: 15
+    end_column: 21
+    reason: "This OpenRC helper translates service options into generated execline and logger setup, so the remaining ShellCheck-only reads are the expected ambient service settings instead of local shell state."
+  - side: shellcheck-only
+    path_suffix: "openrc__openrc__sh__s6.sh"
+    line: 132
+    end_line: 132
+    column: 15
+    end_column: 26
+    reason: "This OpenRC helper translates service options into generated execline and logger setup, so the remaining ShellCheck-only reads are the expected ambient service settings instead of local shell state."
+  - side: shellcheck-only
+    path_suffix: "openrc__openrc__sh__s6.sh"
+    line: 135
+    end_line: 135
+    column: 15
+    end_column: 22
+    reason: "This OpenRC helper translates service options into generated execline and logger setup, so the remaining ShellCheck-only reads are the expected ambient service settings instead of local shell state."
+  - side: shellcheck-only
+    path_suffix: "openrc__openrc__sh__s6.sh"
+    line: 138
+    end_line: 138
+    column: 15
+    end_column: 25
+    reason: "This OpenRC helper translates service options into generated execline and logger setup, so the remaining ShellCheck-only reads are the expected ambient service settings instead of local shell state."
+  - side: shellcheck-only
+    path_suffix: "openrc__openrc__sh__s6.sh"
+    line: 141
+    end_line: 141
+    column: 15
+    end_column: 28
+    reason: "This OpenRC helper translates service options into generated execline and logger setup, so the remaining ShellCheck-only reads are the expected ambient service settings instead of local shell state."
+  - side: shellcheck-only
+    path_suffix: "openrc__openrc__sh__s6.sh"
+    line: 191
+    end_line: 191
+    column: 14
+    end_column: 28
+    reason: "This OpenRC helper translates service options into generated execline and logger setup, so the remaining ShellCheck-only reads are the expected ambient service settings instead of local shell state."
+  - side: shuck-only
+    path_suffix: "openrc__openrc__sh__s6.sh"
+    line: 25
+    end_line: 25
+    column: 32
+    end_column: 49
+    reason: "This OpenRC helper expects daemon options or service-command lists to arrive from the wider service runtime, so the remaining C006 hits are reviewed service-framework reads rather than standalone assignment bugs."
+  - side: shuck-only
+    path_suffix: "openrc__openrc__sh__supervise-daemon.sh"
+    line: 13
+    end_line: 13
+    column: 39
+    end_column: 56
+    reason: "This OpenRC helper expects daemon options or service-command lists to arrive from the wider service runtime, so the remaining C006 hits are reviewed service-framework reads rather than standalone assignment bugs."
+  - side: shuck-only
+    path_suffix: "openvpn__easy-rsa__easyrsa3__easyrsa"
+    line: 989
+    end_line: 989
+    column: 24
+    end_column: 38
+    reason: "This Easy-RSA front-end carries shell-mode and temporary-file bookkeeping through long helper-driven control flow, so the remaining C006 reads are reviewed runtime handoffs rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "openvpn__easy-rsa__easyrsa3__easyrsa"
+    line: 5599
+    end_line: 5599
+    column: 24
+    end_column: 38
+    reason: "This Easy-RSA front-end carries shell-mode and temporary-file bookkeeping through long helper-driven control flow, so the remaining C006 reads are reviewed runtime handoffs rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "rupa__z__z.sh"
+    line: 237
+    end_line: 237
+    column: 34
+    end_column: 35
+    reason: "This directory-ranking helper builds matcher state through branch-local accumulators, so the remaining C006 read is a reviewed control-flow handoff rather than an isolated undefined local."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__bin__rvmsudo"
+    line: 31
+    end_line: 31
+    column: 12
+    end_column: 15
     reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
   - side: shuck-only
     path_suffix: "rvm__rvm__bin__rvmsudo"
+    line: 92
+    end_line: 92
+    column: 12
+    end_column: 21
     reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__binscripts__rvm-installer"
+    line: 616
+    end_line: 616
+    column: 34
+    end_column: 37
+    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__binscripts__rvm-installer"
+    line: 616
+    end_line: 616
+    column: 60
+    end_column: 66
     reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__contrib__ps1_functions"
+    line: 102
+    end_line: 102
+    column: 16
+    end_column: 19
     reason: "This prompt helper still carries an isolated runtime-formatting C006 difference, and we keep it reviewed narrowly instead of broadening C006 around prompt text."
   - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__cleanup"
+    line: 90
+    end_line: 90
+    column: 6
+    end_column: 22
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__cleanup"
+    line: 115
+    end_line: 115
+    column: 24
+    end_column: 39
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__cli"
+    line: 155
+    end_line: 155
+    column: 40
+    end_column: 58
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__scripts__extras__rails"
+    line: 83
+    end_line: 83
+    column: 16
+    end_column: 19
     reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
   - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__extras__rails"
+    line: 87
+    end_line: 87
+    column: 15
+    end_column: 25
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__fetch"
+    line: 75
+    end_line: 75
+    column: 8
+    end_column: 15
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__fix-permissions"
+    line: 31
+    end_line: 31
+    column: 8
+    end_column: 28
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__fix-permissions"
+    line: 59
+    end_line: 59
+    column: 12
+    end_column: 23
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_config"
+    line: 104
+    end_line: 104
+    column: 94
+    end_column: 105
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_config"
+    line: 161
+    end_line: 161
+    column: 24
+    end_column: 34
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_requirements"
+    line: 273
+    end_line: 273
+    column: 16
+    end_column: 27
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_undesired_helpers"
+    line: 48
+    end_line: 48
+    column: 16
+    end_column: 27
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__cleanup"
+    line: 46
+    end_line: 46
+    column: 18
+    end_column: 22
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__cli"
+    line: 165
+    end_line: 165
+    column: 95
+    end_column: 109
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__cli"
+    line: 237
+    end_line: 237
+    column: 12
+    end_column: 22
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__cli"
+    line: 286
+    end_line: 286
+    column: 12
+    end_column: 19
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__cli"
+    line: 399
+    end_line: 399
+    column: 18
+    end_column: 32
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__db"
+    line: 11
+    end_line: 11
+    column: 21
+    end_column: 33
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__db"
+    line: 61
+    end_line: 61
+    column: 17
+    end_column: 25
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__env"
+    line: 99
+    end_line: 99
+    column: 21
+    end_column: 43
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__gemset"
+    line: 112
+    end_line: 112
+    column: 25
+    end_column: 29
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__gemset"
+    line: 180
+    end_line: 180
+    column: 37
+    end_column: 48
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__gemset"
+    line: 337
+    end_line: 337
+    column: 10
+    end_column: 24
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__gemset"
+    line: 386
+    end_line: 386
+    column: 13
+    end_column: 31
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__installer"
+    line: 327
+    end_line: 327
+    column: 21
+    end_column: 43
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__installer"
+    line: 653
+    end_line: 653
+    column: 23
+    end_column: 41
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__installer"
+    line: 1062
+    end_line: 1062
+    column: 20
+    end_column: 31
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__installer"
+    line: 1085
+    end_line: 1085
+    column: 8
+    end_column: 30
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__installer"
+    line: 1311
+    end_line: 1311
+    column: 19
+    end_column: 34
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__installer"
+    line: 1490
+    end_line: 1490
+    column: 22
+    end_column: 45
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__installer"
+    line: 1543
+    end_line: 1543
+    column: 8
+    end_column: 22
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__list"
+    line: 37
+    end_line: 37
+    column: 57
+    end_column: 66
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__base"
+    line: 34
+    end_line: 34
+    column: 30
+    end_column: 55
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base"
+    line: 47
+    end_line: 47
+    column: 22
+    end_column: 73
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__base_fetch"
+    line: 175
+    end_line: 175
+    column: 33
+    end_column: 51
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
+    line: 99
+    end_line: 99
+    column: 32
+    end_column: 54
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
+    line: 228
+    end_line: 228
+    column: 12
+    end_column: 24
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
+    line: 307
+    end_line: 307
+    column: 62
+    end_column: 71
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
+    line: 376
+    end_line: 376
+    column: 27
+    end_column: 39
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
+    line: 408
+    end_line: 408
+    column: 35
+    end_column: 58
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__base_install_patches"
+    line: 32
+    end_line: 32
+    column: 54
+    end_column: 74
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_install_patches"
+    line: 137
+    end_line: 137
+    column: 58
+    end_column: 74
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__base_remove"
+    line: 65
+    end_line: 65
+    column: 6
+    end_column: 23
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_remove"
+    line: 109
+    end_line: 109
+    column: 14
+    end_column: 22
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_remove"
+    line: 136
+    end_line: 136
+    column: 31
+    end_column: 45
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_remove"
+    line: 167
+    end_line: 167
+    column: 46
+    end_column: 55
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_remove"
+    line: 170
+    end_line: 170
+    column: 8
+    end_column: 22
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
+    line: 45
+    end_line: 45
+    column: 31
+    end_column: 49
+    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
+    line: 46
+    end_line: 46
+    column: 31
+    end_column: 49
+    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
+    line: 126
+    end_line: 126
+    column: 11
+    end_column: 28
+    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
+    line: 133
+    end_line: 133
+    column: 28
+    end_column: 41
+    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
+    line: 135
+    end_line: 135
+    column: 15
+    end_column: 38
+    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
+    line: 137
+    end_line: 137
+    column: 23
+    end_column: 36
     reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
+    line: 48
+    end_line: 48
+    column: 14
+    end_column: 32
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
+    line: 151
+    end_line: 151
+    column: 6
+    end_column: 23
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
+    line: 151
+    end_line: 151
+    column: 32
+    end_column: 45
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__ree"
+    line: 85
+    end_line: 85
+    column: 32
+    end_column: 53
     reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__ree"
@@ -82,334 +1205,659 @@ reviewed_divergences:
     reason: "This RVM helper relies on `__rvm_db` to populate `db_configure_flags` through a by-name helper side effect, and the remaining comparison difference is just the file-local anchor around that helper-managed read."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__ruby"
+    line: 44
+    end_line: 44
+    column: 10
+    end_column: 28
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__pkg"
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__netbsd"
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__rubygems"
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__rvmrc_set"
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__rvmrc_set"
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__rvmrc_trust"
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__selector"
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__support"
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__utility_logging"
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__gemsets"
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__info"
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__info"
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__install"
-    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__list"
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__migrate"
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__notes"
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__build-style__gem.sh"
-    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__build-style__gemspec.sh"
-    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__chroot-style__ethereal.sh"
-    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__environment__setup__replace-interpreter.sh"
-    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
-  - side: shellcheck-only
-    path_suffix: "docker-library__official-images__test__config.sh"
-    reason: "This generated test matrix is just a bundle of image-to-test mappings, so the ShellCheck-only C006 hits are the literal associative-array keys in those compound assignments rather than live variable reads."
-  - side: shellcheck-only
-    path_suffix: "moovweb__gvm__examples__native__depcomp"
-    reason: "This generated dependency helper uses build-time placeholders such as `object` and `source` to rewrite depfiles, so the ShellCheck-only hits are expected template plumbing here."
-  - side: shellcheck-only
-    path_suffix: "moovweb__gvm__examples__native__install-sh"
-    reason: "This generated install helper carries a trap around its temporary-directory probe, and the remaining ShellCheck-only read is part of that cleanup path."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_start.sh"
-    reason: "This start module builds a logging formatter and lockfiles from LinuxGSM-managed runtime state, so the remaining ShellCheck-only anchor is a guarded expansion against framework-provided configuration."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_ts3_server_pass.sh"
-    reason: "This TeamSpeak helper reads the active server config path after the surrounding module has resolved it, so the ShellCheck-only hit is the expected module contract rather than a missing local assignment."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__install_ts3db.sh"
-    reason: "This installer writes database plugin config using the caller-supplied server config directory, so the ShellCheck-only read is a framework-provided path rather than a free-standing variable."
-  - side: shellcheck-only
-    path_suffix: "openrc__openrc__sh__s6.sh"
-    reason: "This OpenRC helper translates service options into generated execline and logger setup, so the remaining ShellCheck-only reads are the expected ambient service settings instead of local shell state."
-  - side: shellcheck-only
-    path_suffix: "juewuy__ShellCrash__scripts__libs__logger.sh"
-    reason: "This logger helper pushes to multiple notification backends using values injected by the broader ShellCrash runtime, so the remaining ShellCheck-only reads are framework-managed settings rather than script-local variables."
-  - side: shellcheck-only
-    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__configedit.sh"
-    reason: "This RetroPie menu helper filters config paths from the shared configuration root, so the ShellCheck-only read is the surrounding module's directory context rather than an uninitialized local."
-  - side: shellcheck-only
-    path_suffix: "moovweb__gvm__bin__gvmsudo"
-    reason: "This wrapper only uses `gvm_path` to trim trace output for the caller's environment, so the ShellCheck-only hit is a shell-wrapper contract rather than a real local assignment bug."
-  - side: shellcheck-only
-    path_suffix: "alexanderepstein__Bash-Snippets__transfer__transfer"
-    reason: "This uploader checks for the literal client name with a numeric-style comparison, so the ShellCheck-only anchor is the right-hand string sentinel rather than a missing variable read."
-  - side: shellcheck-only
-    path_suffix: "fideloper__Vaprobash__scripts__go.sh"
-    reason: "This installer compares `GO_VERSION` against the literal sentinel `latest`, so the ShellCheck-only hit is the guarded string case that the numeric comparison syntax makes look like a read."
-  - side: shellcheck-only
-    path_suffix: "fideloper__Vaprobash__scripts__nodejs.sh"
-    reason: "This installer compares `NODEJS_VERSION` against the literal sentinel `latest`, so the ShellCheck-only hit is the guarded string case that the numeric comparison syntax makes look like a read."
-  - side: shellcheck-only
-    path_suffix: "leebaird__discover__dev-api-scanner.sh"
-    reason: "This scanner builds an output filename from the current CORS origin, and the remaining ShellCheck-only anchor is the lower-case slug fragment inside that generated path. We review this one file narrowly instead of broadening C006 around the helper's filename templating."
-  - side: shuck-only
-    path_suffix: "233boy__v2ray__src__old.sh"
-    reason: "This legacy V2Ray helper threads transport choice through sourced installer plumbing, so the remaining C006 read is a repo-local runtime handoff rather than a free-standing missing assignment."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_backup.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_start.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_ts3_server_pass.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__update_steamcmd.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "HariSekhon__DevOps-Bash-tools__terraform__terraform_resources.sh"
-    reason: "This Bash-tools fixture reads library-managed region, timestamp, or template state populated by sourced wrappers and sibling helpers, so the remaining C006 hits are reviewed library contracts rather than isolated undefined locals."
-  - side: shuck-only
-    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__helpers.sh"
-    reason: "This RetroPie fixture exchanges menu ids, config roots, or launching-image options through the surrounding setup framework, so the remaining C006 hits are reviewed framework state rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__configedit.sh"
-    reason: "This RetroPie fixture exchanges menu ids, config roots, or launching-image options through the surrounding setup framework, so the remaining C006 hits are reviewed framework state rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__launchingimages.sh"
-    reason: "This RetroPie fixture exchanges menu ids, config roots, or launching-image options through the surrounding setup framework, so the remaining C006 hits are reviewed framework state rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__system__CanAce__CanAce.SlackBuild"
-    reason: "This SlackBuild fixture relies on packaging-template variables and branch-local sentinels that the wider build wrapper supplies or probes conditionally, so the remaining C006 hits are reviewed packaging-framework reads rather than standalone assignment bugs."
-  - side: shuck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__system__lightdm__lightdm.SlackBuild"
-    reason: "This SlackBuild fixture relies on packaging-template variables and branch-local sentinels that the wider build wrapper supplies or probes conditionally, so the remaining C006 hits are reviewed packaging-framework reads rather than standalone assignment bugs."
-  - side: shuck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__system__tinyterm__tinyterm.SlackBuild"
-    reason: "This SlackBuild fixture relies on packaging-template variables and branch-local sentinels that the wider build wrapper supplies or probes conditionally, so the remaining C006 hits are reviewed packaging-framework reads rather than standalone assignment bugs."
-  - side: shuck-only
-    path_suffix: "alpinelinux__aports__scripts__mkimg.base.sh"
-    reason: "This mkimg helper assembles image options from sourced profile setup, so the remaining iso_opts read is a reviewed build-framework handoff rather than a missing local assignment."
-  - side: shuck-only
-    path_suffix: "bin456789__reinstall__reinstall.sh"
-    reason: "This distro-reinstall helper threads release metadata through large case-driven installer plumbing, so the remaining C006 read is a reviewed cross-branch handoff rather than an isolated undefined local."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__builder-dockerfile__internal-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__builder-herokuish__internal-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__builder-lambda__internal-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__builder-nixpacks__internal-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__builder-pack__internal-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__builder-railpack__internal-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__caddy-vhosts__command-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__certs__internal-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__checks__internal-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__docker-options__internal-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__domains__internal-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__git__internal-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__haproxy-vhosts__command-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__nginx-vhosts__command-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__openresty-vhosts__command-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__scheduler-docker-local__internal-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__traefik-vhosts__command-functions"
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__dev-lang__ocaml__files__ocaml-rebuild.sh"
-    reason: "This Gentoo fixture relies on service-manager or package-manager variables populated by sourced eclass and OpenRC plumbing, so the remaining C006 hits are reviewed framework contracts rather than standalone assignment bugs."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__net-dns__avahi__files__autoipd-openrc.sh"
-    reason: "This Gentoo fixture relies on service-manager or package-manager variables populated by sourced eclass and OpenRC plumbing, so the remaining C006 hits are reviewed framework contracts rather than standalone assignment bugs."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__net-dns__avahi__files__autoipd.sh"
-    reason: "This Gentoo fixture relies on service-manager or package-manager variables populated by sourced eclass and OpenRC plumbing, so the remaining C006 hits are reviewed framework contracts rather than standalone assignment bugs."
-  - side: shuck-only
-    path_suffix: "juewuy__ShellCrash__scripts__libs__logger.sh"
-    reason: "This logger helper reads notification settings injected by the broader ShellCrash runtime, so the remaining C006 hits are reviewed framework-managed settings rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "ko1nksm__shellspec__spec__libexec__translator_spec.sh"
-    reason: "This ShellSpec translator fixture compares block line markers produced by the surrounding spec harness, so the remaining C006 read is reviewed harness state rather than a free-standing missing assignment."
-  - side: shuck-only
-    path_suffix: "leebaird__discover__misc__crack-wifi.sh"
-    reason: "This interactive helper threads prompt-loop state through earlier control-flow branches, so the remaining C006 read is a reviewed loop-state handoff rather than an isolated undefined local."
-  - side: shuck-only
-    path_suffix: "openrc__openrc__sh__rc-cgroup.sh"
-    reason: "This OpenRC helper expects daemon options or service-command lists to arrive from the wider service runtime, so the remaining C006 hits are reviewed service-framework reads rather than standalone assignment bugs."
-  - side: shuck-only
-    path_suffix: "openrc__openrc__sh__s6.sh"
-    reason: "This OpenRC helper expects daemon options or service-command lists to arrive from the wider service runtime, so the remaining C006 hits are reviewed service-framework reads rather than standalone assignment bugs."
-  - side: shuck-only
-    path_suffix: "openrc__openrc__sh__supervise-daemon.sh"
-    reason: "This OpenRC helper expects daemon options or service-command lists to arrive from the wider service runtime, so the remaining C006 hits are reviewed service-framework reads rather than standalone assignment bugs."
-  - side: shuck-only
-    path_suffix: "openvpn__easy-rsa__easyrsa3__easyrsa"
-    reason: "This Easy-RSA front-end carries shell-mode and temporary-file bookkeeping through long helper-driven control flow, so the remaining C006 reads are reviewed runtime handoffs rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "rupa__z__z.sh"
-    reason: "This directory-ranking helper builds matcher state through branch-local accumulators, so the remaining C006 read is a reviewed control-flow handoff rather than an isolated undefined local."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__cleanup"
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__extras__rails"
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__fetch"
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__fix-permissions"
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__build_config"
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__build_requirements"
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__build_undesired_helpers"
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__cleanup"
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__db"
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__env"
+    path_suffix: "rvm__rvm__scripts__functions__osx-ssl-certs"
+    line: 28
+    end_line: 28
+    column: 12
+    end_column: 20
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__osx-ssl-certs"
+    line: 150
+    end_line: 150
+    column: 14
+    end_column: 21
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__pkg"
+    line: 58
+    end_line: 58
+    column: 21
+    end_column: 37
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__pkg"
+    line: 115
+    end_line: 115
+    column: 16
+    end_column: 23
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__pkg"
+    line: 149
+    end_line: 149
+    column: 12
+    end_column: 21
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__pkg"
+    line: 199
+    end_line: 199
+    column: 44
+    end_column: 59
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__requirements__arch"
+    line: 130
+    end_line: 130
+    column: 80
+    end_column: 94
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__requirements__centos"
+    line: 68
+    end_line: 68
+    column: 12
+    end_column: 20
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__requirements__centos"
+    line: 79
+    end_line: 79
+    column: 19
+    end_column: 29
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__requirements__debian"
+    line: 49
+    end_line: 49
+    column: 10
+    end_column: 18
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__requirements__netbsd"
+    line: 21
+    end_line: 21
+    column: 16
+    end_column: 23
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__requirements__openindiana"
+    line: 23
+    end_line: 23
+    column: 10
+    end_column: 14
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__requirements__openmandriva"
+    line: 28
+    end_line: 28
+    column: 10
+    end_column: 18
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__requirements__osx_brew"
+    line: 76
+    end_line: 76
+    column: 12
+    end_column: 16
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__requirements__osx_brew"
+    line: 121
+    end_line: 121
+    column: 8
+    end_column: 28
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__requirements__osx_brew"
+    line: 297
+    end_line: 297
+    column: 52
+    end_column: 76
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__requirements__osx_brew"
+    line: 524
+    end_line: 524
+    column: 12
+    end_column: 21
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__requirements__osx_fink"
+    line: 28
+    end_line: 28
+    column: 9
+    end_column: 33
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__requirements__osx_fink"
+    line: 60
+    end_line: 60
+    column: 12
+    end_column: 16
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__requirements__osx_port"
+    line: 49
+    end_line: 49
+    column: 12
+    end_column: 16
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__requirements__smf"
+    line: 65
+    end_line: 65
+    column: 12
+    end_column: 16
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__requirements__solaris"
+    line: 23
+    end_line: 23
+    column: 10
+    end_column: 14
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__requirements__termux"
+    line: 28
+    end_line: 28
+    column: 10
+    end_column: 18
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rubygems"
+    line: 105
+    end_line: 105
+    column: 33
+    end_column: 56
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rubygems"
+    line: 217
+    end_line: 217
+    column: 30
+    end_column: 59
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rubygems"
+    line: 316
+    end_line: 316
+    column: 12
+    end_column: 16
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rubygems"
+    line: 375
+    end_line: 375
+    column: 6
+    end_column: 20
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc_project"
+    line: 40
+    end_line: 40
+    column: 15
+    end_column: 28
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__rvmrc_project"
+    line: 230
+    end_line: 230
+    column: 12
+    end_column: 21
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc_set"
+    line: 95
+    end_line: 95
+    column: 23
+    end_column: 37
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc_set"
+    line: 41
+    end_line: 41
+    column: 9
+    end_column: 21
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc_set"
+    line: 95
+    end_line: 95
+    column: 22
+    end_column: 36
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc_trust"
+    line: 186
+    end_line: 186
+    column: 23
+    end_column: 34
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__rvmrc_warning"
+    line: 74
+    end_line: 74
+    column: 12
+    end_column: 16
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__selector"
+    line: 286
+    end_line: 286
+    column: 25
+    end_column: 43
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__support"
+    line: 75
+    end_line: 75
+    column: 10
+    end_column: 32
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__support"
+    line: 273
+    end_line: 273
+    column: 12
+    end_column: 23
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__support"
+    line: 525
+    end_line: 525
+    column: 13
+    end_column: 22
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__support"
+    line: 613
+    end_line: 613
+    column: 60
+    end_column: 69
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__utility"
+    line: 15
+    end_line: 15
+    column: 14
+    end_column: 22
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__utility"
+    line: 254
+    end_line: 254
+    column: 22
+    end_column: 68
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__utility"
+    line: 293
+    end_line: 293
+    column: 12
+    end_column: 20
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__utility_logging"
+    line: 106
+    end_line: 106
+    column: 11
+    end_column: 26
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__utility_logging"
+    line: 119
+    end_line: 119
+    column: 12
+    end_column: 21
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__gemsets"
+    line: 69
+    end_line: 69
+    column: 28
+    end_column: 50
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__gemsets"
+    line: 574
+    end_line: 574
+    column: 19
+    end_column: 33
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__gemsets"
+    line: 621
+    end_line: 621
+    column: 53
+    end_column: 64
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__info"
+    line: 36
+    end_line: 36
+    column: 21
+    end_column: 36
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__info"
+    line: 37
+    end_line: 37
+    column: 21
+    end_column: 39
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__info"
+    line: 38
+    end_line: 38
+    column: 21
+    end_column: 36
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__info"
+    line: 58
+    end_line: 58
+    column: 21
+    end_column: 30
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__info"
+    line: 59
+    end_line: 59
+    column: 22
+    end_column: 42
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__info"
+    line: 59
+    end_line: 59
+    column: 44
+    end_column: 76
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__info"
+    line: 36
+    end_line: 36
+    column: 20
+    end_column: 35
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__info"
+    line: 37
+    end_line: 37
+    column: 20
+    end_column: 38
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__info"
+    line: 38
+    end_line: 38
+    column: 20
+    end_column: 35
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__info"
+    line: 58
+    end_line: 58
+    column: 20
+    end_column: 29
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__info"
+    line: 59
+    end_line: 59
+    column: 21
+    end_column: 41
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__info"
+    line: 59
+    end_line: 59
+    column: 43
+    end_column: 75
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__install"
+    line: 4
+    end_line: 4
+    column: 8
+    end_column: 11
+    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__list"
+    line: 124
+    end_line: 124
+    column: 13
+    end_column: 22
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__list"
+    line: 180
+    end_line: 180
+    column: 15
+    end_column: 25
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__list"
+    line: 286
+    end_line: 286
+    column: 9
+    end_column: 18
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__migrate"
+    line: 101
+    end_line: 101
+    column: 8
+    end_column: 20
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__migrate"
+    line: 101
+    end_line: 101
+    column: 23
+    end_column: 35
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__migrate"
+    line: 129
+    end_line: 129
+    column: 9
+    end_column: 18
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__migrate"
+    line: 266
+    end_line: 266
+    column: 25
+    end_column: 45
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__migrate"
+    line: 286
+    end_line: 286
+    column: 35
+    end_column: 44
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__migrate"
+    line: 288
+    end_line: 288
+    column: 22
+    end_column: 39
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__monitor"
+    line: 36
+    end_line: 36
+    column: 31
+    end_column: 36
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__mount"
+    line: 74
+    end_line: 74
+    column: 8
+    end_column: 25
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__mount"
+    line: 465
+    end_line: 465
+    column: 31
+    end_column: 54
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__mount"
+    line: 468
+    end_line: 468
+    column: 9
+    end_column: 32
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__notes"
+    line: 19
+    end_line: 19
+    column: 11
+    end_column: 20
+    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__osx-ssl-certs"
+    line: 46
+    end_line: 46
+    column: 15
+    end_column: 25
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__osx-ssl-certs"
+    line: 111
+    end_line: 111
+    column: 14
+    end_column: 21
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__osx-ssl-certs"
+    line: 148
+    end_line: 148
+    column: 9
+    end_column: 23
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__osx-ssl-certs"
+    line: 166
+    end_line: 166
+    column: 9
+    end_column: 18
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__prepare"
+    line: 84
+    end_line: 84
+    column: 16
+    end_column: 32
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__repair"
+    line: 122
+    end_line: 122
+    column: 24
+    end_column: 43
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__tools"
+    line: 173
+    end_line: 173
+    column: 12
+    end_column: 17
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "tj__git-extras__bin__git-brv"
+    line: 43
+    end_line: 43
+    column: 24
+    end_column: 30
     reason: "This formatter computes column widths across earlier display branches, so the remaining C006 reads are reviewed layout-state handoffs rather than isolated undefined locals."
+  - side: shuck-only
+    path_suffix: "tj__git-extras__bin__git-brv"
+    line: 44
+    end_line: 44
+    column: 24
+    end_column: 30
+    reason: "This formatter computes column widths across earlier display branches, so the remaining C006 reads are reviewed layout-state handoffs rather than isolated undefined locals."
+  - side: shuck-only
+    path_suffix: "tj__git-extras__bin__git-brv"
+    line: 49
+    end_line: 49
+    column: 24
+    end_column: 30
+    reason: "This formatter computes column widths across earlier display branches, so the remaining C006 reads are reviewed layout-state handoffs rather than isolated undefined locals."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__build-style__gem.sh"
+    line: 20
+    end_line: 20
+    column: 22
+    end_column: 32
+    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__build-style__gemspec.sh"
+    line: 21
+    end_line: 21
+    column: 35
+    end_column: 51
+    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__chroot-style__ethereal.sh"
+    line: 97
+    end_line: 97
+    column: 10
+    end_column: 19
+    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__environment__setup__replace-interpreter.sh"
+    line: 37
+    end_line: 37
+    column: 49
+    end_column: 56
+    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
+  - side: shuck-only
+    path_suffix: "233boy__v2ray__src__old.sh"
+    line: 50
+    end_line: 50
+    column: 6
+    end_column: 22
+    reason: "This legacy V2Ray helper threads transport choice through sourced installer plumbing, so the remaining C006 read is a repo-local runtime handoff rather than a free-standing missing assignment."
+  - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__helpers.sh"
+    line: 472
+    end_line: 472
+    column: 20
+    end_column: 26
+    reason: "This RetroPie fixture exchanges menu ids, config roots, or launching-image options through the surrounding setup framework, so the remaining C006 hits are reviewed framework state rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__helpers.sh"
+    line: 472
+    end_line: 472
+    column: 27
+    end_column: 35
+    reason: "This RetroPie fixture exchanges menu ids, config roots, or launching-image options through the surrounding setup framework, so the remaining C006 hits are reviewed framework state rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__info"
+    line: 189
+    end_line: 189
+    column: 6
+    end_column: 20
+    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__repair"
+    line: 152
+    end_line: 152
+    column: 6
+    end_column: 20
+    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."

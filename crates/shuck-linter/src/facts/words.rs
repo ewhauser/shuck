@@ -3768,12 +3768,17 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         for operand in declaration_operands(command) {
             match operand {
                 DeclOperand::Name(reference) => {
-                    self.surface.record_var_ref_subscript(reference);
                     let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
                         Some(&reference.name),
                         Some(reference.name_span),
                         reference.subscript.as_ref(),
                     );
+                    if !indexed_semantics {
+                        self.surface
+                            .record_arithmetic_only_suppressed_subscript(
+                                reference.subscript.as_ref(),
+                            );
+                    }
                     visit_var_ref_subscript_words_with_source(
                         reference,
                         self.source,
@@ -3818,12 +3823,15 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     ) {
         let surface_context = SurfaceScanContext::new(None, self.nested_word_command)
             .with_assignment_target(assignment.target.name.as_str());
-        self.surface.record_var_ref_subscript(&assignment.target);
         let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
             Some(&assignment.target.name),
             Some(assignment.target.name_span),
             assignment.target.subscript.as_ref(),
         );
+        if !indexed_semantics {
+            self.surface
+                .record_arithmetic_only_suppressed_subscript(assignment.target.subscript.as_ref());
+        }
         visit_var_ref_subscript_words_with_source(
             &assignment.target,
             self.source,
@@ -3871,12 +3879,15 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                             }
                         }
                         ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-                            self.surface.record_subscript(Some(key));
                             let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
                                 Some(&assignment.target.name),
                                 Some(assignment.target.name_span),
                                 Some(key),
                             );
+                            if !indexed_semantics {
+                                self.surface
+                                    .record_arithmetic_only_suppressed_subscript(Some(key));
+                            }
                             visit_subscript_words(Some(key), self.source, &mut |word| {
                                 collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
                                     &word.parts,
@@ -4070,7 +4081,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 );
             }
             ConditionalExpr::VarRef(reference) => {
-                self.surface.record_var_ref_subscript(reference);
+                self.surface
+                    .record_arithmetic_only_suppressed_subscript(reference.subscript.as_ref());
                 visit_var_ref_subscript_words_with_source(
                     reference,
                     self.source,

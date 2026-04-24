@@ -51,6 +51,12 @@ pub fn undefined_variable(checker: &mut Checker) {
         if reported_names.contains(&reference.name) || suppressed_names.contains(&reference.name) {
             continue;
         }
+        if checker
+            .facts()
+            .is_suppressed_subscript_reference(reference.span)
+        {
+            continue;
+        }
         if !is_reportable_variable_reference(
             checker,
             reference,
@@ -156,6 +162,90 @@ printf '%s\\n' \"${other:+${nested_replacement:+alt}}\" \"$other\" \"$nested_rep
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$nested_default", "$nested_replacement"]
+        );
+    }
+
+    #[test]
+    fn reports_index_arithmetic_subscript_references() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"${arr[$read_idx]}\"
+[[ -v arr[bare_check] ]]
+[[ -v arr[$dynamic_check] ]]
+arr[bare_target]=value
+arr[$dynamic_target]=value
+arr+=([amazoncorretto]=value)
+arr+=([$compound_key]=value)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "$dynamic_check",
+                "bare_target",
+                "$dynamic_target",
+                "amazoncorretto",
+                "$compound_key"
+            ]
+        );
+    }
+
+    #[test]
+    fn suppresses_read_and_string_key_bare_subscript_references() {
+        let source = "\
+#!/bin/bash
+declare -A map
+printf '%s\\n' \"${arr[$read_idx]}\" \"${map[$assoc_read_idx]}\"
+[[ -v arr[bare_check] ]]
+map+=([assoc_bare_key]=value)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn subscript_suppression_does_not_hide_later_plain_uses() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"${arr[$read_idx]}\"
+[[ -v arr[bare_check] ]]
+unset arr[$unset_idx]
+printf '%s\\n' \"$read_idx\" \"$bare_check\" \"$unset_idx\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$read_idx", "$bare_check", "$unset_idx"]
+        );
+    }
+
+    #[test]
+    fn reports_expansion_references_in_string_key_writes() {
+        let source = "\
+#!/bin/bash
+declare -A map
+map[$target_key]=value
+map[$id/has_newer]=value
+map+=([$compound_key]=value)
+declare -A declared=([$declared_key]=value)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$target_key", "$id", "$compound_key", "$declared_key"]
         );
     }
 }

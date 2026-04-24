@@ -835,27 +835,50 @@ case x in *[!a-zA-Z0-9._/+\\-]*) continue ;; esac
 }
 
 #[test]
-fn marks_subscript_index_references_without_span_scanning() {
-    let source = "#!/bin/bash\nprintf '%s\\n' \"${arr[$idx]}\" \"$free\"\n";
+fn marks_suppressed_subscript_references_without_span_scanning() {
+    let source = "\
+#!/bin/bash
+write_target() { map[$assoc_target_id/assoc_target_bare]=value; }
+declare -A map
+printf '%s\\n' \"${arr[$read_idx]}\" \"${map[$assoc_read_idx]}\" \"$free\"
+[[ -v arr[bare_check] ]]
+[[ -v arr[$dynamic_check] ]]
+arr[bare_target]=value
+arr[$dynamic_target]=value
+arr+=([bare_key]=value)
+arr+=([$dynamic_key]=value)
+map+=([assoc_bare_key]=value)
+map+=([$assoc_dynamic_key]=value)
+write_target
+";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
 
-    let idx_reference = semantic
-        .references()
-        .iter()
-        .find(|reference| reference.name.as_str() == "idx")
-        .expect("expected idx reference");
-    let free_reference = semantic
-        .references()
-        .iter()
-        .find(|reference| reference.name.as_str() == "free")
-        .expect("expected free reference");
+    let reference_span = |name: &str| {
+        semantic
+            .references()
+            .iter()
+            .find(|reference| reference.name.as_str() == name)
+            .unwrap_or_else(|| panic!("expected {name} reference"))
+            .span
+    };
 
-    assert!(facts.is_subscript_index_reference(idx_reference.span));
-    assert!(!facts.is_subscript_index_reference(free_reference.span));
+    assert!(facts.is_suppressed_subscript_reference(reference_span("read_idx")));
+    assert!(facts.is_suppressed_subscript_reference(reference_span("assoc_read_idx")));
+    assert!(facts.is_suppressed_subscript_reference(reference_span("bare_check")));
+    assert!(facts.is_suppressed_subscript_reference(reference_span("assoc_target_bare")));
+    assert!(facts.is_suppressed_subscript_reference(reference_span("assoc_bare_key")));
+    assert!(!facts.is_suppressed_subscript_reference(reference_span("dynamic_check")));
+    assert!(!facts.is_suppressed_subscript_reference(reference_span("bare_target")));
+    assert!(!facts.is_suppressed_subscript_reference(reference_span("dynamic_target")));
+    assert!(!facts.is_suppressed_subscript_reference(reference_span("bare_key")));
+    assert!(!facts.is_suppressed_subscript_reference(reference_span("dynamic_key")));
+    assert!(!facts.is_suppressed_subscript_reference(reference_span("assoc_target_id")));
+    assert!(!facts.is_suppressed_subscript_reference(reference_span("assoc_dynamic_key")));
+    assert!(!facts.is_suppressed_subscript_reference(reference_span("free")));
 }
 
 #[test]

@@ -299,7 +299,8 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) case_modifications: Vec<CaseModificationFragmentFact>,
     pub(super) replacement_expansions: Vec<ReplacementExpansionFragmentFact>,
     pub(super) positional_parameter_trims: Vec<PositionalParameterTrimFragmentFact>,
-    pub(super) subscript_spans: Vec<Span>,
+    pub(super) suppressed_subscript_spans: Vec<Span>,
+    pub(super) arithmetic_only_suppressed_subscript_spans: Vec<Span>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -568,7 +569,7 @@ impl<'a> SurfaceFragmentSink<'a> {
 
     pub(super) fn record_unset_array_target_word(&mut self, word: &Word) {
         if word_looks_like_unset_array_target(word, self.source) {
-            self.facts.subscript_spans.push(word.span);
+            self.facts.suppressed_subscript_spans.push(word.span);
         }
     }
 
@@ -1261,17 +1262,28 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 
     pub(super) fn record_var_ref_subscript(&mut self, reference: &VarRef) {
-        self.record_subscript(reference.subscript.as_ref());
+        let Some(subscript) = reference.subscript.as_ref() else {
+            return;
+        };
+        if subscript.selector().is_some() {
+            return;
+        }
+        self.facts.suppressed_subscript_spans.push(subscript.span());
     }
 
-    pub(super) fn record_subscript(&mut self, subscript: Option<&Subscript>) {
+    pub(super) fn record_arithmetic_only_suppressed_subscript(
+        &mut self,
+        subscript: Option<&Subscript>,
+    ) {
         let Some(subscript) = subscript else {
             return;
         };
         if subscript.selector().is_some() {
             return;
         }
-        self.facts.subscript_spans.push(subscript.span());
+        self.facts
+            .arithmetic_only_suppressed_subscript_spans
+            .push(subscript.span());
     }
 
     fn single_quoted_fragment_diagnostic_span(&self, part_span: Span) -> Span {
@@ -2215,33 +2227,64 @@ fn is_right_operand_neighbor(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$' | '(' | '[' | '{' | '"' | '\'')
 }
 
-pub(super) fn build_subscript_index_reference_spans(
+pub(super) fn build_suppressed_subscript_reference_spans(
     semantic: &SemanticModel,
+    suppressed_subscript_spans: &[Span],
+    arithmetic_only_suppressed_subscript_spans: &[Span],
+) -> FxHashSet<FactSpan> {
+    if suppressed_subscript_spans.is_empty()
+        && arithmetic_only_suppressed_subscript_spans.is_empty()
+    {
+        return FxHashSet::default();
+    }
+
+    let references = semantic.references();
+    let mut spans =
+        build_subscript_reference_spans_with_filter(references, suppressed_subscript_spans, |_| {
+            true
+        });
+    spans.extend(build_subscript_reference_spans_with_filter(
+        references,
+        arithmetic_only_suppressed_subscript_spans,
+        |reference| matches!(reference.kind, ReferenceKind::ArithmeticRead),
+    ));
+    spans
+}
+
+fn build_subscript_reference_spans_with_filter(
+    references: &[shuck_semantic::Reference],
     subscript_spans: &[Span],
+    mut include_reference: impl FnMut(&shuck_semantic::Reference) -> bool,
 ) -> FxHashSet<FactSpan> {
     if subscript_spans.is_empty() {
         return FxHashSet::default();
     }
 
-    let references = semantic.references();
     if references.len().saturating_mul(subscript_spans.len()) <= 4_096 {
-        return build_subscript_index_reference_spans_linear(references, subscript_spans);
+        return build_subscript_reference_spans_linear(
+            references,
+            subscript_spans,
+            include_reference,
+        );
     }
 
     let subscript_index = SubscriptSpanIndex::new(subscript_spans);
     references
         .iter()
+        .filter(|reference| include_reference(reference))
         .filter(|reference| subscript_index.contains(reference.span))
         .map(|reference| FactSpan::new(reference.span))
         .collect()
 }
 
-fn build_subscript_index_reference_spans_linear(
+fn build_subscript_reference_spans_linear(
     references: &[shuck_semantic::Reference],
     subscript_spans: &[Span],
+    mut include_reference: impl FnMut(&shuck_semantic::Reference) -> bool,
 ) -> FxHashSet<FactSpan> {
     references
         .iter()
+        .filter(|reference| include_reference(reference))
         .filter(|reference| {
             subscript_spans
                 .iter()
@@ -2298,16 +2341,7 @@ fn word_looks_like_unset_array_target(word: &Word, source: &str) -> bool {
     let Some((name, _)) = text.split_once('[') else {
         return false;
     };
-    text.ends_with(']') && is_shell_name(name)
-}
-
-fn is_shell_name(text: &str) -> bool {
-    let mut chars = text.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    (first == '_' || first.is_ascii_alphabetic())
-        && chars.all(|char| char == '_' || char.is_ascii_alphanumeric())
+    text.ends_with(']') && is_shell_variable_name(name)
 }
 
 fn suspect_double_quote_spans(
