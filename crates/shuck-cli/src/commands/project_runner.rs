@@ -24,6 +24,15 @@ pub(crate) struct PendingProjectFile {
     pub file_key: FileCacheKey,
 }
 
+pub(crate) struct ProjectRunRequest<'a> {
+    pub inputs: &'a [PathBuf],
+    pub cwd: &'a Path,
+    pub discovery_options: &'a DiscoveryOptions,
+    pub cache_root: &'a Path,
+    pub no_cache: bool,
+    pub cache_tag: &'static [u8],
+}
+
 #[derive(Debug, Clone)]
 struct ProjectCacheKey<S> {
     cache_tag: &'static [u8],
@@ -49,14 +58,39 @@ pub(crate) fn prepare_project_runs<T, S, F>(
     cache_root: &Path,
     no_cache: bool,
     cache_tag: &'static [u8],
-    mut resolve_settings: F,
+    resolve_settings: F,
 ) -> Result<Vec<ProjectRun<T, S>>>
 where
     T: Clone + Serialize + DeserializeOwned,
     S: CacheKey + Clone,
     F: FnMut(&ProjectRoot) -> Result<S>,
 {
-    let files = discover_files(inputs, cwd, discovery_options)?;
+    prepare_project_runs_with_cache_key(
+        ProjectRunRequest {
+            inputs,
+            cwd,
+            discovery_options,
+            cache_root,
+            no_cache,
+            cache_tag,
+        },
+        resolve_settings,
+        |_, _, settings| Ok(settings.clone()),
+    )
+}
+
+pub(crate) fn prepare_project_runs_with_cache_key<T, S, C, F, K>(
+    request: ProjectRunRequest<'_>,
+    mut resolve_settings: F,
+    mut resolve_cache_key: K,
+) -> Result<Vec<ProjectRun<T, S>>>
+where
+    T: Clone + Serialize + DeserializeOwned,
+    C: CacheKey,
+    F: FnMut(&ProjectRoot) -> Result<S>,
+    K: FnMut(&ProjectRoot, &[DiscoveredFile], &S) -> Result<C>,
+{
+    let files = discover_files(request.inputs, request.cwd, request.discovery_options)?;
     let mut groups: BTreeMap<ProjectRoot, Vec<DiscoveredFile>> = BTreeMap::new();
     for file in files {
         groups
@@ -68,17 +102,18 @@ where
     let mut runs = Vec::new();
     for (project_root, files) in groups {
         let settings = resolve_settings(&project_root)?;
-        let cache = if no_cache {
+        let cache = if request.no_cache {
             None
         } else {
+            let cache_settings = resolve_cache_key(&project_root, &files, &settings)?;
             Some(PackageCache::<T>::open(
-                cache_root,
+                request.cache_root,
                 project_root.canonical_root.clone(),
                 env!("CARGO_PKG_VERSION"),
                 &ProjectCacheKey {
-                    cache_tag,
+                    cache_tag: request.cache_tag,
                     canonical_project_root: project_root.canonical_root.clone(),
-                    settings: settings.clone(),
+                    settings: cache_settings,
                 },
             )?)
         };
