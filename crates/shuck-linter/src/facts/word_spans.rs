@@ -5,7 +5,7 @@ use shuck_ast::{
     WordPartNode, ZshExpansionTarget,
 };
 
-use super::NamedSpan;
+use super::BacktickEscapedParameter;
 
 pub fn command_substitution_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
@@ -1609,7 +1609,10 @@ pub(crate) fn backtick_substitution_spans(source: &str) -> Vec<Span> {
     spans
 }
 
-pub(crate) fn backtick_escaped_parameters(source: &str, backtick_spans: &[Span]) -> Vec<NamedSpan> {
+pub(crate) fn backtick_escaped_parameters(
+    source: &str,
+    backtick_spans: &[Span],
+) -> Vec<BacktickEscapedParameter> {
     let mut spans = Vec::new();
 
     for backtick_span in backtick_spans {
@@ -1651,20 +1654,32 @@ pub(crate) fn backtick_escaped_parameters(source: &str, backtick_spans: &[Span])
                         && let Some((name, expansion_len)) =
                             escaped_backtick_parameter_syntax_len(source, index, end)
                     {
-                        let diagnostic_start = slash_offset.saturating_sub(removed_escapes);
-                        let Some(start) = position_at_offset(source, diagnostic_start) else {
-                            index += escaped.len_utf8();
-                            continue;
-                        };
-                        let Some(finish) =
-                            position_at_offset(source, diagnostic_start + expansion_len)
+                        let diagnostic_start_offset = slash_offset.saturating_sub(removed_escapes);
+                        let Some(diagnostic_start) =
+                            position_at_offset(source, diagnostic_start_offset)
                         else {
                             index += escaped.len_utf8();
                             continue;
                         };
-                        spans.push(NamedSpan {
+                        let Some(diagnostic_end) =
+                            position_at_offset(source, diagnostic_start_offset + expansion_len)
+                        else {
+                            index += escaped.len_utf8();
+                            continue;
+                        };
+                        let Some(reference_start) = position_at_offset(source, index) else {
+                            index += escaped.len_utf8();
+                            continue;
+                        };
+                        let Some(reference_end) = position_at_offset(source, index + expansion_len)
+                        else {
+                            index += escaped.len_utf8();
+                            continue;
+                        };
+                        spans.push(BacktickEscapedParameter {
                             name,
-                            span: Span::from_positions(start, finish),
+                            diagnostic_span: Span::from_positions(diagnostic_start, diagnostic_end),
+                            reference_span: Span::from_positions(reference_start, reference_end),
                         });
                         removed_escapes += 1;
                         index += expansion_len;
@@ -1679,7 +1694,14 @@ pub(crate) fn backtick_escaped_parameters(source: &str, backtick_spans: &[Span])
         }
     }
 
-    spans.sort_by_key(|named| (named.span.start.offset, named.span.end.offset));
+    spans.sort_by_key(|parameter| {
+        (
+            parameter.diagnostic_span.start.offset,
+            parameter.diagnostic_span.end.offset,
+            parameter.reference_span.start.offset,
+            parameter.reference_span.end.offset,
+        )
+    });
     spans.dedup();
     spans
 }

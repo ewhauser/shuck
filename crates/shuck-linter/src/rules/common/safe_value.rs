@@ -1480,10 +1480,8 @@ impl<'a> SafeValueIndex<'a> {
         name: &Name,
         at: Span,
     ) -> bool {
-        let Some(reference_id) = self.reference_id_for_name_at(name, at) else {
-            return true;
-        };
-        let Some(reference_block) = self.block_for_reference(reference_id) else {
+        let Some(reference_block) = self.block_for_name_reference_or_virtual_offset(name, at)
+        else {
             return true;
         };
 
@@ -1636,6 +1634,41 @@ impl<'a> SafeValueIndex<'a> {
                     )
             })
             .map(|reference| reference.id)
+    }
+
+    fn block_for_name_reference_or_virtual_offset(&self, name: &Name, at: Span) -> Option<BlockId> {
+        if let Some(reference_id) = self.reference_id_for_name_at(name, at) {
+            return self.block_for_reference(reference_id);
+        }
+
+        let command_id = self
+            .facts
+            .innermost_command_id_at(at.start.offset)
+            .or_else(|| self.innermost_command_id_containing_offset(at.start.offset))?;
+        self.analysis
+            .block_ids_for_span(self.facts.command(command_id).span())
+            .first()
+            .copied()
+    }
+
+    fn innermost_command_id_containing_offset(
+        &self,
+        offset: usize,
+    ) -> Option<crate::facts::CommandId> {
+        self.facts
+            .commands()
+            .iter()
+            .filter(|command| {
+                command.span().start.offset <= offset && offset <= command.span().end.offset
+            })
+            .max_by(|left, right| {
+                left.span()
+                    .start
+                    .offset
+                    .cmp(&right.span().start.offset)
+                    .then_with(|| right.span().end.offset.cmp(&left.span().end.offset))
+            })
+            .map(|command| command.id())
     }
 
     fn block_for_binding(&self, binding_id: BindingId) -> Option<BlockId> {

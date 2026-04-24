@@ -67,7 +67,7 @@ pub struct LinterFacts<'a> {
     condition_status_capture_spans: Vec<Span>,
     command_substitution_command_spans: Vec<Span>,
     backtick_substitution_spans: Vec<Span>,
-    backtick_escaped_parameters: Vec<NamedSpan>,
+    backtick_escaped_parameters: Vec<BacktickEscapedParameter>,
     backtick_command_name_spans: Vec<Span>,
     dollar_question_after_command_spans: Vec<Span>,
     assignment_like_command_name_spans: Vec<Span>,
@@ -675,7 +675,7 @@ impl<'a> LinterFacts<'a> {
         &self.backtick_substitution_spans
     }
 
-    pub fn backtick_escaped_parameters(&self) -> &[NamedSpan] {
+    pub fn backtick_escaped_parameters(&self) -> &[BacktickEscapedParameter] {
         &self.backtick_escaped_parameters
     }
 

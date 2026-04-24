@@ -54,8 +54,12 @@ pub fn unquoted_expansion(checker: &mut Checker) {
         );
     }
     for escaped in checker.facts().backtick_escaped_parameters() {
-        if !safe_values.name_reference_is_safe(&escaped.name, escaped.span, SafeValueQuery::Argv) {
-            spans.push(escaped.span);
+        if !safe_values.name_reference_is_safe(
+            &escaped.name,
+            escaped.reference_span,
+            SafeValueQuery::Argv,
+        ) {
+            spans.push(escaped.diagnostic_span);
         }
     }
     for span in spans {
@@ -1487,6 +1491,33 @@ printf '%s\\n' `echo \\$1 \\$HOME \\$SAFE \\$PPID`
                 })
                 .collect::<Vec<_>>(),
             vec![(3, 21, 3, 23), (3, 24, 3, 29)]
+        );
+    }
+
+    #[test]
+    fn reports_unsafe_escaped_parameters_in_legacy_backticks() {
+        let source = "\
+#!/bin/sh
+if cond; then
+  value=ok
+fi
+printf '%s\\n' `echo \\$value`
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    (
+                        diagnostic.span.start.line,
+                        diagnostic.span.start.column,
+                        diagnostic.span.end.line,
+                        diagnostic.span.end.column,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![(5, 21, 5, 27)]
         );
     }
 
