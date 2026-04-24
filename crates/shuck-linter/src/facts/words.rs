@@ -1795,11 +1795,20 @@ fn is_escaped_dollar(value: &str, dollar: usize) -> bool {
 }
 
 fn braced_parameter_starts_with_positional(value: &str, index: usize) -> bool {
-    value
-        .as_bytes()
-        .get(index)
-        .copied()
-        .is_some_and(is_positional_parameter_start)
+    let bytes = value.as_bytes();
+    let Some(first) = bytes.get(index).copied() else {
+        return false;
+    };
+
+    if is_positional_parameter_start(first) {
+        return true;
+    }
+
+    matches!(first, b'#' | b'!')
+        && bytes
+            .get(index + 1)
+            .copied()
+            .is_some_and(is_positional_parameter_start)
 }
 
 fn is_positional_parameter_start(byte: u8) -> bool {
@@ -6903,6 +6912,8 @@ mod word_classification_tests {
     fn detects_alias_positional_parameters_with_runtime_quote_state() {
         assert!(contains_positional_parameter_reference("echo $1"));
         assert!(contains_positional_parameter_reference("echo \"${1}\""));
+        assert!(contains_positional_parameter_reference("echo ${#1}"));
+        assert!(contains_positional_parameter_reference("echo ${!1}"));
         assert!(contains_positional_parameter_reference(r"echo \$$1"));
         assert!(contains_positional_parameter_reference(r"echo \'$1"));
         assert!(!contains_positional_parameter_reference(r"echo \$1"));
