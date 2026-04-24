@@ -1885,8 +1885,7 @@ fn bash_runtime_vars_enabled(source: &str, path: Option<&Path>) -> bool {
 }
 
 fn infer_bash_from_shebang(source: &str) -> Option<bool> {
-    let interpreter = shuck_parser::shebang::interpreter_name(source.lines().next()?)?;
-    Some(interpreter.eq_ignore_ascii_case("bash"))
+    shebang_interpreter(source).map(|interpreter| interpreter.eq_ignore_ascii_case("bash"))
 }
 
 fn contains_offset(span: Span, offset: usize) -> bool {

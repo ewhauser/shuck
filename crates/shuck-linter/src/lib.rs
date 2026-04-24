@@ -1136,6 +1136,34 @@ helper_value=ready
     }
 
     #[test]
+    fn sourced_env_split_bash_helper_prefers_shebang_over_sh_extension() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+. ./helper.sh
+printf '%s\\n' \"$helper_value\"
+",
+        )
+        .unwrap();
+        fs::write(
+            &helper,
+            "\
+#!/usr/bin/env -S bash -e
+for ((i=0; i<1; i++)); do :; done
+helper_value=ready
+",
+        )
+        .unwrap();
+
+        let diagnostics = lint_path_for_rule(&main, Rule::UndefinedVariable);
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn sourced_helper_reads_keep_c150_live_for_subshell_assignments() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");
