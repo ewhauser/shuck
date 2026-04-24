@@ -84,7 +84,10 @@ fn should_report_unquoted_command_substitution(
     };
 
     match (context, fact.host_kind()) {
-        (ExpansionContext::CommandName, WordFactHostKind::Direct) => fact.has_literal_affixes(),
+        (
+            ExpansionContext::CommandName,
+            WordFactHostKind::Direct | WordFactHostKind::CommandWrapperTarget,
+        ) => fact.has_literal_affixes(),
         (ExpansionContext::HereString, WordFactHostKind::Direct)
         | (ExpansionContext::RedirectTarget(_), WordFactHostKind::Direct)
         | (ExpansionContext::DescriptorDupTarget(_), WordFactHostKind::Direct)
@@ -378,6 +381,28 @@ NUMJOBS=${NUMJOBS:-\" -j $(expr $(nproc) + 1) \"}
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$(echo ${KERNEL} | tr '-' '_')"]
+        );
+    }
+
+    #[test]
+    fn reports_wrapper_target_command_substitutions_with_literal_affixes() {
+        let source = "\
+#!/bin/sh
+exec /opt/bin/$(basename \"$0\") \"$@\"
+command /usr/bin/$(basename \"$0\") \"$@\"
+exec $(printf helper) \"$@\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(basename \"$0\")", "$(basename \"$0\")"]
         );
     }
 
