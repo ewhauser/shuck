@@ -473,6 +473,8 @@ pub struct SemanticAnalysis<'model> {
     overwritten_functions: OnceLock<Vec<OverwrittenFunction>>,
     unreached_functions: OnceLock<Vec<UnreachedFunction>>,
     scope_provided_binding_index: OnceLock<ScopeProvidedBindingIndex>,
+    unconditional_function_bindings: OnceLock<FxHashSet<BindingId>>,
+    function_bindings_by_scope: OnceLock<FxHashMap<ScopeId, SmallVec<[BindingId; 2]>>>,
 }
 
 struct OverwriteWindow<'a> {
@@ -1269,6 +1271,8 @@ impl<'model> SemanticAnalysis<'model> {
             overwritten_functions: OnceLock::new(),
             unreached_functions: OnceLock::new(),
             scope_provided_binding_index: OnceLock::new(),
+            unconditional_function_bindings: OnceLock::new(),
+            function_bindings_by_scope: OnceLock::new(),
         }
     }
 
@@ -1296,15 +1300,31 @@ impl<'model> SemanticAnalysis<'model> {
             .iter()
             .find(|site| site.name_span == name_span)?;
 
-        cfg::visible_function_binding_at_call(
-            &self.model.recorded_program,
-            &self.model.command_bindings,
-            &self.model.scopes,
-            &self.model.bindings,
-            &self.model.call_sites,
-            name,
-            site,
-        )
+        let lookup = cfg::FunctionBindingLookup {
+            program: &self.model.recorded_program,
+            scopes: &self.model.scopes,
+            bindings: &self.model.bindings,
+            call_sites: &self.model.call_sites,
+            unconditional_function_bindings: self.unconditional_function_bindings(),
+            function_bindings_by_scope: self.function_bindings_by_scope(),
+        };
+
+        lookup.visible_function_binding_at_call(name, site)
+    }
+
+    fn unconditional_function_bindings(&self) -> &FxHashSet<BindingId> {
+        self.unconditional_function_bindings.get_or_init(|| {
+            cfg::collect_unconditional_function_bindings(
+                &self.model.recorded_program,
+                &self.model.command_bindings,
+                &self.model.bindings,
+            )
+        })
+    }
+
+    fn function_bindings_by_scope(&self) -> &FxHashMap<ScopeId, SmallVec<[BindingId; 2]>> {
+        self.function_bindings_by_scope
+            .get_or_init(|| cfg::function_bindings_by_scope(&self.model.recorded_program))
     }
 
     #[doc(hidden)]

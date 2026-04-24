@@ -4704,6 +4704,28 @@ check() {
     }
 
     #[test]
+    fn unreachable_after_exit_reports_shadowed_condition_wrapper_names() {
+        for wrapper in ["command", "builtin"] {
+            let source = format!(
+                "\
+#!/bin/bash
+{wrapper}() {{
+  exit 0
+}}
+check() {{
+  {wrapper} true && echo a && echo b
+}}
+"
+            );
+            let diagnostics = lint_for_rule(&source, Rule::UnreachableAfterExit);
+
+            assert_eq!(diagnostics.len(), 2, "{wrapper}: {diagnostics:?}");
+            assert_eq!(diagnostics[0].span.slice(&source), "echo a", "{wrapper}");
+            assert_eq!(diagnostics[1].span.slice(&source), "echo b", "{wrapper}");
+        }
+    }
+
+    #[test]
     fn unreachable_after_exit_ignores_conditionally_defined_condition_names() {
         let source = "\
 #!/bin/bash

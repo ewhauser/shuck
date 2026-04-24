@@ -1,5 +1,5 @@
 use crate::{Checker, CommandFact, ListFact, Rule, Violation, WrapperKind};
-use shuck_ast::{Name, Span};
+use shuck_ast::{Command as AstCommand, Name, Span};
 use shuck_semantic::{SemanticAnalysis, UnreachableCauseKind};
 
 pub struct UnreachableAfterExit;
@@ -101,6 +101,10 @@ fn command_name_resolves_to_function(
     command: &CommandFact<'_>,
     semantic_analysis: &SemanticAnalysis<'_>,
 ) -> bool {
+    if wrapper_name_resolves_to_function(command, semantic_analysis) {
+        return true;
+    }
+
     if command.has_wrapper(WrapperKind::Command) || command.has_wrapper(WrapperKind::Builtin) {
         return false;
     }
@@ -115,6 +119,27 @@ fn command_name_resolves_to_function(
 
     semantic_analysis
         .visible_function_binding_at_call(&name, name_span)
+        .is_some()
+}
+
+fn wrapper_name_resolves_to_function(
+    command: &CommandFact<'_>,
+    semantic_analysis: &SemanticAnalysis<'_>,
+) -> bool {
+    let Some(wrapper) = command.wrappers().first() else {
+        return false;
+    };
+    let name = match wrapper {
+        WrapperKind::Command => "command",
+        WrapperKind::Builtin => "builtin",
+        _ => return false,
+    };
+    let AstCommand::Simple(simple) = command.command() else {
+        return false;
+    };
+
+    semantic_analysis
+        .visible_function_binding_at_call(&Name::from(name), simple.name.span)
         .is_some()
 }
 
