@@ -4704,6 +4704,25 @@ check() {
     }
 
     #[test]
+    fn unreachable_after_exit_ignores_conditionally_defined_condition_names() {
+        let source = "\
+#!/bin/bash
+die() {
+  exit 1
+}
+check() {
+  if maybe; then
+    true() { exit 0; }
+  fi
+  true && die && exit 1
+}
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn unreachable_after_exit_keeps_dead_two_segment_short_circuit_tail() {
         let source = "\
 #!/bin/bash

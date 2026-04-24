@@ -1,6 +1,6 @@
 use crate::{Checker, CommandFact, ListFact, Rule, Violation, WrapperKind};
 use shuck_ast::{Name, Span};
-use shuck_semantic::{SemanticModel, UnreachableCauseKind};
+use shuck_semantic::{SemanticAnalysis, UnreachableCauseKind};
 
 pub struct UnreachableAfterExit;
 
@@ -18,16 +18,20 @@ pub fn unreachable_after_exit(checker: &mut Checker) {
     let source = checker.source();
     let short_circuit_lists = checker.facts().lists();
     let commands = checker.facts().commands();
-    let semantic = checker.semantic();
+    let semantic_analysis = checker.semantic_analysis();
     let unreachable_spans = outermost_unreachable_spans(
-        checker
-            .semantic_analysis()
+        semantic_analysis
             .dead_code()
             .iter()
             .filter(|dead_code| dead_code.cause_kind != UnreachableCauseKind::LoopControl)
             .flat_map(|dead_code| dead_code.unreachable.iter().copied())
             .filter(|span| {
-                !span_matches_short_circuit_skip(*span, short_circuit_lists, commands, semantic)
+                !span_matches_short_circuit_skip(
+                    *span,
+                    short_circuit_lists,
+                    commands,
+                    semantic_analysis,
+                )
             })
             .collect::<Vec<_>>(),
     );
@@ -44,7 +48,7 @@ fn span_matches_short_circuit_skip(
     span: Span,
     short_circuit_lists: &[ListFact<'_>],
     commands: &[CommandFact<'_>],
-    semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
 ) -> bool {
     short_circuit_lists.iter().any(|list| {
         if span == list.span() {
@@ -55,7 +59,7 @@ fn span_matches_short_circuit_skip(
             return false;
         }
 
-        if !list_starts_with_condition(list, commands, semantic) {
+        if !list_starts_with_condition(list, commands, semantic_analysis) {
             return false;
         }
 
@@ -69,7 +73,7 @@ fn span_matches_short_circuit_skip(
 fn list_starts_with_condition(
     list: &ListFact<'_>,
     commands: &[CommandFact<'_>],
-    semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
 ) -> bool {
     let Some(first_segment) = list.segments().first() else {
         return false;
@@ -81,7 +85,7 @@ fn list_starts_with_condition(
         return false;
     };
 
-    if command_name_resolves_to_function(command, semantic) {
+    if command_name_resolves_to_function(command, semantic_analysis) {
         return false;
     }
 
@@ -93,7 +97,10 @@ fn list_starts_with_condition(
         )
 }
 
-fn command_name_resolves_to_function(command: &CommandFact<'_>, semantic: &SemanticModel) -> bool {
+fn command_name_resolves_to_function(
+    command: &CommandFact<'_>,
+    semantic_analysis: &SemanticAnalysis<'_>,
+) -> bool {
     if command.has_wrapper(WrapperKind::Command) || command.has_wrapper(WrapperKind::Builtin) {
         return false;
     }
@@ -106,11 +113,9 @@ fn command_name_resolves_to_function(command: &CommandFact<'_>, semantic: &Seman
     };
     let name = Name::from(name);
 
-    semantic
-        .function_definitions(&name)
-        .iter()
-        .copied()
-        .any(|binding_id| semantic.binding_visible_at(binding_id, name_span))
+    semantic_analysis
+        .visible_function_binding_at_call(&name, name_span)
+        .is_some()
 }
 
 fn outermost_unreachable_spans(mut spans: Vec<shuck_ast::Span>) -> Vec<shuck_ast::Span> {

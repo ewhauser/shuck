@@ -1285,6 +1285,28 @@ impl<'model> SemanticAnalysis<'model> {
         })
     }
 
+    pub fn visible_function_binding_at_call(
+        &self,
+        name: &Name,
+        name_span: Span,
+    ) -> Option<BindingId> {
+        let site = self
+            .model
+            .call_sites_for(name)
+            .iter()
+            .find(|site| site.name_span == name_span)?;
+
+        cfg::visible_function_binding_at_call(
+            &self.model.recorded_program,
+            &self.model.command_bindings,
+            &self.model.scopes,
+            &self.model.bindings,
+            &self.model.call_sites,
+            name,
+            site,
+        )
+    }
+
     #[doc(hidden)]
     pub fn block_ids_for_span(&self, span: Span) -> &[BlockId] {
         self.cfg().block_ids_for_span(span)

@@ -599,6 +599,31 @@ fn resolve_script_terminating_call_spans(
     changed
 }
 
+pub(crate) fn visible_function_binding_at_call(
+    program: &RecordedProgram,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    scopes: &[Scope],
+    bindings: &[Binding],
+    call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    name: &Name,
+    site: &CallSite,
+) -> Option<BindingId> {
+    let unconditional_function_bindings =
+        collect_unconditional_function_bindings(program, command_bindings, bindings);
+    let scope_function_bindings = function_bindings_by_scope(program);
+    let mut resolver = FunctionCallResolver {
+        program,
+        scopes,
+        bindings,
+        call_sites,
+        unconditional_function_bindings: &unconditional_function_bindings,
+        function_bindings_by_scope: &scope_function_bindings,
+        entry_before_offset_cache: FxHashMap::default(),
+    };
+
+    resolver.visible_function_binding(name, site.scope, site.span.start.offset)
+}
+
 fn function_bindings_by_scope(
     program: &RecordedProgram,
 ) -> FxHashMap<ScopeId, SmallVec<[BindingId; 2]>> {
