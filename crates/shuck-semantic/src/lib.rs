@@ -2433,23 +2433,38 @@ fn build_semantic_model(
     if let Some(contract) = options.file_entry_contract {
         model.apply_file_entry_contract(contract, file);
     }
-    if options.resolve_source_closure
-        && let Some(source_path) = options.source_path
-    {
+    if let Some(source_path) = options.source_path {
         let (
             synthetic_reads,
             imported_bindings,
             source_ref_resolutions,
             source_ref_explicitness,
             source_ref_diagnostic_classes,
-        ) = source_closure::collect_source_closure_contracts(
-            &model,
-            file,
-            source,
-            source_path,
-            options.source_path_resolver,
-            options.analyzed_paths,
-        );
+        ) = if options.resolve_source_closure {
+            source_closure::collect_source_closure_contracts(
+                &model,
+                file,
+                source,
+                source_path,
+                options.source_path_resolver,
+                options.analyzed_paths,
+            )
+        } else {
+            let (source_ref_resolutions, source_ref_explicitness, source_ref_diagnostic_classes) =
+                source_closure::collect_source_ref_metadata(
+                    &model,
+                    source_path,
+                    options.source_path_resolver,
+                    options.analyzed_paths,
+                );
+            (
+                Vec::new(),
+                Vec::new(),
+                source_ref_resolutions,
+                source_ref_explicitness,
+                source_ref_diagnostic_classes,
+            )
+        };
         model.apply_source_contracts(
             synthetic_reads,
             imported_bindings,

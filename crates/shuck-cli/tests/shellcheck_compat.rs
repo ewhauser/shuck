@@ -159,6 +159,29 @@ fn compat_json1_uses_metadata_info_level_for_sc1091() {
 }
 
 #[test]
+fn compat_no_external_sources_keeps_explicit_sourced_files_available_for_sc1091() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("main.sh"), "#!/bin/sh\n. ./lib.sh\n").unwrap();
+    fs::write(tempdir.path().join("lib.sh"), "#!/bin/sh\necho ok\n").unwrap();
+
+    let output = run_compat(
+        [
+            "--norc",
+            "--include=SC1091",
+            "-f",
+            "json1",
+            "main.sh",
+            "lib.sh",
+        ]
+        .as_slice(),
+        tempdir.path(),
+    );
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(json1_comments(&output), Vec::<Value>::new());
+}
+
+#[test]
 fn compat_severity_filter_respects_metadata_info_level_for_sc1091() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\n. ./lib.sh\n").unwrap();

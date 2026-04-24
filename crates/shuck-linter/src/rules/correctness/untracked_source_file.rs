@@ -93,6 +93,25 @@ mod tests {
     }
 
     #[test]
+    fn ignores_explicit_literal_source_when_source_closure_is_disabled() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        let source = "#!/bin/sh\n. ./helper.sh\n";
+        fs::write(&helper, "echo ok\n").unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile)
+                .with_analyzed_paths([main.clone(), helper.clone()])
+                .with_resolve_source_closure(false),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn reports_resolved_literal_source_when_helper_is_not_an_input() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");
