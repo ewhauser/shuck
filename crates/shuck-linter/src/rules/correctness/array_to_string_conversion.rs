@@ -190,12 +190,12 @@ fn name_only_declaration_history_events(checker: &Checker<'_>) -> Vec<ArrayHisto
     let mut events = Vec::new();
 
     for declaration in checker.semantic().declarations() {
-        let array_flag = declaration_array_flag_enabled(declaration);
+        let flags = declaration_flag_state(declaration);
         for operand in &declaration.operands {
             let DeclarationOperand::Name { name, span } = operand else {
                 continue;
             };
-            if name_only_declaration_resets_array_history(declaration.builtin, array_flag) {
+            if name_only_declaration_resets_array_history(declaration.builtin, flags) {
                 events.push(ArrayHistoryEvent {
                     offset: span.start.offset,
                     name: name.clone(),
@@ -208,9 +208,21 @@ fn name_only_declaration_history_events(checker: &Checker<'_>) -> Vec<ArrayHisto
     events
 }
 
-fn declaration_array_flag_enabled(declaration: &Declaration) -> bool {
-    let mut indexed_array_flag = false;
-    let mut associative_array_flag = false;
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct DeclarationFlagState {
+    indexed_array: bool,
+    associative_array: bool,
+    query: bool,
+}
+
+impl DeclarationFlagState {
+    fn array_enabled(self) -> bool {
+        self.indexed_array || self.associative_array
+    }
+}
+
+fn declaration_flag_state(declaration: &Declaration) -> DeclarationFlagState {
+    let mut state = DeclarationFlagState::default();
 
     for operand in &declaration.operands {
         let DeclarationOperand::Flag { flags, .. } = operand else {
@@ -227,14 +239,15 @@ fn declaration_array_flag_enabled(declaration: &Declaration) -> bool {
 
         for flag in flags.chars() {
             match flag {
-                'a' => indexed_array_flag = enabled,
-                'A' => associative_array_flag = enabled,
+                'a' => state.indexed_array = enabled,
+                'A' => state.associative_array = enabled,
+                'p' => state.query = enabled,
                 _ => {}
             }
         }
     }
 
-    indexed_array_flag || associative_array_flag
+    state
 }
 
 fn push_reset_event(
@@ -254,11 +267,12 @@ fn push_reset_event(
 
 fn name_only_declaration_resets_array_history(
     builtin: DeclarationBuiltin,
-    array_flag: bool,
+    flags: DeclarationFlagState,
 ) -> bool {
     match builtin {
         DeclarationBuiltin::Local => true,
-        DeclarationBuiltin::Declare | DeclarationBuiltin::Typeset => !array_flag,
+        DeclarationBuiltin::Declare | DeclarationBuiltin::Typeset if flags.query => false,
+        DeclarationBuiltin::Declare | DeclarationBuiltin::Typeset => !flags.array_enabled(),
         DeclarationBuiltin::Export | DeclarationBuiltin::Readonly => false,
     }
 }
@@ -652,6 +666,50 @@ assoc=value
             vec!["indexed", "assoc"],
             "{diagnostics:#?}"
         );
+    }
+
+    #[test]
+    fn declare_and_typeset_query_only_forms_keep_array_history() {
+        let source = "\
+#!/bin/bash
+declare -a declared=(one)
+declare -p declared >/dev/null
+declared=value
+typeset -a typed=(one)
+typeset -p typed >/dev/null
+typed=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["declared", "typed"],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn local_query_only_forms_clear_array_history() {
+        let source = "\
+#!/bin/bash
+f() {
+  local -a local_arr=(one)
+  local -p local_arr >/dev/null
+  local_arr=value
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]
