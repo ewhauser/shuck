@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::path::Path;
 
 use shuck_ast::Name;
@@ -446,9 +446,195 @@ fn completion_runtime_path_shape(lower: &str) -> bool {
 }
 
 fn completion_runtime_source_shape(source: &str) -> bool {
-    source
-        .lines()
-        .any(line_invokes_completion_initializer_command)
+    let mut pending_heredocs = VecDeque::new();
+
+    for line in source.lines() {
+        if skip_heredoc_body_line(line, &mut pending_heredocs) {
+            continue;
+        }
+
+        if line_invokes_completion_initializer_command(line) {
+            return true;
+        }
+
+        pending_heredocs.extend(heredoc_delimiters_in_code_line(line));
+    }
+
+    false
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingHeredocDelimiter {
+    text: String,
+    strip_tabs: bool,
+}
+
+fn skip_heredoc_body_line(
+    line: &str,
+    pending_heredocs: &mut VecDeque<PendingHeredocDelimiter>,
+) -> bool {
+    let Some(delimiter) = pending_heredocs.front() else {
+        return false;
+    };
+
+    if heredoc_line_matches_delimiter(line, delimiter) {
+        pending_heredocs.pop_front();
+    }
+    true
+}
+
+fn heredoc_line_matches_delimiter(line: &str, delimiter: &PendingHeredocDelimiter) -> bool {
+    let candidate = if delimiter.strip_tabs {
+        line.trim_start_matches('\t')
+    } else {
+        line
+    };
+    candidate == delimiter.text
+}
+
+fn heredoc_delimiters_in_code_line(line: &str) -> Vec<PendingHeredocDelimiter> {
+    let mut delimiters = Vec::new();
+    let mut index = 0;
+    let mut escaped = false;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut previous = None;
+
+    while index < line.len() {
+        let ch = line[index..].chars().next().expect("index is in bounds");
+        let next_index = index + ch.len_utf8();
+
+        if in_single_quote {
+            in_single_quote = ch != '\'';
+            previous = Some(ch);
+            index = next_index;
+            continue;
+        }
+
+        if in_double_quote {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_double_quote = false;
+            }
+            previous = Some(ch);
+            index = next_index;
+            continue;
+        }
+
+        if escaped {
+            escaped = false;
+            previous = Some(ch);
+            index = next_index;
+            continue;
+        }
+
+        if ch == '#' && shell_comment_can_start_after(previous) {
+            break;
+        }
+
+        if ch == '<' && line[index..].starts_with("<<") && !line[index..].starts_with("<<<") {
+            let strip_tabs = line[index..].starts_with("<<-");
+            let delimiter_start = index + if strip_tabs { 3 } else { 2 };
+            if let Some((delimiter, delimiter_end)) =
+                parse_heredoc_delimiter(line, delimiter_start, strip_tabs)
+            {
+                delimiters.push(delimiter);
+                previous = None;
+                index = delimiter_end;
+                continue;
+            }
+        }
+
+        match ch {
+            '\\' => escaped = true,
+            '\'' => in_single_quote = true,
+            '"' => in_double_quote = true,
+            _ => {}
+        }
+
+        previous = Some(ch);
+        index = next_index;
+    }
+
+    delimiters
+}
+
+fn parse_heredoc_delimiter(
+    line: &str,
+    mut index: usize,
+    strip_tabs: bool,
+) -> Option<(PendingHeredocDelimiter, usize)> {
+    let mut skipped_spacing = false;
+    while index < line.len() {
+        let ch = line[index..].chars().next().expect("index is in bounds");
+        if !matches!(ch, ' ' | '\t') {
+            break;
+        }
+        skipped_spacing = true;
+        index += ch.len_utf8();
+    }
+
+    if skipped_spacing && line[index..].starts_with('#') {
+        return None;
+    }
+
+    let mut text = String::new();
+    let mut escaped = false;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    while index < line.len() {
+        let ch = line[index..].chars().next().expect("index is in bounds");
+        let next_index = index + ch.len_utf8();
+
+        if escaped {
+            text.push(ch);
+            escaped = false;
+            index = next_index;
+            continue;
+        }
+
+        if in_single_quote {
+            if ch == '\'' {
+                in_single_quote = false;
+            } else {
+                text.push(ch);
+            }
+            index = next_index;
+            continue;
+        }
+
+        if in_double_quote {
+            if ch == '"' {
+                in_double_quote = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else {
+                text.push(ch);
+            }
+            index = next_index;
+            continue;
+        }
+
+        match ch {
+            '\\' => escaped = true,
+            '\'' => in_single_quote = true,
+            '"' => in_double_quote = true,
+            _ if heredoc_delimiter_terminator(ch) => break,
+            _ => text.push(ch),
+        }
+
+        index = next_index;
+    }
+
+    (!text.is_empty()).then_some((PendingHeredocDelimiter { text, strip_tabs }, index))
+}
+
+fn heredoc_delimiter_terminator(ch: char) -> bool {
+    ch.is_whitespace() || matches!(ch, ';' | '&' | '|' | '<' | '>' | '(' | ')' | '{' | '}')
 }
 
 fn line_invokes_completion_initializer_command(line: &str) -> bool {
@@ -948,6 +1134,25 @@ _example() {
         let path = Path::new("/tmp/bash-completion/completions/example.bash");
         let source = "\
 noop;# _init_completion later
+_example() {
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+";
+
+        let contract = contract_for(path, source).unwrap();
+
+        assert!(!has_initialized_binding(&contract, "cur"));
+        assert!(!has_initialized_binding(&contract, "cword"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn bash_completion_paths_with_initializer_in_heredoc_do_not_initialize_contracts() {
+        let path = Path::new("/tmp/bash-completion/completions/example.bash");
+        let source = "\
+cat <<EOF
+_init_completion
+EOF
 _example() {
   printf '%s\\n' \"$cur\" \"$cword\"
 }
