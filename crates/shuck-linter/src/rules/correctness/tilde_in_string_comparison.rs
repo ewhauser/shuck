@@ -1,9 +1,6 @@
-use shuck_ast::{Position, Span, static_word_text};
+use shuck_ast::{Position, Span};
 
-use crate::{
-    Checker, ConditionalNodeFact, ConditionalOperatorFamily, ExpansionContext, Rule,
-    SimpleTestOperatorFamily, SimpleTestShape, Violation, WordFactContext, WordQuote,
-};
+use crate::{Checker, Rule, Violation, WordFactHostKind, WordQuote};
 
 pub struct TildeInStringComparison;
 
@@ -13,8 +10,7 @@ impl Violation for TildeInStringComparison {
     }
 
     fn message(&self) -> String {
-        "quoted `~/...` stays literal in string comparisons; use `$HOME` or an unquoted tilde"
-            .to_owned()
+        "quoted `~/...` stays literal; use `$HOME` or an unquoted tilde".to_owned()
     }
 }
 
@@ -22,117 +18,47 @@ pub fn tilde_in_string_comparison(checker: &mut Checker) {
     let source = checker.source();
     let spans = checker
         .facts()
-        .commands()
-        .iter()
-        .flat_map(|command| {
-            let mut spans = Vec::new();
-            if let Some(simple_test) = command.simple_test() {
-                spans.extend(collect_simple_test_spans(checker, simple_test, source));
-            }
-            if let Some(conditional) = command.conditional() {
-                spans.extend(collect_conditional_spans(conditional, source));
-            }
-            spans
-        })
+        .word_facts()
+        .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
+        .filter_map(|fact| word_fact_tilde_span(fact, source))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || TildeInStringComparison);
 }
 
-fn collect_simple_test_spans(
-    checker: &Checker<'_>,
-    simple_test: &crate::SimpleTestFact<'_>,
-    source: &str,
-) -> Vec<Span> {
-    if simple_test.effective_shape() != SimpleTestShape::Binary
-        || simple_test.effective_operator_family() != SimpleTestOperatorFamily::StringBinary
-    {
-        return Vec::new();
-    }
-
-    [0usize, 2usize]
-        .into_iter()
-        .filter_map(|index| {
-            let word = *simple_test.effective_operands().get(index)?;
-            let fact = checker.facts().word_fact(
-                word.span,
-                WordFactContext::Expansion(ExpansionContext::CommandArgument),
-            )?;
-            word_fact_tilde_span(fact, source)
-        })
-        .collect()
-}
-
-fn collect_conditional_spans(conditional: &crate::ConditionalFact<'_>, source: &str) -> Vec<Span> {
-    conditional
-        .nodes()
-        .iter()
-        .filter_map(|node| match node {
-            ConditionalNodeFact::Binary(binary)
-                if binary.operator_family() == ConditionalOperatorFamily::StringBinary =>
-            {
-                Some([binary.left(), binary.right()])
-            }
-            _ => None,
-        })
-        .flatten()
-        .filter_map(|operand| conditional_operand_tilde_span(operand, source))
-        .collect()
-}
-
 fn word_fact_tilde_span(fact: crate::WordOccurrenceRef<'_, '_>, source: &str) -> Option<Span> {
     let classification = fact.classification();
-    (classification.quote != WordQuote::Unquoted && classification.is_fixed_literal())
-        .then(|| {
-            fact.static_text()
-                .filter(|text| text.starts_with("~/"))
-                .and_then(|_| quoted_tilde_span(fact.span(), source))
-        })
-        .flatten()
-}
-
-fn conditional_operand_tilde_span(
-    operand: crate::ConditionalOperandFact<'_>,
-    source: &str,
-) -> Option<Span> {
-    if let Some(word) = operand.word()
-        && let Some(classification) = operand.word_classification()
-    {
-        if classification.quote == WordQuote::Unquoted || !classification.is_fixed_literal() {
-            return None;
-        }
-
-        return static_word_text(word, source)
-            .filter(|text| text.starts_with("~/"))
-            .and_then(|_| quoted_tilde_span(word.span, source));
-    }
-
-    operand
-        .class()
-        .is_fixed_literal()
-        .then(|| operand.expression().span())
-        .and_then(|span| {
-            let raw = span.slice(source);
-            raw.chars()
-                .next()
-                .filter(|quote| matches!(quote, '"' | '\''))
-                .and_then(|_| raw.get(1..))
-                .filter(|suffix| suffix.starts_with("~/"))
-                .and_then(|_| quoted_tilde_span_from_raw(span, raw))
-        })
+    (classification.quote != WordQuote::Unquoted).then(|| quoted_tilde_span(fact.span(), source))?
 }
 
 fn quoted_tilde_span(span: Span, source: &str) -> Option<Span> {
     let raw = span.slice(source);
+    let quote = raw.chars().next()?;
+    if !matches!(quote, '"' | '\'') || !raw.get(1..)?.starts_with("~/") {
+        return None;
+    }
+
     quoted_tilde_span_from_raw(span, raw)
 }
 
 fn quoted_tilde_span_from_raw(span: Span, raw: &str) -> Option<Span> {
-    let start_index = raw.find("~/")?;
-    let suffix = &raw[start_index..];
-    let end_index = start_index + suffix.find(['"', '\'']).unwrap_or(suffix.len());
+    let quote = raw.chars().next()?;
+    let quote_len = quote.len_utf8();
+    let close_index = raw[quote_len..]
+        .find(quote)
+        .map(|index| quote_len + index)
+        .unwrap_or(raw.len());
+    let start_index = if quote == '\'' { 0 } else { quote_len };
+    let end_index = if quote == '\'' {
+        (close_index + quote_len).min(raw.len())
+    } else {
+        raw[quote_len..close_index]
+            .find(['$', '`'])
+            .map(|index| quote_len + index)
+            .unwrap_or(close_index)
+    };
     let start = advance_position(span.start, &raw[..start_index]);
-    let end = advance_position(start, &raw[start_index..end_index]);
+    let end = advance_position(span.start, &raw[..end_index]);
     Some(Span::from_positions(start, end))
 }
 
@@ -173,11 +99,11 @@ mod tests {
                 "~/.bashrc",
                 "~/.bashrc",
                 "~/.profile",
-                "~/.zshrc",
+                "'~/.zshrc'",
                 "~/.bashrc",
                 "~/.bashrc",
                 "~/.bashrc",
-                "~/.zshrc",
+                "'~/.zshrc'",
             ]
         );
     }
@@ -203,19 +129,32 @@ mod tests {
     }
 
     #[test]
-    fn ignores_quoted_tilde_literals_outside_string_comparisons() {
+    fn reports_quoted_tilde_literals_in_expanded_words() {
         let source = "\
 #!/bin/bash
 profile='~/.bash_profile'
 VAGRANT_HOME=\"~/.vagrant.d\"
 [ -e '~/.bash_profile' ]
 printf '%s\n' \"~/.config/powershell/profile.ps1\"
+case \"$path\" in \"~/.cache\") : ;; esac
 ";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::TildeInStringComparison),
         );
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "'~/.bash_profile'",
+                "~/.vagrant.d",
+                "'~/.bash_profile'",
+                "~/.config/powershell/profile.ps1",
+                "~/.cache",
+            ]
+        );
     }
 }
