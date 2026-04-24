@@ -1,4 +1,0 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "dylanaraps__neofetch__neofetch"
-    reason: "This brace-expansion template combines variable prefixes with literal fanout to build candidate config paths, and the oracle does not report SC2206 for that pattern."

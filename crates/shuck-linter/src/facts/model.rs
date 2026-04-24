@@ -477,10 +477,16 @@ impl<'a> LinterFacts<'a> {
         id: WordOccurrenceId,
     ) -> Box<[Span]> {
         let fact = self.word_occurrence_ref(id);
+        let word = occurrence_word(&self.word_nodes, self.word_occurrence(id));
         let mut split_sensitive_spans = fact.unquoted_scalar_expansion_spans().to_vec();
-        let use_replacement_spans = collect_array_assignment_use_replacement_expansion_spans(
-            occurrence_word(&self.word_nodes, self.word_occurrence(id)),
-        );
+        let use_replacement_spans = collect_array_assignment_use_replacement_expansion_spans(word);
+        let brace_expansion_spans = word
+            .brace_syntax()
+            .iter()
+            .copied()
+            .filter(|brace| brace.expands())
+            .map(|brace| brace.span)
+            .collect::<Vec<_>>();
 
         if !word_occurrence_is_double_quoted_command_substitution_only(
             &self.word_nodes,
@@ -501,7 +507,12 @@ impl<'a> LinterFacts<'a> {
             }
         }
 
-        split_sensitive_spans.retain(|span| !use_replacement_spans.contains(span));
+        split_sensitive_spans.retain(|span| {
+            !use_replacement_spans.contains(span)
+                && !brace_expansion_spans
+                    .iter()
+                    .any(|brace_span| contains_span(*brace_span, *span))
+        });
         sort_and_dedup_spans(&mut split_sensitive_spans);
         split_sensitive_spans.into_boxed_slice()
     }

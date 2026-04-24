@@ -194,4 +194,22 @@ arr=(${flag:+-f} ${flag:+$fallback} ${name:+\"$name\" \"$regex\"} ${items[@]+\"$
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_expansions_inside_brace_expansion_templates() {
+        let source = "\
+#!/bin/bash
+arr=({$XDG_CONFIG_HOME,$HOME}/{alacritty,}/{.,}alacritty.ym?)
+arr=($prefix{a,b} {a,b}$suffix {pre$inside,other})
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedArraySplit));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$prefix", "$suffix"]
+        );
+    }
 }
