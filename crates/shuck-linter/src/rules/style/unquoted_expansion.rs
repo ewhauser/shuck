@@ -2582,6 +2582,7 @@ unset keep
 unset pipeline_ref
 unset pipe_keep | cat
 (unset subshell_keep)
+unset -n nameref_keep
 unset empty_only
 if [ \"$1\" = yes ]; then
   keep=-k
@@ -2595,13 +2596,16 @@ fi
 if [ \"$1\" = sub ]; then
   subshell_keep=-k
 fi
+if [ \"$1\" = name ]; then
+  nameref_keep=-k
+fi
 if [ \"$1\" = no ]; then
   empty_only=
 fi
 if [ \"$2\" = yes ]; then
   missing=-v
 fi
-python-build $keep $pipe_keep $subshell_keep $empty_only $missing
+python-build $keep $pipe_keep $subshell_keep $nameref_keep $empty_only $missing
 python-build $pipeline_ref | cat
 unset only
 python-build $only
@@ -2616,6 +2620,7 @@ python-build $only
             vec![
                 "$pipe_keep",
                 "$subshell_keep",
+                "$nameref_keep",
                 "$empty_only",
                 "$missing",
                 "$only"

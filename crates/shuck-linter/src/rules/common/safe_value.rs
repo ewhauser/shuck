@@ -925,7 +925,7 @@ impl<'a> SafeValueIndex<'a> {
         unset: &crate::facts::UnsetCommandFacts<'a>,
         name: &Name,
     ) -> bool {
-        if unset.function_mode || !unset.options_parseable() {
+        if unset.function_mode || unset.nameref_mode() || !unset.options_parseable() {
             return false;
         }
 
