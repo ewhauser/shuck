@@ -1110,6 +1110,99 @@ fn test_parse_dynamic_arithmetic_command_keeps_compound_shape_with_typed_ast() {
 }
 
 #[test]
+fn test_parse_fixture_style_function_after_awk_dollar_program() {
+    let input = r#"
+parse_file_col_to_csv(){
+    local field="$2"
+    awk "{print \$$field}" "$data_file" |
+    tr '\n' ',' |
+    sed 's/,/, /g; s/, $//'
+}
+
+file_modified_in_last_days(){
+    local file="$1"
+    local days="$2"
+    if ! is_int "$days"; then
+        die "bad days"
+    fi
+    if ! [ -f "$file" ]; then
+        return 1
+    elif find "$file" -mtime -"$days" -print | grep -q .; then
+        return 0
+    else
+        local days_ago_in_seconds
+        days_ago_in_seconds="$(date -d "$days days ago" '+%s')"
+        if is_mac; then
+            if [ "$(stat -f '%m' "$file")" -ge "$days_ago_in_seconds" ]; then
+                return 0
+            else
+                return 1
+            fi
+        elif [ "$(stat -c '%Y' "$file")" -ge "$days_ago_in_seconds" ]; then
+            return 0
+        else
+            return 1
+        fi
+    fi
+    }
+"#;
+    let parsed = Parser::with_dialect(input, ShellDialect::Bash).parse();
+    assert_eq!(
+        parsed.status,
+        ParseStatus::Clean,
+        "{}",
+        parsed.strict_error()
+    );
+}
+
+#[test]
+fn test_parse_bash_function_body_with_literal_zsh_glob_marker() {
+    let input = r#"
+first(){
+    printf '%s\n' 'payload (# marker'
+}
+
+second(){
+    :
+}
+"#;
+    let parsed = Parser::with_dialect(input, ShellDialect::Bash).parse();
+    assert_eq!(
+        parsed.status,
+        ParseStatus::Clean,
+        "{}",
+        parsed.strict_error()
+    );
+}
+
+#[test]
+fn test_parse_nft_literal_braces_inside_nested_and_groups() {
+    let input = r#"
+start_nftables() {
+    [ "$redir_mod" = "Tproxy" ] && (modprobe nft_tproxy >/dev/null 2>&1 || lsmod 2>/dev/null | grep -q nft_tproxy) && {
+        [ "$local_proxy" = true ] && {
+            nft add chain inet shellcrash mark_out { type filter hook prerouting priority -100 \; }
+        }
+    }
+    [ "$tun_statu" = true ] && {
+        [ "$lan_proxy" = true ] && {
+            nft list chain inet fw4 forward >/dev/null 2>&1 || nft add chain inet fw4 forward { type filter hook forward priority filter \; } 2>/dev/null
+            nft list chain inet fw4 input >/dev/null 2>&1 || nft add chain inet fw4 input { type filter hook input priority filter \; } 2>/dev/null
+        }
+        [ "$local_proxy" = true ] && start_nft_route output output route -150
+    }
+}
+"#;
+    let parsed = Parser::with_dialect(input, ShellDialect::Bash).parse();
+    assert_eq!(
+        parsed.status,
+        ParseStatus::Clean,
+        "{}",
+        parsed.strict_error()
+    );
+}
+
+#[test]
 fn test_parse_arithmetic_command_with_nested_parens_and_double_right_paren() {
     let input = "(( (previous_pipe_index > 0) && (previous_pipe_index == ($# - 1)) ))\n";
     let script = Parser::new(input).parse().unwrap().file;
