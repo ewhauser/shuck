@@ -42,6 +42,7 @@ const LARGE_CORPUS_DEFAULT_SHUCK_TIMEOUT: Duration = Duration::from_secs(30);
 const LARGE_CORPUS_AUTOSCALED_SHUCK_TIMEOUT_BUFFER: Duration = Duration::from_secs(15);
 const LARGE_CORPUS_MAX_AUTOSCALED_SHUCK_TIMEOUT: Duration = Duration::from_secs(150);
 const LARGE_CORPUS_AUTOSCALED_SHUCK_LINES_PER_SEC: usize = 175;
+const LARGE_CORPUS_TIMEOUT_WORKER_STACK_SIZE: usize = 8 * 1024 * 1024;
 const LARGE_CORPUS_CACHE_DIR_NAME: &str = ".cache/large-corpus";
 const LARGE_CORPUS_MAX_WORKER_COUNT: usize = 4;
 const LARGE_CORPUS_TIMEOUT_FAILURE_CAP: usize = 5;
@@ -370,10 +371,13 @@ where
     F: FnOnce() -> T + Send + 'static,
 {
     let (sender, receiver) = mpsc::sync_channel(1);
-    thread::spawn(move || {
-        let result = work();
-        let _ = sender.send(result);
-    });
+    thread::Builder::new()
+        .stack_size(LARGE_CORPUS_TIMEOUT_WORKER_STACK_SIZE)
+        .spawn(move || {
+            let result = work();
+            let _ = sender.send(result);
+        })
+        .map_err(|err| format!("{label} worker thread failed to start: {err}"))?;
 
     match receiver.recv_timeout(timeout) {
         Ok(result) => Ok(result),
