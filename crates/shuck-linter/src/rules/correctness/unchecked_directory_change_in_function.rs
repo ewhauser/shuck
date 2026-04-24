@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, CommandId, LinterFacts, Rule, Violation};
 use shuck_semantic::{ScopeId, ScopeKind};
 
 use super::unchecked_directory_change::{report_span, supports_directory_change_rules};
@@ -31,12 +31,13 @@ pub fn unchecked_directory_change_in_function(checker: &mut Checker) {
 
     let semantic = checker.semantic();
     let source = checker.source();
-    let mut pending_unchecked_cd_by_scope = HashMap::<ScopeId, usize>::new();
-    let mut reported_scope = std::collections::HashSet::<ScopeId>::new();
+    let mut pending_unchecked_cd_by_scope = HashMap::<(ScopeId, Option<CommandId>), usize>::new();
+    let mut reported_regions = std::collections::HashSet::<(ScopeId, Option<CommandId>)>::new();
     let mut reports = Vec::new();
 
     for fact in checker.facts().commands() {
         let scope = semantic.scope_at(fact.stmt().span.start.offset);
+        let barrier = nearest_dominance_barrier(checker.facts(), fact.id());
         if fact.is_nested_word_command()
             && !matches!(semantic.scope_kind(scope), ScopeKind::CommandSubstitution)
         {
@@ -53,11 +54,14 @@ pub fn unchecked_directory_change_in_function(checker: &mut Checker) {
             .flow_context_at(&fact.stmt().span)
             .map(|context| !context.exit_status_checked)
             .unwrap_or(true);
-        let pending_unchecked_cd = pending_unchecked_cd_by_scope.entry(scope).or_default();
+        let pending_key = (scope, barrier);
+        let pending_unchecked_cd = pending_unchecked_cd_by_scope
+            .entry(pending_key)
+            .or_default();
 
         if directory_change.is_manual_restore_candidate() {
             if *pending_unchecked_cd > 0 {
-                if unchecked && fact.wrappers().is_empty() && reported_scope.insert(scope) {
+                if unchecked && fact.wrappers().is_empty() && reported_regions.insert(pending_key) {
                     reports.push((directory_change.command_name(), report_span(fact, source)));
                 }
                 *pending_unchecked_cd -= 1;
@@ -73,6 +77,17 @@ pub fn unchecked_directory_change_in_function(checker: &mut Checker) {
     for (command, span) in reports {
         checker.report(UncheckedDirectoryChangeInFunction { command }, span);
     }
+}
+
+fn nearest_dominance_barrier(facts: &LinterFacts<'_>, id: CommandId) -> Option<CommandId> {
+    let mut parent = facts.command_parent_id(id);
+    while let Some(parent_id) = parent {
+        if facts.command_is_dominance_barrier(parent_id) {
+            return Some(parent_id);
+        }
+        parent = facts.command_parent_id(parent_id);
+    }
+    None
 }
 
 #[cfg(test)]
@@ -175,7 +190,7 @@ f() {
     }
 
     #[test]
-    fn only_reports_the_first_manual_restore_per_scope() {
+    fn only_reports_the_first_manual_restore_per_linear_region() {
         let source = "\
 #!/bin/sh
 f() {
@@ -194,6 +209,26 @@ f() {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "cd ..");
+    }
+
+    #[test]
+    fn ignores_restore_outside_conditional_entry_region() {
+        let source = "\
+#!/bin/sh
+f() {
+\tif [ -d /tmp ]; then
+\t\tcd /tmp
+\t\tpwd
+\tfi
+\tcd ..
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UncheckedDirectoryChangeInFunction),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
