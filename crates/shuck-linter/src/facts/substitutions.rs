@@ -881,6 +881,13 @@ fn substitution_body_contains_echo(body: &StmtSeq, source: &str) -> bool {
         return false;
     }
 
+    if !normalized
+        .body_name_word()
+        .is_some_and(|word| command_name_word_matches_source(word, source, "echo"))
+    {
+        return false;
+    }
+
     let body_args = normalized.body_args();
     if body_args.first().is_some_and(|word| {
         static_word_text(word, source).is_some_and(|text| text.starts_with('-'))
@@ -902,6 +909,62 @@ fn substitution_body_contains_echo(body: &StmtSeq, source: &str) -> bool {
     body_args
         .iter()
         .all(|word| !word_contains_unquoted_glob_or_brace(word, source))
+}
+
+fn command_name_word_matches_source(word: &Word, source: &str, name: &str) -> bool {
+    static_command_name_text(word, source).is_some_and(|decoded| decoded == name)
+        && source_span_static_command_name(word.span, source).as_deref() == Some(name)
+}
+
+fn source_span_static_command_name(span: Span, source: &str) -> Option<String> {
+    let mut chars = span.slice(source).trim().chars().peekable();
+    let mut decoded = String::new();
+    let mut quote = None;
+
+    while let Some(ch) = chars.next() {
+        match quote {
+            Some('\'') => {
+                if ch == '\'' {
+                    quote = None;
+                } else {
+                    decoded.push(ch);
+                }
+            }
+            Some('"') => {
+                if ch == '"' {
+                    quote = None;
+                } else if ch == '\\' {
+                    append_backslash_escaped_char(&mut chars, &mut decoded)?;
+                } else if matches!(ch, '$' | '`') {
+                    return None;
+                } else {
+                    decoded.push(ch);
+                }
+            }
+            None => match ch {
+                '\'' | '"' => quote = Some(ch),
+                '\\' => append_backslash_escaped_char(&mut chars, &mut decoded)?,
+                '$' | '`' | '(' | ')' | ';' | '&' | '|' | '<' | '>' => return None,
+                ch if ch.is_whitespace() => return None,
+                _ => decoded.push(ch),
+            },
+            Some(_) => unreachable!("quote state only stores shell quote delimiters"),
+        }
+    }
+
+    quote.is_none().then_some(decoded).filter(|text| !text.is_empty())
+}
+
+fn append_backslash_escaped_char(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    decoded: &mut String,
+) -> Option<()> {
+    match chars.next()? {
+        '\n' => {}
+        '\r' if chars.next_if_eq(&'\n').is_some() => {}
+        ch => decoded.push(ch),
+    }
+    Some(())
 }
 
 fn word_is_command_substitution_only(word: &Word) -> bool {
