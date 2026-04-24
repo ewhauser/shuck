@@ -710,7 +710,7 @@ jobs:
 }
 
 #[test]
-fn check_concise_output_avoids_placeholder_collisions_with_user_variables() {
+fn check_concise_output_allows_placeholder_like_intentional_unused_names() {
     let tempdir = tempdir().unwrap();
     fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
     fs::write(
@@ -731,11 +731,7 @@ jobs:
     configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path())
         .args(["check", "--output-format", "concise"]);
-    let expected = format!(
-        "{}:7:11: warning[C001] jobs.triage.steps[0].run: variable `_SHUCK_GHA_1` is assigned but never used\n",
-        platform_path(".github/workflows/collision.yml")
-    );
-    cmd.assert().code(1).stdout(expected);
+    cmd.assert().code(0).stdout("");
 }
 
 #[test]
