@@ -45,8 +45,8 @@ pub use call_graph::{
 pub use cfg::{BasicBlock, BlockId, ControlFlowGraph, EdgeKind, FlowContext, UnreachableCauseKind};
 /// Contract and build-option types used when constructing semantic models.
 pub use contract::{
-    ContractCertainty, FileContract, FunctionContract, ProvidedBinding, ProvidedBindingKind,
-    SemanticBuildOptions,
+    ContractCertainty, FileContract, FileEntryBindingInitialization, FunctionContract,
+    ProvidedBinding, ProvidedBindingKind, SemanticBuildOptions,
 };
 /// Dataflow results surfaced by the semantic analysis layer.
 pub use dataflow::{
@@ -933,6 +933,9 @@ impl SemanticModel {
         }
         if file_entry_contract {
             attributes |= BindingAttributes::IMPORTED_FILE_ENTRY;
+            if provided.file_entry_initialization == FileEntryBindingInitialization::Initialized {
+                attributes |= BindingAttributes::IMPORTED_FILE_ENTRY_INITIALIZED;
+            }
         }
 
         let id = BindingId(self.bindings.len() as u32);
@@ -984,8 +987,13 @@ impl SemanticModel {
         if contract.required_reads.is_empty()
             && contract.provided_bindings.is_empty()
             && contract.provided_functions.is_empty()
+            && !contract.externally_consumed_bindings
         {
             return;
+        }
+
+        if contract.externally_consumed_bindings {
+            self.mark_file_entry_consumed_bindings();
         }
 
         let mut synthetic_reads = self.synthetic_reads.clone();
@@ -1041,6 +1049,19 @@ impl SemanticModel {
             &self.functions,
             &self.call_sites,
         );
+    }
+
+    fn mark_file_entry_consumed_bindings(&mut self) {
+        for binding in &mut self.bindings {
+            if file_entry_contract_can_consume_binding(binding) {
+                binding.attributes |= BindingAttributes::EXTERNALLY_CONSUMED;
+            }
+        }
+        self.heuristic_unused_assignments.retain(|binding_id| {
+            !self.bindings[binding_id.index()]
+                .attributes
+                .contains(BindingAttributes::EXTERNALLY_CONSUMED)
+        });
     }
 
     pub(crate) fn apply_source_contracts(
@@ -1207,6 +1228,27 @@ impl SemanticModel {
             entry_bindings: &self.entry_bindings,
         }
     }
+}
+
+fn file_entry_contract_can_consume_binding(binding: &Binding) -> bool {
+    if binding.attributes.contains(BindingAttributes::LOCAL) {
+        return false;
+    }
+
+    matches!(
+        binding.kind,
+        BindingKind::Assignment
+            | BindingKind::ArrayAssignment
+            | BindingKind::AppendAssignment
+            | BindingKind::ParameterDefaultAssignment
+            | BindingKind::LoopVariable
+            | BindingKind::ReadTarget
+            | BindingKind::MapfileTarget
+            | BindingKind::PrintfTarget
+            | BindingKind::GetoptsTarget
+            | BindingKind::ArithmeticAssignment
+            | BindingKind::Declaration(_)
+    )
 }
 
 #[allow(missing_docs)]
@@ -3366,6 +3408,7 @@ printf '%s\\n' \"$pkgname\"
                         ContractCertainty::Definite,
                     )],
                     provided_functions: Vec::new(),
+                    externally_consumed_bindings: false,
                 }),
                 ..SemanticBuildOptions::default()
             },
@@ -4490,6 +4533,7 @@ echo $value
                         ContractCertainty::Definite,
                     )],
                     provided_functions: Vec::new(),
+                    externally_consumed_bindings: false,
                 }),
                 ..SemanticBuildOptions::default()
             },
@@ -6388,6 +6432,16 @@ f
 ";
         let model = model(source);
         assert!(uninitialized_names(&model).is_empty());
+    }
+
+    #[test]
+    fn prefix_name_expansions_do_not_read_the_prefix_as_a_variable() {
+        let source = "unset \"${!completion_prefix@}\"\nprintf '%s\\n' \"$ordinary_missing\"\n";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["completion_prefix"], &uninitialized);
+        assert_names_present(&["ordinary_missing"], &uninitialized);
     }
 
     #[test]
@@ -8527,6 +8581,7 @@ printf '%s\\n' \"$flag\"
                         ),
                     ],
                     provided_functions: Vec::new(),
+                    externally_consumed_bindings: false,
                 }),
                 ..SemanticBuildOptions::default()
             },
@@ -8591,6 +8646,7 @@ build() {
                         ),
                     ],
                     provided_functions: Vec::new(),
+                    externally_consumed_bindings: false,
                 }),
                 ..SemanticBuildOptions::default()
             },
@@ -8668,6 +8724,7 @@ hook() {
                         ),
                     ],
                     provided_functions: Vec::new(),
+                    externally_consumed_bindings: false,
                 }),
                 ..SemanticBuildOptions::default()
             },
@@ -8703,6 +8760,73 @@ hook() {
                 ("pkgver".to_owned(), UninitializedCertainty::Definite),
             ]
         );
+    }
+
+    #[test]
+    fn initialized_file_entry_bindings_suppress_uninitialized_reads() {
+        let source = "printf '%s\\n' \"$theme_color\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build_with_options(
+            &output.file,
+            source,
+            &indexer,
+            SemanticBuildOptions {
+                file_entry_contract: Some(FileContract {
+                    required_reads: Vec::new(),
+                    provided_bindings: vec![ProvidedBinding::new_file_entry_initialized(
+                        Name::from("theme_color"),
+                        ProvidedBindingKind::Variable,
+                        ContractCertainty::Definite,
+                    )],
+                    provided_functions: Vec::new(),
+                    externally_consumed_bindings: false,
+                }),
+                ..SemanticBuildOptions::default()
+            },
+        );
+
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "theme_color")
+            .unwrap();
+        let binding = model.resolved_binding(reference.id).unwrap();
+        assert!(
+            binding
+                .attributes
+                .contains(BindingAttributes::IMPORTED_FILE_ENTRY_INITIALIZED)
+        );
+        assert!(uninitialized_names(&model).is_empty());
+    }
+
+    #[test]
+    fn file_entry_contracts_can_mark_assignments_as_caller_consumed() {
+        let source = "published=1\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build_with_options(
+            &output.file,
+            source,
+            &indexer,
+            SemanticBuildOptions {
+                file_entry_contract: Some(FileContract {
+                    required_reads: Vec::new(),
+                    provided_bindings: Vec::new(),
+                    provided_functions: Vec::new(),
+                    externally_consumed_bindings: true,
+                }),
+                ..SemanticBuildOptions::default()
+            },
+        );
+
+        let binding = binding_for_name(&model, "published");
+        assert!(
+            binding
+                .attributes
+                .contains(BindingAttributes::EXTERNALLY_CONSUMED)
+        );
+        assert!(model.analysis().unused_assignments().is_empty());
     }
 
     #[test]

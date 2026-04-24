@@ -1044,6 +1044,65 @@ esac
     }
 
     #[test]
+    fn sourced_theme_contract_suppresses_runtime_color_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/bash-it/themes/minimal/minimal.theme.bash"),
+            "\
+prompt_command() {
+  PS1=\"${green?} ${green} ${reset_color?}\"
+}
+PROMPT_COMMAND=prompt_command
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn sourced_runtime_contract_does_not_mark_arbitrary_assignments_used() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/rvm/scripts/cleanup"),
+            "\
+rvm_base_except=\"selector\"
+cleanup() { :; }
+",
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+    }
+
+    #[test]
+    fn sourced_module_contract_does_not_suppress_arbitrary_runtime_state_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/LinuxGSM/lgsm/modules/command_backup.sh"),
+            "\
+commandname=\"BACKUP\"
+backup_run() {
+  printf '%s\\n' \"$lockdir\" \"$commandname\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+    }
+
+    #[test]
+    fn prefix_name_expansions_do_not_trigger_c006() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/project/plain.sh"),
+            "unset \"${!completion_prefix@}\"\n",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn project_closure_context_without_a_provider_still_reports_c006() {
         let diagnostics = lint_named_source(
             Path::new("/tmp/project/scripts/helper.sh"),

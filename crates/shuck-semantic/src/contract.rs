@@ -26,11 +26,28 @@ pub enum ProvidedBindingKind {
     Function,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum FileEntryBindingInitialization {
+    #[default]
+    AmbientOnly,
+    Initialized,
+}
+
+impl FileEntryBindingInitialization {
+    fn merge_same_site(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Initialized, _) | (_, Self::Initialized) => Self::Initialized,
+            (Self::AmbientOnly, Self::AmbientOnly) => Self::AmbientOnly,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProvidedBinding {
     pub name: Name,
     pub kind: ProvidedBindingKind,
     pub certainty: ContractCertainty,
+    pub file_entry_initialization: FileEntryBindingInitialization,
 }
 
 impl ProvidedBinding {
@@ -39,6 +56,20 @@ impl ProvidedBinding {
             name,
             kind,
             certainty,
+            file_entry_initialization: FileEntryBindingInitialization::AmbientOnly,
+        }
+    }
+
+    pub fn new_file_entry_initialized(
+        name: Name,
+        kind: ProvidedBindingKind,
+        certainty: ContractCertainty,
+    ) -> Self {
+        Self {
+            name,
+            kind,
+            certainty,
+            file_entry_initialization: FileEntryBindingInitialization::Initialized,
         }
     }
 }
@@ -72,6 +103,9 @@ impl FunctionContract {
         for existing in &mut self.provided_bindings {
             if existing.name == binding.name && existing.kind == binding.kind {
                 existing.certainty = existing.certainty.merge_same_site(binding.certainty);
+                existing.file_entry_initialization = existing
+                    .file_entry_initialization
+                    .merge_same_site(binding.file_entry_initialization);
                 merged = true;
                 break;
             }
@@ -92,8 +126,10 @@ impl FunctionContract {
         let first = contracts.first()?;
         let mut merged = Self::new(first.name.clone());
         let total = contracts.len();
-        let mut provided_counts: FxHashMap<(Name, ProvidedBindingKind), (usize, bool)> =
-            FxHashMap::default();
+        let mut provided_counts: FxHashMap<
+            (Name, ProvidedBindingKind),
+            (usize, bool, FileEntryBindingInitialization),
+        > = FxHashMap::default();
 
         for contract in contracts {
             for name in &contract.required_reads {
@@ -102,22 +138,25 @@ impl FunctionContract {
             for binding in &contract.provided_bindings {
                 let entry = provided_counts
                     .entry((binding.name.clone(), binding.kind))
-                    .or_insert((0, true));
+                    .or_insert((0, true, FileEntryBindingInitialization::AmbientOnly));
                 entry.0 += 1;
                 entry.1 &= binding.certainty == ContractCertainty::Definite;
+                entry.2 = entry.2.merge_same_site(binding.file_entry_initialization);
             }
             for path in &contract.origin_paths {
                 merged.add_origin_path(path.clone());
             }
         }
 
-        for ((name, kind), (present_count, all_definite)) in provided_counts {
+        for ((name, kind), (present_count, all_definite, initialization)) in provided_counts {
             let certainty = if present_count == total && all_definite {
                 ContractCertainty::Definite
             } else {
                 ContractCertainty::Possible
             };
-            merged.add_provided_binding(ProvidedBinding::new(name, kind, certainty));
+            let mut binding = ProvidedBinding::new(name, kind, certainty);
+            binding.file_entry_initialization = initialization;
+            merged.add_provided_binding(binding);
         }
 
         Some(merged)
@@ -129,6 +168,7 @@ pub struct FileContract {
     pub required_reads: Vec<Name>,
     pub provided_bindings: Vec<ProvidedBinding>,
     pub provided_functions: Vec<FunctionContract>,
+    pub externally_consumed_bindings: bool,
 }
 
 impl FileContract {
@@ -143,6 +183,9 @@ impl FileContract {
         for existing in &mut self.provided_bindings {
             if existing.name == binding.name && existing.kind == binding.kind {
                 existing.certainty = existing.certainty.merge_same_site(binding.certainty);
+                existing.file_entry_initialization = existing
+                    .file_entry_initialization
+                    .merge_same_site(binding.file_entry_initialization);
                 merged = true;
                 break;
             }
@@ -179,21 +222,25 @@ impl FileContract {
     pub(crate) fn merge_candidate_contracts(contracts: &[Self]) -> Self {
         let mut merged = Self::default();
         let total = contracts.len();
-        let mut provided_counts: FxHashMap<(Name, ProvidedBindingKind), (usize, bool)> =
-            FxHashMap::default();
+        let mut provided_counts: FxHashMap<
+            (Name, ProvidedBindingKind),
+            (usize, bool, FileEntryBindingInitialization),
+        > = FxHashMap::default();
         let mut function_contracts_by_name: FxHashMap<Name, Vec<FunctionContract>> =
             FxHashMap::default();
 
         for contract in contracts {
+            merged.externally_consumed_bindings |= contract.externally_consumed_bindings;
             for name in &contract.required_reads {
                 merged.add_required_read(name.clone());
             }
             for binding in &contract.provided_bindings {
                 let entry = provided_counts
                     .entry((binding.name.clone(), binding.kind))
-                    .or_insert((0, true));
+                    .or_insert((0, true, FileEntryBindingInitialization::AmbientOnly));
                 entry.0 += 1;
                 entry.1 &= binding.certainty == ContractCertainty::Definite;
+                entry.2 = entry.2.merge_same_site(binding.file_entry_initialization);
             }
             for function in &contract.provided_functions {
                 function_contracts_by_name
@@ -203,13 +250,15 @@ impl FileContract {
             }
         }
 
-        for ((name, kind), (present_count, all_definite)) in provided_counts {
+        for ((name, kind), (present_count, all_definite, initialization)) in provided_counts {
             let certainty = if present_count == total && all_definite {
                 ContractCertainty::Definite
             } else {
                 ContractCertainty::Possible
             };
-            merged.add_provided_binding(ProvidedBinding::new(name, kind, certainty));
+            let mut binding = ProvidedBinding::new(name, kind, certainty);
+            binding.file_entry_initialization = initialization;
+            merged.add_provided_binding(binding);
         }
 
         for functions in function_contracts_by_name.into_values() {

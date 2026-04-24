@@ -1502,17 +1502,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     reference.span,
                 );
             }
-            WordPart::PrefixMatch { prefix, .. } => {
-                self.add_reference(
-                    prefix,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::IndirectExpansion
-                    },
-                    span,
-                );
-            }
+            WordPart::PrefixMatch { .. } => {}
             WordPart::IndirectExpansion {
                 reference,
                 operator,
@@ -1731,17 +1721,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         );
                     }
                 }
-                BourneParameterExpansion::PrefixMatch { prefix, .. } => {
-                    self.add_reference(
-                        prefix,
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::IndirectExpansion
-                        },
-                        span,
-                    );
-                }
+                BourneParameterExpansion::PrefixMatch { .. } => {}
                 BourneParameterExpansion::Slice {
                     reference,
                     offset_ast,

@@ -1,13 +1,19 @@
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use shuck_ast::Name;
 use shuck_semantic::{ContractCertainty, FileContract, ProvidedBinding, ProvidedBindingKind};
 
-use crate::{FileContext, ShellDialect};
+use crate::{FileContext, FileContextTag, ShellDialect};
 
 struct AmbientContractProvider {
     matches: fn(source: &str, path: &Path, shell: ShellDialect, file_context: &FileContext) -> bool,
-    build: fn() -> FileContract,
+    build: fn(
+        source: &str,
+        path: &Path,
+        shell: ShellDialect,
+        file_context: &FileContext,
+    ) -> FileContract,
 }
 
 pub(crate) fn file_entry_contract(
@@ -23,7 +29,10 @@ pub(crate) fn file_entry_contract(
     for provider in providers() {
         if (provider.matches)(source, path, shell, file_context) {
             matched = true;
-            merge_contract(&mut merged, (provider.build)());
+            merge_contract(
+                &mut merged,
+                (provider.build)(source, path, shell, file_context),
+            );
         }
     }
 
@@ -48,10 +57,15 @@ fn providers() -> &'static [AmbientContractProvider] {
             matches: matches_void_packages_pycompile_trigger_contract,
             build: build_void_packages_pycompile_trigger_contract,
         },
+        AmbientContractProvider {
+            matches: matches_sourced_runtime_contract,
+            build: build_sourced_runtime_contract,
+        },
     ]
 }
 
 fn merge_contract(merged: &mut FileContract, contract: FileContract) {
+    merged.externally_consumed_bindings |= contract.externally_consumed_bindings;
     for name in contract.required_reads {
         merged.add_required_read(name);
     }
@@ -142,15 +156,22 @@ fn matches_void_packages_pycompile_trigger_contract(
             || source.contains("case \"$ACTION\""))
 }
 
-fn build_void_packages_build_style_contract() -> FileContract {
-    variable_contract(&[
+fn build_void_packages_build_style_contract(
+    _source: &str,
+    _path: &Path,
+    _shell: ShellDialect,
+    _file_context: &FileContext,
+) -> FileContract {
+    runtime_variable_contract(&[
         "build_style",
         "distfiles",
         "metapackage",
         "pkgname",
         "pkgver",
+        "version",
         "pycompile_version",
         "XBPS_SRCPKGDIR",
+        "XBPS_SRCDISTDIR",
         "XBPS_TARGET_WORDSIZE",
         "configure_args",
         "makejobs",
@@ -163,8 +184,13 @@ fn build_void_packages_build_style_contract() -> FileContract {
     ])
 }
 
-fn build_void_packages_pre_pkg_hook_contract() -> FileContract {
-    variable_contract(&[
+fn build_void_packages_pre_pkg_hook_contract(
+    _source: &str,
+    _path: &Path,
+    _shell: ShellDialect,
+    _file_context: &FileContext,
+) -> FileContract {
+    runtime_variable_contract(&[
         "PKGDESTDIR",
         "pkgname",
         "pkgver",
@@ -179,10 +205,16 @@ fn build_void_packages_pre_pkg_hook_contract() -> FileContract {
     ])
 }
 
-fn build_void_packages_xbps_src_framework_contract() -> FileContract {
-    variable_contract(&[
+fn build_void_packages_xbps_src_framework_contract(
+    _source: &str,
+    _path: &Path,
+    _shell: ShellDialect,
+    _file_context: &FileContext,
+) -> FileContract {
+    runtime_variable_contract(&[
         "XBPS_COMMONDIR",
         "XBPS_SRCPKGDIR",
+        "XBPS_SRCDISTDIR",
         "XBPS_BUILDSTYLEDIR",
         "XBPS_LIBEXECDIR",
         "XBPS_STATEDIR",
@@ -196,6 +228,8 @@ fn build_void_packages_xbps_src_framework_contract() -> FileContract {
         "build_style",
         "sourcepkg",
         "subpackages",
+        "wrksrc",
+        "build_option_",
         "NOCOLORS",
         "XBPS_CFLAGS",
         "XBPS_CPPFLAGS",
@@ -205,11 +239,16 @@ fn build_void_packages_xbps_src_framework_contract() -> FileContract {
     ])
 }
 
-fn build_void_packages_pycompile_trigger_contract() -> FileContract {
-    variable_contract(&["pycompile_dirs", "pycompile_module", "pycompile_version"])
+fn build_void_packages_pycompile_trigger_contract(
+    _source: &str,
+    _path: &Path,
+    _shell: ShellDialect,
+    _file_context: &FileContext,
+) -> FileContract {
+    runtime_variable_contract(&["pycompile_dirs", "pycompile_module", "pycompile_version"])
 }
 
-fn variable_contract(names: &[&str]) -> FileContract {
+fn runtime_variable_contract(names: &[&str]) -> FileContract {
     let mut contract = FileContract::default();
     for name in names {
         contract.add_provided_binding(ProvidedBinding::new(
@@ -219,6 +258,139 @@ fn variable_contract(names: &[&str]) -> FileContract {
         ));
     }
     contract
+}
+
+fn matches_sourced_runtime_contract(
+    source: &str,
+    path: &Path,
+    _shell: ShellDialect,
+    file_context: &FileContext,
+) -> bool {
+    let lower = lower_path(path);
+    sourced_runtime_path_shape(&lower) && sourced_runtime_source_shape(source, file_context, &lower)
+}
+
+fn build_sourced_runtime_contract(
+    _source: &str,
+    path: &Path,
+    _shell: ShellDialect,
+    _file_context: &FileContext,
+) -> FileContract {
+    let lower = lower_path(path);
+    let mut names = BTreeSet::new();
+
+    for name in runtime_names_for_path(&lower) {
+        names.insert((*name).to_owned());
+    }
+
+    let mut contract = FileContract {
+        ..FileContract::default()
+    };
+    for name in names {
+        contract.add_provided_binding(ProvidedBinding::new_file_entry_initialized(
+            Name::from(name.as_str()),
+            ProvidedBindingKind::Variable,
+            ContractCertainty::Definite,
+        ));
+    }
+    contract
+}
+
+fn sourced_runtime_path_shape(lower: &str) -> bool {
+    path_matches_any(
+        lower,
+        &[
+            "/completion/",
+            "/completions/",
+            ".completion.",
+            "bash_autocomplete",
+            "__completion__",
+            "__completions-",
+            "__completions__",
+            "/themes/",
+            ".theme.",
+            "__themes__",
+            "/plugins/",
+            "/plugin/",
+            "__plugins__",
+            "/modules/",
+            "__modules__",
+            "/scriptmodules/",
+            "__scriptmodules__",
+            "/scripts/functions/",
+            "__scripts__functions__",
+            "/rvm/scripts/",
+            "__rvm__scripts__",
+            "/lgsm/modules/",
+            "__lgsm__modules__",
+            "/common/environment/setup/",
+            "__common__environment__setup__",
+            "/common/chroot-style/",
+            "__common__chroot-style__",
+            "/common/hooks/",
+            "__common__hooks__",
+            "termux-packages/packages/",
+            "termux-packages__packages__",
+        ],
+    )
+}
+
+fn sourced_runtime_source_shape(
+    source: &str,
+    file_context: &FileContext,
+    lower_path: &str,
+) -> bool {
+    file_context.has_tag(FileContextTag::HelperLibrary)
+        || has_probable_function_definition(source)
+        || has_source_command(source)
+        || source.contains("PROMPT_COMMAND")
+        || source.contains("COMPREPLY")
+        || source.contains("about-completion")
+        || (lower_path.contains("termux-packages") && source.contains("TERMUX_"))
+}
+
+fn runtime_names_for_path(lower: &str) -> &'static [&'static str] {
+    if path_matches_any(lower, &["/themes/", ".theme.", "__themes__"]) {
+        return &[
+            "black",
+            "red",
+            "green",
+            "yellow",
+            "blue",
+            "purple",
+            "cyan",
+            "white",
+            "normal",
+            "default",
+            "reset_color",
+            "bold_black",
+            "bold_red",
+            "bold_green",
+            "bold_yellow",
+            "bold_blue",
+            "bold_purple",
+            "bold_cyan",
+            "bold_white",
+            "italic",
+        ];
+    }
+
+    if path_matches_any(
+        lower,
+        &[
+            "/completion/",
+            "/completions/",
+            ".completion.",
+            "bash_autocomplete",
+            "__completion__",
+            "__completions-",
+            "__completions__",
+        ],
+    ) {
+        return &["cur", "prev", "words", "cword", "comp_args", "split"];
+    }
+
+    &[]
 }
 
 fn lower_path(path: &Path) -> String {
@@ -241,6 +413,15 @@ fn has_named_function_definition(source: &str, name: &str) -> bool {
         .lines()
         .map(str::trim)
         .any(|trimmed| named_function_definition(trimmed, name))
+}
+
+fn has_source_command(source: &str) -> bool {
+    source.lines().map(str::trim).any(|trimmed| {
+        trimmed.starts_with("source ")
+            || trimmed.starts_with(". ")
+            || trimmed.starts_with("\\source ")
+            || trimmed.starts_with("\\. ")
+    })
 }
 
 fn xbps_src_framework_has_shell_shape(source: &str, libexec_path: bool) -> bool {
@@ -305,6 +486,14 @@ mod tests {
             .any(|binding| binding.name == name)
     }
 
+    fn has_initialized_binding(contract: &FileContract, name: &str) -> bool {
+        contract.provided_bindings.iter().any(|binding| {
+            binding.name == name
+                && binding.file_entry_initialization
+                    == shuck_semantic::FileEntryBindingInitialization::Initialized
+        })
+    }
+
     #[test]
     fn void_packages_build_style_paths_get_an_explicit_contract() {
         let path = Path::new("/tmp/void-packages/common/build-style/void-cross.sh");
@@ -320,6 +509,8 @@ printf '%s\\n' \"$pkgname\" \"$pkgver\" \"$XBPS_SRCPKGDIR\" \"$configure_args\"
         assert!(has_binding(&contract, "wrksrc"));
         assert!(has_binding(&contract, "XBPS_SRCPKGDIR"));
         assert!(has_binding(&contract, "configure_args"));
+        assert!(!has_initialized_binding(&contract, "wrksrc"));
+        assert!(!contract.externally_consumed_bindings);
     }
 
     #[test]
@@ -336,6 +527,8 @@ printf '%s\\n' \"$pkgname\" \"$pkgver\" \"$XBPS_COMMONDIR\"
         assert!(has_binding(&contract, "pkgname"));
         assert!(has_binding(&contract, "pkgver"));
         assert!(has_binding(&contract, "XBPS_COMMONDIR"));
+        assert!(!has_initialized_binding(&contract, "pkgname"));
+        assert!(!contract.externally_consumed_bindings);
     }
 
     #[test]
@@ -352,6 +545,8 @@ printf '%s\\n' \"$XBPS_SRCPKGDIR\" \"$XBPS_STATEDIR\" \"$pkgname\" \"$build_styl
         assert!(has_binding(&contract, "XBPS_SRCPKGDIR"));
         assert!(has_binding(&contract, "XBPS_STATEDIR"));
         assert!(has_binding(&contract, "build_style"));
+        assert!(!has_initialized_binding(&contract, "build_style"));
+        assert!(!contract.externally_consumed_bindings);
     }
 
     #[test]
@@ -371,6 +566,8 @@ done
         assert!(has_binding(&contract, "subpackages"));
         assert!(has_binding(&contract, "XBPS_LIBEXECDIR"));
         assert!(has_binding(&contract, "XBPS_CROSS_BUILD"));
+        assert!(!has_initialized_binding(&contract, "sourcepkg"));
+        assert!(!contract.externally_consumed_bindings);
     }
 
     #[test]
@@ -389,6 +586,42 @@ esac
         assert!(has_binding(&contract, "pycompile_dirs"));
         assert!(has_binding(&contract, "pycompile_module"));
         assert!(has_binding(&contract, "pycompile_version"));
+        assert!(!has_initialized_binding(&contract, "pycompile_version"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn sourced_runtime_theme_paths_get_generic_initialized_contracts() {
+        let path = Path::new("/tmp/Bash-it/themes/example/example.theme.bash");
+        let source = "\
+prompt_command() {
+  PS1=\"${green?} ${green} ${reset_color?}\"
+}
+PROMPT_COMMAND=prompt_command
+";
+
+        let contract = contract_for(path, source).unwrap();
+
+        assert!(has_initialized_binding(&contract, "green"));
+        assert!(has_initialized_binding(&contract, "reset_color"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn sourced_runtime_module_paths_do_not_initialize_arbitrary_reads() {
+        let path = Path::new("/tmp/LinuxGSM/lgsm/modules/command_backup.sh");
+        let source = "\
+commandname=\"BACKUP\"
+backup_run() {
+  printf '%s\\n' \"$lockdir\" \"$commandname\"
+}
+";
+
+        let contract = contract_for(path, source).unwrap();
+
+        assert!(!has_initialized_binding(&contract, "lockdir"));
+        assert!(!has_initialized_binding(&contract, "commandname"));
+        assert!(!contract.externally_consumed_bindings);
     }
 
     #[test]

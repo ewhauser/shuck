@@ -4258,6 +4258,7 @@ printf '%s\\n' $pkgname
                         ContractCertainty::Definite,
                     )],
                     provided_functions: Vec::new(),
+                    externally_consumed_bindings: false,
                 }),
                 ..SemanticBuildOptions::default()
             },
