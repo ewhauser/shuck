@@ -3,9 +3,6 @@ reviewed_divergences:
     path_suffix: "acmesh-official__acme.sh__acme.sh"
     reason: "This acme.sh helper uses directive-heavy project-local plumbing that ShellCheck leaves alone in the corpus run, so we review this file narrowly instead of teaching C006 a special helper contract."
   - side: shuck-only
-    path_suffix: "acmesh-official__acme.sh__dnsapi__dns_dnsservices.sh"
-    reason: "This acme.sh helper uses directive-heavy project-local plumbing that ShellCheck leaves alone in the corpus run, so we review this file narrowly instead of teaching C006 a special helper contract."
-  - side: shuck-only
     path_suffix: "nvm-sh__nvm__test__fast__Unit tests__nvm_install_no_progress_bar"
     reason: "This nvm test harness reads helper-produced line bookkeeping that ShellCheck does not compare as live state in the corpus run."
   - side: shellcheck-only
@@ -23,23 +20,14 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__cli"
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__docs"
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__scripts__extras__rails"
     reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__build_config_system"
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__cli"
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__gemset"
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__init"
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__installer"
@@ -53,9 +41,6 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__base_fetch"
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
-    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
@@ -104,14 +89,8 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__requirements__netbsd"
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__rubygems"
-    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__rubygems"
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__rvmrc"
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__scripts__functions__rvmrc_set"
@@ -125,9 +104,6 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__selector"
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__support"
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__support"
     reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
@@ -137,9 +113,6 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__gemsets"
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__help"
-    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__scripts__info"
     reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
@@ -152,78 +125,18 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__list"
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__maglev"
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__maglev"
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__migrate"
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__notes"
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__rvm"
-    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__packages__tsocks__04_getpeername.patch"
-    reason: "This patch fixture contains generated configure-style placeholders that ShellCheck does not compare as live shell variables in the corpus run."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__scripts__config.guess"
-    reason: "This imported config.guess helper is directive-heavy, and ShellCheck stays quiet on this exact placeholder read in the corpus run."
-  - side: shellcheck-only
-    path_suffix: "termux__termux-packages__x11-packages__librewolf__build.sh"
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__x11-packages__librewolf__build.sh"
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__build-style__cmake.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__build-style__fetch.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
   - side: shuck-only
     path_suffix: "void-linux__void-packages__common__build-style__gem.sh"
     reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__build-style__gemspec.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
   - side: shuck-only
     path_suffix: "void-linux__void-packages__common__build-style__gemspec.sh"
     reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__build-style__go.sh"
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__build-style__go.sh"
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__build-style__haskell-stack.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__build-style__perl-module.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__build-style__python3-pep517.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__build-style__qmake.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__build-style__sip-build.sh"
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__build-style__sip-build.sh"
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__build-style__texmf.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__build-style__void-cross.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
   - side: shuck-only
     path_suffix: "void-linux__void-packages__common__chroot-style__ethereal.sh"
     reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
@@ -234,59 +147,14 @@ reviewed_divergences:
     path_suffix: "void-linux__void-packages__common__environment__setup__sourcepkg.sh"
     reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
   - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__hooks__post-install__04-create-xbps-metadata-scripts.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__hooks__post-install__04-create-xbps-metadata-scripts.sh"
-    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__hooks__post-install__15-qt-private-api.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__hooks__post-install__15-qt-private-api.sh"
-    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__hooks__pre-pkg__04-generate-runtime-deps.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__hooks__pre-pkg__99-pkglint.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__xbps-src__libexec__build.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__build_dependencies.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__bulk.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__pkgtarget.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__show.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__update_check.sh"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shellcheck-only
-    path_suffix: "void-linux__void-packages__srcpkgs__xbps-triggers__files__pycompile"
-    reason: "This Void helper relies on framework variables supplied by the surrounding xbps-src flow, and ShellCheck still reports the remaining first-hit sites here. We review this file narrowly instead of adding a blanket shell-collapse exception."
-  - side: shellcheck-only
     path_suffix: "docker-library__official-images__test__config.sh"
     reason: "This generated test matrix is just a bundle of image-to-test mappings, so the ShellCheck-only C006 hits are the literal associative-array keys in those compound assignments rather than live variable reads."
-  - side: shellcheck-only
-    path_suffix: "moovweb__gvm__examples__native__configure"
-    reason: "This generated configure script threads Autoconf cleanup and reporting state through a trap block, and the remaining ShellCheck-only read is part of that template-driven control flow."
   - side: shellcheck-only
     path_suffix: "moovweb__gvm__examples__native__depcomp"
     reason: "This generated dependency helper uses build-time placeholders such as `object` and `source` to rewrite depfiles, so the ShellCheck-only hits are expected template plumbing here."
   - side: shellcheck-only
     path_suffix: "moovweb__gvm__examples__native__install-sh"
     reason: "This generated install helper carries a trap around its temporary-directory probe, and the remaining ShellCheck-only read is part of that cleanup path."
-  - side: shellcheck-only
-    path_suffix: "moovweb__gvm__examples__native__ltmain.sh"
-    reason: "This generated libtool script exports template/config symbols like `macro_version`, `lt_sysroot`, `finish_cmds`, and `hardcode_libdir_flag_spec`, so the remaining ShellCheck-only hits are part of the generated configuration surface rather than handwritten shell logic."
   - side: shellcheck-only
     path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
     reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
@@ -326,12 +194,6 @@ reviewed_divergences:
   - side: shellcheck-only
     path_suffix: "leebaird__discover__dev-api-scanner.sh"
     reason: "This scanner builds an output filename from the current CORS origin, and the remaining ShellCheck-only anchor is the lower-case slug fragment inside that generated path. We review this one file narrowly instead of broadening C006 around the helper's filename templating."
-  - side: shellcheck-only
-    path_suffix: "gentoo__gentoo__sys-apps__memtest86+__files__39_memtest86+-r2"
-    reason: "This GRUB menu helper sources grub-mkconfig_lib and only uses grub_tab to indent generated submenu output, so the remaining ShellCheck-only hit is a sourced helper contract rather than a missing local assignment."
-  - side: shellcheck-only
-    path_suffix: "gentoo__gentoo__sys-apps__memtest86+__files__39_memtest86+-r3"
-    reason: "This GRUB menu helper sources grub-mkconfig_lib and only uses grub_tab to indent generated submenu output, so the remaining ShellCheck-only hit is a sourced helper contract rather than a missing local assignment."
   - side: shuck-only
     path_suffix: "233boy__v2ray__src__old.sh"
     reason: "This legacy V2Ray helper threads transport choice through sourced installer plumbing, so the remaining C006 read is a repo-local runtime handoff rather than a free-standing missing assignment."
@@ -343,9 +205,6 @@ reviewed_divergences:
     reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
   - side: shuck-only
     path_suffix: "Bash-it__bash-it__completion__available__git.completion.bash"
-    reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
-  - side: shuck-only
-    path_suffix: "Bash-it__bash-it__completion__available__gradle.completion.bash"
     reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
   - side: shuck-only
     path_suffix: "Bash-it__bash-it__completion__available__ng.completion.bash"
@@ -363,25 +222,10 @@ reviewed_divergences:
     path_suffix: "Bash-it__bash-it__scripts__reloader.bash"
     reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
   - side: shuck-only
-    path_suffix: "Bash-it__bash-it__themes__inretio__inretio.theme.bash"
-    reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
-  - side: shuck-only
     path_suffix: "Bash-it__bash-it__themes__liquidprompt__liquidprompt.theme.bash"
     reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
   - side: shuck-only
-    path_suffix: "Bash-it__bash-it__themes__nwinkler_random_colors__nwinkler_random_colors.theme.bash"
-    reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
-  - side: shuck-only
-    path_suffix: "Bash-it__bash-it__themes__wanelo__wanelo.theme.bash"
-    reason: "This Bash-it fixture bootstraps completions, plugins, or themes by sourcing helpers that publish function names and palette globals into a shared interactive session, so the remaining C006 hits are reviewed framework-owned helper/runtime names rather than standalone-script misses."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__check_config.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
     path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_backup.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_debug.sh"
     reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
   - side: shuck-only
     path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_start.sh"
@@ -390,47 +234,11 @@ reviewed_divergences:
     path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_ts3_server_pass.sh"
     reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
   - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_messages.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
     path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__update_fctr.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__update_jk2.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__update_mc.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__update_mcb.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__update_mta.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__update_pmc.sh"
     reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
   - side: shuck-only
     path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__update_steamcmd.sh"
     reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__update_ts3.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__update_ut99.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__update_vints.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__update_xnt.sh"
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "HariSekhon__DevOps-Bash-tools__lib__aws.sh"
-    reason: "This Bash-tools fixture reads library-managed region, timestamp, or template state populated by sourced wrappers and sibling helpers, so the remaining C006 hits are reviewed library contracts rather than isolated undefined locals."
   - side: shuck-only
     path_suffix: "HariSekhon__DevOps-Bash-tools__terraform__terraform_resources.sh"
     reason: "This Bash-tools fixture reads library-managed region, timestamp, or template state populated by sourced wrappers and sibling helpers, so the remaining C006 hits are reviewed library contracts rather than isolated undefined locals."
@@ -528,22 +336,10 @@ reviewed_divergences:
     path_suffix: "leebaird__discover__misc__crack-wifi.sh"
     reason: "This interactive helper threads prompt-loop state through earlier control-flow branches, so the remaining C006 read is a reviewed loop-state handoff rather than an isolated undefined local."
   - side: shuck-only
-    path_suffix: "moovweb__gvm__examples__native__configure"
-    reason: "This GVM fixture mixes generated Autotools scripts or wrapper state sourced from the surrounding toolchain environment, so the remaining C006 hits are reviewed template or wrapper contracts rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "moovweb__gvm__examples__native__ltmain.sh"
-    reason: "This GVM fixture mixes generated Autotools scripts or wrapper state sourced from the surrounding toolchain environment, so the remaining C006 hits are reviewed template or wrapper contracts rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "moovweb__gvm__scripts__env__pkgset-use"
-    reason: "This GVM fixture mixes generated Autotools scripts or wrapper state sourced from the surrounding toolchain environment, so the remaining C006 hits are reviewed template or wrapper contracts rather than missing local assignments."
-  - side: shuck-only
     path_suffix: "openrc__openrc__sh__rc-cgroup.sh"
     reason: "This OpenRC helper expects daemon options or service-command lists to arrive from the wider service runtime, so the remaining C006 hits are reviewed service-framework reads rather than standalone assignment bugs."
   - side: shuck-only
     path_suffix: "openrc__openrc__sh__s6.sh"
-    reason: "This OpenRC helper expects daemon options or service-command lists to arrive from the wider service runtime, so the remaining C006 hits are reviewed service-framework reads rather than standalone assignment bugs."
-  - side: shuck-only
-    path_suffix: "openrc__openrc__sh__start-stop-daemon.sh"
     reason: "This OpenRC helper expects daemon options or service-command lists to arrive from the wider service runtime, so the remaining C006 hits are reviewed service-framework reads rather than standalone assignment bugs."
   - side: shuck-only
     path_suffix: "openrc__openrc__sh__supervise-daemon.sh"
@@ -551,13 +347,6 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "openvpn__easy-rsa__easyrsa3__easyrsa"
     reason: "This Easy-RSA front-end carries shell-mode and temporary-file bookkeeping through long helper-driven control flow, so the remaining C006 reads are reviewed runtime handoffs rather than missing local assignments."
-  - side: shellcheck-only
-    path_suffix: "openvpn__easy-rsa__easyrsa3__easyrsa"
-    line: 3780
-    end_line: 3780
-    column: 38
-    end_column: 52
-    reason: "This exact Easy-RSA read sits in a region Shuck classifies as unreachable through an exit-helper path, so the remaining oracle-side C006 gap stays reviewed narrowly instead of widening undefined-variable reporting in unreachable code."
   - side: shuck-only
     path_suffix: "rupa__z__z.sh"
     reason: "This directory-ranking helper builds matcher state through branch-local accumulators, so the remaining C006 read is a reviewed control-flow handoff rather than an isolated undefined local."
@@ -655,17 +444,5 @@ reviewed_divergences:
     path_suffix: "rvm__rvm__scripts__tools"
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
-    path_suffix: "scop__bash-completion__completions-core__tar.bash"
-    reason: "This bash-completion fixture threads parser indices or subcommand tables through sourced completion callbacks, so the remaining C006 hits are reviewed completion-runtime state rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "scop__bash-completion__completions-core__tmux.bash"
-    reason: "This bash-completion fixture threads parser indices or subcommand tables through sourced completion callbacks, so the remaining C006 hits are reviewed completion-runtime state rather than missing local assignments."
-  - side: shuck-only
     path_suffix: "tj__git-extras__bin__git-brv"
     reason: "This formatter computes column widths across earlier display branches, so the remaining C006 reads are reviewed layout-state handoffs rather than isolated undefined locals."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__scripts__lint-conflicts"
-    reason: "This xbps-src helper fills pair state while walking conflict groups, so the remaining C006 read is a reviewed packaging-framework handoff rather than a standalone missing assignment."
-  - side: shuck-only
-    path_suffix: "xwmx__nb__nb"
-    reason: "This note-search helper builds query fragments through recursive filter assembly, so the remaining C006 read is a reviewed builder-state handoff rather than an isolated undefined local."
