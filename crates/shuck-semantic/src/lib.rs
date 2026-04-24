@@ -475,6 +475,7 @@ pub struct SemanticAnalysis<'model> {
     scope_provided_binding_index: OnceLock<ScopeProvidedBindingIndex>,
     unconditional_function_bindings: OnceLock<FxHashSet<BindingId>>,
     function_bindings_by_scope: OnceLock<FxHashMap<ScopeId, SmallVec<[BindingId; 2]>>>,
+    visible_function_call_bindings: OnceLock<FxHashMap<SpanKey, BindingId>>,
 }
 
 struct OverwriteWindow<'a> {
@@ -1273,6 +1274,7 @@ impl<'model> SemanticAnalysis<'model> {
             scope_provided_binding_index: OnceLock::new(),
             unconditional_function_bindings: OnceLock::new(),
             function_bindings_by_scope: OnceLock::new(),
+            visible_function_call_bindings: OnceLock::new(),
         }
     }
 
@@ -1294,22 +1296,32 @@ impl<'model> SemanticAnalysis<'model> {
         name: &Name,
         name_span: Span,
     ) -> Option<BindingId> {
-        let site = self
-            .model
+        self.model
             .call_sites_for(name)
             .iter()
             .find(|site| site.name_span == name_span)?;
 
-        let lookup = cfg::FunctionBindingLookup {
+        self.visible_function_call_bindings()
+            .get(&SpanKey::new(name_span))
+            .copied()
+    }
+
+    fn function_binding_lookup(&self) -> cfg::FunctionBindingLookup<'_> {
+        cfg::FunctionBindingLookup {
             program: &self.model.recorded_program,
             scopes: &self.model.scopes,
             bindings: &self.model.bindings,
             call_sites: &self.model.call_sites,
             unconditional_function_bindings: self.unconditional_function_bindings(),
             function_bindings_by_scope: self.function_bindings_by_scope(),
-        };
+        }
+    }
 
-        lookup.visible_function_binding_at_call(name, site)
+    fn visible_function_call_bindings(&self) -> &FxHashMap<SpanKey, BindingId> {
+        self.visible_function_call_bindings.get_or_init(|| {
+            self.function_binding_lookup()
+                .visible_function_call_bindings()
+        })
     }
 
     fn unconditional_function_bindings(&self) -> &FxHashSet<BindingId> {

@@ -609,11 +609,7 @@ pub(crate) struct FunctionBindingLookup<'a> {
 }
 
 impl FunctionBindingLookup<'_> {
-    pub(crate) fn visible_function_binding_at_call(
-        &self,
-        name: &Name,
-        site: &CallSite,
-    ) -> Option<BindingId> {
+    pub(crate) fn visible_function_call_bindings(&self) -> FxHashMap<SpanKey, BindingId> {
         let mut resolver = FunctionCallResolver {
             program: self.program,
             scopes: self.scopes,
@@ -623,8 +619,20 @@ impl FunctionBindingLookup<'_> {
             function_bindings_by_scope: self.function_bindings_by_scope,
             entry_before_offset_cache: FxHashMap::default(),
         };
+        let mut call_bindings = FxHashMap::default();
 
-        resolver.visible_function_binding(name, site.scope, site.span.start.offset)
+        for (name, sites) in self.call_sites {
+            for site in sites {
+                let Some(binding) =
+                    resolver.visible_function_binding(name, site.scope, site.span.start.offset)
+                else {
+                    continue;
+                };
+                call_bindings.insert(SpanKey::new(site.name_span), binding);
+            }
+        }
+
+        call_bindings
     }
 }
 

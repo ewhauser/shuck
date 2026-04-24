@@ -85,16 +85,14 @@ fn list_starts_with_condition(
         return false;
     };
 
-    if command_name_resolves_to_function(command, semantic_analysis) {
-        return false;
-    }
-
-    command.simple_test().is_some()
+    let starts_like_condition = command.simple_test().is_some()
         || command.conditional().is_some()
         || matches!(
             command.effective_or_literal_name(),
             Some("[" | "test" | "true" | "false")
-        )
+        );
+
+    starts_like_condition && !command_name_resolves_to_function(command, semantic_analysis)
 }
 
 fn command_name_resolves_to_function(
