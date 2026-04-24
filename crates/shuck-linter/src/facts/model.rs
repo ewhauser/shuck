@@ -11,7 +11,6 @@ pub struct LinterFacts<'a> {
     if_condition_command_ids: FxHashSet<CommandId>,
     elif_condition_command_ids: FxHashSet<CommandId>,
     binding_values: FxHashMap<BindingId, BindingValueFact<'a>>,
-    binding_target_spans: FxHashMap<BindingId, Span>,
     broken_assoc_key_spans: Vec<Span>,
     comma_array_assignment_spans: Vec<Span>,
     ifs_literal_backslash_assignment_value_spans: Vec<Span>,
@@ -283,10 +282,6 @@ impl<'a> LinterFacts<'a> {
 
     pub fn binding_value(&self, binding_id: BindingId) -> Option<&BindingValueFact<'a>> {
         self.binding_values.get(&binding_id)
-    }
-
-    pub(crate) fn binding_target_span(&self, binding_id: BindingId) -> Option<Span> {
-        self.binding_target_spans.get(&binding_id).copied()
     }
 
     pub fn broken_assoc_key_spans(&self) -> &[Span] {

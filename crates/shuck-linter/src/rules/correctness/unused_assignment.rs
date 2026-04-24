@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
 use shuck_semantic::{
-    Binding, BindingAttributes, BindingId, BindingKind, ScopeId, ScopeKind, SemanticModel,
+    Binding, BindingAttributes, BindingId, BindingKind, BindingOrigin, ReferenceKind,
 };
 
 use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
-type BindingFamilyKey = (Option<ScopeId>, Option<ScopeId>, String);
+type BindingFamilyKey = String;
 
 pub struct UnusedAssignment {
     pub name: String,
@@ -30,36 +30,40 @@ impl Violation for UnusedAssignment {
 
 pub fn unused_assignment(checker: &mut Checker) {
     let semantic = checker.semantic();
+    if all_reportable_assignment_spans_suppressed(checker, semantic) {
+        return;
+    }
+
     let unused_bindings = checker
         .semantic_analysis()
         .unused_assignments_with_options(checker.rule_options().c001.semantic_options());
     let unused_binding_ids = unused_bindings.iter().copied().collect::<HashSet<_>>();
     let mut families_with_used_bindings = HashSet::new();
+    let mut suppressed_binding_offsets_by_family = HashMap::<BindingFamilyKey, Vec<usize>>::new();
     let mut unused_bindings_by_family = HashMap::<BindingFamilyKey, Vec<_>>::new();
     let mut last_unused_binding_by_family = HashMap::new();
-    let mut local_family_scopes = HashMap::with_capacity(semantic.bindings().len());
     let mut family_keys = HashMap::with_capacity(semantic.bindings().len());
 
     for binding in semantic.bindings() {
-        if binding.name.as_str() == "_" {
+        if is_intentionally_unused_binding(binding) {
             continue;
         }
 
-        let isolated_scope = isolated_family_scope(semantic, binding.scope);
-        let local_scope = binding_local_family_scope(semantic, &local_family_scopes, binding);
-        local_family_scopes.insert(binding.id, local_scope);
-        family_keys.insert(
-            binding.id,
-            (
-                isolated_scope,
-                local_scope,
-                binding_target_key(checker, binding),
-            ),
-        );
+        family_keys.insert(binding.id, binding.name.to_string());
+    }
+
+    for reference in semantic.references() {
+        if matches!(reference.kind, ReferenceKind::DeclarationName)
+            || is_underscore_name(reference.name.as_str())
+        {
+            continue;
+        }
+
+        families_with_used_bindings.insert(reference.name.to_string());
     }
 
     for binding in semantic.bindings() {
-        if binding.name.as_str() == "_" {
+        if is_intentionally_unused_binding(binding) {
             continue;
         }
 
@@ -67,14 +71,28 @@ pub fn unused_assignment(checker: &mut Checker) {
             continue;
         }
 
+        let family = binding_family_key(&family_keys, binding.id);
+        let report_span = report_span_for_binding(checker, binding);
+        if checker.is_suppressed_at(Rule::UnusedAssignment, report_span) {
+            suppressed_binding_offsets_by_family
+                .entry(family.clone())
+                .or_default()
+                .push(report_span.start.offset);
+        }
+
+        if binding.attributes.contains(BindingAttributes::EXPORTED) {
+            families_with_used_bindings.insert(family);
+            continue;
+        }
+
         if binding_counts_as_used_family_member(binding, &unused_binding_ids) {
-            families_with_used_bindings.insert(binding_family_key(&family_keys, binding.id));
+            families_with_used_bindings.insert(family);
         }
     }
 
     for binding_id in unused_bindings {
         let binding = semantic.binding(*binding_id);
-        if binding.name.as_str() == "_" {
+        if is_intentionally_unused_binding(binding) {
             continue;
         }
 
@@ -106,18 +124,20 @@ pub fn unused_assignment(checker: &mut Checker) {
     }
 
     let mut reportable_bindings = Vec::new();
-    for (family, binding_ids) in unused_bindings_by_family {
-        if families_with_used_bindings.contains(&family) {
-            reportable_bindings.extend(binding_ids.into_iter().filter(|binding_id| {
-                let binding = semantic.binding(*binding_id);
-                !binding
-                    .attributes
-                    .contains(BindingAttributes::EMPTY_INITIALIZER)
-            }));
+    for family in unused_bindings_by_family.keys() {
+        if families_with_used_bindings.contains(family) {
             continue;
         }
 
-        if let Some(binding_id) = last_unused_binding_by_family.get(&family).copied() {
+        if let Some(binding_id) = last_unused_binding_by_family.get(family).copied() {
+            let binding = semantic.binding(binding_id);
+            let report_offset = report_span_for_binding(checker, binding).start.offset;
+            if suppressed_binding_offsets_by_family
+                .get(family)
+                .is_some_and(|offsets| offsets.iter().any(|offset| *offset >= report_offset))
+            {
+                continue;
+            }
             reportable_bindings.push(binding_id);
         }
     }
@@ -143,13 +163,56 @@ pub fn unused_assignment(checker: &mut Checker) {
         }
 
         let name = binding.name.to_string();
-        let span = binding.span;
+        let report_span = report_span_for_binding(checker, binding);
+        let fix_span = binding.span;
 
         checker.report_diagnostic(
-            Diagnostic::new(UnusedAssignment { name }, span)
-                .with_fix(Fix::unsafe_edit(Edit::replacement("_", span))),
+            Diagnostic::new(UnusedAssignment { name }, report_span)
+                .with_fix(Fix::unsafe_edit(Edit::replacement("_", fix_span))),
         );
     }
+}
+
+fn all_reportable_assignment_spans_suppressed(
+    checker: &Checker<'_>,
+    semantic: &shuck_semantic::SemanticModel,
+) -> bool {
+    let mut saw_reportable_binding = false;
+    for binding in semantic.bindings() {
+        if is_intentionally_unused_binding(binding) {
+            continue;
+        }
+
+        if !is_reportable_unused_assignment(binding.kind, binding.attributes) {
+            continue;
+        }
+
+        if binding.attributes.contains(BindingAttributes::EXPORTED)
+            || matches!(binding.kind, BindingKind::Nameref)
+        {
+            continue;
+        }
+
+        saw_reportable_binding = true;
+        if !checker.is_suppressed_at(
+            Rule::UnusedAssignment,
+            report_span_for_binding(checker, binding),
+        ) {
+            return false;
+        }
+    }
+
+    saw_reportable_binding
+}
+
+fn is_intentionally_unused_binding(binding: &Binding) -> bool {
+    is_underscore_name(binding.name.as_str())
+        || (matches!(binding.kind, BindingKind::ReadTarget)
+            && matches!(binding.name.as_str(), "rest" | "REST"))
+}
+
+fn is_underscore_name(name: &str) -> bool {
+    name.starts_with('_')
 }
 
 fn is_reportable_unused_assignment(kind: BindingKind, attributes: BindingAttributes) -> bool {
@@ -188,6 +251,24 @@ fn binding_counts_as_used_family_member(
     binding: &Binding,
     unused_binding_ids: &HashSet<BindingId>,
 ) -> bool {
+    if matches!(binding.kind, BindingKind::AppendAssignment) {
+        return true;
+    }
+
+    if binding
+        .attributes
+        .contains(BindingAttributes::SELF_REFERENTIAL_READ)
+    {
+        return true;
+    }
+
+    if binding
+        .attributes
+        .contains(BindingAttributes::EMPTY_INITIALIZER)
+    {
+        return false;
+    }
+
     if unused_binding_ids.contains(&binding.id) {
         return false;
     }
@@ -201,6 +282,52 @@ fn binding_counts_as_used_family_member(
     }
 
     true
+}
+
+fn report_span_for_binding(checker: &Checker<'_>, binding: &Binding) -> shuck_ast::Span {
+    match binding.origin {
+        BindingOrigin::LoopVariable {
+            definition_span, ..
+        } => loop_keyword_report_span(checker, definition_span).unwrap_or(definition_span),
+        BindingOrigin::Assignment {
+            definition_span, ..
+        }
+        | BindingOrigin::ParameterDefaultAssignment { definition_span }
+        | BindingOrigin::Imported { definition_span }
+        | BindingOrigin::FunctionDefinition { definition_span }
+        | BindingOrigin::BuiltinTarget {
+            definition_span, ..
+        }
+        | BindingOrigin::Declaration { definition_span }
+        | BindingOrigin::Nameref { definition_span } => definition_span,
+        BindingOrigin::ArithmeticAssignment { target_span, .. } => target_span,
+    }
+}
+
+fn loop_keyword_report_span(
+    checker: &Checker<'_>,
+    definition_span: shuck_ast::Span,
+) -> Option<shuck_ast::Span> {
+    if let Some(header) = checker.facts().for_headers().iter().find(|header| {
+        header
+            .command()
+            .targets
+            .iter()
+            .any(|target| target.span == definition_span)
+    }) {
+        return Some(keyword_span(header.command().span, "for"));
+    }
+
+    checker
+        .facts()
+        .select_headers()
+        .iter()
+        .find(|header| header.command().variable_span == definition_span)
+        .map(|header| keyword_span(header.command().span, "select"))
+}
+
+fn keyword_span(command_span: shuck_ast::Span, keyword: &str) -> shuck_ast::Span {
+    shuck_ast::Span::from_positions(command_span.start, command_span.start.advanced_by(keyword))
 }
 
 fn binding_follows_in_source(
@@ -217,52 +344,7 @@ fn binding_family_key(
     family_keys: &HashMap<BindingId, BindingFamilyKey>,
     binding_id: BindingId,
 ) -> BindingFamilyKey {
-    family_keys
-        .get(&binding_id)
-        .cloned()
-        .unwrap_or_else(|| (None, None, String::new()))
-}
-
-fn binding_target_key(checker: &Checker<'_>, binding: &Binding) -> String {
-    checker
-        .facts()
-        .binding_target_span(binding.id)
-        .map(|span| span.slice(checker.source()).to_string())
-        .unwrap_or_else(|| binding.name.to_string())
-}
-
-fn binding_local_family_scope(
-    semantic: &SemanticModel,
-    family_scopes: &HashMap<BindingId, Option<ScopeId>>,
-    binding: &Binding,
-) -> Option<ScopeId> {
-    if binding.attributes.contains(BindingAttributes::LOCAL) {
-        Some(binding.scope)
-    } else {
-        inherited_local_family_scope(semantic, family_scopes, binding)
-    }
-}
-
-fn isolated_family_scope(semantic: &SemanticModel, scope: ScopeId) -> Option<ScopeId> {
-    semantic.ancestor_scopes(scope).find(|candidate| {
-        matches!(
-            semantic.scope_kind(*candidate),
-            ScopeKind::Subshell | ScopeKind::CommandSubstitution | ScopeKind::Pipeline
-        )
-    })
-}
-
-fn inherited_local_family_scope(
-    semantic: &SemanticModel,
-    family_scopes: &HashMap<BindingId, Option<ScopeId>>,
-    binding: &Binding,
-) -> Option<ScopeId> {
-    let prior =
-        semantic.previous_visible_binding(&binding.name, binding.span, Some(binding.span))?;
-
-    (prior.scope == binding.scope)
-        .then(|| family_scopes.get(&prior.id).copied().flatten())
-        .flatten()
+    family_keys.get(&binding_id).cloned().unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -382,6 +464,58 @@ done
     }
 
     #[test]
+    fn reads_before_assignments_suppress_unused_assignment_for_that_name() {
+        let source = "#!/bin/bash\necho \"$foo\"\nfoo=1\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn uncalled_function_reads_suppress_unused_assignment_for_that_name() {
+        let source = "#!/bin/bash\nfoo=1\nshow_foo() { echo \"$foo\"; }\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn variable_reads_do_not_conflict_with_same_named_functions() {
+        let source = "#!/bin/bash\nprogress=\nprogress=1\nprogress() { :; }\n[ \"$progress\" ] && progress ok\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn read_rest_names_are_treated_as_intentional_placeholders() {
+        let source = "#!/bin/bash\nread -r cron_id rest\nprintf '%s\\n' \"$cron_id\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn plain_rest_names_are_reported() {
+        let source = "#!/bin/bash\nrest=1\nREST=2\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "rest");
+        assert_eq!(diagnostics[1].span.slice(source), "REST");
+    }
+
+    #[test]
+    fn unread_read_targets_are_still_reported() {
+        let source = "#!/bin/bash\nread -r first second\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "first");
+        assert_eq!(diagnostics[1].span.slice(source), "second");
+    }
+
+    #[test]
     fn reports_last_dead_binding_when_every_conditional_arm_assigns_the_name() {
         let source = "\
 #!/bin/sh
@@ -418,31 +552,31 @@ fi
     }
 
     #[test]
-    fn unrelated_array_writes_do_not_collapse_to_one_report() {
+    fn array_writes_collapse_to_the_last_name_report() {
         let source = "#!/bin/bash\nemoji[grinning]=1\nprintf '%s\\n' \"$OTHER\"\nemoji[smile]=2\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
-        assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[1].span.start.line, 4);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.slice(source), "emoji[smile]");
     }
 
     #[test]
-    fn arithmetic_indexed_writes_do_not_collapse_to_one_report() {
+    fn arithmetic_indexed_writes_collapse_to_the_last_name_report() {
         let source = "#!/bin/bash\n(( box[1] = 1 ))\n(( box[2] = 2 ))\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
-        assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[1].span.start.line, 3);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 3);
     }
 
     #[test]
-    fn local_families_stay_distinct_inside_subshells() {
+    fn local_families_collapse_by_name_inside_subshells() {
         let source = "#!/bin/bash\n(f(){ local foo=1; }\ng(){ local foo=2; }\nf\ng)\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
-        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 3);
     }
 
     #[test]
@@ -469,7 +603,7 @@ done
         assert_eq!(diagnostics[0].span.start.line, 2);
         assert_eq!(diagnostics[0].span.slice(source), "unused");
         assert_eq!(diagnostics[1].span.start.line, 3);
-        assert_eq!(diagnostics[1].span.slice(source), "i");
+        assert_eq!(diagnostics[1].span.slice(source), "for");
     }
 
     #[test]
@@ -486,7 +620,7 @@ done
     }
 
     #[test]
-    fn used_loop_variables_keep_prior_dead_assignments_separate() {
+    fn used_loop_variables_suppress_prior_dead_assignments() {
         let source = "\
 #!/bin/bash
 foo=1
@@ -497,46 +631,140 @@ done
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
-        assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[1].span.start.line, 3);
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
     fn later_exports_suppress_the_name_family() {
-        let source = "#!/bin/sh\nfoo=1\nexport foo=2\n";
+        let source = "#!/bin/sh\nfoo=1\nexport foo=2\nbar=1\nexport bar=\nbar=2\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert!(diagnostics.is_empty());
     }
 
     #[test]
-    fn keeps_distinct_local_scopes_separate() {
+    fn local_scopes_collapse_by_name() {
         let source = "#!/bin/bash\nf(){ local foo=1; }\ng(){ local foo=2; }\nf\ng\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
-        assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[1].span.start.line, 3);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 3);
     }
 
     #[test]
-    fn later_non_reportable_bindings_do_not_hide_earlier_assignments() {
+    fn later_appends_suppress_the_name_family() {
         let source = "#!/bin/bash\nfoo=1\nfoo+=2\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
-    fn used_uninitialized_local_declarations_keep_dead_branch_arms_separate() {
+    fn command_prefix_assignments_are_treated_as_consumed() {
+        let source = "#!/bin/sh\nfoo=1 echo ok\nbar=1 export baz=2\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn eval_arguments_keep_delayed_references_live() {
+        let source = "#!/bin/bash\nDEF=default\nVAR=name\neval \"$VAR=\\${$VAR:-$DEF}\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn eval_single_quoted_strings_do_not_keep_assignments_live() {
+        let source = "#!/bin/sh\nas_lineno_1=$LINENO\neval 'test \"$as_lineno_1\"'\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "as_lineno_1");
+    }
+
+    #[test]
+    fn eval_escaped_dollar_payloads_do_not_keep_assignments_live() {
+        let source = r#"#!/bin/bash
+foo=1
+eval "echo \\\$foo"
+"#;
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
+    }
+
+    #[test]
+    fn eval_comment_payloads_do_not_keep_assignments_live() {
+        let source = r#"#!/bin/bash
+foo=1
+eval "echo ok # \$foo"
+"#;
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
+    }
+
+    #[test]
+    fn variable_set_array_tests_keep_target_family_live() {
+        let source = "\
+#!/bin/bash
+f() {
+  local -A seen
+  seen=()
+  if [[ ! -v \"seen[${key}]\" ]]; then
+    seen[${key}]=1
+  fi
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn invalid_variable_set_test_operands_do_not_keep_assignments_live() {
+        let source = "\
+#!/bin/bash
+foo=1
+[[ -v '$foo' ]]
+[[ -v 1foo ]]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
+    }
+
+    #[test]
+    fn quoted_variable_set_test_operands_keep_assignments_live() {
+        let source = "\
+#!/bin/bash
+foo=1
+[[ -v 'foo' ]]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn flags_parent_is_runtime_consumed() {
+        let source = "#!/bin/sh\nFLAGS_PARENT=\"git flow\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn used_uninitialized_local_declarations_suppress_dead_branch_arms() {
         let source = "#!/bin/bash\nf(){\n  if a; then\n    foo=1\n  elif b; then\n    local foo\n    echo \"$foo\"\n  else\n    foo=3\n  fi\n}\nf\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
-        assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[1].span.start.line, 9);
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
@@ -567,23 +795,21 @@ done
     }
 
     #[test]
-    fn isolated_execution_scopes_keep_separate_dedup_families() {
+    fn isolated_execution_scopes_collapse_by_name() {
         let source = "#!/bin/bash\nfoo=1\n(foo=2)\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
-        assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[1].span.start.line, 3);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 3);
     }
 
     #[test]
-    fn later_local_reassignments_stay_separate_across_functions() {
+    fn later_local_reassignments_collapse_across_functions() {
         let source = "#!/bin/bash\nf(){ local foo=; foo=1; }\ng(){ local foo=; foo=2; }\nf\ng\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
-        assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[1].span.start.line, 3);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 3);
     }
 
     #[test]
@@ -613,13 +839,11 @@ done
     }
 
     #[test]
-    fn empty_clear_does_not_hide_prior_dead_reassignment() {
+    fn used_variable_suppresses_prior_dead_reassignment_before_empty_clear() {
         let source = "#!/bin/bash\nfoo=1\n: \"$foo\"\nfoo=2\nfoo=\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[0].span.slice(source), "foo");
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
@@ -631,12 +855,10 @@ done
     }
 
     #[test]
-    fn used_non_reportable_bindings_keep_dead_branch_arms_separate() {
+    fn used_non_reportable_bindings_suppress_dead_branch_arms() {
         let source = "#!/bin/bash\nif a; then\n  foo=1\nelif b; then\n  foo+=x\n  echo \"$foo\"\nelse\n  foo=3\nfi\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
-        assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 3);
-        assert_eq!(diagnostics[1].span.start.line, 8);
+        assert!(diagnostics.is_empty());
     }
 }

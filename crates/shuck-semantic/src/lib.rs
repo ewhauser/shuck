@@ -119,20 +119,12 @@ pub struct SyntheticRead {
 }
 
 /// Behavior flags for unused-assignment analysis.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct UnusedAssignmentAnalysisOptions {
     /// Whether a resolved scalar indirect-expansion target like `${!name}` counts as a use
-    /// of the target. Array-like targets such as `name=arr[@]; ${!name}` stay live in
-    /// both modes.
+    /// of the target. ShellCheck-compatible analysis leaves this disabled. Array-like
+    /// targets such as `name=arr[@]; ${!name}` stay live in both modes.
     pub treat_indirect_expansion_targets_as_used: bool,
-}
-
-impl Default for UnusedAssignmentAnalysisOptions {
-    fn default() -> Self {
-        Self {
-            treat_indirect_expansion_targets_as_used: true,
-        }
-    }
 }
 
 #[allow(missing_docs)]
@@ -2656,6 +2648,28 @@ build() { :; }
     }
 
     #[test]
+    fn assignment_definition_span_keeps_quoted_associative_subscript_text() {
+        let source = "\
+declare -A a
+a[\"]=x\"]=1
+";
+        let model = model(source);
+        let binding = model
+            .bindings()
+            .iter()
+            .find(|binding| binding.name == "a" && binding.kind == BindingKind::ArrayAssignment)
+            .expect("expected subscripted assignment binding");
+
+        let BindingOrigin::Assignment {
+            definition_span, ..
+        } = binding.origin
+        else {
+            panic!("expected assignment origin");
+        };
+        assert_eq!(definition_span.slice(source), "a[\"]=x\"]");
+    }
+
+    #[test]
     fn classifies_loop_and_parameter_default_origins() {
         let source = "\
 for size in 16 32; do
@@ -5038,7 +5052,7 @@ mapfile
                     binding.origin,
                     BindingOrigin::BuiltinTarget {
                         definition_span,
-                        kind: BuiltinBindingTargetKind::Mapfile,
+                        ..
                     } if definition_span == binding.span
                 )
         }));
@@ -5357,6 +5371,16 @@ HISTSIZE=-1
 HISTTIMEFORMAT='%F %T '
 COMP_WORDBREAKS=\"${COMP_WORDBREAKS//:/}\"
 PROMPT_COMMAND='history -a'
+BASH_ENV=/dev/null
+BASH_XTRACEFD=9
+ENV=/dev/null
+INPUTRC=/tmp/inputrc
+MAIL=/tmp/mail
+OLDPWD=/tmp/old
+PROMPT_DIRTRIM=2
+SECONDS=0
+TIMEFORMAT='%R'
+TMOUT=30
 PS1='prompt> '
 PS2='continuation> '
 PS3=''
@@ -5390,6 +5414,16 @@ unused=1
             "HISTTIMEFORMAT",
             "COMP_WORDBREAKS",
             "PROMPT_COMMAND",
+            "BASH_ENV",
+            "BASH_XTRACEFD",
+            "ENV",
+            "INPUTRC",
+            "MAIL",
+            "OLDPWD",
+            "PROMPT_DIRTRIM",
+            "SECONDS",
+            "TIMEFORMAT",
+            "TMOUT",
             "PS1",
             "PS2",
             "PS3",
@@ -5495,7 +5529,7 @@ printf '%s\\n' \"${!name}\"
     }
 
     #[test]
-    fn unused_assignment_options_only_change_indirect_target_liveness() {
+    fn unused_assignment_flags_indirect_only_targets_by_default() {
         let source = "\
 #!/bin/bash
 target=ok
@@ -5505,17 +5539,17 @@ printf '%s\\n' \"${!name}\"
 ";
         let model = model(source);
         let default_unused = binding_names(&model, model.analysis().unused_assignments());
-        let compat_unused = binding_names(
+        let live_indirect_target_unused = binding_names(
             &model,
             model
                 .analysis()
                 .unused_assignments_with_options(UnusedAssignmentAnalysisOptions {
-                    treat_indirect_expansion_targets_as_used: false,
+                    treat_indirect_expansion_targets_as_used: true,
                 }),
         );
 
-        assert_eq!(default_unused, vec!["other"]);
-        assert_eq!(compat_unused, vec!["target", "other"]);
+        assert_eq!(default_unused, vec!["target", "other"]);
+        assert_eq!(live_indirect_target_unused, vec!["other"]);
     }
 
     #[test]
@@ -7243,6 +7277,71 @@ eval \"$build\"
                 )
             }),
             "uninitialized names: {names:?}"
+        );
+    }
+
+    #[test]
+    fn eval_scan_keeps_apostrophe_inside_double_quotes_from_hiding_reads() {
+        let source = "foo=1\neval \"echo \\\"it's \\$foo\\\"\"\n";
+        let model = model(source);
+
+        let unused = reportable_unused_names(&model);
+        assert!(
+            !unused.contains(&Name::from("foo")),
+            "unused bindings: {:?}",
+            unused
+        );
+    }
+
+    #[test]
+    fn eval_scan_keeps_quoted_hash_from_starting_comment() {
+        let source = "foo=1\neval \"echo \\\"# \\$foo\\\"\"\n";
+        let model = model(source);
+
+        let unused = reportable_unused_names(&model);
+        assert!(
+            !unused.contains(&Name::from("foo")),
+            "unused bindings: {:?}",
+            unused
+        );
+    }
+
+    #[test]
+    fn eval_scan_treats_unquoted_hash_after_space_as_comment() {
+        let source = "foo=1\neval \"echo # \\$foo\"\n";
+        let model = model(source);
+
+        let unused = reportable_unused_names(&model);
+        assert!(
+            unused.contains(&Name::from("foo")),
+            "unused bindings: {:?}",
+            unused
+        );
+    }
+
+    #[test]
+    fn eval_scan_keeps_source_single_quoted_fragments_inert_for_c001() {
+        let source = "foo=1\neval 'echo \"$foo\"'\n";
+        let model = model(source);
+
+        let unused = reportable_unused_names(&model);
+        assert!(
+            unused.contains(&Name::from("foo")),
+            "unused bindings: {:?}",
+            unused
+        );
+    }
+
+    #[test]
+    fn eval_scan_treats_pid_prefix_as_special_parameter() {
+        let source = "foo=1\neval \"echo $$foo\"\n";
+        let model = model(source);
+
+        let unused = reportable_unused_names(&model);
+        assert!(
+            unused.contains(&Name::from("foo")),
+            "unused bindings: {:?}",
+            unused
         );
     }
 

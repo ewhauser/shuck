@@ -2922,11 +2922,12 @@ jobs:
         .unwrap();
         assert_eq!(first.cache_hits, 0);
         assert_eq!(first.cache_misses, 1);
-        assert!(first.diagnostics.is_empty());
+        assert_eq!(first.diagnostics.len(), 1);
+        assert!(first.diagnostics[0].message.contains("target"));
 
         fs::write(
             tempdir.path().join("shuck.toml"),
-            "[lint]\nselect = ['C001']\n\n[lint.rule-options.c001]\ntreat-indirect-expansion-targets-as-used = false\n",
+            "[lint]\nselect = ['C001']\n\n[lint.rule-options.c001]\ntreat-indirect-expansion-targets-as-used = true\n",
         )
         .unwrap();
 
@@ -2939,8 +2940,7 @@ jobs:
         .unwrap();
         assert_eq!(second.cache_hits, 0);
         assert_eq!(second.cache_misses, 1);
-        assert_eq!(second.diagnostics.len(), 1);
-        assert!(second.diagnostics[0].message.contains("target"));
+        assert!(second.diagnostics.is_empty());
     }
 
     #[test]

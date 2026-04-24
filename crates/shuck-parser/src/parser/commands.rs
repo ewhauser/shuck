@@ -3080,9 +3080,7 @@ impl<'a> Parser<'a> {
         &mut self,
         next_kind_after_right_brace: Option<TokenKind>,
     ) -> bool {
-        if !self.current_token_has_leading_whitespace()
-            || next_kind_after_right_brace.is_some_and(Self::is_redirect_kind)
-        {
+        if !self.current_token_has_leading_whitespace() {
             return false;
         }
 
@@ -3972,17 +3970,35 @@ impl<'a> Parser<'a> {
 
     fn parse_function_header_entry(&mut self) -> Result<FunctionHeaderEntry> {
         let word = self
-            .take_current_word_and_advance()
+            .take_current_function_header_word_and_advance()
             .ok_or_else(|| self.error("expected function name"))?;
         Ok(self.function_header_entry_from_word(word))
     }
 
     fn parse_function_keyword_header_entry(&mut self) -> Result<FunctionHeaderEntry> {
         let word = self
-            .take_current_word_and_advance()
+            .take_current_function_header_word_and_advance()
             .or_else(|| self.take_current_function_keyword_name_and_advance())
             .ok_or_else(|| self.error("expected function name"))?;
         Ok(self.function_header_entry_from_word(word))
+    }
+
+    fn take_current_function_header_word_and_advance(&mut self) -> Option<Word> {
+        let span = self.current_span;
+        if let Some(token) = self.current_token.clone()
+            && let Some(word) = self.simple_word_from_token(&token, span)
+        {
+            self.advance_past_word(&word);
+            return Some(word);
+        }
+
+        let token = self.current_token.take()?;
+        let word = self.decode_word_from_token(&token, span);
+        self.current_token = Some(token);
+        if let Some(word) = word.as_ref() {
+            self.advance_past_word(word);
+        }
+        word
     }
 
     fn take_current_function_keyword_name_and_advance(&mut self) -> Option<Word> {

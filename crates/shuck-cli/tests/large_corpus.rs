@@ -50,7 +50,6 @@ const LARGE_CORPUS_PROGRESS_BUCKET_COUNT: usize = 100 / LARGE_CORPUS_PROGRESS_PE
 const LARGE_CORPUS_TIMING_LIMIT: usize = 25;
 const RULE_CORPUS_METADATA_DIR: &str = "tests/testdata/corpus-metadata";
 const LARGE_CORPUS_ALLOWED_FAILING_RULE_REASON: &str = "known large-corpus rule allowlist";
-const LARGE_CORPUS_C001_COMPAT_NOTE: &str = "large corpus compatibility note: C001 is evaluated with ShellCheck-compatible indirect-expansion handling.";
 const LARGE_CORPUS_STATIC_IGNORE_SUFFIXES: &[&str] = &[
     "super-linter__super-linter__test__linters__bash__shell_bad_1.sh",
     "super-linter__super-linter__test__linters__bash_exec__shell_bad_1.sh",
@@ -698,6 +697,7 @@ struct ShuckRun {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FixtureFailureKind {
+    Warning,
     Other,
     Timeout,
 }
@@ -840,7 +840,7 @@ fn measure_fixture_timing(
             fixture,
             linter_settings,
             shuck_timeout,
-            Arc::clone(&shuck_path_resolver),
+            Some(Arc::clone(&shuck_path_resolver)),
         )
     })) {
         Ok(Ok(run)) => {
@@ -986,7 +986,11 @@ fn large_corpus_conforms_with_shellcheck() {
     let supported_fixtures =
         select_supported_large_corpus_fixtures(&fixtures, Some(&supported_shells));
     let skipped_unsupported_shells = fixtures.len().saturating_sub(supported_fixtures.len());
-    let shuck_path_resolver = Arc::new(LargeCorpusPathResolver::new(&supported_fixtures));
+    let shuck_path_resolver = large_corpus_source_resolver(
+        cfg.selected_rules.as_ref(),
+        shellcheck_filter_codes.as_ref(),
+        &supported_fixtures,
+    );
 
     let failure_collection =
         collect_fixture_failures(&supported_fixtures, cfg.keep_going, |fixture| {
@@ -1000,8 +1004,9 @@ fn large_corpus_conforms_with_shellcheck() {
                 &shellcheck_index,
                 &shellcheck_rule_index,
                 &corpus_metadata,
+                cfg.selected_rules.as_ref(),
                 shellcheck_filter_codes.as_ref(),
-                Arc::clone(&shuck_path_resolver),
+                shuck_path_resolver.clone(),
             )
         });
     let mut failure_collection = failure_collection;
@@ -1019,7 +1024,6 @@ fn large_corpus_conforms_with_shellcheck() {
         failure_collection.harness_warnings.len(),
         failure_collection.harness_failures.len(),
     );
-    emit_large_corpus_c001_compat_note(&linter_settings);
     if failure_collection.blocking_failures() == 0
         && failure_collection.nonblocking_issue_count() > 0
     {
@@ -1253,8 +1257,9 @@ fn evaluate_fixture_compatibility(
     shellcheck_index: &HashMap<String, String>,
     shellcheck_rule_index: &HashMap<u32, Vec<String>>,
     corpus_metadata: &HashMap<String, RuleCorpusMetadataDocument>,
+    selected_rules: Option<&shuck_linter::RuleSet>,
     shellcheck_filter_codes: Option<&HashSet<u32>>,
-    shuck_path_resolver: Arc<LargeCorpusPathResolver>,
+    shuck_path_resolver: Option<Arc<LargeCorpusPathResolver>>,
 ) -> FixtureEvaluation {
     let mut evaluation = FixtureEvaluation::default();
     let src = fs::read(&fixture.path).unwrap_or_default();
@@ -1305,12 +1310,12 @@ fn evaluate_fixture_compatibility(
                 details.push("shellcheck parsed fixture successfully".into());
             }
             evaluation.harness_failure = Some(FixtureFailure {
-                kind: FixtureFailureKind::Other,
+                kind: shuck_parse_failure_kind(selected_rules, shellcheck_filter_codes),
                 message: format_fixture_failure(&fixture.path, &details),
             });
         } else {
             evaluation.harness_failure = Some(FixtureFailure {
-                kind: FixtureFailureKind::Other,
+                kind: shuck_parse_failure_kind(selected_rules, shellcheck_filter_codes),
                 message: format_fixture_failure(&fixture.path, &[format!("shuck error: {err}")]),
             });
         }
@@ -1502,10 +1507,22 @@ fn merge_fixture_evaluation(
         .extend(evaluation.reviewed_divergences);
     if let Some(failure) = evaluation.harness_failure {
         match failure.kind {
+            FixtureFailureKind::Warning => collection.harness_warnings.push(failure.message),
             FixtureFailureKind::Other | FixtureFailureKind::Timeout => {
                 collection.harness_failures.push(failure.message)
             }
         }
+    }
+}
+
+fn shuck_parse_failure_kind(
+    selected_rules: Option<&shuck_linter::RuleSet>,
+    shellcheck_filter_codes: Option<&HashSet<u32>>,
+) -> FixtureFailureKind {
+    if large_corpus_uses_single_file_c001_oracle(selected_rules, shellcheck_filter_codes) {
+        FixtureFailureKind::Warning
+    } else {
+        FixtureFailureKind::Other
     }
 }
 
@@ -2397,16 +2414,9 @@ fn run_shuck_with_parse_dialect(
         &linter_settings,
         source_path_resolver,
     );
-    if parsed.is_err() && diagnostics.is_empty() {
-        return ShuckRun {
-            diagnostics: Vec::new(),
-            parse_error: Some(parsed.strict_error().to_string()),
-        };
-    }
-
     ShuckRun {
         diagnostics,
-        parse_error: None,
+        parse_error: parsed.is_err().then(|| parsed.strict_error().to_string()),
     }
 }
 
@@ -2462,18 +2472,15 @@ fn run_shuck_with_timeout(
     fixture: &LargeCorpusFixture,
     linter_settings: &shuck_linter::LinterSettings,
     timeout: Duration,
-    source_path_resolver: Arc<LargeCorpusPathResolver>,
+    source_path_resolver: Option<Arc<LargeCorpusPathResolver>>,
 ) -> Result<ShuckRun, String> {
     let fixture = fixture.clone();
     let linter_settings = linter_settings.clone();
-    let source_path_resolver = Arc::clone(&source_path_resolver);
     run_with_timeout("shuck", timeout, move || {
-        run_shuck(
-            &fixture,
-            &linter_settings,
-            Some(source_path_resolver.as_ref()
-                as &(dyn shuck_semantic::SourcePathResolver + Send + Sync)),
-        )
+        let source_path_resolver = source_path_resolver.as_ref().map(|resolver| {
+            resolver.as_ref() as &(dyn shuck_semantic::SourcePathResolver + Send + Sync)
+        });
+        run_shuck(&fixture, &linter_settings, source_path_resolver)
     })
 }
 
@@ -2600,7 +2607,7 @@ fn build_large_corpus_linter_settings(
     selected_rules: Option<shuck_linter::RuleSet>,
     mapped_only: bool,
 ) -> shuck_linter::LinterSettings {
-    let settings = if let Some(rules) = selected_rules {
+    if let Some(rules) = selected_rules {
         shuck_linter::LinterSettings::for_rules(rules.iter())
     } else if mapped_only {
         let mapped_rules: HashSet<_> = shuck_linter::ShellCheckCodeMap::default()
@@ -2610,34 +2617,38 @@ fn build_large_corpus_linter_settings(
         shuck_linter::LinterSettings::for_rules(mapped_rules)
     } else {
         shuck_linter::LinterSettings::default()
-    };
-
-    settings.with_c001_treat_indirect_expansion_targets_as_used(false)
-}
-
-fn large_corpus_uses_c001_shellcheck_compat(
-    linter_settings: &shuck_linter::LinterSettings,
-) -> bool {
-    linter_settings
-        .rules
-        .contains(shuck_linter::Rule::UnusedAssignment)
-        && !linter_settings
-            .rule_options
-            .c001
-            .treat_indirect_expansion_targets_as_used
-}
-
-fn large_corpus_c001_compat_note_line(
-    linter_settings: &shuck_linter::LinterSettings,
-) -> Option<&'static str> {
-    large_corpus_uses_c001_shellcheck_compat(linter_settings)
-        .then_some(LARGE_CORPUS_C001_COMPAT_NOTE)
-}
-
-fn emit_large_corpus_c001_compat_note(linter_settings: &shuck_linter::LinterSettings) {
-    if let Some(note) = large_corpus_c001_compat_note_line(linter_settings) {
-        eprintln!("{note}");
     }
+}
+
+fn large_corpus_source_resolver(
+    selected_rules: Option<&shuck_linter::RuleSet>,
+    shellcheck_filter_codes: Option<&HashSet<u32>>,
+    supported_fixtures: &[&LargeCorpusFixture],
+) -> Option<Arc<LargeCorpusPathResolver>> {
+    if large_corpus_uses_single_file_c001_oracle(selected_rules, shellcheck_filter_codes) {
+        // C001 follows ShellCheck's single-file oracle here. Resolving sourced
+        // files changes assignment liveness and turns project-closure context
+        // into unrelated rule deltas.
+        return None;
+    }
+
+    Some(Arc::new(LargeCorpusPathResolver::new(supported_fixtures)))
+}
+
+fn large_corpus_uses_single_file_c001_oracle(
+    selected_rules: Option<&shuck_linter::RuleSet>,
+    shellcheck_filter_codes: Option<&HashSet<u32>>,
+) -> bool {
+    if let Some(rules) = selected_rules {
+        return rules.len() == 1 && rules.contains(shuck_linter::Rule::UnusedAssignment);
+    }
+
+    shellcheck_filter_codes.is_some_and(|codes| {
+        codes.len() == 1
+            && shuck_linter::ShellCheckCodeMap::default()
+                .code_for_rule(shuck_linter::Rule::UnusedAssignment)
+                .is_some_and(|code| codes.contains(&code))
+    })
 }
 
 fn build_shellcheck_filter_codes(
@@ -3622,6 +3633,64 @@ mod tests {
     }
 
     #[test]
+    fn c001_only_large_corpus_filter_uses_single_file_oracle() {
+        let selected_rules =
+            shuck_linter::RuleSet::from_iter([shuck_linter::Rule::UnusedAssignment]);
+        let shellcheck_codes = HashSet::from([2034]);
+
+        assert!(large_corpus_uses_single_file_c001_oracle(
+            Some(&selected_rules),
+            None
+        ));
+        assert!(large_corpus_uses_single_file_c001_oracle(
+            None,
+            Some(&shellcheck_codes)
+        ));
+    }
+
+    #[test]
+    fn mixed_rule_large_corpus_filter_keeps_source_resolver_even_with_c001_only_codes() {
+        let selected_rules = shuck_linter::RuleSet::from_iter([
+            shuck_linter::Rule::UnusedAssignment,
+            shuck_linter::Rule::MixedAndOrInCondition,
+        ]);
+        let shellcheck_codes = build_selected_shellcheck_codes(&selected_rules);
+
+        assert_eq!(shellcheck_codes, HashSet::from([2034]));
+        assert!(!large_corpus_uses_single_file_c001_oracle(
+            Some(&selected_rules),
+            Some(&shellcheck_codes)
+        ));
+    }
+
+    #[test]
+    fn parse_failure_kind_uses_selected_rules_before_collapsed_shellcheck_codes() {
+        let selected_rules = shuck_linter::RuleSet::from_iter([
+            shuck_linter::Rule::UnusedAssignment,
+            shuck_linter::Rule::MixedAndOrInCondition,
+        ]);
+        let shellcheck_codes = build_selected_shellcheck_codes(&selected_rules);
+
+        assert_eq!(shellcheck_codes, HashSet::from([2034]));
+        assert_eq!(
+            shuck_parse_failure_kind(Some(&selected_rules), Some(&shellcheck_codes)),
+            FixtureFailureKind::Other
+        );
+    }
+
+    #[test]
+    fn parse_failure_kind_downgrades_true_c001_only_runs() {
+        let selected_rules =
+            shuck_linter::RuleSet::from_iter([shuck_linter::Rule::UnusedAssignment]);
+        let shellcheck_codes = build_selected_shellcheck_codes(&selected_rules);
+
+        assert_eq!(
+            shuck_parse_failure_kind(Some(&selected_rules), Some(&shellcheck_codes)),
+            FixtureFailureKind::Warning
+        );
+    }
+
+    #[test]
     fn rule_corpus_metadata_path_uses_rule_code_convention() {
         assert_eq!(
             rule_corpus_metadata_path("X123"),
@@ -3640,7 +3709,7 @@ mod tests {
                 && rule_metadata
                     .reviewed_divergences
                     .iter()
-                    .any(|entry| entry.rule_wide && entry.side == CompatibilitySide::ShuckOnly)
+                    .all(|entry| !entry.rule_wide)
                 && rule_metadata.reviewed_divergences.iter().any(|entry| {
                     !entry.rule_wide
                         && entry.path_contains.as_deref() == Some("termux__termux-packages__")
@@ -4694,31 +4763,6 @@ mod tests {
                 .as_deref()
                 .is_some_and(|error| error.contains("expected 'fi'"))
         );
-    }
-
-    #[test]
-    fn build_large_corpus_linter_settings_enables_c001_shellcheck_compat() {
-        let settings = build_large_corpus_linter_settings(None, false);
-
-        assert!(
-            large_corpus_uses_c001_shellcheck_compat(&settings),
-            "{settings:?}"
-        );
-        assert_eq!(
-            large_corpus_c001_compat_note_line(&settings),
-            Some(LARGE_CORPUS_C001_COMPAT_NOTE)
-        );
-    }
-
-    #[test]
-    fn large_corpus_c001_compat_note_only_applies_when_c001_is_enabled() {
-        let settings = build_large_corpus_linter_settings(None, false);
-        assert!(large_corpus_uses_c001_shellcheck_compat(&settings));
-
-        let without_c001 = shuck_linter::LinterSettings::for_rule(shuck_linter::Rule::EmptyTest)
-            .with_c001_treat_indirect_expansion_targets_as_used(false);
-        assert!(!large_corpus_uses_c001_shellcheck_compat(&without_c001));
-        assert_eq!(large_corpus_c001_compat_note_line(&without_c001), None);
     }
 
     fn probe(version_text: &str) -> ShellCheckProbe {

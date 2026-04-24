@@ -619,6 +619,25 @@ mod tests {
         lint_path(path, &LinterSettings::for_rule(rule))
     }
 
+    fn lint_path_for_rule_with_resolver(
+        path: &Path,
+        rule: Rule,
+        source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    ) -> Vec<Diagnostic> {
+        let source = fs::read_to_string(path).unwrap();
+        let output = Parser::new(&source).parse().unwrap();
+        let indexer = Indexer::new(&source, &output);
+        lint_file_at_path_with_resolver(
+            &output.file,
+            &source,
+            &indexer,
+            &LinterSettings::for_rule(rule),
+            None,
+            Some(path),
+            source_path_resolver,
+        )
+    }
+
     fn lint_named_source(path: &Path, source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
@@ -1654,33 +1673,14 @@ echo $bar
     }
 
     #[test]
-    fn unused_assignment_keeps_indirect_only_target_live_by_default() {
-        let diagnostics = lint_for_rule(
-            "\
-#!/bin/bash
-target=ok
-name=target
-printf '%s\\n' \"${!name}\"
-",
-            Rule::UnusedAssignment,
-        );
-
-        assert!(diagnostics.is_empty());
-    }
-
-    #[test]
-    fn unused_assignment_shellcheck_compat_flags_indirect_only_target() {
+    fn unused_assignment_flags_indirect_only_target_by_default() {
         let source = "\
 #!/bin/bash
 target=ok
 name=target
 printf '%s\\n' \"${!name}\"
 ";
-        let diagnostics = lint(
-            source,
-            &LinterSettings::for_rule(Rule::UnusedAssignment)
-                .with_c001_treat_indirect_expansion_targets_as_used(false),
-        );
+        let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
@@ -1688,7 +1688,23 @@ printf '%s\\n' \"${!name}\"
     }
 
     #[test]
-    fn unused_assignment_shellcheck_compat_keeps_dynamic_target_arrays_live() {
+    fn unused_assignment_can_keep_indirect_only_target_live_with_rule_option() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+target=ok
+name=target
+printf '%s\\n' \"${!name}\"
+",
+            &LinterSettings::for_rule(Rule::UnusedAssignment)
+                .with_c001_treat_indirect_expansion_targets_as_used(true),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unused_assignment_keeps_dynamic_target_arrays_live() {
         let diagnostics = lint(
             "\
 #!/bin/bash
@@ -1700,8 +1716,7 @@ web_server=apache
 args_var=\"${web_server}_args[@]\"
 printf '%s\\n' \"${!args_var}\"
 ",
-            &LinterSettings::for_rule(Rule::UnusedAssignment)
-                .with_c001_treat_indirect_expansion_targets_as_used(false),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert!(diagnostics.is_empty());
@@ -1712,6 +1727,25 @@ printf '%s\\n' \"${!args_var}\"
         let diagnostics = lint_for_rule("#!/bin/bash\n_=1\n", Rule::UnusedAssignment);
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unused_assignment_ignores_leading_underscore_bindings() {
+        let diagnostics = lint_for_rule(
+            "#!/bin/bash\n_unused=1\n__unused=2\n",
+            Rule::UnusedAssignment,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unused_assignment_reports_plain_rest_bindings() {
+        let diagnostics = lint_for_rule("#!/bin/bash\nrest=1\nREST=2\n", Rule::UnusedAssignment);
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[1].span.start.line, 3);
     }
 
     #[test]
@@ -2039,6 +2073,16 @@ HISTSIZE=-1
 HISTTIMEFORMAT='%F %T '
 COMP_WORDBREAKS=\"${COMP_WORDBREAKS//:/}\"
 PROMPT_COMMAND='history -a'
+BASH_ENV=/dev/null
+BASH_XTRACEFD=9
+ENV=/dev/null
+INPUTRC=/tmp/inputrc
+MAIL=/tmp/mail
+OLDPWD=/tmp/old
+PROMPT_DIRTRIM=2
+SECONDS=0
+TIMEFORMAT='%R'
+TMOUT=30
 PS1='prompt> '
 PS2='continuation> '
 PS3=''
@@ -2551,7 +2595,7 @@ fi
     }
 
     #[test]
-    fn partially_used_branch_assignments_still_report_each_dead_arm() {
+    fn branch_local_reads_suppress_unused_assignment_family() {
         let source = "\
 #!/bin/sh
 if a; then
@@ -2565,9 +2609,7 @@ fi
 ";
         let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
 
-        assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 3);
-        assert_eq!(diagnostics[1].span.start.line, 5);
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
@@ -3510,6 +3552,49 @@ use_flag() {
     }
 
     #[test]
+    fn generic_dynamic_source_function_writes_do_not_initialize_c006_reads() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("tests/main.sh");
+        let helper = temp.path().join("scripts/helper.sh");
+        fs::create_dir_all(main.parent().unwrap()).unwrap();
+        fs::create_dir_all(helper.parent().unwrap()).unwrap();
+        let source = "\
+#!/bin/sh
+helper_root=/tmp
+. \"$helper_root/scripts/helper.sh\"
+set_flag
+printf '%s\\n' \"$flag\"
+";
+        fs::write(&main, source).unwrap();
+        fs::write(
+            &helper,
+            "\
+set_flag() {
+  flag=1
+}
+",
+        )
+        .unwrap();
+
+        let main_path = main.clone();
+        let helper_path = helper.clone();
+        let resolver = move |source_path: &Path, candidate: &str| {
+            if source_path == main_path.as_path() && candidate == "scripts/helper.sh" {
+                vec![helper_path.clone()]
+            } else {
+                Vec::new()
+            }
+        };
+
+        let diagnostics =
+            lint_path_for_rule_with_resolver(&main, Rule::UndefinedVariable, Some(&resolver));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert_eq!(diagnostics[0].span.slice(source), "$flag");
+    }
+
+    #[test]
     fn source_builtin_reads_keep_top_level_assignment_live() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.bash");
@@ -4154,6 +4239,71 @@ foo=1
             None,
         );
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parsed_result_linting_respects_shellcheck_directive() {
+        let source = "\
+#!/bin/sh
+# shellcheck disable=SC2034
+foo=1
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            &output.file,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output,
+            source,
+            &indexer,
+            &LinterSettings::default(),
+            Some(&suppressions),
+            None,
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unused_assignment_suppression_stays_on_matching_binding_line() {
+        let source = "\
+#!/bin/bash
+:
+# shellcheck disable=SC2034
+foo=1
+foo=2
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            &output.file,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output,
+            source,
+            &indexer,
+            &LinterSettings::default(),
+            Some(&suppressions),
+            None,
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 5);
     }
 
     #[test]

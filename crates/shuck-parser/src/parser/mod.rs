@@ -3590,7 +3590,7 @@ impl<'a> Parser<'a> {
                     segment.kind(),
                     LexedWordSegmentKind::DoubleQuoted | LexedWordSegmentKind::DollarDoubleQuoted
                 )
-                && !text.contains("$(")
+                && (!text.contains("$(") || text.contains("$(("))
             {
                 content_span.slice(self.input)
             } else {
@@ -3879,7 +3879,7 @@ impl<'a> Parser<'a> {
             }
 
             let ch = Self::next_word_char_unwrap(&mut chars, &mut cursor);
-            if prev_char == Some('(') && ch == '#' {
+            if !in_single && !in_double && !in_backtick && prev_char == Some('(') && ch == '#' {
                 return true;
             }
 

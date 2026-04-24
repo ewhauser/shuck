@@ -5,12 +5,13 @@ use shuck_ast::{
     AnonymousFunctionCommand, ArithmeticAssignOp, ArithmeticExpr, ArithmeticExprNode,
     ArithmeticLvalue, ArithmeticUnaryOp, ArrayElem, ArrayExpr, ArrayKind, Assignment,
     AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command,
-    CompoundCommand, ConditionalExpr, DeclOperand, File, FunctionDef, HeredocBody, HeredocBodyPart,
-    HeredocBodyPartNode, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
-    PatternGroupKind, PatternPart, PatternPartNode, Span, StaticCommandWrapperTarget, Stmt,
-    StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode, ZshExpansionOperation,
-    ZshExpansionTarget, ZshGlobSegment, static_command_name_text,
-    static_command_wrapper_target_index, static_word_text, try_static_word_parts_text,
+    CompoundCommand, ConditionalExpr, ConditionalUnaryOp, DeclOperand, File, FunctionDef,
+    HeredocBody, HeredocBodyPart, HeredocBodyPartNode, Name, ParameterExpansion,
+    ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind, PatternPart, PatternPartNode,
+    Span, StaticCommandWrapperTarget, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart,
+    WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
+    static_command_name_text, static_command_wrapper_target_index, static_word_text,
+    try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::{ShellProfile, ZshEmulationMode};
@@ -449,13 +450,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
         for assignment in assignments {
-            self.visit_assignment_into(
-                assignment,
-                None,
-                BindingAttributes::empty(),
-                flow,
-                &mut nested_regions,
-            );
+            self.visit_assignment_value_into(assignment, flow, &mut nested_regions);
         }
         if let Some(word) = primary_word {
             self.visit_word_into(word, WordVisitKind::Expansion, flow, &mut nested_regions);
@@ -476,13 +471,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) -> RecordedCommandId {
         let mut nested_regions = Vec::new();
         for assignment in &command.assignments {
-            self.visit_assignment_into(
-                assignment,
-                None,
-                BindingAttributes::empty(),
-                flow,
-                &mut nested_regions,
-            );
+            self.visit_assignment_value_into(assignment, flow, &mut nested_regions);
         }
 
         let builtin = declaration_builtin(&command.variant);
@@ -1084,7 +1073,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             kind,
             scope,
             assignment.target.name_span,
-            binding_origin_for_assignment(assignment),
+            binding_origin_for_assignment(assignment, self.source),
             attributes,
         );
         if let Some(hint) = indirect_target_hint(assignment, self.source) {
@@ -2054,6 +2043,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.visit_conditional_expr_into(&expr.right, flow, nested_regions);
             }
             ConditionalExpr::Unary(expr) => {
+                if expr.op == ConditionalUnaryOp::VariableSet
+                    && let Some((name, span)) =
+                        variable_set_test_operand_name(&expr.expr, self.source)
+                {
+                    self.add_reference_if_bound(&name, ReferenceKind::ConditionalOperand, span);
+                }
                 self.visit_conditional_expr_into(&expr.expr, flow, nested_regions);
             }
             ConditionalExpr::Parenthesized(expr) => {
@@ -2481,6 +2476,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     );
                 }
             }
+            "eval" => self.record_eval_argument_references(&command.args),
             "source" | "." => {
                 if let Some(argument) = command.args.first() {
                     let source_span = self.command_stack.last().copied().unwrap_or(command.span);
@@ -2501,6 +2497,14 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             "unset" => self.record_unset_variable_targets(&command.args, flow),
             _ => {}
+        }
+    }
+
+    fn record_eval_argument_references(&mut self, args: &[Word]) {
+        for argument in args {
+            for (name, span) in eval_argument_reference_names(argument, self.source) {
+                self.add_reference_if_bound(&name, ReferenceKind::ImplicitRead, span);
+            }
         }
     }
 
@@ -3644,6 +3648,291 @@ fn getopts_target(args: &[Word], source: &str) -> Option<(Name, Span)> {
     args.get(1).and_then(|word| named_target_word(word, source))
 }
 
+fn variable_set_test_operand_name(
+    expression: &ConditionalExpr,
+    source: &str,
+) -> Option<(Name, Span)> {
+    match expression {
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            variable_name_operand_from_source(word.span.slice(source), word.span)
+        }
+        ConditionalExpr::Pattern(pattern) => {
+            variable_name_operand_from_source(pattern.span.slice(source), pattern.span)
+        }
+        ConditionalExpr::VarRef(reference) => Some((reference.name.clone(), reference.name_span)),
+        ConditionalExpr::Parenthesized(expression) => {
+            variable_set_test_operand_name(&expression.expr, source)
+        }
+        ConditionalExpr::Unary(_) | ConditionalExpr::Binary(_) => None,
+    }
+}
+
+fn variable_name_operand_from_source(text: &str, span: Span) -> Option<(Name, Span)> {
+    let leading_whitespace = text.len() - text.trim_start().len();
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let (operand, operand_start) = unquote_variable_test_operand(trimmed, leading_whitespace)?;
+    let name_end = direct_variable_test_name_end(operand)?;
+    let name = &operand[..name_end];
+    let start_position = span.start.advanced_by(&text[..operand_start]);
+    Some((
+        Name::from(name),
+        Span::from_positions(start_position, start_position.advanced_by(name)),
+    ))
+}
+
+fn unquote_variable_test_operand(text: &str, base_offset: usize) -> Option<(&str, usize)> {
+    let Some(quote) = text.chars().next().filter(|ch| matches!(ch, '"' | '\'')) else {
+        return Some((text, base_offset));
+    };
+    let quote_width = quote.len_utf8();
+    if text.len() <= quote_width || !text.ends_with(quote) {
+        return None;
+    }
+    Some((
+        &text[quote_width..text.len() - quote_width],
+        base_offset + quote_width,
+    ))
+}
+
+fn direct_variable_test_name_end(text: &str) -> Option<usize> {
+    let mut chars = text.char_indices();
+    let (_, first) = chars.next()?;
+    if !is_name_start_character(first) {
+        return None;
+    }
+
+    let mut end = first.len_utf8();
+    for (index, ch) in chars {
+        if !is_name_character(ch) {
+            break;
+        }
+        end = index + ch.len_utf8();
+    }
+
+    let trailing = &text[end..];
+    if trailing.is_empty() || valid_direct_variable_subscript(trailing) {
+        Some(end)
+    } else {
+        None
+    }
+}
+
+fn valid_direct_variable_subscript(text: &str) -> bool {
+    text.starts_with('[') && text.ends_with(']') && text.len() > 2
+}
+
+fn eval_argument_reference_names(word: &Word, source: &str) -> Vec<(Name, Span)> {
+    let source_text = word.span.slice(source);
+    let decoded = decode_eval_word_text(source_text);
+    scan_parameter_reference_names(
+        &decoded.text,
+        source_text,
+        &decoded.source_offsets,
+        word.span,
+    )
+}
+
+struct DecodedEvalText {
+    text: String,
+    source_offsets: Vec<usize>,
+}
+
+impl DecodedEvalText {
+    fn push(&mut self, ch: char, source_offset: usize) {
+        self.text.push(ch);
+        self.source_offsets
+            .extend(std::iter::repeat_n(source_offset, ch.len_utf8()));
+    }
+}
+
+fn decode_eval_word_text(source_text: &str) -> DecodedEvalText {
+    let mut decoded = DecodedEvalText {
+        text: String::new(),
+        source_offsets: Vec::new(),
+    };
+    let mut chars = source_text.char_indices().peekable();
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+
+    while let Some((index, ch)) = chars.next() {
+        if in_single_quotes {
+            if ch == '\'' {
+                in_single_quotes = false;
+            }
+            continue;
+        }
+
+        if in_double_quotes {
+            match ch {
+                '"' => in_double_quotes = false,
+                '\\' => {
+                    if let Some(&(next_index, next_ch)) = chars.peek()
+                        && matches!(next_ch, '$' | '`' | '"' | '\\' | '\n')
+                    {
+                        chars.next();
+                        if next_ch != '\n' {
+                            decoded.push(next_ch, next_index);
+                        }
+                    } else {
+                        decoded.push(ch, index);
+                    }
+                }
+                _ => decoded.push(ch, index),
+            }
+            continue;
+        }
+
+        match ch {
+            '\'' => in_single_quotes = true,
+            '"' => in_double_quotes = true,
+            '\\' => {
+                if let Some((next_index, next_ch)) = chars.next() {
+                    if next_ch != '\n' {
+                        decoded.push(next_ch, next_index);
+                    }
+                } else {
+                    decoded.push(ch, index);
+                }
+            }
+            _ => decoded.push(ch, index),
+        }
+    }
+
+    decoded
+}
+
+fn scan_parameter_reference_names(
+    text: &str,
+    source_text: &str,
+    source_offsets: &[usize],
+    span: Span,
+) -> Vec<(Name, Span)> {
+    let mut references = Vec::new();
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut in_comment = false;
+    let mut escaped = false;
+    let mut chars = text.char_indices().peekable();
+    while let Some((index, ch)) = chars.next() {
+        if in_comment {
+            if ch == '\n' {
+                in_comment = false;
+            }
+            continue;
+        }
+
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        if in_single_quotes {
+            if ch == '\'' {
+                in_single_quotes = false;
+            }
+            continue;
+        }
+
+        if ch == '\'' && !in_double_quotes {
+            in_single_quotes = true;
+            continue;
+        }
+        if ch == '"' {
+            in_double_quotes = !in_double_quotes;
+            continue;
+        }
+        if ch == '\\' {
+            if in_double_quotes {
+                if chars
+                    .peek()
+                    .is_some_and(|(_, next_ch)| matches!(next_ch, '$' | '`' | '"' | '\\' | '\n'))
+                {
+                    escaped = true;
+                }
+            } else {
+                escaped = true;
+            }
+            continue;
+        }
+        if !in_double_quotes && ch == '#' && hash_starts_eval_comment(text, index) {
+            in_comment = true;
+            continue;
+        }
+        if ch != '$' {
+            continue;
+        }
+        if chars.peek().is_some_and(|(_, next_ch)| *next_ch == '$') {
+            chars.next();
+            continue;
+        }
+
+        let after_dollar = index + ch.len_utf8();
+        let Some((name_start, name_end)) = parameter_name_bounds_after_dollar(text, after_dollar)
+        else {
+            continue;
+        };
+        let name = &text[name_start..name_end];
+        let source_name_start = source_offsets[name_start];
+        let source_name_end = source_name_start + name.len();
+        let start = span.start.advanced_by(&source_text[..source_name_start]);
+        references.push((
+            Name::from(name),
+            Span::from_positions(
+                start,
+                start.advanced_by(&source_text[source_name_start..source_name_end]),
+            ),
+        ));
+    }
+    references
+}
+
+fn hash_starts_eval_comment(text: &str, hash_offset: usize) -> bool {
+    if let Some(ch) = text[..hash_offset].chars().next_back() {
+        return ch == '\n' || ch.is_whitespace() || matches!(ch, ';' | '&' | '|');
+    }
+    true
+}
+
+fn parameter_name_bounds_after_dollar(text: &str, after_dollar: usize) -> Option<(usize, usize)> {
+    let mut chars = text[after_dollar..].char_indices();
+    let (_, first) = chars.next()?;
+    let name_start = if first == '{' {
+        after_dollar + first.len_utf8()
+    } else if is_name_start_character(first) {
+        after_dollar
+    } else {
+        return None;
+    };
+
+    let mut name_chars = text[name_start..].char_indices();
+    let (_, first_name) = name_chars.next()?;
+    if !is_name_start_character(first_name) {
+        return None;
+    }
+
+    let mut name_end = name_start + first_name.len_utf8();
+    for (index, ch) in name_chars {
+        if !is_name_character(ch) {
+            break;
+        }
+        name_end = name_start + index + ch.len_utf8();
+    }
+
+    Some((name_start, name_end))
+}
+
+fn is_name_start_character(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphabetic()
+}
+
+fn is_name_character(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphanumeric()
+}
+
 fn simple_command_has_name(command: &shuck_ast::SimpleCommand, source: &str) -> bool {
     !matches!(static_word_text(&command.name, source).as_deref(), Some(""))
 }
@@ -4169,7 +4458,7 @@ fn single_literal_word(word: &Word) -> Option<&str> {
     }
 }
 
-fn binding_origin_for_assignment(assignment: &Assignment) -> BindingOrigin {
+fn binding_origin_for_assignment(assignment: &Assignment, source: &str) -> BindingOrigin {
     let value = if assignment.target.subscript.is_some() {
         AssignmentValueOrigin::ArrayOrCompound
     } else {
@@ -4180,9 +4469,28 @@ fn binding_origin_for_assignment(assignment: &Assignment) -> BindingOrigin {
     };
 
     BindingOrigin::Assignment {
-        definition_span: assignment.target.name_span,
+        definition_span: assignment_target_span(assignment, source),
         value,
     }
+}
+
+fn assignment_target_span(assignment: &Assignment, source: &str) -> Span {
+    let Some(subscript) = assignment.target.subscript.as_ref() else {
+        return assignment.target.name_span;
+    };
+
+    let subscript_end = subscript.syntax_source_text().span().end;
+    if source
+        .get(subscript_end.offset..)
+        .is_some_and(|rest| rest.starts_with(']'))
+    {
+        return Span::from_positions(
+            assignment.target.name_span.start,
+            subscript_end.advanced_by("]"),
+        );
+    }
+
+    assignment.target.name_span
 }
 
 fn loop_binding_origin_for_words(words: Option<&[Word]>) -> LoopValueOrigin {

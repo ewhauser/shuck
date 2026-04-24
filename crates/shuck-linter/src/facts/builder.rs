@@ -56,7 +56,6 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut if_condition_command_ids = FxHashSet::default();
         let mut elif_condition_command_ids = FxHashSet::default();
         let mut binding_values = FxHashMap::default();
-        let mut binding_target_spans = FxHashMap::default();
         let mut broken_assoc_key_spans = Vec::new();
         let mut comma_array_assignment_spans = Vec::new();
         let mut ifs_literal_backslash_assignment_value_spans = Vec::new();
@@ -106,13 +105,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 elif_condition_command_ids.insert(id);
             }
 
-            collect_binding_values(
-                visit.command,
-                self.semantic,
-                self.source,
-                &mut binding_values,
-                &mut binding_target_spans,
-            );
+            collect_binding_values(visit.command, self.semantic, self.source, &mut binding_values);
             collect_broken_assoc_key_spans(visit.command, self.source, &mut broken_assoc_key_spans);
             collect_command_substitution_command_span(
                 visit.command,
@@ -297,15 +290,6 @@ impl<'a> LinterFactsBuilder<'a> {
 
         }
 
-        for binding in self.semantic.bindings() {
-            if let shuck_semantic::BindingOrigin::ArithmeticAssignment { target_span, .. } =
-                &binding.origin
-            {
-                binding_target_spans
-                    .entry(binding.id)
-                    .or_insert(*target_span);
-            }
-        }
         populate_linebreak_in_test_facts(&mut commands, self.source);
         let substitution_facts =
             build_substitution_facts(&commands, &command_ids_by_span, self.source);
@@ -592,7 +576,6 @@ impl<'a> LinterFactsBuilder<'a> {
             if_condition_command_ids,
             elif_condition_command_ids,
             binding_values,
-            binding_target_spans,
             broken_assoc_key_spans,
             comma_array_assignment_spans,
             ifs_literal_backslash_assignment_value_spans,

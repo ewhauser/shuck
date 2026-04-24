@@ -15,6 +15,20 @@ const COMMON_PREINITIALIZED: &[&str] = &[
     "LANG",
     "SUDO_USER",
     "DOAS_USER",
+    "BASH_ENV",
+    "BASH_XTRACEFD",
+    "ENV",
+    "INPUTRC",
+    "MAIL",
+    "OLDPWD",
+    "PS1",
+    "PS2",
+    "PS4",
+    "PROMPT_DIRTRIM",
+    "SECONDS",
+    "TIMEFORMAT",
+    "TMOUT",
+    "COMPREPLY",
 ];
 
 const BASH_PREINITIALIZED: &[&str] = &[
@@ -44,10 +58,7 @@ const BASH_PREINITIALIZED: &[&str] = &[
     "MAPFILE",
     "COLUMNS",
     "PROMPT_COMMAND",
-    "PS1",
-    "PS2",
     "PS3",
-    "PS4",
     "READLINE_POINT",
     "COMP_WORDBREAKS",
     "COMP_WORDS",
@@ -75,7 +86,7 @@ const BASH_PREINITIALIZED_ARRAYS: &[&str] = &[
     "PIPESTATUS",
 ];
 
-const ALWAYS_USED_BINDINGS: &[&str] = &["IFS", "PATH", "CDPATH"];
+const ALWAYS_USED_BINDINGS: &[&str] = &["IFS", "PATH", "CDPATH", "COMPREPLY", "FLAGS_PARENT"];
 const BASH_ALWAYS_USED_BINDINGS: &[&str] = &["COMPREPLY"];
 const EMPTY_IMPLICIT_READS: &[&str] = &[];
 const READ_IMPLICIT_READS: &[&str] = &["IFS"];
