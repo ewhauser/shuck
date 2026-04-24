@@ -2266,19 +2266,18 @@ f
     }
 
     #[test]
-    fn source_inside_function_in_sh_is_flagged_by_x080() {
+    fn source_inside_function_in_sh_is_not_flagged_by_x080() {
         let diagnostics = lint(
             "#!/bin/sh\nf() {\n  source ./helpers.sh\n}\n",
             &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
         );
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].rule, Rule::SourceInsideFunctionInSh);
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
-    fn source_inside_function_in_dash_is_flagged_by_x080() {
+    fn directive_pinned_source_inside_function_in_sh_is_flagged_by_x080() {
         let diagnostics = lint(
-            "#!/bin/dash\nf() {\n  source ./helpers.sh\n}\n",
+            "#!/bin/sh\nf() {\n  # shellcheck source=/dev/null\n  source ./helpers.sh\n}\n",
             &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
         );
         assert_eq!(diagnostics.len(), 1);
@@ -2286,9 +2285,9 @@ f
     }
 
     #[test]
-    fn guarded_source_inside_function_in_sh_is_flagged_by_x080() {
+    fn directive_pinned_source_inside_function_in_dash_is_flagged_by_x080() {
         let diagnostics = lint(
-            "#!/bin/sh\nf() {\n  [ -r ./helpers.sh ] && source ./helpers.sh\n}\n",
+            "#!/bin/dash\nf() {\n  # shellcheck source=/dev/null\n  source ./helpers.sh\n}\n",
             &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
         );
         assert_eq!(diagnostics.len(), 1);
@@ -2296,9 +2295,19 @@ f
     }
 
     #[test]
-    fn source_inside_function_command_substitution_in_sh_is_flagged_by_x080() {
+    fn directive_pinned_guarded_source_inside_function_in_sh_is_flagged_by_x080() {
         let diagnostics = lint(
-            "#!/bin/sh\nf() {\n  version=$(source ./helpers.sh && echo \"$name\")\n}\n",
+            "#!/bin/sh\nf() {\n  # shellcheck source=/dev/null\n  [ -r ./helpers.sh ] && source ./helpers.sh\n}\n",
+            &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::SourceInsideFunctionInSh);
+    }
+
+    #[test]
+    fn directive_pinned_source_inside_function_command_substitution_in_sh_is_flagged_by_x080() {
+        let diagnostics = lint(
+            "#!/bin/sh\nf() {\n  version=$(\n    # shellcheck source=/dev/null\n    source ./helpers.sh && echo \"$name\"\n  )\n}\n",
             &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
         );
         assert_eq!(diagnostics.len(), 1);
@@ -2511,6 +2520,16 @@ f
     fn source_builtin_in_command_substitution_is_flagged() {
         let diagnostics = lint(
             "#!/bin/sh\nversion=$(source ./helpers.sh)\n",
+            &LinterSettings::for_rule(Rule::SourceBuiltinInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::SourceBuiltinInSh);
+    }
+
+    #[test]
+    fn source_builtin_inside_function_is_flagged_by_x031() {
+        let diagnostics = lint(
+            "#!/bin/sh\nload() {\n  source ./helpers.sh\n}\n",
             &LinterSettings::for_rule(Rule::SourceBuiltinInSh),
         );
         assert_eq!(diagnostics.len(), 1);

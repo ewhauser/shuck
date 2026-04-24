@@ -10,7 +10,7 @@ shells:
   - bash
   - dash
   - ksh
-description: Command substitution captures ls output for processing.
+description: A pipeline processes ls output.
 rationale: Use a glob or find to avoid parsing ls output.
 safe_fix: false
 fix_description: null

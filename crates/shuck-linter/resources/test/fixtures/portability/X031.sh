@@ -6,7 +6,7 @@ source ./helpers.sh
 # Should trigger: wrapped source builtin still resolves to source
 command source ./wrapped.sh
 
-# Should not trigger: function-local source belongs to X080 instead
+# Should trigger: ShellCheck reports the generic source portability code here too
 inside_function() {
   source ./inside.sh
 }

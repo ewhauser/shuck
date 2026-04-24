@@ -1,27 +1,8 @@
 use shuck_ast::{Command, Redirect, SimpleCommand, Span};
-use shuck_semantic::ScopeKind;
 
-use crate::{Checker, ShellDialect};
+use crate::{Checker, CommandFact, ShellDialect};
 
-#[derive(Clone, Copy)]
-pub(super) enum SourceScopeFilter {
-    InsideFunction,
-    OutsideFunction,
-}
-
-impl SourceScopeFilter {
-    fn matches(self, inside_function: bool) -> bool {
-        match self {
-            Self::InsideFunction => inside_function,
-            Self::OutsideFunction => !inside_function,
-        }
-    }
-}
-
-pub(super) fn source_command_spans_in_sh(
-    checker: &Checker<'_>,
-    filter: SourceScopeFilter,
-) -> Vec<Span> {
+pub(super) fn source_command_spans_in_sh(checker: &Checker<'_>) -> Vec<Span> {
     if !matches!(checker.shell(), ShellDialect::Sh | ShellDialect::Dash) {
         return Vec::new();
     }
@@ -32,17 +13,12 @@ pub(super) fn source_command_spans_in_sh(
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("source"))
-        .filter(|fact| filter.matches(inside_function(checker, fact.span())))
-        .map(|fact| source_anchor_span(fact.command(), fact.redirects(), fact.span(), source))
+        .map(|fact| source_anchor_span_for_command_fact(fact, source))
         .collect()
 }
 
-fn inside_function(checker: &Checker<'_>, span: Span) -> bool {
-    let scope = checker.semantic().scope_at(span.start.offset);
-    checker
-        .semantic()
-        .ancestor_scopes(scope)
-        .any(|scope| matches!(checker.semantic().scope_kind(scope), ScopeKind::Function(_)))
+pub(super) fn source_anchor_span_for_command_fact(fact: &CommandFact<'_>, source: &str) -> Span {
+    source_anchor_span(fact.command(), fact.redirects(), fact.span(), source)
 }
 
 fn source_anchor_span(

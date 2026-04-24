@@ -10,10 +10,10 @@ shells:
   - bash
   - dash
   - ksh
-description: The output of a command substitution is used as a condition.
-rationale: "Remove the `$( )` wrapper and test the command exit status directly."
+description: The output of a command substitution is executed as a command.
+rationale: "Remove the `$( )` wrapper and run the command directly so its exit status is tested."
 safe_fix: false
-fix_description: "Remove the surrounding `$(` and `)` from the reported condition command substitution."
+fix_description: "Remove the surrounding `$(` and `)` from the reported command substitution."
 source:
   shell_checks_rule: rules/SH-220.yaml
   shell_checks_example: examples/220.sh
@@ -22,4 +22,4 @@ examples:
     source: shell-checks/examples/220.sh
     code: |
       #!/bin/bash
-      if $(python3 -c 'import sys' 2>/dev/null); then echo ok; fi
+      $(python3 -c 'import sys' 2>/dev/null)

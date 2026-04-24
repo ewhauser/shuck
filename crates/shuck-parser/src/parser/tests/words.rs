@@ -2177,10 +2177,163 @@ fn test_brace_syntax_marks_template_placeholders_inside_quotes() {
 }
 
 #[test]
+fn test_brace_syntax_marks_nested_expansions_separately() {
+    let input = "{EGL,GLES{,2,3}}";
+    let word = Parser::parse_word_string(input);
+
+    assert_eq!(
+        brace_slices(&word, input),
+        vec!["{EGL,GLES{,2,3}}", "{,2,3}"]
+    );
+    assert!(word.brace_syntax().iter().all(|brace| brace.expands()));
+}
+
+#[test]
+fn test_brace_syntax_marks_all_nested_comma_lists() {
+    let input =
+        "usr/include/{sys/{capability,shm,sem},{glob,iconv,spawn,zlib,zconf},KHR/khrplatform}.h";
+    let word = Parser::parse_word_string(input);
+
+    assert_eq!(
+        brace_slices(&word, input),
+        vec![
+            "{sys/{capability,shm,sem},{glob,iconv,spawn,zlib,zconf},KHR/khrplatform}",
+            "{capability,shm,sem}",
+            "{glob,iconv,spawn,zlib,zconf}",
+        ]
+    );
+}
+
+#[test]
+fn test_brace_syntax_spans_quoted_members_inside_unquoted_lists() {
+    let input =
+        "\"$TERMUX_GODIR\"/{bin,src,doc,lib,\"pkg/tool/$TERMUX_GOLANG_DIRNAME\",pkg/include}";
+    let word = Parser::parse_word_string(input);
+
+    assert_eq!(
+        brace_slices(&word, input),
+        vec!["{bin,src,doc,lib,\"pkg/tool/$TERMUX_GOLANG_DIRNAME\",pkg/include}"]
+    );
+    assert!(word.has_active_brace_expansion());
+}
+
+#[test]
+fn test_brace_syntax_does_not_treat_double_open_braces_as_template_placeholders_when_they_expand() {
+    let input = "lib{{pthread,resolv,ffi_pic}.a,rt.so}";
+    let word = Parser::parse_word_string(input);
+
+    assert_eq!(
+        brace_slices(&word, input),
+        vec![
+            "{{pthread,resolv,ffi_pic}.a,rt.so}",
+            "{pthread,resolv,ffi_pic}"
+        ]
+    );
+    assert!(word.brace_syntax().iter().all(|brace| brace.expands()));
+}
+
+#[test]
 fn test_brace_syntax_ignores_escaped_unquoted_braces() {
     let word = Parser::parse_word_string("\\{a,b\\}");
     assert!(word.brace_syntax().is_empty());
     assert!(!word.has_active_brace_expansion());
+}
+
+#[test]
+fn test_brace_syntax_keeps_ansi_c_escaped_quotes_inside_single_quoted_regions() {
+    let input = r#"$'foo\'{a,b}'"#;
+    let word = Parser::parse_word_string(input);
+
+    assert_eq!(brace_slices(&word, input), vec!["{a,b}"]);
+    assert!(
+        word.brace_syntax()
+            .iter()
+            .all(|brace| brace.treated_literally())
+    );
+    assert!(!word.has_active_brace_expansion());
+}
+
+#[test]
+fn test_brace_syntax_does_not_merge_dots_across_skipped_expansion_parts() {
+    let input = "{1.$x.3}";
+    let word = Parser::parse_word_string(input);
+
+    assert_eq!(brace_slices(&word, input), vec!["{1.$x.3}"]);
+    assert!(
+        word.brace_syntax()
+            .iter()
+            .all(|brace| brace.treated_literally())
+    );
+    assert!(!word.has_active_brace_expansion());
+}
+
+#[test]
+fn test_brace_syntax_ignores_quoted_closers_when_balancing_cross_part_lists() {
+    let input = r#"{"}",a}"#;
+    let word = Parser::parse_word_string(input);
+
+    assert_eq!(brace_slices(&word, input), vec![input]);
+    assert_eq!(
+        word.brace_syntax()[0].kind,
+        BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList)
+    );
+    assert!(word.has_active_brace_expansion());
+}
+
+#[test]
+fn test_parse_word_with_mid_word_brace_segment_ignores_quoted_closers() {
+    let input = "echo {\"}\",a}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    assert_eq!(command.args.len(), 1);
+    assert_eq!(command.args[0].span.slice(input), r#"{"}",a}"#);
+    assert_eq!(brace_slices(&command.args[0], input), vec![r#"{"}",a}"#]);
+    assert!(command.args[0].has_active_brace_expansion());
+}
+
+#[test]
+fn test_parse_brace_expansion_with_single_quoted_backslash_member_keeps_following_args() {
+    let input = "echo {'a\\',b} next\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    assert_eq!(command.args.len(), 2);
+    assert_eq!(command.args[0].span.slice(input), r#"{'a\',b}"#);
+    assert_eq!(command.args[1].span.slice(input), "next");
+    assert!(command.args[0].has_active_brace_expansion());
+}
+
+#[test]
+fn test_brace_syntax_handles_deeply_nested_braces_without_recursion() {
+    let depth = 8192usize;
+    let mut input = String::with_capacity(depth * 3 + 2);
+    for _ in 0..depth {
+        input.push('{');
+        input.push('a');
+    }
+    input.push(',');
+    input.push('b');
+    for _ in 0..depth {
+        input.push('}');
+    }
+
+    let word = Parser::parse_word_string(&input);
+
+    assert_eq!(word.brace_syntax().len(), depth);
+    assert_eq!(
+        word.brace_syntax()
+            .iter()
+            .filter(|brace| brace.expands())
+            .count(),
+        1
+    );
+    assert_eq!(brace_slices(&word, &input).last().copied(), Some("{a,b}"));
+    assert!(word.has_active_brace_expansion());
 }
 
 #[test]

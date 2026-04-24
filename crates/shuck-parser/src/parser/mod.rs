@@ -2197,6 +2197,15 @@ impl<'a> Parser<'a> {
         }
         let mut brace_syntax = Vec::new();
         self.collect_brace_syntax_from_parts(parts, BraceQuoteContext::Unquoted, &mut brace_syntax);
+        brace_syntax.sort_by_key(|brace| (brace.span.start.offset, brace.span.end.offset));
+        brace_syntax.dedup_by_key(|brace| {
+            (
+                brace.span.start.offset,
+                brace.span.end.offset,
+                brace.quote_context,
+                brace.kind,
+            )
+        });
         brace_syntax
     }
 
@@ -2209,17 +2218,14 @@ impl<'a> Parser<'a> {
         for part in parts {
             match &part.kind {
                 WordPart::Literal(text) => Self::scan_brace_syntax_text(
-                    text.as_str(self.input, part.span),
+                    text.syntax_str(self.input, part.span),
                     part.span.start,
                     quote_context,
                     out,
                 ),
-                WordPart::ZshQualifiedGlob(glob) => {
-                    self.collect_brace_syntax_from_zsh_qualified_glob(glob, quote_context, out)
-                }
-                WordPart::SingleQuoted { value, .. } => Self::scan_brace_syntax_text(
-                    value.slice(self.input),
-                    value.span().start,
+                WordPart::SingleQuoted { .. } => Self::scan_brace_syntax_text(
+                    part.span.slice(self.input),
+                    part.span.start,
                     BraceQuoteContext::SingleQuoted,
                     out,
                 ),
@@ -2228,6 +2234,9 @@ impl<'a> Parser<'a> {
                     BraceQuoteContext::DoubleQuoted,
                     out,
                 ),
+                WordPart::ZshQualifiedGlob(glob) => {
+                    self.collect_brace_syntax_from_zsh_qualified_glob(glob, quote_context, out)
+                }
                 WordPart::Variable(_)
                 | WordPart::CommandSubstitution { .. }
                 | WordPart::ArithmeticExpansion { .. }
@@ -2244,6 +2253,456 @@ impl<'a> Parser<'a> {
                 | WordPart::ProcessSubstitution { .. }
                 | WordPart::Transformation { .. } => {}
             }
+        }
+
+        if self.needs_cross_part_brace_scan(parts) {
+            let mut chars = Vec::new();
+            self.collect_brace_scan_chars_from_parts(parts, &mut chars);
+            Self::scan_brace_syntax_chars(&chars, quote_context, out);
+        }
+    }
+
+    fn needs_cross_part_brace_scan(&self, parts: &[WordPartNode]) -> bool {
+        if parts.len() < 2 {
+            return false;
+        }
+
+        let mut cursor = parts[0].span.start.offset;
+        for part in parts {
+            if part.span.start.offset > cursor
+                && self.input[cursor..part.span.start.offset].contains(['{', '}'])
+            {
+                return true;
+            }
+
+            let has_brace_text = match &part.kind {
+                WordPart::Literal(text) => {
+                    text.syntax_str(self.input, part.span).contains(['{', '}'])
+                }
+                WordPart::SingleQuoted { .. }
+                | WordPart::DoubleQuoted { .. }
+                | WordPart::ZshQualifiedGlob(_) => part.span.slice(self.input).contains(['{', '}']),
+                WordPart::Variable(_)
+                | WordPart::CommandSubstitution { .. }
+                | WordPart::ArithmeticExpansion { .. }
+                | WordPart::Parameter(_)
+                | WordPart::ParameterExpansion { .. }
+                | WordPart::Length(_)
+                | WordPart::ArrayAccess(_)
+                | WordPart::ArrayLength(_)
+                | WordPart::ArrayIndices(_)
+                | WordPart::Substring { .. }
+                | WordPart::ArraySlice { .. }
+                | WordPart::IndirectExpansion { .. }
+                | WordPart::PrefixMatch { .. }
+                | WordPart::ProcessSubstitution { .. }
+                | WordPart::Transformation { .. } => false,
+            };
+            if has_brace_text {
+                return true;
+            }
+
+            cursor = part.span.end.offset;
+        }
+
+        false
+    }
+
+    fn collect_brace_scan_chars_from_parts(
+        &self,
+        parts: &[WordPartNode],
+        out: &mut Vec<(char, Position)>,
+    ) {
+        for part in parts {
+            match &part.kind {
+                WordPart::Literal(text) => {
+                    Self::push_brace_scan_text(
+                        text.syntax_str(self.input, part.span),
+                        part.span.start,
+                        out,
+                    );
+                }
+                WordPart::SingleQuoted { .. } => {
+                    Self::push_brace_scan_text(part.span.slice(self.input), part.span.start, out);
+                }
+                WordPart::DoubleQuoted { parts, .. } => {
+                    self.collect_brace_scan_chars_from_double_quoted_part(part.span, parts, out);
+                }
+                WordPart::ZshQualifiedGlob(_) => {}
+                WordPart::Variable(_)
+                | WordPart::CommandSubstitution { .. }
+                | WordPart::ArithmeticExpansion { .. }
+                | WordPart::Parameter(_)
+                | WordPart::ParameterExpansion { .. }
+                | WordPart::Length(_)
+                | WordPart::ArrayAccess(_)
+                | WordPart::ArrayLength(_)
+                | WordPart::ArrayIndices(_)
+                | WordPart::Substring { .. }
+                | WordPart::ArraySlice { .. }
+                | WordPart::IndirectExpansion { .. }
+                | WordPart::PrefixMatch { .. }
+                | WordPart::ProcessSubstitution { .. }
+                | WordPart::Transformation { .. } => {
+                    Self::push_brace_scan_boundary(part.span.start, out);
+                }
+            }
+        }
+    }
+
+    fn collect_brace_scan_chars_from_double_quoted_part(
+        &self,
+        span: Span,
+        parts: &[WordPartNode],
+        out: &mut Vec<(char, Position)>,
+    ) {
+        let mut cursor_offset = span.start.offset;
+        let mut cursor_position = span.start;
+
+        for part in parts {
+            if part.span.start.offset > cursor_offset
+                && let Some(raw) = self.input.get(cursor_offset..part.span.start.offset)
+            {
+                Self::push_brace_scan_text(raw, cursor_position, out);
+            }
+
+            match &part.kind {
+                WordPart::Literal(text) => {
+                    Self::push_brace_scan_text(
+                        text.syntax_str(self.input, part.span),
+                        part.span.start,
+                        out,
+                    );
+                }
+                WordPart::SingleQuoted { .. } => {
+                    Self::push_brace_scan_text(part.span.slice(self.input), part.span.start, out);
+                }
+                WordPart::DoubleQuoted { parts, .. } => {
+                    self.collect_brace_scan_chars_from_double_quoted_part(part.span, parts, out);
+                }
+                WordPart::ZshQualifiedGlob(_) => {}
+                WordPart::Variable(_)
+                | WordPart::CommandSubstitution { .. }
+                | WordPart::ArithmeticExpansion { .. }
+                | WordPart::Parameter(_)
+                | WordPart::ParameterExpansion { .. }
+                | WordPart::Length(_)
+                | WordPart::ArrayAccess(_)
+                | WordPart::ArrayLength(_)
+                | WordPart::ArrayIndices(_)
+                | WordPart::Substring { .. }
+                | WordPart::ArraySlice { .. }
+                | WordPart::IndirectExpansion { .. }
+                | WordPart::PrefixMatch { .. }
+                | WordPart::ProcessSubstitution { .. }
+                | WordPart::Transformation { .. } => {
+                    Self::push_brace_scan_boundary(part.span.start, out);
+                }
+            }
+
+            cursor_offset = part.span.end.offset;
+            cursor_position = part.span.end;
+        }
+
+        if cursor_offset < span.end.offset
+            && let Some(raw) = self.input.get(cursor_offset..span.end.offset)
+        {
+            Self::push_brace_scan_text(raw, cursor_position, out);
+        }
+    }
+
+    fn push_brace_scan_text(text: &str, start: Position, out: &mut Vec<(char, Position)>) {
+        let mut position = start;
+        for ch in text.chars() {
+            out.push((ch, position));
+            position.advance(ch);
+        }
+    }
+
+    fn push_brace_scan_boundary(position: Position, out: &mut Vec<(char, Position)>) {
+        out.push(('\0', position));
+    }
+
+    fn scan_brace_syntax_chars(
+        chars: &[(char, Position)],
+        initial_quote_context: BraceQuoteContext,
+        out: &mut Vec<BraceSyntax>,
+    ) {
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum QuoteState {
+            Single,
+            AnsiSingle,
+            Double,
+        }
+
+        #[derive(Clone, Copy)]
+        struct Candidate {
+            start: Position,
+            quote_context: BraceQuoteContext,
+            has_comma: bool,
+            has_dot_dot: bool,
+            saw_unquoted_whitespace: bool,
+            saw_quote_boundary: bool,
+            prev_char: Option<char>,
+        }
+
+        fn quote_state(context: BraceQuoteContext) -> Option<QuoteState> {
+            match context {
+                BraceQuoteContext::Unquoted => None,
+                BraceQuoteContext::SingleQuoted => Some(QuoteState::Single),
+                BraceQuoteContext::DoubleQuoted => Some(QuoteState::Double),
+            }
+        }
+
+        fn quote_context(state: Option<QuoteState>) -> BraceQuoteContext {
+            match state {
+                None => BraceQuoteContext::Unquoted,
+                Some(QuoteState::Single | QuoteState::AnsiSingle) => {
+                    BraceQuoteContext::SingleQuoted
+                }
+                Some(QuoteState::Double) => BraceQuoteContext::DoubleQuoted,
+            }
+        }
+
+        fn quote_context_is_active(context: BraceQuoteContext, state: Option<QuoteState>) -> bool {
+            match context {
+                BraceQuoteContext::Unquoted => state.is_none(),
+                BraceQuoteContext::SingleQuoted => {
+                    matches!(state, Some(QuoteState::Single | QuoteState::AnsiSingle))
+                }
+                BraceQuoteContext::DoubleQuoted => matches!(state, Some(QuoteState::Double)),
+            }
+        }
+
+        fn last_active_candidate_index(
+            stack: &[Candidate],
+            state: Option<QuoteState>,
+        ) -> Option<usize> {
+            stack
+                .iter()
+                .rposition(|candidate| quote_context_is_active(candidate.quote_context, state))
+        }
+
+        fn template_placeholder_end(
+            chars: &[(char, Position)],
+            start: usize,
+            quote_context: BraceQuoteContext,
+        ) -> Option<usize> {
+            if chars.get(start)?.0 != '{' || chars.get(start + 1)?.0 != '{' {
+                return None;
+            }
+
+            let mut index = start + 2;
+            let mut depth = 1usize;
+
+            while index < chars.len() {
+                if matches!(quote_context, BraceQuoteContext::Unquoted) && chars[index].0 == '\\' {
+                    index += 1;
+                    if index < chars.len() {
+                        index += 1;
+                    }
+                    continue;
+                }
+
+                if chars.get(index).is_some_and(|(ch, _)| *ch == '{')
+                    && chars.get(index + 1).is_some_and(|(ch, _)| *ch == '{')
+                {
+                    depth += 1;
+                    index += 2;
+                    continue;
+                }
+
+                if chars.get(index).is_some_and(|(ch, _)| *ch == '}')
+                    && chars.get(index + 1).is_some_and(|(ch, _)| *ch == '}')
+                {
+                    depth -= 1;
+                    index += 2;
+                    if depth == 0 {
+                        return Some(index);
+                    }
+                    continue;
+                }
+
+                index += 1;
+            }
+
+            None
+        }
+
+        fn brace_span(start: Position, end: (char, Position)) -> Span {
+            let mut end_position = end.1;
+            end_position.advance(end.0);
+            Span::from_positions(start, end_position)
+        }
+
+        let mut index = 0usize;
+        let mut quote_state = quote_state(initial_quote_context);
+        let mut stack = Vec::<Candidate>::new();
+
+        while index < chars.len() {
+            let ch = chars[index].0;
+
+            if matches!(
+                quote_state,
+                None | Some(QuoteState::AnsiSingle) | Some(QuoteState::Double)
+            ) && ch == '\\'
+            {
+                if let Some(candidate_index) = last_active_candidate_index(&stack, quote_state) {
+                    stack[candidate_index].prev_char = None;
+                }
+                index += 1;
+                if index < chars.len() {
+                    index += 1;
+                }
+                continue;
+            }
+
+            let current_quote_context = quote_context(quote_state);
+            if ch == '{'
+                && let Some(end_index) =
+                    template_placeholder_end(chars, index, current_quote_context)
+            {
+                out.push(BraceSyntax {
+                    kind: BraceSyntaxKind::TemplatePlaceholder,
+                    span: brace_span(chars[index].1, chars[end_index - 1]),
+                    quote_context: current_quote_context,
+                });
+                if let Some(candidate_index) = last_active_candidate_index(&stack, quote_state) {
+                    stack[candidate_index].prev_char = None;
+                }
+                index = end_index;
+                continue;
+            }
+
+            match quote_state {
+                None => match ch {
+                    '\'' => {
+                        quote_state = if index > 0 && chars[index - 1].0 == '$' {
+                            Some(QuoteState::AnsiSingle)
+                        } else {
+                            Some(QuoteState::Single)
+                        };
+                        for candidate in &mut stack {
+                            if matches!(candidate.quote_context, BraceQuoteContext::Unquoted) {
+                                candidate.saw_quote_boundary = true;
+                            }
+                        }
+                    }
+                    '"' => {
+                        quote_state = Some(QuoteState::Double);
+                        for candidate in &mut stack {
+                            if matches!(candidate.quote_context, BraceQuoteContext::Unquoted) {
+                                candidate.saw_quote_boundary = true;
+                            }
+                        }
+                    }
+                    _ => {}
+                },
+                Some(QuoteState::Single) => {
+                    if ch == '\'' {
+                        quote_state = None;
+                        for candidate in &mut stack {
+                            if matches!(candidate.quote_context, BraceQuoteContext::Unquoted) {
+                                candidate.saw_quote_boundary = true;
+                            }
+                        }
+                    }
+                }
+                Some(QuoteState::AnsiSingle) => {
+                    if ch == '\'' {
+                        quote_state = None;
+                        for candidate in &mut stack {
+                            if matches!(candidate.quote_context, BraceQuoteContext::Unquoted) {
+                                candidate.saw_quote_boundary = true;
+                            }
+                        }
+                    }
+                }
+                Some(QuoteState::Double) => {
+                    if ch == '"' {
+                        quote_state = None;
+                        for candidate in &mut stack {
+                            if matches!(candidate.quote_context, BraceQuoteContext::Unquoted) {
+                                candidate.saw_quote_boundary = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            match ch {
+                '{' => {
+                    stack.push(Candidate {
+                        start: chars[index].1,
+                        quote_context: current_quote_context,
+                        has_comma: false,
+                        has_dot_dot: false,
+                        saw_unquoted_whitespace: false,
+                        saw_quote_boundary: false,
+                        prev_char: Some(ch),
+                    });
+                    index += 1;
+                    continue;
+                }
+                '}' => {
+                    if let Some(candidate_index) = last_active_candidate_index(&stack, quote_state)
+                    {
+                        let candidate = stack.remove(candidate_index);
+                        let kind = if matches!(candidate.quote_context, BraceQuoteContext::Unquoted)
+                            && candidate.saw_unquoted_whitespace
+                        {
+                            BraceSyntaxKind::Literal
+                        } else if candidate.has_comma {
+                            BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList)
+                        } else if candidate.has_dot_dot {
+                            BraceSyntaxKind::Expansion(BraceExpansionKind::Sequence)
+                        } else {
+                            BraceSyntaxKind::Literal
+                        };
+                        if !matches!(kind, BraceSyntaxKind::Literal)
+                            || !candidate.saw_quote_boundary
+                        {
+                            out.push(BraceSyntax {
+                                kind,
+                                span: brace_span(candidate.start, chars[index]),
+                                quote_context: candidate.quote_context,
+                            });
+                        }
+                    }
+                }
+                _ => {
+                    if let Some(candidate_index) = last_active_candidate_index(&stack, quote_state)
+                    {
+                        let candidate = &mut stack[candidate_index];
+                        let counts_as_top_level =
+                            quote_context_is_active(candidate.quote_context, quote_state);
+
+                        if counts_as_top_level {
+                            match ch {
+                                ',' => candidate.has_comma = true,
+                                '.' if candidate.prev_char == Some('.') => {
+                                    candidate.has_dot_dot = true;
+                                }
+                                c if matches!(
+                                    candidate.quote_context,
+                                    BraceQuoteContext::Unquoted
+                                ) && quote_state.is_none()
+                                    && c.is_whitespace() =>
+                                {
+                                    candidate.saw_unquoted_whitespace = true;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let Some(candidate_index) = last_active_candidate_index(&stack, quote_state) {
+                stack[candidate_index].prev_char = Some(ch);
+            }
+
+            index += 1;
         }
     }
 
@@ -2299,63 +2758,106 @@ impl<'a> Parser<'a> {
         quote_context: BraceQuoteContext,
         out: &mut Vec<BraceSyntax>,
     ) {
-        let bytes = text.as_bytes();
-        let mut index = 0;
-        let mut position = base;
+        #[derive(Clone, Copy)]
+        struct ScanFrame<'a> {
+            text: &'a str,
+            index: usize,
+            position: Position,
+        }
 
-        while index < bytes.len() {
-            let next_special = if matches!(quote_context, BraceQuoteContext::Unquoted) {
-                memchr2(b'{', b'\\', &bytes[index..]).map(|relative| index + relative)
-            } else {
-                memchr(b'{', &bytes[index..]).map(|relative| index + relative)
-            };
+        let mut work = vec![ScanFrame {
+            text,
+            index: 0,
+            position: base,
+        }];
 
-            let Some(next_index) = next_special else {
-                return;
-            };
+        while let Some(mut frame) = work.pop() {
+            let bytes = frame.text.as_bytes();
 
-            if next_index > index {
-                position = position.advanced_by(&text[index..next_index]);
-                index = next_index;
-            }
+            while frame.index < bytes.len() {
+                let next_special = if matches!(quote_context, BraceQuoteContext::Unquoted) {
+                    memchr2(b'{', b'\\', &bytes[frame.index..])
+                        .map(|relative| frame.index + relative)
+                } else {
+                    memchr(b'{', &bytes[frame.index..]).map(|relative| frame.index + relative)
+                };
 
-            if matches!(quote_context, BraceQuoteContext::Unquoted) && bytes[index] == b'\\' {
-                let escaped_start = index;
-                index += 1;
-                if let Some(next) = text[index..].chars().next() {
-                    index += next.len_utf8();
+                let Some(next_index) = next_special else {
+                    break;
+                };
+
+                if next_index > frame.index {
+                    frame.position = frame
+                        .position
+                        .advanced_by(&frame.text[frame.index..next_index]);
+                    frame.index = next_index;
                 }
-                position = position.advanced_by(&text[escaped_start..index]);
-                continue;
-            }
 
-            let brace_start = position;
-            if let Some(len) = Self::template_placeholder_len(text, index, quote_context) {
-                let brace_end = brace_start.advanced_by(&text[index..index + len]);
-                out.push(BraceSyntax {
-                    kind: BraceSyntaxKind::TemplatePlaceholder,
-                    span: Span::from_positions(brace_start, brace_end),
-                    quote_context,
-                });
-                position = brace_end;
-                index += len;
-                continue;
-            }
+                if matches!(quote_context, BraceQuoteContext::Unquoted)
+                    && bytes[frame.index] == b'\\'
+                {
+                    let escaped_start = frame.index;
+                    frame.index += 1;
+                    if let Some(next) = frame.text[frame.index..].chars().next() {
+                        frame.index += next.len_utf8();
+                    }
+                    frame.position = frame
+                        .position
+                        .advanced_by(&frame.text[escaped_start..frame.index]);
+                    continue;
+                }
 
-            if let Some((len, kind)) = Self::brace_construct_len(text, index, quote_context) {
-                let brace_end = brace_start.advanced_by(&text[index..index + len]);
-                out.push(BraceSyntax {
-                    kind,
-                    span: Span::from_positions(brace_start, brace_end),
-                    quote_context,
-                });
-                position = brace_end;
-                index += len;
-                continue;
-            }
+                let brace_start = frame.position;
+                if let Some(len) =
+                    Self::template_placeholder_len(frame.text, frame.index, quote_context)
+                {
+                    let brace_end =
+                        brace_start.advanced_by(&frame.text[frame.index..frame.index + len]);
+                    out.push(BraceSyntax {
+                        kind: BraceSyntaxKind::TemplatePlaceholder,
+                        span: Span::from_positions(brace_start, brace_end),
+                        quote_context,
+                    });
+                    frame.position = brace_end;
+                    frame.index += len;
+                    continue;
+                }
 
-            position.advance('{');
-            index += '{'.len_utf8();
+                if let Some((len, kind)) =
+                    Self::brace_construct_len(frame.text, frame.index, quote_context)
+                {
+                    let brace_end =
+                        brace_start.advanced_by(&frame.text[frame.index..frame.index + len]);
+                    out.push(BraceSyntax {
+                        kind,
+                        span: Span::from_positions(brace_start, brace_end),
+                        quote_context,
+                    });
+
+                    frame.position = brace_end;
+                    frame.index += len;
+
+                    if len > 2 {
+                        let inner_start = frame.index - len + '{'.len_utf8();
+                        let inner_end = frame.index - '}'.len_utf8();
+                        if inner_start < inner_end {
+                            let inner_base = brace_start.advanced_by("{");
+                            work.push(frame);
+                            work.push(ScanFrame {
+                                text: &frame.text[inner_start..inner_end],
+                                index: 0,
+                                position: inner_base,
+                            });
+                            break;
+                        }
+                    }
+
+                    continue;
+                }
+
+                frame.position.advance('{');
+                frame.index += '{'.len_utf8();
+            }
         }
     }
 

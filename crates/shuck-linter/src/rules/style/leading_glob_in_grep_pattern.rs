@@ -22,6 +22,8 @@ pub fn leading_glob_in_grep_pattern(checker: &mut Checker) {
         .filter(|grep| !grep.uses_fixed_strings)
         .flat_map(|grep| grep.patterns().iter())
         .filter(|pattern| pattern.source_kind().uses_separate_pattern_word())
+        .filter(|pattern| pattern.is_first_pattern())
+        .filter(|pattern| !pattern.follows_separate_option_argument())
         .filter(|pattern| pattern.starts_with_glob_style_star())
         .map(|pattern| pattern.span())
         .collect::<Vec<_>>();
@@ -46,6 +48,7 @@ grep *CMD \"$AUDIT_FILE\"
 grep -e '*LABEL' \"$AUDIT_FILE\"
 grep --regexp '*EXPOSE' \"$AUDIT_FILE\"
 grep -v '^*' \"$AUDIT_FILE\"
+grep --max-count=1 '*ONE' \"$AUDIT_FILE\"
 ";
         let diagnostics = test_snippet(
             source,
@@ -66,6 +69,7 @@ grep -v '^*' \"$AUDIT_FILE\"
                 "'*LABEL'",
                 "'*EXPOSE'",
                 "'^*'",
+                "'*ONE'",
             ]
         );
     }
@@ -79,6 +83,10 @@ grep '.*MAINTAINER' \"$AUDIT_FILE\"
 grep -F '*MAINTAINER' \"$AUDIT_FILE\"
 grep -e'*MAINTAINER' \"$AUDIT_FILE\"
 grep --regexp='*MAINTAINER' \"$AUDIT_FILE\"
+grep -e 'LABEL' -e '*MAINTAINER' \"$AUDIT_FILE\"
+grep -m 1 '*MAINTAINER' \"$AUDIT_FILE\"
+grep --max-count 1 --regexp '*MAINTAINER' \"$AUDIT_FILE\"
+grep -A 1 -e '*MAINTAINER' \"$AUDIT_FILE\"
 grep '^*$' \"$AUDIT_FILE\"
 grep '^*foo' \"$AUDIT_FILE\"
 grep \"$pattern\" \"$AUDIT_FILE\"

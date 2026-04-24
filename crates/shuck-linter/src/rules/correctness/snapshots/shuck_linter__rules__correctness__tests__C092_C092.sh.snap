@@ -1,32 +1,32 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
-assertion_line: 217
+assertion_line: 283
 ---
-C092 use the command's exit status directly instead of executing `$(...)` output as a condition
+C092 use the command's exit status directly instead of executing the output from `$(...)`
  --> <source>:4:4
   |
 4 | if $(python3 -c 'import sys' 2>/dev/null); then echo ok; fi
   |
 
-C092 use the command's exit status directly instead of executing `$(...)` output as a condition
+C092 use the command's exit status directly instead of executing the output from `$(...)`
  --> <source>:7:7
   |
 7 | while $(false); do break; done
   |
 
-C092 use the command's exit status directly instead of executing `$(...)` output as a condition
+C092 use the command's exit status directly instead of executing the output from `$(...)`
  --> <source>:8:7
   |
 8 | until $(false); do break; done
   |
 
-C092 use the command's exit status directly instead of executing `$(...)` output as a condition
+C092 use the command's exit status directly instead of executing the output from `$(...)`
   --> <source>:11:6
    |
 11 | if ! $(false); then echo no; fi
    |
 
-C092 use the command's exit status directly instead of executing `$(...)` output as a condition
+C092 use the command's exit status directly instead of executing the output from `$(...)`
   --> <source>:12:11
    |
 12 | if foo && $(false); then :; fi

@@ -362,6 +362,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 .entry(callee.clone())
                 .or_default()
                 .push(call_site);
+            self.recorded_program.call_command_spans.insert(
+                SpanKey::new(command.span),
+                self.command_stack.last().copied().unwrap_or(command.span),
+            );
 
             self.classify_special_simple_command(&callee, command, flow);
         }
@@ -2366,7 +2370,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             "read" => {
                 let read_assigns_array = read_assigns_array(&command.args, self.source);
                 for (target_index, (argument, span)) in
-                    iter_read_targets(&command.args, self.source).enumerate()
+                    iter_read_targets(&command.args, self.source)
+                        .into_iter()
+                        .enumerate()
                 {
                     let target_attributes = if read_assigns_array && target_index == 0 {
                         BindingAttributes::ARRAY
@@ -2727,6 +2733,54 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             })
     }
 
+    fn binding_was_cleared_in_scope_between(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        binding_offset: usize,
+        lookup_offset: usize,
+    ) -> bool {
+        self.cleared_variables
+            .get(&(scope, name.clone()))
+            .is_some_and(|cleared_offsets| {
+                cleared_offsets.iter().any(|cleared_offset| {
+                    *cleared_offset > binding_offset && *cleared_offset < lookup_offset
+                })
+            })
+    }
+
+    fn binding_was_cleared_before_lookup(
+        &self,
+        binding: &Binding,
+        lookup_scope: ScopeId,
+        lookup_offset: usize,
+    ) -> bool {
+        for scope in ancestor_scopes(&self.scopes, lookup_scope) {
+            let clear_lower_bound = if scope == binding.scope {
+                binding.span.start.offset
+            } else {
+                0
+            };
+            let clear_upper_bound = if self.completed_scopes.contains(&scope) {
+                usize::MAX
+            } else {
+                lookup_offset
+            };
+            if self.binding_was_cleared_in_scope_between(
+                &binding.name,
+                scope,
+                clear_lower_bound,
+                clear_upper_bound,
+            ) {
+                return true;
+            }
+            if scope == binding.scope {
+                break;
+            }
+        }
+        false
+    }
+
     fn has_uncleared_local_binding_in_scope(
         &self,
         name: &Name,
@@ -2865,6 +2919,29 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     }
 
     fn add_parameter_default_binding(&mut self, reference: &VarRef) {
+        let mut attributes = binding_attributes_for_var_ref(reference);
+        if reference.subscript.is_some()
+            && !attributes.contains(BindingAttributes::ASSOC)
+            && self
+                .resolve_reference(
+                    &reference.name,
+                    self.current_scope(),
+                    reference.name_span.start.offset,
+                )
+                .map(|binding_id| {
+                    let binding = &self.bindings[binding_id.index()];
+                    binding.attributes.contains(BindingAttributes::ASSOC)
+                        && !self.binding_was_cleared_before_lookup(
+                            binding,
+                            self.current_scope(),
+                            reference.name_span.start.offset,
+                        )
+                })
+                .unwrap_or(false)
+        {
+            attributes |= BindingAttributes::ARRAY | BindingAttributes::ASSOC;
+        }
+
         self.add_binding(
             &reference.name,
             BindingKind::ParameterDefaultAssignment,
@@ -2873,7 +2950,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             BindingOrigin::ParameterDefaultAssignment {
                 definition_span: reference.span,
             },
-            BindingAttributes::empty(),
+            attributes,
         );
     }
 
@@ -3405,30 +3482,40 @@ fn is_name_fragment(value: &str) -> bool {
         .all(|character| character.is_ascii_alphanumeric() || character == '_')
 }
 
-fn iter_read_targets<'a>(args: &'a [Word], source: &'a str) -> impl Iterator<Item = (Name, Span)> {
+fn iter_read_targets(args: &[Word], source: &str) -> Vec<(Name, Span)> {
     let options = parse_read_options(args, source);
-    let mut targets = args[options.target_start_index..]
-        .iter()
-        .filter_map(move |word| named_target_word(word, source))
-        .collect::<Vec<_>>();
-    if options.assigns_array {
-        targets.truncate(1);
+    let mut targets = Vec::new();
+
+    if let Some(array_target) = options.array_target {
+        targets.push(array_target);
     }
-    targets.into_iter()
+
+    if options.assigns_array {
+        return targets;
+    }
+
+    targets.extend(
+        args[options.target_start_index..]
+            .iter()
+            .filter_map(|word| named_target_word(word, source)),
+    );
+    targets
 }
 
 fn read_assigns_array(args: &[Word], source: &str) -> bool {
     parse_read_options(args, source).assigns_array
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct ParsedReadOptions {
     assigns_array: bool,
     target_start_index: usize,
+    array_target: Option<(Name, Span)>,
 }
 
 fn parse_read_options(args: &[Word], source: &str) -> ParsedReadOptions {
     let mut assigns_array = false;
+    let mut array_target = None;
     let mut index = 0;
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
@@ -3445,9 +3532,23 @@ fn parse_read_options(args: &[Word], source: &str) -> ParsedReadOptions {
             break;
         }
 
+        let mut stop_after_array_target = false;
         for (offset, flag) in flags.char_indices() {
             if flag == 'a' {
                 assigns_array = true;
+                let attached_offset = offset + flag.len_utf8();
+                if attached_offset < flags.len() {
+                    array_target =
+                        read_attached_array_target(word, source, &flags[attached_offset..]);
+                } else if let Some(target) = args
+                    .get(index + 1)
+                    .and_then(|word| named_target_word(word, source))
+                {
+                    array_target = Some(target);
+                    index += 1;
+                }
+                stop_after_array_target = true;
+                break;
             }
             if read_flag_takes_value(flag) {
                 if offset + flag.len_utf8() == flags.len() {
@@ -3457,11 +3558,15 @@ fn parse_read_options(args: &[Word], source: &str) -> ParsedReadOptions {
             }
         }
         index += 1;
+        if stop_after_array_target {
+            break;
+        }
     }
 
     ParsedReadOptions {
         assigns_array,
         target_start_index: index.min(args.len()),
+        array_target,
     }
 }
 
@@ -3657,6 +3762,37 @@ fn simple_command_has_name(command: &shuck_ast::SimpleCommand, source: &str) -> 
 fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
     let text = static_word_text(word, source)?;
     is_name(&text).then_some((Name::from(text.as_ref()), word.span))
+}
+
+fn read_attached_array_target(
+    word: &Word,
+    source: &str,
+    target_text: &str,
+) -> Option<(Name, Span)> {
+    if !is_name(target_text) {
+        return None;
+    }
+
+    let target_span = word
+        .span
+        .slice(source)
+        .rfind(target_text)
+        .map(|start| {
+            read_option_attached_target_span(word.span, source, start, start + target_text.len())
+        })
+        .unwrap_or(word.span);
+
+    Some((Name::from(target_text), target_span))
+}
+
+fn read_option_attached_target_span(span: Span, source: &str, start: usize, end: usize) -> Span {
+    let start_pos = span
+        .start
+        .advanced_by(&source[span.start.offset..span.start.offset + start]);
+    let end_pos = span
+        .start
+        .advanced_by(&source[span.start.offset..span.start.offset + end]);
+    Span::from_positions(start_pos, end_pos)
 }
 
 fn recorded_command_info(

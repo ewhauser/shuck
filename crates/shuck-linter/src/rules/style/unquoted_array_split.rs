@@ -58,7 +58,7 @@ fn is_excluded_special_parameter_span(span: Span, source: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_unquoted_expansions_in_array_assignments() {
@@ -193,5 +193,43 @@ arr=(${flag:+-f} ${flag:+$fallback} ${name:+\"$name\" \"$regex\"} ${items[@]+\"$
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedArraySplit));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_expansions_inside_brace_expansion_templates() {
+        let source = "\
+#!/bin/bash
+arr=({$XDG_CONFIG_HOME,$HOME}/{alacritty,}/{.,}alacritty.ym?)
+arr=($prefix{a,b} {a,b}$suffix {pre$inside,other})
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedArraySplit));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$prefix", "$suffix"]
+        );
+    }
+
+    #[test]
+    fn reports_expansions_inside_literal_braces_for_sh() {
+        let source = "\
+# shellcheck shell=sh
+arr=({pre$inside,other})
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedArraySplit).with_shell(ShellDialect::Sh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$inside"]
+        );
     }
 }

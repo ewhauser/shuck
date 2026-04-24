@@ -35,6 +35,7 @@ pub struct SubstitutionFact {
     stdout_redirect_spans: Box<[Span]>,
     stdout_dev_null_redirect_spans: Box<[Span]>,
     body_contains_ls: bool,
+    body_processed_ls_pipeline_spans: Box<[Span]>,
     body_contains_echo: bool,
     body_contains_grep: bool,
     body_has_multiple_statements: bool,
@@ -87,6 +88,10 @@ impl SubstitutionFact {
 
     pub fn body_contains_ls(&self) -> bool {
         self.body_contains_ls
+    }
+
+    pub fn body_processed_ls_pipeline_spans(&self) -> &[Span] {
+        &self.body_processed_ls_pipeline_spans
     }
 
     pub fn body_contains_echo(&self) -> bool {
@@ -310,6 +315,7 @@ fn collect_or_update_substitution_facts_from_occurrences<'a>(
             stdout_redirect_spans: body_facts.stdout_redirect_spans,
             stdout_dev_null_redirect_spans: body_facts.stdout_dev_null_redirect_spans,
             body_contains_ls: body_facts.body_contains_ls,
+            body_processed_ls_pipeline_spans: body_facts.body_processed_ls_pipeline_spans,
             body_contains_echo: body_facts.body_contains_echo,
             body_contains_grep: body_facts.body_contains_grep,
             body_has_multiple_statements: body_facts.body_has_multiple_statements,
@@ -485,6 +491,7 @@ struct SubstitutionBodyFacts {
     stdout_redirect_spans: Box<[Span]>,
     stdout_dev_null_redirect_spans: Box<[Span]>,
     body_contains_ls: bool,
+    body_processed_ls_pipeline_spans: Box<[Span]>,
     body_contains_echo: bool,
     body_contains_grep: bool,
     body_has_multiple_statements: bool,
@@ -529,6 +536,13 @@ fn classify_substitution_body<'a>(
             .stdout_dev_null_redirect_spans
             .into_boxed_slice(),
         body_contains_ls: substitution_body_contains_ls(body, commands, command_ids_by_span),
+        body_processed_ls_pipeline_spans: substitution_body_processed_ls_pipeline_spans(
+            body,
+            commands,
+            command_ids_by_span,
+            source,
+        )
+        .into_boxed_slice(),
         body_contains_echo: substitution_body_contains_echo(body, source),
         body_contains_grep: substitution_body_contains_grep(body, source),
         body_has_multiple_statements: body.stmts.len() > 1,
@@ -977,6 +991,148 @@ fn substitution_body_contains_ls<'a>(
     body.stmts
         .iter()
         .any(|stmt| stmt_contains_raw_ls(stmt, commands, command_ids_by_span))
+}
+
+fn substitution_body_processed_ls_pipeline_spans<'a>(
+    body: &'a StmtSeq,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+    for visit in iter_commands(
+        body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    ) {
+        collect_processed_ls_pipeline_spans_in_stmt(
+            visit.stmt,
+            commands,
+            command_ids_by_span,
+            source,
+            &mut spans,
+        );
+    }
+    spans
+}
+
+fn collect_processed_ls_pipeline_spans_in_stmt<'a>(
+    stmt: &'a Stmt,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let Command::Binary(binary) = &stmt.command else {
+        return;
+    };
+    if !matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll) {
+        return;
+    }
+
+    let mut segments = Vec::new();
+    let mut operators = Vec::new();
+    collect_pipeline_parts(binary, &mut segments, &mut operators);
+
+    for (index, pair) in segments.windows(2).enumerate() {
+        if stmt_is_raw_ls(pair[0], commands, command_ids_by_span, source)
+            && !stmt_static_utility_name_is(
+                pair[1],
+                commands,
+                command_ids_by_span,
+                source,
+                "grep",
+            )
+            && !stmt_static_utility_name_is(
+                pair[1],
+                commands,
+                command_ids_by_span,
+                source,
+                "xargs",
+            )
+        {
+            spans.push(ls_command_span_before_pipe(
+                pair[0],
+                operators[index],
+                commands,
+                command_ids_by_span,
+                source,
+            ));
+        }
+    }
+}
+
+fn collect_pipeline_parts<'a>(
+    command: &'a BinaryCommand,
+    segments: &mut Vec<&'a Stmt>,
+    operators: &mut Vec<Span>,
+) {
+    match &command.left.command {
+        Command::Binary(left) if matches!(left.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
+            collect_pipeline_parts(left, segments, operators);
+        }
+        _ => segments.push(&command.left),
+    }
+
+    operators.push(command.op_span);
+
+    match &command.right.command {
+        Command::Binary(right) if matches!(right.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
+            collect_pipeline_parts(right, segments, operators);
+        }
+        _ => segments.push(&command.right),
+    }
+}
+
+fn stmt_is_raw_ls<'a>(
+    stmt: &'a Stmt,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+) -> bool {
+    if let Some(fact) = command_fact_for_stmt(stmt, commands, command_ids_by_span) {
+        return fact.literal_name() == Some("ls") && fact.wrappers().is_empty();
+    }
+
+    let normalized = command::normalize_command(&stmt.command, source);
+    normalized.literal_name.as_deref() == Some("ls") && normalized.wrappers.is_empty()
+}
+
+fn stmt_static_utility_name_is<'a>(
+    stmt: &'a Stmt,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+    name: &str,
+) -> bool {
+    if let Some(fact) = command_fact_for_stmt(stmt, commands, command_ids_by_span) {
+        return fact.static_utility_name() == Some(name);
+    }
+
+    command::normalize_command(&stmt.command, source).effective_or_literal_name() == Some(name)
+}
+
+fn ls_command_span_before_pipe<'a>(
+    stmt: &'a Stmt,
+    operator_span: Span,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+) -> Span {
+    let start = command_fact_for_stmt(stmt, commands, command_ids_by_span)
+        .and_then(|fact| fact.shellcheck_command_span(source))
+        .unwrap_or_else(|| command::normalize_command(&stmt.command, source).body_span)
+        .start;
+    let span = Span {
+        start,
+        end: operator_span.start,
+    };
+    let trimmed = span.slice(source).trim_end();
+    Span {
+        start,
+        end: start.advanced_by(trimmed),
+    }
 }
 
 fn substitution_body_contains_grep(body: &StmtSeq, source: &str) -> bool {

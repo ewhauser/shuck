@@ -1,5 +1,6 @@
 pub struct LinterFacts<'a> {
     source: &'a str,
+    shell: ShellDialect,
     commands: Vec<CommandFact<'a>>,
     structural_command_ids: Vec<CommandId>,
     #[cfg_attr(not(test), allow(dead_code))]
@@ -62,7 +63,7 @@ pub struct LinterFacts<'a> {
     commented_continuation_comment_spans: Vec<Span>,
     trailing_directive_comment_spans: Vec<Span>,
     condition_status_capture_spans: Vec<Span>,
-    condition_command_substitution_spans: Vec<Span>,
+    command_substitution_command_spans: Vec<Span>,
     backtick_substitution_spans: Vec<Span>,
     backtick_command_name_spans: Vec<Span>,
     dollar_question_after_command_spans: Vec<Span>,
@@ -472,10 +473,17 @@ impl<'a> LinterFacts<'a> {
         id: WordOccurrenceId,
     ) -> Box<[Span]> {
         let fact = self.word_occurrence_ref(id);
+        let word = occurrence_word(&self.word_nodes, self.word_occurrence(id));
         let mut split_sensitive_spans = fact.unquoted_scalar_expansion_spans().to_vec();
-        let use_replacement_spans = collect_array_assignment_use_replacement_expansion_spans(
-            occurrence_word(&self.word_nodes, self.word_occurrence(id)),
-        );
+        let use_replacement_spans = collect_array_assignment_use_replacement_expansion_spans(word);
+        let brace_expansion_spans = word
+            .brace_syntax()
+            .iter()
+            .copied()
+            .filter(|_| shell_has_brace_expansion(self.shell))
+            .filter(|brace| brace.expands())
+            .map(|brace| brace.span)
+            .collect::<Vec<_>>();
 
         if !word_occurrence_is_double_quoted_command_substitution_only(
             &self.word_nodes,
@@ -496,7 +504,12 @@ impl<'a> LinterFacts<'a> {
             }
         }
 
-        split_sensitive_spans.retain(|span| !use_replacement_spans.contains(span));
+        split_sensitive_spans.retain(|span| {
+            !use_replacement_spans.contains(span)
+                && !brace_expansion_spans
+                    .iter()
+                    .any(|brace_span| contains_span(*brace_span, *span))
+        });
         sort_and_dedup_spans(&mut split_sensitive_spans);
         split_sensitive_spans.into_boxed_slice()
     }
@@ -644,8 +657,8 @@ impl<'a> LinterFacts<'a> {
         &self.condition_status_capture_spans
     }
 
-    pub fn condition_command_substitution_spans(&self) -> &[Span] {
-        &self.condition_command_substitution_spans
+    pub fn command_substitution_command_spans(&self) -> &[Span] {
+        &self.command_substitution_command_spans
     }
 
     pub fn backtick_substitution_spans(&self) -> &[Span] {
@@ -849,6 +862,13 @@ impl<'a> LinterFacts<'a> {
     pub fn conditional_portability(&self) -> &ConditionalPortabilityFacts {
         &self.conditional_portability
     }
+}
+
+fn shell_has_brace_expansion(shell: ShellDialect) -> bool {
+    matches!(
+        shell,
+        ShellDialect::Bash | ShellDialect::Ksh | ShellDialect::Mksh | ShellDialect::Zsh
+    )
 }
 
 fn assignment_value_span(value: &AssignmentValue) -> Option<Span> {

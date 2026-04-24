@@ -4900,6 +4900,8 @@ main() {
         let source = "\
 read -r read_target
 read -ra read_array_target read_array_remainder
+read -aattached_target
+read -ar
 mapfile mapfile_target
 readarray readarray_target
 printf -v printf_target '%s' value
@@ -4931,24 +4933,26 @@ getopts 'ab' getopts_target
                 .attributes
                 .contains(BindingAttributes::ARRAY)
         );
+        assert!(!model.bindings().iter().any(|binding| {
+            binding.name == "read_array_remainder"
+                && matches!(binding.kind, BindingKind::ReadTarget)
+        }));
 
-        let read_array_remainder = model
+        let attached_read_target = model
             .bindings()
             .iter()
             .find(|binding| {
-                binding.name == "read_array_remainder"
-                    && matches!(binding.kind, BindingKind::ReadTarget)
+                binding.name == "attached_target" && matches!(binding.kind, BindingKind::ReadTarget)
             })
             .unwrap();
-        assert_eq!(
-            read_array_remainder.span.slice(source),
-            "read_array_remainder"
-        );
-        assert!(
-            !read_array_remainder
-                .attributes
-                .contains(BindingAttributes::ARRAY)
-        );
+        assert_eq!(attached_read_target.span.slice(source), "attached_target");
+
+        let short_attached_read_target = model
+            .bindings()
+            .iter()
+            .find(|binding| binding.name == "r" && matches!(binding.kind, BindingKind::ReadTarget))
+            .unwrap();
+        assert_eq!(short_attached_read_target.span.slice(source), "r");
 
         let mapfile_target = model
             .bindings()
@@ -5991,6 +5995,60 @@ main
             model.analysis().dead_code().is_empty(),
             "dead code: {:?}",
             model.analysis().dead_code()
+        );
+    }
+
+    #[test]
+    fn top_level_parent_call_before_nested_definition_keeps_later_code_reachable() {
+        let source = "\
+outer() {
+  inner() {
+    helper
+    printf '%s\\n' maybe
+  }
+  inner
+  helper() {
+    exit 0
+  }
+}
+outer
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
+    fn nested_calls_after_parent_definition_can_use_script_terminating_helpers() {
+        let source = "\
+outer() {
+  inner() {
+    helper
+    printf '%s\\n' never
+  }
+  helper() {
+    exit 0
+  }
+  inner
+}
+outer
+";
+        let model = model(source);
+        let unreachable = model
+            .analysis()
+            .dead_code()
+            .iter()
+            .flat_map(|entry| entry.unreachable.iter())
+            .map(|span| span.slice(source).trim_end().to_owned())
+            .collect::<Vec<_>>();
+
+        assert!(
+            unreachable.contains(&"printf '%s\\n' never".to_owned()),
+            "unreachable spans: {unreachable:?}"
         );
     }
 
@@ -7922,6 +7980,103 @@ printf '%s\\n' \"$((box[m_width]))\" \"$((box[$dynamic_key]))\"
                 .attributes
                 .contains(BindingAttributes::ASSOC)
         );
+    }
+
+    #[test]
+    fn parameter_default_subscript_after_unset_does_not_inherit_associative_attributes() {
+        let source = "\
+#!/bin/bash
+declare -A map
+unset map
+: \"${map[$key]:=}\"
+";
+        let model = model(source);
+
+        let binding = model
+            .bindings()
+            .iter()
+            .rev()
+            .find(|binding| {
+                binding.name == "map" && binding.kind == BindingKind::ParameterDefaultAssignment
+            })
+            .expect("expected parameter-default map binding");
+        assert!(binding.attributes.contains(BindingAttributes::ARRAY));
+        assert!(!binding.attributes.contains(BindingAttributes::ASSOC));
+    }
+
+    #[test]
+    fn parameter_default_subscript_after_function_unset_does_not_inherit_global_assoc() {
+        let source = "\
+#!/bin/bash
+declare -A map
+f() {
+  unset map
+  : \"${map[$key]:=}\"
+}
+f
+";
+        let model = model(source);
+
+        let binding = model
+            .bindings()
+            .iter()
+            .rev()
+            .find(|binding| {
+                binding.name == "map" && binding.kind == BindingKind::ParameterDefaultAssignment
+            })
+            .expect("expected parameter-default map binding");
+        assert!(binding.attributes.contains(BindingAttributes::ARRAY));
+        assert!(!binding.attributes.contains(BindingAttributes::ASSOC));
+    }
+
+    #[test]
+    fn deferred_parameter_default_after_function_unset_does_not_inherit_later_global_assoc() {
+        let source = "\
+#!/bin/bash
+f() {
+  unset map
+  : \"${map[$key]:=}\"
+}
+declare -A map
+f
+";
+        let model = model(source);
+
+        let binding = model
+            .bindings()
+            .iter()
+            .rev()
+            .find(|binding| {
+                binding.name == "map" && binding.kind == BindingKind::ParameterDefaultAssignment
+            })
+            .expect("expected parameter-default map binding");
+        assert!(binding.attributes.contains(BindingAttributes::ARRAY));
+        assert!(!binding.attributes.contains(BindingAttributes::ASSOC));
+    }
+
+    #[test]
+    fn deferred_parameter_default_after_global_unset_does_not_inherit_later_global_assoc() {
+        let source = "\
+#!/bin/bash
+f() {
+  : \"${map[$key]:=}\"
+}
+declare -A map
+unset map
+f
+";
+        let model = model(source);
+
+        let binding = model
+            .bindings()
+            .iter()
+            .rev()
+            .find(|binding| {
+                binding.name == "map" && binding.kind == BindingKind::ParameterDefaultAssignment
+            })
+            .expect("expected parameter-default map binding");
+        assert!(binding.attributes.contains(BindingAttributes::ARRAY));
+        assert!(!binding.attributes.contains(BindingAttributes::ASSOC));
     }
 
     #[test]

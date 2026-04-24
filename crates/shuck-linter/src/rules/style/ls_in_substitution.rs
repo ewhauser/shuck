@@ -1,6 +1,6 @@
 use shuck_ast::Span;
 
-use crate::{Checker, CommandSubstitutionKind, Rule, ShellDialect, Violation};
+use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct LsInSubstitution;
 
@@ -10,8 +10,7 @@ impl Violation for LsInSubstitution {
     }
 
     fn message(&self) -> String {
-        "avoid capturing `ls` output in command substitutions; use a glob or `find` instead"
-            .to_owned()
+        "avoid processing `ls` output; use a glob or `find` instead".to_owned()
     }
 }
 
@@ -23,29 +22,16 @@ pub fn ls_in_substitution(checker: &mut Checker) {
         return;
     }
 
-    let spans = checker
-        .facts()
-        .commands()
-        .iter()
-        .flat_map(|fact| fact.substitution_facts().iter())
-        .flat_map(|substitution| {
-            (substitution.kind() == CommandSubstitutionKind::Command
-                && substitution.stdout_is_captured())
-            .then(|| processed_ls_pipeline_spans(checker, substitution.span()))
-            .into_iter()
-            .flatten()
-        })
-        .collect::<Vec<_>>();
+    let spans = processed_ls_pipeline_spans(checker);
 
     checker.report_all_dedup(spans, || LsInSubstitution);
 }
 
-fn processed_ls_pipeline_spans(checker: &Checker, substitution_span: Span) -> Vec<Span> {
-    checker
+fn processed_ls_pipeline_spans(checker: &Checker) -> Vec<Span> {
+    let mut spans = checker
         .facts()
         .pipelines()
         .iter()
-        .filter(|pipeline| span_contains(substitution_span, pipeline.span()))
         .flat_map(|pipeline| {
             pipeline
                 .segments()
@@ -57,7 +43,26 @@ fn processed_ls_pipeline_spans(checker: &Checker, substitution_span: Span) -> Ve
                 })
                 .map(|(index, _)| pipeline_ls_command_span(checker, pipeline, index))
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    spans.extend(
+        checker
+            .facts()
+            .commands()
+            .iter()
+            .flat_map(|fact| fact.substitution_facts().iter())
+            .filter(|substitution| {
+                !checker
+                    .facts()
+                    .pipelines()
+                    .iter()
+                    .any(|pipeline| span_contains(substitution.span(), pipeline.span()))
+            })
+            .flat_map(|substitution| substitution.body_processed_ls_pipeline_spans())
+            .copied(),
+    );
+
+    spans
 }
 
 fn left_segment_is_s047_ls_candidate(
@@ -66,9 +71,7 @@ fn left_segment_is_s047_ls_candidate(
 ) -> bool {
     let command = checker.facts().command(command_id);
 
-    command.literal_name() == Some("ls")
-        && command.wrappers().is_empty()
-        && !command_has_leading_glob_operand(checker, command)
+    command.literal_name() == Some("ls") && command.wrappers().is_empty()
 }
 
 fn pipeline_ls_command_span(
@@ -89,14 +92,6 @@ fn pipeline_ls_command_span(
 
 fn span_contains(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
-}
-
-fn command_has_leading_glob_operand(checker: &Checker, command: &crate::CommandFact<'_>) -> bool {
-    command
-        .file_operand_words()
-        .first()
-        .and_then(|word| word.span.slice(checker.source()).chars().next())
-        .is_some_and(|ch| matches!(ch, '*' | '?' | '['))
 }
 
 fn trim_trailing_whitespace(span: Span, source: &str) -> Span {
@@ -125,7 +120,39 @@ LAYOUTS=\"$(ls layout.*.h | cut -d. -f2 | xargs echo)\"
     }
 
     #[test]
-    fn ignores_wrapped_ls_and_non_command_substitutions() {
+    fn reports_processed_ls_pipelines_in_shellcheck_contexts() {
+        let source = "\
+#!/bin/sh
+plain=$(ls *.html | wc -l)
+ls /tmp | sort
+while read item; do :; done < <(ls | sed 1q)
+bucket[$(ls | wc -l)]=x
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LsInSubstitution));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["ls *.html", "ls /tmp", "ls", "ls"]
+        );
+    }
+
+    #[test]
+    fn does_not_duplicate_substitution_pipelines_already_covered_by_pipeline_facts() {
+        let source = "\
+#!/bin/sh
+count=$(LC_ALL=C ls | wc -l)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LsInSubstitution));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "LC_ALL=C ls");
+    }
+
+    #[test]
+    fn ignores_wrapped_ls_and_unprocessed_consumers() {
         let source = "\
 #!/bin/sh
 plain=\"$(command ls)\"
@@ -135,8 +162,8 @@ bare=\"$(ls)\"
 grep=\"$(ls | grep foo)\"
 escaped_grep=\"$(ls | \\grep foo)\"
 wrapped=\"$(command ls /tmp | head -n 1)\"
-globbed=\"$(ls *.html | xargs -I% basename % | head -1)\"
 xargs_only=\"$(ls /tmp | xargs -n 1 basename)\"
+top_grep=\"$(ls /tmp | grep foo)\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LsInSubstitution));
 

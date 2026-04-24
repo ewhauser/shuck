@@ -36,11 +36,16 @@ impl<'a> PathWordFact<'a> {
 pub struct ReadCommandFacts {
     pub uses_raw_input: bool,
     target_name_uses: Box<[ComparableNameUse]>,
+    array_target_name_uses: Box<[ComparableNameUse]>,
 }
 
 impl ReadCommandFacts {
     pub(crate) fn target_name_uses(&self) -> &[ComparableNameUse] {
         &self.target_name_uses
+    }
+
+    pub(crate) fn array_target_name_uses(&self) -> &[ComparableNameUse] {
+        &self.array_target_name_uses
     }
 }
 
@@ -226,14 +231,19 @@ impl FindExecShellCommandFacts {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct MapfileCommandFacts {
     input_fd: Option<i32>,
+    target_name_uses: Box<[ComparableNameUse]>,
 }
 
 impl MapfileCommandFacts {
-    pub fn input_fd(self) -> Option<i32> {
+    pub fn input_fd(&self) -> Option<i32> {
         self.input_fd
+    }
+
+    pub(crate) fn target_name_uses(&self) -> &[ComparableNameUse] {
+        &self.target_name_uses
     }
 }
 
@@ -301,6 +311,8 @@ pub struct GrepPatternFact<'a> {
     word: &'a Word,
     static_text: Option<Box<str>>,
     source_kind: GrepPatternSourceKind,
+    is_first_pattern: bool,
+    follows_separate_option_argument: bool,
     starts_with_glob_style_star: bool,
     has_glob_style_star_confusion: bool,
     glob_style_star_replacement_spans: Box<[Span]>,
@@ -321,6 +333,14 @@ impl<'a> GrepPatternFact<'a> {
 
     pub fn source_kind(&self) -> GrepPatternSourceKind {
         self.source_kind
+    }
+
+    pub fn is_first_pattern(&self) -> bool {
+        self.is_first_pattern
+    }
+
+    pub fn follows_separate_option_argument(&self) -> bool {
+        self.follows_separate_option_argument
     }
 
     pub fn starts_with_glob_style_star(&self) -> bool {
@@ -351,6 +371,7 @@ pub struct SetCommandFacts {
     errtrace_flag_spans: Box<[Span]>,
     functrace_flag_spans: Box<[Span]>,
     pipefail_option_spans: Box<[Span]>,
+    non_posix_option_spans: Box<[Span]>,
     flags_without_prefix_spans: Box<[Span]>,
 }
 
@@ -369,6 +390,10 @@ impl SetCommandFacts {
 
     pub fn pipefail_option_spans(&self) -> &[Span] {
         &self.pipefail_option_spans
+    }
+
+    pub fn non_posix_option_spans(&self) -> &[Span] {
+        &self.non_posix_option_spans
     }
 
     pub fn flags_without_prefix_spans(&self) -> &[Span] {
@@ -642,6 +667,10 @@ impl<'a> CommandOptionFacts<'a> {
                 .then(|| ReadCommandFacts {
                     uses_raw_input: read_uses_raw_input(normalized.body_args(), source),
                     target_name_uses: read_target_name_uses(normalized.body_args(), source),
+                    array_target_name_uses: read_array_target_name_uses(
+                        normalized.body_args(),
+                        source,
+                    ),
                 }),
             su: normalized
                 .effective_name_is("su")
@@ -782,13 +811,25 @@ fn read_uses_raw_input(args: &[&Word], source: &str) -> bool {
 }
 
 fn read_target_name_uses(args: &[&Word], source: &str) -> Box<[ComparableNameUse]> {
+    read_name_uses(args, source).0
+}
+
+fn read_array_target_name_uses(args: &[&Word], source: &str) -> Box<[ComparableNameUse]> {
+    read_name_uses(args, source).1
+}
+
+fn read_name_uses(
+    args: &[&Word],
+    source: &str,
+) -> (Box<[ComparableNameUse]>, Box<[ComparableNameUse]>) {
     let mut targets = Vec::new();
+    let mut array_targets = Vec::new();
     let mut index = 0usize;
 
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
             if word_starts_with_literal_dash(word, source) {
-                return Vec::new().into_boxed_slice();
+                return (Vec::new().into_boxed_slice(), Vec::new().into_boxed_slice());
             }
 
             for target in &args[index..] {
@@ -820,10 +861,13 @@ fn read_target_name_uses(args: &[&Word], source: &str) -> Box<[ComparableNameUse
                     if let Some(target) =
                         read_attached_array_target_name_use(word, source, &text[attached_start..])
                     {
+                        array_targets.push(target.clone());
                         targets.push(target);
                     }
                 } else if let Some(target) = args.get(index + 1) {
-                    targets.extend(comparable_read_target_name_uses(target, source));
+                    let target_uses = comparable_read_target_name_uses(target, source);
+                    array_targets.extend(target_uses.iter().cloned());
+                    targets.extend(target_uses);
                     index += 1;
                 }
                 saw_array_target = true;
@@ -845,7 +889,7 @@ fn read_target_name_uses(args: &[&Word], source: &str) -> Box<[ComparableNameUse
         index += 1;
     }
 
-    targets.into_boxed_slice()
+    (targets.into_boxed_slice(), array_targets.into_boxed_slice())
 }
 
 fn read_attached_array_target_name_use(
@@ -1214,8 +1258,7 @@ fn parse_rm_command(args: &[&Word], source: &str) -> Option<RmCommandFacts> {
 
     let dangerous_path_spans = args[index..]
         .iter()
-        .filter(|word| rm_path_is_dangerous(word, source))
-        .map(|word| word.span)
+        .flat_map(|word| std::iter::repeat_n(word.span, rm_path_danger_count(word, source)))
         .collect::<Vec<_>>();
 
     (!dangerous_path_spans.is_empty()).then_some(RmCommandFacts {
@@ -1443,24 +1486,36 @@ fn ssh_option_is_flag(flag: u8) -> bool {
         )
 }
 
-fn rm_path_is_dangerous(word: &Word, source: &str) -> bool {
+fn rm_path_danger_count(word: &Word, source: &str) -> usize {
     let segments = rm_path_segments(word, source);
-    if segments.is_empty() || !rm_path_segment_is_pure_unsafe_parameter(&segments[0]) {
-        return false;
+    if segments.is_empty() {
+        return 0;
     }
 
-    let brace_expansion_active = word.has_active_brace_expansion();
-    let tail_start = segments
+    let absolute_root = rm_path_has_absolute_root(&segments);
+    let leading_dynamic_start = usize::from(absolute_root);
+    let leading_dynamic_count = segments[leading_dynamic_start..]
         .iter()
         .take_while(|segment| rm_path_segment_is_pure_unsafe_parameter(segment))
         .count();
+
+    if !absolute_root && leading_dynamic_count == 0 {
+        return 0;
+    }
+
+    let brace_expansion_active = word.has_active_brace_expansion();
+    let tail_start = leading_dynamic_start + leading_dynamic_count;
     let tail = rm_path_tail_text(&segments[tail_start..]);
 
     if tail.is_empty() {
-        return tail_start > 1;
+        return usize::from(
+            leading_dynamic_count > 1
+                || (leading_dynamic_count > 0
+                    && rm_word_has_explicit_trailing_separator(word, source)),
+        );
     }
 
-    rm_path_tail_is_dangerous(&tail, brace_expansion_active)
+    rm_path_tail_danger_count(&tail, brace_expansion_active, leading_dynamic_count > 0)
 }
 
 #[derive(Debug, Default)]
@@ -1509,6 +1564,8 @@ fn append_rm_path_part(
         WordPart::Parameter(parameter) => {
             if rm_path_parameter_expansion_is_unsafe(parameter) {
                 current_rm_path_segment(segments).has_unsafe_param = true;
+            } else {
+                current_rm_path_segment(segments).has_other_dynamic = true;
             }
         }
         WordPart::ParameterExpansion {
@@ -1518,6 +1575,8 @@ fn append_rm_path_part(
         } => {
             if rm_path_parameter_op_is_unsafe(operator) {
                 current_rm_path_segment(segments).has_unsafe_param = true;
+            } else {
+                current_rm_path_segment(segments).has_other_dynamic = true;
             }
         }
         WordPart::Length(_)
@@ -1588,6 +1647,21 @@ fn current_rm_path_segment(segments: &mut [RmPathSegment]) -> &mut RmPathSegment
     segment
 }
 
+fn rm_path_segment_is_empty(segment: &RmPathSegment) -> bool {
+    !segment.has_unsafe_param
+        && !segment.has_literal_text
+        && !segment.has_other_dynamic
+        && segment.text.is_empty()
+}
+
+fn rm_path_has_absolute_root(segments: &[RmPathSegment]) -> bool {
+    segments.first().is_some_and(rm_path_segment_is_empty)
+}
+
+fn rm_word_has_explicit_trailing_separator(word: &Word, source: &str) -> bool {
+    strip_shell_matching_quotes_in_source(word.span.slice(source)).ends_with('/')
+}
+
 fn rm_path_segment_is_pure_unsafe_parameter(segment: &RmPathSegment) -> bool {
     segment.has_unsafe_param && !segment.has_literal_text && !segment.has_other_dynamic
 }
@@ -1629,18 +1703,27 @@ const RM_DANGEROUS_LITERAL_SUFFIXES: &[&str] = &[
     "var",
 ];
 
-fn rm_path_tail_is_dangerous(tail: &str, brace_expansion_active: bool) -> bool {
+fn rm_path_tail_danger_count(
+    tail: &str,
+    brace_expansion_active: bool,
+    has_leading_dynamic: bool,
+) -> usize {
     if brace_expansion_active && let Some((prefix, inner, suffix)) = split_brace_expansion(tail) {
         return split_brace_alternatives(inner)
             .into_iter()
-            .any(|alternative| {
-                rm_path_tail_is_dangerous(&format!("{prefix}{alternative}{suffix}"), true)
-            });
+            .map(|alternative| {
+                rm_path_tail_danger_count(
+                    &format!("{prefix}{alternative}{suffix}"),
+                    true,
+                    has_leading_dynamic,
+                )
+            })
+            .sum();
     }
 
     let tail = tail.trim_matches('/');
     if tail.is_empty() {
-        return false;
+        return 0;
     }
 
     let components = tail
@@ -1649,19 +1732,25 @@ fn rm_path_tail_is_dangerous(tail: &str, brace_expansion_active: bool) -> bool {
         .map(rm_path_tail_component)
         .collect::<Vec<_>>();
 
-    RM_DANGEROUS_LITERAL_SUFFIXES
+    let dangerous_prefix_matches = RM_DANGEROUS_LITERAL_SUFFIXES
         .iter()
-        .any(|dangerous_prefix| {
+        .filter(|dangerous_prefix| {
             let dangerous_components = dangerous_prefix.split('/').collect::<Vec<_>>();
-            rm_path_matches_exact_dangerous_prefix(&components, &dangerous_components)
-                || rm_path_matches_dangerous_prefix_with_final_dynamic_or_glob(
-                    &components,
-                    &dangerous_components,
-                )
+            rm_path_matches_dangerous_prefix(
+                &components,
+                &dangerous_components,
+                has_leading_dynamic,
+            )
         })
-        || components.as_slice().first().is_some_and(|component| {
-            components.len() == 1 && rm_tail_component_is_dangerous_wildcard(component)
-        })
+        .count();
+
+    dangerous_prefix_matches
+        + usize::from(
+            has_leading_dynamic
+                && components.as_slice().first().is_some_and(|component| {
+                    components.len() == 1 && rm_tail_component_is_dangerous_wildcard(component)
+                }),
+        )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1683,39 +1772,39 @@ fn rm_path_tail_component(component: &str) -> RmTailComponent<'_> {
     RmTailComponent::Literal(component)
 }
 
-fn rm_path_matches_exact_dangerous_prefix(
+fn rm_path_matches_dangerous_prefix(
     components: &[RmTailComponent<'_>],
     dangerous_components: &[&str],
+    has_leading_dynamic: bool,
 ) -> bool {
-    components.len() == dangerous_components.len()
-        && components
-            .iter()
-            .zip(dangerous_components.iter())
-            .all(|(component, expected)| {
-                rm_tail_component_matches_dangerous_literal(component, expected)
-            })
+    if components.len() < dangerous_components.len() {
+        return false;
+    }
+
+    if !components
+        .iter()
+        .take(dangerous_components.len())
+        .zip(dangerous_components.iter())
+        .all(|(component, expected)| rm_tail_component_matches_dangerous_literal(component, expected))
+    {
+        return false;
+    }
+
+    let remainder = &components[dangerous_components.len()..];
+    if remainder.is_empty() {
+        return has_leading_dynamic;
+    }
+
+    remainder.iter().all(rm_tail_component_is_collapsible)
 }
 
-fn rm_path_matches_dangerous_prefix_with_final_dynamic_or_glob(
-    components: &[RmTailComponent<'_>],
-    dangerous_components: &[&str],
-) -> bool {
-    components.len() == dangerous_components.len() + 1
-        && components
-            .iter()
-            .take(dangerous_components.len())
-            .zip(dangerous_components.iter())
-            .all(|(component, expected)| {
-                rm_tail_component_matches_dangerous_literal(component, expected)
-            })
-        && matches!(
-            components.last(),
-            Some(
-                RmTailComponent::PureDynamic
-                    | RmTailComponent::Literal("*")
-                    | RmTailComponent::MixedDynamic("*")
-            )
-        )
+fn rm_tail_component_is_collapsible(component: &RmTailComponent<'_>) -> bool {
+    matches!(
+        component,
+        RmTailComponent::PureDynamic
+            | RmTailComponent::Literal("*")
+            | RmTailComponent::MixedDynamic("*")
+    )
 }
 
 fn rm_tail_component_matches_dangerous_literal(
@@ -1781,6 +1870,7 @@ fn split_brace_alternatives(text: &str) -> Vec<&str> {
 fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommandFacts<'a>> {
     let mut index = 0usize;
     let mut pending_dynamic_option_arg = false;
+    let mut saw_separate_option_argument = false;
     let mut uses_only_matching = false;
     let mut uses_fixed_strings = false;
     let mut explicit_pattern_source = false;
@@ -1796,6 +1886,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
 
             if pending_dynamic_option_arg {
                 pending_dynamic_option_arg = false;
+                saw_separate_option_argument = true;
                 index += 1;
                 continue;
             }
@@ -1811,6 +1902,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
         if !text.starts_with('-') || text == "-" {
             if pending_dynamic_option_arg {
                 pending_dynamic_option_arg = false;
+                saw_separate_option_argument = true;
                 index += 1;
                 continue;
             }
@@ -1848,6 +1940,8 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
                     pattern_word,
                     source,
                     GrepPatternSourceKind::LongOptionSeparate,
+                    patterns.is_empty(),
+                    saw_separate_option_argument,
                 ));
                 index += 2;
             } else {
@@ -1863,6 +1957,8 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
                 source,
                 "--regexp=".len(),
                 GrepPatternSourceKind::LongOptionAttached,
+                patterns.is_empty(),
+                saw_separate_option_argument,
             ));
             index += 1;
             continue;
@@ -1870,6 +1966,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
 
         if text == "--file" {
             explicit_pattern_source = true;
+            saw_separate_option_argument |= args.get(index + 1).is_some();
             index += if args.get(index + 1).is_some() { 2 } else { 1 };
             continue;
         }
@@ -1881,13 +1978,10 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
         }
 
         if text.starts_with("--") {
-            index += if grep_long_option_takes_argument(text.as_ref())
-                && args.get(index + 1).is_some()
-            {
-                2
-            } else {
-                1
-            };
+            let consumes_next =
+                grep_long_option_takes_argument(text.as_ref()) && args.get(index + 1).is_some();
+            saw_separate_option_argument |= consumes_next;
+            index += if consumes_next { 2 } else { 1 };
             continue;
         }
 
@@ -1898,6 +1992,8 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
                     pattern_word,
                     source,
                     GrepPatternSourceKind::ShortOptionSeparate,
+                    patterns.is_empty(),
+                    saw_separate_option_argument,
                 ));
                 index += 2;
             } else {
@@ -1908,6 +2004,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
 
         if text == "-f" {
             explicit_pattern_source = true;
+            saw_separate_option_argument |= args.get(index + 1).is_some();
             index += if args.get(index + 1).is_some() { 2 } else { 1 };
             continue;
         }
@@ -1935,12 +2032,16 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
                         source,
                         2,
                         GrepPatternSourceKind::ShortOptionAttached,
+                        patterns.is_empty(),
+                        saw_separate_option_argument,
                     ));
                 } else if let Some(pattern_word) = args.get(index + 1) {
                     patterns.push(grep_pattern_fact(
                         pattern_word,
                         source,
                         GrepPatternSourceKind::ShortOptionSeparate,
+                        patterns.is_empty(),
+                        saw_separate_option_argument,
                     ));
                     consume_next_argument = true;
                 }
@@ -1960,6 +2061,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
 
         index += 1;
         if consume_next_argument {
+            saw_separate_option_argument = true;
             index += 1;
         }
     }
@@ -1969,6 +2071,8 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
             pattern_word,
             source,
             GrepPatternSourceKind::ImplicitOperand,
+            patterns.is_empty(),
+            saw_separate_option_argument,
         ));
     }
 
@@ -2422,8 +2526,17 @@ fn grep_pattern_fact<'a>(
     word: &'a Word,
     source: &str,
     source_kind: GrepPatternSourceKind,
+    is_first_pattern: bool,
+    follows_separate_option_argument: bool,
 ) -> GrepPatternFact<'a> {
-    grep_prefixed_pattern_fact(word, source, 0, source_kind)
+    grep_prefixed_pattern_fact(
+        word,
+        source,
+        0,
+        source_kind,
+        is_first_pattern,
+        follows_separate_option_argument,
+    )
 }
 
 fn grep_prefixed_pattern_fact<'a>(
@@ -2431,6 +2544,8 @@ fn grep_prefixed_pattern_fact<'a>(
     source: &str,
     prefix_len: usize,
     source_kind: GrepPatternSourceKind,
+    is_first_pattern: bool,
+    follows_separate_option_argument: bool,
 ) -> GrepPatternFact<'a> {
     let (static_text, glob_style_star_replacement_spans) =
         cooked_static_word_text_with_source_spans(word, source)
@@ -2453,6 +2568,8 @@ fn grep_prefixed_pattern_fact<'a>(
         word,
         static_text,
         source_kind,
+        is_first_pattern,
+        follows_separate_option_argument,
         starts_with_glob_style_star,
         has_glob_style_star_confusion,
         glob_style_star_replacement_spans,
@@ -3822,6 +3939,7 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     let mut errtrace_flag_spans = Vec::new();
     let mut functrace_flag_spans = Vec::new();
     let mut pipefail_option_spans = Vec::new();
+    let mut non_posix_option_spans = Vec::new();
     let mut flags_without_prefix_spans = Vec::new();
     let mut index = 0usize;
 
@@ -3871,6 +3989,10 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
                     pipefail_change = Some(enable);
                     pipefail_option_spans.push(name_word.span);
                 }
+
+                if !set_o_option_name_is_posix(&name) {
+                    non_posix_option_spans.push(name_word.span);
+                }
                 index += 2;
                 continue;
             }
@@ -3909,13 +4031,19 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
                 break;
             };
 
-            if name == "errtrace" {
+            if name == "errexit" {
+                errexit_change = Some(enable);
+            } else if name == "errtrace" {
                 errtrace_change = Some(enable);
             } else if name == "functrace" {
                 functrace_change = Some(enable);
             } else if name == "pipefail" {
                 pipefail_change = Some(enable);
                 pipefail_option_spans.push(name_word.span);
+            }
+
+            if !set_o_option_name_is_posix(&name) {
+                non_posix_option_spans.push(name_word.span);
             }
             index += 2;
             continue;
@@ -3933,8 +4061,28 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
         errtrace_flag_spans: errtrace_flag_spans.into_boxed_slice(),
         functrace_flag_spans: functrace_flag_spans.into_boxed_slice(),
         pipefail_option_spans: pipefail_option_spans.into_boxed_slice(),
+        non_posix_option_spans: non_posix_option_spans.into_boxed_slice(),
         flags_without_prefix_spans: flags_without_prefix_spans.into_boxed_slice(),
     }
+}
+
+fn set_o_option_name_is_posix(name: &str) -> bool {
+    matches!(
+        name,
+        "allexport"
+            | "errexit"
+            | "ignoreeof"
+            | "monitor"
+            | "noclobber"
+            | "noexec"
+            | "noglob"
+            | "nolog"
+            | "notify"
+            | "nounset"
+            | "verbose"
+            | "vi"
+            | "xtrace"
+    )
 }
 
 fn parse_directory_change_command(

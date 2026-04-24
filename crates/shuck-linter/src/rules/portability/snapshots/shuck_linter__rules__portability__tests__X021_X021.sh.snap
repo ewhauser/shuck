@@ -1,8 +1,21 @@
 ---
 source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 172
 ---
-X021 the `pipefail` option is not portable in `sh` scripts
+X021 `set -o` uses an option that is not portable in `sh` scripts
  --> <source>:2:8
   |
 2 | set -o pipefail
+  |
+
+X021 `set -o` uses an option that is not portable in `sh` scripts
+ --> <source>:3:8
+  |
+3 | set -o posix
+  |
+
+X021 `set -o` uses an option that is not portable in `sh` scripts
+ --> <source>:4:8
+  |
+4 | set +o emacs
   |

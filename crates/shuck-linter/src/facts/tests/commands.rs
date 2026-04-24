@@ -321,6 +321,13 @@ fn summarizes_command_options_and_invokers() {
             .collect::<Vec<_>>(),
         vec!["pipefail"]
     );
+    assert_eq!(
+        set.non_posix_option_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["pipefail"]
+    );
     let set_without_prefix_spans = facts
         .commands()
         .iter()
@@ -434,6 +441,39 @@ amoeba=\"\" [ \"${AMOEBA:-yes}\" = \"yes\" ]
     assert!(line2.bracket_command_name_needs_separator(source));
     assert!(!line3.bracket_command_name_needs_separator(source));
     assert!(!line4.bracket_command_name_needs_separator(source));
+}
+
+#[test]
+fn set_command_facts_track_non_posix_set_o_options() {
+    let source = "\
+#!/bin/sh
+set -o pipefail
+set +o posix
+set -eo emacs
+set -o bogus -- bogus
+set -o vi
+set -o allexport
+set -o \"$mode\"
+set -- -o posix
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("set"))
+            .filter_map(|fact| fact.options().set())
+            .flat_map(|set| set.non_posix_option_spans().iter().copied())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            spans
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["pipefail", "posix", "emacs", "bogus"]
+        );
+    });
 }
 
 #[test]
@@ -1124,7 +1164,7 @@ unset -v \"${!prefix_@}\" x${!prefix_*} \"${!name}\" \"${!arr[@]}\"
 
 #[test]
 fn tracks_mapfile_input_fd_and_grouped_find_or_branches() {
-    let source = "#!/bin/bash\nmapfile -u 3 -t files 3< <(printf '%s\\n' hi)\nfind . \\( -name a -o -name b -print \\)\n";
+    let source = "#!/bin/bash\nmapfile -u 3 -t files 3< <(printf '%s\\n' hi)\nmapfile -C cb -c 1 lines\nfind . \\( -name a -o -name b -print \\)\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -1138,6 +1178,30 @@ fn tracks_mapfile_input_fd_and_grouped_find_or_branches() {
         .and_then(|fact| fact.options().mapfile())
         .expect("expected mapfile facts");
     assert_eq!(mapfile.input_fd(), Some(3));
+    assert_eq!(
+        mapfile
+            .target_name_uses()
+            .iter()
+            .map(|target| target.span().slice(source))
+            .collect::<Vec<_>>(),
+        vec!["files"]
+    );
+
+    let callback_mapfile = facts
+        .commands()
+        .iter()
+        .filter(|fact| fact.effective_name_is("mapfile"))
+        .nth(1)
+        .and_then(|fact| fact.options().mapfile())
+        .expect("expected callback mapfile facts");
+    assert_eq!(
+        callback_mapfile
+            .target_name_uses()
+            .iter()
+            .map(|target| target.span().slice(source))
+            .collect::<Vec<_>>(),
+        vec!["lines"]
+    );
 
     let dynamic_source = "#!/bin/bash\nmapfile -u \"$fd\" -t files < <(printf '%s\\n' hi)\n";
     let dynamic_output = Parser::new(dynamic_source).parse().unwrap();
@@ -1412,6 +1476,52 @@ grep --regexp='*start' data.txt
             ("'^*'", Some("^*"), true),
             ("'^*foo'", Some("^*foo"), false),
             ("--regexp='*start'", Some("*start"), true),
+        ]
+    );
+}
+
+#[test]
+fn grep_pattern_facts_track_shellcheck_style_pattern_position() {
+    let source = "\
+#!/bin/bash
+grep -e '*first' -e '*second' data.txt
+grep -m 1 '*implicit-after-option' data.txt
+grep -m1 '*implicit-after-attached-option' data.txt
+grep -A 1 -e '*explicit-after-option' data.txt
+grep -e '*explicit-before-option' -A 1 data.txt
+grep -$dynamic_option 1 -e '*explicit-after-dynamic-option' data.txt
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, ShellDialect::Bash);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+    let grep_patterns = facts
+        .commands()
+        .iter()
+        .filter(|fact| fact.effective_name_is("grep"))
+        .filter_map(|fact| fact.options().grep())
+        .flat_map(|grep| grep.patterns().iter())
+        .map(|pattern| {
+            (
+                pattern.span().slice(source),
+                pattern.is_first_pattern(),
+                pattern.follows_separate_option_argument(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        grep_patterns,
+        vec![
+            ("'*first'", true, false),
+            ("'*second'", false, false),
+            ("'*implicit-after-option'", true, true),
+            ("'*implicit-after-attached-option'", true, false),
+            ("'*explicit-after-option'", true, true),
+            ("'*explicit-before-option'", true, false),
+            ("'*explicit-after-dynamic-option'", true, true),
         ]
     );
 }
@@ -2718,6 +2828,9 @@ fn keeps_parsing_xargs_flags_after_optional_argument_forms() {
 find . -print0 | xargs -l -0 rm
 find . -print0 | xargs --eof --null rm
 xargs -i0 echo
+xargs -i bash -c 'echo {}'
+xargs -0i echo '-----> Configuring {}'
+xargs -i echo \"-----> Configuring {} with $template\"
 ";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
@@ -2732,7 +2845,7 @@ xargs -i0 echo
         .filter_map(|fact| fact.options().xargs())
         .collect::<Vec<_>>();
 
-    assert_eq!(xargs_facts.len(), 3);
+    assert_eq!(xargs_facts.len(), 6);
     assert!(xargs_facts[0].uses_null_input);
     assert!(xargs_facts[1].uses_null_input);
     assert!(!xargs_facts[2].uses_null_input);
@@ -2744,6 +2857,9 @@ xargs -i0 echo
             .collect::<Vec<_>>(),
         vec!["-i0"]
     );
+    assert!(xargs_facts[3].inline_replace_option_spans().is_empty());
+    assert!(xargs_facts[4].inline_replace_option_spans().is_empty());
+    assert!(xargs_facts[5].inline_replace_option_spans().is_empty());
 }
 
 #[test]
@@ -2881,6 +2997,7 @@ rm -rf $PKG/opt/$PRGNAM/bin
                 "$PKG/usr/share/$PRGNAM",
                 "\"$DESTDIR\"/usr",
                 "$PKG/usr/{bin,include,libexec,man,share}",
+                "$PKG/usr/{bin,include,libexec,man,share}",
                 "\"$PKG/$PYDIR/usr\"",
                 "$PKG/$PYDIR/*",
                 "\"$DESTDIR\"/${PRGNAM}*",
@@ -2890,6 +3007,68 @@ rm -rf $PKG/opt/$PRGNAM/bin
                 "\"$DESTDIR\"/lib/${PRGNAM}*",
             ]
         );
+    });
+}
+
+#[test]
+fn rm_command_facts_match_shellcheck_only_k001_shapes() {
+    let source = "\
+#!/bin/bash
+PKG=/pkg
+PRGNAM=demo
+ITEM='*.exe'
+DESTDIR=/dest
+SYSROOT=/target
+PACKAGE=/archive
+rm -rf /usr/share/$PRGNAM
+rm -rf $PKG/usr/share/$PRGNAM/$ITEM
+rm -rf $PACKAGE/
+rm -rf $PKG/usr/{bin,include,share}
+rm -rf ${DESTDIR}/${SYSROOT}/{sbin,etc,var,libexec}
+";
+
+    with_facts(source, None, |_, facts| {
+        let rm_spans = facts
+            .commands()
+            .iter()
+            .filter_map(|fact| fact.options().rm())
+            .flat_map(|rm| rm.dangerous_path_spans().iter().copied())
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            rm_spans,
+            vec![
+                "/usr/share/$PRGNAM",
+                "$PKG/usr/share/$PRGNAM/$ITEM",
+                "$PACKAGE/",
+                "$PKG/usr/{bin,include,share}",
+                "$PKG/usr/{bin,include,share}",
+                "${DESTDIR}/${SYSROOT}/{sbin,etc,var,libexec}",
+                "${DESTDIR}/${SYSROOT}/{sbin,etc,var,libexec}",
+            ]
+        );
+    });
+}
+
+#[test]
+fn rm_command_facts_flag_literal_system_prefix_globs() {
+    let source = "\
+#!/bin/bash
+rm -rf /usr/*
+rm -rf /usr/share/*
+";
+
+    with_facts(source, None, |_, facts| {
+        let rm_spans = facts
+            .commands()
+            .iter()
+            .filter_map(|fact| fact.options().rm())
+            .flat_map(|rm| rm.dangerous_path_spans().iter().copied())
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(rm_spans, vec!["/usr/*", "/usr/share/*"]);
     });
 }
 
@@ -2977,6 +3156,9 @@ name[$(printf assign)]=1
 declare arr[$(printf decl-name)]
 declare other=$(printf decl-assign-2)
 declare -A map=([$(printf key)]=1)
+bucket[$(ls | wc -l)]=1
+branch[$(if true; then ls | wc -l; fi)]=1
+nested[$(echo \"$(ls | wc -l)\")]=1
 cat <<<$(printf here)
 out=$(printf hi > out.txt)
 drop=$(printf hi >/dev/null 2>&1)
@@ -3060,6 +3242,45 @@ z=$(ls layout.*.h | cut -d. -f2 | xargs echo)
             false,
             false,
         )));
+        assert_eq!(
+            facts
+                .commands()
+                .iter()
+                .flat_map(|fact| fact.substitution_facts())
+                .find(|fact| fact.span().slice(source) == "$(ls | wc -l)")
+                .expect("expected assignment subscript ls pipeline substitution")
+                .body_processed_ls_pipeline_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["ls"]
+        );
+        assert_eq!(
+            facts
+                .commands()
+                .iter()
+                .flat_map(|fact| fact.substitution_facts())
+                .find(|fact| fact.span().slice(source) == "$(if true; then ls | wc -l; fi)")
+                .expect("expected assignment subscript branch ls pipeline substitution")
+                .body_processed_ls_pipeline_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["ls"]
+        );
+        assert_eq!(
+            facts
+                .commands()
+                .iter()
+                .flat_map(|fact| fact.substitution_facts())
+                .find(|fact| fact.span().slice(source) == "$(echo \"$(ls | wc -l)\")")
+                .expect("expected assignment subscript nested ls pipeline substitution")
+                .body_processed_ls_pipeline_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["ls"]
+        );
         assert!(substitutions.contains(&(
             "$(printf hi > out.txt)".to_owned(),
             SubstitutionOutputIntent::Rerouted,

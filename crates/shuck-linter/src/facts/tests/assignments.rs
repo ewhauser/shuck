@@ -874,6 +874,22 @@ echo \"$value\"
 }
 
 #[test]
+fn subshell_loop_assignment_sites_use_loop_keyword_spans() {
+    let source = "\
+#!/usr/bin/env bash
+(for value in one two; do :; done)
+printf '%s\\n' \"$value\"
+{ select choice in one two; do break; done; } | cat
+printf '%s\\n' \"$choice\"
+";
+
+    assert_eq!(
+        subshell_assignment_slices(source, ShellDialect::Bash),
+        vec!["for", "select"]
+    );
+}
+
+#[test]
 fn uninitialized_declarations_do_not_hide_subshell_use_sites() {
     let source = "\
 #!/usr/bin/env bash
@@ -888,6 +904,28 @@ demo() {
         subshell_later_use_slices(source, ShellDialect::Bash),
         vec!["${value:-}"]
     );
+}
+
+fn subshell_assignment_slices(source: &str, shell: ShellDialect) -> Vec<&str> {
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, shell);
+    let facts = LinterFacts::build_with_shell_and_ambient_shell_options(
+        &output.file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+        shell,
+        AmbientShellOptions::default(),
+    );
+
+    facts
+        .subshell_assignment_sites()
+        .iter()
+        .map(|site| site.span.slice(source))
+        .collect()
 }
 
 fn subshell_later_use_slices(source: &str, shell: ShellDialect) -> Vec<&str> {

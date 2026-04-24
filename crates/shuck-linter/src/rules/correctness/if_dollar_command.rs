@@ -8,7 +8,7 @@ impl Violation for IfDollarCommand {
     }
 
     fn message(&self) -> String {
-        "use the command's exit status directly instead of executing `$(...)` output as a condition"
+        "use the command's exit status directly instead of executing the output from `$(...)`"
             .to_owned()
     }
 }
@@ -17,7 +17,7 @@ pub fn if_dollar_command(checker: &mut Checker) {
     checker.report_all_dedup(
         checker
             .facts()
-            .condition_command_substitution_spans()
+            .command_substitution_command_spans()
             .to_vec(),
         || IfDollarCommand,
     );
@@ -32,6 +32,9 @@ mod tests {
     fn reports_command_substitution_condition_commands() {
         let source = "\
 #!/bin/bash
+$(false) && echo x
+! $(false)
+$(false)
 if $(python3 -c 'import sys' 2>/dev/null); then echo ok; fi
 while $(false); do break; done
 until $(false); do break; done
@@ -54,6 +57,9 @@ cat <(if $(false); then :; fi)
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec![
+                "$(false)",
+                "$(false)",
+                "$(false)",
                 "$(python3 -c 'import sys' 2>/dev/null)",
                 "$(false)",
                 "$(false)",
@@ -75,7 +81,7 @@ cat <(if $(false); then :; fi)
     fn ignores_non_condition_and_wrapper_argument_substitutions() {
         let source = "\
 #!/bin/bash
-$(false) && echo x
+$(false) --arg
 if foo; then :; fi
 if \"$(printf '%s' foo)\"; then :; fi
 if [[ \"$pm\" == apt ]] && \"$(printf '%s' missing)\" != installed; then :; fi

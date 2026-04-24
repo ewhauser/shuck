@@ -83,6 +83,27 @@ echo \"$count\"
     }
 
     #[test]
+    fn reports_for_loop_child_assignments_on_the_loop_keyword() {
+        let source = "\
+#!/bin/sh
+{ for opt_mode in compile link; do :; done; } | sed -n p
+printf '%s\\n' \"$opt_mode\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["for"]
+        );
+    }
+
+    #[test]
     fn ignores_parent_reassignments_after_nonpersistent_updates() {
         let source = "\
 #!/bin/sh
