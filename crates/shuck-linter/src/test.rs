@@ -7,9 +7,7 @@ use shuck_parser::ShellProfile;
 use shuck_parser::parser::{ParseResult, Parser, ShellDialect as ParseShellDialect};
 use similar::TextDiff;
 
-use crate::{
-    Applicability, Diagnostic, LinterSettings, apply_fixes, lint_file_at_path_with_parse_result,
-};
+use crate::{Applicability, Diagnostic, LinterSettings, apply_fixes, lint_file};
 
 fn inferred_shell_profile(
     source: &str,
@@ -50,7 +48,7 @@ pub struct FixTestResult {
 pub fn test_snippet(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
     let parse_result = parse_for_lint(source, settings, None);
     let indexer = Indexer::new(source, &parse_result);
-    lint_file_at_path_with_parse_result(&parse_result, source, &indexer, settings, None, None)
+    lint_file(&parse_result, source, &indexer, settings, None, None)
 }
 
 /// Lint a source string while preserving an explicit path for path-sensitive rules.
@@ -61,7 +59,7 @@ pub fn test_snippet_at_path(
 ) -> Vec<Diagnostic> {
     let parse_result = parse_for_lint(source, settings, Some(path));
     let indexer = Indexer::new(source, &parse_result);
-    lint_file_at_path_with_parse_result(&parse_result, source, &indexer, settings, None, Some(path))
+    lint_file(&parse_result, source, &indexer, settings, None, Some(path))
 }
 
 pub fn test_snippet_with_fix(

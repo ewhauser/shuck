@@ -331,17 +331,6 @@ fn parse_error_position(parse_result: &ParseResult) -> Option<(usize, usize)> {
         .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
 }
 
-/// Lints a parsed file and returns diagnostics only.
-pub fn lint_file(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
-) -> Vec<Diagnostic> {
-    lint_file_at_path(file, source, indexer, settings, suppression_index, None)
-}
-
 /// Lints a parsed file located at an optional source path.
 pub fn lint_file_at_path(
     file: &File,
@@ -468,7 +457,7 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
 }
 
 /// Lints an existing parse result located at an optional source path.
-pub fn lint_file_at_path_with_parse_result(
+pub fn lint_file(
     parse_result: &ParseResult,
     source: &str,
     indexer: &Indexer,
@@ -611,7 +600,7 @@ mod tests {
     fn lint(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        lint_file(&output.file, source, &indexer, settings, None)
+        lint_file(&output, source, &indexer, settings, None, None)
     }
 
     fn lint_path(path: &Path, settings: &LinterSettings) -> Vec<Diagnostic> {
@@ -659,15 +648,16 @@ mod tests {
     }
 
     #[test]
-    fn legacy_lint_entrypoints_preserve_parse_rule_diagnostics() {
+    fn lint_file_preserves_parse_rule_diagnostics() {
         let source = "#!/bin/sh\n{ :; } always { :; }\n";
         let parse_result = Parser::new(source).parse();
         let indexer = Indexer::new(source, &parse_result);
         let diagnostics = lint_file(
-            &parse_result.file,
+            &parse_result,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::ZshAlwaysBlock),
+            None,
             None,
         );
 
@@ -1511,7 +1501,7 @@ END
         for (path, dialect) in cases {
             let parse_result = Parser::with_dialect(source, dialect).parse();
             let indexer = Indexer::new(source, &parse_result);
-            let diagnostics = lint_file_at_path_with_parse_result(
+            let diagnostics = lint_file(
                 &parse_result,
                 source,
                 &indexer,
@@ -4092,11 +4082,12 @@ foo=1
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::default(),
             Some(&suppressions),
+            None,
         );
         assert!(diagnostics.is_empty());
     }
@@ -4125,11 +4116,12 @@ f() {
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::RedundantReturnStatus),
             Some(&suppressions),
+            None,
         );
         assert!(diagnostics.is_empty());
     }
@@ -4156,11 +4148,12 @@ printf '%s\\n' \"$foo\"
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::default(),
             Some(&suppressions),
+            None,
         );
         assert!(diagnostics.is_empty());
     }
@@ -4189,11 +4182,12 @@ f() {
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::LocalDeclareCombined),
             Some(&suppressions),
+            None,
         );
         assert!(diagnostics.is_empty());
     }
@@ -4219,11 +4213,12 @@ f() {
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::BacktickInCommandPosition),
             Some(&suppressions),
+            None,
         );
         assert!(diagnostics.is_empty());
     }
@@ -4249,11 +4244,12 @@ f() {
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::CompoundTestOperator),
             Some(&suppressions),
+            None,
         );
         assert!(diagnostics.is_empty());
     }
@@ -4283,11 +4279,12 @@ f
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::LocalVariableInSh),
             Some(&suppressions),
+            None,
         );
         assert!(diagnostics.is_empty());
     }
@@ -4313,11 +4310,12 @@ function f { :; }
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::FunctionKeyword),
             Some(&suppressions),
+            None,
         );
         assert!(diagnostics.is_empty());
     }
@@ -4343,11 +4341,12 @@ function f { :; }
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::BackslashBeforeCommand),
             Some(&suppressions),
+            None,
         );
         assert!(diagnostics.is_empty());
     }
@@ -4373,11 +4372,12 @@ echo \\n
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::LiteralControlEscape),
             Some(&suppressions),
+            None,
         );
         assert!(diagnostics.is_empty());
     }
@@ -4403,11 +4403,12 @@ let x=1
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::LetCommand),
             Some(&suppressions),
+            None,
         );
         assert!(diagnostics.is_empty());
     }
@@ -4433,11 +4434,12 @@ declare foo=bar
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::DeclareCommand),
             Some(&suppressions),
+            None,
         );
         assert!(diagnostics.is_empty());
     }
@@ -4463,11 +4465,12 @@ source ./helpers.sh
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::SourceBuiltinInSh),
             Some(&suppressions),
+            None,
         );
         assert!(diagnostics.is_empty());
     }
@@ -4493,11 +4496,12 @@ function f() { :; }
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::FunctionKeywordInSh),
             Some(&suppressions),
+            None,
         );
         assert!(diagnostics.is_empty());
     }
@@ -4523,11 +4527,12 @@ arr[$((1+1))]=x
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::ArrayIndexArithmetic),
             Some(&suppressions),
+            None,
         );
         assert!(diagnostics.is_empty());
     }
@@ -4555,11 +4560,12 @@ f() {
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
             Some(&suppressions),
+            None,
         );
         assert!(diagnostics.is_empty());
     }

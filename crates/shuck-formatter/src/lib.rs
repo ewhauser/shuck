@@ -244,7 +244,7 @@ mod tests {
     use shuck_ast::{AssignmentValue, Command};
     use shuck_benchmark::TEST_FILES;
     use shuck_indexer::Indexer;
-    use shuck_linter::{Diagnostic, LinterSettings, lint_file_at_path_with_parse_result};
+    use shuck_linter::{Diagnostic, LinterSettings, lint_file};
     use shuck_parser::ShellDialect as ParseShellDialect;
 
     use super::*;
@@ -296,14 +296,7 @@ mod tests {
         );
         let indexer = Indexer::new(source, &parse_result);
         let settings = LinterSettings::default().with_analyzed_paths([path.to_path_buf()]);
-        lint_file_at_path_with_parse_result(
-            &parse_result,
-            source,
-            &indexer,
-            &settings,
-            None,
-            Some(path),
-        )
+        lint_file(&parse_result, source, &indexer, &settings, None, Some(path))
     }
 
     fn diagnostic_count(diagnostics: &[Diagnostic], code: &str) -> usize {

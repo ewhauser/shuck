@@ -94,11 +94,12 @@ fn lint_source(
         )
     });
     let diagnostics = lint_file(
-        &output.file,
+        &output,
         source,
         &indexer,
         settings,
         suppression_index.as_ref(),
+        None,
     );
 
     black_box(diagnostics.len())

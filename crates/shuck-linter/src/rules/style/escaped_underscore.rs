@@ -122,7 +122,7 @@ mod tests {
     use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
     use crate::{
         Applicability, Diagnostic, LinterSettings, Rule, ShellDialect, assert_diagnostics_diff,
-        lint_file_at_path_with_parse_result,
+        lint_file,
     };
 
     fn test_posix_snippet_at_path(path: &Path, source: &str) -> Vec<Diagnostic> {
@@ -130,14 +130,7 @@ mod tests {
         let indexer = Indexer::new(source, &parse_result);
         let settings =
             LinterSettings::for_rule(Rule::EscapedUnderscore).with_shell(ShellDialect::Sh);
-        lint_file_at_path_with_parse_result(
-            &parse_result,
-            source,
-            &indexer,
-            &settings,
-            None,
-            Some(path),
-        )
+        lint_file(&parse_result, source, &indexer, &settings, None, Some(path))
     }
 
     #[test]
