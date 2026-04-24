@@ -311,6 +311,8 @@ pub struct GrepPatternFact<'a> {
     word: &'a Word,
     static_text: Option<Box<str>>,
     source_kind: GrepPatternSourceKind,
+    is_first_pattern: bool,
+    follows_separate_option_argument: bool,
     starts_with_glob_style_star: bool,
     has_glob_style_star_confusion: bool,
     glob_style_star_replacement_spans: Box<[Span]>,
@@ -331,6 +333,14 @@ impl<'a> GrepPatternFact<'a> {
 
     pub fn source_kind(&self) -> GrepPatternSourceKind {
         self.source_kind
+    }
+
+    pub fn is_first_pattern(&self) -> bool {
+        self.is_first_pattern
+    }
+
+    pub fn follows_separate_option_argument(&self) -> bool {
+        self.follows_separate_option_argument
     }
 
     pub fn starts_with_glob_style_star(&self) -> bool {
@@ -1860,6 +1870,7 @@ fn split_brace_alternatives(text: &str) -> Vec<&str> {
 fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommandFacts<'a>> {
     let mut index = 0usize;
     let mut pending_dynamic_option_arg = false;
+    let mut saw_separate_option_argument = false;
     let mut uses_only_matching = false;
     let mut uses_fixed_strings = false;
     let mut explicit_pattern_source = false;
@@ -1875,6 +1886,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
 
             if pending_dynamic_option_arg {
                 pending_dynamic_option_arg = false;
+                saw_separate_option_argument = true;
                 index += 1;
                 continue;
             }
@@ -1890,6 +1902,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
         if !text.starts_with('-') || text == "-" {
             if pending_dynamic_option_arg {
                 pending_dynamic_option_arg = false;
+                saw_separate_option_argument = true;
                 index += 1;
                 continue;
             }
@@ -1927,6 +1940,8 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
                     pattern_word,
                     source,
                     GrepPatternSourceKind::LongOptionSeparate,
+                    patterns.is_empty(),
+                    saw_separate_option_argument,
                 ));
                 index += 2;
             } else {
@@ -1942,6 +1957,8 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
                 source,
                 "--regexp=".len(),
                 GrepPatternSourceKind::LongOptionAttached,
+                patterns.is_empty(),
+                saw_separate_option_argument,
             ));
             index += 1;
             continue;
@@ -1949,6 +1966,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
 
         if text == "--file" {
             explicit_pattern_source = true;
+            saw_separate_option_argument |= args.get(index + 1).is_some();
             index += if args.get(index + 1).is_some() { 2 } else { 1 };
             continue;
         }
@@ -1960,13 +1978,10 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
         }
 
         if text.starts_with("--") {
-            index += if grep_long_option_takes_argument(text.as_ref())
-                && args.get(index + 1).is_some()
-            {
-                2
-            } else {
-                1
-            };
+            let consumes_next =
+                grep_long_option_takes_argument(text.as_ref()) && args.get(index + 1).is_some();
+            saw_separate_option_argument |= consumes_next;
+            index += if consumes_next { 2 } else { 1 };
             continue;
         }
 
@@ -1977,6 +1992,8 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
                     pattern_word,
                     source,
                     GrepPatternSourceKind::ShortOptionSeparate,
+                    patterns.is_empty(),
+                    saw_separate_option_argument,
                 ));
                 index += 2;
             } else {
@@ -1987,6 +2004,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
 
         if text == "-f" {
             explicit_pattern_source = true;
+            saw_separate_option_argument |= args.get(index + 1).is_some();
             index += if args.get(index + 1).is_some() { 2 } else { 1 };
             continue;
         }
@@ -2014,12 +2032,16 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
                         source,
                         2,
                         GrepPatternSourceKind::ShortOptionAttached,
+                        patterns.is_empty(),
+                        saw_separate_option_argument,
                     ));
                 } else if let Some(pattern_word) = args.get(index + 1) {
                     patterns.push(grep_pattern_fact(
                         pattern_word,
                         source,
                         GrepPatternSourceKind::ShortOptionSeparate,
+                        patterns.is_empty(),
+                        saw_separate_option_argument,
                     ));
                     consume_next_argument = true;
                 }
@@ -2039,6 +2061,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
 
         index += 1;
         if consume_next_argument {
+            saw_separate_option_argument = true;
             index += 1;
         }
     }
@@ -2048,6 +2071,8 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
             pattern_word,
             source,
             GrepPatternSourceKind::ImplicitOperand,
+            patterns.is_empty(),
+            saw_separate_option_argument,
         ));
     }
 
@@ -2501,8 +2526,17 @@ fn grep_pattern_fact<'a>(
     word: &'a Word,
     source: &str,
     source_kind: GrepPatternSourceKind,
+    is_first_pattern: bool,
+    follows_separate_option_argument: bool,
 ) -> GrepPatternFact<'a> {
-    grep_prefixed_pattern_fact(word, source, 0, source_kind)
+    grep_prefixed_pattern_fact(
+        word,
+        source,
+        0,
+        source_kind,
+        is_first_pattern,
+        follows_separate_option_argument,
+    )
 }
 
 fn grep_prefixed_pattern_fact<'a>(
@@ -2510,6 +2544,8 @@ fn grep_prefixed_pattern_fact<'a>(
     source: &str,
     prefix_len: usize,
     source_kind: GrepPatternSourceKind,
+    is_first_pattern: bool,
+    follows_separate_option_argument: bool,
 ) -> GrepPatternFact<'a> {
     let (static_text, glob_style_star_replacement_spans) =
         cooked_static_word_text_with_source_spans(word, source)
@@ -2532,6 +2568,8 @@ fn grep_prefixed_pattern_fact<'a>(
         word,
         static_text,
         source_kind,
+        is_first_pattern,
+        follows_separate_option_argument,
         starts_with_glob_style_star,
         has_glob_style_star_confusion,
         glob_style_star_replacement_spans,
