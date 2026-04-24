@@ -2724,6 +2724,22 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             })
     }
 
+    fn binding_was_cleared_in_scope_between(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        binding_offset: usize,
+        lookup_offset: usize,
+    ) -> bool {
+        self.cleared_variables
+            .get(&(scope, name.clone()))
+            .is_some_and(|cleared_offsets| {
+                cleared_offsets.iter().any(|cleared_offset| {
+                    *cleared_offset > binding_offset && *cleared_offset < lookup_offset
+                })
+            })
+    }
+
     fn has_uncleared_local_binding_in_scope(
         &self,
         name: &Name,
@@ -2872,9 +2888,14 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     reference.name_span.start.offset,
                 )
                 .map(|binding_id| {
-                    self.bindings[binding_id.index()]
-                        .attributes
-                        .contains(BindingAttributes::ASSOC)
+                    let binding = &self.bindings[binding_id.index()];
+                    binding.attributes.contains(BindingAttributes::ASSOC)
+                        && !self.binding_was_cleared_in_scope_between(
+                            &binding.name,
+                            binding.scope,
+                            binding.span.start.offset,
+                            reference.name_span.start.offset,
+                        )
                 })
                 .unwrap_or(false)
         {
