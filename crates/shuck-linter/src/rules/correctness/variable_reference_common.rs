@@ -32,7 +32,10 @@ pub(super) fn is_reportable_variable_reference(
     {
         return false;
     }
-    if checker.facts().is_subscript_index_reference(reference.span) {
+    if checker
+        .facts()
+        .is_suppressed_subscript_reference(reference.span)
+    {
         return false;
     }
     if checker
