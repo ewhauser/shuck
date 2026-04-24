@@ -244,10 +244,10 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         }
 
-        !(self.in_binding_value()
-            && runtime.hazards.tilde_expansion
-            && !runtime.hazards.pathname_matching
-            && !runtime.hazards.brace_fanout)
+        !self.in_binding_value()
+            || !runtime.hazards.tilde_expansion
+            || runtime.hazards.pathname_matching
+            || runtime.hazards.brace_fanout
     }
 
     fn in_binding_value(&self) -> bool {

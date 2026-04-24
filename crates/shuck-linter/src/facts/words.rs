@@ -151,6 +151,7 @@ pub enum WordFactContext {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WordFactHostKind {
     Direct,
+    CommandWrapperTarget,
     AssignmentTargetSubscript,
     DeclarationNameSubscript,
     ArrayKeySubscript,
@@ -3544,16 +3545,12 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 if let Some(target_index) = simple_command_wrapper_target_index(command, self.source)
                 {
                     let target_word = simple_command_word_at(command, target_index);
-                    if static_word_text(target_word, self.source).is_none() {
-                        self.push_word_with_surface(
-                            target_word,
-                            WordFactContext::Expansion(ExpansionContext::CommandName),
-                            WordFactHostKind::Direct,
-                            surface_context,
-                        );
-                    } else {
-                        self.collect_surface_only_word(target_word, surface_context);
-                    }
+                    self.push_word_with_surface(
+                        target_word,
+                        WordFactContext::Expansion(ExpansionContext::CommandName),
+                        WordFactHostKind::CommandWrapperTarget,
+                        surface_context,
+                    );
                 }
 
                 if static_word_text(&command.name, self.source).is_none() {
