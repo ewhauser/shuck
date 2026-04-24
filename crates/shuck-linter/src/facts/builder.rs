@@ -405,7 +405,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let commented_continuation_comment_spans =
             build_commented_continuation_comment_spans(self.source, self._indexer);
         let comment_double_quote_nesting_spans =
-            build_comment_double_quote_nesting_spans(self.source);
+            build_comment_double_quote_nesting_spans(self.source, self._indexer);
         let trailing_directive_comment_spans = build_trailing_directive_comment_spans(
             self.file,
             &case_items,

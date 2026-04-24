@@ -141,6 +141,19 @@ echo \"left \"`printf '%s' value`\" right\"
     }
 
     #[test]
+    fn ignores_heredoc_payload_comment_like_quote_nesting_pattern() {
+        let source = "\
+#!/bin/sh
+cat <<'EOF'
+# script's $0 value, followed by \"$@\".
+EOF
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DoubleQuoteNesting));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn ignores_non_nested_or_non_dynamic_patterns() {
         let source = "\
 #!/bin/bash

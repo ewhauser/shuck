@@ -339,12 +339,19 @@ fn build_commented_continuation_comment_spans(source: &str, indexer: &Indexer) -
         .collect()
 }
 
-fn build_comment_double_quote_nesting_spans(source: &str) -> Vec<Span> {
+fn build_comment_double_quote_nesting_spans(source: &str, indexer: &Indexer) -> Vec<Span> {
     source_lines_with_offsets(source)
         .enumerate()
         .filter_map(|(line_index, source_line)| {
             let line = source_line.text.trim_end_matches('\r');
             let comment_start = line.find('#')?;
+            let comment_offset = source_line.offset + comment_start;
+            if indexer
+                .region_index()
+                .is_heredoc(TextSize::from(comment_offset as u32))
+            {
+                return None;
+            }
             if !line[..comment_start].trim().is_empty() {
                 return None;
             }
