@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use globset::{Glob, GlobMatcher};
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
-use shuck_semantic::UnusedAssignmentAnalysisOptions;
+use shuck_semantic::{UnreachedFunctionAnalysisOptions, UnusedAssignmentAnalysisOptions};
 
 use crate::{Category, Rule, RuleSelector, RuleSet, Severity, ShellDialect};
 
@@ -19,6 +19,8 @@ const DEFAULT_DISABLED_NON_STYLE_RULES: &[Rule] = &[];
 pub struct LinterRuleOptions {
     /// Behavior overrides for `C001`.
     pub c001: C001RuleOptions,
+    /// Behavior overrides for `C063`.
+    pub c063: C063RuleOptions,
 }
 
 /// Behavior overrides for `C001` unused-assignment analysis.
@@ -34,6 +36,22 @@ impl C001RuleOptions {
     pub(crate) fn semantic_options(&self) -> UnusedAssignmentAnalysisOptions {
         UnusedAssignmentAnalysisOptions {
             treat_indirect_expansion_targets_as_used: self.treat_indirect_expansion_targets_as_used,
+        }
+    }
+}
+
+/// Behavior overrides for `C063` overwritten/unreached function analysis.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct C063RuleOptions {
+    /// Whether nested function definitions should be reported when no reachable direct call
+    /// reaches the enclosing function scope before that scope exits.
+    pub report_unreached_nested_definitions: bool,
+}
+
+impl C063RuleOptions {
+    pub(crate) fn semantic_options(&self) -> UnreachedFunctionAnalysisOptions {
+        UnreachedFunctionAnalysisOptions {
+            report_unreached_nested_definitions: self.report_unreached_nested_definitions,
         }
     }
 }
@@ -194,6 +212,11 @@ impl LinterSettings {
         self.rule_options
             .c001
             .treat_indirect_expansion_targets_as_used = value;
+        self
+    }
+
+    pub fn with_c063_report_unreached_nested_definitions(mut self, value: bool) -> Self {
+        self.rule_options.c063.report_unreached_nested_definitions = value;
         self
     }
 

@@ -10,6 +10,7 @@ pub enum FunctionNotReachedReason {
     Overwritten,
     ScriptTerminates,
     UnreachableDefinition,
+    EnclosingFunctionUnreached,
 }
 
 pub struct OverwrittenFunction {
@@ -35,6 +36,10 @@ impl Violation for OverwrittenFunction {
                 "function `{}` cannot be reached by a direct call before the script terminates",
                 self.name
             ),
+            FunctionNotReachedReason::EnclosingFunctionUnreached => format!(
+                "function `{}` cannot be reached by a direct call before the enclosing function exits",
+                self.name
+            ),
         }
     }
 
@@ -47,13 +52,19 @@ impl Violation for OverwrittenFunction {
             | FunctionNotReachedReason::UnreachableDefinition => {
                 Some("delete the function definition that cannot be reached".to_owned())
             }
+            FunctionNotReachedReason::EnclosingFunctionUnreached => {
+                Some("delete the nested function definition that cannot be reached".to_owned())
+            }
         }
     }
 }
 
 pub fn overwritten_function(checker: &mut Checker) {
     let overwritten = checker.semantic_analysis().overwritten_functions().to_vec();
-    let unreached = checker.semantic_analysis().unreached_functions().to_vec();
+    let unreached = checker
+        .semantic_analysis()
+        .unreached_functions_with_options(checker.rule_options().c063.semantic_options())
+        .to_vec();
 
     for overwritten in overwritten {
         if overwritten.first_called {
@@ -81,6 +92,9 @@ pub fn overwritten_function(checker: &mut Checker) {
                 FunctionNotReachedReason::UnreachableDefinition
             }
             UnreachedFunctionReason::ScriptTerminates => FunctionNotReachedReason::ScriptTerminates,
+            UnreachedFunctionReason::EnclosingFunctionUnreached => {
+                FunctionNotReachedReason::EnclosingFunctionUnreached
+            }
         };
         report_function_definition(
             checker,
@@ -412,6 +426,49 @@ exit 0
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn nested_functions_at_plain_eof_do_not_report_by_default() {
+        let source = "\
+outer() {
+  inner() { echo hi; }
+}
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn c063_option_reports_unreached_nested_functions_at_plain_eof() {
+        let source = "\
+outer() {
+  inner() { echo hi; }
+}
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_c063_report_unreached_nested_definitions(true),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(
+            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
+            Some(Applicability::Unsafe)
+        );
+        assert_eq!(
+            diagnostics[0].fix_title.as_deref(),
+            Some("delete the nested function definition that cannot be reached")
+        );
     }
 
     #[test]

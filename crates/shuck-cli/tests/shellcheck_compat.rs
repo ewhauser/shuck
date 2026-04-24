@@ -317,6 +317,36 @@ fn compat_flags_indirect_only_sc2034_targets() {
 }
 
 #[test]
+fn compat_reports_unreached_nested_functions_as_sc2329() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("x.sh"),
+        "#!/bin/bash\nouter() {\n  inner() { :; }\n}\n",
+    )
+    .unwrap();
+
+    let output = run_compat(
+        [
+            "--norc",
+            "-s",
+            "bash",
+            "-f",
+            "json1",
+            "--include=SC2329",
+            "x.sh",
+        ]
+        .as_slice(),
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(1));
+
+    let comments = json1_comments(&output);
+    let comment = comment_by_code(&comments, 2329);
+    assert_eq!(comment["line"].as_u64(), Some(3));
+    assert_eq!(comment["endLine"].as_u64(), Some(3));
+}
+
+#[test]
 fn compat_accepts_busybox_shell_alias() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("x.sh"), "echo hi\n").unwrap();

@@ -39,9 +39,10 @@ const CONFIG_OVERRIDE_LINT_KEYS: &[&str] = &[
     "extend-fixable",
     "rule-options",
 ];
-const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &["c001"];
+const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &["c001", "c063"];
 const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
     &["treat-indirect-expansion-targets-as-used"];
+const CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS: &[&str] = &["report-unreached-nested-definitions"];
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
@@ -89,12 +90,16 @@ pub(crate) struct LintConfig {
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) struct LintRuleOptionsConfig {
     pub c001: Option<C001RuleOptionsConfig>,
+    pub c063: Option<C063RuleOptionsConfig>,
 }
 
 impl LintRuleOptionsConfig {
     fn apply_overrides(&mut self, overrides: Self) {
         if let Some(c001) = overrides.c001 {
             self.c001.get_or_insert_default().apply_overrides(c001);
+        }
+        if let Some(c063) = overrides.c063 {
+            self.c063.get_or_insert_default().apply_overrides(c063);
         }
     }
 }
@@ -110,6 +115,21 @@ impl C001RuleOptionsConfig {
         if overrides.treat_indirect_expansion_targets_as_used.is_some() {
             self.treat_indirect_expansion_targets_as_used =
                 overrides.treat_indirect_expansion_targets_as_used;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) struct C063RuleOptionsConfig {
+    pub report_unreached_nested_definitions: Option<bool>,
+}
+
+impl C063RuleOptionsConfig {
+    fn apply_overrides(&mut self, overrides: Self) {
+        if overrides.report_unreached_nested_definitions.is_some() {
+            self.report_unreached_nested_definitions =
+                overrides.report_unreached_nested_definitions;
         }
     }
 }
@@ -471,6 +491,9 @@ fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Resu
     if let Some(c001_value) = rule_options.get("c001") {
         validate_c001_rule_options_override(c001_value)?;
     }
+    if let Some(c063_value) = rule_options.get("c063") {
+        validate_c063_rule_options_override(c063_value)?;
+    }
 
     Ok(())
 }
@@ -484,6 +507,22 @@ fn validate_c001_rule_options_override(value: &toml::Value) -> std::result::Resu
             return Err(format!(
                 "unsupported `[lint.rule-options.c001]` option `{key}`; expected one of: {}",
                 CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS.join(", ")
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_c063_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let c063 = value
+        .as_table()
+        .ok_or_else(|| "`[lint.rule-options.c063]` must be a TOML table".to_owned())?;
+    for key in c063.keys() {
+        if !CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.rule-options.c063]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS.join(", ")
             ));
         }
     }
@@ -658,6 +697,23 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_validate_supported_c063_rule_option_keys() {
+        let config = parse_config_override(
+            "lint.rule-options.c063.report-unreached-nested-definitions = true",
+        )
+        .unwrap();
+        assert_eq!(
+            config
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.c063.as_ref())
+                .and_then(|c063| c063.report_unreached_nested_definitions),
+            Some(true)
+        );
+    }
+
+    #[test]
     fn inline_config_overrides_reject_unknown_lint_keys() {
         let err = parse_config_override("lint.preview = true").unwrap_err();
         assert!(err.contains("unsupported `[lint]` option `preview`"));
@@ -673,6 +729,12 @@ mod tests {
     fn inline_config_overrides_reject_unknown_c001_rule_option_keys() {
         let err = parse_config_override("lint.rule-options.c001.preview = true").unwrap_err();
         assert!(err.contains("unsupported `[lint.rule-options.c001]` option `preview`"));
+    }
+
+    #[test]
+    fn inline_config_overrides_reject_unknown_c063_rule_option_keys() {
+        let err = parse_config_override("lint.rule-options.c063.preview = true").unwrap_err();
+        assert!(err.contains("unsupported `[lint.rule-options.c063]` option `preview`"));
     }
 
     #[test]
@@ -745,6 +807,40 @@ mod tests {
                 .as_ref()
                 .and_then(|options| options.c001.as_ref())
                 .and_then(|c001| c001.treat_indirect_expansion_targets_as_used),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn c063_rule_option_config_arguments_allow_last_override_to_win() {
+        let tempdir = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override(
+                        "lint.rule-options.c063.report-unreached-nested-definitions = true",
+                    )
+                    .unwrap(),
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override(
+                        "lint.rule-options.c063.report-unreached-nested-definitions = false",
+                    )
+                    .unwrap(),
+                )),
+            ],
+            false,
+        )
+        .unwrap();
+
+        let loaded = load_project_config(tempdir.path(), &config).unwrap();
+        assert_eq!(
+            loaded
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.c063.as_ref())
+                .and_then(|c063| c063.report_unreached_nested_definitions),
             Some(false)
         );
     }

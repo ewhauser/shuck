@@ -132,6 +132,14 @@ pub struct UnusedAssignmentAnalysisOptions {
     pub treat_indirect_expansion_targets_as_used: bool,
 }
 
+/// Behavior flags for unreached-function analysis.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UnreachedFunctionAnalysisOptions {
+    /// Whether nested function definitions should be reported when their enclosing function scope
+    /// is not reached by a direct call chain.
+    pub report_unreached_nested_definitions: bool,
+}
+
 #[allow(missing_docs)]
 impl SyntheticRead {
     pub fn scope(&self) -> ScopeId {
@@ -472,6 +480,7 @@ pub struct SemanticAnalysis<'model> {
     dead_code: OnceLock<Vec<DeadCode>>,
     overwritten_functions: OnceLock<Vec<OverwrittenFunction>>,
     unreached_functions: OnceLock<Vec<UnreachedFunction>>,
+    unreached_functions_shellcheck_compat: OnceLock<Vec<UnreachedFunction>>,
     scope_provided_binding_index: OnceLock<ScopeProvidedBindingIndex>,
 }
 
@@ -1226,6 +1235,7 @@ impl<'model> SemanticAnalysis<'model> {
             dead_code: OnceLock::new(),
             overwritten_functions: OnceLock::new(),
             unreached_functions: OnceLock::new(),
+            unreached_functions_shellcheck_compat: OnceLock::new(),
             scope_provided_binding_index: OnceLock::new(),
         }
     }
@@ -1440,7 +1450,20 @@ impl<'model> SemanticAnalysis<'model> {
 
     pub fn unreached_functions(&self) -> &[UnreachedFunction] {
         self.unreached_functions
-            .get_or_init(|| self.compute_unreached_functions())
+            .get_or_init(|| self.compute_unreached_functions_with_options(Default::default()))
+            .as_slice()
+    }
+
+    pub fn unreached_functions_with_options(
+        &self,
+        options: UnreachedFunctionAnalysisOptions,
+    ) -> &[UnreachedFunction] {
+        if options == UnreachedFunctionAnalysisOptions::default() {
+            return self.unreached_functions();
+        }
+
+        self.unreached_functions_shellcheck_compat
+            .get_or_init(|| self.compute_unreached_functions_with_options(options))
             .as_slice()
     }
 
@@ -1653,7 +1676,10 @@ impl<'model> SemanticAnalysis<'model> {
         executed
     }
 
-    fn compute_unreached_functions(&self) -> Vec<UnreachedFunction> {
+    fn compute_unreached_functions_with_options(
+        &self,
+        options: UnreachedFunctionAnalysisOptions,
+    ) -> Vec<UnreachedFunction> {
         if self.model.functions.is_empty() {
             return Vec::new();
         }
@@ -1676,7 +1702,8 @@ impl<'model> SemanticAnalysis<'model> {
             .iter()
             .copied()
             .collect::<FxHashSet<_>>();
-        if unreachable.is_empty() && script_terminators.is_empty() {
+        let has_termination_boundary = !unreachable.is_empty() || !script_terminators.is_empty();
+        if !has_termination_boundary && !options.report_unreached_nested_definitions {
             return Vec::new();
         }
 
@@ -1689,6 +1716,8 @@ impl<'model> SemanticAnalysis<'model> {
         let mut unreached = Vec::new();
         let mut empty_shadow_termination_cache = FxHashMap::default();
         let mut scope_execution_cache = FxHashMap::default();
+        let mut nested_scope_execution_cache = FxHashMap::default();
+        let mut reported_bindings = FxHashSet::default();
 
         for (name, bindings) in &self.model.functions {
             for &binding_id in bindings {
@@ -1699,69 +1728,97 @@ impl<'model> SemanticAnalysis<'model> {
 
                 let reachable_blocks =
                     reachable_binding_blocks(binding_id, &binding_blocks, &unreachable);
-                let Some(reachable_blocks) = reachable_blocks else {
-                    if !self.binding_execution_scope_can_run_before_termination(
-                        binding_id,
-                        cfg,
-                        &unreachable,
-                        &script_terminators,
-                        &mut scope_execution_cache,
-                    ) {
-                        continue;
+
+                if has_termination_boundary {
+                    match reachable_blocks.as_deref() {
+                        None => {
+                            if self.binding_execution_scope_can_run_before_termination(
+                                binding_id,
+                                cfg,
+                                &unreachable,
+                                &script_terminators,
+                                &mut scope_execution_cache,
+                            ) {
+                                reported_bindings.insert(binding_id);
+                                unreached.push(UnreachedFunction {
+                                    name: name.clone(),
+                                    binding: binding_id,
+                                    reason: UnreachedFunctionReason::UnreachableDefinition,
+                                });
+                            }
+                        }
+                        Some(reachable_blocks) => {
+                            if !skip_termination_reachability
+                                && self.binding_execution_scope_can_run_before_termination(
+                                    binding_id,
+                                    cfg,
+                                    &unreachable,
+                                    &script_terminators,
+                                    &mut scope_execution_cache,
+                                )
+                            {
+                                let shadow_blocks = self.shadow_function_blocks(
+                                    name,
+                                    binding_id,
+                                    &binding_blocks,
+                                    &unreachable,
+                                );
+                                let window = FunctionReachWindow {
+                                    binding: binding_id,
+                                    binding_blocks: reachable_blocks,
+                                    shadow_blocks: &shadow_blocks,
+                                    cfg,
+                                    unreachable: &unreachable,
+                                    script_terminators: &script_terminators,
+                                };
+                                let mut visiting_scopes = FxHashSet::default();
+                                let has_direct_call = self
+                                    .function_binding_has_direct_call_before_termination(
+                                        name,
+                                        &window,
+                                        &mut visiting_scopes,
+                                    );
+
+                                if !has_direct_call
+                                    && !script_terminators.is_empty()
+                                    && all_paths_terminate_before_natural_exit(
+                                        reachable_blocks,
+                                        cfg,
+                                        &script_terminators,
+                                        &natural_exits,
+                                        &unreachable,
+                                        &shadow_blocks,
+                                        &mut empty_shadow_termination_cache,
+                                    )
+                                {
+                                    reported_bindings.insert(binding_id);
+                                    unreached.push(UnreachedFunction {
+                                        name: name.clone(),
+                                        binding: binding_id,
+                                        reason: UnreachedFunctionReason::ScriptTerminates,
+                                    });
+                                }
+                            }
+                        }
                     }
-                    unreached.push(UnreachedFunction {
-                        name: name.clone(),
-                        binding: binding_id,
-                        reason: UnreachedFunctionReason::UnreachableDefinition,
-                    });
-                    continue;
-                };
-                if skip_termination_reachability
-                    || !self.binding_execution_scope_can_run_before_termination(
+                }
+
+                if options.report_unreached_nested_definitions
+                    && !reported_bindings.contains(&binding_id)
+                    && self.nested_function_definition_is_unreached(
+                        name,
                         binding_id,
                         cfg,
+                        &binding_blocks,
                         &unreachable,
-                        &script_terminators,
-                        &mut scope_execution_cache,
+                        &mut nested_scope_execution_cache,
                     )
                 {
-                    continue;
-                }
-
-                let shadow_blocks =
-                    self.shadow_function_blocks(name, binding_id, &binding_blocks, &unreachable);
-                let window = FunctionReachWindow {
-                    binding: binding_id,
-                    binding_blocks: &reachable_blocks,
-                    shadow_blocks: &shadow_blocks,
-                    cfg,
-                    unreachable: &unreachable,
-                    script_terminators: &script_terminators,
-                };
-                let mut visiting_scopes = FxHashSet::default();
-                if self.function_binding_has_direct_call_before_termination(
-                    name,
-                    &window,
-                    &mut visiting_scopes,
-                ) {
-                    continue;
-                }
-
-                if !script_terminators.is_empty()
-                    && all_paths_terminate_before_natural_exit(
-                        &reachable_blocks,
-                        cfg,
-                        &script_terminators,
-                        &natural_exits,
-                        &unreachable,
-                        &shadow_blocks,
-                        &mut empty_shadow_termination_cache,
-                    )
-                {
+                    reported_bindings.insert(binding_id);
                     unreached.push(UnreachedFunction {
                         name: name.clone(),
                         binding: binding_id,
-                        reason: UnreachedFunctionReason::ScriptTerminates,
+                        reason: UnreachedFunctionReason::EnclosingFunctionUnreached,
                     });
                 }
             }
@@ -1769,6 +1826,55 @@ impl<'model> SemanticAnalysis<'model> {
 
         unreached.sort_by_key(|unreached| self.model.binding(unreached.binding).span.start.offset);
         unreached
+    }
+
+    fn nested_function_definition_is_unreached(
+        &self,
+        name: &Name,
+        binding_id: BindingId,
+        cfg: &ControlFlowGraph,
+        binding_blocks: &[Vec<BlockId>],
+        unreachable: &FxHashSet<BlockId>,
+        scope_execution_cache: &mut FxHashMap<ScopeId, bool>,
+    ) -> bool {
+        let binding = self.model.binding(binding_id);
+        if self.enclosing_function_scope(binding.scope).is_none() {
+            return false;
+        }
+
+        let empty_terminators = FxHashSet::default();
+        if self.binding_execution_scope_can_run_before_termination(
+            binding_id,
+            cfg,
+            unreachable,
+            &empty_terminators,
+            scope_execution_cache,
+        ) {
+            return false;
+        }
+
+        let Some(reachable_blocks) =
+            reachable_binding_blocks(binding_id, binding_blocks, unreachable)
+        else {
+            return true;
+        };
+        let shadow_blocks =
+            self.shadow_function_blocks(name, binding_id, binding_blocks, unreachable);
+        let window = FunctionReachWindow {
+            binding: binding_id,
+            binding_blocks: &reachable_blocks,
+            shadow_blocks: &shadow_blocks,
+            cfg,
+            unreachable,
+            script_terminators: &empty_terminators,
+        };
+        let mut visiting_scopes = FxHashSet::default();
+
+        !self.function_binding_has_direct_call_before_termination(
+            name,
+            &window,
+            &mut visiting_scopes,
+        )
     }
 
     fn binding_execution_scope_can_run_before_termination(
@@ -1976,6 +2082,15 @@ impl<'model> SemanticAnalysis<'model> {
                 window.script_terminators,
             );
         };
+        if function_scope == binding.scope {
+            return blocks_have_path_avoiding_many(
+                window.cfg,
+                window.binding_blocks,
+                &site_blocks,
+                window.shadow_blocks,
+                window.script_terminators,
+            );
+        }
 
         let Some(scope_entry) = window.cfg.scope_entry(function_scope) else {
             return false;
@@ -3933,6 +4048,187 @@ factory_two
         let model = model(source);
 
         assert!(model.analysis().unreached_functions().is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_report_nested_plain_eof_only_with_compat_option() {
+        let source = "\
+outer() {
+  inner() { :; }
+}
+";
+        let model = model(source);
+        let analysis = model.analysis();
+
+        assert!(analysis.unreached_functions().is_empty());
+
+        let unreached =
+            analysis.unreached_functions_with_options(UnreachedFunctionAnalysisOptions {
+                report_unreached_nested_definitions: true,
+            });
+
+        assert_eq!(unreached.len(), 1);
+        assert_eq!(unreached[0].name, "inner");
+        assert_eq!(
+            unreached[0].reason,
+            UnreachedFunctionReason::EnclosingFunctionUnreached
+        );
+    }
+
+    #[test]
+    fn unreached_functions_ignore_nested_definition_when_enclosing_function_is_called() {
+        let source = "\
+outer() {
+  inner() { :; }
+}
+outer
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached =
+            analysis.unreached_functions_with_options(UnreachedFunctionAnalysisOptions {
+                report_unreached_nested_definitions: true,
+            });
+
+        assert!(unreached.is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_do_not_count_indirect_enclosing_function_calls() {
+        let source = "\
+outer() {
+  inner() { :; }
+}
+name=outer
+$name
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached =
+            analysis.unreached_functions_with_options(UnreachedFunctionAnalysisOptions {
+                report_unreached_nested_definitions: true,
+            });
+
+        assert_eq!(unreached.len(), 1);
+        assert_eq!(unreached[0].name, "inner");
+    }
+
+    #[test]
+    fn unreached_functions_count_same_scope_nested_calls_before_enclosing_scope_exits() {
+        let source = "\
+outer() {
+  inner() { :; }
+  inner
+}
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached =
+            analysis.unreached_functions_with_options(UnreachedFunctionAnalysisOptions {
+                report_unreached_nested_definitions: true,
+            });
+
+        assert!(unreached.is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_count_same_scope_command_substitution_calls() {
+        let source = "\
+outer() {
+  inner() { :; }
+  value=$(inner)
+}
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached =
+            analysis.unreached_functions_with_options(UnreachedFunctionAnalysisOptions {
+                report_unreached_nested_definitions: true,
+            });
+
+        assert!(unreached.is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_count_transitive_nested_calls_before_enclosing_scope_exits() {
+        let source = "\
+outer() {
+  inner() { :; }
+  wrapper() {
+    inner
+  }
+  wrapper
+}
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached =
+            analysis.unreached_functions_with_options(UnreachedFunctionAnalysisOptions {
+                report_unreached_nested_definitions: true,
+            });
+
+        assert!(unreached.is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_follow_nested_direct_call_chains() {
+        let source = "\
+outer() {
+  wrapper() {
+    inner() { :; }
+  }
+  wrapper
+}
+outer
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached =
+            analysis.unreached_functions_with_options(UnreachedFunctionAnalysisOptions {
+                report_unreached_nested_definitions: true,
+            });
+
+        assert!(unreached.is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_report_nested_definitions_when_intermediate_scope_is_not_called() {
+        let source = "\
+outer() {
+  wrapper() {
+    inner() { :; }
+  }
+}
+outer
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached =
+            analysis.unreached_functions_with_options(UnreachedFunctionAnalysisOptions {
+                report_unreached_nested_definitions: true,
+            });
+
+        assert_eq!(unreached.len(), 1);
+        assert_eq!(unreached[0].name, "inner");
+    }
+
+    #[test]
+    fn unreached_functions_do_not_count_calls_before_enclosing_definition() {
+        let source = "\
+outer
+outer() {
+  inner() { :; }
+}
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached =
+            analysis.unreached_functions_with_options(UnreachedFunctionAnalysisOptions {
+                report_unreached_nested_definitions: true,
+            });
+
+        assert_eq!(unreached.len(), 1);
+        assert_eq!(unreached[0].name, "inner");
     }
 
     #[test]
