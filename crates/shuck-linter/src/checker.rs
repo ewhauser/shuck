@@ -1,11 +1,12 @@
 use rustc_hash::FxHashSet;
+use shuck_ast::TextSize;
 use shuck_ast::{File, Span};
 use shuck_indexer::Indexer;
 use shuck_semantic::{SemanticAnalysis, SemanticModel};
 
 use crate::{
     AmbientShellOptions, Diagnostic, FileContext, LinterFacts, LinterRuleOptions, Rule, RuleSet,
-    ShellDialect, Violation, rules,
+    ShellDialect, SuppressionIndex, Violation, rules,
 };
 
 pub struct Checker<'a> {
@@ -20,6 +21,7 @@ pub struct Checker<'a> {
     report_environment_style_names: bool,
     rule_options: LinterRuleOptions,
     file_context: &'a FileContext,
+    suppression_index: Option<&'a SuppressionIndex>,
     first_parse_error: Option<(usize, usize)>,
     diagnostics: Vec<Diagnostic>,
     reported: FxHashSet<DiagnosticKey>,
@@ -55,6 +57,7 @@ impl<'a> Checker<'a> {
         report_environment_style_names: bool,
         rule_options: LinterRuleOptions,
         file_context: &'a FileContext,
+        suppression_index: Option<&'a SuppressionIndex>,
         first_parse_error: Option<(usize, usize)>,
     ) -> Self {
         Self {
@@ -77,6 +80,7 @@ impl<'a> Checker<'a> {
             report_environment_style_names,
             rule_options,
             file_context,
+            suppression_index,
             first_parse_error,
             diagnostics: Vec::new(),
             reported: FxHashSet::default(),
@@ -129,6 +133,21 @@ impl<'a> Checker<'a> {
 
     pub fn first_parse_error(&self) -> Option<(usize, usize)> {
         self.first_parse_error
+    }
+
+    pub fn is_suppressed_at(&self, rule: Rule, span: Span) -> bool {
+        let Some(suppression_index) = self.suppression_index else {
+            return false;
+        };
+        let line = self
+            .indexer
+            .line_index()
+            .line_number(TextSize::new(span.start.offset as u32));
+        let Ok(line) = u32::try_from(line) else {
+            return false;
+        };
+
+        suppression_index.is_suppressed(rule, line)
     }
 
     pub fn report<V: Violation>(&mut self, violation: V, span: Span) {

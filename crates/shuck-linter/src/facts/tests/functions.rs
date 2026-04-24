@@ -167,6 +167,39 @@ value=\"`greet`\"
 }
 
 #[test]
+fn function_header_fact_expands_zero_arg_call_spans_over_redirects() {
+    let source = "\
+#!/bin/sh
+greet() { printf '%s\n' \"$1\"; }
+greet >out
+greet <<EOF
+hi
+EOF
+";
+
+    with_facts(source, None, |_, facts| {
+        let header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name == "greet")
+            })
+            .expect("expected greet header fact");
+
+        let spans = header
+            .call_arity()
+            .zero_arg_diagnostic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["greet >out", "greet <<EOF"]);
+    });
+}
+
+#[test]
 fn function_cli_dispatch_facts_track_case_positional_entrypoints_with_top_level_exit() {
     let source = "\
 #!/bin/sh
