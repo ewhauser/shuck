@@ -2853,6 +2853,17 @@ fn mixed_quote_following_line_join_between_double_quotes_span(
     word: &Word,
     source: &str,
 ) -> Option<Span> {
+    let suffix = mixed_quote_following_line_join_suffix_after_word(word, source)?;
+    Some(Span::from_positions(
+        word.span.end,
+        word.span.end.advanced_by(suffix),
+    ))
+}
+
+fn mixed_quote_following_line_join_suffix_after_word(
+    word: &Word,
+    source: &str,
+) -> Option<&'static str> {
     if !matches!(
         word.parts.first().map(|part| &part.kind),
         Some(WordPart::DoubleQuoted { .. })
@@ -2860,22 +2871,17 @@ fn mixed_quote_following_line_join_between_double_quotes_span(
         return None;
     }
 
+    let tail = &source[word.span.end.offset..];
+    let suffix = tail
+        .strip_prefix("\\\r\n\"")
+        .map(|_| "\\\r\n")
+        .or_else(|| tail.strip_prefix("\\\n\"").map(|_| "\\\n"))?;
+
     if !mixed_quote_text_ends_with_unescaped_double_quote(word.span.slice(source)) {
         return None;
     }
 
-    let suffix = source[word.span.end.offset..]
-        .strip_prefix("\\\r\n\"")
-        .map(|_| "\\\r\n")
-        .or_else(|| {
-            source[word.span.end.offset..]
-                .strip_prefix("\\\n\"")
-                .map(|_| "\\\n")
-        })?;
-    Some(Span::from_positions(
-        word.span.end,
-        word.span.end.advanced_by(suffix),
-    ))
+    Some(suffix)
 }
 
 fn mixed_quote_chained_line_join_between_double_quotes_spans(
@@ -3511,7 +3517,7 @@ fn word_may_have_unquoted_literal_between_double_quoted_segments_spans(
     word: &Word,
     source: &str,
 ) -> bool {
-    word.parts.windows(3).any(|window| {
+    let has_reopened_literal = word.parts.windows(3).any(|window| {
         matches!(
             window,
             [
@@ -3529,11 +3535,22 @@ fn word_may_have_unquoted_literal_between_double_quoted_segments_spans(
                 },
             ]
         )
-    }) || (matches!(
+    });
+    if has_reopened_literal {
+        return true;
+    }
+
+    if !matches!(
         word.parts.first().map(|part| &part.kind),
         Some(WordPart::DoubleQuoted { .. })
-    ) && word.span.slice(source).contains("\\\n"))
-        || word.span.slice(source).contains("\\\r\n")
+    ) {
+        return false;
+    }
+
+    let text = word.span.slice(source);
+    text.contains("\\\n")
+        || text.contains("\\\r\n")
+        || mixed_quote_following_line_join_suffix_after_word(word, source).is_some()
 }
 
 fn borrowed_static_word_text<'a>(word: &'a Word, source: &'a str) -> Option<&'a str> {

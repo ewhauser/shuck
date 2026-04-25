@@ -2297,6 +2297,30 @@ param_hash=\"$AWK '\"\\
 }
 
 #[test]
+fn builds_word_facts_for_reopened_quote_line_join_after_word_span() {
+    let source = "\
+#!/bin/bash
+value=\"foo\"\\
+\"bar\"
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .expansion_word_facts(ExpansionContext::AssignmentValue)
+            .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
+            .flat_map(|fact| {
+                fact.unquoted_literal_between_double_quoted_segments_spans()
+                    .iter()
+                    .map(|span| span.slice(source).to_owned())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["\\\n"]);
+    });
+}
+
+#[test]
 fn builds_word_facts_ignore_comment_text_in_nested_fragment_scan() {
     let source = "\
 #!/bin/bash
