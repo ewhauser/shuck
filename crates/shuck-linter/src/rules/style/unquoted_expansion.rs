@@ -2114,6 +2114,40 @@ printf '%s\\n' -DPACKAGE_VERSION=\\\"$TERMUX_PKG_VERSION\\\"
     }
 
     #[test]
+    fn anchors_braced_parameters_inside_escaped_literal_quotes() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \\\"${items[*]}\\\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${items[*]}"]
+        );
+    }
+
+    #[test]
+    fn anchors_braced_parameters_inside_escaped_literal_quotes_in_substitution() {
+        let source = "\
+#!/bin/bash
+json=\"$(echo \\\"${items[*]}\\\")\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${items[*]}"]
+        );
+    }
+
+    #[test]
     fn reports_decl_assignment_values_in_sh_mode() {
         let source = "\
 local _patch=$TERMUX_PKG_BUILDER_DIR/file.diff
