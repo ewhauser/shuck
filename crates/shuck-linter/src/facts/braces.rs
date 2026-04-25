@@ -119,9 +119,11 @@ fn collect_literal_brace_spans_for_word(
         word,
         source,
         &scratch.dynamic_exclusions,
-        &mut scratch.literal_stack,
-        &mut scratch.raw_escaped_exclusions,
-        &mut scratch.escaped_parameter_stack,
+        EscapedParameterBraceEdgeScratch {
+            literal_stack: &mut scratch.literal_stack,
+            raw_escaped_exclusions: &mut scratch.raw_escaped_exclusions,
+            escaped_parameter_stack: &mut scratch.escaped_parameter_stack,
+        },
         spans,
         |span| literal_brace_word_span_is_reportable(nodes, fact, fact_store, word, span, source),
     );
@@ -773,12 +775,14 @@ fn collect_uncovered_command_brace_spans(
         for span in scratch.covered_spans.iter().copied() {
             if span.start.offset > cursor {
                 collect_raw_literal_brace_spans(
-                    command_span,
+                    RawLiteralBraceScan {
+                        container_span: command_span,
+                        source,
+                        mode: RawLiteralBraceScanMode::All,
+                        excluded_ranges: heredoc_ranges,
+                    },
                     cursor,
                     span.start.offset,
-                    source,
-                    RawLiteralBraceScanMode::All,
-                    heredoc_ranges,
                     out,
                     &mut scratch.relevant_excluded_ranges,
                     &mut scratch.unmatched_spans,
@@ -789,12 +793,14 @@ fn collect_uncovered_command_brace_spans(
 
         if command_span.end.offset > cursor {
             collect_raw_literal_brace_spans(
-                command_span,
+                RawLiteralBraceScan {
+                    container_span: command_span,
+                    source,
+                    mode: RawLiteralBraceScanMode::All,
+                    excluded_ranges: heredoc_ranges,
+                },
                 cursor,
                 command_span.end.offset,
-                source,
-                RawLiteralBraceScanMode::All,
-                heredoc_ranges,
                 out,
                 &mut scratch.relevant_excluded_ranges,
                 &mut scratch.unmatched_spans,
@@ -840,19 +846,24 @@ enum RawLiteralBraceQuoteState {
     Double,
 }
 
-fn collect_raw_literal_brace_spans(
+#[derive(Debug, Clone, Copy)]
+struct RawLiteralBraceScan<'a> {
     container_span: Span,
+    source: &'a str,
+    mode: RawLiteralBraceScanMode,
+    excluded_ranges: &'a [TextRange],
+}
+
+fn collect_raw_literal_brace_spans(
+    scan: RawLiteralBraceScan<'_>,
     scan_start: usize,
     scan_end: usize,
-    source: &str,
-    mode: RawLiteralBraceScanMode,
-    excluded_ranges: &[TextRange],
     out: &mut Vec<Span>,
     relevant_excluded: &mut Vec<(usize, usize)>,
     unmatched_opens: &mut Vec<Span>,
 ) {
     relevant_excluded.clear();
-    relevant_excluded.extend(excluded_ranges
+    relevant_excluded.extend(scan.excluded_ranges
         .iter()
         .filter_map(|range| {
             let start = usize::from(range.start());
@@ -869,11 +880,11 @@ fn collect_raw_literal_brace_spans(
     for (start, end) in relevant_excluded.iter().copied() {
         if start > cursor {
             collect_raw_literal_brace_spans_without_exclusions(
-                container_span,
+                scan.container_span,
                 cursor,
                 start,
-                source,
-                mode,
+                scan.source,
+                scan.mode,
                 unmatched_opens,
                 out,
             );
@@ -883,18 +894,18 @@ fn collect_raw_literal_brace_spans(
 
     if scan_end > cursor {
         collect_raw_literal_brace_spans_without_exclusions(
-            container_span,
+            scan.container_span,
             cursor,
             scan_end,
-            source,
-            mode,
+            scan.source,
+            scan.mode,
             unmatched_opens,
             out,
         );
     }
 
-    if mode == RawLiteralBraceScanMode::UnmatchedOnly {
-        out.extend(unmatched_opens.drain(..));
+    if scan.mode == RawLiteralBraceScanMode::UnmatchedOnly {
+        out.append(unmatched_opens);
     }
 }
 
@@ -1126,12 +1137,14 @@ fn collect_unmatched_command_substitution_brace_spans(
 
         if body_end > body_start {
             collect_raw_literal_brace_spans(
-                container_span,
+                RawLiteralBraceScan {
+                    container_span,
+                    source,
+                    mode: RawLiteralBraceScanMode::UnmatchedOnly,
+                    excluded_ranges: heredoc_ranges,
+                },
                 body_start,
                 body_end,
-                source,
-                RawLiteralBraceScanMode::UnmatchedOnly,
-                heredoc_ranges,
                 out,
                 &mut scratch.relevant_excluded_ranges,
                 &mut scratch.unmatched_spans,
@@ -1181,19 +1194,23 @@ struct DynamicBraceExcludedSpan {
     kind: DynamicBraceExcludedSpanKind,
 }
 
+struct EscapedParameterBraceEdgeScratch<'a> {
+    literal_stack: &'a mut Vec<LiteralBraceCandidate>,
+    raw_escaped_exclusions: &'a mut Vec<DynamicBraceExcludedSpan>,
+    escaped_parameter_stack: &'a mut Vec<usize>,
+}
+
 fn collect_escaped_parameter_expansion_brace_edge_spans(
     word: &Word,
     source: &str,
     excluded: &[DynamicBraceExcludedSpan],
-    literal_stack: &mut Vec<LiteralBraceCandidate>,
-    raw_escaped_exclusions: &mut Vec<DynamicBraceExcludedSpan>,
-    escaped_parameter_stack: &mut Vec<usize>,
+    scratch: EscapedParameterBraceEdgeScratch<'_>,
     out: &mut Vec<Span>,
     mut is_reportable: impl FnMut(Span) -> bool,
 ) {
     let span = word.span;
     let text = span.slice(source);
-    literal_stack.clear();
+    scratch.literal_stack.clear();
     let mut excluded_index = 0usize;
     let mut index = 0usize;
     let mut previous_char = None;
@@ -1211,11 +1228,11 @@ fn collect_escaped_parameter_expansion_brace_edge_spans(
             }
 
             if excluded_span.kind == DynamicBraceExcludedSpanKind::RuntimeShellSyntax
-                && let Some(current) = literal_stack.last_mut()
+                && let Some(current) = scratch.literal_stack.last_mut()
             {
                 current.has_runtime_shell_sigil_inside = true;
             }
-            if let Some(current) = literal_stack.last_mut() {
+            if let Some(current) = scratch.literal_stack.last_mut() {
                 current.has_excluded_content_inside = true;
             }
             if excluded_span.kind == DynamicBraceExcludedSpanKind::RuntimeShellSyntax
@@ -1280,7 +1297,7 @@ fn collect_escaped_parameter_expansion_brace_edge_spans(
         }
 
         if ch == '{' {
-            literal_stack.push(LiteralBraceCandidate {
+            scratch.literal_stack.push(LiteralBraceCandidate {
                 open_offset: index,
                 after_escaped_dollar: previous_char == Some('$') && previous_char_escaped,
                 has_excluded_content_inside: false,
@@ -1288,17 +1305,17 @@ fn collect_escaped_parameter_expansion_brace_edge_spans(
                 has_brace_expansion_delimiter: false,
             });
         } else if ch == ','
-            && let Some(candidate) = literal_stack.last_mut()
+            && let Some(candidate) = scratch.literal_stack.last_mut()
         {
             candidate.has_brace_expansion_delimiter = true;
         } else if ch == '.'
             && previous_char == Some('.')
             && !previous_char_escaped
-            && let Some(candidate) = literal_stack.last_mut()
+            && let Some(candidate) = scratch.literal_stack.last_mut()
         {
             candidate.has_brace_expansion_delimiter = true;
         } else if ch == '}'
-            && let Some(candidate) = literal_stack.pop()
+            && let Some(candidate) = scratch.literal_stack.pop()
             && index > candidate.open_offset + 1
             && (candidate.after_escaped_dollar
                 || candidate.has_excluded_content_inside
@@ -1326,8 +1343,8 @@ fn collect_escaped_parameter_expansion_brace_edge_spans(
     collect_raw_escaped_parameter_brace_edge_spans(
         word,
         source,
-        raw_escaped_exclusions,
-        escaped_parameter_stack,
+        scratch.raw_escaped_exclusions,
+        scratch.escaped_parameter_stack,
         out,
         &mut is_reportable,
     );
