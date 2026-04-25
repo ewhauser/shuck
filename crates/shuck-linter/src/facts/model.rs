@@ -20,6 +20,7 @@ pub struct LinterFacts<'a> {
     nested_presence_test_spans: FxHashMap<Name, Vec<Span>>,
     c006_presence_tested_names: FxHashSet<Name>,
     c006_nested_presence_test_spans: FxHashMap<Name, Vec<Span>>,
+    c006_suppressing_reference_offsets_by_name: FxHashMap<Name, Vec<usize>>,
     presence_test_references_by_name: FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
     presence_test_names_by_name: FxHashMap<Name, Vec<PresenceTestNameFact>>,
     suppressed_subscript_reference_spans: FxHashSet<FactSpan>,
@@ -347,6 +348,14 @@ impl<'a> LinterFacts<'a> {
     pub fn is_c006_presence_tested_name(&self, name: &Name, _span: Span) -> bool {
         self.c006_presence_tested_names.contains(name)
             || self.c006_nested_presence_test_spans.contains_key(name)
+    }
+
+    pub fn has_prior_c006_suppressing_reference(&self, name: &Name, span: Span) -> bool {
+        self.c006_suppressing_reference_offsets_by_name
+            .get(name)
+            .is_some_and(|offsets| {
+                offsets.partition_point(|offset| *offset < span.start.offset) > 0
+            })
     }
 
     pub fn assignment_value_target_name_for_span(&self, span: Span) -> Option<&Name> {
@@ -701,8 +710,7 @@ impl<'a> LinterFacts<'a> {
 
     pub fn is_backtick_double_escaped_parameter_reference(&self, span: Span) -> bool {
         self.backtick_double_escaped_parameter_spans
-            .iter()
-            .any(|escaped| *escaped == span)
+            .contains(&span)
     }
 
     pub fn backtick_command_name_spans(&self) -> &[Span] {

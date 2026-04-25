@@ -2107,6 +2107,36 @@ maybe_helper() {
     }
 
     #[test]
+    fn skips_status_capture_after_mixed_static_and_escaped_declaration_bindings() {
+        let source = "\
+#!/bin/bash
+download_the_url() {
+  result=0
+  curl \"$url\" && mv file file.part || {
+    result=$?
+    case \"$result\" in
+      18) download_the_url \"$counter\" ;;
+      *) ;;
+    esac
+    return $result
+  }
+}
+download_the_url || {
+  \\typeset __fallback __default_url __default __iterator result=$?
+  if (( result )); then
+    fail \"no fallback\" $result
+  fi
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion).with_resolve_source_closure(false),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_status_capture_declarations_after_unsafe_reassignments() {
         let source = "\
 #!/bin/bash

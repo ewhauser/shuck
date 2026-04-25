@@ -1774,7 +1774,7 @@ pub(crate) fn backtick_double_escaped_parameter_spans(
                     }
                     let slash_count = index.saturating_sub(slash_start);
                     if in_double_quote
-                        && slash_count >= 2
+                        && slash_count == 2
                         && source.as_bytes().get(index) == Some(&b'$')
                         && let Some(parameter) =
                             escaped_backtick_parameter_syntax(source, index, end)
@@ -6145,7 +6145,8 @@ printf '%s\\n' \"${arr[@]}\" \"x${arr[@]}\" \"x${!arr[@]}\" \"x${arr[@]:1}\" \"x
 
     #[test]
     fn backtick_double_escaped_parameter_spans_track_quoted_templates() {
-        let source = r#"`echo "foreach dir {puts \\$dir}"` `echo "plain $missing"`"#;
+        let source =
+            r#"`echo "foreach dir {puts \\$dir} literal \\\\$literal"` `echo "plain $missing"`"#;
         let backtick_spans = backtick_substitution_spans(source);
         let escaped = backtick_double_escaped_parameter_spans(source, &backtick_spans);
 

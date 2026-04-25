@@ -3312,13 +3312,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             if braced_parameter_start_matches(self.source, start_offset, name)
                 && let Some(end_offset) =
                     braced_parameter_end_offset(self.source, start_offset, search_end)
-            {
-                if let Some((start, end)) =
+                && let Some((start, end)) =
                     self.source_positions_for_offsets(start_offset, end_offset)
-                    && start.offset < end.offset
-                {
-                    return Some(Span::from_positions(start, end));
-                }
+                && start.offset < end.offset
+            {
+                return Some(Span::from_positions(start, end));
             }
         }
 
@@ -4840,9 +4838,7 @@ fn let_arithmetic_assignment_target(word: &Word, source: &str) -> Option<(Name, 
     let text = word.span.slice(source);
     let name_end = variable_name_end(text)?;
     let rest = text[name_end..].trim_start();
-    if arithmetic_assignment_operator(rest).is_none() {
-        return None;
-    }
+    arithmetic_assignment_operator(rest)?;
 
     Some((
         Name::from(&text[..name_end]),

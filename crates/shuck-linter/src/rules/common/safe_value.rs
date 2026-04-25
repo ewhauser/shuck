@@ -692,6 +692,11 @@ impl<'a> SafeValueIndex<'a> {
         {
             return true;
         }
+        if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+            && self.binding_is_standalone_status_capture(binding_id, case_cli_scope)
+        {
+            return true;
+        }
 
         let key = (binding_key, FactSpan::new(at), query, case_cli_scope);
         if let Some(result) = self.memo.get(&key) {
@@ -784,17 +789,14 @@ impl<'a> SafeValueIndex<'a> {
             match &binding.origin {
                 BindingOrigin::Assignment {
                     value:
-                        AssignmentValueOrigin::PlainScalarAccess | AssignmentValueOrigin::StaticLiteral,
+                        AssignmentValueOrigin::PlainScalarAccess
+                        | AssignmentValueOrigin::StaticLiteral
+                        | AssignmentValueOrigin::Unknown,
                     ..
                 }
                 | BindingOrigin::Declaration { .. }
                     if case_cli_scope != Some(binding.scope)
-                        && self
-                            .facts
-                            .binding_value(binding_id)
-                            .filter(|value| !value.conditional_assignment_shortcut())
-                            .and_then(|value| value.scalar_word())
-                            .is_some_and(word_is_standalone_status_capture) =>
+                        && self.binding_value_is_standalone_status_capture(binding_id) =>
                 {
                     status_bindings.push(binding_id);
                 }
@@ -817,16 +819,36 @@ impl<'a> SafeValueIndex<'a> {
             binding.origin,
             BindingOrigin::Assignment {
                 value: AssignmentValueOrigin::PlainScalarAccess
-                    | AssignmentValueOrigin::StaticLiteral,
+                    | AssignmentValueOrigin::StaticLiteral
+                    | AssignmentValueOrigin::Unknown,
                 ..
             } | BindingOrigin::Declaration { .. }
         ) && case_cli_scope != Some(binding.scope)
-            && self
-                .facts
-                .binding_value(binding_id)
-                .filter(|value| !value.conditional_assignment_shortcut())
-                .and_then(|value| value.scalar_word())
-                .is_some_and(word_is_standalone_status_capture)
+            && self.binding_value_is_standalone_status_capture(binding_id)
+    }
+
+    fn binding_value_is_standalone_status_capture(&self, binding_id: BindingId) -> bool {
+        if self
+            .facts
+            .binding_value(binding_id)
+            .filter(|value| !value.conditional_assignment_shortcut())
+            .and_then(|value| value.scalar_word())
+            .is_some_and(word_is_standalone_status_capture)
+        {
+            return true;
+        }
+
+        let binding = self.semantic.binding(binding_id);
+        let definition_span = match &binding.origin {
+            BindingOrigin::Assignment {
+                definition_span,
+                value: AssignmentValueOrigin::Unknown,
+            }
+            | BindingOrigin::Declaration { definition_span } => *definition_span,
+            _ => return false,
+        };
+        assignment_value_after_definition(self.source, definition_span)
+            .is_some_and(assignment_value_text_is_standalone_status_capture)
     }
 
     fn status_capture_declaration_probe_covers_reference(
@@ -2318,6 +2340,19 @@ fn command_fact_is_standalone_exit(command: &crate::facts::CommandFact<'_>) -> b
 
 fn safe_special_parameter(name: &Name) -> bool {
     matches!(name.as_str(), "@" | "#" | "?" | "$" | "!" | "-")
+}
+
+fn assignment_value_after_definition(source: &str, definition_span: Span) -> Option<&str> {
+    let rest = source.get(definition_span.end.offset..)?;
+    let rest = rest.strip_prefix('=')?;
+    let value_len = rest
+        .find(|char: char| char.is_ascii_whitespace() || matches!(char, ';' | '&' | '|'))
+        .unwrap_or(rest.len());
+    rest.get(..value_len)
+}
+
+fn assignment_value_text_is_standalone_status_capture(text: &str) -> bool {
+    matches!(text, "$?" | "${?}" | "\"$?\"" | "\"${?}\"")
 }
 
 fn safe_numeric_shell_variable(name: &Name) -> bool {

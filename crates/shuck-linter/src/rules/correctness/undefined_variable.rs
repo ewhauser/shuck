@@ -198,6 +198,28 @@ printf '%s\\n' \"$plain_test\" \"$file_test\" \"$still_missing\"
     }
 
     #[test]
+    fn nested_presence_tests_suppress_same_name_c006_reports_across_functions() {
+        let source = "\
+#!/bin/bash
+guarded_flag() {
+  printf '%s\\n' \"$( [[ -n \"$shared_flag\" ]] && printf true || printf false)\"
+}
+read_flag() {
+  printf '%s\\n' \"$shared_flag\" \"$unrelated_flag\"
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$unrelated_flag"]
+        );
+    }
+
+    #[test]
     fn reports_index_arithmetic_subscript_references() {
         let source = "\
 #!/bin/bash

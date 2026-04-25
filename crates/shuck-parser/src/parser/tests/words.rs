@@ -65,19 +65,15 @@ fn collect_bourne_parameter_trim_patterns(
             }
             WordPart::Parameter(parameter) => {
                 if let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
-                    operator,
-                    ..
-                }) = &parameter.syntax
-                {
-                    match operator {
+                    operator:
                         ParameterOp::RemovePrefixShort { pattern }
                         | ParameterOp::RemovePrefixLong { pattern }
                         | ParameterOp::RemoveSuffixShort { pattern }
-                        | ParameterOp::RemoveSuffixLong { pattern } => {
-                            patterns.push(pattern.render(source));
-                        }
-                        _ => {}
-                    }
+                        | ParameterOp::RemoveSuffixLong { pattern },
+                    ..
+                }) = &parameter.syntax
+                {
+                    patterns.push(pattern.render(source));
                 }
             }
             _ => {}
