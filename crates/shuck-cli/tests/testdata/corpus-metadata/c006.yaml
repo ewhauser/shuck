@@ -118,48 +118,6 @@ reviewed_divergences:
     column: 20
     end_column: 38
     reason: "This distro-reinstall helper threads release metadata through large case-driven installer plumbing, so the remaining C006 read is a reviewed cross-branch handoff rather than an isolated undefined local."
-  - side: shellcheck-only
-    path_suffix: "docker-library__official-images__test__config.sh"
-    line: 59
-    end_line: 59
-    column: 3
-    end_column: 9
-    reason: "This generated test matrix is just a bundle of image-to-test mappings, so the ShellCheck-only C006 hits are the literal associative-array keys in those compound assignments rather than live variable reads."
-  - side: shellcheck-only
-    path_suffix: "docker-library__official-images__test__config.sh"
-    line: 110
-    end_line: 110
-    column: 3
-    end_column: 9
-    reason: "This generated test matrix is just a bundle of image-to-test mappings, so the ShellCheck-only C006 hits are the literal associative-array keys in those compound assignments rather than live variable reads."
-  - side: shellcheck-only
-    path_suffix: "docker-library__official-images__test__config.sh"
-    line: 200
-    end_line: 200
-    column: 3
-    end_column: 15
-    reason: "This generated test matrix is just a bundle of image-to-test mappings, so the ShellCheck-only C006 hits are the literal associative-array keys in those compound assignments rather than live variable reads."
-  - side: shellcheck-only
-    path_suffix: "docker-library__official-images__test__config.sh"
-    line: 267
-    end_line: 267
-    column: 3
-    end_column: 12
-    reason: "This generated test matrix is just a bundle of image-to-test mappings, so the ShellCheck-only C006 hits are the literal associative-array keys in those compound assignments rather than live variable reads."
-  - side: shellcheck-only
-    path_suffix: "docker-library__official-images__test__config.sh"
-    line: 328
-    end_line: 328
-    column: 8
-    end_column: 17
-    reason: "This generated test matrix is just a bundle of image-to-test mappings, so the ShellCheck-only C006 hits are the literal associative-array keys in those compound assignments rather than live variable reads."
-  - side: shellcheck-only
-    path_suffix: "docker-library__official-images__test__config.sh"
-    line: 332
-    end_line: 332
-    column: 3
-    end_column: 10
-    reason: "This generated test matrix is just a bundle of image-to-test mappings, so the ShellCheck-only C006 hits are the literal associative-array keys in those compound assignments rather than live variable reads."
   - side: shuck-only
     path_suffix: "gentoo__gentoo__net-dns__avahi__files__autoipd.sh"
     line: 23

@@ -3178,6 +3178,23 @@ fi
     }
 
     #[test]
+    fn undefined_variable_reports_unparsed_indexed_subscript_prefixes() {
+        let source = "\
+#!/bin/bash
+arr+=([docker:dind]=x [nats-streaming:nanoserver]=y)
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["docker", "nats", "streaming"]
+        );
+    }
+
+    #[test]
     fn undefined_variable_ignores_bound_name_between_escaped_quote_literals() {
         let diagnostics = lint_for_rule(
             "\

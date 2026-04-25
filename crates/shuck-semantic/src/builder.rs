@@ -8,8 +8,8 @@ use shuck_ast::{
     CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclOperand, File,
     FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, Name, NormalizedCommand,
     ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind,
-    PatternPart, PatternPartNode, Position, Span, StaticCommandWrapperTarget, Stmt, StmtSeq,
-    Subscript, VarRef, Word, WordPart, WordPartNode, WrapperKind, ZshExpansionOperation,
+    PatternPart, PatternPartNode, Position, SourceText, Span, StaticCommandWrapperTarget, Stmt,
+    StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode, WrapperKind, ZshExpansionOperation,
     ZshExpansionTarget, ZshGlobSegment, normalize_command_words, static_command_name_text,
     static_command_wrapper_target_index, static_word_text, try_static_word_parts_text,
 };
@@ -1399,6 +1399,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             return;
         }
 
+        if !uses_associative_word_semantics {
+            self.visit_unparsed_arithmetic_subscript_references(subscript);
+        }
+
         self.visit_fragment_word(
             subscript.word_ast(),
             Some(subscript.syntax_source_text()),
@@ -1406,6 +1410,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             flow,
             nested_regions,
         );
+    }
+
+    fn visit_unparsed_arithmetic_subscript_references(&mut self, subscript: &Subscript) {
+        for (name, span) in unparsed_arithmetic_subscript_reference_names(
+            subscript.syntax_source_text(),
+            self.source,
+        ) {
+            self.add_reference(&name, ReferenceKind::ArithmeticRead, span);
+        }
     }
 
     fn visit_word_part(
@@ -4127,6 +4140,46 @@ fn conditional_binary_op_uses_arithmetic_operands(op: ConditionalBinaryOp) -> bo
             | ConditionalBinaryOp::ArithmeticLt
             | ConditionalBinaryOp::ArithmeticGt
     )
+}
+
+fn unparsed_arithmetic_subscript_reference_names(
+    source_text: &SourceText,
+    source: &str,
+) -> Vec<(Name, Span)> {
+    if !source_text.is_source_backed() {
+        return Vec::new();
+    }
+
+    let text = source_text.slice(source);
+    let Some((leading, _)) = text.split_once(':') else {
+        return Vec::new();
+    };
+
+    let mut references = Vec::new();
+    let mut chars = leading.char_indices().peekable();
+    while let Some((start, ch)) = chars.next() {
+        if !is_name_start_character(ch) || text[..start].ends_with('$') {
+            continue;
+        }
+
+        let mut end = start + ch.len_utf8();
+        while let Some((next_index, next)) = chars.peek().copied() {
+            if !is_name_character(next) {
+                break;
+            }
+            chars.next();
+            end = next_index + next.len_utf8();
+        }
+
+        let name = &leading[start..end];
+        let start_position = source_text.span().start.advanced_by(&text[..start]);
+        references.push((
+            Name::from(name),
+            Span::from_positions(start_position, start_position.advanced_by(name)),
+        ));
+    }
+
+    references
 }
 
 fn conditional_arithmetic_operand_name(

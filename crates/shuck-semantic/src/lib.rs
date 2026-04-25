@@ -7105,6 +7105,18 @@ fi
     }
 
     #[test]
+    fn unparsed_indexed_subscript_prefixes_are_uninitialized_reads() {
+        let source = "\
+arr+=([docker:dind]=x [nats-streaming:nanoserver]=y)
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_present(&["docker", "nats", "streaming"], &uninitialized);
+        assert_names_absent(&["dind", "nanoserver"], &uninitialized);
+    }
+
+    #[test]
     fn assign_default_and_error_operands_are_marked_uninitialized() {
         let source = "\
 printf '%s\\n' \
