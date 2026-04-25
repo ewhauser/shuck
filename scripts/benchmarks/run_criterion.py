@@ -38,6 +38,11 @@ def parse_args() -> argparse.Namespace:
         help="Cargo package that owns the Criterion benches.",
     )
     parser.add_argument(
+        "--features",
+        default="",
+        help="Comma-separated Cargo features to enable for optional benchmark targets.",
+    )
+    parser.add_argument(
         "--noplot",
         action="store_true",
         help="Disable Criterion plot generation.",
@@ -45,7 +50,13 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_bench_names(repo_root: Path) -> list[str]:
+def parse_features(features: str) -> set[str]:
+    return {feature.strip() for feature in features.split(",") if feature.strip()}
+
+
+def load_bench_names(
+    repo_root: Path, package_name: str, enabled_features: set[str]
+) -> list[str]:
     metadata = subprocess.run(
         [
             "cargo",
@@ -65,26 +76,34 @@ def load_bench_names(repo_root: Path) -> list[str]:
     benches: list[str] = []
 
     for package in payload.get("packages", []):
-        if package.get("name") != "shuck-benchmark":
+        if package.get("name") != package_name:
             continue
-        benches = [
-            target["name"]
-            for target in package.get("targets", [])
-            if "bench" in target.get("kind", []) and isinstance(target.get("name"), str)
-        ]
+        for target in package.get("targets", []):
+            if "bench" not in target.get("kind", []):
+                continue
+            name = target.get("name")
+            if not isinstance(name, str):
+                continue
+            required_features = set(target.get("required-features") or [])
+            if required_features and not required_features.issubset(enabled_features):
+                continue
+            benches.append(name)
         break
 
     if not benches:
-        raise SystemExit("no Criterion benches found in cargo metadata for shuck-benchmark")
+        raise SystemExit(f"no Criterion benches found in cargo metadata for {package_name}")
     return benches
 
 
 def main() -> int:
     args = parse_args()
     repo_root = args.repo_root.resolve()
-    bench_names = load_bench_names(repo_root)
+    enabled_features = parse_features(args.features)
+    bench_names = load_bench_names(repo_root, args.package, enabled_features)
 
     command = ["cargo", "bench", "-p", args.package]
+    if enabled_features:
+        command.extend(["--features", ",".join(sorted(enabled_features))])
     for bench_name in bench_names:
         command.extend(["--bench", bench_name])
 
@@ -98,6 +117,8 @@ def main() -> int:
         command.append("--noplot")
 
     print(f"Repository: {repo_root}")
+    if enabled_features:
+        print(f"Features: {', '.join(sorted(enabled_features))}")
     print(f"Benches: {', '.join(bench_names)}")
     print(f"Command: {' '.join(command)}")
     completed = subprocess.run(command, cwd=repo_root)

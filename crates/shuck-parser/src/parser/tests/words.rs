@@ -4857,6 +4857,17 @@ fn test_parse_parameter_expansion_preserves_quoted_associative_subscripts() {
             .slice(input),
         "\"key\""
     );
+    assert!(matches!(
+        first_subscript
+            .word_ast()
+            .expect("expected subscript word AST")
+            .parts
+            .as_slice(),
+        [WordPartNode {
+            kind: WordPart::DoubleQuoted { .. },
+            ..
+        }]
+    ));
     assert_eq!(command.args[1].render_syntax(input), "${assoc[\"key\"]}");
 
     let second_subscript = expect_subscript_syntax(second, input, "'k'", "k");
@@ -4868,6 +4879,17 @@ fn test_parse_parameter_expansion_preserves_quoted_associative_subscripts() {
             .render_syntax(input),
         "'k'"
     );
+    assert!(matches!(
+        second_subscript
+            .word_ast()
+            .expect("expected subscript word AST")
+            .parts
+            .as_slice(),
+        [WordPartNode {
+            kind: WordPart::SingleQuoted { .. },
+            ..
+        }]
+    ));
     assert_eq!(command.args[2].render_syntax(input), "${assoc['k']}");
 }
 

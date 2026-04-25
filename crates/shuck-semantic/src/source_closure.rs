@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -47,6 +48,13 @@ struct SourceClosureLookupContext<'a> {
     source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
     analyzed_paths: Option<&'a FxHashSet<PathBuf>>,
     shell_profile: ShellProfile,
+    resolved_helper_paths: RefCell<FxHashMap<HelperPathResolutionKey, Vec<PathBuf>>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct HelperPathResolutionKey {
+    source_path: PathBuf,
+    candidate: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -101,6 +109,7 @@ pub(crate) fn collect_source_closure_contracts(
         source_path_resolver,
         analyzed_paths,
         shell_profile: model.shell_profile().clone(),
+        resolved_helper_paths: RefCell::new(FxHashMap::default()),
     };
     let contracts = collect_source_closure_contracts_with_cache(
         model,
@@ -127,11 +136,16 @@ pub(crate) fn collect_source_ref_metadata(
     analyzed_paths: Option<&FxHashSet<PathBuf>>,
 ) -> SourceRefMetadataResult {
     let facts = collect_ast_facts(model);
-    let call_args_by_scope = resolve_literal_call_args_by_scope(model, &facts.calls);
+    let call_args_by_scope = if facts.source_templates_use_positional_args {
+        resolve_literal_call_args_by_scope(model, &facts.calls)
+    } else {
+        FxHashMap::default()
+    };
     let context = SourceClosureLookupContext {
         source_path_resolver,
         analyzed_paths,
         shell_profile: model.shell_profile().clone(),
+        resolved_helper_paths: RefCell::new(FxHashMap::default()),
     };
     let mut source_ref_resolutions = Vec::new();
     let mut source_ref_explicitness = Vec::new();
@@ -172,7 +186,11 @@ fn collect_source_closure_contracts_with_cache(
     context: &SourceClosureLookupContext<'_>,
 ) -> SourceClosureContracts {
     let facts = collect_ast_facts(model);
-    let call_args_by_scope = resolve_literal_call_args_by_scope(model, &facts.calls);
+    let call_args_by_scope = if facts.source_templates_use_positional_args {
+        resolve_literal_call_args_by_scope(model, &facts.calls)
+    } else {
+        FxHashMap::default()
+    };
     let mut synthetic_reads = Vec::new();
     let mut imported_bindings = Vec::new();
     let mut imported_functions = Vec::new();
@@ -288,8 +306,7 @@ fn merge_contracts_for_candidates(
     let mut resolved = false;
     let mut explicit = false;
     for candidate in candidates {
-        let resolved_paths =
-            resolve_helper_paths(source_path, &candidate, context.source_path_resolver);
+        let resolved_paths = resolve_helper_paths_cached(source_path, &candidate, context);
         resolved |= !resolved_paths.is_empty();
         explicit |= resolved_paths
             .iter()
@@ -313,8 +330,7 @@ fn source_ref_metadata_for_candidates(
     let mut resolved = false;
     let mut explicit = false;
     for candidate in candidates {
-        let resolved_paths =
-            resolve_helper_paths(source_path, &candidate, context.source_path_resolver);
+        let resolved_paths = resolve_helper_paths_cached(source_path, &candidate, context);
         resolved |= !resolved_paths.is_empty();
         explicit |= resolved_paths
             .iter()
@@ -588,6 +604,7 @@ fn visible_imported_function_in_scope<'a>(
 #[derive(Debug, Clone)]
 struct AstFacts {
     source_templates: FxHashMap<SpanKey, SourcePathTemplate>,
+    source_templates_use_positional_args: bool,
     calls: Vec<CallInfo>,
 }
 
@@ -615,6 +632,7 @@ pub(crate) enum TemplatePart {
 fn collect_ast_facts(model: &SemanticModel) -> AstFacts {
     let mut facts = AstFacts {
         source_templates: FxHashMap::default(),
+        source_templates_use_positional_args: false,
         calls: Vec::new(),
     };
     let program = model.recorded_program();
@@ -642,12 +660,20 @@ fn collect_ast_facts(model: &SemanticModel) -> AstFacts {
         if matches!(name, "source" | ".")
             && let Some(template) = info.source_path_template.clone()
         {
+            facts.source_templates_use_positional_args |=
+                source_template_uses_positional_args(&template);
             facts
                 .source_templates
                 .insert(SpanKey::new(command.span), template);
         }
     }
     facts
+}
+
+fn source_template_uses_positional_args(template: &SourcePathTemplate) -> bool {
+    match template {
+        SourcePathTemplate::Interpolated(parts) => uses_positional_args(parts),
+    }
 }
 
 pub(crate) fn source_path_template(
@@ -1157,6 +1183,27 @@ fn resolve_helper_paths(
         .collect()
 }
 
+fn resolve_helper_paths_cached(
+    source_path: &Path,
+    candidate: &str,
+    context: &SourceClosureLookupContext<'_>,
+) -> Vec<PathBuf> {
+    let key = HelperPathResolutionKey {
+        source_path: source_path.to_path_buf(),
+        candidate: candidate.to_owned(),
+    };
+    if let Some(paths) = context.resolved_helper_paths.borrow().get(&key) {
+        return paths.clone();
+    }
+
+    let paths = resolve_helper_paths(source_path, candidate, context.source_path_resolver);
+    context
+        .resolved_helper_paths
+        .borrow_mut()
+        .insert(key, paths.clone());
+    paths
+}
+
 fn candidate_path_variants(candidate: &str) -> Vec<PathBuf> {
     #[cfg(not(windows))]
     let variants = vec![PathBuf::from(candidate)];
@@ -1253,6 +1300,7 @@ fn summarize_helper_uncached(
             source_path_resolver,
             analyzed_paths: None,
             shell_profile,
+            resolved_helper_paths: RefCell::new(FxHashMap::default()),
         },
     );
     semantic.apply_source_contracts(
@@ -1465,6 +1513,7 @@ coproc loader { . \"$2\"; }
             source_path_resolver: None,
             analyzed_paths: None,
             shell_profile: ShellProfile::native(ParseShellDialect::Bash),
+            resolved_helper_paths: RefCell::new(FxHashMap::default()),
         };
         let mut summaries = FxHashMap::default();
         let mut active = FxHashSet::default();

@@ -349,6 +349,10 @@ fn large_corpus_without_c100_settings() -> LinterSettings {
     settings
 }
 
+fn large_corpus_without_source_closure_settings(fixture: &LargeCorpusFixture) -> LinterSettings {
+    large_corpus_default_settings(fixture).with_resolve_source_closure(false)
+}
+
 fn build_large_corpus_word_facts(input: &PreparedWordFactsInput) -> usize {
     black_box(
         benchmark_collect_word_facts(&input.parse_result.file, &input.source, &input.semantic)
@@ -506,6 +510,55 @@ fn bench_large_corpus_linter_rule_splits(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_large_corpus_linter_source_closure_splits(c: &mut Criterion) {
+    let Ok(fixtures) = large_corpus_fixtures() else {
+        let Err(message) = large_corpus_fixtures() else {
+            unreachable!();
+        };
+        eprintln!("skipping large corpus hotspot benches: {message}");
+        return;
+    };
+
+    let fixture = &fixtures.airgeddon;
+    let mut group = c.benchmark_group("large_corpus_linter_source_closure_splits");
+    group.sample_size(10);
+    group.throughput(Throughput::Bytes(fixture.bytes()));
+
+    group.bench_with_input(
+        BenchmarkId::from_parameter("airgeddon/with_source_closure"),
+        fixture,
+        |b, fixture| {
+            let resolver = fixtures.resolver.clone();
+            let settings = large_corpus_default_settings(fixture);
+            b.iter(|| {
+                lint_large_corpus_fixture_with_settings(
+                    fixture,
+                    Some(resolver.as_ref() as &(dyn SourcePathResolver + Send + Sync)),
+                    settings.clone(),
+                )
+            });
+        },
+    );
+
+    group.bench_with_input(
+        BenchmarkId::from_parameter("airgeddon/without_source_closure"),
+        fixture,
+        |b, fixture| {
+            let resolver = fixtures.resolver.clone();
+            let settings = large_corpus_without_source_closure_settings(fixture);
+            b.iter(|| {
+                lint_large_corpus_fixture_with_settings(
+                    fixture,
+                    Some(resolver.as_ref() as &(dyn SourcePathResolver + Send + Sync)),
+                    settings.clone(),
+                )
+            });
+        },
+    );
+
+    group.finish();
+}
+
 fn bench_large_corpus_word_facts(c: &mut Criterion) {
     let Ok(fixtures) = large_corpus_fixtures() else {
         let Err(message) = large_corpus_fixtures() else {
@@ -538,6 +591,7 @@ criterion_group!(
     benches,
     bench_large_corpus_linter,
     bench_large_corpus_linter_rule_splits,
+    bench_large_corpus_linter_source_closure_splits,
     bench_large_corpus_word_facts
 );
 criterion_main!(benches);
