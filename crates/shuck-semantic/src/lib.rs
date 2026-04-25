@@ -7130,6 +7130,20 @@ printf '%s\\n' \"$line\"
     }
 
     #[test]
+    fn assignment_values_continue_after_escaped_newlines() {
+        let source = "\
+#!/bin/sh
+easyrsa_ksh=\\
+'value'
+[ \"${KSH_VERSION}\" = \"${easyrsa_ksh}\" ] && echo ok
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["easyrsa_ksh"], &uninitialized);
+    }
+
+    #[test]
     fn unparsed_indexed_subscript_prefixes_are_uninitialized_reads() {
         let source = "\
 arr+=([docker:dind]=x [nats-streaming:nanoserver]=y)

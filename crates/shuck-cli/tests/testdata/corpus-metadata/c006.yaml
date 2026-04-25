@@ -209,13 +209,6 @@ reviewed_divergences:
     column: 14
     end_column: 28
     reason: "This OpenRC helper translates service options into generated execline and logger setup, so the remaining ShellCheck-only reads are the expected ambient service settings instead of local shell state."
-  - side: shuck-only
-    path_suffix: "openvpn__easy-rsa__easyrsa3__easyrsa"
-    line: 5599
-    end_line: 5599
-    column: 24
-    end_column: 38
-    reason: "This Easy-RSA front-end carries shell-mode and temporary-file bookkeeping through long helper-driven control flow, so the remaining C006 reads are reviewed runtime handoffs rather than missing local assignments."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__bin__rvmsudo"
     line: 31

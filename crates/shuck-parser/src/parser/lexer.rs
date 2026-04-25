@@ -1510,6 +1510,7 @@ impl<'a> Lexer<'a> {
                             || next == '$'
                             || matches!(next, '\'' | '"')
                             || next == '{'
+                            || (next == '\\' && self.second_char() == Some('\n'))
                             || (next == '('
                                 && (chunk.ends_with('=')
                                     || Self::word_can_take_parenthesized_suffix(chunk)))
@@ -2141,6 +2142,11 @@ impl<'a> Lexer<'a> {
     ) -> Result<(), LexerErrorKind> {
         loop {
             match self.peek_char() {
+                Some('\\') if self.second_char() == Some('\n') => {
+                    self.advance();
+                    self.advance();
+                    continue;
+                }
                 Some('\'') => {
                     word.push_segment(self.read_single_quoted_segment()?);
                 }

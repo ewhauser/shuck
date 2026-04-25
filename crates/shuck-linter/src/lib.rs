@@ -3210,6 +3210,21 @@ printf '%s\\n' \"$line\"
     }
 
     #[test]
+    fn undefined_variable_ignores_assignment_values_after_escaped_newlines() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/sh
+easyrsa_ksh=\\
+'value'
+[ \"${KSH_VERSION}\" = \"${easyrsa_ksh}\" ] && echo ok
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn undefined_variable_reports_unparsed_indexed_subscript_prefixes() {
         let source = "\
 #!/bin/bash

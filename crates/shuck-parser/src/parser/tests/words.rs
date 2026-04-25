@@ -320,6 +320,18 @@ fn test_parse_mixed_quoted_and_cooked_plain_continuation_keeps_variable_live() {
 }
 
 #[test]
+fn test_parse_assignment_value_after_line_continuation() {
+    let input = "easyrsa_ksh=\\\n'value'\nprintf '%s\\n' \"$easyrsa_ksh\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let command = expect_simple(&script.body[0]);
+    assert_eq!(command.assignments.len(), 1);
+    assert_eq!(command.name.render(input), "");
+    assert!(command.args.is_empty());
+    assert_eq!(command.assignments[0].target.name, "easyrsa_ksh");
+}
+
+#[test]
 fn test_parse_escaped_quote_before_command_substitution_keeps_substitution_live() {
     let input = "echo TERMUX_SUBPKG_INCLUDE=\\\"$(find ${_ADD_PREFIX}lib{,32})\n";
     let script = Parser::new(input).parse().unwrap().file;
