@@ -116,15 +116,18 @@ pub(super) fn build_pipeline_facts<'a>(
             continue;
         }
 
-        for child_id in command_relationships.child_ids(fact.id()) {
-            let child = command_relationships.fact(*child_id);
-            if matches!(
-                child.command(),
-                Command::Binary(child) if matches!(child.op, BinaryOp::Pipe | BinaryOp::PipeAll)
-            ) {
-                nested_pipeline_commands.insert(*child_id);
-            }
-        }
+        record_nested_pipeline_command(
+            &command.left,
+            fact.id(),
+            command_relationships,
+            &mut nested_pipeline_commands,
+        );
+        record_nested_pipeline_command(
+            &command.right,
+            fact.id(),
+            command_relationships,
+            &mut nested_pipeline_commands,
+        );
     }
 
     commands
@@ -158,6 +161,21 @@ pub(super) fn build_pipeline_facts<'a>(
             })
         })
         .collect()
+}
+
+fn record_nested_pipeline_command(
+    stmt: &Stmt,
+    parent_id: CommandId,
+    command_relationships: CommandRelationshipContext<'_, '_>,
+    nested_pipeline_commands: &mut FxHashSet<CommandId>,
+) {
+    if matches!(
+        &stmt.command,
+        Command::Binary(child) if matches!(child.op, BinaryOp::Pipe | BinaryOp::PipeAll)
+    ) && let Some(child) = command_relationships.child_or_lookup_fact(parent_id, stmt)
+    {
+        nested_pipeline_commands.insert(child.id());
+    }
 }
 
 fn pipeline_segments(command: &Command) -> Option<Vec<&Stmt>> {

@@ -261,6 +261,21 @@ rc=0 && run || fallback && rc=$?
         let source = "\
 check_download_exists \"$path\" && download_status=0 || download_status=$?
 __rvm_select_set_variable_defaults && __rvm_select_after_parse || return $?
+run \"Reloading\" sig USR2 &&
+wait_pid_kill 5 &&
+oldsig QUIT ||
+oldsig TERM ||
+cmd_restart ||
+return $?
+cmd_reload()
+{
+  run \"Reloading\" sig USR2 &&
+  wait_pid_kill 5 &&
+  oldsig QUIT ||
+  oldsig TERM ||
+  cmd_restart ||
+  return $?
+}
 test -d x && mv x y || :
 test -d x && mv x y || true
 test -d x && mv x y || /bin/true

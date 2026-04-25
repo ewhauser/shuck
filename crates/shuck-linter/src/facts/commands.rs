@@ -1308,9 +1308,6 @@ impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
             .or_else(|| self.fact_for_stmt(stmt))
     }
 
-    fn child_ids(self, parent_id: CommandId) -> &'facts [CommandId] {
-        self.command_child_index.child_ids(parent_id)
-    }
 }
 
 fn build_command_parent_ids(
