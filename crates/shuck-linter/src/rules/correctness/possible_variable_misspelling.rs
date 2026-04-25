@@ -509,8 +509,7 @@ fn preferred_candidate_name(checker: &Checker<'_>, target_name: &str) -> Option<
 fn presence_tested_candidate_name(checker: &Checker<'_>, target_name: &str) -> Option<String> {
     checker
         .facts()
-        .all_presence_tested_names()
-        .into_iter()
+        .presence_tested_candidate_names()
         .filter(|candidate_name| candidate_name.as_str() != target_name)
         .filter_map(|candidate_name| {
             let first_span = first_presence_test_span(checker, candidate_name)?;
@@ -519,12 +518,16 @@ fn presence_tested_candidate_name(checker: &Checker<'_>, target_name: &str) -> O
                     rank,
                     first_span.start.offset,
                     first_span.end.offset,
-                    candidate_name.to_string(),
+                    candidate_name,
                 )
             })
         })
-        .min_by_key(|(rank, start, end, _)| (*rank, *start, *end))
-        .map(|(_, _, _, name)| name)
+        .min_by(|left, right| {
+            (left.0, left.1, left.2)
+                .cmp(&(right.0, right.1, right.2))
+                .then_with(|| left.3.as_str().cmp(right.3.as_str()))
+        })
+        .map(|(_, _, _, name)| name.to_string())
 }
 
 fn first_presence_test_span(checker: &Checker<'_>, candidate_name: &Name) -> Option<Span> {
