@@ -356,6 +356,9 @@ impl<'a> SafeValueIndex<'a> {
         {
             return true;
         }
+        if self.status_capture_subset_covers_reference(&bindings, name, at, query, case_cli_scope) {
+            return true;
+        }
         let helper_bindings = self
             .called_helper_bindings_for_name(name, at)
             .into_iter()
@@ -871,6 +874,52 @@ impl<'a> SafeValueIndex<'a> {
 
         !status_bindings.is_empty()
             && self.bindings_cover_all_paths_to_reference(&status_bindings, name, at)
+    }
+
+    fn status_capture_subset_covers_reference(
+        &self,
+        bindings: &[BindingId],
+        name: &Name,
+        at: Span,
+        query: SafeValueQuery,
+        case_cli_scope: Option<ScopeId>,
+    ) -> bool {
+        if !matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget) {
+            return false;
+        }
+
+        let status_bindings = bindings
+            .iter()
+            .copied()
+            .filter(|binding_id| {
+                self.semantic.binding(*binding_id).span.end.offset <= at.start.offset
+            })
+            .filter(|binding_id| {
+                self.binding_is_standalone_status_capture(*binding_id, case_cli_scope)
+            })
+            .collect::<Vec<_>>();
+        if status_bindings.is_empty()
+            || !self.bindings_cover_all_paths_to_reference(&status_bindings, name, at)
+        {
+            return false;
+        }
+
+        let Some(reference_scope) = self.enclosing_function_scope_at(at.start.offset) else {
+            return true;
+        };
+        let first_status_offset = status_bindings
+            .iter()
+            .map(|binding_id| self.semantic.binding(*binding_id).span.start.offset)
+            .min()
+            .unwrap_or(at.start.offset);
+
+        !bindings.iter().copied().any(|binding_id| {
+            let binding = self.semantic.binding(binding_id);
+            binding.scope == reference_scope
+                && binding.span.start.offset > first_status_offset
+                && binding.span.start.offset < at.start.offset
+                && !self.binding_is_standalone_status_capture(binding_id, case_cli_scope)
+        })
     }
 
     fn binding_is_standalone_status_capture(

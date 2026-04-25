@@ -56,20 +56,6 @@ reviewed_divergences:
     end_column: 22
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__system__ntopng__rc.ntopng"
-    line: 54
-    end_line: 54
-    column: 10
-    end_column: 17
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__system__ntopng__rc.ntopng"
-    line: 80
-    end_line: 80
-    column: 12
-    end_column: 19
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "SlackBuildsOrg__slackbuilds__system__sboui__doinst.sh"
     line: 19
     end_line: 19
@@ -999,13 +985,6 @@ reviewed_divergences:
     end_line: 104
     column: 28
     end_column: 53
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "nvm-sh__nvm__nvm.sh"
-    line: 2230
-    end_line: 2230
-    column: 10
-    end_column: 20
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "nvm-sh__nvm__nvm.sh"

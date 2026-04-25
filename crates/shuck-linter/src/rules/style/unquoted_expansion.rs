@@ -2229,6 +2229,28 @@ demo() {
     }
 
     #[test]
+    fn reports_parameters_shadowing_outer_status_captures() {
+        let source = "\
+#!/bin/bash
+status=$?
+report() {
+  local status=\"$2\"
+  if [ $status -eq 1 ]; then :; fi
+}
+report \"$@\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$status"]
+        );
+    }
+
+    #[test]
     fn uses_static_loop_values_from_static_function_call_sites() {
         let source = "\
 #!/bin/bash
@@ -2325,6 +2347,51 @@ exit $RETVAL
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_status_capture_helpers_called_from_multiple_case_arms() {
+        let source = "\
+#!/bin/sh
+RETVAL=0
+start() {
+  return 0
+  RETVAL=$?
+  if [ $RETVAL -eq 0 ]; then :; fi
+  return $RETVAL
+}
+stop() {
+  RETVAL=$?
+  if [ $RETVAL -eq 0 ]; then :; fi
+  return $RETVAL
+}
+case \"$1\" in
+  start) start ;;
+  stop) stop ;;
+  restart)
+    stop
+    start
+    ;;
+  *) RETVAL=1 ;;
+esac
+exit $RETVAL
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    (
+                        diagnostic.span.start.line,
+                        diagnostic.span.start.column,
+                        diagnostic.span.end.line,
+                        diagnostic.span.end.column,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![(6, 8, 6, 15), (7, 10, 7, 17)]
+        );
     }
 
     #[test]
