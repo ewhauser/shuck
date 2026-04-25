@@ -1,6 +1,7 @@
 # shuck-formatter
 
-`shuck-formatter` formats shell scripts using the parser and AST from the Shuck workspace.
+`shuck-formatter` is a stub formatter crate using the parser and AST from the Shuck workspace.
 
 It exposes formatting options, source-level formatting helpers, and AST-based formatting entry
-points. The crate powers the experimental `shuck format` command and remains pre-1.0.
+points. The current implementation validates parsing and reports sources as unchanged while the
+formatter is rebuilt.

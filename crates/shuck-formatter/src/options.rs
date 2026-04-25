@@ -1,7 +1,18 @@
 use std::path::Path;
 
-use shuck_format::{FormatOptions, IndentStyle, LineEnding, PrinterOptions};
-use shuck_parser::ShellDialect as ParseDialect;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IndentStyle {
+    #[default]
+    Tab,
+    Space,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LineEnding {
+    #[default]
+    Lf,
+    CrLf,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShellDialect {
@@ -15,13 +26,10 @@ pub enum ShellDialect {
 
 impl ShellDialect {
     #[must_use]
-    pub fn resolve(self, source: &str, path: Option<&Path>) -> ParseDialect {
+    pub fn resolve(self, source: &str, path: Option<&Path>) -> Self {
         match self {
             Self::Auto => infer_dialect(source, path),
-            Self::Bash => ParseDialect::Bash,
-            Self::Posix => ParseDialect::Posix,
-            Self::Mksh => ParseDialect::Mksh,
-            Self::Zsh => ParseDialect::Zsh,
+            dialect => dialect,
         }
     }
 }
@@ -202,7 +210,7 @@ impl ShellFormatOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedShellFormatOptions {
-    dialect: ParseDialect,
+    dialect: ShellDialect,
     indent_style: IndentStyle,
     indent_width: u8,
     binary_next_line: bool,
@@ -218,7 +226,7 @@ pub struct ResolvedShellFormatOptions {
 
 impl ResolvedShellFormatOptions {
     #[must_use]
-    pub fn dialect(&self) -> ParseDialect {
+    pub fn dialect(&self) -> ShellDialect {
         self.dialect
     }
 
@@ -283,28 +291,36 @@ impl ResolvedShellFormatOptions {
     }
 }
 
-impl FormatOptions for ResolvedShellFormatOptions {
-    fn as_print_options(&self) -> PrinterOptions {
-        PrinterOptions {
-            indent_style: self.indent_style,
-            indent_width: self.indent_width,
-            line_width: 80,
-            line_ending: self.line_ending,
-        }
-    }
-}
-
-fn infer_dialect(source: &str, path: Option<&Path>) -> ParseDialect {
+fn infer_dialect(source: &str, path: Option<&Path>) -> ShellDialect {
     if let Some(first_line) = source.lines().next()
-        && let Some(interpreter) = shuck_parser::shebang::interpreter_name(first_line)
+        && let Some(interpreter) = interpreter_name(first_line)
     {
-        return ParseDialect::from_name(interpreter);
+        return ShellDialect::from_name(interpreter);
     }
 
     path.and_then(Path::extension)
         .and_then(|extension| extension.to_str())
-        .map(ParseDialect::from_name)
-        .unwrap_or(ParseDialect::Bash)
+        .map(ShellDialect::from_name)
+        .unwrap_or(ShellDialect::Bash)
+}
+
+impl ShellDialect {
+    fn from_name(name: &str) -> Self {
+        match name {
+            "sh" | "dash" | "ksh" | "posix" => Self::Posix,
+            "mksh" => Self::Mksh,
+            "zsh" => Self::Zsh,
+            _ => Self::Bash,
+        }
+    }
+}
+
+fn interpreter_name(line: &str) -> Option<&str> {
+    let shebang = line.strip_prefix("#!")?.trim_start();
+    let command = shebang
+        .split_whitespace()
+        .find(|part| !part.starts_with('-'))?;
+    command.rsplit('/').next()
 }
 
 fn detect_line_ending(source: &str) -> LineEnding {

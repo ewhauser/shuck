@@ -6,10 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Formatting document model and pretty-printer primitives"
-keywords = ["formatter", "pretty-printer", "document"]
+description = "Formatting primitives for shuck"
+keywords = ["formatter", "code-style"]
 categories = ["text-processing", "development-tools"]
 readme = "README.md"
-
-[dependencies]
-unicode-width = "0.2"
