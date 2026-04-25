@@ -616,7 +616,7 @@ impl<'a> Cursor<'a> {
 #[derive(Clone, Debug)]
 struct PositionMap<'a> {
     source: &'a str,
-    line_starts: Vec<usize>,
+    line_starts: Arc<[usize]>,
     cached: Position,
 }
 
@@ -640,7 +640,7 @@ impl<'a> PositionMap<'a> {
 
         Self {
             source,
-            line_starts,
+            line_starts: line_starts.into(),
             cached: Position::new(),
         }
     }
