@@ -1794,6 +1794,31 @@ fn collects_command_substitution_spans_for_wrapped_substring_offset_arithmetic()
 }
 
 #[test]
+fn word_facts_descend_into_arithmetic_command_substitution_bodies() {
+    let source = "\
+#!/bin/bash
+if (( $(du -c $mask | cut -f 1) == 0 )); then
+  :
+fi
+for (( i=$(next $start); i < 3; i++ )); do
+  :
+done
+";
+
+    with_facts(source, None, |_, facts| {
+        let nested_args = facts
+            .word_facts()
+            .filter(|fact| fact.is_nested_word_command())
+            .filter(|fact| fact.host_expansion_context() == Some(ExpansionContext::CommandArgument))
+            .map(|fact| fact.span().slice(source))
+            .collect::<Vec<_>>();
+
+        assert!(nested_args.contains(&"$mask"), "{nested_args:?}");
+        assert!(nested_args.contains(&"$start"), "{nested_args:?}");
+    });
+}
+
+#[test]
 fn ignores_quoted_dollar_words_in_arithmetic_command_contexts() {
     let source = "#!/bin/bash\n(( \"$x\" + 1 ))\nfor (( i=\"$y\"; i < 3; i++ )); do :; done\n";
 

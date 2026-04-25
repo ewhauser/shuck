@@ -3749,6 +3749,58 @@ mod tests {
     }
 
     #[test]
+    fn brace_fd_redirect_target_resolves_before_new_fd_binding() {
+        let source = "\
+#!/bin/bash
+fd='1 2'
+exec {fd}>&$fd
+printf '%s\\n' \"$fd\"
+";
+        let model = model(source);
+
+        let fd_bindings = model.bindings_for(&Name::from("fd"));
+        assert_eq!(
+            fd_bindings.len(),
+            2,
+            "expected scalar and brace-fd bindings"
+        );
+        let initial_binding = model.binding(fd_bindings[0]);
+        let brace_fd_binding = model.binding(fd_bindings[1]);
+        assert!(
+            brace_fd_binding
+                .attributes
+                .contains(BindingAttributes::INTEGER)
+        );
+
+        let fd_refs = model
+            .references()
+            .iter()
+            .filter(|reference| {
+                reference.kind == ReferenceKind::Expansion && reference.name == "fd"
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(fd_refs.len(), 2);
+
+        let redirect_target_ref = fd_refs
+            .iter()
+            .find(|reference| reference.span.start.line == 3)
+            .unwrap();
+        let later_ref = fd_refs
+            .iter()
+            .find(|reference| reference.span.start.line == 4)
+            .unwrap();
+
+        assert_eq!(
+            model.resolved_binding(redirect_target_ref.id).unwrap().id,
+            initial_binding.id
+        );
+        assert_eq!(
+            model.resolved_binding(later_ref.id).unwrap().id,
+            brace_fd_binding.id
+        );
+    }
+
+    #[test]
     fn declare_plus_g_stays_local_inside_functions() {
         let source = "\
 #!/bin/bash

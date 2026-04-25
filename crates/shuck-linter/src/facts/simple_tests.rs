@@ -154,6 +154,10 @@ impl<'a> SimpleTestFact<'a> {
         simple_test_operator_expression_operand_words(self, source)
     }
 
+    pub fn numeric_binary_expression_operand_words(&self, source: &str) -> Vec<&'a Word> {
+        simple_test_numeric_binary_expression_operand_words(self, source)
+    }
+
     pub fn string_unary_expression_words(&'a self, source: &str) -> Vec<(&'a Word, &'a Word)> {
         simple_test_expressions(self, source)
             .into_iter()
@@ -552,6 +556,39 @@ fn simple_test_operator_expression_operand_words<'a>(
     expression_operands
 }
 
+fn simple_test_numeric_binary_expression_operand_words<'a>(
+    simple_test: &SimpleTestFact<'a>,
+    source: &str,
+) -> Vec<&'a Word> {
+    let operands = simple_test.effective_operands();
+    let mut expression_operands = Vec::new();
+    let mut segment_start = 0;
+
+    for index in 0..=operands.len() {
+        let is_connector = index < operands.len()
+            && simple_test_effective_operand_text(simple_test, index, source)
+                .as_deref()
+                .is_some_and(simple_test_is_logical_connector);
+        let splits_segment = is_connector
+            && simple_test_segment_is_expression(simple_test, segment_start, index, source);
+        if !splits_segment && index != operands.len() {
+            continue;
+        }
+
+        collect_simple_test_numeric_binary_expression_operand_words(
+            simple_test,
+            segment_start,
+            index,
+            source,
+            &mut expression_operands,
+        );
+
+        segment_start = index + 1;
+    }
+
+    expression_operands
+}
+
 fn collect_simple_test_operator_expression_operand_words<'a>(
     simple_test: &SimpleTestFact<'a>,
     start: usize,
@@ -594,6 +631,45 @@ fn collect_simple_test_operator_expression_operand_words<'a>(
             )
             .as_deref()
             .is_some_and(simple_test_is_nonlogical_binary_operator) =>
+        {
+            expression_operands.push(left);
+            expression_operands.push(right);
+        }
+        [..] => {}
+    }
+}
+
+fn collect_simple_test_numeric_binary_expression_operand_words<'a>(
+    simple_test: &SimpleTestFact<'a>,
+    start: usize,
+    end: usize,
+    source: &str,
+    expression_operands: &mut Vec<&'a Word>,
+) {
+    if start >= end {
+        return;
+    }
+
+    let segment = &simple_test.effective_operands()[start..end];
+    let mut expression_start = 0;
+    while expression_start + 1 < segment.len()
+        && simple_test_effective_operand_text(simple_test, start + expression_start, source)
+            .as_deref()
+            == Some("!")
+    {
+        expression_start += 1;
+    }
+
+    let expression = &segment[expression_start..];
+    match expression {
+        [left, operator, right]
+            if simple_test_effective_operand_text(
+                simple_test,
+                start + expression_start + 1,
+                source,
+            )
+            .as_deref()
+            .is_some_and(simple_test_is_numeric_binary_operator) =>
         {
             expression_operands.push(left);
             expression_operands.push(right);
@@ -844,6 +920,10 @@ fn simple_test_logical_connector_span(
 
 fn simple_test_is_nonlogical_binary_operator(text: &str) -> bool {
     simple_test_is_binary_operator(text) && !simple_test_is_logical_connector(text)
+}
+
+fn simple_test_is_numeric_binary_operator(text: &str) -> bool {
+    matches!(text, "-eq" | "-ne" | "-gt" | "-ge" | "-lt" | "-le")
 }
 
 pub(super) fn build_single_test_subshell_spans<'a>(

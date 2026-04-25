@@ -1230,9 +1230,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         for redirect in redirects {
             match redirect.word_target() {
                 Some(word) => {
-                    self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions)
+                    self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions);
+                    self.add_redirect_fd_var_binding(redirect);
                 }
                 None => {
+                    self.add_redirect_fd_var_binding(redirect);
                     let Some(heredoc) = redirect.heredoc() else {
                         continue;
                     };
@@ -1246,6 +1248,22 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     }
                 }
             }
+        }
+    }
+
+    fn add_redirect_fd_var_binding(&mut self, redirect: &shuck_ast::Redirect) {
+        if let (Some(name), Some(span)) = (&redirect.fd_var, redirect.fd_var_span) {
+            self.add_binding(
+                name,
+                BindingKind::Assignment,
+                self.current_scope(),
+                span,
+                BindingOrigin::Assignment {
+                    definition_span: span,
+                    value: AssignmentValueOrigin::StaticLiteral,
+                },
+                BindingAttributes::INTEGER,
+            );
         }
     }
 

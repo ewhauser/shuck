@@ -1248,6 +1248,64 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.context() == WordFactContext::ArithmeticCommand
     }
 
+    pub fn part_is_inside_backtick_escaped_double_quotes(
+        self,
+        part_span: Span,
+        source: &str,
+    ) -> bool {
+        let Some(backtick_span) =
+            self.facts
+                .backtick_substitution_spans()
+                .iter()
+                .copied()
+                .find(|span| {
+                    span.start.offset <= part_span.start.offset
+                        && span.end.offset >= part_span.end.offset
+                })
+        else {
+            return false;
+        };
+
+        let mut index = backtick_span.start.offset.saturating_add('`'.len_utf8());
+        let limit = part_span.start.offset.min(
+            backtick_span
+                .end
+                .offset
+                .saturating_sub('`'.len_utf8()),
+        );
+        let mut in_single_quote = false;
+        let mut in_escaped_double_quote = false;
+
+        while index < limit {
+            let Some(ch) = source[index..].chars().next() else {
+                break;
+            };
+            let ch_len = ch.len_utf8();
+
+            match ch {
+                '\'' if !in_escaped_double_quote => {
+                    in_single_quote = !in_single_quote;
+                    index += ch_len;
+                }
+                '\\' if !in_single_quote => {
+                    let next_index = index + ch_len;
+                    let Some(escaped) = source[next_index..].chars().next() else {
+                        break;
+                    };
+                    if escaped == '"' {
+                        in_escaped_double_quote = !in_escaped_double_quote;
+                    }
+                    index = next_index + escaped.len_utf8();
+                }
+                _ => {
+                    index += ch_len;
+                }
+            }
+        }
+
+        in_escaped_double_quote
+    }
+
     pub fn host_kind(self) -> WordFactHostKind {
         self.occurrence().host_kind
     }
@@ -1442,7 +1500,10 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
                         })
                 }
             }
-            WordPart::Parameter(_) | WordPart::ParameterExpansion { .. } => part_span,
+            WordPart::Parameter(_) | WordPart::ParameterExpansion { .. } => {
+                shellcheck_parameter_span_inside_escaped_quotes(part_span, source)
+                    .unwrap_or(part_span)
+            }
             _ => return part_span,
         };
 
@@ -1555,6 +1616,131 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
             .map(|brace| brace.span)
             .collect()
     }
+}
+
+fn shellcheck_parameter_span_inside_escaped_quotes(span: Span, source: &str) -> Option<Span> {
+    if span.start.line != span.end.line {
+        return None;
+    }
+
+    let search_start = offset_for_line_column(
+        source,
+        span.start.line,
+        span.start.column.saturating_sub(2).max(1),
+    )?;
+    let search_end = offset_for_line_column(
+        source,
+        span.end.line,
+        span.end.column.saturating_add(3),
+    )
+    .or_else(|| line_end_offset(source, span.end.line))?;
+    let window = source.get(search_start..search_end)?;
+    let relative_dollar = window.find('$')?;
+    let start_offset = search_start + relative_dollar;
+    let start = Position::new().advanced_by(&source[..start_offset]);
+    if start.line != span.start.line
+        || start.column < span.start.column
+        || start.column > span.start.column.saturating_add(2)
+    {
+        return None;
+    }
+
+    let span_start_offset = offset_for_line_column(source, span.start.line, span.start.column)?;
+    let prefix = source.get(span_start_offset..start_offset)?;
+    if !prefix.contains('"') && !prefix.contains('\\') {
+        return None;
+    }
+
+    let end_offset = parameter_expansion_end_offset(source, start_offset)?;
+    let end = Position::new().advanced_by(&source[..end_offset]);
+    if end.line != span.end.line
+        || end.column < span.end.column
+        || end.column > span.end.column.saturating_add(3)
+    {
+        return None;
+    }
+
+    if start.column == span.start.column && end.column == span.end.column {
+        return None;
+    }
+
+    Some(Span::from_positions(start, end))
+}
+
+fn offset_for_line_column(source: &str, line: usize, column: usize) -> Option<usize> {
+    if line == 0 || column == 0 {
+        return None;
+    }
+
+    let mut current_line = 1usize;
+    let mut line_start = 0usize;
+    for (offset, ch) in source.char_indices() {
+        if current_line == line {
+            return offset_for_column_in_line(source, line_start, column);
+        }
+        if ch == '\n' {
+            current_line += 1;
+            line_start = offset + ch.len_utf8();
+        }
+    }
+
+    (current_line == line).then(|| offset_for_column_in_line(source, line_start, column))?
+}
+
+fn offset_for_column_in_line(source: &str, line_start: usize, column: usize) -> Option<usize> {
+    let mut current_column = 1usize;
+    for (relative_offset, ch) in source.get(line_start..)?.char_indices() {
+        if ch == '\n' {
+            break;
+        }
+        if current_column == column {
+            return Some(line_start + relative_offset);
+        }
+        current_column += 1;
+    }
+
+    (current_column == column).then_some(
+        line_start
+            + source
+                .get(line_start..)?
+                .find('\n')
+                .unwrap_or(source.len() - line_start),
+    )
+}
+
+fn line_end_offset(source: &str, line: usize) -> Option<usize> {
+    let line_start = offset_for_line_column(source, line, 1)?;
+    Some(
+        line_start
+            + source
+                .get(line_start..)?
+                .find('\n')
+                .unwrap_or(source.len() - line_start),
+    )
+}
+
+fn parameter_expansion_end_offset(source: &str, dollar_offset: usize) -> Option<usize> {
+    let after_dollar = dollar_offset + '$'.len_utf8();
+    let bytes = source.as_bytes();
+    if bytes.get(after_dollar) == Some(&b'{') {
+        let relative_end = source.get(after_dollar..)?.find('}')?;
+        return Some(after_dollar + relative_end + '}'.len_utf8());
+    }
+
+    let first = source.get(after_dollar..)?.chars().next()?;
+    if matches!(first, '@' | '*' | '#' | '?' | '$' | '!' | '-' | '0'..='9') {
+        return Some(after_dollar + first.len_utf8());
+    }
+
+    let mut end = after_dollar;
+    for ch in source.get(after_dollar..)?.chars() {
+        if ch == '_' || ch.is_ascii_alphanumeric() {
+            end += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    (end > after_dollar).then_some(end)
 }
 
 fn build_brace_variable_before_bracket_spans<'a>(
@@ -3966,9 +4152,14 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                                 &mut self.arithmetic.arithmetic_command_substitution_spans,
                             );
                         }
+                        let word_context = Self::simple_command_argument_expansion_context(
+                            surface_command_name,
+                            word,
+                            self.source,
+                        );
                         let (_, opened) = self.push_word_with_surface(
                             word,
-                            WordFactContext::Expansion(ExpansionContext::CommandArgument),
+                            word_context,
                             WordFactHostKind::Direct,
                             surface_word_context,
                         );
@@ -4070,6 +4261,31 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 );
             }
         }
+    }
+
+    fn simple_command_argument_expansion_context(
+        command_name: Option<&str>,
+        word: &Word,
+        source: &str,
+    ) -> WordFactContext {
+        match command_name {
+            Some("let") => WordFactContext::ArithmeticCommand,
+            Some("declare" | "export" | "local" | "readonly" | "typeset")
+                if Self::simple_assignment_like_word(word, source) =>
+            {
+                WordFactContext::Expansion(ExpansionContext::DeclarationAssignmentValue)
+            }
+            _ => WordFactContext::Expansion(ExpansionContext::CommandArgument),
+        }
+    }
+
+    fn simple_assignment_like_word(word: &Word, source: &str) -> bool {
+        let text = word.span.slice(source);
+        let Some((name, _)) = text.split_once('=') else {
+            return false;
+        };
+
+        is_shell_variable_name(name)
     }
 
     fn collect_expansion_assignment_value_words(&mut self, command: &'a Command) {

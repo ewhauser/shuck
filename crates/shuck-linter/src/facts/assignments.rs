@@ -38,6 +38,7 @@ impl DeclarationAssignmentProbe {
 pub struct BindingValueFact<'a> {
     kind: BindingValueKind<'a>,
     conditional_assignment_shortcut: bool,
+    one_sided_short_circuit_assignment: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -51,6 +52,7 @@ impl<'a> BindingValueFact<'a> {
         Self {
             kind: BindingValueKind::Scalar(word),
             conditional_assignment_shortcut: false,
+            one_sided_short_circuit_assignment: false,
         }
     }
 
@@ -58,6 +60,7 @@ impl<'a> BindingValueFact<'a> {
         Self {
             kind: BindingValueKind::Loop(words),
             conditional_assignment_shortcut: false,
+            one_sided_short_circuit_assignment: false,
         }
     }
 
@@ -79,8 +82,16 @@ impl<'a> BindingValueFact<'a> {
         self.conditional_assignment_shortcut
     }
 
+    pub fn one_sided_short_circuit_assignment(&self) -> bool {
+        self.one_sided_short_circuit_assignment
+    }
+
     fn mark_conditional_assignment_shortcut(&mut self) {
         self.conditional_assignment_shortcut = true;
+    }
+
+    fn mark_one_sided_short_circuit_assignment(&mut self) {
+        self.one_sided_short_circuit_assignment = true;
     }
 }
 
@@ -2620,7 +2631,7 @@ fn binding_value_visible_id_for_name(
         .map(|binding| binding.id)
 }
 
-fn annotate_conditional_assignment_shortcuts<'a>(
+fn annotate_conditional_assignment_value_paths<'a>(
     semantic: &SemanticModel,
     lists: &[ListFact<'a>],
     binding_values: &mut FxHashMap<BindingId, BindingValueFact<'a>>,
@@ -2644,6 +2655,30 @@ fn annotate_conditional_assignment_shortcuts<'a>(
             if let Some(binding_value) = binding_values.get_mut(&binding_id) {
                 binding_value.mark_conditional_assignment_shortcut();
             }
+        }
+    }
+
+    for list in lists
+        .iter()
+        .filter(|list| !list_has_conditional_assignment_shortcuts(list))
+    {
+        let mut prior_assignment_targets = FxHashSet::default();
+        for (index, segment) in list.segments().iter().enumerate() {
+            let Some(target) = segment.assignment_target() else {
+                continue;
+            };
+            let Some(span) = segment.assignment_span() else {
+                continue;
+            };
+            if index > 0
+                && !prior_assignment_targets.contains(target)
+                && let Some(binding_id) =
+                    binding_value_visible_id_for_name(semantic, &Name::from(target), span)
+                && let Some(binding_value) = binding_values.get_mut(&binding_id)
+            {
+                binding_value.mark_one_sided_short_circuit_assignment();
+            }
+            prior_assignment_targets.insert(target.to_owned());
         }
     }
 }

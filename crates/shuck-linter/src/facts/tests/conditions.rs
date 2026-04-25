@@ -837,6 +837,7 @@ fn simple_test_fact_tracks_operator_expression_operands() {
 [ lhs -eq rhs ]
 [ -d one -o two = three ]
 [ ! -e four -a five -nt six ]
+[ ! seven -le eight -a -n nine ]
 ";
 
     with_facts(source, None, |_, facts| {
@@ -879,6 +880,14 @@ fn simple_test_fact_tracks_operator_expression_operands() {
                 .collect::<Vec<_>>(),
             vec!["lhs", "rhs"]
         );
+        assert_eq!(
+            binary
+                .numeric_binary_expression_operand_words(source)
+                .into_iter()
+                .map(|word| word.span.slice(source).to_owned())
+                .collect::<Vec<_>>(),
+            vec!["lhs", "rhs"]
+        );
 
         let compound = commands
             .iter()
@@ -893,6 +902,11 @@ fn simple_test_fact_tracks_operator_expression_operands() {
                 .collect::<Vec<_>>(),
             vec!["one", "two", "three"]
         );
+        assert!(
+            compound
+                .numeric_binary_expression_operand_words(source)
+                .is_empty()
+        );
 
         let negated_compound = commands
             .iter()
@@ -906,6 +920,25 @@ fn simple_test_fact_tracks_operator_expression_operands() {
                 .map(|word| word.span.slice(source).to_owned())
                 .collect::<Vec<_>>(),
             vec!["four", "five", "six"]
+        );
+        assert!(
+            negated_compound
+                .numeric_binary_expression_operand_words(source)
+                .is_empty()
+        );
+
+        let mixed_numeric = commands
+            .iter()
+            .find(|(text, _)| text == "[ ! seven -le eight -a -n nine ]")
+            .and_then(|(_, fact)| fact.simple_test())
+            .expect("expected mixed numeric compound test fact");
+        assert_eq!(
+            mixed_numeric
+                .numeric_binary_expression_operand_words(source)
+                .into_iter()
+                .map(|word| word.span.slice(source).to_owned())
+                .collect::<Vec<_>>(),
+            vec!["seven", "eight"]
         );
     });
 }
