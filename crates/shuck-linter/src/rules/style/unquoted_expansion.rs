@@ -2262,6 +2262,100 @@ printf '%s\\n' $n $s $glob $split $copy $alias
     }
 
     #[test]
+    fn reports_append_assignments_without_safe_prior_values() {
+        let source = "\
+#!/bin/bash
+var+=ok
+printf '%s\\n' $var
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$var"]
+        );
+    }
+
+    #[test]
+    fn skips_append_assignments_after_safe_prior_values() {
+        let source = "\
+#!/bin/bash
+var=ok
+var+=still_ok
+printf '%s\\n' $var
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_multiple_conditional_appends_after_safe_prior_values() {
+        let source = "\
+#!/bin/bash
+themes=gtk2,gtk3
+type -P gnome-shell >/dev/null && themes+=,gnome-shell
+type -P cinnamon-session >/dev/null && themes+=,cinnamon
+meson -Dthemes=$themes
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_conditional_appends_after_empty_prior_values() {
+        let source = "\
+#!/bin/bash
+options=
+if [ \"$1\" = yes ]; then
+  options+=--enable-experimental
+fi
+./configure $options
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_values_derived_from_unknown_append_assignments() {
+        let source = "\
+#!/bin/bash
+f() {
+  TERMUX_PKG_SRCDIR+=/Python
+  TERMUX_PKG_BUILDDIR=\"$TERMUX_PKG_SRCDIR\"
+  local _bindir=$TERMUX_PKG_BUILDDIR/_wrapper/bin
+  mkdir -p ${_bindir}
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${_bindir}"]
+        );
+    }
+
+    #[test]
+    fn skips_append_assignments_to_numeric_shell_variables() {
+        let source = "\
+#!/bin/bash
+SECONDS+=1
+printf '%s\\n' $SECONDS
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn skips_initialized_declaration_bindings_with_safe_values() {
         let source = "\
 #!/bin/bash

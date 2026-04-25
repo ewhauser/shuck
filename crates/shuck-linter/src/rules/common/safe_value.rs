@@ -400,6 +400,19 @@ impl<'a> SafeValueIndex<'a> {
             && !direct_bindings.is_empty()
             && self.bindings_cover_all_paths_to_reference(&direct_bindings, name, at);
         if needs_arg_path_coverage
+            && !bindings_cover_all_paths
+            && !direct_bindings_cover_all_paths
+            && self.one_sided_bindings_preserve_safe_base(
+                &bindings,
+                name,
+                at,
+                query,
+                case_cli_scope,
+            )
+        {
+            return true;
+        }
+        if needs_arg_path_coverage
             && !direct_bindings_cover_all_paths
             && !bindings.is_empty()
             && bindings
@@ -412,6 +425,18 @@ impl<'a> SafeValueIndex<'a> {
                 .all(|binding_id| self.binding_is_one_sided_short_circuit_assignment(binding_id))
         {
             return false;
+        }
+        if needs_arg_path_coverage
+            && !direct_bindings_cover_all_paths
+            && bindings
+                .iter()
+                .copied()
+                .all(|binding_id| self.binding_is_one_sided_append_assignment(binding_id))
+        {
+            return bindings
+                .iter()
+                .copied()
+                .all(|binding_id| self.binding_is_safe(binding_id, at, query, case_cli_scope));
         }
         let direct_bindings_are_status_captures =
             direct_bindings.iter().copied().all(|binding_id| {
@@ -845,7 +870,9 @@ impl<'a> SafeValueIndex<'a> {
                 ..
             }
             | BindingOrigin::Declaration { .. } => {
-                if self.binding_is_name_only_declaration(binding_id) {
+                if matches!(binding.kind, BindingKind::AppendAssignment) {
+                    self.append_assignment_preserves_safe_value(binding_id, query, case_cli_scope)
+                } else if self.binding_is_name_only_declaration(binding_id) {
                     true
                 } else {
                     let binding_value = self.facts.binding_value(binding_id);
@@ -930,6 +957,65 @@ impl<'a> SafeValueIndex<'a> {
         }
         word_has_arithmetic_expansion(word)
             && self.word_is_safe_for_binding_value(binding_id, word, query)
+    }
+
+    fn append_assignment_preserves_safe_value(
+        &mut self,
+        binding_id: BindingId,
+        query: SafeValueQuery,
+        _case_cli_scope: Option<ScopeId>,
+    ) -> bool {
+        let (name, binding_span) = {
+            let binding = self.semantic.binding(binding_id);
+            (binding.name.clone(), binding.span)
+        };
+        let Some(word) = self
+            .facts
+            .binding_value(binding_id)
+            .and_then(|value| value.scalar_word())
+        else {
+            return false;
+        };
+        if !self.word_is_safe_for_binding_value(binding_id, word, query) {
+            return false;
+        }
+
+        self.binding_value_stack.push(binding_id);
+        let prior_value_is_safe = self.name_is_safe(&name, binding_span, query)
+            || self.append_prior_bindings_are_empty_safe(&name, binding_span, query);
+        self.binding_value_stack.pop();
+        prior_value_is_safe
+    }
+
+    fn append_prior_bindings_are_empty_safe(
+        &self,
+        name: &Name,
+        binding_span: Span,
+        query: SafeValueQuery,
+    ) -> bool {
+        if !query.is_field_context() {
+            return false;
+        }
+
+        let mut prior_bindings = self.analysis.reaching_bindings_for_name(name, binding_span);
+        self.retain_value_bindings(&mut prior_bindings);
+        if let Some(current_binding) = self.current_binding_value_for_name(name) {
+            prior_bindings.retain(|binding_id| *binding_id != current_binding);
+        }
+        if prior_bindings.is_empty()
+            && let Some(previous) =
+                self.semantic
+                    .previous_visible_binding(name, binding_span, Some(binding_span))
+            && self.binding_can_supply_parameter_value(previous.id)
+        {
+            prior_bindings.push(previous.id);
+        }
+        prior_bindings
+            .sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+        prior_bindings.dedup();
+
+        self.bindings_are_all_plain_empty_static_literals(&prior_bindings)
+            && self.bindings_cover_all_paths_to_reference(&prior_bindings, name, binding_span)
     }
 
     fn status_capture_bindings_cover_reference(
@@ -2297,6 +2383,40 @@ impl<'a> SafeValueIndex<'a> {
         self.facts
             .binding_value(binding_id)
             .is_some_and(|value| value.one_sided_short_circuit_assignment())
+    }
+
+    fn binding_is_one_sided_append_assignment(&self, binding_id: BindingId) -> bool {
+        matches!(
+            self.semantic.binding(binding_id).kind,
+            BindingKind::AppendAssignment
+        ) && self.binding_is_one_sided_short_circuit_assignment(binding_id)
+    }
+
+    fn one_sided_bindings_preserve_safe_base(
+        &mut self,
+        bindings: &[BindingId],
+        name: &Name,
+        at: Span,
+        query: SafeValueQuery,
+        case_cli_scope: Option<ScopeId>,
+    ) -> bool {
+        let mut base_bindings = Vec::new();
+        let mut saw_one_sided_binding = false;
+        for binding_id in bindings.iter().copied() {
+            if self.binding_is_one_sided_short_circuit_assignment(binding_id) {
+                saw_one_sided_binding = true;
+            } else {
+                base_bindings.push(binding_id);
+            }
+        }
+
+        saw_one_sided_binding
+            && !base_bindings.is_empty()
+            && self.bindings_cover_all_paths_to_reference(&base_bindings, name, at)
+            && bindings
+                .iter()
+                .copied()
+                .all(|binding_id| self.binding_is_safe(binding_id, at, query, case_cli_scope))
     }
 
     fn helper_scopes_providing_name(&self, name: &Name) -> Vec<ScopeId> {
