@@ -133,6 +133,7 @@ pub fn overwritten_function(checker: &mut Checker) {
         .report_unreached_nested_definitions
     {
         report_compat_cutoff_function_definitions(checker);
+        report_transient_shadowed_file_scope_definitions(checker);
     }
 }
 
@@ -316,6 +317,54 @@ fn report_compat_cutoff_function_definitions(checker: &mut Checker<'_>) {
     }
 }
 
+fn report_transient_shadowed_file_scope_definitions(checker: &mut Checker<'_>) {
+    let candidates = checker
+        .semantic()
+        .bindings()
+        .iter()
+        .filter(|binding| matches!(binding.kind, BindingKind::FunctionDefinition))
+        .filter(|binding| scope_is_file_scope(checker, binding.scope))
+        .filter_map(|binding| {
+            let first_shadow_offset = checker
+                .facts()
+                .function_headers()
+                .iter()
+                .filter(|header| header.binding_id() != Some(binding.id))
+                .filter_map(|header| {
+                    let (name, span) = header.static_name_entry()?;
+                    (name == &binding.name
+                        && span.start.offset > binding.span.start.offset
+                        && header
+                            .function_scope()
+                            .is_some_and(|scope| scope_has_transient_ancestor(checker, scope)))
+                    .then_some(span.start.offset)
+                })
+                .min()?;
+
+            if last_script_terminator_offset_after(checker, binding.span.start.offset).is_none()
+                || has_direct_call_to_binding_before_offset(
+                    checker,
+                    binding.id,
+                    first_shadow_offset,
+                )
+            {
+                return None;
+            }
+
+            Some((binding.id, binding.name.to_string()))
+        })
+        .collect::<Vec<_>>();
+
+    for (binding_id, name) in candidates {
+        report_function_definition(
+            checker,
+            binding_id,
+            name,
+            FunctionNotReachedReason::ScriptTerminates,
+        );
+    }
+}
+
 fn first_compat_cutoff_after_binding(
     checker: &Checker<'_>,
     binding_id: shuck_semantic::BindingId,
@@ -340,16 +389,14 @@ fn first_compat_cutoff_after_binding(
             reason: FunctionNotReachedReason::Removed,
         }),
     );
-    if !binding_definition_is_under_dominance_barrier(checker, binding_id) {
-        cutoffs.extend(
-            compat_script_terminator_offsets(checker, binding_id, binding_offset, reach)
-                .into_iter()
-                .map(|offset| FunctionCutoff {
-                    offset,
-                    reason: FunctionNotReachedReason::ScriptTerminates,
-                }),
-        );
-    }
+    cutoffs.extend(
+        compat_script_terminator_offsets(checker, binding_id, binding_offset, reach)
+            .into_iter()
+            .map(|offset| FunctionCutoff {
+                offset,
+                reason: FunctionNotReachedReason::ScriptTerminates,
+            }),
+    );
     let cutoff = cutoffs.into_iter().min_by_key(|cutoff| cutoff.offset)?;
     if matches!(cutoff.reason, FunctionNotReachedReason::ScriptTerminates)
         && has_apparent_infinite_loop_between(checker, binding_offset, cutoff.offset)
@@ -363,18 +410,6 @@ fn first_compat_cutoff_after_binding(
     }
 
     Some(cutoff)
-}
-
-fn binding_definition_is_under_dominance_barrier(
-    checker: &Checker<'_>,
-    binding_id: shuck_semantic::BindingId,
-) -> bool {
-    let binding = checker.semantic().binding(binding_id);
-    let definition_span = match &binding.origin {
-        BindingOrigin::FunctionDefinition { definition_span } => *definition_span,
-        _ => binding.span,
-    };
-    command_offset_is_under_dominance_barrier(checker, definition_span.start.offset)
 }
 
 fn unset_function_cutoff_offsets(
@@ -583,28 +618,28 @@ fn has_direct_call_to_binding_before_offset_cached(
         .into_iter()
         .flat_map(|facts| facts.iter())
         .any(|fact| {
-            !call_has_visible_shadowing_function_definition(
-                checker, binding_id, fact.scope, fact.span,
-            ) && call_can_reach_binding_before_offset(
-                checker,
-                fact.scope,
-                fact.span.start.offset,
-                binding.span.start.offset,
-                before_offset,
-                reach,
-                &mut visiting,
-            )
+            call_may_resolve_to_binding(checker, binding_id, fact.scope, fact.span, fact.span)
+                && call_can_reach_binding_before_offset(
+                    checker,
+                    fact.scope,
+                    fact.span.start.offset,
+                    binding.span.start.offset,
+                    before_offset,
+                    reach,
+                    &mut visiting,
+                )
         })
         || checker
             .semantic()
             .call_sites_for(&binding.name)
             .iter()
             .any(|site| {
-                !call_has_visible_shadowing_function_definition(
+                call_may_resolve_to_binding(
                     checker,
                     binding_id,
                     site.scope,
                     site.name_span,
+                    site.span,
                 ) && call_can_reach_binding_before_offset(
                     checker,
                     site.scope,
@@ -705,10 +740,11 @@ fn has_call_to_function_binding_between_offsets(
         .any(|fact| {
             let call_offset = fact.span.start.offset;
             call_offset <= before_offset
-                && !call_has_visible_shadowing_function_definition(
+                && call_may_resolve_to_binding(
                     checker,
                     function_binding,
                     fact.scope,
+                    fact.span,
                     fact.span,
                 )
                 && call_scope_can_execute_after_offset_before_offset(
@@ -728,11 +764,12 @@ fn has_call_to_function_binding_between_offsets(
             .any(|site| {
                 let call_offset = site.name_span.start.offset;
                 call_offset <= before_offset
-                    && !call_has_visible_shadowing_function_definition(
+                    && call_may_resolve_to_binding(
                         checker,
                         function_binding,
                         site.scope,
                         site.name_span,
+                        site.span,
                     )
                     && call_scope_can_execute_after_offset_before_offset(
                         checker,
@@ -838,10 +875,11 @@ fn has_persistent_call_to_function_binding_before_offset(
         .flat_map(|facts| facts.iter())
         .any(|fact| {
             fact.span.start.offset <= before_offset
-                && !call_has_visible_shadowing_function_definition(
+                && call_may_resolve_to_binding(
                     checker,
                     function_binding,
                     fact.scope,
+                    fact.span,
                     fact.span,
                 )
                 && call_scope_can_execute_persistently_after_offset_before_offset(
@@ -860,11 +898,12 @@ fn has_persistent_call_to_function_binding_before_offset(
             .iter()
             .any(|site| {
                 site.name_span.start.offset <= before_offset
-                    && !call_has_visible_shadowing_function_definition(
+                    && call_may_resolve_to_binding(
                         checker,
                         function_binding,
                         site.scope,
                         site.name_span,
+                        site.span,
                     )
                     && call_scope_can_execute_persistently_after_offset_before_offset(
                         checker,
@@ -934,10 +973,11 @@ fn has_persistent_call_to_function_binding_between_offsets(
         .any(|fact| {
             let call_offset = fact.span.start.offset;
             call_offset <= before_offset
-                && !call_has_visible_shadowing_function_definition(
+                && call_may_resolve_to_binding(
                     checker,
                     function_binding,
                     fact.scope,
+                    fact.span,
                     fact.span,
                 )
                 && call_scope_can_execute_persistently_after_offset_before_offset(
@@ -957,11 +997,12 @@ fn has_persistent_call_to_function_binding_between_offsets(
             .any(|site| {
                 let call_offset = site.name_span.start.offset;
                 call_offset <= before_offset
-                    && !call_has_visible_shadowing_function_definition(
+                    && call_may_resolve_to_binding(
                         checker,
                         function_binding,
                         site.scope,
                         site.name_span,
+                        site.span,
                     )
                     && call_scope_can_execute_persistently_after_offset_before_offset(
                         checker,
@@ -1017,10 +1058,11 @@ fn has_call_to_function_binding_before_offset(
         .flat_map(|facts| facts.iter())
         .any(|fact| {
             fact.span.start.offset <= before_offset
-                && !call_has_visible_shadowing_function_definition(
+                && call_may_resolve_to_binding(
                     checker,
                     function_binding,
                     fact.scope,
+                    fact.span,
                     fact.span,
                 )
                 && call_scope_can_execute_after_offset_before_offset(
@@ -1039,11 +1081,12 @@ fn has_call_to_function_binding_before_offset(
             .iter()
             .any(|site| {
                 site.name_span.start.offset <= before_offset
-                    && !call_has_visible_shadowing_function_definition(
+                    && call_may_resolve_to_binding(
                         checker,
                         function_binding,
                         site.scope,
                         site.name_span,
+                        site.span,
                     )
                     && call_scope_can_execute_after_offset_before_offset(
                         checker,
@@ -1057,25 +1100,158 @@ fn has_call_to_function_binding_before_offset(
             })
 }
 
-fn call_has_visible_shadowing_function_definition(
+fn call_may_resolve_to_binding(
     checker: &Checker<'_>,
     binding_id: shuck_semantic::BindingId,
     call_scope: ScopeId,
-    call_span: shuck_ast::Span,
+    visibility_span: shuck_ast::Span,
+    cfg_span: shuck_ast::Span,
 ) -> bool {
     let binding = checker.semantic().binding(binding_id);
-    checker
+    let has_visible_shadow = checker
         .semantic()
-        .visible_binding(&binding.name, call_span)
+        .visible_binding(&binding.name, visibility_span)
         .is_some_and(|visible| {
             visible.id != binding_id
                 && matches!(visible.kind, BindingKind::FunctionDefinition)
-                && visible.span.start.offset < call_span.start.offset
+                && visible.span.start.offset < visibility_span.start.offset
                 && checker
                     .semantic()
                     .ancestor_scopes(call_scope)
                     .any(|scope| scope == visible.scope)
         })
+        || checker
+            .semantic()
+            .function_definitions(&binding.name)
+            .iter()
+            .copied()
+            .any(|other| {
+                if other == binding_id {
+                    return false;
+                }
+                let other_binding = checker.semantic().binding(other);
+                other_binding.span.start.offset < visibility_span.start.offset
+                    && checker
+                        .semantic()
+                        .ancestor_scopes(call_scope)
+                        .any(|scope| scope == other_binding.scope)
+            })
+        || checker.facts().function_headers().iter().any(|header| {
+            let Some((name, name_span)) = header.static_name_entry() else {
+                return false;
+            };
+            if name != &binding.name || name_span.start.offset >= visibility_span.start.offset {
+                return false;
+            }
+            if header.binding_id() == Some(binding_id) {
+                return false;
+            }
+            header.function_scope().is_some_and(|scope| {
+                checker
+                    .semantic()
+                    .ancestor_scopes(call_scope)
+                    .any(|ancestor| ancestor == scope)
+            })
+        });
+    if !has_visible_shadow {
+        return true;
+    }
+    if enclosing_function_scope(checker, call_scope).is_some() {
+        return true;
+    }
+
+    let analysis = checker.semantic_analysis();
+    let cfg = analysis.cfg();
+    let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+    let binding_blocks = binding_blocks_for_cfg(cfg, binding_id, &unreachable);
+    let call_blocks = analysis
+        .block_ids_for_span(cfg_span)
+        .iter()
+        .copied()
+        .filter(|block| !unreachable.contains(block))
+        .collect::<Vec<_>>();
+    if binding_blocks.is_empty() || call_blocks.is_empty() {
+        return false;
+    }
+
+    let mut avoid = shadow_function_blocks_for_cfg(cfg, checker, binding_id, &unreachable);
+    avoid.extend(cfg.script_terminators().iter().copied());
+    blocks_have_path_avoiding(cfg, &binding_blocks, &call_blocks, &avoid)
+}
+
+fn binding_blocks_for_cfg(
+    cfg: &shuck_semantic::ControlFlowGraph,
+    binding_id: shuck_semantic::BindingId,
+    unreachable: &FxHashSet<shuck_semantic::BlockId>,
+) -> Vec<shuck_semantic::BlockId> {
+    cfg.blocks()
+        .iter()
+        .filter(|block| block.bindings.contains(&binding_id) && !unreachable.contains(&block.id))
+        .map(|block| block.id)
+        .collect()
+}
+
+fn shadow_function_blocks_for_cfg(
+    cfg: &shuck_semantic::ControlFlowGraph,
+    checker: &Checker<'_>,
+    binding_id: shuck_semantic::BindingId,
+    unreachable: &FxHashSet<shuck_semantic::BlockId>,
+) -> FxHashSet<shuck_semantic::BlockId> {
+    let binding = checker.semantic().binding(binding_id);
+    checker
+        .semantic()
+        .function_definitions(&binding.name)
+        .iter()
+        .copied()
+        .filter(|other| *other != binding_id)
+        .filter(|other| {
+            let other_binding = checker.semantic().binding(*other);
+            other_binding.scope == binding.scope
+                && other_binding.span.start.offset > binding.span.start.offset
+        })
+        .flat_map(|other| binding_blocks_for_cfg(cfg, other, unreachable))
+        .collect()
+}
+
+fn blocks_have_path_avoiding(
+    cfg: &shuck_semantic::ControlFlowGraph,
+    starts: &[shuck_semantic::BlockId],
+    ends: &[shuck_semantic::BlockId],
+    avoid: &FxHashSet<shuck_semantic::BlockId>,
+) -> bool {
+    let end_set = ends.iter().copied().collect::<FxHashSet<_>>();
+    starts
+        .iter()
+        .copied()
+        .any(|start| block_reaches_avoiding(cfg, start, &end_set, avoid))
+}
+
+fn block_reaches_avoiding(
+    cfg: &shuck_semantic::ControlFlowGraph,
+    start: shuck_semantic::BlockId,
+    ends: &FxHashSet<shuck_semantic::BlockId>,
+    avoid: &FxHashSet<shuck_semantic::BlockId>,
+) -> bool {
+    if avoid.contains(&start) {
+        return false;
+    }
+
+    let mut stack = vec![start];
+    let mut seen = FxHashSet::default();
+    while let Some(block) = stack.pop() {
+        if !seen.insert(block) {
+            continue;
+        }
+        if ends.contains(&block) {
+            return true;
+        }
+        for (successor, _) in cfg.successors(block) {
+            if !avoid.contains(successor) {
+                stack.push(*successor);
+            }
+        }
+    }
+    false
 }
 
 fn call_scope_can_execute_after_offset_before_offset(
@@ -1252,6 +1428,18 @@ fn should_suppress_unreached(checker: &Checker<'_>, unreached: &SemanticUnreache
             unreached.reason,
             UnreachedFunctionReason::EnclosingFunctionUnreached
         ) && enclosing_function_has_reportable_c063_diagnostic(checker, binding.scope))
+        || (compat_mode
+            && matches!(
+                unreached.reason,
+                UnreachedFunctionReason::EnclosingFunctionUnreached
+            )
+            && has_direct_call_inside_enclosing_function(checker, unreached.binding))
+        || (compat_mode
+            && matches!(
+                unreached.reason,
+                UnreachedFunctionReason::EnclosingFunctionUnreached
+            )
+            && enclosing_function_scope_can_run_persistently(checker, binding.scope))
 }
 
 fn last_script_terminator_offset_after(
@@ -1282,6 +1470,248 @@ fn has_top_level_return_after(checker: &Checker<'_>, after_offset: usize) -> boo
             )
             && fact.effective_name_is("return")
     })
+}
+
+fn enclosing_function_scope_can_run_persistently(checker: &Checker<'_>, scope: ScopeId) -> bool {
+    if enclosing_function_scope(checker, scope).is_none() {
+        return false;
+    }
+
+    let mut scope_run_cache = FxHashMap::default();
+    let mut scope_between_cache = FxHashMap::default();
+    let call_facts_by_name = build_compat_call_facts_by_name(checker);
+    let function_bindings_by_scope = build_compat_function_bindings_by_scope(checker);
+    let mut reach = CompatReachState {
+        scope_run_cache: &mut scope_run_cache,
+        scope_between_cache: &mut scope_between_cache,
+        call_facts_by_name: &call_facts_by_name,
+        function_bindings_by_scope: &function_bindings_by_scope,
+    };
+
+    command_scope_can_run_persistently_before_offset(
+        checker,
+        scope,
+        usize::MAX,
+        &mut reach,
+        &mut FxHashSet::default(),
+    )
+}
+
+fn has_direct_call_inside_enclosing_function(
+    checker: &Checker<'_>,
+    binding_id: shuck_semantic::BindingId,
+) -> bool {
+    let binding = checker.semantic().binding(binding_id);
+    let Some(enclosing_scope) = enclosing_function_scope(checker, binding.scope) else {
+        return false;
+    };
+
+    let mut scope_run_cache = FxHashMap::default();
+    let mut scope_between_cache = FxHashMap::default();
+    let call_facts_by_name = build_compat_call_facts_by_name(checker);
+    let function_bindings_by_scope = build_compat_function_bindings_by_scope(checker);
+    let mut reach = CompatReachState {
+        scope_run_cache: &mut scope_run_cache,
+        scope_between_cache: &mut scope_between_cache,
+        call_facts_by_name: &call_facts_by_name,
+        function_bindings_by_scope: &function_bindings_by_scope,
+    };
+    let mut visiting = FxHashSet::default();
+
+    reach
+        .call_facts_by_name
+        .get(binding.name.as_str())
+        .into_iter()
+        .flat_map(|facts| facts.iter())
+        .any(|fact| {
+            call_is_inside_scope(checker, fact.scope, enclosing_scope)
+                && call_may_resolve_to_binding(
+                    checker, binding_id, fact.scope, fact.span, fact.span,
+                )
+                && call_scope_can_execute_inside_boundary_after_offset_before_offset(
+                    checker,
+                    fact.scope,
+                    fact.span.start.offset,
+                    binding.span.start.offset,
+                    usize::MAX,
+                    enclosing_scope,
+                    &mut reach,
+                    &mut visiting,
+                )
+        })
+        || checker
+            .semantic()
+            .call_sites_for(&binding.name)
+            .iter()
+            .any(|site| {
+                call_is_inside_scope(checker, site.scope, enclosing_scope)
+                    && call_may_resolve_to_binding(
+                        checker,
+                        binding_id,
+                        site.scope,
+                        site.name_span,
+                        site.span,
+                    )
+                    && call_scope_can_execute_inside_boundary_after_offset_before_offset(
+                        checker,
+                        site.scope,
+                        site.name_span.start.offset,
+                        binding.span.start.offset,
+                        usize::MAX,
+                        enclosing_scope,
+                        &mut reach,
+                        &mut visiting,
+                    )
+            })
+}
+
+fn call_is_inside_scope(checker: &Checker<'_>, scope: ScopeId, ancestor_scope: ScopeId) -> bool {
+    scope == ancestor_scope
+        || checker
+            .semantic()
+            .ancestor_scopes(scope)
+            .any(|scope| scope == ancestor_scope)
+}
+
+fn call_scope_can_execute_inside_boundary_after_offset_before_offset(
+    checker: &Checker<'_>,
+    call_scope: ScopeId,
+    call_offset: usize,
+    after_offset: usize,
+    before_offset: usize,
+    boundary_scope: ScopeId,
+    reach: &mut CompatReachState<'_>,
+    visiting: &mut FxHashSet<ScopeId>,
+) -> bool {
+    if call_offset > before_offset {
+        return false;
+    }
+
+    let Some(function_scope) = enclosing_function_scope(checker, call_scope) else {
+        return call_offset > after_offset;
+    };
+    if function_scope == boundary_scope {
+        return call_offset > after_offset;
+    }
+
+    command_scope_can_run_inside_boundary_between_offsets(
+        checker,
+        call_scope,
+        after_offset,
+        before_offset,
+        boundary_scope,
+        reach,
+        visiting,
+    )
+}
+
+fn command_scope_can_run_inside_boundary_between_offsets(
+    checker: &Checker<'_>,
+    scope: ScopeId,
+    after_offset: usize,
+    before_offset: usize,
+    boundary_scope: ScopeId,
+    reach: &mut CompatReachState<'_>,
+    visiting: &mut FxHashSet<ScopeId>,
+) -> bool {
+    let Some(function_scope) = enclosing_function_scope(checker, scope) else {
+        return true;
+    };
+    if function_scope == boundary_scope {
+        return true;
+    }
+    if !call_is_inside_scope(checker, function_scope, boundary_scope) {
+        return false;
+    }
+    if !visiting.insert(function_scope) {
+        return false;
+    }
+
+    let can_run = reach
+        .function_bindings_by_scope
+        .get(&function_scope)
+        .into_iter()
+        .flat_map(|bindings| bindings.iter())
+        .any(|function_binding| {
+            has_call_to_function_binding_inside_boundary_between_offsets(
+                checker,
+                *function_binding,
+                after_offset,
+                before_offset,
+                boundary_scope,
+                reach,
+                visiting,
+            )
+        });
+
+    visiting.remove(&function_scope);
+    can_run
+}
+
+fn has_call_to_function_binding_inside_boundary_between_offsets(
+    checker: &Checker<'_>,
+    function_binding: shuck_semantic::BindingId,
+    after_offset: usize,
+    before_offset: usize,
+    boundary_scope: ScopeId,
+    reach: &mut CompatReachState<'_>,
+    visiting: &mut FxHashSet<ScopeId>,
+) -> bool {
+    let binding = checker.semantic().binding(function_binding);
+    let required_after = after_offset.max(binding.span.start.offset);
+    reach
+        .call_facts_by_name
+        .get(binding.name.as_str())
+        .into_iter()
+        .flat_map(|facts| facts.iter())
+        .any(|fact| {
+            let call_offset = fact.span.start.offset;
+            call_offset <= before_offset
+                && call_is_inside_scope(checker, fact.scope, boundary_scope)
+                && call_may_resolve_to_binding(
+                    checker,
+                    function_binding,
+                    fact.scope,
+                    fact.span,
+                    fact.span,
+                )
+                && call_scope_can_execute_inside_boundary_after_offset_before_offset(
+                    checker,
+                    fact.scope,
+                    call_offset,
+                    required_after,
+                    before_offset,
+                    boundary_scope,
+                    reach,
+                    visiting,
+                )
+        })
+        || checker
+            .semantic()
+            .call_sites_for(&binding.name)
+            .iter()
+            .any(|site| {
+                let call_offset = site.name_span.start.offset;
+                call_offset <= before_offset
+                    && call_is_inside_scope(checker, site.scope, boundary_scope)
+                    && call_may_resolve_to_binding(
+                        checker,
+                        function_binding,
+                        site.scope,
+                        site.name_span,
+                        site.span,
+                    )
+                    && call_scope_can_execute_inside_boundary_after_offset_before_offset(
+                        checker,
+                        site.scope,
+                        call_offset,
+                        required_after,
+                        before_offset,
+                        boundary_scope,
+                        reach,
+                        visiting,
+                    )
+            })
 }
 
 fn has_top_level_return_between(
@@ -1387,8 +1817,39 @@ fn enclosing_function_has_reportable_c063_diagnostic(
                 && enclosing_bindings.contains(&candidate.first)
                 && !should_suppress_overwrite(checker, candidate)
         });
+    let has_compat_cutoff_diagnostic = checker
+        .rule_options()
+        .c063
+        .report_unreached_nested_definitions
+        && enclosing_bindings
+            .iter()
+            .any(|binding| compat_cutoff_would_report_binding(checker, *binding));
 
-    has_unreached_diagnostic || has_overwrite_diagnostic
+    has_unreached_diagnostic || has_overwrite_diagnostic || has_compat_cutoff_diagnostic
+}
+
+fn compat_cutoff_would_report_binding(
+    checker: &Checker<'_>,
+    binding_id: shuck_semantic::BindingId,
+) -> bool {
+    let mut scope_run_cache = FxHashMap::default();
+    let mut scope_between_cache = FxHashMap::default();
+    let call_facts_by_name = build_compat_call_facts_by_name(checker);
+    let function_bindings_by_scope = build_compat_function_bindings_by_scope(checker);
+    let unset_facts = build_compat_unset_facts(checker, &function_bindings_by_scope);
+    let mut reach = CompatReachState {
+        scope_run_cache: &mut scope_run_cache,
+        scope_between_cache: &mut scope_between_cache,
+        call_facts_by_name: &call_facts_by_name,
+        function_bindings_by_scope: &function_bindings_by_scope,
+    };
+    let Some(cutoff) =
+        first_compat_cutoff_after_binding(checker, binding_id, &mut reach, &unset_facts)
+    else {
+        return false;
+    };
+
+    !has_direct_call_to_binding_before_offset_cached(checker, binding_id, cutoff.offset, &mut reach)
 }
 
 fn unset_function_between(
@@ -1785,6 +2246,25 @@ outer() {
     }
 
     #[test]
+    fn c063_option_suppresses_nested_child_when_enclosing_function_terminates() {
+        let source = "\
+outer() {
+  inner() { echo child; }
+}
+exit 0
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_c063_report_unreached_nested_definitions(true),
+        );
+
+        assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
+        assert_eq!(diagnostics[0].span.start.line, 1);
+    }
+
+    #[test]
     fn c063_option_suppresses_nested_overwrite_when_enclosing_function_reports() {
         let source = "\
 outer() {
@@ -1889,6 +2369,79 @@ fi
     }
 
     #[test]
+    fn c063_option_accepts_branch_local_helper_called_through_branch_local_function() {
+        let source = "\
+if use_iproute; then
+  normalize_route() { sed 's/ /_/g'; }
+  save_route() {
+    value=$(normalize_route)
+  }
+else
+  save_route() { :; }
+fi
+save_route
+exit 0
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/vpnc-script"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_c063_report_unreached_nested_definitions(true),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn c063_option_reports_conditional_nested_function_before_script_termination() {
+        let source = "\
+runner() {
+  if install_hook; then
+    hook() { :; }
+    run_hook_loader
+  fi
+}
+runner
+exit 0
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_c063_report_unreached_nested_definitions(true),
+        );
+
+        assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
+        assert_eq!(diagnostics[0].span.start.line, 3);
+    }
+
+    #[test]
+    fn c063_option_reports_trap_only_nested_function_before_script_termination() {
+        let source = "\
+init() {
+  if use_lock; then
+    cleanup_lock() { rm -f \"$lock\"; }
+    trap 'cleanup_lock' EXIT
+  fi
+}
+main() {
+  init
+  exit 0
+}
+main
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_c063_report_unreached_nested_definitions(true),
+        );
+
+        assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
+        assert_eq!(diagnostics[0].span.start.line, 3);
+    }
+
+    #[test]
     fn c063_option_accepts_nested_function_called_before_eventual_script_termination() {
         let source = "\
 outer() {
@@ -1911,6 +2464,142 @@ fi
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn c063_option_accepts_nested_function_when_enclosing_function_is_called_transitively() {
+        let source = "\
+outer() {
+  inner() { :; }
+}
+driver() {
+  if should_run; then
+    outer
+  fi
+}
+driver
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_c063_report_unreached_nested_definitions(true),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn c063_option_accepts_nested_recursive_parser_helpers_called_through_pipeline() {
+        let source = "\
+jsonsh() {
+  parse_array() {
+    parse_value
+  }
+  parse_object() {
+    parse_value
+  }
+  parse_value() {
+    case \"$token\" in
+      '[') parse_array ;;
+      '{') parse_object ;;
+    esac
+  }
+  parse() {
+    parse_value
+  }
+  tokenize | parse
+}
+jsonsh | read value
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_c063_report_unreached_nested_definitions(true),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn c063_option_accepts_nested_function_called_from_enclosing_body() {
+        let source = "\
+outer() {
+  inner() { :; }
+  inner
+}
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_c063_report_unreached_nested_definitions(true),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn c063_option_reports_nested_function_only_called_through_dynamic_wrapper() {
+        let source = "\
+outer() {
+  leaf() { :; }
+  wrapper() { leaf; }
+  \"$@\"
+}
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_c063_report_unreached_nested_definitions(true),
+        );
+        let lines = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.span.start.line)
+            .collect::<Vec<_>>();
+
+        assert_eq!(lines, [2, 3], "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn c063_option_reports_nested_function_called_only_before_its_definition() {
+        let source = "\
+outer() {
+  inner
+  inner() { :; }
+}
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_c063_report_unreached_nested_definitions(true),
+        );
+
+        assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
+        assert_eq!(diagnostics[0].span.start.line, 3);
+    }
+
+    #[test]
+    fn c063_option_reports_shadowed_file_scope_call_before_script_termination() {
+        let source = "\
+redefine() { echo redefine; }
+if [ \"$(redefine() { :; }; redefine)\" = redefine ]; then
+  echo changed
+fi
+exit 0
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/shellspec-inspection.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_c063_report_unreached_nested_definitions(true),
+        );
+
+        assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
+        assert_eq!(diagnostics[0].span.start.line, 1);
     }
 
     #[test]

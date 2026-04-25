@@ -2064,10 +2064,13 @@ impl<'model> SemanticAnalysis<'model> {
                     .call_sites_for(&function.name)
                     .iter()
                     .any(|site| {
-                        self.overwrite_call_site_resolves_to_binding(
+                        self.call_site_can_resolve_to_binding_before_termination(
                             &function.name,
                             site,
                             function_binding,
+                            cfg,
+                            unreachable,
+                            script_terminators,
                         ) && self.call_site_can_execute_after_function_definition(
                             site,
                             function.span.start.offset,
@@ -2117,10 +2120,13 @@ impl<'model> SemanticAnalysis<'model> {
                     .call_sites_for(&function.name)
                     .iter()
                     .any(|site| {
-                        self.overwrite_call_site_resolves_to_binding(
+                        self.call_site_can_resolve_to_binding_before_termination(
                             &function.name,
                             site,
                             function_binding,
+                            cfg,
+                            unreachable,
+                            script_terminators,
                         ) && self.call_site_can_execute_after_function_definition(
                             site,
                             function.span.start.offset,
@@ -2293,6 +2299,45 @@ impl<'model> SemanticAnalysis<'model> {
             self.call_site_can_resolve_to_binding_on_reachable_path(name, site, window)
                 && self.call_site_executes_before_termination(site, window, visiting_scopes)
         })
+    }
+
+    fn call_site_can_resolve_to_binding_before_termination(
+        &self,
+        name: &Name,
+        site: &CallSite,
+        binding_id: BindingId,
+        cfg: &ControlFlowGraph,
+        unreachable: &FxHashSet<BlockId>,
+        script_terminators: &FxHashSet<BlockId>,
+    ) -> bool {
+        let binding = self.model.binding(binding_id);
+        let site_blocks = self.reachable_call_site_blocks_in_cfg(cfg, site, unreachable);
+        if site_blocks.is_empty() {
+            return false;
+        }
+
+        if site.scope == binding.scope
+            || self
+                .model
+                .ancestor_scopes(site.scope)
+                .any(|scope| scope == binding.scope)
+        {
+            let binding_blocks = reachable_blocks_for_binding(cfg, binding_id, unreachable);
+            if binding_blocks.is_empty() {
+                return false;
+            }
+            let shadow_blocks =
+                self.shadow_function_blocks_from_cfg(name, binding_id, cfg, unreachable);
+            return blocks_have_path_avoiding_many(
+                cfg,
+                &binding_blocks,
+                &site_blocks,
+                &shadow_blocks,
+                script_terminators,
+            );
+        }
+
+        self.overwrite_call_site_resolves_to_binding(name, site, binding_id)
     }
 
     fn call_site_can_resolve_to_binding_on_reachable_path(
@@ -2565,10 +2610,13 @@ impl<'model> SemanticAnalysis<'model> {
                     .call_sites_for(&function_name)
                     .iter()
                     .any(|caller| {
-                        self.overwrite_call_site_resolves_to_binding(
+                        self.call_site_can_resolve_to_binding_before_termination(
                             &function_name,
                             caller,
                             function_binding,
+                            window.cfg,
+                            window.unreachable,
+                            window.script_terminators,
                         ) && self.call_site_can_execute_after_function_definition(
                             caller,
                             function_offset,
@@ -2610,6 +2658,28 @@ impl<'model> SemanticAnalysis<'model> {
                     .copied()
                     .filter(|block| !unreachable.contains(block))
             })
+            .collect()
+    }
+
+    fn shadow_function_blocks_from_cfg(
+        &self,
+        name: &Name,
+        binding_id: BindingId,
+        cfg: &ControlFlowGraph,
+        unreachable: &FxHashSet<BlockId>,
+    ) -> FxHashSet<BlockId> {
+        let binding = self.model.binding(binding_id);
+        self.model
+            .function_definitions(name)
+            .iter()
+            .copied()
+            .filter(|other| *other != binding_id)
+            .filter(|other| {
+                let other_binding = self.model.binding(*other);
+                other_binding.scope == binding.scope
+                    && other_binding.span.start.offset > binding.span.start.offset
+            })
+            .flat_map(|other| reachable_blocks_for_binding(cfg, other, unreachable))
             .collect()
     }
 
