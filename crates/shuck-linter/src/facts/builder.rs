@@ -498,11 +498,13 @@ impl<'a> LinterFactsBuilder<'a> {
         let backtick_command_name_spans = build_backtick_command_name_spans(&commands);
         let dollar_question_after_command_spans =
             build_dollar_question_after_command_spans(&self.file.body, self.source);
+        let command_facts_require_source_order = !command_facts_are_source_ordered(&commands);
         let nonpersistent_assignment_spans = build_nonpersistent_assignment_spans(
             self.semantic,
             &commands,
             self.source,
             matches!(self.shell, ShellDialect::Bash) && pipefail_enabled_anywhere,
+            command_facts_require_source_order,
         );
         let heredoc_summary =
             build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
@@ -703,8 +705,10 @@ impl<'a> LinterFactsBuilder<'a> {
                 .iter()
                 .map(|command| command.span().start.offset)
                 .collect(),
+            command_facts_require_source_order,
         );
-        let command_parent_ids = build_command_parent_ids(&commands);
+        let command_parent_ids =
+            build_command_parent_ids(&commands, command_facts_require_source_order);
         let command_dominance_barrier_flags = build_command_dominance_barrier_flags(&commands);
         let c006_suppressing_reference_offsets_by_name =
             build_c006_suppressing_reference_offsets_by_name(

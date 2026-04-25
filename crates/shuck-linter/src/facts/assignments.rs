@@ -1239,6 +1239,7 @@ fn build_nonpersistent_assignment_spans(
     commands: &[CommandFact<'_>],
     source: &str,
     suppress_bash_pipefail_pipeline_side_effects: bool,
+    require_source_ordered_command_lookup: bool,
 ) -> NonpersistentAssignmentSpans {
     let scope_spans_by_id = semantic
         .scopes()
@@ -1352,8 +1353,11 @@ fn build_nonpersistent_assignment_spans(
         }
     }
 
-    let innermost_command_ids_by_offset =
-        build_innermost_command_ids_by_offset(commands, command_id_query_offsets);
+    let innermost_command_ids_by_offset = build_innermost_command_ids_by_offset(
+        commands,
+        command_id_query_offsets,
+        require_source_ordered_command_lookup,
+    );
     let persistent_reset_offsets_by_name: FxHashMap<Name, Vec<PersistentReset>> =
         persistent_reset_offsets_by_name
             .into_iter()
@@ -1873,6 +1877,7 @@ fn escaped_braced_parameter_names(text: &str) -> Vec<String> {
 fn build_innermost_command_ids_by_offset(
     commands: &[CommandFact<'_>],
     mut offsets: Vec<usize>,
+    require_source_order: bool,
 ) -> CommandOffsetLookup {
     if offsets.is_empty() {
         return CommandOffsetLookup::default();
@@ -1881,36 +1886,14 @@ fn build_innermost_command_ids_by_offset(
     offsets.sort_unstable();
     offsets.dedup();
 
-    let mut command_order = commands
-        .iter()
-        .map(CommandFact::id)
-        .collect::<Vec<_>>();
-    if command_order
-        .windows(2)
-        .any(|window| {
-            compare_command_offset_entries(
-                command_offset_entry(commands, window[0]),
-                command_offset_entry(commands, window[1]),
-            )
-            .is_gt()
-        })
-    {
-        command_order.sort_unstable_by(|left, right| {
-            compare_command_offset_entries(
-                command_offset_entry(commands, *left),
-                command_offset_entry(commands, *right),
-            )
-        });
-    }
-
+    let command_order = command_offset_order(commands, require_source_order);
     let mut entries = Vec::with_capacity(offsets.len());
     let mut active_commands = Vec::new();
     let mut next_command = 0;
     for offset in offsets {
         pop_finished_commands(&mut active_commands, offset);
 
-        while let Some(id) = command_order.get(next_command).copied() {
-            let span = command_fact(commands, id).span();
+        while let Some((span, id)) = command_order.entry(commands, next_command) {
             if span.start.offset > offset {
                 break;
             }
@@ -1933,6 +1916,41 @@ fn build_innermost_command_ids_by_offset(
     }
 
     CommandOffsetLookup { entries }
+}
+
+enum CommandOffsetOrder {
+    SourceOrdered,
+    Sorted(Vec<CommandId>),
+}
+
+impl CommandOffsetOrder {
+    fn entry(&self, commands: &[CommandFact<'_>], index: usize) -> Option<(Span, CommandId)> {
+        match self {
+            Self::SourceOrdered => {
+                let command = commands.get(index)?;
+                Some((command.span(), command.id()))
+            }
+            Self::Sorted(order) => {
+                let id = order.get(index).copied()?;
+                Some(command_offset_entry(commands, id))
+            }
+        }
+    }
+}
+
+fn command_offset_order(commands: &[CommandFact<'_>], require_source_order: bool) -> CommandOffsetOrder {
+    if !require_source_order {
+        return CommandOffsetOrder::SourceOrdered;
+    }
+
+    let mut command_order = commands.iter().map(CommandFact::id).collect::<Vec<_>>();
+    command_order.sort_unstable_by(|left, right| {
+        compare_command_offset_entries(
+            command_offset_entry(commands, *left),
+            command_offset_entry(commands, *right),
+        )
+    });
+    CommandOffsetOrder::Sorted(command_order)
 }
 
 #[derive(Debug, Default, Clone)]
