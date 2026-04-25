@@ -80,7 +80,7 @@ fn command_exempts_glob_warning(command: Option<&str>) -> bool {
 }
 
 fn command_has_separator_before(
-    command: &crate::facts::CommandFact<'_>,
+    command: crate::facts::CommandFactRef<'_, '_>,
     target_span: Span,
     source: &str,
 ) -> bool {

@@ -34,7 +34,7 @@ pub fn ls_grep_pipeline(checker: &mut Checker) {
     checker.report_all_dedup(spans, || LsGrepPipeline);
 }
 
-fn is_raw_utility_named(fact: &crate::CommandFact<'_>, name: &str) -> bool {
+fn is_raw_utility_named(fact: crate::CommandFactRef<'_, '_>, name: &str) -> bool {
     fact.literal_name() == Some(name) && fact.wrappers().is_empty()
 }
 

@@ -499,7 +499,7 @@ struct OpenCommand {
 }
 
 fn build_innermost_command_ids_by_offset(
-    commands: &[crate::facts::CommandFact<'_>],
+    commands: crate::facts::CommandFacts<'_, '_>,
     mut offsets: Vec<usize>,
 ) -> FxHashMap<usize, Option<CommandId>> {
     if offsets.is_empty() {

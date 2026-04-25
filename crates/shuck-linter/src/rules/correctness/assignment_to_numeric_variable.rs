@@ -26,7 +26,7 @@ pub fn assignment_to_numeric_variable(checker: &mut Checker) {
     checker.report_all_dedup(spans, || AssignmentToNumericVariable);
 }
 
-fn command_assignment_spans(fact: &crate::facts::CommandFact<'_>, source: &str) -> Vec<Span> {
+fn command_assignment_spans(fact: crate::facts::CommandFactRef<'_, '_>, source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
 
     if let Some(span) = command_numeric_assignment_span(fact, source) {
@@ -53,7 +53,7 @@ fn command_assignment_spans(fact: &crate::facts::CommandFact<'_>, source: &str) 
 }
 
 fn command_numeric_assignment_span(
-    fact: &crate::facts::CommandFact<'_>,
+    fact: crate::facts::CommandFactRef<'_, '_>,
     source: &str,
 ) -> Option<Span> {
     let text = fact.span().slice(source);

@@ -1,6 +1,6 @@
 use shuck_ast::static_word_text;
 
-use crate::{Checker, CommandFact, ExpansionContext, Rule, Violation, WordFactContext};
+use crate::{Checker, CommandFactRef, ExpansionContext, Rule, Violation, WordFactContext};
 
 pub struct UnquotedPathInMkdir;
 
@@ -35,7 +35,7 @@ pub fn unquoted_path_in_mkdir(checker: &mut Checker) {
     checker.report_all_dedup(spans, || UnquotedPathInMkdir);
 }
 
-fn mkdir_path_operand_spans(command: &CommandFact<'_>, source: &str) -> Vec<shuck_ast::Span> {
+fn mkdir_path_operand_spans(command: CommandFactRef<'_, '_>, source: &str) -> Vec<shuck_ast::Span> {
     let mut spans = Vec::new();
     let mut options_open = true;
     let mut expects_mode_operand = false;

@@ -154,10 +154,10 @@ fn append_target_for_statement(
     }
 }
 
-fn commands_for_statement<'a>(
-    checker: &'a Checker<'_>,
+fn commands_for_statement<'checker, 'ast>(
+    checker: &'checker Checker<'ast>,
     statement: &StatementFact,
-) -> Vec<&'a crate::CommandFact<'a>> {
+) -> Vec<crate::CommandFactRef<'checker, 'ast>> {
     let command = checker.facts().command(statement.command_id());
     let mut command_ids = FxHashSet::default();
     let mut commands = Vec::new();

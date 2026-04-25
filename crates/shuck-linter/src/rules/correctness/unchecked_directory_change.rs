@@ -59,7 +59,7 @@ pub(crate) fn unchecked_directory_change_spans(checker: &mut Checker) -> Vec<(&'
         .collect::<Vec<_>>()
 }
 
-pub(crate) fn report_span(fact: &crate::facts::CommandFact<'_>, source: &str) -> Span {
+pub(crate) fn report_span(fact: crate::facts::CommandFactRef<'_, '_>, source: &str) -> Span {
     match fact.command() {
         Command::Simple(command) => {
             let mut start = command.name.span.start;

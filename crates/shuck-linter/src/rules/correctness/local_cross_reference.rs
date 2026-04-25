@@ -29,7 +29,7 @@ pub fn local_cross_reference(checker: &mut Checker) {
 
 fn declaration_cross_reference_spans(
     checker: &Checker<'_>,
-    fact: &crate::CommandFact<'_>,
+    fact: crate::CommandFactRef<'_, '_>,
 ) -> Vec<Span> {
     let Some(declaration) = fact.declaration() else {
         return Vec::new();

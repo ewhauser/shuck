@@ -1103,12 +1103,65 @@ pub struct WordOccurrenceRef<'facts, 'a> {
 }
 
 pub struct WordOccurrenceIter<'facts, 'a> {
-    inner: Box<dyn Iterator<Item = WordOccurrenceRef<'facts, 'a>> + 'facts>,
+    facts: &'facts LinterFacts<'a>,
+    source: WordOccurrenceIterSource<'facts>,
+    filter: WordOccurrenceFilter,
+}
+
+enum WordOccurrenceIterSource<'facts> {
+    All { next: usize },
+    Ids(std::slice::Iter<'facts, WordOccurrenceId>),
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum WordOccurrenceFilter {
+    Any,
+    NonArithmetic,
+    ArithmeticCommand,
+    Expansion(ExpansionContext),
+    CaseSubject,
 }
 
 impl<'facts, 'a> WordOccurrenceIter<'facts, 'a> {
+    pub(crate) fn all(facts: &'facts LinterFacts<'a>, filter: WordOccurrenceFilter) -> Self {
+        Self {
+            facts,
+            source: WordOccurrenceIterSource::All { next: 0 },
+            filter,
+        }
+    }
+
+    pub(crate) fn ids(
+        facts: &'facts LinterFacts<'a>,
+        ids: &'facts [WordOccurrenceId],
+        filter: WordOccurrenceFilter,
+    ) -> Self {
+        Self {
+            facts,
+            source: WordOccurrenceIterSource::Ids(ids.iter()),
+            filter,
+        }
+    }
+
     pub fn iter(self) -> Self {
         self
+    }
+
+    fn accepts(&self, id: WordOccurrenceId) -> bool {
+        let occurrence = self.facts.word_occurrence(id);
+        match self.filter {
+            WordOccurrenceFilter::Any => true,
+            WordOccurrenceFilter::NonArithmetic => {
+                occurrence.context != WordFactContext::ArithmeticCommand
+            }
+            WordOccurrenceFilter::ArithmeticCommand => {
+                occurrence.context == WordFactContext::ArithmeticCommand
+            }
+            WordOccurrenceFilter::Expansion(context) => {
+                occurrence.context == WordFactContext::Expansion(context)
+            }
+            WordOccurrenceFilter::CaseSubject => self.facts.word_occurrence_ref(id).is_case_subject(),
+        }
     }
 }
 
@@ -1116,7 +1169,20 @@ impl<'facts, 'a> Iterator for WordOccurrenceIter<'facts, 'a> {
     type Item = WordOccurrenceRef<'facts, 'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
+        loop {
+            let id = match &mut self.source {
+                WordOccurrenceIterSource::All { next } => {
+                    let id = WordOccurrenceId::new(*next);
+                    *next += 1;
+                    (id.index() < self.facts.word_occurrences.len()).then_some(id)
+                }
+                WordOccurrenceIterSource::Ids(ids) => ids.next().copied(),
+            }?;
+
+            if self.accepts(id) {
+                return Some(self.facts.word_occurrence_ref(id));
+            }
+        }
     }
 }
 
@@ -2002,7 +2068,7 @@ fn text_contains_echo_backslash_escape(text: &str, is_sensitive: fn(u8) -> bool)
 }
 
 fn build_echo_to_sed_substitution_spans<'a>(
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     pipelines: &[PipelineFact<'a>],
     backticks: &[BacktickFragmentFact],
     nodes: &[WordNode<'a>],
@@ -2041,7 +2107,7 @@ fn build_echo_to_sed_substitution_spans<'a>(
 }
 
 fn sc2001_like_pipeline_span<'a>(
-    commands: &[CommandFact<'a>],
+    commands: CommandFacts<'_, 'a>,
     pipeline: &PipelineFact<'a>,
     backticks: &[BacktickFragmentFact],
     nodes: &[WordNode<'a>],
@@ -2053,8 +2119,8 @@ fn sc2001_like_pipeline_span<'a>(
         return None;
     };
 
-    let left = command_fact(commands, left_segment.command_id());
-    let right = command_fact(commands, right_segment.command_id());
+    let left = command_fact_ref(commands, left_segment.command_id());
+    let right = command_fact_ref(commands, right_segment.command_id());
 
     if !command_is_plain_named(left, "echo") || !command_is_plain_named(right, "sed") {
         return None;
@@ -2115,7 +2181,7 @@ fn sc2001_like_pipeline_span<'a>(
 }
 
 fn sc2001_like_here_string_span(
-    command: &CommandFact<'_>,
+    command: CommandFactRef<'_, '_>,
     backticks: &[BacktickFragmentFact],
     source: &str,
 ) -> Option<Span> {
@@ -2143,24 +2209,27 @@ fn sc2001_like_here_string_span(
     command_span_with_redirects_and_shellcheck_tail(command, source)
 }
 
-fn command_is_plain_named(command: &CommandFact<'_>, name: &str) -> bool {
+fn command_is_plain_named(command: CommandFactRef<'_, '_>, name: &str) -> bool {
     command.effective_name_is(name) && command.wrappers().is_empty()
 }
 
 fn sc2001_like_backtick_pipeline_span(
-    commands: &[CommandFact<'_>],
+    commands: CommandFacts<'_, '_>,
     pipeline: &PipelineFact<'_>,
-    sed_command: &CommandFact<'_>,
+    sed_command: CommandFactRef<'_, '_>,
     source: &str,
 ) -> Option<Span> {
     let first_segment = pipeline.first_segment()?;
-    let first = command_fact(commands, first_segment.command_id());
+    let first = command_fact_ref(commands, first_segment.command_id());
     let start = first.body_name_word()?.span.start;
     let end = sc2001_like_backtick_sed_script_end(sed_command.body_args(), source)?;
     Some(Span::from_positions(start, end))
 }
 
-fn sc2001_like_backtick_command_span(command: &CommandFact<'_>, source: &str) -> Option<Span> {
+fn sc2001_like_backtick_command_span(
+    command: CommandFactRef<'_, '_>,
+    source: &str,
+) -> Option<Span> {
     let start = command.body_name_word()?.span.start;
     let end = sc2001_like_backtick_sed_script_end(command.body_args(), source)?;
     Some(Span::from_positions(start, end))
@@ -2280,7 +2349,7 @@ fn rewind_offset_by_chars(source: &str, mut offset: usize, count: usize) -> Opti
 }
 
 fn command_has_sc2001_like_sed_script(
-    command: &CommandFact<'_>,
+    command: CommandFactRef<'_, '_>,
     backticks: &[BacktickFragmentFact],
     source: &str,
 ) -> bool {
@@ -2297,7 +2366,7 @@ fn command_has_sc2001_like_sed_script(
 }
 
 fn command_is_inside_backtick_fragment(
-    command: &CommandFact<'_>,
+    command: CommandFactRef<'_, '_>,
     backticks: &[BacktickFragmentFact],
 ) -> bool {
     let span = command.span();

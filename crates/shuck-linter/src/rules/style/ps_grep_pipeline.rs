@@ -1,6 +1,6 @@
 use shuck_ast::Span;
 
-use crate::{Checker, CommandFact, PipelineFact, Rule, Violation};
+use crate::{Checker, CommandFactRef, PipelineFact, Rule, Violation};
 
 pub struct PsGrepPipeline;
 
@@ -46,7 +46,7 @@ fn unsafe_ps_grep_pipeline_spans(checker: &Checker<'_>, pipeline: &PipelineFact<
         .collect()
 }
 
-fn command_body_span(fact: &CommandFact<'_>) -> Option<Span> {
+fn command_body_span(fact: CommandFactRef<'_, '_>) -> Option<Span> {
     let body_name = fact.body_name_word()?;
     let mut end = body_name.span.end;
 
@@ -66,7 +66,7 @@ fn command_body_span(fact: &CommandFact<'_>) -> Option<Span> {
     Some(Span::from_positions(body_name.span.start, end))
 }
 
-fn is_raw_utility_named(fact: &CommandFact<'_>, name: &str) -> bool {
+fn is_raw_utility_named(fact: CommandFactRef<'_, '_>, name: &str) -> bool {
     fact.literal_name() == Some(name) && fact.wrappers().is_empty()
 }
 

@@ -26,7 +26,9 @@ pub fn c_style_comment(checker: &mut Checker) {
 
     for index in 0..checker.facts().commands().len() {
         let diagnostic = {
-            let command = &checker.facts().commands()[index];
+            let Some(command) = checker.facts().commands().get(index) else {
+                continue;
+            };
             let Some(name) = command.body_name_word() else {
                 continue;
             };

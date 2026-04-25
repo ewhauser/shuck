@@ -1,7 +1,7 @@
 use shuck_ast::{Command, Span};
 
 use crate::{
-    Checker, CommandFact, Edit, Fix, FixAvailability, PipelineFact, PipelineSegmentFact, Rule,
+    Checker, CommandFactRef, Edit, Fix, FixAvailability, PipelineFact, PipelineSegmentFact, Rule,
     Violation,
 };
 
@@ -76,7 +76,7 @@ fn unsafe_find_to_xargs_diagnostics(
         .collect()
 }
 
-fn find_output_to_xargs_fix(left: &CommandFact<'_>, right: &CommandFact<'_>) -> Fix {
+fn find_output_to_xargs_fix(left: CommandFactRef<'_, '_>, right: CommandFactRef<'_, '_>) -> Fix {
     let mut edits = Vec::new();
 
     if !left.options().find().is_some_and(|find| find.has_print0) {
@@ -104,7 +104,7 @@ fn find_output_to_xargs_fix(left: &CommandFact<'_>, right: &CommandFact<'_>) -> 
     Fix::unsafe_edits(edits)
 }
 
-fn find_print0_insertion_offset(command: &CommandFact<'_>) -> usize {
+fn find_print0_insertion_offset(command: CommandFactRef<'_, '_>) -> usize {
     command
         .redirect_facts()
         .first()
@@ -114,14 +114,14 @@ fn find_print0_insertion_offset(command: &CommandFact<'_>) -> usize {
         .expect("find command diagnostics should have a body insertion point")
 }
 
-fn xargs_null_input_insertion_offset(command: &CommandFact<'_>) -> usize {
+fn xargs_null_input_insertion_offset(command: CommandFactRef<'_, '_>) -> usize {
     command
         .body_name_word()
         .map(|word| word.span.end.offset)
         .expect("xargs command diagnostics should have a body name word")
 }
 
-fn find_command_span(segment: &PipelineSegmentFact<'_>, fact: &CommandFact<'_>) -> Span {
+fn find_command_span(segment: &PipelineSegmentFact<'_>, fact: CommandFactRef<'_, '_>) -> Span {
     match &segment.command() {
         Command::Simple(simple) => {
             let end = segment

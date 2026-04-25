@@ -2,8 +2,8 @@ use shuck_ast::{ConditionalBinaryOp, RedirectKind, Span, static_word_text};
 use shuck_semantic::{BindingAttributes, BindingId};
 
 use crate::{
-    Checker, CommandFact, ConditionalBinaryFact, ConditionalNodeFact, ConditionalOperandFact, Edit,
-    Fix, FixAvailability, RedirectFact, Rule, SimpleTestSyntax, Violation, WordOccurrenceRef,
+    Checker, CommandFactRef, ConditionalBinaryFact, ConditionalNodeFact, ConditionalOperandFact,
+    Edit, Fix, FixAvailability, RedirectFact, Rule, SimpleTestSyntax, Violation, WordOccurrenceRef,
 };
 
 pub struct GreaterThanInTest;
@@ -41,7 +41,7 @@ pub fn greater_than_in_test(checker: &mut Checker) {
 }
 
 fn comparison_operator_diagnostics(
-    command: &CommandFact<'_>,
+    command: CommandFactRef<'_, '_>,
     checker: &Checker<'_>,
     source: &str,
 ) -> Vec<crate::Diagnostic> {
@@ -53,7 +53,7 @@ fn comparison_operator_diagnostics(
 }
 
 fn bracket_comparison_redirect_diagnostics(
-    command: &CommandFact<'_>,
+    command: CommandFactRef<'_, '_>,
     source: &str,
 ) -> Vec<crate::Diagnostic> {
     let Some(simple_test) = command.simple_test() else {
@@ -182,7 +182,7 @@ fn has_trailing_token_boundary(text: &str) -> bool {
 }
 
 fn double_bracket_numeric_comparison_diagnostics(
-    command: &CommandFact<'_>,
+    command: CommandFactRef<'_, '_>,
     checker: &Checker<'_>,
     source: &str,
 ) -> Vec<crate::Diagnostic> {

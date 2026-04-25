@@ -1,6 +1,6 @@
 use shuck_ast::{Command, Redirect, SimpleCommand, Span};
 
-use crate::{Checker, CommandFact, ShellDialect};
+use crate::{Checker, CommandFactRef, ShellDialect};
 
 pub(super) fn source_command_spans_in_sh(checker: &Checker<'_>) -> Vec<Span> {
     if !matches!(checker.shell(), ShellDialect::Sh | ShellDialect::Dash) {
@@ -17,7 +17,10 @@ pub(super) fn source_command_spans_in_sh(checker: &Checker<'_>) -> Vec<Span> {
         .collect()
 }
 
-pub(super) fn source_anchor_span_for_command_fact(fact: &CommandFact<'_>, source: &str) -> Span {
+pub(super) fn source_anchor_span_for_command_fact(
+    fact: CommandFactRef<'_, '_>,
+    source: &str,
+) -> Span {
     source_anchor_span(fact.command(), fact.redirects(), fact.span(), source)
 }
 

@@ -38,7 +38,7 @@ pub fn c_prototype_fragment(checker: &mut Checker) {
 }
 
 fn attached_background_ampersand_span(
-    command: &crate::CommandFact<'_>,
+    command: crate::CommandFactRef<'_, '_>,
     source: &str,
 ) -> Option<Span> {
     if command.stmt().terminator != Some(StmtTerminator::Background(BackgroundOperator::Plain)) {

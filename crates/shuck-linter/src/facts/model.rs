@@ -25,7 +25,7 @@ pub struct LinterFacts<'a> {
     word_nodes: Vec<WordNode<'a>>,
     word_occurrences: Vec<WordOccurrence>,
     word_index: FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
-    word_occurrence_ids_by_command: Vec<SmallVec<[WordOccurrenceId; 4]>>,
+    fact_store: FactStore<'a>,
     unquoted_command_argument_use_offsets: FxHashMap<Name, Vec<usize>>,
     array_assignment_split_word_ids: Vec<WordOccurrenceId>,
     brace_variable_before_bracket_spans: Vec<Span>,
@@ -178,8 +178,8 @@ impl<'a> LinterFacts<'a> {
         .build()
     }
 
-    pub fn commands(&self) -> &[CommandFact<'a>] {
-        &self.commands
+    pub fn commands(&self) -> CommandFacts<'_, 'a> {
+        CommandFacts::new(&self.commands, &self.fact_store)
     }
 
     pub fn malformed_bracket_test_spans(&self, source: &str) -> Vec<Span> {
@@ -234,18 +234,18 @@ impl<'a> LinterFacts<'a> {
             .unwrap_or_default()
     }
 
-    pub fn structural_commands(&self) -> impl Iterator<Item = &CommandFact<'a>> + '_ {
+    pub fn structural_commands(&self) -> impl Iterator<Item = CommandFactRef<'_, 'a>> + '_ {
         self.structural_command_ids
             .iter()
             .copied()
             .map(|id| self.command(id))
     }
 
-    pub fn command(&self, id: CommandId) -> &CommandFact<'a> {
-        &self.commands[id.index()]
+    pub fn command(&self, id: CommandId) -> CommandFactRef<'_, 'a> {
+        CommandFactRef::new(&self.commands[id.index()], &self.fact_store)
     }
 
-    pub fn innermost_command_at(&self, offset: usize) -> Option<&CommandFact<'a>> {
+    pub fn innermost_command_at(&self, offset: usize) -> Option<CommandFactRef<'_, 'a>> {
         self.innermost_command_id_at(offset)
             .map(|id| self.command(id))
     }
@@ -258,7 +258,7 @@ impl<'a> LinterFacts<'a> {
         self.command_parent_ids.get(id.index()).copied().flatten()
     }
 
-    pub fn command_parent(&self, id: CommandId) -> Option<&CommandFact<'a>> {
+    pub fn command_parent(&self, id: CommandId) -> Option<CommandFactRef<'_, 'a>> {
         self.command_parent_id(id)
             .map(|parent_id| self.command(parent_id))
     }
@@ -372,27 +372,11 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn word_facts(&self) -> WordOccurrenceIter<'_, 'a> {
-        WordOccurrenceIter {
-            inner: Box::new(
-                self.word_occurrences
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, occurrence)| occurrence.context != WordFactContext::ArithmeticCommand)
-                    .map(|(index, _)| self.word_occurrence_ref(WordOccurrenceId::new(index))),
-            ),
-        }
+        WordOccurrenceIter::all(self, WordOccurrenceFilter::NonArithmetic)
     }
 
     pub fn arithmetic_command_word_facts(&self) -> WordOccurrenceIter<'_, 'a> {
-        WordOccurrenceIter {
-            inner: Box::new(
-                self.word_occurrences
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, occurrence)| occurrence.context == WordFactContext::ArithmeticCommand)
-                    .map(|(index, _)| self.word_occurrence_ref(WordOccurrenceId::new(index))),
-            ),
-        }
+        WordOccurrenceIter::all(self, WordOccurrenceFilter::ArithmeticCommand)
     }
 
     pub fn is_compound_assignment_value_word(&self, fact: WordOccurrenceRef<'_, '_>) -> bool {
@@ -401,18 +385,11 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn expansion_word_facts(&self, context: ExpansionContext) -> WordOccurrenceIter<'_, 'a> {
-        WordOccurrenceIter {
-            inner: Box::new(
-                self.word_facts()
-                    .filter(move |fact| fact.expansion_context() == Some(context)),
-            ),
-        }
+        WordOccurrenceIter::all(self, WordOccurrenceFilter::Expansion(context))
     }
 
     pub fn case_subject_facts(&self) -> WordOccurrenceIter<'_, 'a> {
-        WordOccurrenceIter {
-            inner: Box::new(self.word_facts().filter(|fact| fact.is_case_subject())),
-        }
+        WordOccurrenceIter::all(self, WordOccurrenceFilter::CaseSubject)
     }
 
     pub fn word_fact(
@@ -449,14 +426,11 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn array_assignment_split_word_facts(&self) -> WordOccurrenceIter<'_, 'a> {
-        WordOccurrenceIter {
-            inner: Box::new(
-                self.array_assignment_split_word_ids
-                    .iter()
-                    .copied()
-                    .map(|id| self.word_occurrence_ref(id)),
-            ),
-        }
+        WordOccurrenceIter::ids(
+            self,
+            &self.array_assignment_split_word_ids,
+            WordOccurrenceFilter::Any,
+        )
     }
 
     fn word_occurrence_ref(&self, id: WordOccurrenceId) -> WordOccurrenceRef<'_, 'a> {
@@ -468,9 +442,7 @@ impl<'a> LinterFacts<'a> {
     }
 
     fn word_occurrence_ids_for_command(&self, id: CommandId) -> &[WordOccurrenceId] {
-        self.word_occurrence_ids_by_command
-            .get(id.index())
-            .map_or(&[], SmallVec::as_slice)
+        self.fact_store.word_occurrence_ids_for_command(id)
     }
 
     fn word_node(&self, id: WordNodeId) -> &WordNode<'a> {

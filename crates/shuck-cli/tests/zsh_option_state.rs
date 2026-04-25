@@ -348,11 +348,11 @@ fn parse_probe_output(stdout: &str) -> Result<ProbeRun> {
     Ok(run)
 }
 
-fn find_probe_command<'a>(
-    checker: &'a Checker<'_>,
+fn find_probe_command<'checker, 'ast>(
+    checker: &'checker Checker<'ast>,
     command_name: &str,
     probe_id: &str,
-) -> Result<&'a shuck_linter::CommandFact<'a>> {
+) -> Result<shuck_linter::CommandFactRef<'checker, 'ast>> {
     checker
         .facts()
         .structural_commands()

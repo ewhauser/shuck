@@ -202,7 +202,7 @@ fn precomputes_innermost_command_ids_for_nested_offsets() {
         .expect("expected nested uname command");
 
     let command_ids_by_offset = super::build_innermost_command_ids_by_offset(
-        facts.commands(),
+        facts.commands().raw(),
         vec![
             source.find("echo").expect("expected echo offset"),
             source.find("printf").expect("expected printf offset"),

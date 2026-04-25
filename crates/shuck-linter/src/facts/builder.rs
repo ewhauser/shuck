@@ -9,6 +9,13 @@ struct LinterFactsBuilder<'a> {
 }
 
 #[derive(Debug, Default)]
+struct FactBuildCapacity {
+    commands: usize,
+    structural_commands: usize,
+    functions: usize,
+}
+
+#[derive(Debug, Default)]
 struct ArithmeticFactSummary {
     array_index_arithmetic_spans: Vec<Span>,
     arithmetic_score_line_spans: Vec<Span>,
@@ -25,6 +32,30 @@ struct HeredocFactSummary {
     heredoc_end_space_spans: Vec<Span>,
     echo_here_doc_spans: Vec<Span>,
     spaced_tabstrip_close_spans: Vec<Span>,
+}
+
+fn total_child_len<T>(lists: &[Vec<T>]) -> usize {
+    lists.iter().map(Vec::len).sum()
+}
+
+fn estimate_fact_build_capacity(file: &File) -> FactBuildCapacity {
+    let mut capacity = FactBuildCapacity::default();
+    walk_commands(
+        &file.body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |visit, context| {
+            capacity.commands += 1;
+            if !context.nested_word_command {
+                capacity.structural_commands += 1;
+            }
+            if matches!(visit.command, Command::Function(_)) {
+                capacity.functions += 1;
+            }
+        },
+    );
+    capacity
 }
 
 impl<'a> LinterFactsBuilder<'a> {
@@ -50,21 +81,33 @@ impl<'a> LinterFactsBuilder<'a> {
 
     fn build(self) -> LinterFacts<'a> {
         let source = self.source;
-        let mut commands = Vec::new();
-        let mut structural_command_ids = Vec::new();
-        let mut command_ids_by_span = CommandLookupIndex::default();
-        let mut if_condition_command_ids = FxHashSet::default();
-        let mut elif_condition_command_ids = FxHashSet::default();
+        let capacity = estimate_fact_build_capacity(self.file);
+        let estimated_word_nodes = capacity.commands.saturating_mul(2);
+        let estimated_word_occurrences = capacity.commands.saturating_mul(3);
+
+        let mut commands = Vec::with_capacity(capacity.commands);
+        let mut redirect_fact_store = ListArena::new();
+        let mut declaration_assignment_probe_store = ListArena::new();
+        let mut structural_command_ids = Vec::with_capacity(capacity.structural_commands);
+        let mut command_ids_by_span =
+            CommandLookupIndex::with_capacity_and_hasher(capacity.commands, Default::default());
+        let mut if_condition_command_ids =
+            FxHashSet::with_capacity_and_hasher(capacity.commands / 4, Default::default());
+        let mut elif_condition_command_ids =
+            FxHashSet::with_capacity_and_hasher(capacity.commands / 8, Default::default());
         let mut binding_values = FxHashMap::default();
         let mut broken_assoc_key_spans = Vec::new();
         let mut comma_array_assignment_spans = Vec::new();
         let mut ifs_literal_backslash_assignment_value_spans = Vec::new();
-        let mut word_nodes = Vec::new();
-        let mut word_node_ids_by_span = FxHashMap::default();
-        let mut word_occurrences = Vec::new();
-        let mut pending_arithmetic_word_occurrences = Vec::new();
+        let mut word_nodes = Vec::with_capacity(estimated_word_nodes);
+        let mut word_node_ids_by_span =
+            FxHashMap::with_capacity_and_hasher(estimated_word_nodes, Default::default());
+        let mut word_occurrences = Vec::with_capacity(estimated_word_occurrences);
+        let mut pending_arithmetic_word_occurrences =
+            Vec::with_capacity(capacity.commands.saturating_div(4));
         let mut compound_assignment_value_word_spans = FxHashSet::default();
-        let mut array_assignment_split_word_ids = Vec::new();
+        let mut array_assignment_split_word_ids =
+            Vec::with_capacity(capacity.commands.saturating_div(8));
         let mut assoc_binding_visibility_memo = FxHashMap::default();
         let mut pattern_exactly_one_extglob_spans = Vec::new();
         let mut case_pattern_expansions = Vec::new();
@@ -72,8 +115,8 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut pattern_charclass_spans = Vec::new();
         let mut arithmetic_summary = ArithmeticFactSummary::default();
         let mut surface_fragments = SurfaceFragmentSink::new(self.source);
-        let mut functions = Vec::new();
-        let mut function_body_without_braces_spans = Vec::new();
+        let mut functions = Vec::with_capacity(capacity.functions);
+        let mut function_body_without_braces_spans = Vec::with_capacity(capacity.functions);
         let redundant_return_status_spans = Vec::new();
         let mut getopts_cases = Vec::new();
         let mut condition_status_capture_spans = Vec::new();
@@ -104,7 +147,6 @@ impl<'a> LinterFactsBuilder<'a> {
                 if context.in_elif_condition {
                     elif_condition_command_ids.insert(id);
                 }
-
                 collect_binding_values(
                     visit.command,
                     self.semantic,
@@ -208,6 +250,7 @@ impl<'a> LinterFactsBuilder<'a> {
                     self.source,
                     command_zsh_options.as_ref(),
                 );
+                let redirect_fact_range = redirect_fact_store.push_many(redirect_facts);
                 let options = CommandOptionFacts::build(visit.command, &normalized, self.source);
                 let declaration_assignment_probes = build_declaration_assignment_probes(
                     visit.command,
@@ -215,6 +258,8 @@ impl<'a> LinterFactsBuilder<'a> {
                     self.source,
                     command_zsh_options.as_ref(),
                 );
+                let declaration_assignment_probe_range =
+                    declaration_assignment_probe_store.push_many(declaration_assignment_probes);
                 let glued_closing_bracket_operand_span =
                     build_glued_closing_bracket_operand_span(visit.command, self.source);
                 let glued_closing_bracket_insert_offset =
@@ -229,14 +274,14 @@ impl<'a> LinterFactsBuilder<'a> {
                     nested_word_command,
                     normalized,
                     zsh_options: command_zsh_options,
-                    redirect_facts,
-                    substitution_facts: Vec::new().into_boxed_slice(),
+                    redirect_facts: redirect_fact_range,
+                    substitution_facts: IdRange::empty(),
                     options,
-                    scope_read_source_words: Vec::new().into_boxed_slice(),
-                    scope_name_read_uses: Vec::new().into_boxed_slice(),
-                    scope_heredoc_name_read_uses: Vec::new().into_boxed_slice(),
-                    scope_name_write_uses: Vec::new().into_boxed_slice(),
-                    declaration_assignment_probes,
+                    scope_read_source_words: IdRange::empty(),
+                    scope_name_read_uses: IdRange::empty(),
+                    scope_heredoc_name_read_uses: IdRange::empty(),
+                    scope_name_write_uses: IdRange::empty(),
+                    declaration_assignment_probes: declaration_assignment_probe_range,
                     glued_closing_bracket_operand_span,
                     glued_closing_bracket_insert_offset,
                     linebreak_in_test_anchor_span: None,
@@ -341,12 +386,24 @@ impl<'a> LinterFactsBuilder<'a> {
         arithmetic_update_operator_spans
             .sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
         arithmetic_update_operator_spans.dedup();
+
+        let mut fact_store = FactStore::empty();
+        fact_store.redirect_facts = redirect_fact_store.into_vec();
+        fact_store.declaration_assignment_probes = declaration_assignment_probe_store.into_vec();
+
         populate_linebreak_in_test_facts(&mut commands, self.source);
-        let substitution_facts =
-            build_substitution_facts(&commands, &command_ids_by_span, self.source);
+        let substitution_facts = build_substitution_facts(
+            CommandFacts::new(&commands, &fact_store),
+            &command_ids_by_span,
+            self.source,
+        );
+        let mut substitution_fact_store = ListArena::with_capacity(total_child_len(
+            &substitution_facts,
+        ));
         for (fact, substitutions) in commands.iter_mut().zip(substitution_facts) {
-            fact.substitution_facts = substitutions;
+            fact.substitution_facts = substitution_fact_store.push_many(substitutions);
         }
+        fact_store.substitution_facts = substitution_fact_store.into_vec();
 
         let presence_tested_names =
             build_presence_tested_names(&commands, self.source, self.semantic);
@@ -392,10 +449,23 @@ impl<'a> LinterFactsBuilder<'a> {
         let case_pattern_impossible_spans =
             build_case_pattern_impossible_spans(&commands, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
-        let scope_read_source_words =
-            build_scope_read_source_words(&commands, &pipelines, &if_condition_command_ids, source);
+        let command_facts = CommandFacts::new(&commands, &fact_store);
+        let scope_read_source_words = build_scope_read_source_words(
+            command_facts,
+            &pipelines,
+            &if_condition_command_ids,
+            source,
+        );
         let (scope_name_read_uses, scope_heredoc_name_read_uses, scope_name_write_uses) =
-            build_scope_name_uses(&commands, &pipelines, source);
+            build_scope_name_uses(command_facts, &pipelines, source);
+        let mut scope_read_source_word_store =
+            ListArena::with_capacity(total_child_len(&scope_read_source_words));
+        let mut scope_name_read_use_store =
+            ListArena::with_capacity(total_child_len(&scope_name_read_uses));
+        let mut scope_heredoc_name_read_use_store =
+            ListArena::with_capacity(total_child_len(&scope_heredoc_name_read_uses));
+        let mut scope_name_write_use_store =
+            ListArena::with_capacity(total_child_len(&scope_name_write_uses));
         for ((((fact, words), name_reads), heredoc_name_reads), name_writes) in commands
             .iter_mut()
             .zip(scope_read_source_words)
@@ -403,11 +473,16 @@ impl<'a> LinterFactsBuilder<'a> {
             .zip(scope_heredoc_name_read_uses)
             .zip(scope_name_write_uses)
         {
-            fact.scope_read_source_words = words;
-            fact.scope_name_read_uses = name_reads;
-            fact.scope_heredoc_name_read_uses = heredoc_name_reads;
-            fact.scope_name_write_uses = name_writes;
+            fact.scope_read_source_words = scope_read_source_word_store.push_many(words);
+            fact.scope_name_read_uses = scope_name_read_use_store.push_many(name_reads);
+            fact.scope_heredoc_name_read_uses =
+                scope_heredoc_name_read_use_store.push_many(heredoc_name_reads);
+            fact.scope_name_write_uses = scope_name_write_use_store.push_many(name_writes);
         }
+        fact_store.scope_read_source_words = scope_read_source_word_store.into_vec();
+        fact_store.scope_name_read_uses = scope_name_read_use_store.into_vec();
+        fact_store.scope_heredoc_name_read_uses = scope_heredoc_name_read_use_store.into_vec();
+        fact_store.scope_name_write_uses = scope_name_write_use_store.into_vec();
         let lists = build_list_facts(&commands, &command_ids_by_span, self.source);
         let completion_registered_function_command_flags =
             build_completion_registered_function_command_flags(
@@ -462,7 +537,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let literal_brace_spans = build_literal_brace_spans(
             &word_nodes,
             &word_occurrences,
-            &commands,
+            CommandFacts::new(&commands, &fact_store),
             source,
             self._indexer.region_index().heredoc_ranges(),
         );
@@ -562,18 +637,37 @@ impl<'a> LinterFactsBuilder<'a> {
         );
         let mut word_index = FxHashMap::<FactSpan, SmallVec<[WordOccurrenceId; 2]>>::default();
         word_index.reserve(word_occurrences.len());
-        let mut word_occurrence_ids_by_command =
-            vec![SmallVec::<[WordOccurrenceId; 4]>::new(); commands.len()];
+        let mut word_occurrence_offsets_by_command = vec![0usize; commands.len()];
+        for fact in &word_occurrences {
+            word_occurrence_offsets_by_command[fact.command_id.index()] += 1;
+        }
+        let mut next_word_occurrence_offset = 0usize;
+        let word_occurrence_ids_by_command = word_occurrence_offsets_by_command
+            .iter_mut()
+            .map(|count| {
+                let range = IdRange::from_start_len(next_word_occurrence_offset, *count);
+                *count = next_word_occurrence_offset;
+                next_word_occurrence_offset = range.end_index();
+                range
+            })
+            .collect::<Vec<_>>();
+        let mut word_occurrence_ids =
+            vec![WordOccurrenceId::new(0); next_word_occurrence_offset];
         for (index, fact) in word_occurrences.iter().enumerate() {
             let id = WordOccurrenceId::new(index);
             word_index
                 .entry(occurrence_key(&word_nodes, fact))
                 .or_default()
                 .push(id);
-            word_occurrence_ids_by_command[fact.command_id.index()].push(id);
+            let command_index = fact.command_id.index();
+            let offset = word_occurrence_offsets_by_command[command_index];
+            word_occurrence_ids[offset] = id;
+            word_occurrence_offsets_by_command[command_index] += 1;
         }
+        fact_store.word_occurrence_ids = word_occurrence_ids;
+        fact_store.word_occurrence_ids_by_command = word_occurrence_ids_by_command;
         let echo_to_sed_substitution_spans = build_echo_to_sed_substitution_spans(
-            &commands,
+            CommandFacts::new(&commands, &fact_store),
             &pipelines,
             &backticks,
             &word_nodes,
@@ -644,7 +738,7 @@ impl<'a> LinterFactsBuilder<'a> {
             word_nodes,
             word_occurrences,
             word_index,
-            word_occurrence_ids_by_command,
+            fact_store,
             unquoted_command_argument_use_offsets,
             array_assignment_split_word_ids,
             brace_variable_before_bracket_spans,

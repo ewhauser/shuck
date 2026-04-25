@@ -29,7 +29,10 @@ pub fn array_assignment(checker: &mut Checker) {
     checker.report_all_dedup(spans, || ArrayAssignment);
 }
 
-fn command_array_assignment_spans(command: &crate::CommandFact<'_>, source: &str) -> Vec<Span> {
+fn command_array_assignment_spans(
+    command: crate::CommandFactRef<'_, '_>,
+    source: &str,
+) -> Vec<Span> {
     match command.command() {
         Command::Simple(command) => command
             .assignments
