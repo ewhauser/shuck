@@ -84,6 +84,27 @@ fn test_current_word_cache_tracks_token_changes() {
 }
 
 #[test]
+fn test_checkpoint_restore_rebuilds_current_word_cache() {
+    let input = "\"$foo\" bar\n";
+    let mut parser = Parser::new(input);
+
+    let first = parser.current_word().unwrap();
+    assert_eq!(first.render(input), "$foo");
+    assert!(parser.current_word_cache.is_some());
+
+    let checkpoint = parser.checkpoint();
+    parser.advance();
+    assert_eq!(parser.current_word().unwrap().render(input), "bar");
+
+    parser.restore(checkpoint);
+    assert!(parser.current_word_cache.is_none());
+    let restored = parser.current_word().unwrap();
+    assert_eq!(restored.render(input), "$foo");
+    assert_eq!(restored.span, first.span);
+    assert!(parser.current_word_cache.is_some());
+}
+
+#[test]
 fn test_parse_word_fragment_preserves_original_span_for_cooked_text() {
     let source = r#"foo\/bar"#;
     let span = Span::from_positions(Position::new(), Position::new().advanced_by(source));

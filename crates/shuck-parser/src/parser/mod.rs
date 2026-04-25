@@ -1601,7 +1601,6 @@ struct ParserCheckpoint<'a> {
     synthetic_tokens: VecDeque<SyntheticToken>,
     alias_replays: Vec<AliasReplay>,
     current_token: Option<LexedToken<'a>>,
-    current_word_cache: Option<Word>,
     current_token_kind: Option<TokenKind>,
     current_keyword: Option<Keyword>,
     current_span: Span,
@@ -6699,7 +6698,6 @@ impl<'a> Parser<'a> {
             synthetic_tokens: self.synthetic_tokens.clone(),
             alias_replays: self.alias_replays.clone(),
             current_token: self.current_token.clone(),
-            current_word_cache: self.current_word_cache.clone(),
             current_token_kind: self.current_token_kind,
             current_keyword: self.current_keyword,
             current_span: self.current_span,
@@ -6721,7 +6719,8 @@ impl<'a> Parser<'a> {
         self.synthetic_tokens = checkpoint.synthetic_tokens;
         self.alias_replays = checkpoint.alias_replays;
         self.current_token = checkpoint.current_token;
-        self.current_word_cache = checkpoint.current_word_cache;
+        // This is a cache over current_token/current_span, so rebuilding it is equivalent.
+        self.current_word_cache = None;
         self.current_token_kind = checkpoint.current_token_kind;
         self.current_keyword = checkpoint.current_keyword;
         self.current_span = checkpoint.current_span;
