@@ -295,7 +295,7 @@ fn summarizes_command_options_and_invokers() {
         .iter()
         .filter(|fact| fact.effective_name_is("xargs"))
         .filter_map(|fact| fact.options().xargs())
-        .flat_map(|xargs| xargs.inline_replace_option_spans().iter().copied())
+        .flat_map(|xargs| xargs.inline_replace_option_spans())
         .map(|span| span.slice(source))
         .collect::<Vec<_>>();
     assert_eq!(inline_replace_option_spans, vec!["-iX"]);
@@ -2813,7 +2813,7 @@ fn parses_long_xargs_null_mode_and_numeric_exit_status() {
         .and_then(|fact| fact.options().xargs())
         .expect("expected xargs facts");
     assert!(xargs.uses_null_input);
-    assert!(xargs.inline_replace_option_spans().is_empty());
+    assert!(xargs.inline_replace_options().is_empty());
 
     let exit = facts
         .commands()
@@ -2907,14 +2907,31 @@ xargs -i echo \"-----> Configuring {} with $template\"
     assert_eq!(
         xargs_facts[2]
             .inline_replace_option_spans()
-            .iter()
             .map(|span| span.slice(source))
             .collect::<Vec<_>>(),
         vec!["-i0"]
     );
-    assert!(xargs_facts[3].inline_replace_option_spans().is_empty());
-    assert!(xargs_facts[4].inline_replace_option_spans().is_empty());
-    assert!(xargs_facts[5].inline_replace_option_spans().is_empty());
+    assert_eq!(
+        xargs_facts[3]
+            .inline_replace_option_spans()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["-i"]
+    );
+    assert_eq!(
+        xargs_facts[4]
+            .inline_replace_option_spans()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["-0i"]
+    );
+    assert_eq!(
+        xargs_facts[5]
+            .inline_replace_option_spans()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["-i"]
+    );
 }
 
 #[test]
@@ -2961,7 +2978,6 @@ xargs -a inputs -iX echo X
     assert_eq!(
         xargs_facts[1]
             .inline_replace_option_spans()
-            .iter()
             .map(|span| span.slice(source))
             .collect::<Vec<_>>(),
         vec!["-iX"]

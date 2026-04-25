@@ -257,14 +257,16 @@ impl MapfileCommandFacts {
 }
 
 #[derive(Debug, Clone)]
-pub struct XargsCommandFacts {
+pub struct XargsCommandFacts<'a> {
     pub uses_null_input: bool,
     max_procs: Option<u64>,
     zero_digit_option_word: bool,
-    inline_replace_option_spans: Box<[Span]>,
+    inline_replace_options: Box<[XargsInlineReplaceOptionFact]>,
+    command_operand_words: Box<[&'a Word]>,
+    sc2267_default_replace_silent_shape: bool,
 }
 
-impl XargsCommandFacts {
+impl<'a> XargsCommandFacts<'a> {
     pub fn max_procs(&self) -> Option<u64> {
         self.max_procs
     }
@@ -273,8 +275,38 @@ impl XargsCommandFacts {
         self.zero_digit_option_word
     }
 
-    pub fn inline_replace_option_spans(&self) -> &[Span] {
-        &self.inline_replace_option_spans
+    pub fn inline_replace_options(&self) -> &[XargsInlineReplaceOptionFact] {
+        &self.inline_replace_options
+    }
+
+    pub fn inline_replace_option_spans(&self) -> impl Iterator<Item = Span> + '_ {
+        self.inline_replace_options
+            .iter()
+            .map(XargsInlineReplaceOptionFact::span)
+    }
+
+    pub fn command_operand_words(&self) -> &[&'a Word] {
+        &self.command_operand_words
+    }
+
+    pub fn has_sc2267_default_replace_silent_shape(&self) -> bool {
+        self.sc2267_default_replace_silent_shape
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct XargsInlineReplaceOptionFact {
+    span: Span,
+    uses_default_replacement: bool,
+}
+
+impl XargsInlineReplaceOptionFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn uses_default_replacement(&self) -> bool {
+        self.uses_default_replacement
     }
 }
 
@@ -555,7 +587,7 @@ pub struct CommandOptionFacts<'a> {
     find_exec: Option<FindExecCommandFacts>,
     find_exec_shell: Option<FindExecShellCommandFacts>,
     mapfile: Option<MapfileCommandFacts>,
-    xargs: Option<XargsCommandFacts>,
+    xargs: Option<XargsCommandFacts<'a>>,
     wait: Option<WaitCommandFacts>,
     grep: Option<GrepCommandFacts<'a>>,
     ps: Option<PsCommandFacts>,
@@ -621,7 +653,7 @@ impl<'a> CommandOptionFacts<'a> {
         self.mapfile.as_ref()
     }
 
-    pub fn xargs(&self) -> Option<&XargsCommandFacts> {
+    pub fn xargs(&self) -> Option<&XargsCommandFacts<'a>> {
         self.xargs.as_ref()
     }
 

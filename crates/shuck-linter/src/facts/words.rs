@@ -7171,7 +7171,7 @@ fn mapfile_option_takes_argument(flag: char) -> bool {
     matches!(flag, 'u' | 'C' | 'c' | 'd' | 'n' | 'O' | 's')
 }
 
-fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
+fn parse_xargs_command<'a>(args: &[&'a Word], source: &str) -> XargsCommandFacts<'a> {
     let mut uses_null_input = false;
     let mut max_procs = None;
     let mut zero_digit_option_word = false;
@@ -7222,7 +7222,7 @@ fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
                 uses_null_input = true;
             }
             if flag == 'i' {
-                inline_replace_options.push(XargsInlineReplaceOption {
+                inline_replace_options.push(XargsInlineReplaceOptionFact {
                     span: word.span,
                     uses_default_replacement: chars.peek().is_none(),
                 });
@@ -7260,67 +7260,68 @@ fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
         }
     }
 
-    let suppress_default_replacement_diagnostic =
-        xargs_suppresses_default_inline_replace_diagnostic(&args[index..], source);
-    let inline_replace_option_spans = inline_replace_options
-        .into_iter()
-        .filter(|option| {
-            !option.uses_default_replacement || !suppress_default_replacement_diagnostic
-        })
-        .map(|option| option.span)
-        .collect::<Vec<_>>();
-
     XargsCommandFacts {
         uses_null_input,
         max_procs,
         zero_digit_option_word,
-        inline_replace_option_spans: inline_replace_option_spans.into_boxed_slice(),
+        inline_replace_options: inline_replace_options.into_boxed_slice(),
+        command_operand_words: args[index..].to_vec().into_boxed_slice(),
+        sc2267_default_replace_silent_shape: xargs_sc2267_default_replace_silent_shape(
+            &args[index..],
+            source,
+        ),
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct XargsInlineReplaceOption {
-    span: Span,
-    uses_default_replacement: bool,
+fn xargs_sc2267_default_replace_silent_shape(args: &[&Word], source: &str) -> bool {
+    xargs_command_is_shell_c_wrapper(args, source)
+        || xargs_command_is_echo_leading_dash_replacement(args, source)
 }
 
-fn xargs_suppresses_default_inline_replace_diagnostic(args: &[&Word], source: &str) -> bool {
+fn xargs_command_is_shell_c_wrapper(args: &[&Word], source: &str) -> bool {
+    let args = if args
+        .first()
+        .and_then(|word| static_word_text(word, source))
+        .as_deref()
+        == Some("command")
+    {
+        &args[1..]
+    } else {
+        args
+    };
+
     let Some(command_name) = args.first().and_then(|word| static_word_text(word, source)) else {
         return false;
     };
 
-    if matches!(
-        command_name.as_ref(),
+    matches!(
+        command_basename(command_name.as_ref()),
         "sh" | "bash" | "dash" | "ksh" | "zsh"
     ) && args
         .get(1)
         .and_then(|word| static_word_text(word, source))
         .as_deref()
         == Some("-c")
-    {
-        return true;
-    }
-
-    if command_name.as_ref() == "echo" {
-        for operand in args.iter().skip(1) {
-            if static_word_text(operand, source).as_deref() == Some("--") {
-                return false;
-            }
-            if static_word_text(operand, source).is_some_and(|text| is_echo_option_text(&text)) {
-                continue;
-            }
-            let literal_prefix = leading_literal_word_prefix(operand, source);
-            return literal_prefix.starts_with('-') && literal_prefix != "-";
-        }
-    }
-
-    false
 }
 
-fn is_echo_option_text(text: &str) -> bool {
-    text != "-"
-        && text.starts_with('-')
-        && text[1..].chars().all(|ch| matches!(ch, 'n' | 'e' | 'E'))
+fn xargs_command_is_echo_leading_dash_replacement(args: &[&Word], source: &str) -> bool {
+    let Some(command_name) = args.first().and_then(|word| static_word_text(word, source)) else {
+        return false;
+    };
+
+    if command_basename(command_name.as_ref()) != "echo" {
+        return false;
+    }
+
+    let Some(first_operand) = args.get(1) else {
+        return false;
+    };
+    let literal_prefix = leading_literal_word_prefix(first_operand, source);
+    literal_prefix.starts_with('-') && literal_prefix != "-" && literal_prefix.contains("{}")
+}
+
+fn command_basename(name: &str) -> &str {
+    name.rsplit('/').next().unwrap_or(name)
 }
 
 fn xargs_long_option_argument(

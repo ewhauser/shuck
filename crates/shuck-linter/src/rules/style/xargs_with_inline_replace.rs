@@ -25,7 +25,17 @@ pub fn xargs_with_inline_replace(checker: &mut Checker) {
         .commands()
         .iter()
         .filter_map(|fact| fact.options().xargs())
-        .flat_map(|xargs| xargs.inline_replace_option_spans().iter().copied())
+        .flat_map(|xargs| {
+            xargs
+                .inline_replace_options()
+                .iter()
+                .copied()
+                .filter(move |option| {
+                    !option.uses_default_replacement()
+                        || !xargs.has_sc2267_default_replace_silent_shape()
+                })
+                .map(|option| option.span())
+        })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || XargsWithInlineReplace);
@@ -66,9 +76,12 @@ sudo xargs -i echo {}
 #!/bin/sh
 find . -type f | xargs -i bash -c 'echo {}'
 find . -type f | xargs -0i sh -c 'echo {}'
+find . -type f | xargs -i /bin/sh -c 'echo {}'
+find . -type f | xargs -i command sh -c 'echo {}'
 xargs -i echo '-----> Configuring {}'
 xargs -0i echo '-----> Configuring {}'
 xargs -i echo \"-----> Configuring {} with $template\"
+xargs -i /bin/echo '-----> Configuring {}'
 ";
         let diagnostics = test_snippet(
             source,
@@ -76,6 +89,34 @@ xargs -i echo \"-----> Configuring {} with $template\"
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_default_replace_outside_silent_sc2267_shapes() {
+        let source = "\
+#!/bin/sh
+xargs -i env sh -c 'echo {}'
+xargs -i sudo sh -c 'echo {}'
+xargs -i sh -ec 'echo {}'
+xargs -i echo '{}'
+xargs -i echo -n '-x {}'
+xargs -i echo -- '-x {}'
+xargs -i command echo '-----> Configuring {}'
+xargs -i printf -- '-x %s\n' '{}'
+xargs -i{} sh -c 'echo {}'
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::XargsWithInlineReplace),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["-i", "-i", "-i", "-i", "-i", "-i", "-i", "-i", "-i{}"]
+        );
     }
 
     #[test]
