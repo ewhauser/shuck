@@ -1250,37 +1250,81 @@ fn command_fact_ref<'facts, 'a>(
         .unwrap_or_else(|| panic!("command id {} must exist", id.index()))
 }
 
-fn build_command_parent_ids(commands: &[CommandFact<'_>]) -> Vec<Option<CommandId>> {
-    let mut command_spans = commands
-        .iter()
-        .map(|command| (command.span(), command.id()))
-        .collect::<Vec<_>>();
-    if command_spans
-        .windows(2)
-        .any(|window| compare_command_offset_entries(window[0], window[1]).is_gt())
-    {
-        command_spans.sort_unstable_by(|left, right| compare_command_offset_entries(*left, *right));
-    }
-
+fn build_command_parent_ids(
+    commands: &[CommandFact<'_>],
+    require_source_order: bool,
+) -> Vec<Option<CommandId>> {
     let mut parent_ids = vec![None; commands.len()];
     let mut active_commands = Vec::<OpenParentCommand>::new();
 
-    for (span, id) in command_spans {
-        while active_commands
-            .last()
-            .is_some_and(|candidate| candidate.end_offset < span.end.offset)
-        {
-            active_commands.pop();
+    if !require_source_order {
+        for command in commands {
+            assign_command_parent(
+                command.span(),
+                command.id(),
+                &mut active_commands,
+                &mut parent_ids,
+            );
         }
+    } else {
+        let mut command_spans = commands
+            .iter()
+            .map(|command| (command.span(), command.id()))
+            .collect::<Vec<_>>();
+        command_spans
+            .sort_unstable_by(|left, right| compare_command_parent_entries(*left, *right));
 
-        parent_ids[id.index()] = active_commands.last().map(|command| command.id);
-        active_commands.push(OpenParentCommand {
-            id,
-            end_offset: span.end.offset,
-        });
+        for (span, id) in command_spans {
+            assign_command_parent(span, id, &mut active_commands, &mut parent_ids);
+        }
     }
 
     parent_ids
+}
+
+fn assign_command_parent(
+    span: Span,
+    id: CommandId,
+    active_commands: &mut Vec<OpenParentCommand>,
+    parent_ids: &mut [Option<CommandId>],
+) {
+    while active_commands
+        .last()
+        .is_some_and(|candidate| candidate.end_offset < span.end.offset)
+    {
+        active_commands.pop();
+    }
+
+    parent_ids[id.index()] = active_commands.last().map(|command| command.id);
+    active_commands.push(OpenParentCommand {
+        id,
+        end_offset: span.end.offset,
+    });
+}
+
+fn command_facts_are_source_ordered(commands: &[CommandFact<'_>]) -> bool {
+    commands
+        .windows(2)
+        .all(|window| compare_command_facts_by_offset(&window[0], &window[1]).is_le())
+}
+
+fn compare_command_facts_by_offset(
+    left: &CommandFact<'_>,
+    right: &CommandFact<'_>,
+) -> std::cmp::Ordering {
+    compare_command_parent_entries((left.span(), left.id()), (right.span(), right.id()))
+}
+
+fn compare_command_parent_entries(
+    (left_span, left_id): (Span, CommandId),
+    (right_span, right_id): (Span, CommandId),
+) -> std::cmp::Ordering {
+    left_span
+        .start
+        .offset
+        .cmp(&right_span.start.offset)
+        .then_with(|| right_span.end.offset.cmp(&left_span.end.offset))
+        .then_with(|| right_id.index().cmp(&left_id.index()))
 }
 
 fn build_command_dominance_barrier_flags(commands: &[CommandFact<'_>]) -> Vec<bool> {
