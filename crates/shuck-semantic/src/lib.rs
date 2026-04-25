@@ -7076,6 +7076,18 @@ foo[$foo]=x
     }
 
     #[test]
+    fn escaped_declaration_builtins_initialize_dynamic_assignment_operands() {
+        let source = "\
+\\typeset ret=$?
+printf '%s\\n' \"$ret\"
+";
+        let model = model_with_dialect(source, ShellDialect::Bash);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["ret"], &uninitialized);
+    }
+
+    #[test]
     fn assign_default_and_error_operands_are_marked_uninitialized() {
         let source = "\
 printf '%s\\n' \

@@ -385,13 +385,6 @@ reviewed_divergences:
     end_column: 25
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__fetch"
-    line: 75
-    end_line: 75
-    column: 8
-    end_column: 15
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__fix-permissions"
     line: 31
     end_line: 31
@@ -399,67 +392,11 @@ reviewed_divergences:
     end_column: 28
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__fix-permissions"
-    line: 59
-    end_line: 59
-    column: 12
-    end_column: 23
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__build_config"
-    line: 104
-    end_line: 104
-    column: 94
-    end_column: 105
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__build_config"
-    line: 161
-    end_line: 161
-    column: 24
-    end_column: 34
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__build_requirements"
-    line: 273
-    end_line: 273
-    column: 16
-    end_column: 27
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__build_undesired_helpers"
-    line: 48
-    end_line: 48
-    column: 16
-    end_column: 27
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__cleanup"
-    line: 46
-    end_line: 46
-    column: 18
-    end_column: 22
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__cli"
     line: 165
     end_line: 165
     column: 95
     end_column: 109
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__cli"
-    line: 237
-    end_line: 237
-    column: 12
-    end_column: 22
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__cli"
-    line: 286
-    end_line: 286
-    column: 12
-    end_column: 19
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__cli"
@@ -476,26 +413,12 @@ reviewed_divergences:
     end_column: 33
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__db"
-    line: 61
-    end_line: 61
-    column: 17
-    end_column: 25
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__env"
     line: 99
     end_line: 99
     column: 21
     end_column: 43
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__gemset"
-    line: 112
-    end_line: 112
-    column: 25
-    end_column: 29
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__gemset"
     line: 180
@@ -519,24 +442,10 @@ reviewed_divergences:
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__installer"
-    line: 327
-    end_line: 327
-    column: 21
-    end_column: 43
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__installer"
     line: 653
     end_line: 653
     column: 23
     end_column: 41
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__installer"
-    line: 1062
-    end_line: 1062
-    column: 20
-    end_column: 31
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__installer"
@@ -596,20 +505,6 @@ reviewed_divergences:
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
-    line: 228
-    end_line: 228
-    column: 12
-    end_column: 24
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
-    line: 307
-    end_line: 307
-    column: 62
-    end_column: 71
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
     line: 376
     end_line: 376
     column: 27
@@ -642,20 +537,6 @@ reviewed_divergences:
     end_line: 65
     column: 6
     end_column: 23
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__base_remove"
-    line: 109
-    end_line: 109
-    column: 14
-    end_column: 22
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__base_remove"
-    line: 136
-    end_line: 136
-    column: 31
-    end_column: 45
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__base_remove"
@@ -770,32 +651,11 @@ reviewed_divergences:
     end_column: 28
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__osx-ssl-certs"
-    line: 28
-    end_line: 28
-    column: 12
-    end_column: 20
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__osx-ssl-certs"
-    line: 150
-    end_line: 150
-    column: 14
-    end_column: 21
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__pkg"
     line: 58
     end_line: 58
     column: 21
     end_column: 37
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__pkg"
-    line: 115
-    end_line: 115
-    column: 16
-    end_column: 23
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__pkg"
@@ -812,62 +672,6 @@ reviewed_divergences:
     end_column: 59
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__arch"
-    line: 130
-    end_line: 130
-    column: 80
-    end_column: 94
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__centos"
-    line: 68
-    end_line: 68
-    column: 12
-    end_column: 20
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__centos"
-    line: 79
-    end_line: 79
-    column: 19
-    end_column: 29
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__debian"
-    line: 49
-    end_line: 49
-    column: 10
-    end_column: 18
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__netbsd"
-    line: 21
-    end_line: 21
-    column: 16
-    end_column: 23
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__openindiana"
-    line: 23
-    end_line: 23
-    column: 10
-    end_column: 14
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__openmandriva"
-    line: 28
-    end_line: 28
-    column: 10
-    end_column: 18
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__osx_brew"
-    line: 76
-    end_line: 76
-    column: 12
-    end_column: 16
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__requirements__osx_brew"
     line: 121
     end_line: 121
@@ -875,81 +679,11 @@ reviewed_divergences:
     end_column: 28
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__osx_brew"
-    line: 297
-    end_line: 297
-    column: 52
-    end_column: 76
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__osx_brew"
-    line: 524
-    end_line: 524
-    column: 12
-    end_column: 21
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__osx_fink"
-    line: 28
-    end_line: 28
-    column: 9
-    end_column: 33
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__osx_fink"
-    line: 60
-    end_line: 60
-    column: 12
-    end_column: 16
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__osx_port"
-    line: 49
-    end_line: 49
-    column: 12
-    end_column: 16
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__smf"
-    line: 65
-    end_line: 65
-    column: 12
-    end_column: 16
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__solaris"
-    line: 23
-    end_line: 23
-    column: 10
-    end_column: 14
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__termux"
-    line: 28
-    end_line: 28
-    column: 10
-    end_column: 18
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__rubygems"
     line: 105
     end_line: 105
     column: 33
     end_column: 56
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__rubygems"
-    line: 217
-    end_line: 217
-    column: 30
-    end_column: 59
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__rubygems"
-    line: 316
-    end_line: 316
-    column: 12
-    end_column: 16
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__rubygems"
@@ -966,20 +700,6 @@ reviewed_divergences:
     end_column: 28
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__rvmrc_project"
-    line: 230
-    end_line: 230
-    column: 12
-    end_column: 21
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__rvmrc_set"
-    line: 41
-    end_line: 41
-    column: 9
-    end_column: 21
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__rvmrc_trust"
     line: 186
     end_line: 186
@@ -987,39 +707,11 @@ reviewed_divergences:
     end_column: 34
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__rvmrc_warning"
-    line: 74
-    end_line: 74
-    column: 12
-    end_column: 16
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__support"
     line: 75
     end_line: 75
     column: 10
     end_column: 32
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__support"
-    line: 273
-    end_line: 273
-    column: 12
-    end_column: 23
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__support"
-    line: 525
-    end_line: 525
-    column: 13
-    end_column: 22
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__support"
-    line: 613
-    end_line: 613
-    column: 60
-    end_column: 69
     reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__utility"
@@ -1035,27 +727,6 @@ reviewed_divergences:
     column: 22
     end_column: 68
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__utility"
-    line: 293
-    end_line: 293
-    column: 12
-    end_column: 20
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__utility_logging"
-    line: 106
-    end_line: 106
-    column: 11
-    end_column: 26
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__utility_logging"
-    line: 119
-    end_line: 119
-    column: 12
-    end_column: 21
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__gemsets"
     line: 69
@@ -1113,13 +784,6 @@ reviewed_divergences:
     end_column: 25
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__list"
-    line: 286
-    end_line: 286
-    column: 9
-    end_column: 18
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__migrate"
     line: 101
     end_line: 101
@@ -1132,13 +796,6 @@ reviewed_divergences:
     end_line: 101
     column: 23
     end_column: 35
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__migrate"
-    line: 129
-    end_line: 129
-    column: 9
-    end_column: 18
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__migrate"
@@ -1204,27 +861,6 @@ reviewed_divergences:
     end_column: 25
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__osx-ssl-certs"
-    line: 111
-    end_line: 111
-    column: 14
-    end_column: 21
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__osx-ssl-certs"
-    line: 148
-    end_line: 148
-    column: 9
-    end_column: 23
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__osx-ssl-certs"
-    line: 166
-    end_line: 166
-    column: 9
-    end_column: 18
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__prepare"
     line: 84
     end_line: 84
@@ -1237,13 +873,6 @@ reviewed_divergences:
     end_line: 122
     column: 24
     end_column: 43
-    reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__tools"
-    line: 173
-    end_line: 173
-    column: 12
-    end_column: 17
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
     path_suffix: "void-linux__void-packages__common__build-style__gem.sh"

@@ -3147,6 +3147,20 @@ done
     }
 
     #[test]
+    fn undefined_variable_ignores_escaped_declaration_dynamic_assignments() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/bash
+\\typeset ret=$?
+echo \"$ret\"
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn undefined_variable_ignores_bound_name_between_escaped_quote_literals() {
         let diagnostics = lint_for_rule(
             "\

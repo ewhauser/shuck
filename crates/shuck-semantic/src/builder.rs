@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
@@ -2605,13 +2605,6 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 parsing_options = false;
             }
 
-            let Some(text) = static_word_text(argument, self.source) else {
-                operands.push(DeclarationOperand::DynamicWord {
-                    span: argument.span,
-                });
-                continue;
-            };
-
             if name_operands_are_function_names {
                 operands.push(DeclarationOperand::DynamicWord {
                     span: argument.span,
@@ -2619,8 +2612,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 continue;
             }
 
+            let assignment_text = declaration_assignment_text(argument, self.source);
             if let Some(assignment) =
-                parse_simple_declaration_assignment(argument, text.as_ref(), self.source)
+                parse_simple_declaration_assignment(argument, assignment_text.as_ref(), self.source)
             {
                 let (scope, mut attributes) = self.simple_declaration_scope_and_attributes(
                     builtin,
@@ -2657,6 +2651,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     name_span: assignment.name_span,
                     value_span: assignment.value_span,
                     append: assignment.append,
+                });
+                continue;
+            }
+
+            if static_word_text(argument, self.source).is_none() {
+                operands.push(DeclarationOperand::DynamicWord {
+                    span: argument.span,
                 });
                 continue;
             }
@@ -4396,6 +4397,10 @@ fn resolved_command_can_affect_current_shell(command: &NormalizedCommand<'_>) ->
 fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
     let text = static_word_text(word, source)?;
     is_name(&text).then_some((Name::from(text.as_ref()), word.span))
+}
+
+fn declaration_assignment_text<'a>(word: &'a Word, source: &'a str) -> Cow<'a, str> {
+    static_word_text(word, source).unwrap_or_else(|| Cow::Borrowed(word.span.slice(source)))
 }
 
 #[derive(Debug, Clone)]
