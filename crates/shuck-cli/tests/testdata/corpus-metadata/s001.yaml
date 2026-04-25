@@ -847,39 +847,11 @@ reviewed_divergences:
     end_column: 19
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
-    path_suffix: "megastep__makeself__makeself.sh"
-    line: 401
-    end_line: 401
-    column: 36
-    end_column: 38
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "megastep__makeself__makeself.sh"
-    line: 401
-    end_line: 401
-    column: 38
-    end_column: 40
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shellcheck-only
     path_suffix: "megastep__makeself__test__variabletest"
     line: 15
     end_line: 15
     column: 56
     end_column: 60
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shellcheck-only
-    path_suffix: "moovweb__gvm__examples__native__depcomp"
-    line: 126
-    end_line: 126
-    column: 19
-    end_column: 34
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "moovweb__gvm__examples__native__depcomp"
-    line: 126
-    end_line: 126
-    column: 20
-    end_column: 35
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "nvm-sh__nvm__nvm.sh"

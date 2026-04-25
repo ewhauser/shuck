@@ -72,7 +72,9 @@ pub(crate) fn shellcheck_collapsed_backtick_part_span(
     source: &str,
     backtick_spans: &[Span],
 ) -> Span {
-    collapse_backtick_continuation_span(span, source, backtick_spans).unwrap_or(span)
+    let deescaped =
+        shellcheck_deescaped_backtick_part_span(span, source, backtick_spans).unwrap_or(span);
+    collapse_backtick_continuation_span(deescaped, source, backtick_spans).unwrap_or(deescaped)
 }
 
 pub(crate) fn shellcheck_collapsed_backtick_part_span_in_source(span: Span, source: &str) -> Span {
@@ -1490,6 +1492,52 @@ fn collapse_backtick_continuation_span(
         shellcheck_collapsed_position(chain_start, span.start, source),
         shellcheck_collapsed_position(chain_start, span.end, source),
     ))
+}
+
+fn shellcheck_deescaped_backtick_part_span(
+    span: Span,
+    source: &str,
+    backtick_spans: &[Span],
+) -> Option<Span> {
+    let containing_span = containing_backtick_substitution_span(span, backtick_spans)?;
+    let content_start = containing_span.start.offset.saturating_add('`'.len_utf8());
+    let start_removed = backtick_removed_escape_count(source, content_start, span.start.offset)?;
+    let end_removed = backtick_removed_escape_count(source, content_start, span.end.offset)?;
+    if start_removed == 0 && end_removed == 0 {
+        return None;
+    }
+
+    Some(Span::from_positions(
+        position_at_offset(source, span.start.offset.checked_sub(start_removed)?)?,
+        position_at_offset(source, span.end.offset.checked_sub(end_removed)?)?,
+    ))
+}
+
+fn backtick_removed_escape_count(source: &str, start: usize, end: usize) -> Option<usize> {
+    let mut removed = 0usize;
+    let mut index = start;
+    while index < end {
+        let ch = source[index..].chars().next()?;
+        let ch_len = ch.len_utf8();
+        if ch != '\\' {
+            index += ch_len;
+            continue;
+        }
+
+        let next_offset = index + ch_len;
+        if next_offset >= end {
+            break;
+        }
+        let escaped = source[next_offset..].chars().next()?;
+        if matches!(escaped, '$' | '`' | '\\') {
+            removed += 1;
+            index = next_offset + escaped.len_utf8();
+        } else {
+            index += ch_len;
+        }
+    }
+
+    Some(removed)
 }
 
 fn containing_backtick_substitution_span(target: Span, backtick_spans: &[Span]) -> Option<Span> {
@@ -6072,6 +6120,41 @@ printf '%s\\n' \"${arr[@]}\" \"x${arr[@]}\" \"x${!arr[@]}\" \"x${arr[@]:1}\" \"x
     }
 
     #[test]
+    fn shellcheck_collapsed_backtick_part_span_in_source_counts_removed_backslash_pairs() {
+        let source = r#"echo `sed -e "s/'/'\\\\\''/g" $2`"#;
+        let span = span_for_text(source, "$2");
+
+        let adjusted = shellcheck_collapsed_backtick_part_span_in_source(span, source);
+
+        assert_eq!(adjusted.start.line, span.start.line);
+        assert_eq!(adjusted.end.line, span.end.line);
+        assert_eq!(adjusted.start.column, span.start.column - 2);
+        assert_eq!(adjusted.end.column, span.end.column - 2);
+    }
+
+    #[test]
+    fn shellcheck_collapsed_backtick_part_span_in_source_counts_escaped_dollars() {
+        let source = r#"echo `echo \$x $y`"#;
+        let span = span_for_text(source, "$y");
+
+        let adjusted = shellcheck_collapsed_backtick_part_span_in_source(span, source);
+
+        assert_eq!(adjusted.start.column, span.start.column - 1);
+        assert_eq!(adjusted.end.column, span.end.column - 1);
+    }
+
+    #[test]
+    fn shellcheck_collapsed_backtick_part_span_in_source_keeps_literal_backslashes() {
+        let source = r#"echo `echo \a $x`"#;
+        let span = span_for_text(source, "$x");
+
+        assert_eq!(
+            shellcheck_collapsed_backtick_part_span_in_source(span, source),
+            span
+        );
+    }
+
+    #[test]
     fn backtick_escaped_parameters_keep_quoted_assignment_prefixes_together() {
         let source = "`VAR=\"a b\" OTHER=$(printf '%s\\n' value) \\$cmd arg`";
         let backtick_spans = backtick_substitution_spans(source);
@@ -6099,6 +6182,15 @@ printf '%s\\n' \"${arr[@]}\" \"x${arr[@]}\" \"x${!arr[@]}\" \"x${arr[@]:1}\" \"x
 
         assert_eq!(escaped.len(), 1);
         assert!(escaped[0].standalone_command_name);
+    }
+
+    fn span_for_text(source: &str, text: &str) -> Span {
+        let start_offset = source.find(text).expect("expected text");
+        let end_offset = start_offset + text.len();
+        Span::from_positions(
+            position_at_offset(source, start_offset).expect("expected start position"),
+            position_at_offset(source, end_offset).expect("expected end position"),
+        )
     }
 
     #[test]
