@@ -11,6 +11,7 @@ pub struct SingleQuotedFragmentFact {
     command_name: Option<Box<str>>,
     assignment_target: Option<Box<str>>,
     variable_set_operand: bool,
+    literal_expansion_exempt: bool,
     literal_backslash_in_single_quotes_span: Option<Span>,
 }
 
@@ -37,6 +38,10 @@ impl SingleQuotedFragmentFact {
 
     pub fn variable_set_operand(&self) -> bool {
         self.variable_set_operand
+    }
+
+    pub fn literal_expansion_exempt(&self) -> bool {
+        self.literal_expansion_exempt
     }
 
     pub fn literal_backslash_in_single_quotes_span(&self) -> Option<Span> {
@@ -310,6 +315,7 @@ pub(super) struct SurfaceScanContext<'a> {
     assignment_target: Option<&'a str>,
     nested_word_command: bool,
     variable_set_operand: bool,
+    literal_expansion_exempt: bool,
     guarded_parameter_operand: bool,
     subscript_suppresses_later_references: bool,
     collect_open_double_quotes: bool,
@@ -342,6 +348,13 @@ impl<'a> SurfaceScanContext<'a> {
     pub(super) fn variable_set_operand(self) -> Self {
         Self {
             variable_set_operand: true,
+            ..self
+        }
+    }
+
+    pub(super) fn literal_expansion_exempt(self) -> Self {
+        Self {
+            literal_expansion_exempt: true,
             ..self
         }
     }
@@ -690,6 +703,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                             .map(str::to_owned)
                             .map(String::into_boxed_str),
                         variable_set_operand: context.variable_set_operand,
+                        literal_expansion_exempt: context.literal_expansion_exempt,
                         literal_backslash_in_single_quotes_span:
                             single_quoted_backslash_continuation_span(parts, index, self.source),
                     });

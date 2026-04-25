@@ -23,6 +23,7 @@ struct ScanContext<'a> {
     command_name: Option<&'a str>,
     assignment_target: Option<&'a str>,
     variable_set_operand: bool,
+    literal_expansion_exempt: bool,
 }
 
 pub fn single_quoted_literal(checker: &mut Checker) {
@@ -40,6 +41,7 @@ pub fn single_quoted_literal(checker: &mut Checker) {
                 command_name: fragment.command_name(),
                 assignment_target: fragment.assignment_target(),
                 variable_set_operand: fragment.variable_set_operand(),
+                literal_expansion_exempt: fragment.literal_expansion_exempt(),
             };
 
             should_report_single_quoted_literal(fragment.span().slice(source), context).then(|| {
@@ -85,7 +87,10 @@ fn quoted_fragment_to_double_quotes(text: &str) -> Option<String> {
 }
 
 fn should_report_single_quoted_literal(text: &str, context: ScanContext<'_>) -> bool {
-    if !contains_sc2016_trigger(text) || context.variable_set_operand {
+    if !contains_sc2016_trigger(text)
+        || context.variable_set_operand
+        || context.literal_expansion_exempt
+    {
         return false;
     }
 
@@ -97,10 +102,6 @@ fn should_report_single_quoted_literal(text: &str, context: ScanContext<'_>) -> 
         .assignment_target
         .is_some_and(assignment_target_is_exempt)
     {
-        return false;
-    }
-
-    if context.command_name.is_some_and(command_name_is_exempt) {
         return false;
     }
 
@@ -160,43 +161,13 @@ fn assignment_target_is_exempt(target: &str) -> bool {
     matches!(target, "PS1" | "PS2" | "PS3" | "PS4" | "PROMPT_COMMAND")
 }
 
-fn command_name_is_exempt(command_name: &str) -> bool {
-    matches!(
-        command_name,
-        "trap"
-            | "sh"
-            | "bash"
-            | "ksh"
-            | "zsh"
-            | "ssh"
-            | "eval"
-            | "xprop"
-            | "alias"
-            | "sudo"
-            | "doas"
-            | "run0"
-            | "docker"
-            | "podman"
-            | "oc"
-            | "dpkg-query"
-            | "jq"
-            | "rename"
-            | "rg"
-            | "unset"
-            | "git filter-branch"
-            | "mumps -run %XCMD"
-            | "mumps -run LOOP%XCMD"
-    ) || command_name.ends_with("awk")
-        || command_name.starts_with("perl")
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
     use super::{
-        assignment_target_is_exempt, command_name_is_exempt, contains_sc2016_trigger,
-        quoted_fragment_to_double_quotes, sed_text_is_exempt,
+        assignment_target_is_exempt, contains_sc2016_trigger, quoted_fragment_to_double_quotes,
+        sed_text_is_exempt,
     };
     use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
     use crate::{Applicability, Diagnostic, LinterSettings, Rule, assert_diagnostics_diff};
@@ -246,25 +217,11 @@ mod tests {
     }
 
     #[test]
-    fn recognizes_shellcheck_style_command_and_assignment_exemptions() {
-        for command_name in [
-            "awk",
-            "gawk",
-            "perl",
-            "perl5.38",
-            "trap",
-            "alias",
-            "jq",
-            "git filter-branch",
-        ] {
-            assert!(command_name_is_exempt(command_name), "{command_name}");
-        }
-
+    fn recognizes_prompt_assignment_exemptions() {
         for target in ["PS1", "PS2", "PS3", "PS4", "PROMPT_COMMAND"] {
             assert!(assignment_target_is_exempt(target), "{target}");
         }
 
-        assert!(!command_name_is_exempt("echo"));
         assert!(!assignment_target_is_exempt("HOME"));
     }
 
@@ -275,8 +232,57 @@ mod tests {
         assert_eq!(c005("awk '{print $1}'\n"), 0);
         assert_eq!(c005("PS1='$PWD \\\\$ '\n"), 0);
         assert_eq!(c005("command jq '$__loc__'\n"), 0);
+        assert_eq!(c005("jq --arg loc '$__loc__' '$loc'\n"), 0);
         assert_eq!(c005("sed -n '$p'\n"), 0);
         assert_eq!(c005("sed -n '$pattern'\n"), 1);
+    }
+
+    #[test]
+    fn command_domain_exemptions_are_computed_by_facts() {
+        assert_eq!(c005("awk '{print $1}' file\n"), 0);
+        assert_eq!(c005("awk -v value='$HOME' '{print value}' file\n"), 0);
+        assert_eq!(c005("jq '$item.name' file\n"), 0);
+        assert_eq!(c005("jq --arg name '$HOME' '$name' file\n"), 0);
+        assert_eq!(c005("bash -c 'echo $HOME'\n"), 0);
+        assert_eq!(c005("bash '$HOME'\n"), 1);
+        assert_eq!(c005("ssh host 'echo $HOME'\n"), 0);
+        assert_eq!(c005("ssh '$HOME' uptime\n"), 1);
+        assert_eq!(c005("sudo sh -c 'echo $HOME'\n"), 0);
+        assert_eq!(c005("sudo echo '$HOME'\n"), 1);
+        assert_eq!(c005("trap 'echo $SECONDS' EXIT\n"), 0);
+        assert_eq!(c005("eval 'echo $HOME'\n"), 0);
+        assert_eq!(c005("rename 's/(.)a/$1/g' *\n"), 0);
+        assert_eq!(c005("rg '$HOME' file\n"), 0);
+        assert_eq!(c005("rg pattern '$HOME'\n"), 1);
+        assert_eq!(c005("jq '.' '$HOME'\n"), 1);
+        assert_eq!(
+            c005("dpkg-query -W -f '${db:Status-Status}\\n' package\n"),
+            0
+        );
+        assert_eq!(c005("docker inspect -f '{{.Name}}' container\n"), 0);
+        assert_eq!(
+            c005("docker run image sh -c 'echo $JETTY_HOME/start.jar'\n"),
+            0
+        );
+        assert_eq!(
+            c005("docker run -d \"$server_image\" sh -c 'echo $JETTY_HOME/start.jar'\n"),
+            0
+        );
+        assert_eq!(
+            c005("docker run --entrypoint sh image -c 'command -v gcc'\n"),
+            0
+        );
+        assert_eq!(
+            c005("docker run --entrypoint sh \"$image\" -c 'command -v gcc'\n"),
+            0
+        );
+        assert_eq!(c005("xprop -set WM_NAME '$HOME'\n"), 0);
+        assert_eq!(
+            c005(
+                "PERLIO=:utf8 perl -pe '$_=lc'\nperl -MConfig -le 'print $Config{installvendorlib}'\n"
+            ),
+            0
+        );
     }
 
     #[test]
