@@ -72,6 +72,11 @@ pub struct SafeValueIndex<'a> {
     case_cli_reachable_function_scopes: FxHashSet<ScopeId>,
     definite_uninitialized_refs: FxHashSet<FactSpan>,
     maybe_uninitialized_refs: FxHashSet<FactSpan>,
+    function_commands_by_span: FxHashMap<FactSpan, crate::facts::CommandId>,
+    commands_by_name_word_span: FxHashMap<FactSpan, crate::facts::CommandId>,
+    reference_ids_by_name_span: FxHashMap<(Name, FactSpan), ReferenceId>,
+    block_by_reference: FxHashMap<ReferenceId, BlockId>,
+    block_by_binding: FxHashMap<BindingId, BlockId>,
     memo: FxHashMap<(FactSpan, FactSpan, SafeValueQuery, Option<ScopeId>), bool>,
     visiting: FxHashSet<(FactSpan, FactSpan, SafeValueQuery, Option<ScopeId>)>,
     binding_value_stack: Vec<BindingId>,
@@ -100,6 +105,42 @@ impl<'a> SafeValueIndex<'a> {
             .collect();
         let case_cli_reachable_function_scopes =
             build_case_cli_reachable_function_scopes(semantic, facts);
+        let mut function_commands_by_span = FxHashMap::default();
+        let mut commands_by_name_word_span = FxHashMap::default();
+        for command in facts.commands() {
+            if let Command::Function(function) = command.command() {
+                function_commands_by_span.insert(FactSpan::new(function.span), command.id());
+            }
+            if let Some(name_word) = command.body_name_word() {
+                commands_by_name_word_span.insert(FactSpan::new(name_word.span), command.id());
+            }
+        }
+        let reference_ids_by_name_span = semantic
+            .references()
+            .iter()
+            .filter(|reference| {
+                !matches!(
+                    reference.kind,
+                    ReferenceKind::DeclarationName | ReferenceKind::ImplicitRead
+                )
+            })
+            .map(|reference| {
+                (
+                    (reference.name.clone(), FactSpan::new(reference.span)),
+                    reference.id,
+                )
+            })
+            .collect();
+        let mut block_by_reference = FxHashMap::default();
+        let mut block_by_binding = FxHashMap::default();
+        for block in analysis.cfg().blocks() {
+            for reference_id in &block.references {
+                block_by_reference.insert(*reference_id, block.id);
+            }
+            for binding_id in &block.bindings {
+                block_by_binding.insert(*binding_id, block.id);
+            }
+        }
 
         Self {
             semantic,
@@ -109,6 +150,11 @@ impl<'a> SafeValueIndex<'a> {
             case_cli_reachable_function_scopes,
             definite_uninitialized_refs,
             maybe_uninitialized_refs,
+            function_commands_by_span,
+            commands_by_name_word_span,
+            reference_ids_by_name_span,
+            block_by_reference,
+            block_by_binding,
             memo: FxHashMap::default(),
             visiting: FxHashSet::default(),
             binding_value_stack: Vec::new(),
@@ -540,12 +586,10 @@ impl<'a> SafeValueIndex<'a> {
         &self,
         function: &FunctionDef,
     ) -> Option<crate::facts::CommandFactRef<'a, 'a>> {
-        self.facts.commands().iter().find(|command| {
-            matches!(
-                command.command(),
-                Command::Function(candidate) if candidate.span == function.span
-            )
-        })
+        self.function_commands_by_span
+            .get(&FactSpan::new(function.span))
+            .copied()
+            .map(|id| self.facts.command(id))
     }
 
     fn definition_command_is_visible_at_call(
@@ -597,11 +641,10 @@ impl<'a> SafeValueIndex<'a> {
         &self,
         span: Span,
     ) -> Option<crate::facts::CommandFactRef<'a, 'a>> {
-        self.facts.commands().iter().find(|command| {
-            command
-                .body_name_word()
-                .is_some_and(|name_word| name_word.span == span)
-        })
+        self.commands_by_name_word_span
+            .get(&FactSpan::new(span))
+            .copied()
+            .map(|id| self.facts.command(id))
     }
 
     fn command_runs_in_unconditional_flow(
@@ -1976,18 +2019,9 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn reference_id_for_name_at(&self, name: &Name, at: Span) -> Option<ReferenceId> {
-        self.semantic
-            .references()
-            .iter()
-            .find(|reference| {
-                reference.span == at
-                    && &reference.name == name
-                    && !matches!(
-                        reference.kind,
-                        ReferenceKind::DeclarationName | ReferenceKind::ImplicitRead
-                    )
-            })
-            .map(|reference| reference.id)
+        self.reference_ids_by_name_span
+            .get(&(name.clone(), FactSpan::new(at)))
+            .copied()
     }
 
     fn block_for_name_reference_or_virtual_offset(&self, name: &Name, at: Span) -> Option<BlockId> {
@@ -2026,21 +2060,11 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn block_for_binding(&self, binding_id: BindingId) -> Option<BlockId> {
-        self.analysis
-            .cfg()
-            .blocks()
-            .iter()
-            .find(|block| block.bindings.contains(&binding_id))
-            .map(|block| block.id)
+        self.block_by_binding.get(&binding_id).copied()
     }
 
     fn block_for_reference(&self, reference_id: ReferenceId) -> Option<BlockId> {
-        self.analysis
-            .cfg()
-            .blocks()
-            .iter()
-            .find(|block| block.references.contains(&reference_id))
-            .map(|block| block.id)
+        self.block_by_reference.get(&reference_id).copied()
     }
 
     fn transformation_is_safe(
