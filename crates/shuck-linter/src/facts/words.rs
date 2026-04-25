@@ -1248,6 +1248,64 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.context() == WordFactContext::ArithmeticCommand
     }
 
+    pub fn part_is_inside_backtick_escaped_double_quotes(
+        self,
+        part_span: Span,
+        source: &str,
+    ) -> bool {
+        let Some(backtick_span) =
+            self.facts
+                .backtick_substitution_spans()
+                .iter()
+                .copied()
+                .find(|span| {
+                    span.start.offset <= part_span.start.offset
+                        && span.end.offset >= part_span.end.offset
+                })
+        else {
+            return false;
+        };
+
+        let mut index = backtick_span.start.offset.saturating_add('`'.len_utf8());
+        let limit = part_span.start.offset.min(
+            backtick_span
+                .end
+                .offset
+                .saturating_sub('`'.len_utf8()),
+        );
+        let mut in_single_quote = false;
+        let mut in_escaped_double_quote = false;
+
+        while index < limit {
+            let Some(ch) = source[index..].chars().next() else {
+                break;
+            };
+            let ch_len = ch.len_utf8();
+
+            match ch {
+                '\'' if !in_escaped_double_quote => {
+                    in_single_quote = !in_single_quote;
+                    index += ch_len;
+                }
+                '\\' if !in_single_quote => {
+                    let next_index = index + ch_len;
+                    let Some(escaped) = source[next_index..].chars().next() else {
+                        break;
+                    };
+                    if escaped == '"' {
+                        in_escaped_double_quote = !in_escaped_double_quote;
+                    }
+                    index = next_index + escaped.len_utf8();
+                }
+                _ => {
+                    index += ch_len;
+                }
+            }
+        }
+
+        in_escaped_double_quote
+    }
+
     pub fn host_kind(self) -> WordFactHostKind {
         self.occurrence().host_kind
     }

@@ -220,6 +220,9 @@ fn report_word_expansions(
         if use_replacement_spans.contains(&part_span) {
             continue;
         }
+        if fact.part_is_inside_backtick_escaped_double_quotes(part_span, source) {
+            continue;
+        }
         if safe_values.part_is_safe(part, part_span, query) {
             continue;
         }
@@ -274,6 +277,18 @@ printf '%s\\n' \"$(echo $name)\"
                 .collect::<Vec<_>>(),
             vec!["$name"]
         );
+    }
+
+    #[test]
+    fn ignores_backtick_escaped_double_quoted_parameters() {
+        let source = "\
+#!/bin/bash
+path=\"`dirname \\\"$REALPATH\\\"`\"
+flags=\"`echo \\\"$CFLAGS\\\" | sed \\\"s/ $COVERAGE_FLAGS//\\\"`\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

@@ -728,20 +728,6 @@ reviewed_divergences:
     end_column: 56
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "gentoo__gentoo__net-p2p__freenet__files__run.sh-20090501"
-    line: 132
-    end_line: 132
-    column: 16
-    end_column: 25
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__net-p2p__freenet__files__run.sh-20090501"
-    line: 377
-    end_line: 377
-    column: 25
-    end_column: 33
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "gentoo__gentoo__net-vpn__derper__files__derper-pre.sh"
     line: 44
     end_line: 44
@@ -761,48 +747,6 @@ reviewed_divergences:
     end_line: 329
     column: 17
     end_column: 27
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "google__oss-fuzz__projects__sudoers__build.sh"
-    line: 24
-    end_line: 24
-    column: 21
-    end_column: 28
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "google__oss-fuzz__projects__sudoers__build.sh"
-    line: 24
-    end_line: 24
-    column: 42
-    end_column: 57
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "google__oss-fuzz__projects__sudoers__build.sh"
-    line: 27
-    end_line: 27
-    column: 21
-    end_column: 28
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "google__oss-fuzz__projects__sudoers__build.sh"
-    line: 27
-    end_line: 27
-    column: 42
-    end_column: 58
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "google__oss-fuzz__projects__sudoers__build.sh"
-    line: 34
-    end_line: 34
-    column: 17
-    end_column: 24
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "google__oss-fuzz__projects__sudoers__build.sh"
-    line: 37
-    end_line: 37
-    column: 18
-    end_column: 25
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "google__oss-fuzz__projects__threetenbp__build.sh"
@@ -908,13 +852,6 @@ reviewed_divergences:
     end_line: 30
     column: 11
     end_column: 22
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "kward__shunit2__shunit2"
-    line: 1532
-    end_line: 1532
-    column: 53
-    end_column: 71
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "masonr__yet-another-bench-script__yabs.sh"
@@ -1237,13 +1174,6 @@ reviewed_divergences:
     end_line: 724
     column: 36
     end_column: 57
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "swoodford__aws__ec2-associate-elastic-ip.sh"
-    line: 13
-    end_line: 13
-    column: 21
-    end_column: 36
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "swoodford__aws__vpc-sg-import-rules-cloudflare.sh"
