@@ -65,7 +65,7 @@ pub use shuck_parser::{OptionValue, ShellProfile, ZshEmulationMode, ZshOptionSta
 pub use source_ref::{SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution};
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{Command, File, Name, Span};
+use shuck_ast::{ArenaFile, Command, File, Name, Span};
 use shuck_indexer::Indexer;
 use smallvec::{Array, SmallVec};
 use std::path::{Path, PathBuf};
@@ -515,8 +515,17 @@ impl SemanticModel {
     }
 
     pub fn build_arena(ast: &shuck_ast::ArenaFile, source: &str, indexer: &Indexer) -> Self {
-        let file = ast.to_file();
-        Self::build(&file, source, indexer)
+        Self::build_arena_with_options(ast, source, indexer, SemanticBuildOptions::default())
+    }
+
+    pub fn build_arena_with_options(
+        ast: &ArenaFile,
+        source: &str,
+        indexer: &Indexer,
+        options: SemanticBuildOptions<'_>,
+    ) -> Self {
+        let mut observer = NoopTraversalObserver;
+        build_with_observer_arena_with_options(ast, source, indexer, &mut observer, options)
     }
 
     pub fn build_with_options(
@@ -2848,6 +2857,17 @@ pub fn build_with_observer_with_options(
 }
 
 #[doc(hidden)]
+pub fn build_with_observer_arena_with_options(
+    ast: &ArenaFile,
+    source: &str,
+    indexer: &Indexer,
+    observer: &mut dyn TraversalObserver,
+    options: SemanticBuildOptions<'_>,
+) -> SemanticModel {
+    build_semantic_model_arena(ast, source, indexer, observer, options)
+}
+
+#[doc(hidden)]
 pub fn build_with_observer_at_path(
     file: &File,
     source: &str,
@@ -2881,6 +2901,42 @@ pub fn build_with_observer_at_path_with_resolver(
             resolve_source_closure: true,
         },
     )
+}
+
+#[doc(hidden)]
+pub fn build_with_observer_arena_at_path_with_resolver(
+    ast: &ArenaFile,
+    source: &str,
+    indexer: &Indexer,
+    observer: &mut dyn TraversalObserver,
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+) -> SemanticModel {
+    build_semantic_model_arena(
+        ast,
+        source,
+        indexer,
+        observer,
+        SemanticBuildOptions {
+            source_path,
+            source_path_resolver,
+            file_entry_contract: None,
+            analyzed_paths: None,
+            shell_profile: None,
+            resolve_source_closure: true,
+        },
+    )
+}
+
+fn build_semantic_model_arena(
+    ast: &ArenaFile,
+    source: &str,
+    indexer: &Indexer,
+    observer: &mut dyn TraversalObserver,
+    options: SemanticBuildOptions<'_>,
+) -> SemanticModel {
+    let file = ast.to_file();
+    build_semantic_model(&file, source, indexer, observer, options)
 }
 
 fn build_semantic_model(
@@ -3487,7 +3543,7 @@ mod tests {
     fn model_with_dialect(source: &str, dialect: ShellDialect) -> SemanticModel {
         let output = Parser::with_dialect(source, dialect).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        SemanticModel::build(&output.file, source, &indexer)
+        SemanticModel::build_arena(&output.arena_file, source, &indexer)
     }
 
     fn model_with_profile(source: &str, profile: ShellProfile) -> SemanticModel {
@@ -3495,8 +3551,8 @@ mod tests {
             .parse()
             .unwrap();
         let indexer = Indexer::new(source, &output);
-        SemanticModel::build_with_options(
-            &output.file,
+        SemanticModel::build_arena_with_options(
+            &output.arena_file,
             source,
             &indexer,
             SemanticBuildOptions {
@@ -3511,8 +3567,8 @@ mod tests {
         let output = Parser::with_dialect(&source, dialect).parse().unwrap();
         let indexer = Indexer::new(&source, &output);
         let mut observer = NoopTraversalObserver;
-        build_with_observer_at_path_with_resolver(
-            &output.file,
+        build_with_observer_arena_at_path_with_resolver(
+            &output.arena_file,
             &source,
             &indexer,
             &mut observer,

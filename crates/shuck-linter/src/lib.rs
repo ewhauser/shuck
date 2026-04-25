@@ -121,7 +121,7 @@ use shuck_indexer::{Indexer, LineIndex};
 use shuck_parser::parser::{ParseResult, Parser};
 use shuck_semantic::{
     SemanticBuildOptions, SemanticModel, SourcePathResolver, TraversalObserver,
-    build_with_observer_with_options,
+    build_with_observer_arena_with_options, build_with_observer_with_options,
 };
 use std::path::Path;
 
@@ -165,8 +165,7 @@ pub fn analyze_arena_file(
     settings: &LinterSettings,
     suppression_index: Option<&SuppressionIndex>,
 ) -> AnalysisResult {
-    let file = ast.to_file();
-    analyze_file(&file, source, indexer, settings, suppression_index)
+    analyze_arena_file_at_path(ast, source, indexer, settings, suppression_index, None)
 }
 
 #[cfg(feature = "benchmarking")]
@@ -200,6 +199,52 @@ pub fn analyze_file_at_path(
         suppression_index,
         source_path,
         None,
+    )
+}
+
+/// Builds semantic facts and linter diagnostics for an arena-backed file at an optional source path.
+pub fn analyze_arena_file_at_path(
+    ast: &ArenaFile,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+    source_path: Option<&Path>,
+) -> AnalysisResult {
+    analyze_arena_file_at_path_with_resolver(
+        ast,
+        source,
+        indexer,
+        settings,
+        suppression_index,
+        source_path,
+        None,
+    )
+}
+
+/// Builds semantic facts and linter diagnostics for an arena-backed file with a custom resolver.
+pub fn analyze_arena_file_at_path_with_resolver(
+    ast: &ArenaFile,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+) -> AnalysisResult {
+    let shell = resolve_shell(settings, source, source_path);
+    let first_parse_error = parse_error_position(&parse_for_lint(source, shell));
+
+    analyze_arena_file_at_path_with_resolver_and_shell(
+        ast,
+        source,
+        indexer,
+        settings,
+        suppression_index,
+        source_path,
+        source_path_resolver,
+        shell,
+        first_parse_error,
     )
 }
 
@@ -269,6 +314,80 @@ fn analyze_file_at_path_with_resolver_and_shell(
     );
     let checker = Checker::new(
         file,
+        source,
+        &semantic,
+        indexer,
+        &settings.rules,
+        shell,
+        settings.ambient_shell_options,
+        settings.report_environment_style_names,
+        settings.rule_options.clone(),
+        &file_context,
+        suppression_index,
+        first_parse_error,
+    );
+    let mut diagnostics = observer.into_diagnostics();
+    diagnostics.extend(checker.check());
+    for diagnostic in &mut diagnostics {
+        if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
+            diagnostic.severity = severity;
+        }
+    }
+
+    if let Some(suppression_index) = suppression_index {
+        filter_suppressed_diagnostics(&mut diagnostics, indexer, suppression_index);
+    }
+    filter_per_file_ignored_diagnostics(&mut diagnostics, settings, source_path);
+
+    diagnostics
+        .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
+    AnalysisResult {
+        semantic,
+        diagnostics,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn analyze_arena_file_at_path_with_resolver_and_shell(
+    ast: &ArenaFile,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    shell: ShellDialect,
+    first_parse_error: Option<(usize, usize)>,
+) -> AnalysisResult {
+    let file = ast.to_file();
+    let file_context = classify_file_context(source, source_path, shell);
+    let file_entry_contract =
+        ambient_contracts::file_entry_contract(source, source_path, shell, &file_context);
+    let analyzed_paths_fallback =
+        source_path.map(|path| FxHashSet::from_iter([path.to_path_buf()]));
+    let analyzed_paths = settings
+        .analyzed_paths
+        .as_deref()
+        .or(analyzed_paths_fallback.as_ref());
+
+    let mut observer = LintTraversalObserver::default();
+    let shell_profile = inferred_shell_profile(shell);
+    let semantic = build_with_observer_arena_with_options(
+        ast,
+        source,
+        indexer,
+        &mut observer,
+        SemanticBuildOptions {
+            source_path,
+            source_path_resolver,
+            file_entry_contract,
+            analyzed_paths,
+            shell_profile: Some(shell_profile),
+            resolve_source_closure: settings.resolve_source_closure,
+        },
+    );
+    let checker = Checker::new(
+        &file,
         source,
         &semantic,
         indexer,
@@ -488,11 +607,10 @@ pub fn lint_arena_file(
     suppression_index: Option<&SuppressionIndex>,
     source_path: Option<&Path>,
 ) -> Vec<Diagnostic> {
-    let file = parse_result.arena_file.to_file();
     let shell = resolve_shell(settings, source, source_path);
 
-    let mut diagnostics = analyze_file_at_path_with_resolver_and_shell(
-        &file,
+    let mut diagnostics = analyze_arena_file_at_path_with_resolver_and_shell(
+        &parse_result.arena_file,
         source,
         indexer,
         settings,
@@ -505,7 +623,7 @@ pub fn lint_arena_file(
     .diagnostics;
 
     diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
-        &file,
+        &parse_result.file,
         source,
         Some(parse_result),
         &settings.rules,
