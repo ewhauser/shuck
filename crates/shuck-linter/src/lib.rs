@@ -3241,6 +3241,22 @@ EOF
     }
 
     #[test]
+    fn escaped_heredoc_parameter_literals_report_nested_references() {
+        let source = "\
+#!/bin/bash
+cat <<EOF
+\\${OUTER:-$inner}
+EOF
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[0].message.contains("inner"));
+        assert_eq!(diagnostics[0].span.slice(source), "$inner");
+    }
+
+    #[test]
     fn undefined_variable_ignores_names_bound_anywhere_in_the_file() {
         let source = "\
 #!/bin/bash

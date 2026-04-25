@@ -1288,7 +1288,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
-        if !body.mode.expands() || heredoc_body_is_semantically_inert(body) {
+        if !body.mode.expands() || heredoc_body_is_semantically_inert(body, self.source) {
             return;
         }
         self.visit_heredoc_body_part_nodes(&body.parts, kind, flow, nested_regions);
@@ -1667,7 +1667,24 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
         match part {
-            HeredocBodyPart::Literal(_) => {}
+            HeredocBodyPart::Literal(text) => {
+                if text.is_source_backed() {
+                    for (name, span) in escaped_heredoc_literal_reference_names(
+                        text.syntax_str(self.source, span),
+                        span,
+                    ) {
+                        self.add_reference(
+                            &name,
+                            if matches!(kind, WordVisitKind::Conditional) {
+                                ReferenceKind::ConditionalOperand
+                            } else {
+                                ReferenceKind::Expansion
+                            },
+                            span,
+                        );
+                    }
+                }
+            }
             HeredocBodyPart::Variable(name) => {
                 self.add_reference(
                     name,
@@ -4182,6 +4199,82 @@ fn unparsed_arithmetic_subscript_reference_names(
     references
 }
 
+fn escaped_heredoc_literal_reference_names(text: &str, span: Span) -> Vec<(Name, Span)> {
+    let mut references = Vec::new();
+    let mut search_start = 0;
+
+    while let Some(start_rel) = text[search_start..].find("\\${") {
+        let start = search_start + start_rel;
+        let mut cursor = start + "\\${".len();
+        let mut depth = 1usize;
+        let mut escaped = false;
+
+        while cursor < text.len() {
+            let Some(ch) = text[cursor..].chars().next() else {
+                break;
+            };
+            let next = cursor + ch.len_utf8();
+
+            if escaped {
+                escaped = false;
+                cursor = next;
+                continue;
+            }
+
+            if ch == '\\' {
+                escaped = true;
+                cursor = next;
+                continue;
+            }
+
+            if ch == '$' {
+                let after_dollar = next;
+                if text[after_dollar..].starts_with('{') {
+                    depth += 1;
+                }
+                if let Some((name_start, name_end)) =
+                    parameter_name_bounds_after_dollar(text, after_dollar)
+                {
+                    let name = &text[name_start..name_end];
+                    let mut reference_end = name_end;
+                    if text[after_dollar..].starts_with('{') && text[name_end..].starts_with('}') {
+                        reference_end += '}'.len_utf8();
+                    }
+                    let start_position = span.start.advanced_by(&text[..cursor]);
+                    references.push((
+                        Name::from(name),
+                        Span::from_positions(
+                            start_position,
+                            start_position.advanced_by(&text[cursor..reference_end]),
+                        ),
+                    ));
+                }
+                cursor = next;
+                continue;
+            }
+
+            if ch == '}' {
+                depth = depth.saturating_sub(1);
+                cursor = next;
+                if depth == 0 {
+                    break;
+                }
+                continue;
+            }
+
+            cursor = next;
+        }
+
+        search_start = cursor;
+    }
+
+    references
+}
+
+fn escaped_heredoc_literal_may_contain_reference(text: &str) -> bool {
+    text.contains("\\${")
+}
+
 fn conditional_arithmetic_operand_name(
     expression: &ConditionalExpr,
     source: &str,
@@ -5404,10 +5497,10 @@ fn word_is_semantically_inert(word: &Word) -> bool {
         .all(|part| word_part_is_semantically_inert(&part.kind))
 }
 
-fn heredoc_body_is_semantically_inert(body: &HeredocBody) -> bool {
+fn heredoc_body_is_semantically_inert(body: &HeredocBody, source: &str) -> bool {
     body.parts
         .iter()
-        .all(|part| heredoc_body_part_is_semantically_inert(&part.kind))
+        .all(|part| heredoc_body_part_is_semantically_inert(&part.kind, part.span, source))
 }
 
 fn word_part_is_semantically_inert(part: &WordPart) -> bool {
@@ -5435,9 +5528,16 @@ fn word_part_is_semantically_inert(part: &WordPart) -> bool {
     }
 }
 
-fn heredoc_body_part_is_semantically_inert(part: &HeredocBodyPart) -> bool {
+fn heredoc_body_part_is_semantically_inert(
+    part: &HeredocBodyPart,
+    span: Span,
+    source: &str,
+) -> bool {
     match part {
-        HeredocBodyPart::Literal(_) => true,
+        HeredocBodyPart::Literal(text) => {
+            !text.is_source_backed()
+                || !escaped_heredoc_literal_may_contain_reference(text.syntax_str(source, span))
+        }
         HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => expression_ast.is_none(),
         HeredocBodyPart::Variable(_)
         | HeredocBodyPart::CommandSubstitution { .. }

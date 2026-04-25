@@ -477,20 +477,6 @@ reviewed_divergences:
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
-    line: 45
-    end_line: 45
-    column: 31
-    end_column: 49
-    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
-    line: 46
-    end_line: 46
-    column: 31
-    end_column: 49
-    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
     line: 126
     end_line: 126
     column: 11
@@ -517,13 +503,6 @@ reviewed_divergences:
     column: 23
     end_column: 36
     reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
-    line: 48
-    end_line: 48
-    column: 14
-    end_column: 32
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
     line: 151

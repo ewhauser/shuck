@@ -7117,6 +7117,20 @@ arr+=([docker:dind]=x [nats-streaming:nanoserver]=y)
     }
 
     #[test]
+    fn escaped_heredoc_parameter_literals_still_expand_nested_references() {
+        let source = "\
+cat <<EOF
+\\${OUTER:-$inner}
+EOF
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_present(&["inner"], &uninitialized);
+        assert_names_absent(&["OUTER"], &uninitialized);
+    }
+
+    #[test]
     fn assign_default_and_error_operands_are_marked_uninitialized() {
         let source = "\
 printf '%s\\n' \
