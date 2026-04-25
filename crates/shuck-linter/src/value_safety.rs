@@ -294,14 +294,14 @@ impl<'a> SafeValueIndex<'a> {
         if safe_special_parameter(name) {
             return true;
         }
+        if self.case_cli_reachable_call_path_keeps_argument_bindings_unsafe(at, query) {
+            return safe_numeric_shell_variable(name);
+        }
         if query == SafeValueQuery::Argv
             && self.span_is_in_numeric_simple_test_operand(at)
             && self.visible_numeric_or_status_binding_for_name(name, at)
         {
             return true;
-        }
-        if self.case_cli_reachable_call_path_keeps_argument_bindings_unsafe(at, query) {
-            return safe_numeric_shell_variable(name);
         }
 
         let flow = self.analysis.variable_flow_for_name_at(name, at);
@@ -441,6 +441,8 @@ impl<'a> SafeValueIndex<'a> {
         let explicit_empty_path_covers_reference = needs_arg_path_coverage
             && self.empty_value_can_disappear_at(at, query)
             && self.bindings_or_explicit_unsets_cover_all_paths_to_reference(&bindings, name, at);
+        let declaration_baseline_covers_reference = needs_arg_path_coverage
+            && self.declaration_command_without_value_covers_reference(name, at);
         if !self.conditional_shortcut_bindings_have_safe_baseline(
             &bindings,
             name,
@@ -455,6 +457,7 @@ impl<'a> SafeValueIndex<'a> {
             && !bindings_cover_all_paths
             && !unset_covers_reference
             && !explicit_empty_path_covers_reference
+            && !declaration_baseline_covers_reference
             && (!outer_bindings_cover_callers || !reference_is_inside_function)
         {
             return false;
@@ -490,6 +493,7 @@ impl<'a> SafeValueIndex<'a> {
                 && !bindings_cover_all_paths
                 && !unset_covers_reference
                 && !explicit_empty_path_covers_reference
+                && !declaration_baseline_covers_reference
                 && !helper_baseline_with_guarded_overrides
                 && !bindings
                     .iter()
@@ -1449,21 +1453,26 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn visible_numeric_or_status_binding_for_name(&self, name: &Name, at: Span) -> bool {
-        let visible_scopes = self
-            .semantic
-            .ancestor_scopes(self.semantic.scope_at(at.start.offset))
-            .collect::<FxHashSet<_>>();
+        let flow = self.analysis.variable_flow_for_name_at(name, at);
+        let mut bindings = flow.reaching_bindings;
+        self.retain_value_bindings(&mut bindings);
 
-        self.semantic
-            .bindings_for(name)
-            .iter()
-            .copied()
-            .any(|binding_id| {
-                let binding = self.semantic.binding(binding_id);
-                visible_scopes.contains(&binding.scope)
-                    && binding.span != at
-                    && self.binding_value_is_numeric_or_status(binding_id)
-            })
+        if bindings.is_empty() && flow.reference.is_none() {
+            return self
+                .semantic
+                .previous_visible_binding(name, at, Some(at))
+                .is_some_and(|binding| self.binding_value_is_numeric_or_status(binding.id));
+        }
+
+        !bindings.is_empty()
+            && matches!(
+                flow.coverage,
+                VariableFlowCoverage::AllPaths | VariableFlowCoverage::Unreachable
+            )
+            && bindings
+                .iter()
+                .copied()
+                .all(|binding_id| self.binding_value_is_numeric_or_status(binding_id))
     }
 
     fn span_is_in_numeric_simple_test_operand(&self, at: Span) -> bool {
@@ -1595,12 +1604,36 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn declaration_command_without_value_covers_reference(&self, name: &Name, at: Span) -> bool {
-        self.facts.commands().iter().any(|command| {
+        if self.facts.commands().iter().any(|command| {
             command.span().end.offset <= at.start.offset
                 && self.command_runs_in_persistent_shell_context(command.id())
                 && self.command_runs_in_unconditional_flow_inside_reference_scope(command.id(), at)
                 && self.command_names_variable_without_value(command, name)
-        })
+        }) {
+            return true;
+        }
+
+        let declarations = self
+            .semantic
+            .bindings_for(name)
+            .iter()
+            .copied()
+            .filter(|binding_id| self.binding_is_no_value_declaration(*binding_id))
+            .filter(|binding_id| {
+                let binding = self.semantic.binding(*binding_id);
+                binding.span.end.offset <= at.start.offset
+                    && self.semantic.binding_visible_at(*binding_id, at)
+                    && self.enclosing_function_scope_at(binding.span.start.offset)
+                        == self.enclosing_function_scope_at(at.start.offset)
+            })
+            .collect::<Vec<_>>();
+
+        !declarations.is_empty()
+            && (self.bindings_cover_all_paths_to_reference(&declarations, name, at)
+                || declarations
+                    .iter()
+                    .copied()
+                    .any(|binding_id| self.binding_dominates_reference(binding_id, name, at)))
     }
 
     fn command_names_variable_without_value(

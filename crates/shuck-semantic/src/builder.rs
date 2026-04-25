@@ -2535,7 +2535,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 }
             }
             "eval" => {
-                self.record_dynamic_write_barrier(DynamicWriteBarrierKind::Eval, command.span);
+                self.record_dynamic_write_barrier(DynamicWriteBarrierKind::Eval, command_span);
                 self.record_eval_argument_references(args);
             }
             "source" | "." => {
