@@ -3965,7 +3965,14 @@ spinner() {
 }
 ";
         let model = model(source);
-        assert_arithmetic_usage(&model, "spin_i", 1, 1);
+        assert!(model.references().iter().any(|reference| {
+            reference.kind == ReferenceKind::ParameterSliceArithmetic && reference.name == "spin_i"
+        }));
+        assert_eq!(
+            arithmetic_write_count(&model, "spin_i"),
+            1,
+            "unexpected arithmetic write count for spin_i"
+        );
 
         let unused = model
             .analysis()

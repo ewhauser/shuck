@@ -294,6 +294,7 @@ fn analyze_uninitialized_references_exact(
     let initialized_name_states = exact.c006_initialized_name_states(context);
     let maybe_defined = &initialized_name_states.maybe_in;
     let definitely_defined = &initialized_name_states.definite_in;
+    let guarded_parameter_ref_keys = guarded_parameter_reference_keys(context);
 
     let mut uninitialized_references = Vec::new();
     for reference in context.references {
@@ -308,7 +309,8 @@ fn analyze_uninitialized_references_exact(
             || context
                 .self_referential_assignment_refs
                 .contains(&reference.id)
-            || reference_duplicates_guarded_parameter_reference(context, reference)
+            || guarded_parameter_ref_keys
+                .contains(&(reference.name.clone(), SpanKey::new(reference.span)))
         {
             continue;
         }
@@ -360,20 +362,16 @@ fn analyze_uninitialized_references_exact(
     uninitialized_references
 }
 
-fn reference_duplicates_guarded_parameter_reference(
-    context: &DataflowContext<'_>,
-    reference: &Reference,
-) -> bool {
+fn guarded_parameter_reference_keys(context: &DataflowContext<'_>) -> FxHashSet<(Name, SpanKey)> {
     context
         .guarded_parameter_refs
         .iter()
         .copied()
-        .any(|guard_id| {
-            guard_id != reference.id && {
-                let guard = &context.references[guard_id.index()];
-                guard.name == reference.name && guard.span == reference.span
-            }
+        .map(|guard_id| {
+            let guard = &context.references[guard_id.index()];
+            (guard.name.clone(), SpanKey::new(guard.span))
         })
+        .collect()
 }
 
 fn parameter_guard_flow_precedes_reference_in_same_block(
