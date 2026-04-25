@@ -244,15 +244,45 @@ mod tests {
         assert_eq!(c005("jq '$item.name' file\n"), 0);
         assert_eq!(c005("jq --arg name '$HOME' '$name' file\n"), 0);
         assert_eq!(c005("bash -c 'echo $HOME'\n"), 0);
-        assert_eq!(c005("bash '$HOME'\n"), 0);
+        assert_eq!(c005("bash '$HOME'\n"), 1);
         assert_eq!(c005("ssh host 'echo $HOME'\n"), 0);
-        assert_eq!(c005("ssh '$HOME' uptime\n"), 0);
+        assert_eq!(c005("ssh '$HOME' uptime\n"), 1);
         assert_eq!(c005("sudo sh -c 'echo $HOME'\n"), 0);
         assert_eq!(c005("sudo echo '$HOME'\n"), 1);
         assert_eq!(c005("trap 'echo $SECONDS' EXIT\n"), 0);
         assert_eq!(c005("eval 'echo $HOME'\n"), 0);
         assert_eq!(c005("rename 's/(.)a/$1/g' *\n"), 0);
         assert_eq!(c005("rg '$HOME' file\n"), 0);
+        assert_eq!(c005("rg pattern '$HOME'\n"), 1);
+        assert_eq!(c005("jq '.' '$HOME'\n"), 1);
+        assert_eq!(
+            c005("dpkg-query -W -f '${db:Status-Status}\\n' package\n"),
+            0
+        );
+        assert_eq!(c005("docker inspect -f '{{.Name}}' container\n"), 0);
+        assert_eq!(
+            c005("docker run image sh -c 'echo $JETTY_HOME/start.jar'\n"),
+            0
+        );
+        assert_eq!(
+            c005("docker run -d \"$server_image\" sh -c 'echo $JETTY_HOME/start.jar'\n"),
+            0
+        );
+        assert_eq!(
+            c005("docker run --entrypoint sh image -c 'command -v gcc'\n"),
+            0
+        );
+        assert_eq!(
+            c005("docker run --entrypoint sh \"$image\" -c 'command -v gcc'\n"),
+            0
+        );
+        assert_eq!(c005("xprop -set WM_NAME '$HOME'\n"), 0);
+        assert_eq!(
+            c005(
+                "PERLIO=:utf8 perl -pe '$_=lc'\nperl -MConfig -le 'print $Config{installvendorlib}'\n"
+            ),
+            0
+        );
     }
 
     #[test]

@@ -7536,10 +7536,6 @@ fn single_quoted_literal_exempt_argument(
         return true;
     }
 
-    if single_quoted_literal_exempt_command_domain(command_name) {
-        return true;
-    }
-
     let Some(body_args) = args.get(body_arg_start..) else {
         return false;
     };
@@ -7551,8 +7547,18 @@ fn single_quoted_literal_exempt_argument(
         "alias" => static_word_text(word, source).is_some_and(|text| text.contains('=')),
         "eval" => true,
         "git filter-branch" | "mumps -run %XCMD" | "mumps -run LOOP%XCMD" => true,
-        "jq" => jq_filter_argument_index(body_args, source) == Some(relative_arg_index),
+        "docker" | "podman" | "oc" => {
+            container_shell_command_argument_index(body_args, source) == Some(relative_arg_index)
+                || format_option_argument_index(body_args, source) == Some(relative_arg_index)
+                || format_option_value_word(body_args, relative_arg_index, source)
+        }
+        "dpkg-query" => {
+            dpkg_query_format_argument_index(body_args, source) == Some(relative_arg_index)
+                || dpkg_query_format_option_value_word(body_args, relative_arg_index, source)
+        }
+        "jq" => jq_literal_argument_index(body_args, source).contains(&relative_arg_index),
         "rename" => rename_program_argument_index(body_args, source) == Some(relative_arg_index),
+        "rg" => rg_pattern_argument_index(body_args, source) == Some(relative_arg_index),
         "sh" | "bash" | "dash" | "ksh" | "zsh" => {
             shell_command_argument_index(body_args, source) == Some(relative_arg_index)
         }
@@ -7560,11 +7566,13 @@ fn single_quoted_literal_exempt_argument(
             relative_arg_index >= index
                 && static_word_text(word, source).is_some_and(|text| text.as_ref() != "-t")
         }),
+        "unset" => true,
+        "xprop" => xprop_value_argument_index(body_args, source) == Some(relative_arg_index),
         _ if command_name.ends_with("awk") => {
-            awk_program_argument_index(body_args, source) == Some(relative_arg_index)
+            awk_literal_argument_index(body_args, source).contains(&relative_arg_index)
         }
         _ if command_name.starts_with("perl") => {
-            perl_program_argument_index(body_args, source) == Some(relative_arg_index)
+            perl_program_argument_index(body_args, source).contains(&relative_arg_index)
         }
         _ => false,
     }
@@ -7574,37 +7582,6 @@ fn single_quoted_literal_exempt_here_string(command_name: Option<&str>) -> bool 
     matches!(command_name, Some("sh" | "bash" | "dash" | "ksh" | "zsh"))
 }
 
-fn single_quoted_literal_exempt_command_domain(command_name: &str) -> bool {
-    matches!(
-        command_name,
-        "trap"
-            | "sh"
-            | "bash"
-            | "dash"
-            | "ksh"
-            | "zsh"
-            | "ssh"
-            | "eval"
-            | "xprop"
-            | "alias"
-            | "sudo"
-            | "doas"
-            | "run0"
-            | "docker"
-            | "podman"
-            | "oc"
-            | "dpkg-query"
-            | "jq"
-            | "rename"
-            | "rg"
-            | "unset"
-            | "git filter-branch"
-            | "mumps -run %XCMD"
-            | "mumps -run LOOP%XCMD"
-    ) || command_name.ends_with("awk")
-        || command_name.starts_with("perl")
-}
-
 fn shell_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
     args.windows(2).enumerate().find_map(|(index, pair)| {
         let flag = static_word_text(&pair[0], source)?;
@@ -7612,55 +7589,113 @@ fn shell_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
     })
 }
 
-fn awk_program_argument_index(args: &[Word], source: &str) -> Option<usize> {
+fn awk_literal_argument_index(args: &[Word], source: &str) -> Vec<usize> {
+    let mut result = Vec::new();
     let mut index = 0usize;
     while index < args.len() {
         let Some(text) = static_word_text(&args[index], source) else {
-            return Some(index);
+            let raw = args[index].span.slice(source);
+            if raw.starts_with("-F") {
+                index += 1;
+                continue;
+            }
+            result.push(index);
+            index += 1;
+            continue;
         };
         match text.as_ref() {
-            "--" => return args.get(index + 1).map(|_| index + 1),
-            "-f" | "-v" | "--file" | "--assign" => index += 2,
-            _ if text.starts_with("--file=") || text.starts_with("--assign=") => index += 1,
+            "--" => {
+                result.extend(index + 1..args.len());
+                break;
+            }
+            "-F" | "-f" | "--field-separator" | "--file" => index += 2,
+            "-v" | "--assign" => {
+                if args.get(index + 1).is_some() {
+                    result.push(index + 1);
+                }
+                index += 2;
+            }
+            _ if text.starts_with("--assign=") => {
+                result.push(index);
+                index += 1;
+            }
+            _ if text.starts_with("-F") && text.len() > 2 => index += 1,
+            _ if text.starts_with("--field-separator=") || text.starts_with("--file=") => {
+                index += 1;
+            }
             _ if text.starts_with('-') && text != "-" => {
-                if short_option_cluster_contains_flag(text.as_ref(), 'f')
-                    || short_option_cluster_contains_flag(text.as_ref(), 'v')
+                if short_option_cluster_contains_flag(text.as_ref(), 'F')
+                    || short_option_cluster_contains_flag(text.as_ref(), 'f')
                 {
                     index += 2;
                 } else {
+                    if short_option_cluster_contains_flag(text.as_ref(), 'v')
+                        && args.get(index + 1).is_some()
+                    {
+                        result.push(index + 1);
+                    }
                     index += 1;
                 }
             }
-            _ => return Some(index),
+            _ => {
+                result.push(index);
+                index += 1;
+            }
         }
     }
-    None
+    result
 }
 
-fn jq_filter_argument_index(args: &[Word], source: &str) -> Option<usize> {
+fn jq_literal_argument_index(args: &[Word], source: &str) -> Vec<usize> {
+    let mut result = Vec::new();
     let mut index = 0usize;
     while index < args.len() {
         let Some(text) = static_word_text(&args[index], source) else {
-            return Some(index);
+            result.push(index);
+            break;
         };
         match text.as_ref() {
-            "--" => return args.get(index + 1).map(|_| index + 1),
-            "-f" | "--from-file" => return None,
-            "-L" | "--arg" | "--argjson" | "--slurpfile" | "--rawfile" => index += 2,
-            _ if text.starts_with("--from-file=") => return None,
+            "--" => {
+                if args.get(index + 1).is_some() {
+                    result.push(index + 1);
+                }
+                break;
+            }
+            "-f" | "--from-file" => return result,
+            "-L" | "--slurpfile" | "--rawfile" => index += 2,
+            "--arg" | "--argjson" => {
+                if args.get(index + 2).is_some() {
+                    result.push(index + 2);
+                }
+                index += 3;
+            }
+            _ if text.starts_with("--from-file=") => return result,
             _ if text.starts_with("-L") && text.len() > 2 => index += 1,
             _ if text.starts_with('-') && text != "-" => index += 1,
-            _ => return Some(index),
+            _ => {
+                result.push(index);
+                break;
+            }
         }
     }
-    None
+    result
 }
 
-fn perl_program_argument_index(args: &[Word], source: &str) -> Option<usize> {
-    args.windows(2).enumerate().find_map(|(index, pair)| {
-        let flag = static_word_text(&pair[0], source)?;
-        matches!(flag.as_ref(), "-e" | "-E").then_some(index + 1)
-    })
+fn perl_program_argument_index(args: &[Word], source: &str) -> Vec<usize> {
+    args.windows(2)
+        .enumerate()
+        .filter_map(|(index, pair)| {
+            let flag = static_word_text(&pair[0], source)?;
+            perl_option_takes_program_argument(flag.as_ref()).then_some(index + 1)
+        })
+        .collect()
+}
+
+fn perl_option_takes_program_argument(option: &str) -> bool {
+    matches!(option, "-e" | "-E")
+        || (option.starts_with('-')
+            && !option.starts_with("--")
+            && option.chars().any(|character| matches!(character, 'e' | 'E')))
 }
 
 fn rename_program_argument_index(args: &[Word], source: &str) -> Option<usize> {
@@ -7671,7 +7706,9 @@ fn rename_program_argument_index(args: &[Word], source: &str) -> Option<usize> {
 fn ssh_remote_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
     let mut index = 0usize;
     while let Some(word) = args.get(index) {
-        let text = static_word_text(word, source)?;
+        let Some(text) = static_word_text(word, source) else {
+            return args.get(index + 1).map(|_| index + 1);
+        };
 
         if text == "--" {
             index += 1;
@@ -7691,6 +7728,201 @@ fn ssh_remote_command_argument_index(args: &[Word], source: &str) -> Option<usiz
 
     args.get(index)?;
     args.get(index + 1).map(|_| index + 1)
+}
+
+fn rg_pattern_argument_index(args: &[Word], source: &str) -> Option<usize> {
+    let mut index = 0usize;
+    while index < args.len() {
+        let text = static_word_text(&args[index], source)?;
+        match text.as_ref() {
+            "--" => return args.get(index + 1).map(|_| index + 1),
+            "-e" | "--regexp" => return args.get(index + 1).map(|_| index + 1),
+            "-f" | "--file" => return None,
+            _ if text.starts_with("--regexp=") => return Some(index),
+            _ if text.starts_with("--file=") => return None,
+            _ if text.starts_with('-') && text != "-" => {
+                index += if rg_option_consumes_next_argument(text.as_ref()) {
+                    2
+                } else {
+                    1
+                };
+            }
+            _ => return Some(index),
+        }
+    }
+    None
+}
+
+fn rg_option_consumes_next_argument(option: &str) -> bool {
+    matches!(
+        option,
+        "-A" | "--after-context"
+            | "-B"
+            | "--before-context"
+            | "-C"
+            | "--context"
+            | "-g"
+            | "--glob"
+            | "--iglob"
+            | "-m"
+            | "--max-count"
+            | "-t"
+            | "--type"
+            | "-T"
+            | "--type-not"
+            | "--sort"
+            | "--sort-files"
+            | "--threads"
+    )
+}
+
+fn container_shell_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
+    let run_index = args
+        .iter()
+        .position(|word| static_word_text(word, source).as_deref() == Some("run"))?;
+    let mut index = run_index + 1;
+    let mut entrypoint_shell = None;
+
+    while index < args.len() {
+        let Some(text) = static_word_text(&args[index], source) else {
+            break;
+        };
+
+        match text.as_ref() {
+            "--" => {
+                index += 1;
+                break;
+            }
+            "--entrypoint" => {
+                entrypoint_shell = args
+                    .get(index + 1)
+                    .and_then(|word| static_word_text(word, source))
+                    .filter(|value| shell_command_name(value.as_ref()))
+                    .map(|_| ());
+                index += 2;
+            }
+            _ if text.starts_with("--entrypoint=") => {
+                entrypoint_shell = shell_command_name(&text["--entrypoint=".len()..]).then_some(());
+                index += 1;
+            }
+            _ if text.starts_with('-') && text != "-" => {
+                index += if container_run_option_consumes_next_argument(text.as_ref()) {
+                    2
+                } else {
+                    1
+                };
+            }
+            _ => break,
+        }
+    }
+
+    args.get(index)?;
+
+    if entrypoint_shell.is_some() {
+        return shell_command_argument_index(args.get(index + 1..).unwrap_or_default(), source)
+            .map(|relative| index + 1 + relative);
+    }
+
+    let shell_index = (index + 1..args.len()).find(|candidate| {
+        static_word_text(&args[*candidate], source).is_some_and(|text| shell_command_name(&text))
+    })?;
+    shell_command_argument_index(args.get(shell_index + 1..).unwrap_or_default(), source)
+        .map(|relative| shell_index + 1 + relative)
+}
+
+fn shell_command_name(name: &str) -> bool {
+    matches!(name, "sh" | "bash" | "dash" | "ksh" | "zsh")
+}
+
+fn container_run_option_consumes_next_argument(option: &str) -> bool {
+    matches!(
+        option,
+        "-a" | "--attach"
+            | "--add-host"
+            | "--annotation"
+            | "--blkio-weight"
+            | "--blkio-weight-device"
+            | "-c"
+            | "--cpu-shares"
+            | "--cpus"
+            | "--cpuset-cpus"
+            | "--cpuset-mems"
+            | "--device"
+            | "--dns"
+            | "--dns-option"
+            | "--dns-search"
+            | "-e"
+            | "--env"
+            | "--env-file"
+            | "--expose"
+            | "--gpus"
+            | "-h"
+            | "--hostname"
+            | "--ip"
+            | "--ip6"
+            | "-l"
+            | "--label"
+            | "--label-file"
+            | "--log-driver"
+            | "--log-opt"
+            | "--mount"
+            | "--name"
+            | "--network"
+            | "--network-alias"
+            | "-p"
+            | "--publish"
+            | "--pull"
+            | "--restart"
+            | "--stop-signal"
+            | "--stop-timeout"
+            | "--ulimit"
+            | "-u"
+            | "--user"
+            | "--userns"
+            | "-v"
+            | "--volume"
+            | "--volumes-from"
+            | "-w"
+            | "--workdir"
+    )
+}
+
+fn format_option_argument_index(args: &[Word], source: &str) -> Option<usize> {
+    args.windows(2).enumerate().find_map(|(index, pair)| {
+        let flag = static_word_text(&pair[0], source)?;
+        matches!(flag.as_ref(), "-f" | "--format" | "--template").then_some(index + 1)
+    })
+}
+
+fn format_option_value_word(args: &[Word], arg_index: usize, source: &str) -> bool {
+    static_word_text(&args[arg_index], source).is_some_and(|text| {
+        matches!(
+            text.as_ref(),
+            _ if text.starts_with("--format=") || text.starts_with("--template=")
+        )
+    })
+}
+
+fn dpkg_query_format_argument_index(args: &[Word], source: &str) -> Option<usize> {
+    args.windows(2).enumerate().find_map(|(index, pair)| {
+        let flag = static_word_text(&pair[0], source)?;
+        matches!(flag.as_ref(), "-f" | "--showformat").then_some(index + 1)
+    })
+}
+
+fn dpkg_query_format_option_value_word(args: &[Word], arg_index: usize, source: &str) -> bool {
+    static_word_text(&args[arg_index], source).is_some_and(|text| {
+        text.starts_with("-f=")
+            || text.starts_with("--showformat=")
+            || (text.starts_with("-f") && text.len() > 2)
+    })
+}
+
+fn xprop_value_argument_index(args: &[Word], source: &str) -> Option<usize> {
+    args.windows(3).enumerate().find_map(|(index, triple)| {
+        let flag = static_word_text(&triple[0], source)?;
+        (flag.as_ref() == "-set").then_some(index + 2)
+    })
 }
 
 fn trap_action_word<'a>(command: &'a Command, source: &str) -> Option<&'a Word> {
