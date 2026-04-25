@@ -95,11 +95,11 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn ignores_defaulting_parameter_operands_until_later_plain_uses() {
+    fn prior_defaulting_parameter_operands_suppress_later_plain_uses() {
         let source = "\
 #!/bin/sh
 printf '%s\\n' \"${missing_assign:=$seed_name}\" \"${missing_error:?$hint_name}\"
-printf '%s\\n' \"$seed_name\" \"$hint_name\"
+printf '%s\\n' \"$seed_name\" \"$hint_name\" \"$plain_missing\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
 
@@ -108,12 +108,7 @@ printf '%s\\n' \"$seed_name\" \"$hint_name\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$seed_name", "$hint_name"]
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .all(|diagnostic| diagnostic.span.start.line == 3)
+            vec!["$plain_missing"]
         );
     }
 
@@ -126,6 +121,8 @@ printf '%s\\n' \"${assigned:=fallback}\" \"$assigned\"
 printf '%s\\n' \"${required:?missing}\" \"$required\"
 printf '%s\\n' \"${replacement:+alt}\" \"$replacement\"
 printf '%s\\n' \"$before_default\" \"${before_default:-fallback}\" \"$plain_missing\"
+guard_function() { printf '%s\\n' \"${cross_scope:?missing}\"; }
+read_function() { printf '%s\\n' \"$cross_scope\"; }
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
 
@@ -143,7 +140,7 @@ printf '%s\\n' \"$before_default\" \"${before_default:-fallback}\" \"$plain_miss
         let source = "\
 #!/bin/sh
 printf '%s\\n' \"${outer:+${nested_default:-fallback}}\" \"$outer\" \"$nested_default\"
-printf '%s\\n' \"${other:+${nested_replacement:+alt}}\" \"$other\" \"$nested_replacement\"
+printf '%s\\n' \"${other:+${nested_replacement:+alt}}\" \"$other\" \"$nested_replacement\" \"$plain_missing\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
 
@@ -152,7 +149,25 @@ printf '%s\\n' \"${other:+${nested_replacement:+alt}}\" \"$other\" \"$nested_rep
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$nested_default", "$nested_replacement"]
+            vec!["$plain_missing"]
+        );
+    }
+
+    #[test]
+    fn later_parameter_guards_do_not_suppress_earlier_reads() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' \"$before_default\" \"$before_error\"
+printf '%s\\n' \"${before_default:-fallback}\" \"${before_error:?missing}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$before_default", "$before_error"]
         );
     }
 

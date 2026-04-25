@@ -44,11 +44,26 @@ pub(super) fn is_reportable_variable_reference(
         || checker
             .semantic()
             .is_defaulting_parameter_operand_reference(reference.id)
+        || has_prior_c006_parameter_guard_reference(checker, reference)
     {
         return false;
     }
 
     true
+}
+
+fn has_prior_c006_parameter_guard_reference(checker: &Checker<'_>, reference: &Reference) -> bool {
+    checker.semantic().references().iter().any(|candidate| {
+        candidate.id != reference.id
+            && candidate.name == reference.name
+            && candidate.span.start.offset < reference.span.start.offset
+            && (checker
+                .semantic()
+                .is_guarded_parameter_reference(candidate.id)
+                || checker
+                    .semantic()
+                    .is_defaulting_parameter_operand_reference(candidate.id))
+    })
 }
 
 pub(super) fn is_environment_style_name(name: &str) -> bool {
