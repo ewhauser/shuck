@@ -116,7 +116,7 @@ pub use suppression::{
 pub use violation::Violation;
 
 use rustc_hash::FxHashSet;
-use shuck_ast::{File, Position, Span, TextSize};
+use shuck_ast::{ArenaFile, File, Position, Span, TextSize};
 use shuck_indexer::{Indexer, LineIndex};
 use shuck_parser::parser::{ParseResult, Parser};
 use shuck_semantic::{
@@ -155,6 +155,18 @@ pub fn analyze_file(
     suppression_index: Option<&SuppressionIndex>,
 ) -> AnalysisResult {
     analyze_file_at_path(file, source, indexer, settings, suppression_index, None)
+}
+
+/// Builds semantic facts and linter diagnostics for an arena-backed parsed file.
+pub fn analyze_arena_file(
+    ast: &ArenaFile,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+) -> AnalysisResult {
+    let file = ast.to_file();
+    analyze_file(&file, source, indexer, settings, suppression_index)
 }
 
 #[cfg(feature = "benchmarking")]
@@ -467,6 +479,59 @@ pub fn lint_file(
     )
 }
 
+/// Lints an arena-backed parse result located at an optional source path.
+pub fn lint_arena_file(
+    parse_result: &ParseResult,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+    source_path: Option<&Path>,
+) -> Vec<Diagnostic> {
+    let file = parse_result.arena_file.to_file();
+    let shell = resolve_shell(settings, source, source_path);
+
+    let mut diagnostics = analyze_file_at_path_with_resolver_and_shell(
+        &file,
+        source,
+        indexer,
+        settings,
+        suppression_index,
+        source_path,
+        None,
+        shell,
+        parse_error_position(parse_result),
+    )
+    .diagnostics;
+
+    diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
+        &file,
+        source,
+        Some(parse_result),
+        &settings.rules,
+        shell,
+    ));
+    if parse_result.is_err() {
+        sanitize_diagnostic_spans_cold(&mut diagnostics, source, indexer);
+    }
+
+    for diagnostic in &mut diagnostics {
+        if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
+            diagnostic.severity = severity;
+        }
+    }
+
+    if let Some(suppression_index) = suppression_index {
+        filter_suppressed_diagnostics(&mut diagnostics, indexer, suppression_index);
+    }
+    filter_per_file_ignored_diagnostics(&mut diagnostics, settings, source_path);
+
+    diagnostics
+        .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
+
+    diagnostics
+}
+
 fn filter_suppressed_diagnostics(
     diagnostics: &mut Vec<Diagnostic>,
     indexer: &Indexer,
@@ -594,6 +659,12 @@ mod tests {
         lint_file(&output, source, &indexer, settings, None, None)
     }
 
+    fn lint_arena(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new_arena(source, &output.arena_file, &output.syntax_facts);
+        lint_arena_file(&output, source, &indexer, settings, None, None)
+    }
+
     fn lint_path(path: &Path, settings: &LinterSettings) -> Vec<Diagnostic> {
         let source = fs::read_to_string(path).unwrap();
         let output = Parser::new(&source).parse().unwrap();
@@ -703,6 +774,7 @@ mod tests {
             offset: 14,
         };
         let parse_result = ParseResult {
+            arena_file: shuck_ast::ArenaFile::from_file(&file),
             file,
             diagnostics: vec![ParseDiagnostic {
                 message: "expected command".to_owned(),
@@ -714,6 +786,29 @@ mod tests {
         };
 
         assert_eq!(parse_error_position(&parse_result), Some((3, 2)));
+    }
+
+    #[test]
+    fn arena_lint_matches_recursive_lint_for_basic_diagnostics() {
+        let source = "#!/bin/bash\nunused=1\necho \"$missing\"\n";
+        let settings = LinterSettings::default();
+        let recursive = lint(source, &settings);
+        let arena = lint_arena(source, &settings);
+
+        let summarize = |diagnostics: &[Diagnostic]| {
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    (
+                        diagnostic.rule,
+                        diagnostic.span.start.offset,
+                        diagnostic.span.end.offset,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(summarize(&arena), summarize(&recursive));
     }
 
     #[test]

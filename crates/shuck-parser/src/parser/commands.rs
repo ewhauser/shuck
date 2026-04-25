@@ -258,8 +258,11 @@ impl<'a> Parser<'a> {
             ParseStatus::Recovered
         };
 
+        let arena_file = ArenaFile::from_file(&file);
+
         ParseResult {
             file,
+            arena_file,
             diagnostics,
             status,
             terminal_error,
