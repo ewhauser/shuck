@@ -2,6 +2,7 @@ fn build_literal_brace_spans(
     nodes: &[WordNode<'_>],
     occurrences: &[WordOccurrence],
     commands: CommandFacts<'_, '_>,
+    fact_store: &FactStore<'_>,
     source: &str,
     heredoc_ranges: &[TextRange],
 ) -> Vec<Span> {
@@ -26,7 +27,7 @@ fn build_literal_brace_spans(
         }
         processed_word_nodes[node_index] = true;
 
-        collect_literal_brace_spans_for_word(nodes, fact, source, &mut spans);
+        collect_literal_brace_spans_for_word(nodes, fact, fact_store, source, &mut spans);
     }
 
     spans.extend(uncovered_command_brace_spans(
@@ -49,6 +50,7 @@ fn build_literal_brace_spans(
 fn collect_literal_brace_spans_for_word(
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
+    fact_store: &FactStore<'_>,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
@@ -82,7 +84,9 @@ fn collect_literal_brace_spans_for_word(
             .flat_map(|brace| brace_character_spans(brace.span, source))
             .filter(|span| !span_inside_nested_escaped_parameter_template(word, *span, source))
             .filter(|span| !brace_span_is_plain_parameter_expansion_edge(word, *span, source))
-            .filter(|span| !word_span_is_inside_command_substitution(nodes, fact, *span, source)),
+            .filter(|span| {
+                !word_span_is_inside_command_substitution(nodes, fact, fact_store, *span)
+            }),
     );
 
     spans.extend(
@@ -90,25 +94,30 @@ fn collect_literal_brace_spans_for_word(
             .into_iter()
             .filter(|span| !span_inside_nested_escaped_parameter_template(word, *span, source))
             .filter(|span| !brace_span_is_plain_parameter_expansion_edge(word, *span, source))
-            .filter(|span| !word_span_is_inside_command_substitution(nodes, fact, *span, source)),
+            .filter(|span| {
+                !word_span_is_inside_command_substitution(nodes, fact, fact_store, *span)
+            }),
     );
     spans.extend(
         unclassified_literal_brace_spans(word, source, &mut dynamic_exclusions)
             .into_iter()
             .filter(|span| !span_inside_nested_escaped_parameter_template(word, *span, source))
             .filter(|span| !brace_span_is_plain_parameter_expansion_edge(word, *span, source))
-            .filter(|span| !word_span_is_inside_command_substitution(nodes, fact, *span, source)),
+            .filter(|span| {
+                !word_span_is_inside_command_substitution(nodes, fact, fact_store, *span)
+            }),
     );
 }
 
 fn word_span_is_inside_command_substitution(
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
+    fact_store: &FactStore<'_>,
     span: Span,
-    source: &str,
 ) -> bool {
-    word_node_derived(&nodes[fact.node_id.index()], source)
-        .command_substitution_spans
+    let derived = word_node_derived(&nodes[fact.node_id.index()]);
+    fact_store
+        .word_spans(derived.command_substitution_spans)
         .iter()
         .copied()
         .any(|substitution| contains_span(substitution, span))

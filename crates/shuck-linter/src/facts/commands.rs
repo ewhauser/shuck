@@ -656,154 +656,226 @@ fn background_semicolon_span(
     Some(Span::from_positions(start, end))
 }
 
-fn build_scope_read_source_words<'a>(
+fn populate_scope_fact_ranges<'a>(
+    commands: &mut [CommandFact<'a>],
+    fact_store: &mut FactStore<'a>,
+    pipelines: &[PipelineFact<'a>],
+    if_condition_command_ids: &FxHashSet<CommandId>,
+    source: &str,
+) {
+    let (pipeline_summaries, pipeline_summary_ids_by_writer) = {
+        let command_facts = CommandFacts::new(commands, fact_store);
+        build_pipeline_scope_summaries(
+            command_facts,
+            pipelines,
+            if_condition_command_ids,
+            source,
+        )
+    };
+    let mut source_words = Vec::new();
+    let mut name_reads = Vec::new();
+    let mut heredoc_name_reads = Vec::new();
+    let mut name_writes = Vec::new();
+
+    for index in 0..commands.len() {
+        {
+            let command_facts = CommandFacts::new(commands, fact_store);
+            let command = command_facts
+                .get(index)
+                .expect("command index should resolve while populating scope facts");
+            collect_scope_read_source_words_for_command(
+                command_facts,
+                command,
+                &pipeline_summaries,
+                &pipeline_summary_ids_by_writer[index],
+                if_condition_command_ids,
+                source,
+                &mut source_words,
+            );
+            collect_scope_name_read_uses_for_command(
+                command_facts,
+                command,
+                &pipeline_summaries,
+                &pipeline_summary_ids_by_writer[index],
+                source,
+                &mut name_reads,
+            );
+            collect_scope_heredoc_name_read_uses_for_command(
+                command_facts,
+                command,
+                &pipeline_summaries,
+                &pipeline_summary_ids_by_writer[index],
+                source,
+                &mut heredoc_name_reads,
+            );
+            collect_scope_name_write_uses_for_command(
+                command_facts,
+                command,
+                source,
+                &mut name_writes,
+            );
+        }
+
+        commands[index].scope_read_source_words =
+            fact_store.scope_read_source_words.push_many(source_words.drain(..));
+        commands[index].scope_name_read_uses =
+            fact_store.scope_name_read_uses.push_many(name_reads.drain(..));
+        commands[index].scope_heredoc_name_read_uses = fact_store
+            .scope_heredoc_name_read_uses
+            .push_many(heredoc_name_reads.drain(..));
+        commands[index].scope_name_write_uses =
+            fact_store.scope_name_write_uses.push_many(name_writes.drain(..));
+    }
+}
+
+struct PipelineScopeSummary<'a> {
+    source_words: Vec<PathWordFact<'a>>,
+    name_reads: Vec<ComparableNameUse>,
+    heredoc_name_reads: Vec<ComparableNameUse>,
+}
+
+fn build_pipeline_scope_summaries<'a>(
     commands: CommandFacts<'_, 'a>,
     pipelines: &[PipelineFact<'a>],
     if_condition_command_ids: &FxHashSet<CommandId>,
     source: &str,
-) -> Vec<Vec<PathWordFact<'a>>> {
-    let mut words_by_command = vec![Vec::new(); commands.len()];
+) -> (Vec<PipelineScopeSummary<'a>>, Vec<SmallVec<[usize; 1]>>) {
+    let mut summaries = Vec::new();
+    let mut summary_ids_by_writer = vec![SmallVec::<[usize; 1]>::new(); commands.len()];
 
-    for command in commands {
-        let scope_words = &mut words_by_command[command.id().index()];
-        collect_own_scope_read_source_words(command, if_condition_command_ids, source, scope_words);
-        if command_has_file_output_redirect(command) {
-            collect_nested_scope_read_source_words(
-                commands,
+    for pipeline in pipelines {
+        let writer_ids = pipeline
+            .segments()
+            .iter()
+            .map(|segment| segment.command_id())
+            .filter(|id| {
+                commands
+                    .get(id.index())
+                    .is_some_and(command_has_file_output_redirect)
+            })
+            .collect::<SmallVec<[_; 4]>>();
+        if writer_ids.is_empty() {
+            continue;
+        }
+
+        let mut source_words = Vec::new();
+        let mut name_reads = Vec::new();
+        let mut heredoc_name_reads = Vec::new();
+        for command in commands
+            .iter()
+            .filter(|command| contains_span(pipeline.span(), command.span()))
+        {
+            collect_own_scope_read_source_words(
                 command,
                 if_condition_command_ids,
                 source,
-                scope_words,
+                &mut source_words,
             );
+            collect_own_scope_name_read_uses(command, source, &mut name_reads);
+            collect_own_scope_heredoc_name_read_uses(command, source, &mut heredoc_name_reads);
         }
-        dedup_path_words(scope_words);
-    }
+        dedup_path_words(&mut source_words);
+        dedup_name_uses(&mut name_reads);
+        dedup_name_uses(&mut heredoc_name_reads);
 
-    for pipeline in pipelines {
-        let writer_ids = pipeline
-            .segments()
-            .iter()
-            .map(|segment| segment.command_id())
-            .filter(|id| {
-                commands
-                    .get(id.index())
-                    .is_some_and(command_has_file_output_redirect)
-            })
-            .collect::<SmallVec<[_; 4]>>();
-        if writer_ids.is_empty() {
-            continue;
-        }
-
-        let mut pipeline_words = commands
-            .iter()
-            .filter(|command| contains_span(pipeline.span(), command.span()))
-            .flat_map(|command| own_scope_read_source_words(command, if_condition_command_ids, source))
-            .collect::<Vec<_>>();
-        dedup_path_words(&mut pipeline_words);
-
+        let summary_id = summaries.len();
+        summaries.push(PipelineScopeSummary {
+            source_words,
+            name_reads,
+            heredoc_name_reads,
+        });
         for writer_id in writer_ids {
-            words_by_command[writer_id.index()].extend(pipeline_words.iter().cloned());
-            dedup_path_words(&mut words_by_command[writer_id.index()]);
+            summary_ids_by_writer[writer_id.index()].push(summary_id);
         }
     }
 
-    words_by_command
+    (summaries, summary_ids_by_writer)
 }
 
-type ScopeNameUseBuckets = Vec<Vec<ComparableNameUse>>;
-type ScopeNameUseSets = (
-    ScopeNameUseBuckets,
-    ScopeNameUseBuckets,
-    ScopeNameUseBuckets,
-);
-
-fn build_scope_name_uses<'a>(
+fn collect_scope_read_source_words_for_command<'a>(
     commands: CommandFacts<'_, 'a>,
-    pipelines: &[PipelineFact<'a>],
-    source: &str,
-) -> ScopeNameUseSets {
-    let mut reads_by_command = vec![Vec::new(); commands.len()];
-    let mut heredoc_reads_by_command = vec![Vec::new(); commands.len()];
-    let mut writes_by_command = vec![Vec::new(); commands.len()];
-
-    for command in commands {
-        let read_uses = &mut reads_by_command[command.id().index()];
-        collect_own_scope_name_read_uses(command, source, read_uses);
-        if command_has_file_output_redirect(command) {
-            collect_nested_scope_name_read_uses(commands, command, source, read_uses);
-        }
-        dedup_name_uses(read_uses);
-
-        let heredoc_read_uses = &mut heredoc_reads_by_command[command.id().index()];
-        collect_own_scope_heredoc_name_read_uses(command, source, heredoc_read_uses);
-        if command_has_file_output_redirect(command) || command_has_file_input_redirect(command) {
-            collect_nested_scope_heredoc_name_read_uses(
-                commands, command, source,
-                heredoc_read_uses,
-            );
-        }
-        dedup_name_uses(heredoc_read_uses);
-
-        let write_uses = &mut writes_by_command[command.id().index()];
-        collect_own_scope_name_write_uses(command, source, write_uses);
-        if command_has_file_input_redirect(command) {
-            collect_nested_scope_name_write_uses(commands, command, source, write_uses);
-        }
-        dedup_name_uses(write_uses);
-    }
-
-    for pipeline in pipelines {
-        let writer_ids = pipeline
-            .segments()
-            .iter()
-            .map(|segment| segment.command_id())
-            .filter(|id| {
-                commands
-                    .get(id.index())
-                    .is_some_and(command_has_file_output_redirect)
-            })
-            .collect::<SmallVec<[_; 4]>>();
-        if writer_ids.is_empty() {
-            continue;
-        }
-
-        let mut pipeline_reads = commands
-            .iter()
-            .filter(|command| contains_span(pipeline.span(), command.span()))
-            .flat_map(|command| own_scope_name_read_uses(command, source))
-            .collect::<Vec<_>>();
-        dedup_name_uses(&mut pipeline_reads);
-        let mut pipeline_heredoc_reads = commands
-            .iter()
-            .filter(|command| contains_span(pipeline.span(), command.span()))
-            .flat_map(|command| own_scope_heredoc_name_read_uses(command, source))
-            .collect::<Vec<_>>();
-        dedup_name_uses(&mut pipeline_heredoc_reads);
-
-        for writer_id in writer_ids {
-            reads_by_command[writer_id.index()].extend(pipeline_reads.iter().cloned());
-            dedup_name_uses(&mut reads_by_command[writer_id.index()]);
-            heredoc_reads_by_command[writer_id.index()]
-                .extend(pipeline_heredoc_reads.iter().cloned());
-            dedup_name_uses(&mut heredoc_reads_by_command[writer_id.index()]);
-        }
-    }
-
-    (
-        reads_by_command,
-        heredoc_reads_by_command,
-        writes_by_command,
-    )
-}
-
-fn own_scope_read_source_words<'a>(
     command: CommandFactRef<'_, 'a>,
+    pipeline_summaries: &[PipelineScopeSummary<'a>],
+    pipeline_summary_ids: &[usize],
     if_condition_command_ids: &FxHashSet<CommandId>,
     source: &str,
-) -> Vec<PathWordFact<'a>> {
-    let mut words = Vec::new();
-    collect_own_scope_read_source_words(command, if_condition_command_ids, source, &mut words);
-    words
+    words: &mut Vec<PathWordFact<'a>>,
+) {
+    collect_own_scope_read_source_words(command, if_condition_command_ids, source, words);
+    if command_has_file_output_redirect(command) {
+        collect_nested_scope_read_source_words(
+            commands,
+            command,
+            if_condition_command_ids,
+            source,
+            words,
+        );
+        for summary_id in pipeline_summary_ids {
+            words.extend(
+                pipeline_summaries[*summary_id]
+                    .source_words
+                    .iter()
+                    .cloned(),
+            );
+        }
+    }
+    dedup_path_words(words);
+}
+
+fn collect_scope_name_read_uses_for_command(
+    commands: CommandFacts<'_, '_>,
+    command: CommandFactRef<'_, '_>,
+    pipeline_summaries: &[PipelineScopeSummary<'_>],
+    pipeline_summary_ids: &[usize],
+    source: &str,
+    uses: &mut Vec<ComparableNameUse>,
+) {
+    collect_own_scope_name_read_uses(command, source, uses);
+    if command_has_file_output_redirect(command) {
+        collect_nested_scope_name_read_uses(commands, command, source, uses);
+        for summary_id in pipeline_summary_ids {
+            uses.extend(pipeline_summaries[*summary_id].name_reads.iter().cloned());
+        }
+    }
+    dedup_name_uses(uses);
+}
+
+fn collect_scope_heredoc_name_read_uses_for_command(
+    commands: CommandFacts<'_, '_>,
+    command: CommandFactRef<'_, '_>,
+    pipeline_summaries: &[PipelineScopeSummary<'_>],
+    pipeline_summary_ids: &[usize],
+    source: &str,
+    uses: &mut Vec<ComparableNameUse>,
+) {
+    collect_own_scope_heredoc_name_read_uses(command, source, uses);
+    if command_has_file_output_redirect(command) || command_has_file_input_redirect(command) {
+        collect_nested_scope_heredoc_name_read_uses(commands, command, source, uses);
+    }
+    if command_has_file_output_redirect(command) {
+        for summary_id in pipeline_summary_ids {
+            uses.extend(
+                pipeline_summaries[*summary_id]
+                    .heredoc_name_reads
+                    .iter()
+                    .cloned(),
+            );
+        }
+    }
+    dedup_name_uses(uses);
+}
+
+fn collect_scope_name_write_uses_for_command(
+    commands: CommandFacts<'_, '_>,
+    command: CommandFactRef<'_, '_>,
+    source: &str,
+    uses: &mut Vec<ComparableNameUse>,
+) {
+    collect_own_scope_name_write_uses(command, source, uses);
+    if command_has_file_input_redirect(command) {
+        collect_nested_scope_name_write_uses(commands, command, source, uses);
+    }
+    dedup_name_uses(uses);
 }
 
 fn collect_own_scope_read_source_words<'a>(
@@ -825,17 +897,11 @@ fn collect_own_scope_read_source_words<'a>(
             )
         })
     );
-    words.extend(command_redirect_read_source_words(command, source));
-    words.extend(command_simple_test_path_words(command, source));
+    collect_command_redirect_read_source_words(command, source, words);
+    collect_command_simple_test_path_words(command, source, words);
     if !if_condition_command_ids.contains(&command.id()) {
-        words.extend(command_conditional_path_words(command, source));
+        collect_command_conditional_path_words(command, source, words);
     }
-}
-
-fn own_scope_name_read_uses(command: CommandFactRef<'_, '_>, _source: &str) -> Vec<ComparableNameUse> {
-    let mut uses = Vec::new();
-    collect_own_scope_name_read_uses(command, _source, &mut uses);
-    uses
 }
 
 fn collect_own_scope_name_read_uses(
@@ -859,15 +925,6 @@ fn collect_own_scope_name_read_uses(
             | RedirectKind::OutputBoth => {}
         }
     }
-}
-
-fn own_scope_heredoc_name_read_uses(
-    command: CommandFactRef<'_, '_>,
-    source: &str,
-) -> Vec<ComparableNameUse> {
-    let mut uses = Vec::new();
-    collect_own_scope_heredoc_name_read_uses(command, source, &mut uses);
-    uses
 }
 
 fn collect_own_scope_heredoc_name_read_uses(
@@ -992,45 +1049,45 @@ fn command_has_file_input_redirect(command: CommandFactRef<'_, '_>) -> bool {
     })
 }
 
-fn command_redirect_read_source_words<'a>(
+fn collect_command_redirect_read_source_words<'a>(
     command: CommandFactRef<'_, 'a>,
     source: &str,
-) -> Vec<PathWordFact<'a>> {
-    command
-        .redirect_facts()
-        .iter()
-        .filter_map(|redirect| {
-            if !matches!(
-                redirect.redirect().kind,
-                RedirectKind::Input | RedirectKind::ReadWrite | RedirectKind::HereString
-            ) {
-                return None;
-            }
+    words: &mut Vec<PathWordFact<'a>>,
+) {
+    for redirect in command.redirect_facts() {
+        if !matches!(
+            redirect.redirect().kind,
+            RedirectKind::Input | RedirectKind::ReadWrite | RedirectKind::HereString
+        ) {
+            continue;
+        }
 
-            let word = redirect.redirect().word_target()?;
-            let context = match ExpansionContext::from_redirect_kind(redirect.redirect().kind) {
-                Some(context) => context,
-                None => unreachable!("input redirects should carry a word target context"),
-            };
-            Some(PathWordFact::new(
-                word,
-                context,
-                source,
-                command.zsh_options(),
-            ))
-        })
-        .collect()
+        let Some(word) = redirect.redirect().word_target() else {
+            continue;
+        };
+        let context = match ExpansionContext::from_redirect_kind(redirect.redirect().kind) {
+            Some(context) => context,
+            None => unreachable!("input redirects should carry a word target context"),
+        };
+        words.push(PathWordFact::new(
+            word,
+            context,
+            source,
+            command.zsh_options(),
+        ));
+    }
 }
 
-fn command_simple_test_path_words<'a>(
+fn collect_command_simple_test_path_words<'a>(
     command: CommandFactRef<'_, 'a>,
     source: &str,
-) -> Vec<PathWordFact<'a>> {
+    words: &mut Vec<PathWordFact<'a>>,
+) {
     let Some(simple_test) = command.simple_test() else {
-        return Vec::new();
+        return;
     };
 
-    simple_test
+    words.extend(simple_test
         .operator_expression_operand_words(source)
         .into_iter()
         .map(|word| {
@@ -1040,16 +1097,14 @@ fn command_simple_test_path_words<'a>(
                 source,
                 command.zsh_options(),
             )
-        })
-        .collect()
+        }));
 }
 
-fn command_conditional_path_words<'a>(
+fn collect_command_conditional_path_words<'a>(
     command: CommandFactRef<'_, 'a>,
     source: &str,
-) -> Vec<PathWordFact<'a>> {
-    let mut words = Vec::new();
-
+    words: &mut Vec<PathWordFact<'a>>,
+) {
     if let Some(conditional) = command.conditional() {
         for node in conditional.nodes() {
             match node {
@@ -1079,8 +1134,6 @@ fn command_conditional_path_words<'a>(
             }
         }
     }
-
-    words
 }
 
 fn contains_span(outer: Span, inner: Span) -> bool {

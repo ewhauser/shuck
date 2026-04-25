@@ -13,9 +13,7 @@ impl Violation for BrokenAssocKey {
 }
 
 pub fn broken_assoc_key(checker: &mut Checker) {
-    checker.report_all_dedup(checker.facts().broken_assoc_key_spans().to_vec(), || {
-        BrokenAssocKey
-    });
+    checker.report_fact_slice_dedup(|facts| facts.broken_assoc_key_spans(), || BrokenAssocKey);
 }
 
 #[cfg(test)]

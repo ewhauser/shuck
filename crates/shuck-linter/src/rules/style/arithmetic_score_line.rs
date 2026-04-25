@@ -13,9 +13,10 @@ impl Violation for ArithmeticScoreLine {
 }
 
 pub fn arithmetic_score_line(checker: &mut Checker) {
-    let spans = checker.facts().arithmetic_score_line_spans().to_vec();
-
-    checker.report_all_dedup(spans, || ArithmeticScoreLine);
+    checker.report_fact_slice_dedup(
+        |facts| facts.arithmetic_score_line_spans(),
+        || ArithmeticScoreLine,
+    );
 }
 
 #[cfg(test)]

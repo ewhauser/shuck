@@ -20,8 +20,8 @@ pub fn function_params_in_sh(checker: &mut Checker) {
         return;
     }
 
-    checker.report_all_dedup(
-        checker.facts().function_parameter_fallback_spans().to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.function_parameter_fallback_spans(),
         || FunctionParamsInSh,
     );
 }

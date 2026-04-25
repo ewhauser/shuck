@@ -13,8 +13,8 @@ impl Violation for RedundantReturnStatus {
 }
 
 pub fn redundant_return_status(checker: &mut Checker) {
-    checker.report_all_dedup(
-        checker.facts().redundant_return_status_spans().to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.redundant_return_status_spans(),
         || RedundantReturnStatus,
     );
 }

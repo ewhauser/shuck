@@ -213,7 +213,7 @@ fn bare_command_name_assignment_span<'a>(
     }
 
     let text = occurrence_static_text(word_nodes, fact, source)?;
-    if !is_bare_command_name_assignment_value(text) {
+    if !is_bare_command_name_assignment_value(&text) {
         return None;
     }
 

@@ -13,8 +13,8 @@ impl Violation for HeredocCloserNotAlone {
 }
 
 pub fn heredoc_closer_not_alone(checker: &mut Checker) {
-    checker.report_all_dedup(
-        checker.facts().heredoc_closer_not_alone_spans().to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.heredoc_closer_not_alone_spans(),
         || HeredocCloserNotAlone,
     );
 }

@@ -13,12 +13,10 @@ impl Violation for PositionalParamAsOperator {
 }
 
 pub fn positional_param_as_operator(checker: &mut Checker) {
-    let spans = checker
-        .facts()
-        .positional_parameter_operator_spans()
-        .to_vec();
-
-    checker.report_all_dedup(spans, || PositionalParamAsOperator);
+    checker.report_fact_slice_dedup(
+        |facts| facts.positional_parameter_operator_spans(),
+        || PositionalParamAsOperator,
+    );
 }
 
 #[cfg(test)]

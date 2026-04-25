@@ -1,4 +1,4 @@
-use crate::{Checker, Edit, Fix, FixAvailability, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct AmpersandSemicolon;
 
@@ -19,13 +19,14 @@ impl Violation for AmpersandSemicolon {
 }
 
 pub fn ampersand_semicolon(checker: &mut Checker) {
-    let spans = checker.facts().background_semicolon_spans().to_vec();
-    for span in spans {
-        checker.report_diagnostic_dedup(
-            crate::Diagnostic::new(AmpersandSemicolon, span)
-                .with_fix(Fix::safe_edit(Edit::deletion(span))),
-        );
-    }
+    checker.report_fact_diagnostics_dedup(|facts, report| {
+        for span in facts.background_semicolon_spans().iter().copied() {
+            report(
+                Diagnostic::new(AmpersandSemicolon, span)
+                    .with_fix(Fix::safe_edit(Edit::deletion(span))),
+            );
+        }
+    });
 }
 
 #[cfg(test)]

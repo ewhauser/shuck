@@ -17,8 +17,10 @@ pub fn base_prefix_in_arithmetic(checker: &mut Checker) {
         return;
     }
 
-    let spans = checker.facts().base_prefix_arithmetic_spans().to_vec();
-    checker.report_all_dedup(spans, || BasePrefixInArithmetic);
+    checker.report_fact_slice_dedup(
+        |facts| facts.base_prefix_arithmetic_spans(),
+        || BasePrefixInArithmetic,
+    );
 }
 
 #[cfg(test)]

@@ -13,8 +13,8 @@ impl Violation for MisquotedHeredocClose {
 }
 
 pub fn misquoted_heredoc_close(checker: &mut Checker) {
-    checker.report_all_dedup(
-        checker.facts().misquoted_heredoc_close_spans().to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.misquoted_heredoc_close_spans(),
         || MisquotedHeredocClose,
     );
 }

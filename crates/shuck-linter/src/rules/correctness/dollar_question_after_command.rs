@@ -13,11 +13,8 @@ impl Violation for DollarQuestionAfterCommand {
 }
 
 pub fn dollar_question_after_command(checker: &mut Checker) {
-    checker.report_all(
-        checker
-            .facts()
-            .dollar_question_after_command_spans()
-            .to_vec(),
+    checker.report_fact_slice(
+        |facts| facts.dollar_question_after_command_spans(),
         || DollarQuestionAfterCommand,
     );
 }

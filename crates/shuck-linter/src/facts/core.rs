@@ -121,71 +121,77 @@ type CommandLookupIndex = FxHashMap<FactSpan, SmallVec<[CommandLookupEntry; 1]>>
 
 #[derive(Debug, Clone)]
 struct FactStore<'a> {
-    redirect_facts: Vec<RedirectFact<'a>>,
-    substitution_facts: Vec<SubstitutionFact>,
-    scope_read_source_words: Vec<PathWordFact<'a>>,
-    scope_name_read_uses: Vec<ComparableNameUse>,
-    scope_heredoc_name_read_uses: Vec<ComparableNameUse>,
-    scope_name_write_uses: Vec<ComparableNameUse>,
-    declaration_assignment_probes: Vec<DeclarationAssignmentProbe>,
-    word_occurrence_ids: Vec<WordOccurrenceId>,
+    redirect_facts: ListArena<RedirectFact<'a>>,
+    substitution_facts: ListArena<SubstitutionFact>,
+    scope_read_source_words: ListArena<PathWordFact<'a>>,
+    scope_name_read_uses: ListArena<ComparableNameUse>,
+    scope_heredoc_name_read_uses: ListArena<ComparableNameUse>,
+    scope_name_write_uses: ListArena<ComparableNameUse>,
+    declaration_assignment_probes: ListArena<DeclarationAssignmentProbe>,
+    word_occurrence_ids: ListArena<WordOccurrenceId>,
     word_occurrence_ids_by_command: Vec<IdRange<WordOccurrenceId>>,
+    word_spans: ListArena<Span>,
 }
 
 impl<'a> FactStore<'a> {
     fn empty() -> Self {
         Self {
-            redirect_facts: Vec::new(),
-            substitution_facts: Vec::new(),
-            scope_read_source_words: Vec::new(),
-            scope_name_read_uses: Vec::new(),
-            scope_heredoc_name_read_uses: Vec::new(),
-            scope_name_write_uses: Vec::new(),
-            declaration_assignment_probes: Vec::new(),
-            word_occurrence_ids: Vec::new(),
+            redirect_facts: ListArena::new(),
+            substitution_facts: ListArena::new(),
+            scope_read_source_words: ListArena::new(),
+            scope_name_read_uses: ListArena::new(),
+            scope_heredoc_name_read_uses: ListArena::new(),
+            scope_name_write_uses: ListArena::new(),
+            declaration_assignment_probes: ListArena::new(),
+            word_occurrence_ids: ListArena::new(),
             word_occurrence_ids_by_command: Vec::new(),
+            word_spans: ListArena::new(),
         }
     }
 
     fn redirect_facts(&self, range: IdRange<RedirectFact<'a>>) -> &[RedirectFact<'a>] {
-        range.slice(&self.redirect_facts)
+        self.redirect_facts.get(range)
     }
 
     fn substitution_facts(&self, range: IdRange<SubstitutionFact>) -> &[SubstitutionFact] {
-        range.slice(&self.substitution_facts)
+        self.substitution_facts.get(range)
     }
 
     fn scope_read_source_words(&self, range: IdRange<PathWordFact<'a>>) -> &[PathWordFact<'a>] {
-        range.slice(&self.scope_read_source_words)
+        self.scope_read_source_words.get(range)
     }
 
     fn scope_name_read_uses(&self, range: IdRange<ComparableNameUse>) -> &[ComparableNameUse] {
-        range.slice(&self.scope_name_read_uses)
+        self.scope_name_read_uses.get(range)
     }
 
     fn scope_heredoc_name_read_uses(
         &self,
         range: IdRange<ComparableNameUse>,
     ) -> &[ComparableNameUse] {
-        range.slice(&self.scope_heredoc_name_read_uses)
+        self.scope_heredoc_name_read_uses.get(range)
     }
 
     fn scope_name_write_uses(&self, range: IdRange<ComparableNameUse>) -> &[ComparableNameUse] {
-        range.slice(&self.scope_name_write_uses)
+        self.scope_name_write_uses.get(range)
     }
 
     fn declaration_assignment_probes(
         &self,
         range: IdRange<DeclarationAssignmentProbe>,
     ) -> &[DeclarationAssignmentProbe] {
-        range.slice(&self.declaration_assignment_probes)
+        self.declaration_assignment_probes.get(range)
     }
 
     fn word_occurrence_ids_for_command(&self, id: CommandId) -> &[WordOccurrenceId] {
         self.word_occurrence_ids_by_command
             .get(id.index())
             .copied()
-            .map_or(&[], |range| range.slice(&self.word_occurrence_ids))
+            .map_or(&[], |range| self.word_occurrence_ids.get(range))
+    }
+
+    fn word_spans(&self, range: IdRange<Span>) -> &[Span] {
+        self.word_spans.get(range)
     }
 }
 

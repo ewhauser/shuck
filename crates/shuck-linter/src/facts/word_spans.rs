@@ -14,10 +14,18 @@ pub fn command_substitution_part_spans(word: &Word) -> Vec<Span> {
 }
 
 pub fn command_substitution_part_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
-    command_substitution_part_spans(word)
-        .into_iter()
-        .map(|span| normalize_command_substitution_span(span, source))
-        .collect()
+    let mut spans = Vec::new();
+    collect_command_substitution_part_spans_in_source(word, source, &mut spans);
+    spans
+}
+
+pub fn collect_command_substitution_part_spans_in_source(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_command_substitution_spans(&word.parts, spans);
+    normalize_command_substitution_spans(spans, source);
 }
 
 pub fn arithmetic_expansion_part_spans(word: &Word) -> Vec<Span> {
@@ -39,10 +47,18 @@ pub fn unquoted_command_substitution_part_spans(word: &Word) -> Vec<Span> {
 }
 
 pub fn unquoted_command_substitution_part_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
-    unquoted_command_substitution_part_spans(word)
-        .into_iter()
-        .map(|span| normalize_command_substitution_span(span, source))
-        .collect()
+    let mut spans = Vec::new();
+    collect_unquoted_command_substitution_part_spans_in_source(word, source, &mut spans);
+    spans
+}
+
+pub fn collect_unquoted_command_substitution_part_spans_in_source(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_unquoted_command_substitution_spans(&word.parts, false, spans);
+    normalize_command_substitution_spans(spans, source);
 }
 
 pub fn unquoted_dollar_paren_command_substitution_part_spans_in_source(
@@ -50,11 +66,19 @@ pub fn unquoted_dollar_paren_command_substitution_part_spans_in_source(
     source: &str,
 ) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_unquoted_dollar_paren_command_substitution_spans(&word.parts, false, &mut spans);
+    collect_unquoted_dollar_paren_command_substitution_part_spans_in_source(
+        word, source, &mut spans,
+    );
     spans
-        .into_iter()
-        .map(|span| normalize_command_substitution_span(span, source))
-        .collect()
+}
+
+pub fn collect_unquoted_dollar_paren_command_substitution_part_spans_in_source(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_unquoted_dollar_paren_command_substitution_spans(&word.parts, false, spans);
+    normalize_command_substitution_spans(spans, source);
 }
 
 pub fn unescaped_backtick_command_substitution_span(span: Span, source: &str) -> Option<Span> {
@@ -82,14 +106,26 @@ pub(crate) fn shellcheck_collapsed_backtick_part_span_in_source(span: Span, sour
 
 pub fn array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_array_expansion_spans(&word.parts, false, false, &mut spans);
+    collect_array_expansion_part_spans(word, &mut spans);
     spans
+}
+
+pub fn collect_array_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
+    collect_array_expansion_spans(&word.parts, false, false, spans);
 }
 
 pub fn all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_all_elements_array_expansion_spans(&word.parts, source, &mut spans);
+    collect_all_elements_array_expansion_part_spans(word, source, &mut spans);
     spans
+}
+
+pub fn collect_all_elements_array_expansion_part_spans(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_all_elements_array_expansion_spans(&word.parts, source, spans);
 }
 
 pub fn word_has_all_elements_array_expansion_syntax(word: &Word) -> bool {
@@ -98,14 +134,30 @@ pub fn word_has_all_elements_array_expansion_syntax(word: &Word) -> bool {
 
 pub fn direct_all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_direct_all_elements_array_expansion_spans(&word.parts, source, &mut spans);
+    collect_direct_all_elements_array_expansion_part_spans(word, source, &mut spans);
     spans
+}
+
+pub fn collect_direct_all_elements_array_expansion_part_spans(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_direct_all_elements_array_expansion_spans(&word.parts, source, spans);
 }
 
 pub fn unquoted_all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_unquoted_all_elements_array_expansion_spans(&word.parts, false, source, &mut spans);
+    collect_unquoted_all_elements_array_expansion_part_spans(word, source, &mut spans);
     spans
+}
+
+pub fn collect_unquoted_all_elements_array_expansion_part_spans(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_unquoted_all_elements_array_expansion_spans(&word.parts, false, source, spans);
 }
 
 pub fn word_all_elements_array_slice_spans(word: &Word) -> Vec<Span> {
@@ -142,8 +194,12 @@ pub fn word_quoted_unindexed_bash_source_span_in_source(word: &Word, source: &st
 
 pub fn unquoted_array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_array_expansion_spans(&word.parts, false, true, &mut spans);
+    collect_unquoted_array_expansion_part_spans(word, &mut spans);
     spans
+}
+
+pub fn collect_unquoted_array_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
+    collect_array_expansion_spans(&word.parts, false, true, spans);
 }
 
 pub fn expansion_part_spans(word: &Word) -> Vec<Span> {
@@ -153,10 +209,14 @@ pub fn expansion_part_spans(word: &Word) -> Vec<Span> {
 }
 
 pub fn active_expansion_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
-    let mut spans = expansion_part_spans(word)
-        .into_iter()
-        .map(|span| normalize_command_substitution_span(span, source))
-        .collect::<Vec<_>>();
+    let mut spans = Vec::new();
+    collect_active_expansion_spans_in_source(word, source, &mut spans);
+    spans
+}
+
+pub fn collect_active_expansion_spans_in_source(word: &Word, source: &str, spans: &mut Vec<Span>) {
+    collect_expansion_spans(&word.parts, spans);
+    normalize_command_substitution_spans(spans, source);
     spans.extend(
         word.brace_syntax()
             .iter()
@@ -166,19 +226,26 @@ pub fn active_expansion_spans_in_source(word: &Word, source: &str) -> Vec<Span> 
     );
     spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
     spans.dedup();
-    spans
 }
 
 pub fn scalar_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_scalar_expansion_spans(&word.parts, false, false, &mut spans);
+    collect_scalar_expansion_part_spans(word, &mut spans);
     spans
+}
+
+pub fn collect_scalar_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
+    collect_scalar_expansion_spans(&word.parts, false, false, spans);
 }
 
 pub fn unquoted_scalar_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_scalar_expansion_spans(&word.parts, false, true, &mut spans);
+    collect_unquoted_scalar_expansion_part_spans(word, &mut spans);
     spans
+}
+
+pub fn collect_unquoted_scalar_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
+    collect_scalar_expansion_spans(&word.parts, false, true, spans);
 }
 
 pub fn double_quoted_scalar_affix_span(word: &Word) -> Option<Span> {
@@ -1477,6 +1544,12 @@ fn normalize_command_substitution_span(span: Span, source: &str) -> Span {
     }
 
     span
+}
+
+fn normalize_command_substitution_spans(spans: &mut [Span], source: &str) {
+    for span in spans {
+        *span = normalize_command_substitution_span(*span, source);
+    }
 }
 
 fn collapse_backtick_continuation_span(

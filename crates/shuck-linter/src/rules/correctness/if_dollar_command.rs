@@ -14,11 +14,8 @@ impl Violation for IfDollarCommand {
 }
 
 pub fn if_dollar_command(checker: &mut Checker) {
-    checker.report_all_dedup(
-        checker
-            .facts()
-            .command_substitution_command_spans()
-            .to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.command_substitution_command_spans(),
         || IfDollarCommand,
     );
 }

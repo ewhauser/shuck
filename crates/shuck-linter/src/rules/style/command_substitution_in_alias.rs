@@ -13,8 +13,8 @@ impl Violation for CommandSubstitutionInAlias {
 }
 
 pub fn command_substitution_in_alias(checker: &mut Checker) {
-    checker.report_all_dedup(
-        checker.facts().alias_definition_expansion_spans().to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.alias_definition_expansion_spans(),
         || CommandSubstitutionInAlias,
     );
 }

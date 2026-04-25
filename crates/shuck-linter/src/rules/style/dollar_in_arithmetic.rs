@@ -13,9 +13,10 @@ impl Violation for DollarInArithmetic {
 }
 
 pub fn dollar_in_arithmetic(checker: &mut Checker) {
-    let spans = checker.facts().dollar_in_arithmetic_spans().to_vec();
-
-    checker.report_all_dedup(spans, || DollarInArithmetic);
+    checker.report_fact_slice_dedup(
+        |facts| facts.dollar_in_arithmetic_spans(),
+        || DollarInArithmetic,
+    );
 }
 
 #[cfg(test)]

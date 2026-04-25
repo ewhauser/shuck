@@ -13,8 +13,7 @@ impl Violation for FunctionInAlias {
 }
 
 pub fn function_in_alias(checker: &mut Checker) {
-    let spans = checker.facts().function_in_alias_spans().to_vec();
-    checker.report_all_dedup(spans, || FunctionInAlias);
+    checker.report_fact_slice_dedup(|facts| facts.function_in_alias_spans(), || FunctionInAlias);
 }
 
 #[cfg(test)]

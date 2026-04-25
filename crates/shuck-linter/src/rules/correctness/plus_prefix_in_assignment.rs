@@ -13,11 +13,8 @@ impl Violation for PlusPrefixInAssignment {
 }
 
 pub fn plus_prefix_in_assignment(checker: &mut Checker) {
-    checker.report_all_dedup(
-        checker
-            .facts()
-            .assignment_like_command_name_spans()
-            .to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.assignment_like_command_name_spans(),
         || PlusPrefixInAssignment,
     );
 }

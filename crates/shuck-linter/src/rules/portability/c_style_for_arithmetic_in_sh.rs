@@ -17,9 +17,10 @@ pub fn c_style_for_arithmetic_in_sh(checker: &mut Checker) {
         return;
     }
 
-    let spans = checker.facts().arithmetic_update_operator_spans().to_vec();
-
-    checker.report_all(spans, || CStyleForArithmeticInSh);
+    checker.report_fact_slice(
+        |facts| facts.arithmetic_update_operator_spans(),
+        || CStyleForArithmeticInSh,
+    );
 }
 
 #[cfg(test)]

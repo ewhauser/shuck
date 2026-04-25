@@ -14,12 +14,10 @@ impl Violation for BareCommandNameAssignment {
 }
 
 pub fn bare_command_name_assignment(checker: &mut Checker) {
-    let spans = checker
-        .facts()
-        .bare_command_name_assignment_spans()
-        .to_vec();
-
-    checker.report_all_dedup(spans, || BareCommandNameAssignment);
+    checker.report_fact_slice_dedup(
+        |facts| facts.bare_command_name_assignment_spans(),
+        || BareCommandNameAssignment,
+    );
 }
 
 #[cfg(test)]

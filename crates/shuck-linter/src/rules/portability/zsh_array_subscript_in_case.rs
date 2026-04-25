@@ -18,8 +18,8 @@ pub fn zsh_array_subscript_in_case(checker: &mut Checker) {
         return;
     }
 
-    checker.report_all_dedup(
-        checker.facts().case_pattern_impossible_spans().to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.case_pattern_impossible_spans(),
         || ZshArraySubscriptInCase,
     );
 }

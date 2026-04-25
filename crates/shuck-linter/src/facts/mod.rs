@@ -61,7 +61,7 @@ use shuck_semantic::{
     ReferenceId, ReferenceKind, ScopeId, SemanticModel, ZshOptionState,
 };
 use smallvec::SmallVec;
-use std::{borrow::Cow, cell::OnceCell, ops::ControlFlow};
+use std::{borrow::Cow, ops::ControlFlow};
 
 pub use self::conditional_portability::ConditionalPortabilityFacts;
 pub(crate) use self::escape_scan::{EscapeScanMatch, EscapeScanSourceKind};

@@ -13,9 +13,7 @@ impl Violation for HeredocEndSpace {
 }
 
 pub fn heredoc_end_space(checker: &mut Checker) {
-    checker.report_all_dedup(checker.facts().heredoc_end_space_spans().to_vec(), || {
-        HeredocEndSpace
-    });
+    checker.report_fact_slice_dedup(|facts| facts.heredoc_end_space_spans(), || HeredocEndSpace);
 }
 
 #[cfg(test)]

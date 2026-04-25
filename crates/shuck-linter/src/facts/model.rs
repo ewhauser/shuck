@@ -1,6 +1,5 @@
 pub struct LinterFacts<'a> {
     source: &'a str,
-    shell: ShellDialect,
     commands: Vec<CommandFact<'a>>,
     structural_command_ids: Vec<CommandId>,
     #[cfg_attr(not(test), allow(dead_code))]
@@ -441,61 +440,12 @@ impl<'a> LinterFacts<'a> {
         &self.word_occurrences[id.index()]
     }
 
-    fn word_occurrence_ids_for_command(&self, id: CommandId) -> &[WordOccurrenceId] {
-        self.fact_store.word_occurrence_ids_for_command(id)
-    }
-
     fn word_node(&self, id: WordNodeId) -> &WordNode<'a> {
         &self.word_nodes[id.index()]
     }
 
-    fn word_node_derived(&self, id: WordNodeId) -> &WordNodeDerived {
-        word_node_derived(self.word_node(id), self.source)
-    }
-
-    fn compute_array_assignment_split_scalar_expansion_spans(
-        &self,
-        id: WordOccurrenceId,
-    ) -> Box<[Span]> {
-        let fact = self.word_occurrence_ref(id);
-        let word = occurrence_word(&self.word_nodes, self.word_occurrence(id));
-        let mut split_sensitive_spans = fact.unquoted_scalar_expansion_spans().to_vec();
-        let use_replacement_spans = collect_array_assignment_use_replacement_expansion_spans(word);
-        let brace_expansion_spans = word
-            .brace_syntax()
-            .iter()
-            .copied()
-            .filter(|_| shell_has_brace_expansion(self.shell))
-            .filter(|brace| brace.expands())
-            .map(|brace| brace.span)
-            .collect::<Vec<_>>();
-        let unquoted_command_substitution_spans = fact.unquoted_command_substitution_spans();
-
-        for command in &self.commands {
-            if contains_span_strictly(fact.span(), command.span())
-                && unquoted_command_substitution_spans
-                    .iter()
-                    .any(|span| contains_span_strictly(*span, command.span()))
-            {
-                for nested_id in self.word_occurrence_ids_for_command(command.id()) {
-                    split_sensitive_spans.extend(
-                        self.word_occurrence_ref(*nested_id)
-                            .scalar_expansion_spans()
-                            .iter()
-                            .copied(),
-                    );
-                }
-            }
-        }
-
-        split_sensitive_spans.retain(|span| {
-            !use_replacement_spans.contains(span)
-                && !brace_expansion_spans
-                    .iter()
-                    .any(|brace_span| contains_span(*brace_span, *span))
-        });
-        sort_and_dedup_spans(&mut split_sensitive_spans);
-        split_sensitive_spans.into_boxed_slice()
+    fn word_node_derived(&self, id: WordNodeId) -> &WordNodeDerived<'a> {
+        word_node_derived(self.word_node(id))
     }
 
     pub fn brace_variable_before_bracket_spans(&self) -> &[Span] {
@@ -908,6 +858,90 @@ impl<'a> LinterFacts<'a> {
         }
         uses
     }
+}
+
+fn populate_array_assignment_split_scalar_expansion_spans(
+    shell: ShellDialect,
+    commands: &[CommandFact<'_>],
+    word_nodes: &[WordNode<'_>],
+    word_occurrences: &mut [WordOccurrence],
+    fact_store: &mut FactStore<'_>,
+    word_ids: &[WordOccurrenceId],
+) {
+    let mut scratch = Vec::new();
+    for id in word_ids.iter().copied() {
+        collect_array_assignment_split_scalar_expansion_spans(
+            shell,
+            id,
+            commands,
+            word_nodes,
+            word_occurrences,
+            fact_store,
+            &mut scratch,
+        );
+        word_occurrences[id.index()].array_assignment_split_scalar_expansion_spans =
+            fact_store.word_spans.push_many(scratch.drain(..));
+    }
+}
+
+fn collect_array_assignment_split_scalar_expansion_spans(
+    shell: ShellDialect,
+    id: WordOccurrenceId,
+    commands: &[CommandFact<'_>],
+    word_nodes: &[WordNode<'_>],
+    word_occurrences: &[WordOccurrence],
+    fact_store: &FactStore<'_>,
+    split_sensitive_spans: &mut Vec<Span>,
+) {
+    split_sensitive_spans.clear();
+    let fact = &word_occurrences[id.index()];
+    let word = occurrence_word(word_nodes, fact);
+    let derived = word_node_derived(&word_nodes[fact.node_id.index()]);
+    split_sensitive_spans.extend(
+        fact_store
+            .word_spans(derived.unquoted_scalar_expansion_spans)
+            .iter()
+            .copied(),
+    );
+    let use_replacement_spans = collect_array_assignment_use_replacement_expansion_spans(word);
+    let brace_expansion_spans = word
+        .brace_syntax()
+        .iter()
+        .copied()
+        .filter(|_| shell_has_brace_expansion(shell))
+        .filter(|brace| brace.expands())
+        .map(|brace| brace.span)
+        .collect::<Vec<_>>();
+    let fact_span = occurrence_span(word_nodes, fact);
+    let unquoted_command_substitution_spans =
+        fact_store.word_spans(derived.unquoted_command_substitution_spans);
+
+    for command in commands {
+        if contains_span_strictly(fact_span, command.span())
+            && unquoted_command_substitution_spans
+                .iter()
+                .any(|span| contains_span_strictly(*span, command.span()))
+        {
+            for nested_id in fact_store.word_occurrence_ids_for_command(command.id()) {
+                let nested = &word_occurrences[nested_id.index()];
+                let nested_derived = word_node_derived(&word_nodes[nested.node_id.index()]);
+                split_sensitive_spans.extend(
+                    fact_store
+                        .word_spans(nested_derived.scalar_expansion_spans)
+                        .iter()
+                        .copied(),
+                );
+            }
+        }
+    }
+
+    split_sensitive_spans.retain(|span| {
+        !use_replacement_spans.contains(span)
+            && !brace_expansion_spans
+                .iter()
+                .any(|brace_span| contains_span(*brace_span, *span))
+    });
+    sort_and_dedup_spans(split_sensitive_spans);
 }
 
 fn source_compat_name_use(

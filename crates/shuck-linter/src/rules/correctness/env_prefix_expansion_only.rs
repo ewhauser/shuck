@@ -13,8 +13,8 @@ impl Violation for EnvPrefixExpansionOnly {
 }
 
 pub fn env_prefix_expansion_only(checker: &mut Checker) {
-    checker.report_all_dedup(
-        checker.facts().env_prefix_expansion_scope_spans().to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.env_prefix_expansion_scope_spans(),
         || EnvPrefixExpansionOnly,
     );
 }

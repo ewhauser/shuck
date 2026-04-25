@@ -13,9 +13,10 @@ impl Violation for ArrayIndexArithmetic {
 }
 
 pub fn array_index_arithmetic(checker: &mut Checker) {
-    let spans = checker.facts().array_index_arithmetic_spans().to_vec();
-
-    checker.report_all_dedup(spans, || ArrayIndexArithmetic);
+    checker.report_fact_slice_dedup(
+        |facts| facts.array_index_arithmetic_spans(),
+        || ArrayIndexArithmetic,
+    );
 }
 
 #[cfg(test)]

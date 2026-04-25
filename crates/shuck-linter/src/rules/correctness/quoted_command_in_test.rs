@@ -44,7 +44,8 @@ fn collect_simple_test_spans(
 ) -> Vec<Span> {
     simple_test_condition_operand(simple_test)
         .and_then(|word| {
-            simple_test_word_looks_like_quoted_pipeline(checker, word.span).then_some(word.span)
+            simple_test_word_looks_like_quoted_pipeline(checker, word.span, checker.source())
+                .then_some(word.span)
         })
         .into_iter()
         .collect()
@@ -150,21 +151,29 @@ fn conditional_unary_checks_literal_string(unary: &crate::ConditionalUnaryFact<'
         || unary.op() == ConditionalUnaryOp::Not
 }
 
-fn simple_test_word_looks_like_quoted_pipeline(checker: &Checker<'_>, span: Span) -> bool {
+fn simple_test_word_looks_like_quoted_pipeline(
+    checker: &Checker<'_>,
+    span: Span,
+    source: &str,
+) -> bool {
     checker
         .facts()
         .word_fact(
             span,
             WordFactContext::Expansion(ExpansionContext::CommandArgument),
         )
-        .is_some_and(word_fact_looks_like_quoted_pipeline)
+        .is_some_and(|fact| word_fact_looks_like_quoted_pipeline(fact, source))
 }
 
-fn word_fact_looks_like_quoted_pipeline(fact: crate::WordOccurrenceRef<'_, '_>) -> bool {
+fn word_fact_looks_like_quoted_pipeline(
+    fact: crate::WordOccurrenceRef<'_, '_>,
+    source: &str,
+) -> bool {
     fact.classification().quote == WordQuote::FullyQuoted
         && fact.classification().is_fixed_literal()
         && fact
-            .static_text()
+            .static_text_cow(source)
+            .as_deref()
             .is_some_and(looks_like_quoted_pipeline_literal)
 }
 

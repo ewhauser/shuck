@@ -13,8 +13,8 @@ impl Violation for SpacedTabstripClose {
 }
 
 pub fn spaced_tabstrip_close(checker: &mut Checker) {
-    checker.report_all_dedup(
-        checker.facts().spaced_tabstrip_close_spans().to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.spaced_tabstrip_close_spans(),
         || SpacedTabstripClose,
     );
 }
