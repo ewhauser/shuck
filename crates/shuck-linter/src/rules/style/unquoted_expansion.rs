@@ -2629,6 +2629,99 @@ main
     }
 
     #[test]
+    fn uses_static_loop_values_through_intermediate_helpers() {
+        let source = "\
+#!/bin/bash
+run() {
+  LDFLAGS=\"-fuse-ld=${linker}\"
+  cc ${CFLAGS} ${LDFLAGS}
+}
+dispatch() {
+  run
+}
+main() {
+  local linker
+  for linker in gold bfd lld; do
+    dispatch
+  done
+}
+main
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CFLAGS}"]
+        );
+    }
+
+    #[test]
+    fn reports_static_loop_values_when_intermediate_helpers_have_unsafe_callers() {
+        let source = "\
+#!/bin/bash
+run() {
+  LDFLAGS=\"-fuse-ld=${linker}\"
+  cc ${CFLAGS} ${LDFLAGS}
+}
+dispatch() {
+  run
+}
+main() {
+  local linker
+  for linker in gold bfd lld; do
+    dispatch
+  done
+}
+main
+dispatch
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CFLAGS}", "${LDFLAGS}"]
+        );
+    }
+
+    #[test]
+    fn uses_static_loop_call_values_over_unrelated_prior_loop_bindings() {
+        let source = "\
+#!/bin/bash
+for linker in gold bfd lld; do
+  :
+done
+run() {
+  LDFLAGS=\"-fuse-ld=${linker}\"
+  cc ${CFLAGS} ${LDFLAGS}
+}
+main() {
+  local linker
+  for linker in gold bfd lld; do
+    [[ ${CC} == gcc && ${linker} == lld ]] && continue
+    LDFLAGS=\"-fuse-ld=${linker}\" tc-ld-is-${linker} || continue
+    run
+  done
+}
+main
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CFLAGS}"]
+        );
+    }
+
+    #[test]
     fn uses_safe_top_level_bindings_at_static_function_call_sites() {
         let source = "\
 #!/bin/sh

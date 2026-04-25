@@ -3,13 +3,6 @@ reviewed_divergences:
     path_suffix: "233boy__v2ray__src__core.sh"
     line: 1254
     end_line: 1254
-    column: 26
-    end_column: 38
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shellcheck-only
-    path_suffix: "233boy__v2ray__src__core.sh"
-    line: 1254
-    end_line: 1254
     column: 39
     end_column: 43
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
@@ -47,13 +40,6 @@ reviewed_divergences:
     end_line: 83
     column: 14
     end_column: 21
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__network__quagga__rc.quagga"
-    line: 18
-    end_line: 18
-    column: 14
-    end_column: 22
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "SlackBuildsOrg__slackbuilds__system__sboui__doinst.sh"
@@ -176,36 +162,8 @@ reviewed_divergences:
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "bittorf__kalua__openwrt-addons__etc__init.d__override_uci_vars"
-    line: 149
-    end_line: 149
-    column: 47
-    end_column: 49
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__init.d__override_uci_vars"
-    line: 155
-    end_line: 155
-    column: 44
-    end_column: 46
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__init.d__override_uci_vars"
     line: 418
     end_line: 418
-    column: 29
-    end_column: 31
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__init.d__override_uci_vars"
-    line: 468
-    end_line: 468
-    column: 45
-    end_column: 47
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__init.d__override_uci_vars"
-    line: 470
-    end_line: 470
     column: 29
     end_column: 31
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
@@ -595,69 +553,6 @@ reviewed_divergences:
     end_column: 25
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
-    line: 249
-    end_line: 249
-    column: 21
-    end_column: 31
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
-    line: 262
-    end_line: 262
-    column: 21
-    end_column: 31
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
-    line: 277
-    end_line: 277
-    column: 21
-    end_column: 31
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
-    line: 290
-    end_line: 290
-    column: 21
-    end_column: 31
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
-    line: 311
-    end_line: 311
-    column: 21
-    end_column: 31
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
-    line: 327
-    end_line: 327
-    column: 21
-    end_column: 31
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
-    line: 345
-    end_line: 345
-    column: 21
-    end_column: 31
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
-    line: 361
-    end_line: 361
-    column: 21
-    end_column: 31
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
-    line: 717
-    end_line: 717
-    column: 42
-    end_column: 51
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "gentoo__gentoo__eclass__tests__toolchain-funcs.sh"
     line: 61
     end_line: 61
@@ -670,34 +565,6 @@ reviewed_divergences:
     end_line: 155
     column: 7
     end_column: 13
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__net-firewall__nftables__files__libexec__nftables.sh"
-    line: 114
-    end_line: 114
-    column: 29
-    end_column: 35
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__net-firewall__nftables__files__libexec__nftables.sh"
-    line: 114
-    end_line: 114
-    column: 36
-    end_column: 55
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__net-firewall__nftables__files__libexec__nftables.sh"
-    line: 116
-    end_line: 116
-    column: 30
-    end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__net-firewall__nftables__files__libexec__nftables.sh"
-    line: 116
-    end_line: 116
-    column: 37
-    end_column: 56
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "gentoo__gentoo__net-vpn__derper__files__derper-pre.sh"
@@ -1230,32 +1097,4 @@ reviewed_divergences:
     end_line: 377
     column: 12
     end_column: 17
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__hooks__pre-configure__02-script-wrapper.sh"
-    line: 182
-    end_line: 182
-    column: 45
-    end_column: 53
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__hooks__pre-configure__02-script-wrapper.sh"
-    line: 183
-    end_line: 183
-    column: 54
-    end_column: 62
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__hooks__pre-configure__02-script-wrapper.sh"
-    line: 188
-    end_line: 188
-    column: 45
-    end_column: 53
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__hooks__pre-configure__02-script-wrapper.sh"
-    line: 189
-    end_line: 189
-    column: 54
-    end_column: 62
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."

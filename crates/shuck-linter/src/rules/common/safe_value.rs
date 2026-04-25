@@ -323,6 +323,7 @@ impl<'a> SafeValueIndex<'a> {
 
         let mut bindings = self.safe_bindings_for_name(name, at);
         self.drop_declarations_shadowed_by_covering_loop_bindings(&mut bindings, at);
+        self.drop_outer_bindings_shadowed_by_covering_loop_bindings(&mut bindings, at);
         bindings.retain(|binding_id| {
             !self.binding_is_cleared_by_dominating_unset(*binding_id, name, at)
         });
@@ -1268,10 +1269,37 @@ impl<'a> SafeValueIndex<'a> {
         let Some(helper_scope) = self.enclosing_function_scope_at(at.start.offset) else {
             return false;
         };
+        self.loop_variable_scope_callers_stay_within_body(
+            definition_span,
+            helper_scope,
+            &mut FxHashSet::default(),
+        )
+    }
+
+    fn loop_variable_scope_callers_stay_within_body(
+        &self,
+        definition_span: Span,
+        helper_scope: ScopeId,
+        seen_scopes: &mut FxHashSet<ScopeId>,
+    ) -> bool {
+        if !seen_scopes.insert(helper_scope) {
+            return false;
+        }
+
         let caller_sites = self.named_function_call_sites(helper_scope);
         !caller_sites.is_empty()
             && caller_sites.into_iter().all(|(_, call_span)| {
-                self.loop_variable_reference_stays_within_body(definition_span, call_span)
+                if self.loop_variable_reference_stays_within_body(definition_span, call_span) {
+                    return true;
+                }
+
+                let caller_scope = self.semantic.scope_at(call_span.start.offset);
+                let mut caller_seen = seen_scopes.clone();
+                self.loop_variable_scope_callers_stay_within_body(
+                    definition_span,
+                    caller_scope,
+                    &mut caller_seen,
+                )
             })
     }
 
@@ -1331,7 +1359,16 @@ impl<'a> SafeValueIndex<'a> {
         if !uncalled_function_bindings.is_empty() && !function_local_binding {
             bindings = uncalled_function_bindings;
         }
-        if bindings.is_empty() {
+        if !caller_bindings.is_empty()
+            && self.enclosing_function_scope_at(at.start.offset).is_some()
+            && !function_local_binding
+            && self.bindings_are_static_loop_variables(&caller_bindings)
+        {
+            bindings = caller_bindings;
+            bindings.extend(helper_bindings);
+            bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+            bindings.dedup();
+        } else if bindings.is_empty() {
             bindings = caller_bindings;
             bindings.extend(helper_bindings);
             bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
@@ -1341,9 +1378,43 @@ impl<'a> SafeValueIndex<'a> {
             bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
             bindings.dedup();
         }
+        if let Some(scope) = self.enclosing_function_scope_at(at.start.offset)
+            && bindings.iter().copied().any(|binding_id| {
+                self.binding_is_in_scope_or_descendant(binding_id, scope)
+                    && self.binding_shadows_outer_scope_values(binding_id)
+            })
+        {
+            bindings
+                .retain(|binding_id| self.binding_is_in_scope_or_descendant(*binding_id, scope));
+        }
+        let reference_scope = self.semantic.scope_at(at.start.offset);
+        bindings.retain(|binding_id| {
+            self.semantic.binding(*binding_id).span.start.offset <= at.start.offset
+                || !self.binding_is_in_scope_or_descendant(*binding_id, reference_scope)
+                || self.future_binding_can_reach_reference(*binding_id, name, at)
+        });
 
         self.retain_value_bindings(&mut bindings);
         bindings
+    }
+
+    fn bindings_are_static_loop_variables(&self, bindings: &[BindingId]) -> bool {
+        !bindings.is_empty()
+            && bindings.iter().copied().all(|binding_id| {
+                matches!(
+                    self.semantic.binding(binding_id).origin,
+                    BindingOrigin::LoopVariable {
+                        items: LoopValueOrigin::StaticWords,
+                        ..
+                    }
+                )
+            })
+    }
+
+    fn binding_shadows_outer_scope_values(&self, binding_id: BindingId) -> bool {
+        let binding = self.semantic.binding(binding_id);
+        binding.attributes.contains(BindingAttributes::LOCAL)
+            || matches!(binding.origin, BindingOrigin::LoopVariable { .. })
     }
 
     fn uncalled_function_outer_bindings_at_end(&mut self, name: &Name, at: Span) -> Vec<BindingId> {
@@ -1395,29 +1466,95 @@ impl<'a> SafeValueIndex<'a> {
         let Some(helper_scope) = self.enclosing_function_scope_at(at.start.offset) else {
             return Vec::new();
         };
+        self.caller_bindings_covering_static_scope_call_sites(
+            name,
+            helper_scope,
+            &mut FxHashSet::default(),
+        )
+        .unwrap_or_default()
+    }
+
+    fn caller_bindings_covering_static_scope_call_sites(
+        &mut self,
+        name: &Name,
+        helper_scope: ScopeId,
+        seen_scopes: &mut FxHashSet<ScopeId>,
+    ) -> Option<Vec<BindingId>> {
+        if !seen_scopes.insert(helper_scope) {
+            return None;
+        }
+
         let caller_sites = self.named_function_call_sites(helper_scope);
         if caller_sites.is_empty() {
-            return Vec::new();
+            return None;
         }
 
         let mut bindings = Vec::new();
         for (scope, span) in caller_sites {
-            let branch = self.caller_branch_bindings_before(name, scope, span);
-            if branch.is_empty()
-                || !self.bindings_cover_all_paths_to_callsite(
-                    &branch,
-                    self.command_for_name_word_span(span)
-                        .map_or(span, |command| command.span()),
-                )
+            let caller_scope = self
+                .enclosing_function_scope_at(span.start.offset)
+                .unwrap_or(scope);
+            let mut branch = self.caller_branch_bindings_before(name, caller_scope, span);
+            self.drop_declarations_shadowed_by_covering_loop_bindings(&mut branch, span);
+            if branch
+                .iter()
+                .copied()
+                .any(|binding_id| self.binding_is_in_scope_or_descendant(binding_id, caller_scope))
             {
-                return Vec::new();
+                branch.retain(|binding_id| {
+                    self.binding_is_in_scope_or_descendant(*binding_id, caller_scope)
+                });
             }
-            bindings.extend(branch);
+            let call_span = self
+                .command_for_name_word_span(span)
+                .map_or(span, |command| command.span());
+            let loop_branch = self.loop_bindings_covering_callsite(&branch, call_span);
+            if !loop_branch.is_empty() {
+                bindings.extend(loop_branch);
+                continue;
+            }
+            if !branch.is_empty() && self.bindings_cover_all_paths_to_callsite(&branch, call_span) {
+                bindings.extend(branch);
+                continue;
+            }
+
+            let mut caller_seen = seen_scopes.clone();
+            let transitive = self.caller_bindings_covering_static_scope_call_sites(
+                name,
+                caller_scope,
+                &mut caller_seen,
+            )?;
+            if transitive.is_empty() {
+                return None;
+            }
+            bindings.extend(transitive);
         }
 
         bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
         bindings.dedup();
+        Some(bindings)
+    }
+
+    fn loop_bindings_covering_callsite(
+        &self,
+        bindings: &[BindingId],
+        call_span: Span,
+    ) -> Vec<BindingId> {
         bindings
+            .iter()
+            .copied()
+            .filter(|binding_id| {
+                let binding = self.semantic.binding(*binding_id);
+                let BindingOrigin::LoopVariable {
+                    definition_span,
+                    items: LoopValueOrigin::StaticWords,
+                } = &binding.origin
+                else {
+                    return false;
+                };
+                self.loop_variable_reference_stays_within_body(*definition_span, call_span)
+            })
+            .collect()
     }
 
     fn visible_bindings_for_name_without_helpers(&self, name: &Name, at: Span) -> Vec<BindingId> {
@@ -1597,6 +1734,42 @@ impl<'a> SafeValueIndex<'a> {
         false
     }
 
+    fn future_binding_can_reach_reference(
+        &self,
+        binding_id: BindingId,
+        name: &Name,
+        at: Span,
+    ) -> bool {
+        let Some(binding_block) = self.block_for_binding(binding_id) else {
+            return false;
+        };
+        let Some(reference_block) = self.block_for_name_reference_or_virtual_offset(name, at)
+        else {
+            return false;
+        };
+        if binding_block == reference_block {
+            return true;
+        }
+
+        let cfg = self.analysis.cfg();
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let mut stack = vec![binding_block];
+        let mut seen = FxHashSet::default();
+        while let Some(block_id) = stack.pop() {
+            if unreachable.contains(&block_id) || !seen.insert(block_id) {
+                continue;
+            }
+            for (successor, _) in cfg.successors(block_id) {
+                if *successor == reference_block {
+                    return true;
+                }
+                stack.push(*successor);
+            }
+        }
+
+        false
+    }
+
     fn current_binding_value_for_name(&self, name: &Name) -> Option<BindingId> {
         self.binding_value_stack
             .iter()
@@ -1642,6 +1815,65 @@ impl<'a> SafeValueIndex<'a> {
                 binding.scope == *scope && binding.span.start.offset <= *loop_start
             })
         });
+    }
+
+    fn drop_outer_bindings_shadowed_by_covering_loop_bindings(
+        &self,
+        bindings: &mut Vec<BindingId>,
+        at: Span,
+    ) {
+        let covering_loop_scopes = bindings
+            .iter()
+            .copied()
+            .filter_map(|binding_id| {
+                let binding = self.semantic.binding(binding_id);
+                let BindingOrigin::LoopVariable {
+                    definition_span,
+                    items: LoopValueOrigin::StaticWords,
+                } = &binding.origin
+                else {
+                    return None;
+                };
+                (self.loop_variable_reference_stays_within_body(*definition_span, at)
+                    || self
+                        .loop_variable_reference_stays_within_static_callers(*definition_span, at))
+                .then_some((binding_id, binding.scope))
+            })
+            .collect::<Vec<_>>();
+        if covering_loop_scopes.is_empty() {
+            return;
+        }
+
+        bindings.retain(|binding_id| {
+            if covering_loop_scopes
+                .iter()
+                .any(|(covering_id, _)| covering_id == binding_id)
+            {
+                return true;
+            }
+
+            let binding = self.semantic.binding(*binding_id);
+            if matches!(
+                binding.origin,
+                BindingOrigin::LoopVariable {
+                    items: LoopValueOrigin::StaticWords,
+                    ..
+                }
+            ) {
+                return false;
+            }
+            !covering_loop_scopes
+                .iter()
+                .any(|(_, loop_scope)| self.scope_is_ancestor(binding.scope, *loop_scope))
+        });
+    }
+
+    fn scope_is_ancestor(&self, ancestor: ScopeId, scope: ScopeId) -> bool {
+        ancestor != scope
+            && self
+                .semantic
+                .ancestor_scopes(scope)
+                .any(|candidate| candidate == ancestor)
     }
 
     fn called_helper_bindings_for_name(&mut self, name: &Name, at: Span) -> Vec<BindingId> {
@@ -1766,7 +1998,20 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         caller_sites.into_iter().all(|(scope, span)| {
-            let branch = self.caller_branch_bindings_before(name, scope, span);
+            let caller_scope = self
+                .enclosing_function_scope_at(span.start.offset)
+                .unwrap_or(scope);
+            let mut branch = self.caller_branch_bindings_before(name, caller_scope, span);
+            self.drop_declarations_shadowed_by_covering_loop_bindings(&mut branch, span);
+            if branch
+                .iter()
+                .copied()
+                .any(|binding_id| self.binding_is_in_scope_or_descendant(binding_id, caller_scope))
+            {
+                branch.retain(|binding_id| {
+                    self.binding_is_in_scope_or_descendant(*binding_id, caller_scope)
+                });
+            }
             if branch.is_empty() {
                 return false;
             }
@@ -1779,13 +2024,15 @@ impl<'a> SafeValueIndex<'a> {
                 .into_iter()
                 .filter(|binding_id| !helper_branch.contains(binding_id))
                 .collect::<Vec<_>>();
+            let call_span = self
+                .command_for_name_word_span(span)
+                .map_or(span, |command| command.span());
 
             direct_branch.is_empty()
-                || self.bindings_cover_all_paths_to_callsite(
-                    &direct_branch,
-                    self.command_for_name_word_span(span)
-                        .map_or(span, |command| command.span()),
-                )
+                || !self
+                    .loop_bindings_covering_callsite(&direct_branch, call_span)
+                    .is_empty()
+                || self.bindings_cover_all_paths_to_callsite(&direct_branch, call_span)
         })
     }
 
