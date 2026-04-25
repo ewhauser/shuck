@@ -994,6 +994,25 @@ impl DenseBitSet {
             .is_some_and(|word| (word & (1usize << bit)) != 0)
     }
 
+    fn clear(&mut self) {
+        self.words.fill(0);
+    }
+
+    fn copy_from(&mut self, other: &Self) {
+        debug_assert_eq!(self.words.len(), other.words.len());
+        self.words.copy_from_slice(&other.words);
+    }
+
+    fn replace_if_changed(&mut self, other: &Self) -> bool {
+        debug_assert_eq!(self.words.len(), other.words.len());
+        if self.words == other.words {
+            false
+        } else {
+            self.copy_from(other);
+            true
+        }
+    }
+
     fn union_with(&mut self, other: &Self) {
         debug_assert_eq!(self.words.len(), other.words.len());
         for (word, other_word) in self.words.iter_mut().zip(&other.words) {
@@ -1405,12 +1424,15 @@ fn compute_reaching_definitions_dense(
 
     let mut reaching_in = vec![DenseBitSet::new(binding_count); block_count];
     let mut reaching_out = vec![DenseBitSet::new(binding_count); block_count];
+    let mut incoming = DenseBitSet::new(binding_count);
+    let mut carried = DenseBitSet::new(binding_count);
+    let mut outgoing = DenseBitSet::new(binding_count);
     let mut changed = true;
     while changed {
         changed = false;
         for block in cfg.blocks() {
             let block_index = block.id.index();
-            let mut incoming = DenseBitSet::new(binding_count);
+            incoming.clear();
             for predecessor in cfg.predecessors(block.id) {
                 incoming.union_with(&reaching_out[predecessor.index()]);
             }
@@ -1420,17 +1442,15 @@ fn compute_reaching_definitions_dense(
                 }
             }
 
-            let mut carried = incoming.clone();
+            carried.copy_from(&incoming);
             carried.subtract_with(&kill_sets[block_index]);
-            let mut outgoing = gen_sets[block_index].clone();
+            outgoing.copy_from(&gen_sets[block_index]);
             outgoing.union_with(&carried);
 
-            if reaching_in[block_index] != incoming {
-                reaching_in[block_index] = incoming;
+            if reaching_in[block_index].replace_if_changed(&incoming) {
                 changed = true;
             }
-            if reaching_out[block_index] != outgoing {
-                reaching_out[block_index] = outgoing;
+            if reaching_out[block_index].replace_if_changed(&outgoing) {
                 changed = true;
             }
         }
@@ -1519,13 +1539,17 @@ fn compute_initialized_name_states_dense_with_extra_name_gens(
     let mut maybe_out = vec![DenseBitSet::new(name_count); block_count];
     let mut definite_in = vec![all_names.clone(); block_count];
     let mut definite_out = vec![all_names; block_count];
+    let mut incoming_maybe = DenseBitSet::new(name_count);
+    let mut incoming_definite = DenseBitSet::new(name_count);
+    let mut outgoing_maybe = DenseBitSet::new(name_count);
+    let mut outgoing_definite = DenseBitSet::new(name_count);
     let mut changed = true;
     while changed {
         changed = false;
         for block in cfg.blocks() {
             let block_index = block.id.index();
 
-            let mut incoming_maybe = DenseBitSet::new(name_count);
+            incoming_maybe.clear();
             for predecessor in cfg.predecessors(block.id) {
                 incoming_maybe.union_with(&maybe_out[predecessor.index()]);
             }
@@ -1542,13 +1566,13 @@ fn compute_initialized_name_states_dense_with_extra_name_gens(
                             *successor == block.id && *kind == EdgeKind::LoopBack
                         })
                 });
-            let mut incoming_definite = if uses_virtual_entry_boundary {
-                entry_definite.clone()
+            if uses_virtual_entry_boundary {
+                incoming_definite.copy_from(&entry_definite);
             } else if let Some(first_predecessor) = predecessors.first() {
-                definite_out[first_predecessor.index()].clone()
+                incoming_definite.copy_from(&definite_out[first_predecessor.index()]);
             } else {
-                DenseBitSet::new(name_count)
-            };
+                incoming_definite.clear();
+            }
             for (predecessor_index, predecessor) in predecessors.iter().enumerate() {
                 if !uses_virtual_entry_boundary && predecessor_index == 0 {
                     continue;
@@ -1556,28 +1580,24 @@ fn compute_initialized_name_states_dense_with_extra_name_gens(
                 incoming_definite.intersect_with(&definite_out[predecessor.index()]);
             }
 
-            let mut outgoing_maybe = incoming_maybe.clone();
+            outgoing_maybe.copy_from(&incoming_maybe);
             outgoing_maybe.subtract_with(&overwritten_names[block_index]);
             outgoing_maybe.union_with(&maybe_gen[block_index]);
 
-            let mut outgoing_definite = incoming_definite.clone();
+            outgoing_definite.copy_from(&incoming_definite);
             outgoing_definite.subtract_with(&overwritten_names[block_index]);
             outgoing_definite.union_with(&definite_gen[block_index]);
 
-            if maybe_in[block_index] != incoming_maybe {
-                maybe_in[block_index] = incoming_maybe;
+            if maybe_in[block_index].replace_if_changed(&incoming_maybe) {
                 changed = true;
             }
-            if maybe_out[block_index] != outgoing_maybe {
-                maybe_out[block_index] = outgoing_maybe;
+            if maybe_out[block_index].replace_if_changed(&outgoing_maybe) {
                 changed = true;
             }
-            if definite_in[block_index] != incoming_definite {
-                definite_in[block_index] = incoming_definite;
+            if definite_in[block_index].replace_if_changed(&incoming_definite) {
                 changed = true;
             }
-            if definite_out[block_index] != outgoing_definite {
-                definite_out[block_index] = outgoing_definite;
+            if definite_out[block_index].replace_if_changed(&outgoing_definite) {
                 changed = true;
             }
         }
@@ -1912,18 +1932,18 @@ fn compute_interprocedural_read_sets(
 ) -> InterproceduralReadSets {
     let nested_child_scopes = nested_non_function_child_scopes(scopes);
     let mut transitive_reads = vec![DenseBitSet::new(name_count); read_plans.len()];
+    let mut reads = DenseBitSet::new(name_count);
     loop {
         let mut changed = false;
         for (scope_index, plan) in read_plans.iter().enumerate() {
-            let mut reads = plan.direct_reads.clone();
+            reads.copy_from(&plan.direct_reads);
             for &child_scope in &nested_child_scopes[scope_index] {
                 reads.union_with(&transitive_reads[child_scope.index()]);
             }
             for call in &plan.calls {
                 reads.union_with(&transitive_reads[call.callee_scope.index()]);
             }
-            if transitive_reads[scope_index] != reads {
-                transitive_reads[scope_index] = reads;
+            if transitive_reads[scope_index].replace_if_changed(&reads) {
                 changed = true;
             }
         }
@@ -1941,7 +1961,7 @@ fn compute_interprocedural_read_sets(
                 continue;
             }
 
-            let mut reads = DenseBitSet::new(name_count);
+            reads.clear();
             for caller in &callers_by_callee[scope_index] {
                 future_reads_union_after(
                     &mut reads,
@@ -1952,8 +1972,7 @@ fn compute_interprocedural_read_sets(
                     &escape_reads,
                 );
             }
-            if escape_reads[scope_index] != reads {
-                escape_reads[scope_index] = reads;
+            if escape_reads[scope_index].replace_if_changed(&reads) {
                 changed = true;
             }
         }
@@ -1993,14 +2012,16 @@ fn build_future_read_summaries(
         .map(|plan| {
             let mut suffix_reads = vec![DenseBitSet::new(name_count); plan.events.len() + 1];
             for event_index in (0..plan.events.len()).rev() {
-                suffix_reads[event_index] = suffix_reads[event_index + 1].clone();
+                let (current_and_before, next_and_after) =
+                    suffix_reads.split_at_mut(event_index + 1);
+                let current = &mut current_and_before[event_index];
+                current.copy_from(&next_and_after[0]);
                 match plan.events[event_index].kind {
                     ScopeReadEventKind::Direct(name_id) => {
-                        suffix_reads[event_index].insert(name_id.index());
+                        current.insert(name_id.index());
                     }
                     ScopeReadEventKind::Call(callee_scope) => {
-                        suffix_reads[event_index]
-                            .union_with(&transitive_reads[callee_scope.index()]);
+                        current.union_with(&transitive_reads[callee_scope.index()]);
                     }
                 }
             }
