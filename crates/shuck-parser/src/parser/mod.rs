@@ -3519,7 +3519,7 @@ impl<'a> Parser<'a> {
                     ),
                 LexedWordSegmentKind::Composite => unreachable!(),
             };
-            parts.push(part);
+            Self::push_word_part_node(&mut parts, part);
         }
 
         Some(self.word_with_part_buffer(parts, span))
@@ -3730,10 +3730,12 @@ impl<'a> Parser<'a> {
             let preserve_escaped_expansion_literals = source_backed;
 
             match segment.kind() {
-                LexedWordSegmentKind::SingleQuoted => parts.push(
+                LexedWordSegmentKind::SingleQuoted => Self::push_word_part_node(
+                    &mut parts,
                     self.single_quoted_part_from_text(text, content_span, wrapper_span, false),
                 ),
-                LexedWordSegmentKind::DollarSingleQuoted => parts.push(
+                LexedWordSegmentKind::DollarSingleQuoted => Self::push_word_part_node(
+                    &mut parts,
                     self.single_quoted_part_from_text(text, content_span, wrapper_span, true),
                 ),
                 LexedWordSegmentKind::Plain => {
@@ -3749,7 +3751,10 @@ impl<'a> Parser<'a> {
                             .parts,
                         );
                     } else {
-                        parts.push(self.literal_part_from_text(text, content_span, source_backed));
+                        Self::push_word_part_node(
+                            &mut parts,
+                            self.literal_part_from_text(text, content_span, source_backed),
+                        );
                     }
                 }
                 LexedWordSegmentKind::DoubleQuoted | LexedWordSegmentKind::DollarDoubleQuoted => {
@@ -3760,24 +3765,30 @@ impl<'a> Parser<'a> {
                             content_span.start,
                             source_backed,
                         );
-                        parts.push(WordPartNode::new(
-                            WordPart::DoubleQuoted {
-                                parts: inner.parts,
-                                dollar: matches!(
-                                    segment.kind(),
-                                    LexedWordSegmentKind::DollarDoubleQuoted
-                                ),
-                            },
-                            wrapper_span,
-                        ));
+                        Self::push_word_part_node(
+                            &mut parts,
+                            WordPartNode::new(
+                                WordPart::DoubleQuoted {
+                                    parts: inner.parts,
+                                    dollar: matches!(
+                                        segment.kind(),
+                                        LexedWordSegmentKind::DollarDoubleQuoted
+                                    ),
+                                },
+                                wrapper_span,
+                            ),
+                        );
                     } else {
-                        parts.push(self.double_quoted_literal_part_from_text(
-                            text,
-                            content_span,
-                            wrapper_span,
-                            source_backed,
-                            matches!(segment.kind(), LexedWordSegmentKind::DollarDoubleQuoted),
-                        ));
+                        Self::push_word_part_node(
+                            &mut parts,
+                            self.double_quoted_literal_part_from_text(
+                                text,
+                                content_span,
+                                wrapper_span,
+                                source_backed,
+                                matches!(segment.kind(), LexedWordSegmentKind::DollarDoubleQuoted),
+                            ),
+                        );
                     }
                 }
                 LexedWordSegmentKind::Composite => return None,
@@ -5641,7 +5652,14 @@ impl<'a> Parser<'a> {
     }
 
     fn push_word_part(parts: &mut WordPartBuffer, part: WordPart, start: Position, end: Position) {
-        parts.push(WordPartNode::new(part, Span::from_positions(start, end)));
+        Self::push_word_part_node(
+            parts,
+            WordPartNode::new(part, Span::from_positions(start, end)),
+        );
+    }
+
+    fn push_word_part_node(parts: &mut WordPartBuffer, part: WordPartNode) {
+        parts.push(part);
     }
 
     fn flush_literal_part(
@@ -5873,7 +5891,7 @@ impl<'a> Parser<'a> {
         VarRef {
             name: name.into(),
             name_span,
-            subscript,
+            subscript: subscript.map(Box::new),
             span,
         }
     }
@@ -6361,7 +6379,7 @@ impl<'a> Parser<'a> {
             return VarRef {
                 name: Name::from(name),
                 name_span: Span::new(),
-                subscript: Some(subscript),
+                subscript: Some(Box::new(subscript)),
                 span: Span::new(),
             };
         }

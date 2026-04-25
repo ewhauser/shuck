@@ -417,20 +417,20 @@ impl Subscript {
 pub struct VarRef {
     pub name: Name,
     pub name_span: Span,
-    pub subscript: Option<Subscript>,
+    pub subscript: Option<Box<Subscript>>,
     pub span: Span,
 }
 
 impl VarRef {
     pub fn has_array_selector(&self) -> bool {
         self.subscript
-            .as_ref()
+            .as_deref()
             .is_some_and(Subscript::is_array_selector)
     }
 
     pub fn is_source_backed(&self) -> bool {
         self.subscript
-            .as_ref()
+            .as_deref()
             .is_none_or(Subscript::is_source_backed)
     }
 }
@@ -3895,14 +3895,14 @@ mod tests {
         VarRef {
             name: name.into(),
             name_span: span,
-            subscript: Some(Subscript {
+            subscript: Some(Box::new(Subscript {
                 text: index.into(),
                 raw: None,
                 kind: SubscriptKind::Ordinary,
                 interpretation: SubscriptInterpretation::Contextual,
                 word_ast: None,
                 arithmetic_ast: None,
-            }),
+            })),
             span,
         }
     }
@@ -3912,14 +3912,14 @@ mod tests {
         VarRef {
             name: name.into(),
             name_span: span,
-            subscript: Some(Subscript {
+            subscript: Some(Box::new(Subscript {
                 text: selector.as_char().to_string().into(),
                 raw: None,
                 kind: SubscriptKind::Selector(selector),
                 interpretation: SubscriptInterpretation::Contextual,
                 word_ast: None,
                 arithmetic_ast: None,
-            }),
+            })),
             span,
         }
     }
@@ -4520,14 +4520,14 @@ mod tests {
         let w = word(vec![WordPart::ArrayAccess(VarRef {
             name: "assoc".into(),
             name_span: Span::new(),
-            subscript: Some(Subscript {
+            subscript: Some(Box::new(Subscript {
                 text: "key".into(),
                 raw: Some("\"key\"".into()),
                 kind: SubscriptKind::Ordinary,
                 interpretation: SubscriptInterpretation::Associative,
                 word_ast: None,
                 arithmetic_ast: None,
-            }),
+            })),
             span: Span::new(),
         })]);
         assert_eq!(format!("{w}"), "${assoc[\"key\"]}");

@@ -449,7 +449,7 @@ fn collect_base_prefix_spans_in_pattern(pattern: &Pattern, source: &str, spans: 
 }
 
 fn collect_base_prefix_spans_in_var_ref(reference: &VarRef, source: &str, spans: &mut Vec<Span>) {
-    collect_base_prefix_spans_in_subscript(reference.subscript.as_ref(), source, spans);
+    collect_base_prefix_spans_in_subscript(reference.subscript.as_deref(), source, spans);
 }
 
 fn collect_base_prefix_spans_in_subscript(
@@ -956,7 +956,7 @@ fn collect_arithmetic_update_operator_spans_in_assignment_target(
 ) {
     if !var_ref_subscript_has_assoc_semantics(reference, semantic) {
         collect_arithmetic_update_operator_spans_in_subscript(
-            reference.subscript.as_ref(),
+            reference.subscript.as_deref(),
             source,
             spans,
         );
@@ -967,7 +967,7 @@ fn collect_arithmetic_update_operator_spans_in_assignment_target(
 }
 
 fn var_ref_subscript_has_assoc_semantics(reference: &VarRef, semantic: &SemanticModel) -> bool {
-    let Some(subscript) = reference.subscript.as_ref() else {
+    let Some(subscript) = reference.subscript.as_deref() else {
         return false;
     };
     if matches!(

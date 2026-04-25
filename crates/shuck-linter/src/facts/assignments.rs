@@ -257,7 +257,7 @@ fn anchored_assignment_command_span(
 }
 
 fn assignment_target_span(assignment: &Assignment) -> Span {
-    assignment.target.subscript.as_ref().map_or_else(
+    assignment.target.subscript.as_deref().map_or_else(
         || assignment.target.name_span,
         |subscript| {
             Span::from_positions(
@@ -655,7 +655,7 @@ fn visit_assignment_reference_spans_outside_nested_commands(
     visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
     visit_subscript_reference_spans_outside_nested_commands(
-        assignment.target.subscript.as_ref(),
+        assignment.target.subscript.as_deref(),
         name,
         visit,
     )?;
@@ -1059,7 +1059,7 @@ fn visit_var_ref_reference_spans_outside_nested_commands(
     }
 
     visit_subscript_reference_spans_outside_nested_commands(
-        reference.subscript.as_ref(),
+        reference.subscript.as_deref(),
         name,
         visit,
     )
