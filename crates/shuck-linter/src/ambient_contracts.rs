@@ -86,7 +86,7 @@ fn build_sourced_runtime_contract(
         ..FileContract::default()
     };
     for name in names {
-        contract.add_provided_binding(ProvidedBinding::new_file_entry_initialized(
+        contract.add_provided_binding(ProvidedBinding::new(
             Name::from(name.as_str()),
             ProvidedBindingKind::Variable,
             ContractCertainty::Definite,
@@ -613,6 +613,14 @@ mod tests {
         })
     }
 
+    fn has_ambient_binding(contract: &FileContract, name: &str) -> bool {
+        contract.provided_bindings.iter().any(|binding| {
+            binding.name == name
+                && binding.file_entry_initialization
+                    == shuck_semantic::FileEntryBindingInitialization::AmbientOnly
+        })
+    }
+
     #[test]
     fn project_specific_paths_do_not_get_ambient_contracts() {
         let void_path = Path::new("/tmp/void-packages/common/build-style/void-cross.sh");
@@ -632,7 +640,7 @@ printf '%s\\n' \"$XBPS_SRCPKGDIR\" \"$configure_args\" \"$wrksrc\"
     }
 
     #[test]
-    fn bash_it_theme_paths_get_palette_initialized_contracts() {
+    fn bash_it_theme_paths_get_palette_ambient_contracts() {
         let path = Path::new("/tmp/Bash-it/themes/example/example.theme.bash");
         let source = "\
 prompt_command() {
@@ -643,8 +651,10 @@ PROMPT_COMMAND=prompt_command
 
         let contract = contract_for(path, source).unwrap();
 
-        assert!(has_initialized_binding(&contract, "green"));
-        assert!(has_initialized_binding(&contract, "reset_color"));
+        assert!(has_ambient_binding(&contract, "green"));
+        assert!(has_ambient_binding(&contract, "reset_color"));
+        assert!(!has_initialized_binding(&contract, "green"));
+        assert!(!has_initialized_binding(&contract, "reset_color"));
         assert!(!contract.externally_consumed_bindings);
     }
 
@@ -715,7 +725,7 @@ _example() {
     }
 
     #[test]
-    fn bash_completion_paths_with_initializer_get_completion_contracts() {
+    fn bash_completion_paths_with_initializer_get_ambient_completion_contracts() {
         let path = Path::new("/tmp/bash-completion/completions/example.bash");
         let source = "\
 _example() {
@@ -726,9 +736,12 @@ _example() {
 
         let contract = contract_for(path, source).unwrap();
 
-        assert!(has_initialized_binding(&contract, "cur"));
-        assert!(has_initialized_binding(&contract, "cword"));
-        assert!(has_initialized_binding(&contract, "comp_args"));
+        assert!(has_ambient_binding(&contract, "cur"));
+        assert!(has_ambient_binding(&contract, "cword"));
+        assert!(has_ambient_binding(&contract, "comp_args"));
+        assert!(!has_initialized_binding(&contract, "cur"));
+        assert!(!has_initialized_binding(&contract, "cword"));
+        assert!(!has_initialized_binding(&contract, "comp_args"));
         assert!(!contract.externally_consumed_bindings);
     }
 

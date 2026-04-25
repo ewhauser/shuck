@@ -833,19 +833,28 @@ build
     }
 
     #[test]
-    fn sourced_theme_contract_suppresses_runtime_color_reads() {
+    fn sourced_theme_contract_does_not_suppress_runtime_color_reads() {
         let diagnostics = lint_named_source(
             Path::new("/tmp/bash-it/themes/minimal/minimal.theme.bash"),
             "\
 prompt_command() {
-  PS1=\"${green?} ${green} ${reset_color?}\"
+  PS1=\"$green $reset_color\"
 }
 PROMPT_COMMAND=prompt_command
 ",
             &LinterSettings::for_rule(Rule::UndefinedVariable),
         );
 
-        assert!(diagnostics.is_empty());
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("green"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("reset_color"))
+        );
     }
 
     #[test]
@@ -947,7 +956,7 @@ complete_example() {
     }
 
     #[test]
-    fn bash_completion_directory_with_initializer_suppresses_helper_reads() {
+    fn bash_completion_directory_with_initializer_does_not_suppress_helper_reads() {
         let diagnostics = lint_named_source(
             Path::new("/tmp/bash-completion/completions/example.bash"),
             "\
@@ -959,7 +968,21 @@ complete_example() {
             &LinterSettings::for_rule(Rule::UndefinedVariable),
         );
 
-        assert!(diagnostics.is_empty());
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cur"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cword"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("comp_args"))
+        );
     }
 
     #[test]
