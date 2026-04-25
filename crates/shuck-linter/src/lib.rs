@@ -1911,6 +1911,24 @@ EOF
     }
 
     #[test]
+    fn undefined_variable_reports_escaped_ps4_prompt_reference_at_assignment() {
+        let source = "\
+#!/bin/bash
+export PS4=\"+ \\${BASH_SOURCE##\\${rvm_path:-}} > \"
+p=\"$rvm_path\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["PS4"]
+        );
+    }
+
+    #[test]
     fn unused_assignment_flags_unread_variable() {
         let source = "#!/bin/sh\nfoo=1\n";
         let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);

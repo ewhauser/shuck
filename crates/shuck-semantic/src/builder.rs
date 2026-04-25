@@ -1135,12 +1135,22 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             return;
         };
 
-        if assignment.target.name.as_str() != "PS1" {
-            return;
-        }
-
-        for (name, span) in prompt_assignment_reference_names(word, self.source) {
-            self.add_reference(&name, ReferenceKind::ImplicitRead, span);
+        match assignment.target.name.as_str() {
+            "PS1" => {
+                for (name, span) in prompt_assignment_reference_names(word, self.source) {
+                    self.add_reference(&name, ReferenceKind::ImplicitRead, span);
+                }
+            }
+            "PS4" => {
+                for name in escaped_prompt_assignment_reference_names(word, self.source) {
+                    self.add_reference(
+                        &name,
+                        ReferenceKind::PromptExpansion,
+                        assignment.target.name_span,
+                    );
+                }
+            }
+            _ => {}
         }
     }
 
@@ -4486,6 +4496,30 @@ fn prompt_assignment_reference_names(word: &Word, source: &str) -> Vec<(Name, Sp
         return Vec::new();
     };
     scan_prompt_parameter_reference_names(text.as_ref(), word.span)
+}
+
+fn escaped_prompt_assignment_reference_names(word: &Word, source: &str) -> Vec<Name> {
+    if static_word_text(word, source).is_none() {
+        return Vec::new();
+    }
+
+    let text = word.span.slice(source);
+    let mut names = Vec::new();
+    let mut search_start = 0;
+
+    while let Some(start_rel) = text[search_start..].find("\\${") {
+        let start = search_start + start_rel;
+        let after_dollar = start + "\\$".len();
+        if let Some((name_start, name_end)) = parameter_name_bounds_after_dollar(text, after_dollar)
+        {
+            names.push(Name::from(&text[name_start..name_end]));
+            search_start = name_end;
+        } else {
+            search_start = start + "\\${".len();
+        }
+    }
+
+    names
 }
 
 fn scan_prompt_parameter_reference_names(text: &str, span: Span) -> Vec<(Name, Span)> {

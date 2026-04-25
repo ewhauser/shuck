@@ -6816,6 +6816,26 @@ unused=1
     }
 
     #[test]
+    fn escaped_ps4_prompt_references_are_read_at_the_assignment_site() {
+        let source = "\
+#!/bin/bash
+export PS4=\"+ \\${BASH_SOURCE##\\${rvm_path:-}} > \"
+p=\"$rvm_path\"
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let prompt_reference = analysis
+            .uninitialized_references()
+            .iter()
+            .map(|uninitialized| model.reference(uninitialized.reference))
+            .find(|reference| {
+                reference.name == "rvm_path" && reference.span.slice(source) == "PS4"
+            });
+
+        assert!(prompt_reference.is_some());
+    }
+
+    #[test]
     fn bash_completion_runtime_vars_are_treated_as_live() {
         let source = "\
 #!/bin/bash

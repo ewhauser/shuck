@@ -91,13 +91,6 @@ reviewed_divergences:
     end_column: 110
     reason: "This scanner builds an output filename from the current CORS origin, and the remaining ShellCheck-only anchor is the lower-case slug fragment inside that generated path. We review this one file narrowly instead of broadening C006 around the helper's filename templating."
   - side: shellcheck-only
-    path_suffix: "moovweb__gvm__bin__gvmsudo"
-    line: 11
-    end_line: 11
-    column: 12
-    end_column: 15
-    reason: "This wrapper only uses `gvm_path` to trim trace output for the caller's environment, so the ShellCheck-only hit is a shell-wrapper contract rather than a real local assignment bug."
-  - side: shellcheck-only
     path_suffix: "moovweb__gvm__examples__native__depcomp"
     line: 98
     end_line: 98
@@ -188,27 +181,6 @@ reviewed_divergences:
     column: 14
     end_column: 28
     reason: "This OpenRC helper translates service options into generated execline and logger setup, so the remaining ShellCheck-only reads are the expected ambient service settings instead of local shell state."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__bin__rvmsudo"
-    line: 31
-    end_line: 31
-    column: 12
-    end_column: 15
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__bin__rvmsudo"
-    line: 92
-    end_line: 92
-    column: 12
-    end_column: 21
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__contrib__ps1_functions"
-    line: 102
-    end_line: 102
-    column: 16
-    end_column: 19
-    reason: "This prompt helper still carries an isolated runtime-formatting C006 difference, and we keep it reviewed narrowly instead of broadening C006 around prompt text."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__cleanup"
     line: 90
@@ -223,13 +195,6 @@ reviewed_divergences:
     column: 24
     end_column: 39
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__extras__rails"
-    line: 83
-    end_line: 83
-    column: 16
-    end_column: 19
-    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__extras__rails"
     line: 87
@@ -552,13 +517,6 @@ reviewed_divergences:
     column: 53
     end_column: 64
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__install"
-    line: 4
-    end_line: 4
-    column: 8
-    end_column: 11
-    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__list"
     line: 124
