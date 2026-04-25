@@ -74,6 +74,7 @@ pub struct AstStore {
     redirect_lists: ListArena<Redirect>,
     assignment_lists: ListArena<Assignment>,
     decl_operand_lists: ListArena<DeclOperand>,
+    function_header_entry_lists: ListArena<FunctionHeaderEntryNode>,
     word_id_lists: ListArena<WordId>,
     word_part_lists: ListArena<WordPartNode>,
     brace_syntax_lists: ListArena<crate::BraceSyntax>,
@@ -93,6 +94,7 @@ impl Default for AstStore {
             redirect_lists: ListArena::new(),
             assignment_lists: ListArena::new(),
             decl_operand_lists: ListArena::new(),
+            function_header_entry_lists: ListArena::new(),
             word_id_lists: ListArena::new(),
             word_part_lists: ListArena::new(),
             brace_syntax_lists: ListArena::new(),
@@ -286,6 +288,47 @@ impl AstStore {
                     span: node.span,
                 })
             }
+            CommandNodePayload::Function(command) => {
+                let mut body = self.materialize_stmt_seq(command.body).stmts.into_iter();
+                let Some(body) = body.next() else {
+                    panic!("function body sequence contains one statement");
+                };
+                Command::Function(crate::FunctionDef {
+                    header: crate::FunctionHeader {
+                        function_keyword_span: command.function_keyword_span,
+                        entries: self
+                            .function_header_entry_lists
+                            .get(command.entries)
+                            .iter()
+                            .map(|entry| crate::FunctionHeaderEntry {
+                                word: self.materialize_word(entry.word),
+                                static_name: entry.static_name.clone(),
+                            })
+                            .collect(),
+                        trailing_parens_span: command.trailing_parens_span,
+                    },
+                    body: Box::new(body),
+                    span: node.span,
+                })
+            }
+            CommandNodePayload::AnonymousFunction(command) => {
+                let mut body = self.materialize_stmt_seq(command.body).stmts.into_iter();
+                let Some(body) = body.next() else {
+                    panic!("anonymous function body sequence contains one statement");
+                };
+                Command::AnonymousFunction(crate::AnonymousFunctionCommand {
+                    surface: command.surface,
+                    body: Box::new(body),
+                    args: self
+                        .word_id_lists
+                        .get(command.args)
+                        .iter()
+                        .copied()
+                        .map(|id| self.materialize_word(id))
+                        .collect(),
+                    span: node.span,
+                })
+            }
             CommandNodePayload::Legacy => node.legacy.clone(),
         }
     }
@@ -374,6 +417,10 @@ pub enum CommandNodePayload {
     Decl(DeclCommandNode),
     /// Binary shell command payload.
     Binary(BinaryCommandNode),
+    /// Function definition command payload.
+    Function(FunctionCommandNode),
+    /// Anonymous zsh function command payload.
+    AnonymousFunction(AnonymousFunctionCommandNode),
     /// Compatibility payload for command families that still materialize from `legacy`.
     Legacy,
 }
@@ -439,6 +486,39 @@ pub struct BinaryCommandNode {
     pub op_span: Span,
     /// Right-hand statement sequence.
     pub right: StmtSeqId,
+}
+
+/// Arena-native named function command payload.
+#[derive(Debug, Clone)]
+pub struct FunctionCommandNode {
+    /// Source span of the `function` keyword when present.
+    pub function_keyword_span: Option<Span>,
+    /// Parsed function header entries.
+    pub entries: IdRange<FunctionHeaderEntryNode>,
+    /// Source span of trailing `()` when present.
+    pub trailing_parens_span: Option<Span>,
+    /// Function body sequence.
+    pub body: StmtSeqId,
+}
+
+/// Arena-native function header entry.
+#[derive(Debug, Clone)]
+pub struct FunctionHeaderEntryNode {
+    /// Header entry word.
+    pub word: WordId,
+    /// Static function name when one could be recovered.
+    pub static_name: Option<crate::Name>,
+}
+
+/// Arena-native anonymous function command payload.
+#[derive(Debug, Clone)]
+pub struct AnonymousFunctionCommandNode {
+    /// Preserved anonymous function surface.
+    pub surface: crate::AnonymousFunctionSurface,
+    /// Anonymous function body sequence.
+    pub body: StmtSeqId,
+    /// Invocation argument words.
+    pub args: IdRange<WordId>,
 }
 
 /// Coarse command family stored with command arena nodes.
@@ -652,6 +732,8 @@ impl<'a> CommandView<'a> {
             CommandNodePayload::Builtin(_)
             | CommandNodePayload::Decl(_)
             | CommandNodePayload::Binary(_)
+            | CommandNodePayload::Function(_)
+            | CommandNodePayload::AnonymousFunction(_)
             | CommandNodePayload::Legacy => None,
         }
     }
@@ -666,6 +748,8 @@ impl<'a> CommandView<'a> {
             CommandNodePayload::Simple(_)
             | CommandNodePayload::Decl(_)
             | CommandNodePayload::Binary(_)
+            | CommandNodePayload::Function(_)
+            | CommandNodePayload::AnonymousFunction(_)
             | CommandNodePayload::Legacy => None,
         }
     }
@@ -680,6 +764,8 @@ impl<'a> CommandView<'a> {
             CommandNodePayload::Simple(_)
             | CommandNodePayload::Builtin(_)
             | CommandNodePayload::Binary(_)
+            | CommandNodePayload::Function(_)
+            | CommandNodePayload::AnonymousFunction(_)
             | CommandNodePayload::Legacy => None,
         }
     }
@@ -694,6 +780,40 @@ impl<'a> CommandView<'a> {
             CommandNodePayload::Simple(_)
             | CommandNodePayload::Builtin(_)
             | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Function(_)
+            | CommandNodePayload::AnonymousFunction(_)
+            | CommandNodePayload::Legacy => None,
+        }
+    }
+
+    /// Returns the native function payload when this command is a named function definition.
+    pub fn function(self) -> Option<FunctionCommandView<'a>> {
+        match &self.node().payload {
+            CommandNodePayload::Function(_) => Some(FunctionCommandView {
+                store: self.store,
+                id: self.id,
+            }),
+            CommandNodePayload::Simple(_)
+            | CommandNodePayload::Builtin(_)
+            | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Binary(_)
+            | CommandNodePayload::AnonymousFunction(_)
+            | CommandNodePayload::Legacy => None,
+        }
+    }
+
+    /// Returns the native anonymous function payload when this command is anonymous.
+    pub fn anonymous_function(self) -> Option<AnonymousFunctionCommandView<'a>> {
+        match &self.node().payload {
+            CommandNodePayload::AnonymousFunction(_) => Some(AnonymousFunctionCommandView {
+                store: self.store,
+                id: self.id,
+            }),
+            CommandNodePayload::Simple(_)
+            | CommandNodePayload::Builtin(_)
+            | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Binary(_)
+            | CommandNodePayload::Function(_)
             | CommandNodePayload::Legacy => None,
         }
     }
@@ -757,6 +877,8 @@ impl<'a> SimpleCommandView<'a> {
             CommandNodePayload::Builtin(_)
             | CommandNodePayload::Decl(_)
             | CommandNodePayload::Binary(_)
+            | CommandNodePayload::Function(_)
+            | CommandNodePayload::AnonymousFunction(_)
             | CommandNodePayload::Legacy => {
                 unreachable!("simple view requires simple payload")
             }
@@ -811,6 +933,8 @@ impl<'a> BuiltinCommandView<'a> {
             CommandNodePayload::Simple(_)
             | CommandNodePayload::Decl(_)
             | CommandNodePayload::Binary(_)
+            | CommandNodePayload::Function(_)
+            | CommandNodePayload::AnonymousFunction(_)
             | CommandNodePayload::Legacy => {
                 unreachable!("builtin view requires builtin payload")
             }
@@ -852,6 +976,8 @@ impl<'a> DeclCommandView<'a> {
             CommandNodePayload::Simple(_)
             | CommandNodePayload::Builtin(_)
             | CommandNodePayload::Binary(_)
+            | CommandNodePayload::Function(_)
+            | CommandNodePayload::AnonymousFunction(_)
             | CommandNodePayload::Legacy => unreachable!("decl view requires decl payload"),
         }
     }
@@ -901,7 +1027,108 @@ impl<'a> BinaryCommandView<'a> {
             CommandNodePayload::Simple(_)
             | CommandNodePayload::Builtin(_)
             | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Function(_)
+            | CommandNodePayload::AnonymousFunction(_)
             | CommandNodePayload::Legacy => unreachable!("binary view requires binary payload"),
+        }
+    }
+}
+
+/// Borrowed view of an arena-native function command payload.
+#[derive(Debug, Clone, Copy)]
+pub struct FunctionCommandView<'a> {
+    store: &'a AstStore,
+    id: CommandId,
+}
+
+impl<'a> FunctionCommandView<'a> {
+    /// Returns the source span of the `function` keyword when present.
+    pub fn function_keyword_span(self) -> Option<Span> {
+        self.node().function_keyword_span
+    }
+
+    /// Returns parsed function header entries.
+    pub fn entries(self) -> &'a [FunctionHeaderEntryNode] {
+        self.store
+            .function_header_entry_lists
+            .get(self.node().entries)
+    }
+
+    /// Returns the source span of trailing `()` when present.
+    pub fn trailing_parens_span(self) -> Option<Span> {
+        self.node().trailing_parens_span
+    }
+
+    /// Returns the function body sequence.
+    pub fn body(self) -> StmtSeqView<'a> {
+        self.store.stmt_seq(self.node().body)
+    }
+
+    /// Returns the function body sequence ID.
+    pub fn body_id(self) -> StmtSeqId {
+        self.node().body
+    }
+
+    fn node(self) -> &'a FunctionCommandNode {
+        match &self.store.commands[self.id.index()].payload {
+            CommandNodePayload::Function(command) => command,
+            CommandNodePayload::Simple(_)
+            | CommandNodePayload::Builtin(_)
+            | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Binary(_)
+            | CommandNodePayload::AnonymousFunction(_)
+            | CommandNodePayload::Legacy => unreachable!("function view requires function payload"),
+        }
+    }
+}
+
+/// Borrowed view of an arena-native anonymous function command payload.
+#[derive(Debug, Clone, Copy)]
+pub struct AnonymousFunctionCommandView<'a> {
+    store: &'a AstStore,
+    id: CommandId,
+}
+
+impl<'a> AnonymousFunctionCommandView<'a> {
+    /// Returns the preserved anonymous function surface.
+    pub fn surface(self) -> crate::AnonymousFunctionSurface {
+        self.node().surface
+    }
+
+    /// Returns the anonymous function body sequence.
+    pub fn body(self) -> StmtSeqView<'a> {
+        self.store.stmt_seq(self.node().body)
+    }
+
+    /// Returns the anonymous function body sequence ID.
+    pub fn body_id(self) -> StmtSeqId {
+        self.node().body
+    }
+
+    /// Returns invocation argument word IDs.
+    pub fn arg_ids(self) -> &'a [WordId] {
+        self.store.word_id_lists.get(self.node().args)
+    }
+
+    /// Returns invocation argument words.
+    pub fn args(self) -> impl ExactSizeIterator<Item = WordView<'a>> + 'a {
+        self.arg_ids()
+            .iter()
+            .copied()
+            .map(move |id| self.store.word(id))
+    }
+
+    fn node(self) -> &'a AnonymousFunctionCommandNode {
+        match &self.store.commands[self.id.index()].payload {
+            CommandNodePayload::AnonymousFunction(command) => command,
+            CommandNodePayload::Simple(_)
+            | CommandNodePayload::Builtin(_)
+            | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Binary(_)
+            | CommandNodePayload::Function(_)
+            | CommandNodePayload::Legacy => {
+                unreachable!("anonymous function view requires anonymous function payload")
+            }
         }
     }
 }
@@ -1231,14 +1458,12 @@ impl AstStoreBuilder {
                 self.collect_compound_children(command, words, child_sequences);
                 CommandNodePayload::Legacy
             }
-            Command::Function(function) => {
-                self.collect_function_children(function, words, child_sequences);
-                CommandNodePayload::Legacy
-            }
-            Command::AnonymousFunction(function) => {
-                self.collect_anonymous_function_children(function, words, child_sequences);
-                CommandNodePayload::Legacy
-            }
+            Command::Function(function) => CommandNodePayload::Function(
+                self.collect_function_children(function, words, child_sequences),
+            ),
+            Command::AnonymousFunction(function) => CommandNodePayload::AnonymousFunction(
+                self.collect_anonymous_function_children(function, words, child_sequences),
+            ),
         }
     }
 
@@ -1544,16 +1769,30 @@ impl AstStoreBuilder {
         function: &FunctionDef,
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
-    ) {
-        for entry in &function.header.entries {
-            self.collect_word(&entry.word, words, child_sequences);
-        }
-        child_sequences.push(self.lower_stmt_seq(&StmtSeq {
+    ) -> FunctionCommandNode {
+        let entries = function
+            .header
+            .entries
+            .iter()
+            .map(|entry| FunctionHeaderEntryNode {
+                word: self.collect_word_id(&entry.word, words, child_sequences),
+                static_name: entry.static_name.clone(),
+            })
+            .collect::<Vec<_>>();
+        let entries = self.store.function_header_entry_lists.push_many(entries);
+        let body = self.lower_stmt_seq(&StmtSeq {
             leading_comments: Vec::new(),
             stmts: vec![(*function.body).clone()],
             trailing_comments: Vec::new(),
             span: function.body.span,
-        }));
+        });
+        child_sequences.push(body);
+        FunctionCommandNode {
+            function_keyword_span: function.header.function_keyword_span,
+            entries,
+            trailing_parens_span: function.header.trailing_parens_span,
+            body,
+        }
     }
 
     fn collect_anonymous_function_children(
@@ -1561,15 +1800,24 @@ impl AstStoreBuilder {
         function: &AnonymousFunctionCommand,
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
-    ) {
-        child_sequences.push(self.lower_stmt_seq(&StmtSeq {
+    ) -> AnonymousFunctionCommandNode {
+        let body = self.lower_stmt_seq(&StmtSeq {
             leading_comments: Vec::new(),
             stmts: vec![(*function.body).clone()],
             trailing_comments: Vec::new(),
             span: function.body.span,
-        }));
-        for word in &function.args {
-            self.collect_word(word, words, child_sequences);
+        });
+        child_sequences.push(body);
+        let args = function
+            .args
+            .iter()
+            .map(|word| self.collect_word_id(word, words, child_sequences))
+            .collect::<Vec<_>>();
+        let args = self.store.word_id_lists.push_many(args);
+        AnonymousFunctionCommandNode {
+            surface: function.surface,
+            body,
+            args,
         }
     }
 
@@ -2338,6 +2586,73 @@ mod tests {
             panic!("expected binary command");
         };
         assert_eq!(command.op, crate::BinaryOp::And);
+    }
+
+    #[test]
+    fn function_payloads_are_arena_native() {
+        let body = Box::new(Stmt {
+            leading_comments: Vec::new(),
+            command: Command::Simple(SimpleCommand {
+                name: Word::literal("body"),
+                args: Vec::new(),
+                assignments: Box::new([]),
+                span: Span::new(),
+            }),
+            negated: false,
+            redirects: Box::new([]),
+            terminator: None,
+            terminator_span: None,
+            inline_comment: None,
+            span: Span::new(),
+        });
+        let function_file = file_with_command(Command::Function(crate::FunctionDef {
+            header: crate::FunctionHeader {
+                function_keyword_span: Some(Span::new()),
+                entries: vec![crate::FunctionHeaderEntry {
+                    word: Word::literal("fn"),
+                    static_name: Some(Name::new("fn")),
+                }],
+                trailing_parens_span: Some(Span::new()),
+            },
+            body: body.clone(),
+            span: Span::new(),
+        }));
+        let anonymous_file = file_with_command(Command::AnonymousFunction(
+            crate::AnonymousFunctionCommand {
+                surface: crate::AnonymousFunctionSurface::Parens {
+                    parens_span: Span::new(),
+                },
+                body,
+                args: vec![Word::literal("arg")],
+                span: Span::new(),
+            },
+        ));
+
+        let arena = ArenaFile::from_file(&function_file);
+        let command = arena.view().body().stmts().next().unwrap().command();
+        let function = command
+            .function()
+            .expect("expected native function payload");
+        assert_eq!(function.entries().len(), 1);
+        assert_eq!(function.body().stmt_ids().len(), 1);
+        assert_eq!(command.child_sequence_ids().len(), 1);
+        let Command::Function(materialized) = &arena.to_file().body[0].command else {
+            panic!("expected function command");
+        };
+        assert_eq!(materialized.header.entries.len(), 1);
+
+        let arena = ArenaFile::from_file(&anonymous_file);
+        let command = arena.view().body().stmts().next().unwrap().command();
+        let function = command
+            .anonymous_function()
+            .expect("expected native anonymous function payload");
+        assert_eq!(function.arg_ids().len(), 1);
+        assert_eq!(function.body().stmt_ids().len(), 1);
+        assert_eq!(command.child_sequence_ids().len(), 1);
+        let Command::AnonymousFunction(materialized) = &arena.to_file().body[0].command else {
+            panic!("expected anonymous function command");
+        };
+        assert_eq!(materialized.args.len(), 1);
     }
 
     #[test]
