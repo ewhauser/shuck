@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.0.22](https://github.com/ewhauser/shuck/compare/v0.0.21...v0.0.22) (2026-04-25)
+
+
+### Bug Fixes
+
+* **cache:** tighten file cache invalidation ([#548](https://github.com/ewhauser/shuck/issues/548)) ([ea222d7](https://github.com/ewhauser/shuck/commit/ea222d7ce37c20f2db24167afd6968a8dcdeb7d4))
+* **cli:** preserve parse failure exit status ([#549](https://github.com/ewhauser/shuck/issues/549)) ([6281202](https://github.com/ewhauser/shuck/commit/628120254cae74f4eca3f57b71dec47be1c31ff8))
+* **linter:** align C001 conformance ([#556](https://github.com/ewhauser/shuck/issues/556)) ([92a1d98](https://github.com/ewhauser/shuck/commit/92a1d9861951eee0494cdf57a72c79d4a67ece55))
+* **linter:** align C057 with SC2328 ([#567](https://github.com/ewhauser/shuck/issues/567)) ([6034796](https://github.com/ewhauser/shuck/commit/6034796858dab26d1fefe5dd8af54c686189dd28))
+* **linter:** align C124 corpus behavior ([#551](https://github.com/ewhauser/shuck/issues/551)) ([0180c6e](https://github.com/ewhauser/shuck/commit/0180c6e4d5a785501b42779d9db8680d45fcc606))
+* **linter:** align compat source closure policy ([#552](https://github.com/ewhauser/shuck/issues/552)) ([43975b9](https://github.com/ewhauser/shuck/commit/43975b9f740d5b7304a3aae7fabe50c622d17e6d))
+* **linter:** clear C063 corpus divergences ([#577](https://github.com/ewhauser/shuck/issues/577)) ([e776812](https://github.com/ewhauser/shuck/commit/e776812170a7a0c2ad5d34eda45fdc823423b4f3))
+* **linter:** eliminate C006 corpus divergences ([#574](https://github.com/ewhauser/shuck/issues/574)) ([0511db8](https://github.com/ewhauser/shuck/commit/0511db8d17858bf2dc21c7a34c2a509e534cec3d))
+* **linter:** generalize C156 reference candidates ([#569](https://github.com/ewhauser/shuck/issues/569)) ([1ca7fad](https://github.com/ewhauser/shuck/commit/1ca7fadd9cbf97c51da2943a8311f04955a29b2a))
+* **linter:** improve C063 ShellCheck compatibility ([#570](https://github.com/ewhauser/shuck/issues/570)) ([a289b46](https://github.com/ewhauser/shuck/commit/a289b46a1207021f5da7399ecf4628b20b6cc165))
+* **linter:** improve S001 ShellCheck parity ([#576](https://github.com/ewhauser/shuck/issues/576)) ([16e766e](https://github.com/ewhauser/shuck/commit/16e766e0fc2b038411a053d1a649dbd1077ce8c6))
+* **linter:** match xargs zero-option parity ([#572](https://github.com/ewhauser/shuck/issues/572)) ([4e2545e](https://github.com/ewhauser/shuck/commit/4e2545eb8ef13421cc50e3488a64a44f072e4699))
+* **linter:** preserve C006 reports after subscript reads ([#555](https://github.com/ewhauser/shuck/issues/555)) ([a6310f6](https://github.com/ewhauser/shuck/commit/a6310f6bca0683cc114a991dd859b74e2c140682))
+* **linter:** reduce C124 corpus divergences ([#544](https://github.com/ewhauser/shuck/issues/544)) ([b306cf5](https://github.com/ewhauser/shuck/commit/b306cf56632de70efeeef8cfd0be7432b2b54ce7))
+* **linter:** reduce S001 false positives ([#547](https://github.com/ewhauser/shuck/issues/547)) ([139a884](https://github.com/ewhauser/shuck/commit/139a884821ab8f20edaf772c2f9f85c32a329831))
+* **linter:** remove project-specific ambient contracts ([#571](https://github.com/ewhauser/shuck/issues/571)) ([c0858a6](https://github.com/ewhauser/shuck/commit/c0858a6be375fb7b1fa91c37d178924b1ca0f71c))
+* **linter:** report C006 indexed subscript keys ([#553](https://github.com/ewhauser/shuck/issues/553)) ([d6e72f2](https://github.com/ewhauser/shuck/commit/d6e72f2793989510e5b07b305c5911fbfbce750a))
+* **linter:** report declaration-only C001 targets ([#546](https://github.com/ewhauser/shuck/issues/546)) ([13bc56e](https://github.com/ewhauser/shuck/commit/13bc56e7d34fce709c6f237541255220844c9346))
+* **linter:** report S004 in command wrapper targets ([#545](https://github.com/ewhauser/shuck/issues/545)) ([a29d911](https://github.com/ewhauser/shuck/commit/a29d911bf5d822770350804d575c6be26db59534))
+
+
+### Performance
+
+* **linter:** finish indexed fact arenas ([#575](https://github.com/ewhauser/shuck/issues/575)) ([9d0b0c1](https://github.com/ewhauser/shuck/commit/9d0b0c1c6debeaa8c0e1c93d7c0dd71e85bbe139))
+* **linter:** pack facts into indexed arenas ([#538](https://github.com/ewhauser/shuck/issues/538)) ([e1d7f27](https://github.com/ewhauser/shuck/commit/e1d7f27ce2af599dd2506ce74b24a05f96f05ac5))
+* **linter:** reduce fact traversal overhead ([#557](https://github.com/ewhauser/shuck/issues/557)) ([4ce42ec](https://github.com/ewhauser/shuck/commit/4ce42ecf027bd61456888077c9fe625290056c00))
+* **linter:** reduce scratch allocation churn ([#564](https://github.com/ewhauser/shuck/issues/564)) ([c33046c](https://github.com/ewhauser/shuck/commit/c33046c33f3716dc139333339488920d08ed628c))
+* **linter:** reuse analyzed path set ([#550](https://github.com/ewhauser/shuck/issues/550)) ([213ba04](https://github.com/ewhauser/shuck/commit/213ba04a3ddb2291f074c92c4d06086ba155c45f))
+* **linter:** trim fact graph allocations ([#560](https://github.com/ewhauser/shuck/issues/560)) ([655d2fe](https://github.com/ewhauser/shuck/commit/655d2fea251d3609a3e43e4e158b78548c5ad2f4))
+* **parser:** avoid brace scan allocations ([#561](https://github.com/ewhauser/shuck/issues/561)) ([d7c91e1](https://github.com/ewhauser/shuck/commit/d7c91e1742642fd299cab4f7e29af3a49dd32057))
+* **parser:** reduce checkpoint allocations ([#566](https://github.com/ewhauser/shuck/issues/566)) ([ff95f65](https://github.com/ewhauser/shuck/commit/ff95f654f28cf1ac5ecc7996009d435c3f9bee02))
+* **parser:** reduce word construction allocations ([#563](https://github.com/ewhauser/shuck/issues/563)) ([42d953d](https://github.com/ewhauser/shuck/commit/42d953d1d2882a904454a3755effd116c258fa6c))
+* **parser:** reduce word subscript allocations ([#565](https://github.com/ewhauser/shuck/issues/565)) ([3da8583](https://github.com/ewhauser/shuck/commit/3da85831a9c13e913dbe6947ec06826c0567569c))
+* **semantic:** reduce CFG vector allocations ([#562](https://github.com/ewhauser/shuck/issues/562)) ([5b359be](https://github.com/ewhauser/shuck/commit/5b359be6adcd3e3325aa456e8ed585e3c49be3e1))
+* **semantic:** reuse dataflow bitset buffers ([#558](https://github.com/ewhauser/shuck/issues/558)) ([1aeb3fd](https://github.com/ewhauser/shuck/commit/1aeb3fd75a2a9861282fb72a92ecff29bef4760d))
+
+
+### Documentation
+
+* refresh architecture and rule guidance ([#559](https://github.com/ewhauser/shuck/issues/559)) ([53f9b58](https://github.com/ewhauser/shuck/commit/53f9b58b8e6350ede68c19f5479168d83cc24bf2))
+* **website:** add shellcheck repo conformance table ([#554](https://github.com/ewhauser/shuck/issues/554)) ([8831b8a](https://github.com/ewhauser/shuck/commit/8831b8a25da8f5cee4f27abefd8399d49036c0c1))
+
 ## [0.0.21](https://github.com/ewhauser/shuck/compare/v0.0.20...v0.0.21) (2026-04-24)
 
 
