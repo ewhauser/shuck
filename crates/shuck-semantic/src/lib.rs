@@ -143,6 +143,61 @@ pub struct UnreachedFunctionAnalysisOptions {
     pub report_unreached_nested_definitions: bool,
 }
 
+/// A command shape that can mutate variables without producing a precise static `BindingId`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DynamicWriteBarrierKind {
+    /// `eval` can execute assignment syntax assembled at runtime.
+    Eval,
+    /// A declaration-like builtin received a non-static operand that may name variables.
+    DynamicDeclarationTarget,
+    /// A dynamic `source`/`.` command may import or overwrite variables from an unknown file.
+    DynamicSource,
+}
+
+/// A conservative variable-write barrier recorded by semantic analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DynamicWriteBarrier {
+    /// The kind of command that introduced the barrier.
+    pub kind: DynamicWriteBarrierKind,
+    /// The lexical scope where the barrier command runs.
+    pub scope: ScopeId,
+    /// The source span for the command or operand that forms the barrier.
+    pub span: Span,
+}
+
+/// How completely known writes cover paths into a variable reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum VariableFlowCoverage {
+    /// The queried span is unreachable in the semantic CFG.
+    Unreachable,
+    /// Every reachable path to the reference crosses one of the reaching bindings.
+    AllPaths,
+    /// At least one reachable path can reach the reference without crossing a reaching binding.
+    SomePaths,
+    /// The query could not be mapped to a CFG block.
+    Unknown,
+}
+
+/// Stable variable-flow facts for one named reference at a source span.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariableFlow {
+    /// The reference matched by this query, if the span maps to a semantic reference.
+    pub reference: Option<ReferenceId>,
+    /// CFG block containing the queried reference or span.
+    pub reference_block: Option<BlockId>,
+    /// Bindings that reach this reference according to exact variable dataflow.
+    pub reaching_bindings: Vec<BindingId>,
+    /// Whether reaching bindings cover all paths into the reference.
+    pub coverage: VariableFlowCoverage,
+    /// Uninitialized-reference certainty reported for this exact reference.
+    pub uninitialized: Option<UninitializedCertainty>,
+    /// Dynamic writes that can still reach the reference without being overwritten by a later
+    /// reaching binding.
+    pub dynamic_write_barriers: Vec<DynamicWriteBarrier>,
+    /// Whether the queried span is unreachable.
+    pub unreachable: bool,
+}
+
 #[allow(missing_docs)]
 impl SyntheticRead {
     pub fn scope(&self) -> ScopeId {
@@ -464,6 +519,7 @@ pub struct SemanticModel {
     command_bindings: FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     command_references: FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
     cleared_variables: FxHashMap<(ScopeId, Name), SmallVec<[usize; 2]>>,
+    dynamic_write_barriers: Vec<DynamicWriteBarrier>,
     import_origins_by_binding: FxHashMap<BindingId, Vec<PathBuf>>,
     heuristic_unused_assignments: Vec<BindingId>,
     zsh_option_analysis: Option<ZshOptionAnalysis>,
@@ -581,6 +637,7 @@ impl SemanticModel {
             command_bindings: built.command_bindings,
             command_references: built.command_references,
             cleared_variables: built.cleared_variables,
+            dynamic_write_barriers: built.dynamic_write_barriers,
             import_origins_by_binding: FxHashMap::default(),
             heuristic_unused_assignments: built.heuristic_unused_assignments,
             zsh_option_analysis,
@@ -1211,6 +1268,10 @@ impl SemanticModel {
         &self.source_refs
     }
 
+    pub fn dynamic_write_barriers(&self) -> &[DynamicWriteBarrier] {
+        &self.dynamic_write_barriers
+    }
+
     pub fn synthetic_reads(&self) -> &[SyntheticRead] {
         &self.synthetic_reads
     }
@@ -1471,22 +1532,414 @@ impl<'model> SemanticAnalysis<'model> {
             })
     }
 
-    pub fn reaching_bindings_for_name(&self, name: &Name, at: Span) -> Vec<BindingId> {
+    pub fn variable_flow_for_name_at(&self, name: &Name, at: Span) -> VariableFlow {
         let cfg = self.cfg();
         let context = self.model.dataflow_context(cfg);
         let exact = self.exact_variable_dataflow();
+        let reference = self.reference_for_name_at(name, at);
+        let reference_block = reference
+            .and_then(|reference| exact.reference_block(reference))
+            .or_else(|| cfg.block_ids_for_span(at).first().copied());
+        let unreachable =
+            reference_block.is_some_and(|block_id| cfg.unreachable().contains(&block_id));
+        let mut reaching_bindings = reference
+            .map(|reference| exact.reaching_bindings_for_reference(&context, reference))
+            .unwrap_or_default();
+        if reaching_bindings.is_empty() && !unreachable {
+            reaching_bindings = self
+                .model
+                .visible_binding(name, at)
+                .map(|binding| vec![binding.id])
+                .unwrap_or_default();
+        }
+        let coverage = match reference_block {
+            Some(_) if unreachable => VariableFlowCoverage::Unreachable,
+            Some(block_id)
+                if self.bindings_cover_all_paths_to_block(
+                    &reaching_bindings,
+                    block_id,
+                    at.start.offset,
+                ) =>
+            {
+                VariableFlowCoverage::AllPaths
+            }
+            Some(_) => VariableFlowCoverage::SomePaths,
+            None => VariableFlowCoverage::Unknown,
+        };
+        let uninitialized = reference.and_then(|reference| {
+            self.uninitialized_references()
+                .iter()
+                .find(|uninitialized| uninitialized.reference == reference.id)
+                .map(|uninitialized| uninitialized.certainty)
+        });
+        let dynamic_write_barriers = reference_block
+            .filter(|_| !unreachable)
+            .map(|block_id| self.dynamic_write_barriers_for_flow(block_id, &reaching_bindings, at))
+            .unwrap_or_default();
 
-        if let Some(reference) = self.reference_for_name_at(name, at) {
-            let reaching = exact.reaching_bindings_for_reference(&context, reference);
-            if !reaching.is_empty() {
-                return reaching;
+        VariableFlow {
+            reference: reference.map(|reference| reference.id),
+            reference_block,
+            reaching_bindings,
+            coverage,
+            uninitialized,
+            dynamic_write_barriers,
+            unreachable,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn reference_id_for_name_at(&self, name: &Name, at: Span) -> Option<ReferenceId> {
+        self.reference_for_name_at(name, at)
+            .map(|reference| reference.id)
+    }
+
+    pub fn reaching_bindings_for_name(&self, name: &Name, at: Span) -> Vec<BindingId> {
+        self.variable_flow_for_name_at(name, at).reaching_bindings
+    }
+
+    #[doc(hidden)]
+    pub fn block_for_binding(&self, binding_id: BindingId) -> Option<BlockId> {
+        self.exact_variable_dataflow().binding_block(binding_id)
+    }
+
+    #[doc(hidden)]
+    pub fn block_for_reference(&self, reference_id: ReferenceId) -> Option<BlockId> {
+        let reference = self.model.reference(reference_id);
+        self.exact_variable_dataflow().reference_block(reference)
+    }
+
+    #[doc(hidden)]
+    pub fn bindings_cover_all_paths_to_reference(
+        &self,
+        bindings: &[BindingId],
+        name: &Name,
+        at: Span,
+    ) -> bool {
+        self.variable_flow_for_name_at(name, at)
+            .reference_block
+            .is_none_or(|block_id| {
+                self.bindings_cover_all_paths_to_block(bindings, block_id, at.start.offset)
+            })
+    }
+
+    #[doc(hidden)]
+    pub fn binding_dominates_reference(
+        &self,
+        binding_id: BindingId,
+        name: &Name,
+        at: Span,
+    ) -> bool {
+        let Some(reference_block) = self.variable_flow_for_name_at(name, at).reference_block else {
+            return false;
+        };
+        let Some(binding_block) = self.block_for_binding(binding_id) else {
+            return false;
+        };
+        if binding_block == reference_block {
+            return true;
+        }
+
+        let cfg = self.cfg();
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let entry = self.flow_entry_block_for_binding_scopes(
+            &[self.model.binding(binding_id).scope],
+            at.start.offset,
+        );
+        let mut stack = vec![entry];
+        let mut seen = FxHashSet::default();
+        while let Some(block_id) = stack.pop() {
+            if block_id == binding_block
+                || unreachable.contains(&block_id)
+                || !seen.insert(block_id)
+            {
+                continue;
+            }
+            if block_id == reference_block {
+                return false;
+            }
+            for (successor, _) in cfg.successors(block_id) {
+                stack.push(*successor);
             }
         }
 
+        true
+    }
+
+    #[doc(hidden)]
+    pub fn command_spans_cover_all_paths_to_scope_exit(
+        &self,
+        scope: ScopeId,
+        cover_spans: &[Span],
+    ) -> bool {
+        let cfg = self.cfg();
+        let Some(entry) = cfg.scope_entry(scope) else {
+            return false;
+        };
+        let Some(targets) = cfg.scope_exits(scope) else {
+            return false;
+        };
+        self.command_spans_cover_all_paths_from_entry_to_targets(entry, cover_spans, targets)
+    }
+
+    #[doc(hidden)]
+    pub fn binding_reaches_scope_exit(&self, binding_id: BindingId) -> bool {
+        let binding = self.model.binding(binding_id);
+        let Some(binding_block) = self.block_for_binding(binding_id) else {
+            return false;
+        };
+        let cfg = self.cfg();
+        let Some(scope_exits) = cfg.scope_exits(binding.scope) else {
+            return false;
+        };
+        let shadow_blocks = self
+            .model
+            .bindings_for(&binding.name)
+            .iter()
+            .copied()
+            .filter(|other_id| *other_id != binding_id)
+            .filter(|other_id| {
+                let other = self.model.binding(*other_id);
+                other.scope == binding.scope && other.span.start.offset > binding.span.start.offset
+            })
+            .filter_map(|other_id| self.block_for_binding(other_id))
+            .collect::<FxHashSet<_>>();
+        if shadow_blocks.contains(&binding_block) {
+            return false;
+        }
+
+        let target_blocks = scope_exits.iter().copied().collect::<FxHashSet<_>>();
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let mut stack = vec![binding_block];
+        let mut seen = FxHashSet::default();
+        while let Some(block_id) = stack.pop() {
+            if (block_id != binding_block && shadow_blocks.contains(&block_id))
+                || unreachable.contains(&block_id)
+                || !seen.insert(block_id)
+            {
+                continue;
+            }
+            if target_blocks.contains(&block_id) {
+                return true;
+            }
+            for (successor, _) in cfg.successors(block_id) {
+                stack.push(*successor);
+            }
+        }
+
+        false
+    }
+
+    #[doc(hidden)]
+    pub fn bindings_cover_all_paths_to_scope_exit(
+        &self,
+        scope: ScopeId,
+        bindings: &[BindingId],
+    ) -> bool {
+        let cfg = self.cfg();
+        let Some(entry) = cfg.scope_entry(scope) else {
+            return false;
+        };
+        let Some(targets) = cfg.scope_exits(scope) else {
+            return false;
+        };
+        let cover_blocks = bindings
+            .iter()
+            .copied()
+            .filter_map(|binding_id| self.block_for_binding(binding_id))
+            .collect::<FxHashSet<_>>();
+        self.blocks_cover_all_paths_from_entry_to_targets(entry, &cover_blocks, targets)
+    }
+
+    fn command_spans_cover_all_paths_from_entry_to_targets(
+        &self,
+        entry: BlockId,
+        cover_spans: &[Span],
+        targets: &[BlockId],
+    ) -> bool {
+        let cfg = self.cfg();
+        let cover_blocks = cover_spans
+            .iter()
+            .flat_map(|span| cfg.block_ids_for_span(*span).iter().copied())
+            .collect::<FxHashSet<_>>();
+        self.blocks_cover_all_paths_from_entry_to_targets(entry, &cover_blocks, targets)
+    }
+
+    fn blocks_cover_all_paths_from_entry_to_targets(
+        &self,
+        entry: BlockId,
+        cover_blocks: &FxHashSet<BlockId>,
+        targets: &[BlockId],
+    ) -> bool {
+        let cfg = self.cfg();
+        if cover_blocks.is_empty() || targets.is_empty() {
+            return false;
+        }
+        if cover_blocks.contains(&entry) {
+            return true;
+        }
+
+        let target_blocks = targets.iter().copied().collect::<FxHashSet<_>>();
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let mut stack = vec![entry];
+        let mut seen = FxHashSet::default();
+        while let Some(block_id) = stack.pop() {
+            if cover_blocks.contains(&block_id)
+                || unreachable.contains(&block_id)
+                || !seen.insert(block_id)
+            {
+                continue;
+            }
+            if target_blocks.contains(&block_id) {
+                return false;
+            }
+            for (successor, _) in cfg.successors(block_id) {
+                stack.push(*successor);
+            }
+        }
+
+        true
+    }
+
+    fn bindings_cover_all_paths_to_block(
+        &self,
+        bindings: &[BindingId],
+        reference_block: BlockId,
+        reference_offset: usize,
+    ) -> bool {
+        let cover_blocks = bindings
+            .iter()
+            .copied()
+            .filter_map(|binding_id| self.block_for_binding(binding_id))
+            .collect::<FxHashSet<_>>();
+        if cover_blocks.contains(&reference_block) {
+            return true;
+        }
+
+        let cfg = self.cfg();
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let binding_scopes = bindings
+            .iter()
+            .copied()
+            .map(|binding_id| self.model.binding(binding_id).scope)
+            .collect::<Vec<_>>();
+        let mut stack =
+            vec![self.flow_entry_block_for_binding_scopes(&binding_scopes, reference_offset)];
+        let mut seen = FxHashSet::default();
+        while let Some(block_id) = stack.pop() {
+            if cover_blocks.contains(&block_id)
+                || unreachable.contains(&block_id)
+                || !seen.insert(block_id)
+            {
+                continue;
+            }
+            if block_id == reference_block {
+                return false;
+            }
+            for (successor, _) in cfg.successors(block_id) {
+                stack.push(*successor);
+            }
+        }
+
+        true
+    }
+
+    fn flow_entry_block_for_binding_scopes(
+        &self,
+        binding_scopes: &[ScopeId],
+        reference_offset: usize,
+    ) -> BlockId {
+        let cfg = self.cfg();
         self.model
-            .visible_binding(name, at)
-            .map(|binding| vec![binding.id])
-            .unwrap_or_default()
+            .ancestor_scopes(self.model.scope_at(reference_offset))
+            .find_map(|scope| {
+                if !matches!(
+                    self.model.scope(scope).kind,
+                    ScopeKind::Function(_) | ScopeKind::File
+                ) {
+                    return None;
+                }
+                binding_scopes
+                    .iter()
+                    .copied()
+                    .all(|binding_scope| {
+                        self.model
+                            .ancestor_scopes(binding_scope)
+                            .any(|ancestor| ancestor == scope)
+                    })
+                    .then(|| cfg.scope_entry(scope))
+                    .flatten()
+            })
+            .unwrap_or_else(|| cfg.entry())
+    }
+
+    fn dynamic_write_barriers_for_flow(
+        &self,
+        reference_block: BlockId,
+        reaching_bindings: &[BindingId],
+        at: Span,
+    ) -> Vec<DynamicWriteBarrier> {
+        let cfg = self.cfg();
+        let reference_scope = self.enclosing_function_or_file_scope_at(at.start.offset);
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+
+        self.model
+            .dynamic_write_barriers()
+            .iter()
+            .filter(|barrier| barrier.span.end.offset <= at.start.offset)
+            .filter(|barrier| {
+                self.enclosing_function_or_file_scope_for_scope(barrier.scope) == reference_scope
+            })
+            .filter_map(|barrier| {
+                let barrier_blocks = cfg.block_ids_for_span(barrier.span);
+                if barrier_blocks.is_empty() {
+                    return None;
+                }
+                let restoring_blocks = reaching_bindings
+                    .iter()
+                    .copied()
+                    .filter(|binding_id| {
+                        let binding = self.model.binding(*binding_id);
+                        binding.span.start.offset >= barrier.span.end.offset
+                            && binding.span.end.offset <= at.start.offset
+                    })
+                    .filter_map(|binding_id| self.block_for_binding(binding_id))
+                    .collect::<FxHashSet<_>>();
+
+                barrier_blocks
+                    .iter()
+                    .copied()
+                    .filter(|block_id| !unreachable.contains(block_id))
+                    .any(|block_id| {
+                        block_reaches_without_any(cfg, block_id, reference_block, &restoring_blocks)
+                    })
+                    .then(|| barrier.clone())
+            })
+            .collect()
+    }
+
+    fn enclosing_function_or_file_scope_at(&self, offset: usize) -> ScopeId {
+        self.model
+            .ancestor_scopes(self.model.scope_at(offset))
+            .find(|scope| {
+                matches!(
+                    self.model.scope(*scope).kind,
+                    ScopeKind::Function(_) | ScopeKind::File
+                )
+            })
+            .unwrap_or(ScopeId(0))
+    }
+
+    fn enclosing_function_or_file_scope_for_scope(&self, scope: ScopeId) -> ScopeId {
+        self.model
+            .ancestor_scopes(scope)
+            .find(|ancestor| {
+                matches!(
+                    self.model.scope(*ancestor).kind,
+                    ScopeKind::Function(_) | ScopeKind::File
+                )
+            })
+            .unwrap_or(ScopeId(0))
     }
 
     #[doc(hidden)]
@@ -2878,6 +3331,34 @@ fn block_reaches_without(
 
     while let Some(block) = stack.pop() {
         if block == avoided || !visited.insert(block) {
+            continue;
+        }
+        if block == end {
+            return true;
+        }
+        for (successor, _) in cfg.successors(block) {
+            stack.push(*successor);
+        }
+    }
+
+    false
+}
+
+fn block_reaches_without_any(
+    cfg: &ControlFlowGraph,
+    start: BlockId,
+    end: BlockId,
+    avoided: &FxHashSet<BlockId>,
+) -> bool {
+    if avoided.contains(&start) {
+        return false;
+    }
+
+    let mut visited = FxHashSet::default();
+    let mut stack = vec![start];
+
+    while let Some(block) = stack.pop() {
+        if avoided.contains(&block) || !visited.insert(block) {
             continue;
         }
         if block == end {
@@ -6670,6 +7151,106 @@ printf '%s\\n' \"$foo\"
             .reaching_bindings_for_name(&target_reference.name, target_reference.span);
 
         assert_eq!(reaching, vec![foo_bindings[1]]);
+    }
+
+    #[test]
+    fn variable_flow_reports_partial_coverage_and_uninitialized_state() {
+        let source = "\
+#!/bin/bash
+if [ \"$1\" = yes ]; then
+  flag=--verbose
+fi
+printf '%s\\n' $flag
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "flag")
+            .expect("expected flag reference");
+        let flow = analysis.variable_flow_for_name_at(&reference.name, reference.span);
+
+        assert_eq!(flow.reference, Some(reference.id));
+        assert_eq!(flow.coverage, VariableFlowCoverage::SomePaths);
+        assert_eq!(flow.uninitialized, Some(UninitializedCertainty::Possible));
+        assert_eq!(flow.reaching_bindings.len(), 1);
+    }
+
+    #[test]
+    fn variable_flow_reports_dynamic_write_barriers_until_later_binding_restores_certainty() {
+        let source = "\
+#!/bin/bash
+name=before
+eval \"$assignment\"
+printf '%s\\n' $name
+name=after
+printf '%s\\n' $name
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let references = model
+            .references()
+            .iter()
+            .filter(|reference| reference.name == "name")
+            .collect::<Vec<_>>();
+
+        let before_restore =
+            analysis.variable_flow_for_name_at(&references[0].name, references[0].span);
+        let after_restore =
+            analysis.variable_flow_for_name_at(&references[1].name, references[1].span);
+
+        assert_eq!(before_restore.dynamic_write_barriers.len(), 1);
+        assert_eq!(
+            before_restore.dynamic_write_barriers[0].kind,
+            DynamicWriteBarrierKind::Eval
+        );
+        assert!(after_restore.dynamic_write_barriers.is_empty());
+    }
+
+    #[test]
+    fn variable_flow_reports_literal_source_write_barriers() {
+        let source = "\
+#!/bin/bash
+local_like=
+source ./settings.sh
+printf '%s\\n' $local_like
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "local_like")
+            .expect("expected local_like reference");
+        let flow = analysis.variable_flow_for_name_at(&reference.name, reference.span);
+
+        assert_eq!(flow.dynamic_write_barriers.len(), 1);
+        assert_eq!(
+            flow.dynamic_write_barriers[0].kind,
+            DynamicWriteBarrierKind::DynamicSource
+        );
+    }
+
+    #[test]
+    fn variable_flow_clears_dynamic_write_barriers_for_later_new_bindings() {
+        let source = "\
+#!/bin/bash
+root=opt
+eval \"$assignment\"
+dir=\"/$root/tool\"
+printf '%s\\n' $dir
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "dir")
+            .expect("expected dir reference");
+        let flow = analysis.variable_flow_for_name_at(&reference.name, reference.span);
+
+        assert!(flow.dynamic_write_barriers.is_empty());
     }
 
     #[test]

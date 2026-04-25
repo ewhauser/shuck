@@ -1,5 +1,5 @@
 use rustc_hash::FxHashSet;
-use shuck_ast::Span;
+use shuck_ast::{BourneParameterExpansion, Span, WordPart};
 
 use crate::{
     Checker, ExpansionContext, Rule, SafeValueIndex, SafeValueQuery, ShellDialect, Violation,
@@ -80,6 +80,9 @@ fn collect_word_fact_reports(
         return;
     };
     if !should_check_context(context, checker.shell()) {
+        return;
+    }
+    if arithmetic_command_argument_is_s001_safe(checker, fact, context) {
         return;
     }
     report_word_expansions(
@@ -172,6 +175,18 @@ fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool 
     }
 }
 
+fn arithmetic_command_argument_is_s001_safe(
+    checker: &Checker,
+    fact: WordOccurrenceRef<'_, '_>,
+    context: ExpansionContext,
+) -> bool {
+    context == ExpansionContext::CommandArgument
+        && checker
+            .facts()
+            .command(fact.command_id())
+            .effective_name_is("let")
+}
+
 fn span_contains(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
 }
@@ -184,11 +199,17 @@ fn report_word_expansions(
     context: ExpansionContext,
     in_colon_command: bool,
 ) {
-    if !fact.analysis().hazards.field_splitting && !fact.analysis().hazards.pathname_matching {
+    let scalar_spans = fact.scalar_expansion_spans();
+    let has_ordinary_array_part = fact
+        .parts_with_spans()
+        .any(|(part, _)| part_is_ordinary_array_element_expansion(part));
+    if !has_ordinary_array_part
+        && !fact.analysis().hazards.field_splitting
+        && !fact.analysis().hazards.pathname_matching
+    {
         return;
     }
 
-    let scalar_spans = fact.scalar_expansion_spans();
     let assign_default_spans = if in_colon_command && context == ExpansionContext::CommandArgument {
         fact.unquoted_assign_default_spans()
     } else {
@@ -196,7 +217,7 @@ fn report_word_expansions(
     };
     let use_replacement_spans = fact.use_replacement_spans();
     let star_spans = fact.unquoted_star_parameter_spans();
-    if scalar_spans.is_empty() && star_spans.is_empty() {
+    if scalar_spans.is_empty() && !has_ordinary_array_part && star_spans.is_empty() {
         return;
     }
     if context == ExpansionContext::CommandName
@@ -211,7 +232,8 @@ fn report_word_expansions(
 
     for (part, part_span) in fact.parts_with_spans() {
         let report_unquoted_star = star_spans.contains(&part_span);
-        if !scalar_spans.contains(&part_span) && !report_unquoted_star {
+        let report_ordinary_array = part_is_ordinary_array_element_expansion(part);
+        if !scalar_spans.contains(&part_span) && !report_ordinary_array && !report_unquoted_star {
             continue;
         }
         if assign_default_spans.contains(&part_span) {
@@ -226,6 +248,29 @@ fn report_word_expansions(
 
         spans.push(fact.diagnostic_part_span(part, part_span, source));
     }
+}
+
+fn part_is_ordinary_array_element_expansion(part: &WordPart) -> bool {
+    match part {
+        WordPart::ArrayAccess(reference) => reference_has_ordinary_subscript(reference),
+        WordPart::Parameter(parameter) => match parameter.bourne() {
+            Some(
+                BourneParameterExpansion::Access { reference }
+                | BourneParameterExpansion::Slice { reference, .. }
+                | BourneParameterExpansion::Operation { reference, .. }
+                | BourneParameterExpansion::Transformation { reference, .. },
+            ) => reference_has_ordinary_subscript(reference),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn reference_has_ordinary_subscript(reference: &shuck_ast::VarRef) -> bool {
+    reference
+        .subscript
+        .as_ref()
+        .is_some_and(|subscript| !subscript.is_array_selector())
 }
 
 #[cfg(test)]
@@ -1232,6 +1277,17 @@ printf '%s\\n' ok >&$fd
     }
 
     #[test]
+    fn skips_expansions_wrapped_by_escaped_quotes_in_backticks() {
+        let source = "\
+#!/bin/bash
+CFLAGS=\"`echo \\\"$CFLAGS\\\" | sed \\\"s/ $COVERAGE_FLAGS//\\\"`\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_unquoted_zsh_parameter_modifiers() {
         let source = "\
 #!/usr/bin/env zsh
@@ -2107,6 +2163,58 @@ maybe_helper() {
     }
 
     #[test]
+    fn skips_safe_default_for_empty_status_declaration() {
+        let source = "\
+#!/bin/bash
+demo() {
+  local result
+  command \"$@\" || result=$?
+  return ${result:-0}
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_safe_default_for_escaped_empty_status_declaration() {
+        let source = "\
+#!/bin/bash
+demo() {
+  \\typeset result
+  command \"$@\" || result=$?
+  return ${result:-0}
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_default_for_loop_values_despite_empty_declaration() {
+        let source = "\
+#!/bin/bash
+demo() {
+  \\typeset item
+  for item in \"$@\"; do
+    tool ${item:-default}
+  done
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${item:-default}"]
+        );
+    }
+
+    #[test]
     fn reports_status_capture_declarations_after_unsafe_reassignments() {
         let source = "\
 #!/bin/bash
@@ -2276,9 +2384,34 @@ cat <<< $v
 for v in one two; do
   unset $v
 done
+for v in one two; do
+  [[ ${!v} == auto ]] && unset $v
+done
 for i in 16 32 64; do
   cmd ${i}x${i}! \"$i\"
 done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn same_name_helper_loop_variables_do_not_poison_local_loop_values() {
+        let source = "\
+#!/bin/bash
+other() {
+  for gid in alpha beta; do
+    :
+  done
+}
+use_owner() {
+  [ \"$1\" = output ] && for gid in 453 7890; do
+    iptables --gid-owner $gid
+  done
+}
+other
+use_owner output
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
@@ -2303,6 +2436,22 @@ install $i /tmp
                 .collect::<Vec<_>>(),
             vec!["$i"]
         );
+    }
+
+    #[test]
+    fn skips_optional_safe_suffixes_with_unset_branch() {
+        let source = "\
+#!/bin/bash
+if [ \"${OPEN:-yes}\" = no ]; then
+  unset OPEN1
+else
+  OPEN1=-open
+fi
+cd kernel$OPEN1
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]
@@ -2436,6 +2585,36 @@ printf '%s\\n' $value
     }
 
     #[test]
+    fn reports_default_expansion_before_same_command_assignment() {
+        let source = "\
+#!/bin/bash
+RATE=1000
+[ $RATE -gt ${RATE_MAX:-0} ] && RATE_MAX=\"$RATE\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${RATE_MAX:-0}"]
+        );
+    }
+
+    #[test]
+    fn skips_default_expansion_for_safe_numeric_shell_variables() {
+        let source = "\
+#!/bin/bash
+DEFCOLUMNS=80
+echo \"$*\" | fmt -t -w ${COLUMNS:-$DEFCOLUMNS}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_conditionally_sanitized_test_operands() {
         let source = "\
 #!/bin/bash
@@ -2483,6 +2662,20 @@ printf '%s\\n' $foo
 foo=$BAR
 foo=0
 if [ $foo -eq 1 ]; then :; fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_safe_arithmetic_loop_counters_in_numeric_test_operands() {
+        let source = "\
+#!/bin/bash
+i=1
+while [ $i -le 3 ]; do
+  i=$(( i + 1 ))
+done
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
@@ -2655,6 +2848,301 @@ python-build $only
                 "$missing",
                 "$only"
             ]
+        );
+    }
+
+    #[test]
+    fn skips_short_circuit_option_flags_with_unset_baseline() {
+        let source = "\
+#!/bin/bash
+unset timestamp
+[ \"${PERSIST:-no}\" = yes ] && timestamp=--with-timestamp
+./configure $timestamp
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_short_circuit_helper_values_with_caller_baseline() {
+        let source = "\
+#!/bin/bash
+write_file() {
+  cat > $root/$name/output
+}
+root=${1:-$HOME}
+name=tool
+[ \"$root\" = \"$HOME\" ] && name=.tool
+write_file
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$root"]
+        );
+    }
+
+    #[test]
+    fn skips_short_circuit_option_flags_with_empty_baseline() {
+        let source = "\
+#!/bin/bash
+cluster=
+[ \"${CLUSTER:-yes}\" != no ] && cluster=--without-cluster
+./configure $cluster
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_short_circuit_assignments_without_safe_baseline() {
+        let source = "\
+#!/bin/bash
+[ -z \"$path\" ] && [ -f /tmp/input ] && path=/tmp/input
+[ -z \"$path\" ] && path=/dev/null
+cat $path
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$path"]
+        );
+    }
+
+    #[test]
+    fn reports_short_circuit_case_assignments_without_dominating_baseline() {
+        let source = "\
+#!/bin/bash
+case \"${SSE:-auto}\" in
+  yes) opt=--enable ;;
+  no) opt=--disable ;;
+  *) grep sse /proc/cpuinfo >/dev/null && opt=--enable || opt=--disable ;;
+esac
+./configure $opt
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$opt"]
+        );
+    }
+
+    #[test]
+    fn skips_branch_local_values_that_cover_later_references() {
+        let source = "\
+#!/bin/bash
+download() {
+  if wget --help; then
+    [ \"$3\" = echooff ] && progress='-q' || progress='-q --show-progress'
+    wget $progress
+  elif curl --version; then
+    if [ \"$3\" = echooff ]; then
+      progress='-s'
+    elif echo \"$url\" | grep -q mirror; then
+      progress='-#'
+    else
+      progress='-#'
+    fi
+    result=$(curl $progress)
+  fi
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$progress"]
+        );
+    }
+
+    #[test]
+    fn skips_numeric_test_operands_backed_by_numeric_flow() {
+        let source = "\
+#!/bin/sh
+f() {
+  local counter status
+  counter=$(( counter + 1 ))
+  [ ${counter:=0} -gt 0 ]
+  command
+  status=$?
+  [ $status -eq 0 ]
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_numeric_test_operands_without_numeric_flow() {
+        let source = "\
+#!/bin/sh
+[ ${counter:=0} -gt 0 ]
+[ $status -eq 0 ]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${counter:=0}", "$status"]
+        );
+    }
+
+    #[test]
+    fn skips_let_arithmetic_arguments() {
+        let source = "\
+#!/bin/sh
+let COOLDOWN=$AUTOPAUSE_TIMEOUT_KN/2
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_local_optional_flags_with_empty_declaration_baseline() {
+        let source = "\
+#!/bin/bash
+run() {
+  local quiet
+  if [ \"$1\" = quiet ]; then
+    quiet=--quiet
+  fi
+  tool $quiet file
+}
+run \"$1\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn keeps_post_barrier_literal_composites_safe() {
+        let source = "\
+#!/bin/bash
+root=opt
+eval \"$assignment\"
+dir=\"/$root/tool\"
+printf '%s\\n' $dir
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_unknown_values_after_unresolved_source() {
+        let source = "\
+#!/bin/bash
+build() {
+  local MODULES VIDEO_DECODERS
+  source linux_arm.sh
+  ./configure ${MODULES} ${VIDEO_DECODERS}
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${MODULES}", "${VIDEO_DECODERS}"]
+        );
+    }
+
+    #[test]
+    fn reports_name_only_exports_as_unknown_values() {
+        let source = "\
+#!/bin/bash
+export SRC OUT
+cp $SRC/mib.dict $OUT/snmp_mib_fuzzer.dict
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$SRC", "$OUT"]
+        );
+    }
+
+    #[test]
+    fn reports_declaration_only_argument_without_reaching_value_binding() {
+        let source = "\
+#!/bin/bash
+build() {
+  local qmake_args
+  qmake ${qmake_args} PREFIX=/usr
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${qmake_args}"]
+        );
+    }
+
+    #[test]
+    fn reports_composite_bindings_from_unknown_environment_values() {
+        let source = "\
+#!/bin/bash
+PATCHFILE=$TERMUX_PKG_CACHEDIR/mpfr-${_MAIN_VERSION}-patch${PATCH_NUM}.patch
+termux_download https://example.invalid/patch $PATCHFILE checksum
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$PATCHFILE"]
+        );
+    }
+
+    #[test]
+    fn reports_unquoted_array_element_arguments() {
+        let source = "\
+#!/bin/bash
+declare -A checksums
+termux_download url file ${checksums[$library]}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${checksums[$library]}"]
         );
     }
 
@@ -2851,6 +3339,36 @@ render() {
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["${flag}"]
+        );
+    }
+
+    #[test]
+    fn reports_globals_mutated_by_helpers_reaching_transitive_callers() {
+        let source = "\
+#!/bin/bash
+Region=default
+GetRegion() {
+  if [ \"$Region\" = default ]; then
+    Region=$(aws configure get region)
+  fi
+}
+CheckState() {
+  aws ec2 describe-images --region $Region --profile \"$profile\"
+}
+TagImage() {
+  CheckState
+}
+GetRegion
+TagImage
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$Region"]
         );
     }
 
@@ -3132,7 +3650,8 @@ if [ -d /pkg/usr/lib${LIBDIRSUFFIX} ]; then
 fi
 ";
         let settings = LinterSettings::for_rule(Rule::UnquotedExpansion)
-            .with_analyzed_paths([path.to_path_buf()]);
+            .with_analyzed_paths([path.to_path_buf()])
+            .with_resolve_source_closure(false);
         let diagnostics = test_snippet_at_path(path, source, &settings);
 
         assert_eq!(
@@ -3141,6 +3660,75 @@ fi
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$LIB_ARCH"]
+        );
+    }
+
+    #[test]
+    fn skips_empty_or_static_suffixes_in_redirect_targets_with_other_expansions() {
+        let source = "\
+#!/bin/bash
+if [ \"$ARCH\" = \"x86_64\" ]; then
+  LIBDIRSUFFIX=\"64\"
+else
+  LIBDIRSUFFIX=\"\"
+fi
+cat stage1-gcc/specs > $PKG/usr/lib${LIBDIRSUFFIX}/gcc/specs
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$PKG"]
+        );
+    }
+
+    #[test]
+    fn skips_empty_or_static_suffixes_in_input_and_append_redirect_targets() {
+        let source = "\
+#!/bin/bash
+if [ \"$ARCH\" = \"x86_64\" ]; then
+  LIBDIRSUFFIX=\"64\"
+else
+  LIBDIRSUFFIX=\"\"
+fi
+patch -p1 < $CWD/slackware$LIBDIRSUFFIX.diff
+cat portSMF.pc >> $PKG/usr/lib$LIBDIRSUFFIX/pkgconfig/portSMF.pc
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$CWD", "$PKG"]
+        );
+    }
+
+    #[test]
+    fn skips_composite_bindings_with_empty_or_static_suffixes_in_redirect_targets() {
+        let source = "\
+#!/bin/bash
+PRGNAM=ovcc
+if [ \"$ARCH\" = \"x86_64\" ]; then
+  LIBDIRSUFFIX=\"64\"
+else
+  LIBDIRSUFFIX=\"\"
+fi
+LIBDIR=/usr/lib$LIBDIRSUFFIX/$PRGNAM
+cat rom > $PKG/$LIBDIR/file.rom
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$PKG"]
         );
     }
 

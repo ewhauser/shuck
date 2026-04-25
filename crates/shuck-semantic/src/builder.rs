@@ -37,8 +37,8 @@ use crate::source_ref::{
     default_diagnostic_class,
 };
 use crate::{
-    BindingId, FunctionScopeKind, IndirectTargetHint, ReferenceId, Scope, ScopeId, ScopeKind,
-    SourceDirectiveOverride, SpanKey, TraversalObserver,
+    BindingId, DynamicWriteBarrier, DynamicWriteBarrierKind, FunctionScopeKind, IndirectTargetHint,
+    ReferenceId, Scope, ScopeId, ScopeKind, SourceDirectiveOverride, SpanKey, TraversalObserver,
 };
 
 pub(crate) struct BuildOutput {
@@ -67,6 +67,7 @@ pub(crate) struct BuildOutput {
     pub(crate) command_bindings: FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     pub(crate) command_references: FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
     pub(crate) cleared_variables: FxHashMap<(ScopeId, Name), SmallVec<[usize; 2]>>,
+    pub(crate) dynamic_write_barriers: Vec<DynamicWriteBarrier>,
     pub(crate) heuristic_unused_assignments: Vec<BindingId>,
 }
 
@@ -96,6 +97,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     command_references: FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
     source_directives: BTreeMap<usize, SourceDirectiveOverride>,
     cleared_variables: FxHashMap<(ScopeId, Name), SmallVec<[usize; 2]>>,
+    dynamic_write_barriers: Vec<DynamicWriteBarrier>,
     runtime: RuntimePrelude,
     completed_scopes: FxHashSet<ScopeId>,
     deferred_functions: Vec<DeferredFunction<'a>>,
@@ -196,6 +198,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             command_references: FxHashMap::default(),
             source_directives: parse_source_directives(source, indexer),
             cleared_variables: FxHashMap::default(),
+            dynamic_write_barriers: Vec::new(),
             runtime,
             completed_scopes: FxHashSet::default(),
             deferred_functions: Vec::new(),
@@ -239,6 +242,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             command_bindings: builder.command_bindings,
             command_references: builder.command_references,
             cleared_variables: builder.cleared_variables,
+            dynamic_write_barriers: builder.dynamic_write_barriers,
             heuristic_unused_assignments,
         }
     }
@@ -265,6 +269,14 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             nested_regions,
             kind,
         })
+    }
+
+    fn record_dynamic_write_barrier(&mut self, kind: DynamicWriteBarrierKind, span: Span) {
+        self.dynamic_write_barriers.push(DynamicWriteBarrier {
+            kind,
+            scope: self.current_scope(),
+            span,
+        });
     }
 
     fn prepend_nested_regions(&mut self, command: RecordedCommandId, regions: Vec<IsolatedRegion>) {
@@ -515,6 +527,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     self.visit_word_into(word, WordVisitKind::Expansion, flow, &mut nested_regions);
                 }
                 DeclOperand::Dynamic(word) => {
+                    self.record_dynamic_write_barrier(
+                        DynamicWriteBarrierKind::DynamicDeclarationTarget,
+                        command.span,
+                    );
                     self.visit_word_into(word, WordVisitKind::Expansion, flow, &mut nested_regions);
                 }
                 DeclOperand::Name(name) => {
@@ -2518,13 +2534,22 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     );
                 }
             }
-            "eval" => self.record_eval_argument_references(args),
+            "eval" => {
+                self.record_dynamic_write_barrier(DynamicWriteBarrierKind::Eval, command.span);
+                self.record_eval_argument_references(args);
+            }
             "source" | "." => {
                 if normalized.wrappers.is_empty()
                     && let Some(argument) = args.first().copied()
                 {
                     let source_span = self.command_stack.last().copied().unwrap_or(command_span);
                     let kind = self.classify_source_ref(command_span.line(), argument);
+                    if !matches!(kind, SourceRefKind::DirectiveDevNull) {
+                        self.record_dynamic_write_barrier(
+                            DynamicWriteBarrierKind::DynamicSource,
+                            source_span,
+                        );
+                    }
                     self.source_refs.push(SourceRef {
                         diagnostic_class: classify_source_ref_diagnostic_class(
                             argument,

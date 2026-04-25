@@ -79,6 +79,12 @@ fn marks_conditional_assignment_shortcuts_on_binding_values() {
 check() { return 0; }
 true && w='-w' || w=''
 check && opt='-o' || opt=''
+[ -z \"$chained\" ] && chained='x'
+case \"${mode:-auto}\" in
+  yes) case_opt='--yes' ;;
+  no) case_opt='--no' ;;
+  *) check && case_opt='--auto' || case_opt='--fallback' ;;
+esac
 if true; then flag='-f'; else flag=''; fi
 ";
     let output = Parser::new(source).parse().unwrap();
@@ -112,6 +118,32 @@ if true; then flag='-f'; else flag=''; fi
         })
         .collect::<Vec<_>>();
     assert_eq!(command_shortcut_bindings, vec![true, true]);
+
+    let chained_bindings = semantic
+        .bindings_for(&Name::from("chained"))
+        .iter()
+        .copied()
+        .map(|binding_id| {
+            facts
+                .binding_value(binding_id)
+                .expect("expected chained binding value fact")
+                .conditional_assignment_shortcut()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(chained_bindings, vec![true]);
+
+    let case_shortcut_bindings = semantic
+        .bindings_for(&Name::from("case_opt"))
+        .iter()
+        .copied()
+        .map(|binding_id| {
+            facts
+                .binding_value(binding_id)
+                .expect("expected case_opt binding value fact")
+                .conditional_assignment_shortcut()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(case_shortcut_bindings, vec![false, false, true, true]);
 
     let flag_bindings = semantic
         .bindings_for(&Name::from("flag"))

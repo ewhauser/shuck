@@ -222,6 +222,7 @@ mod tests {
         for (source, expected) in [
             ("\\cd /tmp\n", "cd"),
             ("\\grep foo input.txt\n", "grep"),
+            ("\\typeset result\n", "typeset"),
             ("\\. /dev/stdin yes\n", "."),
         ] {
             let command = parse_first_command(source);

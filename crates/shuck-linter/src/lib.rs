@@ -39,6 +39,8 @@ mod shell;
 #[allow(missing_docs)]
 mod suppression;
 #[allow(missing_docs)]
+mod value_safety;
+#[allow(missing_docs)]
 mod violation;
 
 #[cfg(test)]
@@ -96,8 +98,6 @@ pub use rule_selector::{RuleSelector, SelectorParseError};
 /// Sets of enabled or disabled rules.
 pub use rule_set::RuleSet;
 #[allow(unused_imports)]
-pub(crate) use rules::common::safe_value::{SafeValueIndex, SafeValueQuery};
-#[allow(unused_imports)]
 pub(crate) use rules::common::word::conditional_binary_op_is_string_match;
 /// Linter configuration and per-file ignore types.
 pub use settings::{
@@ -112,6 +112,8 @@ pub use suppression::{
     SuppressionDirective, SuppressionIndex, SuppressionSource, add_ignores_to_path,
     first_statement_line, parse_directives,
 };
+#[allow(unused_imports)]
+pub(crate) use value_safety::{SafeValueIndex, SafeValueQuery};
 /// Trait implemented by rule-specific diagnostic payloads.
 pub use violation::Violation;
 

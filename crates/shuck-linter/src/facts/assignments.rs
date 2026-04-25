@@ -2630,11 +2630,11 @@ fn annotate_conditional_assignment_shortcuts<'a>(
     lists: &[ListFact<'a>],
     binding_values: &mut FxHashMap<BindingId, BindingValueFact<'a>>,
 ) {
-    for list in lists
-        .iter()
-        .filter(|list| list_has_conditional_assignment_shortcuts(list))
-    {
-        for segment in list.segments() {
+    for list in lists {
+        for (index, segment) in list.segments().iter().enumerate() {
+            if !segment_assignment_is_conditional_shortcut(list, index) {
+                continue;
+            }
             let Some(target) = segment.assignment_target() else {
                 continue;
             };
@@ -2651,6 +2651,25 @@ fn annotate_conditional_assignment_shortcuts<'a>(
             }
         }
     }
+}
+
+fn segment_assignment_is_conditional_shortcut(list: &ListFact<'_>, index: usize) -> bool {
+    let Some(segment) = list.segments().get(index) else {
+        return false;
+    };
+    if segment.assignment_target().is_none() {
+        return false;
+    }
+    if index > 0
+        && list
+            .operators()
+            .get(index - 1)
+            .is_some_and(|operator| matches!(operator.op(), BinaryOp::And | BinaryOp::Or))
+    {
+        return true;
+    }
+
+    list_has_conditional_assignment_shortcuts(list)
 }
 
 fn list_has_conditional_assignment_shortcuts(list: &ListFact<'_>) -> bool {
