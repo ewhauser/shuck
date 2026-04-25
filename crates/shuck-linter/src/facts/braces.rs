@@ -16,46 +16,59 @@ fn build_literal_brace_spans(
         let is_find_exec_placeholder_word =
             is_find_exec_placeholder_word(commands, nodes, fact, source);
         let is_xargs_replacement_word = is_xargs_replacement_word(commands, nodes, fact, source);
-        let direct_spans = word
-            .brace_syntax()
-            .iter()
-            .copied()
-            .filter(|brace| brace.quote_context == BraceQuoteContext::Unquoted)
-            .filter(|brace| !literal_brace_syntax_looks_like_active_expansion(*brace, source))
-            .filter(|brace| {
-                matches!(
-                    brace.kind,
-                    BraceSyntaxKind::Literal | BraceSyntaxKind::TemplatePlaceholder
-                ) || brace_syntax_with_whitespace_is_literal(*brace, source)
-            })
-            .filter(|brace| {
-                brace.span.slice(source) != "{}"
-                    && !brace_span_has_escaped_dollar_prefix(brace.span, source)
-                    && !is_find_exec_placeholder_word
-                    && !is_xargs_replacement_word
-            })
-            .flat_map(|brace| brace_character_spans(brace.span, source))
-            .filter(|span| !span_inside_nested_escaped_parameter_template(word, *span, source))
-            .filter(|span| !brace_span_is_plain_parameter_expansion_edge(word, *span, source))
-            .filter(|span| !word_span_is_inside_command_substitution(nodes, fact, *span, source))
-            .collect::<Vec<_>>();
-        spans.extend(direct_spans);
+        spans.extend(
+            word.brace_syntax()
+                .iter()
+                .copied()
+                .filter(|brace| brace.quote_context == BraceQuoteContext::Unquoted)
+                .filter(|brace| !literal_brace_syntax_looks_like_active_expansion(*brace, source))
+                .filter(|brace| {
+                    matches!(
+                        brace.kind,
+                        BraceSyntaxKind::Literal | BraceSyntaxKind::TemplatePlaceholder
+                    ) || brace_syntax_with_whitespace_is_literal(*brace, source)
+                })
+                .filter(|brace| {
+                    brace.span.slice(source) != "{}"
+                        && !brace_span_has_escaped_dollar_prefix(brace.span, source)
+                        && !is_find_exec_placeholder_word
+                        && !is_xargs_replacement_word
+                })
+                .flat_map(|brace| brace_character_spans(brace.span, source))
+                .filter(|span| !span_inside_nested_escaped_parameter_template(word, *span, source))
+                .filter(|span| !brace_span_is_plain_parameter_expansion_edge(word, *span, source))
+                .filter(|span| {
+                    !word_span_is_inside_command_substitution(nodes, fact, *span, source)
+                }),
+        );
 
         if !is_find_exec_placeholder_word && !is_xargs_replacement_word {
-            let unclassified = unclassified_literal_brace_spans(word, source)
-                .into_iter()
-                .filter(|span| !span_inside_nested_escaped_parameter_template(word, *span, source))
-                .filter(|span| !brace_span_is_plain_parameter_expansion_edge(word, *span, source))
-                .filter(|span| !word_span_is_inside_command_substitution(nodes, fact, *span, source))
-                .collect::<Vec<_>>();
-            spans.extend(unclassified);
-            let escaped = escaped_parameter_expansion_brace_edge_spans(word, source)
-                .into_iter()
-                .filter(|span| !span_inside_nested_escaped_parameter_template(word, *span, source))
-                .filter(|span| !brace_span_is_plain_parameter_expansion_edge(word, *span, source))
-                .filter(|span| !word_span_is_inside_command_substitution(nodes, fact, *span, source))
-                .collect::<Vec<_>>();
-            spans.extend(escaped);
+            spans.extend(
+                unclassified_literal_brace_spans(word, source)
+                    .into_iter()
+                    .filter(|span| {
+                        !span_inside_nested_escaped_parameter_template(word, *span, source)
+                    })
+                    .filter(|span| {
+                        !brace_span_is_plain_parameter_expansion_edge(word, *span, source)
+                    })
+                    .filter(|span| {
+                        !word_span_is_inside_command_substitution(nodes, fact, *span, source)
+                    }),
+            );
+            spans.extend(
+                escaped_parameter_expansion_brace_edge_spans(word, source)
+                    .into_iter()
+                    .filter(|span| {
+                        !span_inside_nested_escaped_parameter_template(word, *span, source)
+                    })
+                    .filter(|span| {
+                        !brace_span_is_plain_parameter_expansion_edge(word, *span, source)
+                    })
+                    .filter(|span| {
+                        !word_span_is_inside_command_substitution(nodes, fact, *span, source)
+                    }),
+            );
         }
     }
 

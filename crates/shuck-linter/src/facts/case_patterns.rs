@@ -204,6 +204,8 @@ enum CasePatternSymbol {
     Other,
 }
 
+type CasePatternStates = SmallVec<[usize; 8]>;
+
 #[derive(Debug, Clone)]
 struct ReachableCasePattern {
     span: Span,
@@ -272,7 +274,10 @@ impl StaticCasePatternMatcher {
             other.literal_symbols.as_ref(),
         );
 
-        let start = (self.start_states.to_vec(), other.start_states.to_vec());
+        let start = (
+            case_pattern_states_from_slice(self.start_states.as_ref()),
+            case_pattern_states_from_slice(other.start_states.as_ref()),
+        );
         let mut seen = FxHashSet::default();
         let mut worklist = vec![start.clone()];
         seen.insert(start);
@@ -304,7 +309,10 @@ impl StaticCasePatternMatcher {
             other.literal_symbols.as_ref(),
         );
 
-        let start = (self.start_states.to_vec(), other.start_states.to_vec());
+        let start = (
+            case_pattern_states_from_slice(self.start_states.as_ref()),
+            case_pattern_states_from_slice(other.start_states.as_ref()),
+        );
         let mut seen = FxHashSet::default();
         let mut worklist = vec![start.clone()];
         seen.insert(start);
@@ -359,8 +367,8 @@ impl StaticCasePatternMatcher {
         true
     }
 
-    fn advance(&self, states: &[usize], symbol: CasePatternSymbol) -> Vec<usize> {
-        let mut next = Vec::new();
+    fn advance(&self, states: &[usize], symbol: CasePatternSymbol) -> CasePatternStates {
+        let mut next = CasePatternStates::new();
 
         for &state in states {
             let Some(token) = self.tokens.get(state) else {
@@ -379,13 +387,13 @@ impl StaticCasePatternMatcher {
         }
 
         if next.is_empty() {
-            return Vec::new();
+            return CasePatternStates::new();
         }
 
         self.epsilon_closure(next)
     }
 
-    fn epsilon_closure(&self, seeds: impl IntoIterator<Item = usize>) -> Vec<usize> {
+    fn epsilon_closure(&self, seeds: impl IntoIterator<Item = usize>) -> CasePatternStates {
         case_pattern_epsilon_closure(&self.tokens, seeds)
     }
 
@@ -462,31 +470,43 @@ fn summarize_static_case_pattern_tokens(tokens: &[CasePatternToken]) -> StaticCa
 fn case_pattern_epsilon_closure(
     tokens: &[CasePatternToken],
     seeds: impl IntoIterator<Item = usize>,
-) -> Vec<usize> {
-    let mut seen = vec![false; tokens.len() + 1];
-    let mut stack = Vec::new();
+) -> CasePatternStates {
+    let mut seen = SmallVec::<[bool; 16]>::new();
+    seen.resize(tokens.len() + 1, false);
+    let mut states = CasePatternStates::new();
+    let mut stack = CasePatternStates::new();
 
     for state in seeds {
-        if state <= tokens.len() && !seen[state] {
-            seen[state] = true;
-            stack.push(state);
-        }
+        push_case_pattern_state(&mut seen, &mut states, &mut stack, state);
     }
 
     while let Some(state) = stack.pop() {
         if matches!(tokens.get(state), Some(CasePatternToken::AnyString)) {
-            let next = state + 1;
-            if !seen[next] {
-                seen[next] = true;
-                stack.push(next);
-            }
+            push_case_pattern_state(&mut seen, &mut states, &mut stack, state + 1);
         }
     }
 
-    seen.into_iter()
-        .enumerate()
-        .filter_map(|(index, present)| present.then_some(index))
-        .collect()
+    states.sort_unstable();
+    states
+}
+
+fn case_pattern_states_from_slice(states: &[usize]) -> CasePatternStates {
+    states.iter().copied().collect()
+}
+
+fn push_case_pattern_state(
+    seen: &mut [bool],
+    states: &mut CasePatternStates,
+    stack: &mut CasePatternStates,
+    state: usize,
+) {
+    if let Some(present) = seen.get_mut(state)
+        && !*present
+    {
+        *present = true;
+        states.push(state);
+        stack.push(state);
+    }
 }
 
 fn merged_case_pattern_symbols(left: &[char], right: &[char]) -> Vec<CasePatternSymbol> {

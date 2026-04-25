@@ -24,23 +24,23 @@ pub fn c_style_comment(checker: &mut Checker) {
         return;
     }
 
-    let diagnostics = checker
-        .facts()
-        .commands()
-        .iter()
-        .filter_map(|command| {
-            let name = command.body_name_word()?;
+    for index in 0..checker.facts().commands().len() {
+        let diagnostic = {
+            let command = &checker.facts().commands()[index];
+            let Some(name) = command.body_name_word() else {
+                continue;
+            };
             name.span
                 .slice(checker.source())
                 .starts_with("/*")
                 .then_some(crate::Diagnostic::new(CStyleComment, name.span).with_fix(
                     Fix::unsafe_edit(Edit::insertion(name.span.start.offset, "# ")),
                 ))
-        })
-        .collect::<Vec<_>>();
+        };
 
-    for diagnostic in diagnostics {
-        checker.report_diagnostic(diagnostic);
+        if let Some(diagnostic) = diagnostic {
+            checker.report_diagnostic(diagnostic);
+        }
     }
 }
 
