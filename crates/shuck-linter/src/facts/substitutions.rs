@@ -152,6 +152,7 @@ fn populate_substitution_fact_ranges<'a>(
     commands: &mut [CommandFact<'a>],
     fact_store: &mut FactStore<'a>,
     command_ids_by_span: &CommandLookupIndex,
+    command_child_index: &CommandChildIndex,
     source: &str,
 ) {
     for index in 0..commands.len() {
@@ -160,7 +161,13 @@ fn populate_substitution_fact_ranges<'a>(
             let fact = command_facts
                 .get(index)
                 .expect("command index should resolve while populating substitution facts");
-            build_command_substitution_facts(fact, command_facts, command_ids_by_span, source)
+            build_command_substitution_facts(
+                fact,
+                command_facts,
+                command_ids_by_span,
+                command_child_index,
+                source,
+            )
         };
         commands[index].substitution_facts = fact_store.substitution_facts.push_many(substitutions);
     }
@@ -170,13 +177,19 @@ fn build_command_substitution_facts<'a>(
     fact: CommandFactRef<'_, 'a>,
     commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
+    command_child_index: &CommandChildIndex,
     source: &str,
 ) -> Vec<SubstitutionFact> {
     let mut substitutions = Vec::new();
     let mut substitution_index = FxHashMap::default();
     let context = SubstitutionFactBuildContext {
         commands,
-        command_ids_by_span,
+        command_relationships: CommandRelationshipContext::new(
+            commands.commands,
+            command_ids_by_span,
+            command_child_index,
+        ),
+        host_command_id: fact.id(),
         source,
     };
 
@@ -284,7 +297,8 @@ fn collect_or_update_heredoc_body_substitution_facts<'a>(
 #[derive(Clone, Copy)]
 struct SubstitutionFactBuildContext<'a, 'b> {
     commands: CommandFacts<'b, 'a>,
-    command_ids_by_span: &'b CommandLookupIndex,
+    command_relationships: CommandRelationshipContext<'b, 'a>,
+    host_command_id: CommandId,
     source: &'b str,
 }
 
@@ -308,7 +322,8 @@ fn collect_or_update_substitution_facts_from_occurrences<'a>(
         let body_facts = classify_substitution_body(
             occurrence.body,
             context.commands,
-            context.command_ids_by_span,
+            context.command_relationships,
+            context.host_command_id,
             context.source,
         );
         substitution_index.insert(key, substitutions.len());
@@ -521,7 +536,8 @@ struct RedirectSummary {
 fn classify_substitution_body<'a>(
     body: &'a StmtSeq,
     commands: CommandFacts<'_, 'a>,
-    command_ids_by_span: &CommandLookupIndex,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
+    parent_id: CommandId,
     source: &str,
 ) -> SubstitutionBodyFacts {
     let visits = iter_commands(
@@ -532,7 +548,7 @@ fn classify_substitution_body<'a>(
     )
     .collect::<Vec<_>>();
     let redirect_summary =
-        summarize_stmt_seq_redirects(body, commands, command_ids_by_span, source);
+        summarize_stmt_seq_redirects(body, parent_id, commands, command_relationships, source);
 
     SubstitutionBodyFacts {
         stdout_intent: redirect_summary.stdout_intent,
@@ -542,11 +558,12 @@ fn classify_substitution_body<'a>(
         stdout_dev_null_redirect_spans: redirect_summary
             .stdout_dev_null_redirect_spans
             .into_boxed_slice(),
-        body_contains_ls: substitution_body_contains_ls(body, commands, command_ids_by_span),
+        body_contains_ls: substitution_body_contains_ls(body, parent_id, command_relationships),
         body_processed_ls_pipeline_spans: substitution_body_processed_ls_pipeline_spans(
             body,
+            parent_id,
             commands,
-            command_ids_by_span,
+            command_relationships,
             source,
         )
         .into_boxed_slice(),
@@ -557,9 +574,13 @@ fn classify_substitution_body<'a>(
         body_is_pgrep_lookup: substitution_body_is_pgrep_lookup(
             body,
             commands,
-            command_ids_by_span,
+            command_relationships.command_ids_by_span,
         ),
-        body_is_seq_utility: substitution_body_is_seq_utility(body, commands, command_ids_by_span),
+        body_is_seq_utility: substitution_body_is_seq_utility(
+            body,
+            commands,
+            command_relationships.command_ids_by_span,
+        ),
         body_has_commands: !visits.is_empty(),
         bash_file_slurp: matches!(visits.as_slice(), [visit] if is_bash_file_slurp_command(visit.command, visit.redirects, source)),
     }
@@ -567,8 +588,9 @@ fn classify_substitution_body<'a>(
 
 fn summarize_stmt_seq_redirects<'a>(
     body: &'a StmtSeq,
+    parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
-    command_ids_by_span: &CommandLookupIndex,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
     source: &str,
 ) -> RedirectSummary {
     let mut summary = RedirectSummary {
@@ -581,7 +603,8 @@ fn summarize_stmt_seq_redirects<'a>(
     let mut saw_stmt = false;
 
     for stmt in &body.stmts {
-        let stmt_summary = summarize_stmt_redirects(stmt, commands, command_ids_by_span, source);
+        let stmt_summary =
+            summarize_stmt_redirects(stmt, parent_id, commands, command_relationships, source);
         summary = merge_redirect_summaries(summary, stmt_summary, saw_stmt);
         saw_stmt = true;
     }
@@ -591,20 +614,43 @@ fn summarize_stmt_seq_redirects<'a>(
 
 fn summarize_stmt_redirects<'a>(
     stmt: &'a Stmt,
+    parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
-    command_ids_by_span: &CommandLookupIndex,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
     source: &str,
 ) -> RedirectSummary {
     match &stmt.command {
         Command::Binary(binary) => match binary.op {
             BinaryOp::Pipe | BinaryOp::PipeAll => {
-                summarize_stmt_redirects(&binary.right, commands, command_ids_by_span, source)
+                let child_parent_id = command_relationships
+                    .child_or_lookup_fact(parent_id, stmt)
+                    .map_or(parent_id, CommandFact::id);
+                summarize_stmt_redirects(
+                    &binary.right,
+                    child_parent_id,
+                    commands,
+                    command_relationships,
+                    source,
+                )
             }
             BinaryOp::And | BinaryOp::Or => {
-                let left =
-                    summarize_stmt_redirects(&binary.left, commands, command_ids_by_span, source);
-                let right =
-                    summarize_stmt_redirects(&binary.right, commands, command_ids_by_span, source);
+                let child_parent_id = command_relationships
+                    .child_or_lookup_fact(parent_id, stmt)
+                    .map_or(parent_id, CommandFact::id);
+                let left = summarize_stmt_redirects(
+                    &binary.left,
+                    child_parent_id,
+                    commands,
+                    command_relationships,
+                    source,
+                );
+                let right = summarize_stmt_redirects(
+                    &binary.right,
+                    child_parent_id,
+                    commands,
+                    command_relationships,
+                    source,
+                );
                 merge_redirect_summaries(left, right, true)
             }
         },
@@ -630,21 +676,30 @@ fn summarize_stmt_redirects<'a>(
             | CompoundCommand::Time(_)
             | CompoundCommand::Coproc(_)
             | CompoundCommand::Always(_),
-        ) => summarize_command_redirects(&stmt.command, &stmt.redirects, commands, command_ids_by_span, source),
+        ) => summarize_command_redirects(
+            stmt,
+            parent_id,
+            commands,
+            command_relationships,
+            source,
+        ),
     }
 }
 
 fn summarize_command_redirects<'a>(
-    command: &Command,
-    redirects: &[Redirect],
+    stmt: &Stmt,
+    parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
-    command_ids_by_span: &CommandLookupIndex,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
     source: &str,
 ) -> RedirectSummary {
-    if let Some(id) = command_id_for_command(command, command_ids_by_span) {
+    if let Some(id) = command_relationships
+        .child_id_for_command(parent_id, &stmt.command)
+        .or_else(|| command_relationships.id_for_command(&stmt.command))
+    {
         summarize_redirect_facts(command_fact_ref(commands, id).redirect_facts(), source)
     } else {
-        let redirect_facts = build_redirect_facts(redirects, None, source, None);
+        let redirect_facts = build_redirect_facts(&stmt.redirects, None, source, None);
         summarize_redirect_facts(&redirect_facts, source)
     }
 }
@@ -1008,18 +1063,19 @@ fn leading_dynamic_dash_literal_in_parts(
 
 fn substitution_body_contains_ls<'a>(
     body: &'a StmtSeq,
-    commands: CommandFacts<'_, 'a>,
-    command_ids_by_span: &CommandLookupIndex,
+    parent_id: CommandId,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
 ) -> bool {
     body.stmts
         .iter()
-        .any(|stmt| stmt_contains_raw_ls(stmt, commands, command_ids_by_span))
+        .any(|stmt| stmt_contains_raw_ls(stmt, parent_id, command_relationships))
 }
 
 fn substitution_body_processed_ls_pipeline_spans<'a>(
     body: &'a StmtSeq,
+    parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
-    command_ids_by_span: &CommandLookupIndex,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
     source: &str,
 ) -> Vec<Span> {
     let mut spans = Vec::new();
@@ -1031,8 +1087,9 @@ fn substitution_body_processed_ls_pipeline_spans<'a>(
     ) {
         collect_processed_ls_pipeline_spans_in_stmt(
             visit.stmt,
+            parent_id,
             commands,
-            command_ids_by_span,
+            command_relationships,
             source,
             &mut spans,
         );
@@ -1042,8 +1099,9 @@ fn substitution_body_processed_ls_pipeline_spans<'a>(
 
 fn collect_processed_ls_pipeline_spans_in_stmt<'a>(
     stmt: &'a Stmt,
+    parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
-    command_ids_by_span: &CommandLookupIndex,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
@@ -1059,18 +1117,23 @@ fn collect_processed_ls_pipeline_spans_in_stmt<'a>(
     collect_pipeline_parts(binary, &mut segments, &mut operators);
 
     for (index, pair) in segments.windows(2).enumerate() {
-        if stmt_is_raw_ls(pair[0], commands, command_ids_by_span, source)
+        let pipeline_id = command_relationships
+            .child_or_lookup_fact(parent_id, stmt)
+            .map_or(parent_id, CommandFact::id);
+        if stmt_is_raw_ls(pair[0], pipeline_id, commands, command_relationships, source)
             && !stmt_static_utility_name_is(
                 pair[1],
+                pipeline_id,
                 commands,
-                command_ids_by_span,
+                command_relationships,
                 source,
                 "grep",
             )
             && !stmt_static_utility_name_is(
                 pair[1],
+                pipeline_id,
                 commands,
-                command_ids_by_span,
+                command_relationships,
                 source,
                 "xargs",
             )
@@ -1078,8 +1141,9 @@ fn collect_processed_ls_pipeline_spans_in_stmt<'a>(
             spans.push(ls_command_span_before_pipe(
                 pair[0],
                 operators[index],
+                pipeline_id,
                 commands,
-                command_ids_by_span,
+                command_relationships,
                 source,
             ));
         }
@@ -1110,11 +1174,16 @@ fn collect_pipeline_parts<'a>(
 
 fn stmt_is_raw_ls<'a>(
     stmt: &'a Stmt,
+    parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
-    command_ids_by_span: &CommandLookupIndex,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
     source: &str,
 ) -> bool {
-    if let Some(fact) = command_fact_ref_for_stmt(stmt, commands, command_ids_by_span) {
+    if let Some(fact) = command_relationships
+        .child_id_for_command(parent_id, &stmt.command)
+        .or_else(|| command_relationships.id_for_command(&stmt.command))
+        .map(|id| command_fact_ref(commands, id))
+    {
         return fact.literal_name() == Some("ls") && fact.wrappers().is_empty();
     }
 
@@ -1124,12 +1193,17 @@ fn stmt_is_raw_ls<'a>(
 
 fn stmt_static_utility_name_is<'a>(
     stmt: &'a Stmt,
+    parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
-    command_ids_by_span: &CommandLookupIndex,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
     source: &str,
     name: &str,
 ) -> bool {
-    if let Some(fact) = command_fact_ref_for_stmt(stmt, commands, command_ids_by_span) {
+    if let Some(fact) = command_relationships
+        .child_id_for_command(parent_id, &stmt.command)
+        .or_else(|| command_relationships.id_for_command(&stmt.command))
+        .map(|id| command_fact_ref(commands, id))
+    {
         return fact.static_utility_name() == Some(name);
     }
 
@@ -1139,11 +1213,15 @@ fn stmt_static_utility_name_is<'a>(
 fn ls_command_span_before_pipe<'a>(
     stmt: &'a Stmt,
     operator_span: Span,
+    parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
-    command_ids_by_span: &CommandLookupIndex,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
     source: &str,
 ) -> Span {
-    let start = command_fact_ref_for_stmt(stmt, commands, command_ids_by_span)
+    let start = command_relationships
+        .child_id_for_command(parent_id, &stmt.command)
+        .or_else(|| command_relationships.id_for_command(&stmt.command))
+        .map(|id| command_fact_ref(commands, id))
         .and_then(|fact| fact.shellcheck_command_span(source))
         .unwrap_or_else(|| command::normalize_command(&stmt.command, source).body_span)
         .start;
@@ -1168,25 +1246,38 @@ fn substitution_body_contains_grep(body: &StmtSeq, source: &str) -> bool {
 
 fn stmt_contains_raw_ls<'a>(
     stmt: &'a Stmt,
-    commands: CommandFacts<'_, 'a>,
-    command_ids_by_span: &CommandLookupIndex,
+    parent_id: CommandId,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
 ) -> bool {
-    command_fact_ref_for_stmt(stmt, commands, command_ids_by_span)
+    command_relationships
+        .child_or_lookup_fact(parent_id, stmt)
         .is_some_and(|fact| fact.literal_name() == Some("ls") && fact.wrappers().is_empty())
         || match &stmt.command {
             Command::Binary(binary) => {
-                stmt_contains_raw_ls(&binary.left, commands, command_ids_by_span)
-                    || stmt_contains_raw_ls(&binary.right, commands, command_ids_by_span)
+                let child_parent_id = command_relationships
+                    .child_or_lookup_fact(parent_id, stmt)
+                    .map_or(parent_id, CommandFact::id);
+                stmt_contains_raw_ls(&binary.left, child_parent_id, command_relationships)
+                    || stmt_contains_raw_ls(&binary.right, child_parent_id, command_relationships)
             }
             Command::Compound(CompoundCommand::Subshell(body))
-            | Command::Compound(CompoundCommand::BraceGroup(body)) => body
-                .stmts
-                .iter()
-                .any(|stmt| stmt_contains_raw_ls(stmt, commands, command_ids_by_span)),
-            Command::Compound(CompoundCommand::Time(command)) => command
-                .command
-                .as_deref()
-                .is_some_and(|stmt| stmt_contains_raw_ls(stmt, commands, command_ids_by_span)),
+            | Command::Compound(CompoundCommand::BraceGroup(body)) => {
+                let child_parent_id = command_relationships
+                    .child_or_lookup_fact(parent_id, stmt)
+                    .map_or(parent_id, CommandFact::id);
+                body.stmts
+                    .iter()
+                    .any(|stmt| stmt_contains_raw_ls(stmt, child_parent_id, command_relationships))
+            }
+            Command::Compound(CompoundCommand::Time(command)) => {
+                let child_parent_id = command_relationships
+                    .child_or_lookup_fact(parent_id, stmt)
+                    .map_or(parent_id, CommandFact::id);
+                command
+                    .command
+                    .as_deref()
+                    .is_some_and(|stmt| stmt_contains_raw_ls(stmt, child_parent_id, command_relationships))
+            }
             Command::Compound(
                 CompoundCommand::If(_)
                 | CompoundCommand::For(_)

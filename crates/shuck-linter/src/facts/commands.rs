@@ -1250,6 +1250,66 @@ fn command_fact_ref<'facts, 'a>(
         .unwrap_or_else(|| panic!("command id {} must exist", id.index()))
 }
 
+#[derive(Clone, Copy)]
+struct CommandRelationshipContext<'facts, 'a> {
+    commands: &'facts [CommandFact<'a>],
+    command_ids_by_span: &'facts CommandLookupIndex,
+    command_child_index: &'facts CommandChildIndex,
+}
+
+impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
+    fn new(
+        commands: &'facts [CommandFact<'a>],
+        command_ids_by_span: &'facts CommandLookupIndex,
+        command_child_index: &'facts CommandChildIndex,
+    ) -> Self {
+        Self {
+            commands,
+            command_ids_by_span,
+            command_child_index,
+        }
+    }
+
+    fn fact(self, id: CommandId) -> &'facts CommandFact<'a> {
+        &self.commands[id.index()]
+    }
+
+    fn id_for_command(self, command: &Command) -> Option<CommandId> {
+        command_id_for_command(command, self.command_ids_by_span)
+    }
+
+    fn fact_for_command(self, command: &Command) -> Option<&'facts CommandFact<'a>> {
+        self.id_for_command(command).map(|id| self.fact(id))
+    }
+
+    fn fact_for_stmt(self, stmt: &Stmt) -> Option<&'facts CommandFact<'a>> {
+        self.fact_for_command(&stmt.command)
+    }
+
+    fn child_id_for_command(self, parent_id: CommandId, command: &Command) -> Option<CommandId> {
+        child_command_id_for_command(parent_id, command, self.commands, self.command_child_index)
+    }
+
+    fn child_fact_for_stmt(
+        self,
+        parent_id: CommandId,
+        stmt: &Stmt,
+    ) -> Option<&'facts CommandFact<'a>> {
+        self.child_id_for_command(parent_id, &stmt.command)
+            .map(|id| self.fact(id))
+    }
+
+    fn child_or_lookup_fact(
+        self,
+        parent_id: CommandId,
+        stmt: &Stmt,
+    ) -> Option<&'facts CommandFact<'a>> {
+        self.child_fact_for_stmt(parent_id, stmt)
+            .or_else(|| self.fact_for_stmt(stmt))
+    }
+
+}
+
 fn build_command_parent_ids(
     commands: &[CommandFact<'_>],
     require_source_order: bool,
@@ -1379,6 +1439,19 @@ fn command_fact_for_stmt<'a>(
     command_ids_by_span: &CommandLookupIndex,
 ) -> Option<&'a CommandFact<'a>> {
     command_fact_for_command(&stmt.command, commands, command_ids_by_span)
+}
+
+fn child_command_id_for_command(
+    parent_id: CommandId,
+    command: &Command,
+    commands: &[CommandFact<'_>],
+    command_child_index: &CommandChildIndex,
+) -> Option<CommandId> {
+    command_child_index
+        .child_ids(parent_id)
+        .iter()
+        .copied()
+        .find(|id| std::ptr::eq(command_fact(commands, *id).command(), command))
 }
 
 fn command_fact_ref_for_stmt<'facts, 'a>(

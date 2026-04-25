@@ -929,29 +929,34 @@ fn simple_test_is_numeric_binary_operator(text: &str) -> bool {
 pub(super) fn build_single_test_subshell_spans<'a>(
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
+    command_child_index: &CommandChildIndex,
     source: &str,
 ) -> Vec<Span> {
+    let command_relationships =
+        CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
     commands
         .iter()
-        .filter_map(|fact| single_test_subshell_span(fact, commands, command_ids_by_span, source))
+        .filter_map(|fact| single_test_subshell_span(fact, command_relationships, source))
         .collect()
 }
 
 pub(super) fn build_subshell_test_group_spans<'a>(
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
+    command_child_index: &CommandChildIndex,
     source: &str,
 ) -> Vec<Span> {
+    let command_relationships =
+        CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
     commands
         .iter()
-        .filter_map(|fact| subshell_test_group_span(fact, commands, command_ids_by_span, source))
+        .filter_map(|fact| subshell_test_group_span(fact, command_relationships, source))
         .collect()
 }
 
 fn single_test_subshell_span<'a>(
     fact: &CommandFact<'a>,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
     source: &str,
 ) -> Option<Span> {
     let condition = match fact.command() {
@@ -965,7 +970,7 @@ fn single_test_subshell_span<'a>(
         return None;
     };
 
-    let condition_fact = command_fact_for_stmt(stmt, commands, command_ids_by_span)?;
+    let condition_fact = command_relationships.child_or_lookup_fact(fact.id(), stmt)?;
     let Command::Compound(CompoundCommand::Subshell(body)) = condition_fact.command() else {
         return None;
     };
@@ -974,15 +979,13 @@ fn single_test_subshell_span<'a>(
         return None;
     };
 
-    let body_fact = command_fact_for_stmt(body_stmt, commands, command_ids_by_span)?;
+    let body_fact = command_relationships.child_or_lookup_fact(condition_fact.id(), body_stmt)?;
     let simple_test = is_test_like_command(body_fact);
     if stmt.negated && !simple_test {
         return None;
     }
 
-    if !simple_test
-        && !is_test_condition_command(body_fact.command(), commands, command_ids_by_span)
-    {
+    if !simple_test && !is_test_condition_fact(body_fact, command_relationships) {
         return None;
     }
 
@@ -1004,32 +1007,37 @@ fn is_test_like_command(fact: &CommandFact<'_>) -> bool {
             ))
 }
 
-fn is_test_condition_command<'a>(
-    command: &'a Command,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+fn is_test_condition_fact<'a>(
+    fact: &CommandFact<'a>,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
 ) -> bool {
-    match command {
+    match fact.command() {
         Command::Binary(binary) if matches!(binary.op, BinaryOp::And | BinaryOp::Or) => {
-            is_test_condition_command(&binary.left.command, commands, command_ids_by_span)
-                && is_test_condition_command(&binary.right.command, commands, command_ids_by_span)
+            let Some(left) = command_relationships.child_or_lookup_fact(fact.id(), &binary.left)
+            else {
+                return false;
+            };
+            let Some(right) = command_relationships.child_or_lookup_fact(fact.id(), &binary.right)
+            else {
+                return false;
+            };
+            is_test_condition_fact(left, command_relationships)
+                && is_test_condition_fact(right, command_relationships)
         }
-        _ => command_fact_for_command(command, commands, command_ids_by_span)
-            .is_some_and(is_test_like_command),
+        _ => is_test_like_command(fact),
     }
 }
 
 fn subshell_test_group_span<'a>(
     fact: &CommandFact<'a>,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
     source: &str,
 ) -> Option<Span> {
     let Command::Compound(CompoundCommand::Subshell(body)) = fact.command() else {
         return None;
     };
 
-    if !subshell_body_contains_grouped_tests(body, commands, command_ids_by_span) {
+    if !subshell_body_contains_grouped_tests(body, fact.id(), command_relationships) {
         return None;
     }
 
@@ -1038,10 +1046,10 @@ fn subshell_test_group_span<'a>(
 
 fn subshell_body_contains_grouped_tests<'a>(
     body: &StmtSeq,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+    parent_id: CommandId,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
 ) -> bool {
-    subshell_body_analysis(body, commands, command_ids_by_span)
+    subshell_body_analysis(body, parent_id, command_relationships)
         .is_some_and(|analysis| analysis.has_grouping && analysis.test_count > 0)
 }
 
@@ -1053,49 +1061,48 @@ struct GroupedTestAnalysis {
 
 fn subshell_stmt_analysis<'a>(
     stmt: &Stmt,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+    parent_id: CommandId,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
 ) -> Option<GroupedTestAnalysis> {
-    subshell_command_analysis(&stmt.command, commands, command_ids_by_span)
+    let fact = command_relationships.child_or_lookup_fact(parent_id, stmt)?;
+    subshell_command_analysis(fact, command_relationships)
 }
 
 fn subshell_command_analysis<'a>(
-    command: &Command,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+    fact: &CommandFact<'a>,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
 ) -> Option<GroupedTestAnalysis> {
-    match command {
+    match fact.command() {
         Command::Simple(_)
         | Command::Builtin(_)
         | Command::Compound(CompoundCommand::Conditional(_)) => {
-            if let Some(id) = command_id_for_command(command, command_ids_by_span) {
-                let fact = command_fact(commands, id);
-                if is_test_like_command(fact) {
-                    return Some(GroupedTestAnalysis {
-                        test_count: 1,
-                        has_grouping: false,
-                    });
-                }
+            if is_test_like_command(fact) {
+                return Some(GroupedTestAnalysis {
+                    test_count: 1,
+                    has_grouping: false,
+                });
             }
             None
         }
         Command::Compound(CompoundCommand::BraceGroup(body)) => {
-            let inner = subshell_body_analysis(body, commands, command_ids_by_span)?;
+            let inner = subshell_body_analysis(body, fact.id(), command_relationships)?;
             Some(GroupedTestAnalysis {
                 test_count: inner.test_count,
                 has_grouping: true,
             })
         }
         Command::Compound(CompoundCommand::Subshell(body)) => {
-            let inner = subshell_body_analysis(body, commands, command_ids_by_span)?;
+            let inner = subshell_body_analysis(body, fact.id(), command_relationships)?;
             Some(GroupedTestAnalysis {
                 test_count: inner.test_count,
                 has_grouping: inner.has_grouping,
             })
         }
         Command::Binary(binary) if matches!(binary.op, BinaryOp::And | BinaryOp::Or) => {
-            let left = subshell_stmt_analysis(&binary.left, commands, command_ids_by_span)?;
-            let right = subshell_stmt_analysis(&binary.right, commands, command_ids_by_span)?;
+            let left =
+                subshell_stmt_analysis(&binary.left, fact.id(), command_relationships)?;
+            let right =
+                subshell_stmt_analysis(&binary.right, fact.id(), command_relationships)?;
             Some(GroupedTestAnalysis {
                 test_count: left.test_count + right.test_count,
                 has_grouping: true,
@@ -1107,8 +1114,8 @@ fn subshell_command_analysis<'a>(
 
 fn subshell_body_analysis<'a>(
     body: &StmtSeq,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+    parent_id: CommandId,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
 ) -> Option<GroupedTestAnalysis> {
     let mut analysis = GroupedTestAnalysis::default();
 
@@ -1117,7 +1124,7 @@ fn subshell_body_analysis<'a>(
     }
 
     for stmt in &body.stmts {
-        let stmt_analysis = subshell_stmt_analysis(stmt, commands, command_ids_by_span)?;
+        let stmt_analysis = subshell_stmt_analysis(stmt, parent_id, command_relationships)?;
         analysis.test_count += stmt_analysis.test_count;
         analysis.has_grouping |= stmt_analysis.has_grouping;
     }

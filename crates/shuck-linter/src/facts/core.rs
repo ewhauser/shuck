@@ -133,6 +133,33 @@ struct FactStore<'a> {
     word_spans: ListArena<Span>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct CommandChildIndex {
+    ids: ListArena<CommandId>,
+    by_parent: Vec<IdRange<CommandId>>,
+}
+
+impl CommandChildIndex {
+    fn from_parent_lists(children_by_parent: Vec<Vec<CommandId>>) -> Self {
+        let total_children = children_by_parent.iter().map(Vec::len).sum();
+        let mut ids = ListArena::with_capacity(total_children);
+        let mut by_parent = Vec::with_capacity(children_by_parent.len());
+
+        for children in children_by_parent {
+            by_parent.push(ids.push_many(children));
+        }
+
+        Self { ids, by_parent }
+    }
+
+    fn child_ids(&self, id: CommandId) -> &[CommandId] {
+        self.by_parent
+            .get(id.index())
+            .copied()
+            .map_or(&[], |range| self.ids.get(range))
+    }
+}
+
 impl<'a> FactStore<'a> {
     fn empty() -> Self {
         Self {

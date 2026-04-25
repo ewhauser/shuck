@@ -87,6 +87,9 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut structural_command_ids = Vec::with_capacity(capacity.structural_commands);
         let mut command_ids_by_span =
             CommandLookupIndex::with_capacity_and_hasher(capacity.commands, Default::default());
+        let mut command_parent_ids = Vec::with_capacity(capacity.commands);
+        let mut command_child_ids_by_parent = Vec::<Vec<CommandId>>::with_capacity(capacity.commands);
+        let mut active_parent_commands = Vec::<OpenParentCommand>::new();
         let mut if_condition_command_ids =
             FxHashSet::with_capacity_and_hasher(capacity.commands / 4, Default::default());
         let mut elif_condition_command_ids =
@@ -132,6 +135,23 @@ impl<'a> LinterFactsBuilder<'a> {
             &mut |visit, context| {
                 let key = FactSpan::new(command_span(visit.command));
                 let id = CommandId::new(commands.len());
+                let span = command_span(visit.command);
+                while active_parent_commands
+                    .last()
+                    .is_some_and(|candidate| candidate.end_offset < span.end.offset)
+                {
+                    active_parent_commands.pop();
+                }
+                let parent_id = active_parent_commands.last().map(|command| command.id);
+                command_parent_ids.push(parent_id);
+                command_child_ids_by_parent.push(Vec::new());
+                if let Some(parent_id) = parent_id {
+                    command_child_ids_by_parent[parent_id.index()].push(id);
+                }
+                active_parent_commands.push(OpenParentCommand {
+                    id,
+                    end_offset: span.end.offset,
+                });
                 let lookup_kind = command_lookup_kind(visit.command);
                 let entries = command_ids_by_span.entry(key).or_default();
                 let previous = entries.iter().find(|entry| entry.kind == lookup_kind);
@@ -397,11 +417,33 @@ impl<'a> LinterFactsBuilder<'a> {
         fact_store.declaration_assignment_probes = declaration_assignment_probe_store;
         fact_store.word_spans = word_spans;
 
+        let command_facts_require_source_order = !command_facts_are_source_ordered(&commands);
+        let (command_parent_ids, command_child_index) = if !command_facts_require_source_order {
+            (
+                command_parent_ids,
+                CommandChildIndex::from_parent_lists(command_child_ids_by_parent),
+            )
+        } else {
+            let command_parent_ids =
+                build_command_parent_ids(&commands, command_facts_require_source_order);
+            let mut command_child_ids_by_parent = vec![Vec::new(); commands.len()];
+            for (index, parent_id) in command_parent_ids.iter().copied().enumerate() {
+                if let Some(parent_id) = parent_id {
+                    command_child_ids_by_parent[parent_id.index()].push(CommandId::new(index));
+                }
+            }
+            (
+                command_parent_ids,
+                CommandChildIndex::from_parent_lists(command_child_ids_by_parent),
+            )
+        };
+
         populate_linebreak_in_test_facts(&mut commands, self.source);
         populate_substitution_fact_ranges(
             &mut commands,
             &mut fact_store,
             &command_ids_by_span,
+            &command_child_index,
             self.source,
         );
 
@@ -448,7 +490,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
         let case_pattern_impossible_spans =
             build_case_pattern_impossible_spans(&commands, self.source);
-        let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
+        let pipelines = build_pipeline_facts(&commands, &command_ids_by_span, &command_child_index);
         populate_scope_fact_ranges(
             &mut commands,
             &mut fact_store,
@@ -456,7 +498,12 @@ impl<'a> LinterFactsBuilder<'a> {
             &if_condition_command_ids,
             source,
         );
-        let lists = build_list_facts(&commands, &command_ids_by_span, self.source);
+        let lists = build_list_facts(
+            &commands,
+            &command_ids_by_span,
+            &command_child_index,
+            self.source,
+        );
         let completion_registered_function_command_flags =
             build_completion_registered_function_command_flags(
                 self.semantic,
@@ -470,9 +517,19 @@ impl<'a> LinterFactsBuilder<'a> {
         let background_semicolon_spans =
             build_background_semicolon_spans(&commands, &case_items, self.source);
         let single_test_subshell_spans =
-            build_single_test_subshell_spans(&commands, &command_ids_by_span, self.source);
+            build_single_test_subshell_spans(
+                &commands,
+                &command_ids_by_span,
+                &command_child_index,
+                self.source,
+            );
         let subshell_test_group_spans =
-            build_subshell_test_group_spans(&commands, &command_ids_by_span, self.source);
+            build_subshell_test_group_spans(
+                &commands,
+                &command_ids_by_span,
+                &command_child_index,
+                self.source,
+            );
         let shebang_header_facts = build_shebang_header_facts(self.source);
         let errexit_enabled_anywhere = self.ambient_shell_options.errexit
             || shebang_header_facts.enables_errexit
@@ -498,7 +555,6 @@ impl<'a> LinterFactsBuilder<'a> {
         let backtick_command_name_spans = build_backtick_command_name_spans(&commands);
         let dollar_question_after_command_spans =
             build_dollar_question_after_command_spans(&self.file.body, self.source);
-        let command_facts_require_source_order = !command_facts_are_source_ordered(&commands);
         let nonpersistent_assignment_spans = build_nonpersistent_assignment_spans(
             self.semantic,
             &commands,
@@ -707,8 +763,6 @@ impl<'a> LinterFactsBuilder<'a> {
                 .collect(),
             command_facts_require_source_order,
         );
-        let command_parent_ids =
-            build_command_parent_ids(&commands, command_facts_require_source_order);
         let command_dominance_barrier_flags = build_command_dominance_barrier_flags(&commands);
         let c006_suppressing_reference_offsets_by_name =
             build_c006_suppressing_reference_offsets_by_name(

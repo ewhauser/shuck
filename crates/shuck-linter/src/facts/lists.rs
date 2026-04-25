@@ -108,8 +108,11 @@ impl<'a> ListFact<'a> {
 pub(super) fn build_list_facts<'a>(
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
+    command_child_index: &CommandChildIndex,
     source: &str,
 ) -> Vec<ListFact<'a>> {
+    let command_relationships =
+        CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
     let mut nested_list_commands = FxHashSet::default();
 
     for fact in commands {
@@ -120,16 +123,18 @@ pub(super) fn build_list_facts<'a>(
             continue;
         }
 
-        if matches!(&command.left.command, Command::Binary(left) if matches!(left.op, BinaryOp::And | BinaryOp::Or))
-            && let Some(id) = command_id_for_command(&command.left.command, command_ids_by_span)
-        {
-            nested_list_commands.insert(id);
-        }
-        if matches!(&command.right.command, Command::Binary(right) if matches!(right.op, BinaryOp::And | BinaryOp::Or))
-            && let Some(id) = command_id_for_command(&command.right.command, command_ids_by_span)
-        {
-            nested_list_commands.insert(id);
-        }
+        record_nested_list_command(
+            &command.left,
+            fact.id(),
+            command_relationships,
+            &mut nested_list_commands,
+        );
+        record_nested_list_command(
+            &command.right,
+            fact.id(),
+            command_relationships,
+            &mut nested_list_commands,
+        );
     }
 
     commands
@@ -146,8 +151,12 @@ pub(super) fn build_list_facts<'a>(
 
             let mut operators = Vec::new();
             collect_short_circuit_operators(command, &mut operators);
-            let segments =
-                build_list_segment_facts(command, commands, command_ids_by_span, source)?;
+            let segments = build_list_segment_facts(
+                command,
+                command_relationships,
+                fact.id(),
+                source,
+            )?;
             let mixed_short_circuit_span = mixed_short_circuit_operator_span(&operators);
             let mixed_short_circuit_kind = mixed_short_circuit_span
                 .map(|_| classify_mixed_short_circuit_kind(&segments, &operators));
@@ -164,18 +173,32 @@ pub(super) fn build_list_facts<'a>(
         .collect()
 }
 
+fn record_nested_list_command(
+    stmt: &Stmt,
+    parent_id: CommandId,
+    command_relationships: CommandRelationshipContext<'_, '_>,
+    nested_list_commands: &mut FxHashSet<CommandId>,
+) {
+    if matches!(
+        &stmt.command,
+        Command::Binary(child) if matches!(child.op, BinaryOp::And | BinaryOp::Or)
+    ) && let Some(child) = command_relationships.child_or_lookup_fact(parent_id, stmt)
+    {
+        nested_list_commands.insert(child.id());
+    }
+}
 
 fn build_list_segment_facts<'a>(
     command: &BinaryCommand,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
+    parent_id: CommandId,
     source: &str,
 ) -> Option<Box<[ListSegmentFact]>> {
     let mut segments = Vec::new();
     collect_list_segment_facts(
         command,
-        commands,
-        command_ids_by_span,
+        command_relationships,
+        parent_id,
         source,
         &mut segments,
     )?;
@@ -184,22 +207,22 @@ fn build_list_segment_facts<'a>(
 
 fn collect_list_segment_facts<'a>(
     command: &BinaryCommand,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
+    parent_id: CommandId,
     source: &str,
     segments: &mut Vec<ListSegmentFact>,
 ) -> Option<()> {
     collect_list_stmt_segment_facts(
         &command.left,
-        commands,
-        command_ids_by_span,
+        command_relationships,
+        parent_id,
         source,
         segments,
     )?;
     collect_list_stmt_segment_facts(
         &command.right,
-        commands,
-        command_ids_by_span,
+        command_relationships,
+        parent_id,
         source,
         segments,
     )?;
@@ -208,19 +231,28 @@ fn collect_list_segment_facts<'a>(
 
 fn collect_list_stmt_segment_facts<'a>(
     stmt: &Stmt,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
+    parent_id: CommandId,
     source: &str,
     segments: &mut Vec<ListSegmentFact>,
 ) -> Option<()> {
     if let Command::Binary(binary) = &stmt.command
         && matches!(binary.op, BinaryOp::And | BinaryOp::Or)
     {
-        return collect_list_segment_facts(binary, commands, command_ids_by_span, source, segments);
+        let nested_parent_id = command_relationships
+            .child_or_lookup_fact(parent_id, stmt)?
+            .id();
+        return collect_list_segment_facts(
+            binary,
+            command_relationships,
+            nested_parent_id,
+            source,
+            segments,
+        );
     }
 
-    let id = command_id_for_command(&stmt.command, command_ids_by_span)?;
-    let fact = command_fact(commands, id);
+    let fact = command_relationships.child_or_lookup_fact(parent_id, stmt)?;
+    let id = fact.id();
     let assignment_info = list_segment_assignment_info(fact);
     let assignment_target = assignment_info
         .as_ref()
