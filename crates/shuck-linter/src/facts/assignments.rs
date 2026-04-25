@@ -1873,33 +1873,44 @@ fn escaped_braced_parameter_names(text: &str) -> Vec<String> {
 fn build_innermost_command_ids_by_offset(
     commands: &[CommandFact<'_>],
     mut offsets: Vec<usize>,
-) -> FxHashMap<usize, Option<CommandId>> {
+) -> CommandOffsetLookup {
     if offsets.is_empty() {
-        return FxHashMap::default();
+        return CommandOffsetLookup::default();
     }
 
     offsets.sort_unstable();
     offsets.dedup();
 
-    let mut command_spans = commands
+    let mut command_order = commands
         .iter()
-        .map(|command| (command.span(), command.id()))
+        .map(CommandFact::id)
         .collect::<Vec<_>>();
-    if command_spans
+    if command_order
         .windows(2)
-        .any(|window| compare_command_offset_entries(window[0], window[1]).is_gt())
+        .any(|window| {
+            compare_command_offset_entries(
+                command_offset_entry(commands, window[0]),
+                command_offset_entry(commands, window[1]),
+            )
+            .is_gt()
+        })
     {
-        command_spans.sort_unstable_by(|left, right| compare_command_offset_entries(*left, *right));
+        command_order.sort_unstable_by(|left, right| {
+            compare_command_offset_entries(
+                command_offset_entry(commands, *left),
+                command_offset_entry(commands, *right),
+            )
+        });
     }
 
-    let mut command_ids_by_offset =
-        FxHashMap::with_capacity_and_hasher(offsets.len(), Default::default());
+    let mut entries = Vec::with_capacity(offsets.len());
     let mut active_commands = Vec::new();
     let mut next_command = 0;
     for offset in offsets {
         pop_finished_commands(&mut active_commands, offset);
 
-        while let Some((span, id)) = command_spans.get(next_command).copied() {
+        while let Some(id) = command_order.get(next_command).copied() {
+            let span = command_fact(commands, id).span();
             if span.start.offset > offset {
                 break;
             }
@@ -1913,10 +1924,26 @@ fn build_innermost_command_ids_by_offset(
         }
 
         pop_finished_commands(&mut active_commands, offset);
-        command_ids_by_offset.insert(offset, active_commands.last().map(|command| command.id));
+        if let Some(command) = active_commands.last() {
+            entries.push(CommandOffsetLookupEntry {
+                offset,
+                id: command.id,
+            });
+        }
     }
 
-    command_ids_by_offset
+    CommandOffsetLookup { entries }
+}
+
+#[derive(Debug, Default, Clone)]
+struct CommandOffsetLookup {
+    entries: Vec<CommandOffsetLookupEntry>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CommandOffsetLookupEntry {
+    offset: usize,
+    id: CommandId,
 }
 
 fn compare_command_offset_entries(
@@ -1931,11 +1958,19 @@ fn compare_command_offset_entries(
         .then_with(|| right_id.index().cmp(&left_id.index()))
 }
 
+fn command_offset_entry(commands: &[CommandFact<'_>], id: CommandId) -> (Span, CommandId) {
+    (command_fact(commands, id).span(), id)
+}
+
 fn precomputed_command_id_for_offset(
-    command_ids_by_offset: &FxHashMap<usize, Option<CommandId>>,
+    command_ids_by_offset: &CommandOffsetLookup,
     offset: usize,
 ) -> Option<CommandId> {
-    command_ids_by_offset.get(&offset).copied().unwrap_or(None)
+    command_ids_by_offset
+        .entries
+        .binary_search_by_key(&offset, |entry| entry.offset)
+        .ok()
+        .map(|index| command_ids_by_offset.entries[index].id)
 }
 
 #[derive(Debug, Clone, Copy)]

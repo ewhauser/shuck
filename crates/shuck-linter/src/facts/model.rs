@@ -4,7 +4,7 @@ pub struct LinterFacts<'a> {
     structural_command_ids: Vec<CommandId>,
     #[cfg_attr(not(test), allow(dead_code))]
     command_ids_by_span: CommandLookupIndex,
-    innermost_command_ids_by_offset: FxHashMap<usize, Option<CommandId>>,
+    innermost_command_ids_by_offset: CommandOffsetLookup,
     command_parent_ids: Vec<Option<CommandId>>,
     command_dominance_barrier_flags: Vec<bool>,
     if_condition_command_ids: FxHashSet<CommandId>,

@@ -55,12 +55,16 @@ pub(super) fn build_presence_tested_names(
     let mut names_by_name = FxHashMap::<Name, Vec<PresenceTestNameFact>>::default();
     let outermost_nested_scopes = build_outermost_nested_presence_scopes(commands);
     let sorted_reference_indices = sorted_presence_reference_indices(semantic.references());
+    let mut command_names = FxHashSet::default();
+    let mut c006_command_names = FxHashSet::default();
+    let mut command_reference_ids = FxHashSet::default();
+    let mut command_name_spans = Vec::<(Name, Span)>::new();
 
     for command in commands {
-        let mut command_names = FxHashSet::default();
-        let mut c006_command_names = FxHashSet::default();
-        let mut command_reference_ids = FxHashSet::default();
-        let mut command_name_spans = Vec::<(Name, Span)>::new();
+        command_names.clear();
+        c006_command_names.clear();
+        command_reference_ids.clear();
+        command_name_spans.clear();
 
         if let Some(simple_test) = command.simple_test() {
             let mut simple_test_names = FxHashSet::default();
@@ -94,7 +98,7 @@ pub(super) fn build_presence_tested_names(
             command_names.extend(conditional_names);
         }
 
-        for reference_id in command_reference_ids {
+        for reference_id in command_reference_ids.drain() {
             let reference = semantic.reference(reference_id);
             references_by_name
                 .entry(reference.name.clone())
@@ -105,7 +109,7 @@ pub(super) fn build_presence_tested_names(
                 });
         }
 
-        for (name, tested_span) in command_name_spans {
+        for (name, tested_span) in command_name_spans.drain(..) {
             names_by_name
                 .entry(name)
                 .or_default()
@@ -118,21 +122,21 @@ pub(super) fn build_presence_tested_names(
         if command.is_nested_word_command() {
             let span =
                 outermost_nested_scopes[command.id().index()].unwrap_or_else(|| command.span());
-            for name in command_names {
+            for name in command_names.drain() {
                 nested_command_spans_by_name
                     .entry(name)
                     .or_default()
                     .push(span);
             }
-            for name in c006_command_names {
+            for name in c006_command_names.drain() {
                 c006_nested_command_spans_by_name
                     .entry(name)
                     .or_default()
                     .push(span);
             }
         } else {
-            global_names.extend(command_names);
-            c006_global_names.extend(c006_command_names);
+            global_names.extend(command_names.drain());
+            c006_global_names.extend(c006_command_names.drain());
         }
     }
 
@@ -181,23 +185,20 @@ pub(super) fn build_presence_tested_names(
 }
 
 fn build_outermost_nested_presence_scopes(commands: &[CommandFact<'_>]) -> Vec<Option<Span>> {
-    let mut ordered_commands = commands
-        .iter()
-        .map(|command| {
-            (
-                command.span(),
-                command.id(),
-                command.is_nested_word_command(),
-            )
-        })
-        .collect::<Vec<_>>();
+    let mut ordered_commands = commands.iter().map(CommandFact::id).collect::<Vec<_>>();
     ordered_commands.sort_unstable_by(|left, right| {
-        compare_command_offset_entries((left.0, left.1), (right.0, right.1))
+        compare_command_offset_entries(
+            command_offset_entry(commands, *left),
+            command_offset_entry(commands, *right),
+        )
     });
 
     let mut outermost_scopes = vec![None; commands.len()];
     let mut active_nested_scopes = Vec::<Span>::new();
-    for (span, id, is_nested) in ordered_commands {
+    for id in ordered_commands {
+        let command = command_fact(commands, id);
+        let span = command.span();
+        let is_nested = command.is_nested_word_command();
         pop_finished_nested_presence_scopes(&mut active_nested_scopes, span.start.offset);
         outermost_scopes[id.index()] = active_nested_scopes
             .first()
