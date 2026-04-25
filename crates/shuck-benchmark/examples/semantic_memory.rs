@@ -177,8 +177,10 @@ struct CaseReport {
     command_count: usize,
     semantic_item_count: usize,
     cfg_block_count: usize,
+    dataflow_item_count: usize,
     metrics: MemoryMetrics,
     cfg_metrics: MemoryMetrics,
+    dataflow_metrics: MemoryMetrics,
 }
 
 fn build_semantic(source: &str) -> (SemanticModel, usize, usize, bool) {
@@ -218,9 +220,10 @@ fn single_case_report(case_name: &str) -> Option<CaseReport> {
         (models, recovered_files, command_count, semantic_count)
     });
 
-    let (cfg_frame, cfg_block_count) = measure(|| {
+    let (cfg_frame, (analyses, cfg_block_count)) = measure(|| {
         let mut cfg_block_count = 0usize;
         let mut cfg_edge_count = 0usize;
+        let mut analyses = Vec::with_capacity(models.len());
 
         for model in &models {
             let analysis = model.analysis();
@@ -231,10 +234,23 @@ fn single_case_report(case_name: &str) -> Option<CaseReport> {
                 .iter()
                 .map(|block| cfg.successors(block.id).len())
                 .sum::<usize>();
+            analyses.push(analysis);
         }
 
         std::hint::black_box(cfg_edge_count);
-        cfg_block_count
+        (analyses, cfg_block_count)
+    });
+
+    let (dataflow_frame, dataflow_item_count) = measure(|| {
+        let mut dataflow_item_count = 0usize;
+
+        for analysis in &analyses {
+            dataflow_item_count += analysis.unused_assignments().len();
+            dataflow_item_count += analysis.uninitialized_references().len();
+            dataflow_item_count += analysis.dead_code().len();
+        }
+
+        dataflow_item_count
     });
 
     Some(CaseReport {
@@ -244,8 +260,10 @@ fn single_case_report(case_name: &str) -> Option<CaseReport> {
         command_count,
         semantic_item_count,
         cfg_block_count,
+        dataflow_item_count,
         metrics: frame.into(),
         cfg_metrics: cfg_frame.into(),
+        dataflow_metrics: dataflow_frame.into(),
     })
 }
 

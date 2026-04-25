@@ -51,7 +51,6 @@ pub struct DeadCode {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataflowResult {
-    pub reaching_definitions: ReachingDefinitions,
     pub unused_assignments: Vec<UnusedAssignment>,
     pub uninitialized_references: Vec<UninitializedReference>,
     pub dead_code: Vec<DeadCode>,
@@ -272,10 +271,8 @@ pub(crate) fn analyze(
     );
     let uninitialized_references = analyze_uninitialized_references_exact(context, exact);
     let dead_code = build_dead_code(context.cfg);
-    let reaching_definitions = exact.reaching_definitions(context);
 
     DataflowResult {
-        reaching_definitions: materialize_reaching_definitions(context.cfg, reaching_definitions),
         unused_assignments: unused_assignments.unused_assignments,
         uninitialized_references,
         dead_code,
@@ -1159,7 +1156,16 @@ struct DenseReachingDefinitions {
     reaching_out: Vec<DenseBitSet>,
 }
 
-fn materialize_reaching_definitions(
+#[cfg(test)]
+pub(crate) fn materialize_reaching_definitions(
+    context: &DataflowContext<'_>,
+    exact: &ExactVariableDataflow,
+) -> ReachingDefinitions {
+    materialize_dense_reaching_definitions(context.cfg, exact.reaching_definitions(context))
+}
+
+#[cfg(test)]
+fn materialize_dense_reaching_definitions(
     cfg: &ControlFlowGraph,
     dense: &DenseReachingDefinitions,
 ) -> ReachingDefinitions {
