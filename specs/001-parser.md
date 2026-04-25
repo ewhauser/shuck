@@ -525,7 +525,7 @@ pub enum Error {
 **Recovery Mode** (`parse_recovered() -> RecoveredParse`):
 - Collects parse diagnostics and continues
 - Returns partial script + list of errors
-- Used by shuck-syntax for IDE-style error reporting
+- Used by shuck-linter, the CLI, and downstream tools for parse-aware diagnostics
 
 ```rust
 pub struct RecoveredParse {

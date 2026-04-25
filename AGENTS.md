@@ -49,7 +49,7 @@ cargo test --features http_client
 
 # Run a single test
 cargo test -p shuck-cli -- test_name
-cargo test -p shuck-syntax -- test_name
+cargo test -p shuck-linter -- test_name
 cargo test -p shuck-parser -- test_name
 
 # Format and lint
@@ -102,25 +102,33 @@ nix --extra-experimental-features 'nix-command flakes' develop --command shellch
 
 ### Workspace crates
 
-- **`crates/shuck-cli`** — CLI binary. Discovers shell files, parses them via shuck-syntax, reports parse errors. Subcommands: `check` (lint files) and `clean` (remove caches). Project root is resolved by walking up to find `.shuck.toml` or `shuck.toml`.
-- **`crates/shuck-syntax`** — Linter-oriented syntax wrapper over shuck-parser's parser. Adds comment collection (including inside `$(...)` substitutions), suppression directive parsing (`# shuck: disable=SH-001` and `# shellcheck disable=SC2086`), a `SuppressionIndex` for line-level queries, and a dialect/profile parse-view layer. Today it supports native Bash `strict` and `strict-recovered` views plus Bash-backed `permissive` and `permissive-recovered` fallbacks for `sh`/`dash`/`ksh`/`mksh`.
+- **`crates/shuck-cli`** — CLI binary. Discovers files, resolves config, coordinates caching, parses shell sources, runs lint/format commands, applies fixes, and renders reports. Project roots are resolved by walking up to find `.shuck.toml` or `shuck.toml`.
+- **`crates/shuck-linter`** — Rule registry, checker dispatch, suppressions, generated rule metadata, fix application, and linter-owned facts built over parser, indexer, and semantic output.
+- **`crates/shuck-semantic`** — Semantic model for bindings, references, scopes, declarations, source closure, call graph, CFG, and dataflow.
+- **`crates/shuck-indexer`** — Positional and structural indexes over parsed scripts, including lines, comments, syntactic regions, heredocs, and continuation lines.
+- **`crates/shuck-extract`** — Embedded shell extraction for supported host files such as GitHub Actions workflows and composite actions.
 - **`crates/shuck-cache`** — File-level caching with SHA-256 keyed `PackageCache<T>`. Stores results in a shared cache root (from `--cache-dir`, `SHUCK_CACHE_DIR`, or the OS cache directory such as `~/Library/Caches/shuck` / `$XDG_CACHE_HOME/shuck`) using bincode serialization. Entries are keyed by file mtime+permissions and auto-pruned after 30 days.
-- **`crates/shuck-parser`** — The bash parser library. Provides `Lexer`, `Parser`, AST types, and the full execution runtime. Shuck only uses the parser/lexer portion.
+- **`crates/shuck-parser`** — The shell parser library. Provides source-backed lexing, dialect/profile-aware parsing, AST construction, recovery diagnostics, and syntax facts.
+- **`crates/shuck-ast`** — Shared AST node types, tokens, identifiers, and source span utilities.
+- **`crates/shuck-formatter`** and **`crates/shuck-format`** — Shell formatting plus reusable pretty-printer primitives.
 
 ### Data flow for `shuck check`
 
 1. **Discover** (`discover.rs`) — Walk input paths, detect shell scripts by extension (`.sh`, `.bash`, `.zsh`, `.ksh`) or shebang, skip ignored dirs (`.git`, `node_modules`, etc.)
 2. **Cache lookup** (`shuck-cache`) — Check if file has a valid cached result based on mtime/permissions
-3. **Parse** (`shuck-syntax::parse`) — Resolve a dialect profile into a concrete parse view, lex and collect comments, parse directives/suppressions, then parse AST via the selected backend grammar
-4. **Report** — Print `path:line:col: parse error message` format, cache results, exit 0 (success) or 1 (failures found)
+3. **Parse and index** (`shuck-parser`, `shuck-indexer`) — Infer the shell dialect, parse into an AST with recovery diagnostics, and build line/comment/region indexes
+4. **Suppressions and analysis** (`shuck-linter`) — Parse shuck and ShellCheck-style directives, build the semantic model and linter facts, dispatch enabled rules, and apply per-file ignores
+5. **Fix and report** — Optionally apply requested fixes, remap embedded diagnostics back to host files, render the selected output format, cache results, and return the appropriate exit status
 
 ### shuck-parser internals
 
 The parser (`crates/shuck-parser/src/parser/`) is a recursive descent parser with these modules:
 - `lexer.rs` — Tokenizer that handles shell quoting, expansions, heredocs
-- `ast.rs` — AST node types (`Script`, `Command`, `Pipeline`, etc.)
-- `tokens.rs` — Token enum
-- `span.rs` — Position/Span tracking
+- `commands.rs` — Command and statement parsing
+- `words.rs` — Word, expansion, pattern, and substitution parsing
+- `redirects.rs` — Redirection and heredoc delimiter parsing
+- `arithmetic.rs` — Arithmetic expression parsing
+- `heredocs.rs` — Heredoc body parsing
 
 ## Key conventions
 

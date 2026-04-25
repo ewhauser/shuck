@@ -82,7 +82,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-shuck-syntax = { path = "../shuck-syntax" }
+shuck-parser = { path = "../shuck-parser" }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
