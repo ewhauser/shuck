@@ -3355,6 +3355,25 @@ arr+=([docker:dind]=x [nats-streaming:nanoserver]=y)
     }
 
     #[test]
+    fn undefined_variable_skips_parameter_replacement_pattern_reads() {
+        let source = "\
+#!/bin/bash
+dir=all/retroarch.cfg
+echo \"${dir//$configdir\\/}\"
+find \"$configdir\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$configdir"]
+        );
+    }
+
+    #[test]
     fn undefined_variable_ignores_bound_name_between_escaped_quote_literals() {
         let diagnostics = lint_for_rule(
             "\

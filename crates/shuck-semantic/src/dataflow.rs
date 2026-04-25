@@ -301,6 +301,7 @@ fn analyze_uninitialized_references_exact(
             reference.kind,
             ReferenceKind::ImplicitRead
                 | ReferenceKind::DeclarationName
+                | ReferenceKind::ParameterPattern
                 | ReferenceKind::ParameterSliceArithmetic
         ) || context.predefined_runtime_refs.contains(&reference.id)
             || context.guarded_parameter_refs.contains(&reference.id)

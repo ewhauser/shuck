@@ -27,20 +27,6 @@ reviewed_divergences:
     column: 15
     end_column: 25
     reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shellcheck-only
-    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__configedit.sh"
-    line: 371
-    end_line: 371
-    column: 24
-    end_column: 34
-    reason: "This RetroPie menu helper filters config paths from the shared configuration root, so the ShellCheck-only read is the surrounding module's directory context rather than an uninitialized local."
-  - side: shuck-only
-    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__configedit.sh"
-    line: 363
-    end_line: 363
-    column: 24
-    end_column: 34
-    reason: "This RetroPie fixture exchanges menu ids, config roots, or launching-image options through the surrounding setup framework, so the remaining C006 hits are reviewed framework state rather than missing local assignments."
   - side: shuck-only
     path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__launchingimages.sh"
     line: 105

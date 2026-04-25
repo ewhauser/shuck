@@ -150,6 +150,7 @@ impl FlowState {
 enum WordVisitKind {
     Expansion,
     Conditional,
+    ParameterPattern,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1373,11 +1374,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.visit_var_ref_subscript_words(
             Some(&reference.name),
             reference.subscript.as_deref(),
-            if matches!(reference_kind, ReferenceKind::ConditionalOperand) {
-                WordVisitKind::Conditional
-            } else {
-                WordVisitKind::Expansion
-            },
+            word_visit_kind_for_reference_kind(reference_kind),
             flow,
             nested_regions,
         );
@@ -1471,13 +1468,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             WordPart::Variable(name) => {
                 self.add_reference(
                     name,
-                    self.word_reference_kind_override.unwrap_or(
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::Expansion
-                        },
-                    ),
+                    self.word_reference_kind_override
+                        .unwrap_or(reference_kind_for_word_visit(
+                            kind,
+                            ReferenceKind::Expansion,
+                        )),
                     span,
                 );
             }
@@ -1526,13 +1521,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             } => {
                 let reference_id = self.visit_var_ref_reference(
                     reference,
-                    if matches!(operator, ParameterOp::Error) {
-                        ReferenceKind::RequiredRead
-                    } else if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::ParameterExpansion
-                    },
+                    parameter_operation_reference_kind(kind, operator),
                     flow,
                     nested_regions,
                     reference.span,
@@ -1555,11 +1544,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             WordPart::Length(reference) | WordPart::ArrayLength(reference) => {
                 self.visit_var_ref_reference(
                     reference,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::Length
-                    },
+                    reference_kind_for_word_visit(kind, ReferenceKind::Length),
                     flow,
                     nested_regions,
                     reference.span,
@@ -1568,11 +1553,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             WordPart::ArrayAccess(reference) => {
                 self.visit_var_ref_reference(
                     reference,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::ArrayAccess
-                    },
+                    reference_kind_for_word_visit(kind, ReferenceKind::ArrayAccess),
                     flow,
                     nested_regions,
                     reference.span,
@@ -1581,11 +1562,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             WordPart::ArrayIndices(reference) => {
                 self.visit_var_ref_reference(
                     reference,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::IndirectExpansion
-                    },
+                    reference_kind_for_word_visit(kind, ReferenceKind::IndirectExpansion),
                     flow,
                     nested_regions,
                     reference.span,
@@ -1601,11 +1578,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             } => {
                 let id = self.visit_var_ref_reference(
                     reference,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::IndirectExpansion
-                    },
+                    reference_kind_for_word_visit(kind, ReferenceKind::IndirectExpansion),
                     flow,
                     nested_regions,
                     reference.span,
@@ -1630,11 +1603,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             } => {
                 self.visit_var_ref_reference(
                     reference,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::ParameterExpansion
-                    },
+                    reference_kind_for_word_visit(kind, ReferenceKind::ParameterExpansion),
                     flow,
                     nested_regions,
                     reference.span,
@@ -1650,11 +1619,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             } => {
                 self.visit_var_ref_reference(
                     reference,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::ParameterExpansion
-                    },
+                    reference_kind_for_word_visit(kind, ReferenceKind::ParameterExpansion),
                     flow,
                     nested_regions,
                     reference.span,
@@ -1665,11 +1630,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             WordPart::Transformation { reference, .. } => {
                 self.visit_var_ref_reference(
                     reference,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::ParameterExpansion
-                    },
+                    reference_kind_for_word_visit(kind, ReferenceKind::ParameterExpansion),
                     flow,
                     nested_regions,
                     reference.span,
@@ -1693,11 +1654,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             HeredocBodyPart::Variable(name) => {
                 self.add_reference(
                     name,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::Expansion
-                    },
+                    reference_kind_for_word_visit(kind, ReferenceKind::Expansion),
                     span,
                 );
             }
@@ -1748,11 +1705,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         {
             self.add_reference(
                 &name,
-                if matches!(kind, WordVisitKind::Conditional) {
-                    ReferenceKind::ConditionalOperand
-                } else {
-                    ReferenceKind::Expansion
-                },
+                reference_kind_for_word_visit(kind, ReferenceKind::Expansion),
                 span,
             );
         }
@@ -1771,11 +1724,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 BourneParameterExpansion::Access { reference } => {
                     self.visit_var_ref_reference(
                         reference,
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::ArrayAccess
-                        },
+                        reference_kind_for_word_visit(kind, ReferenceKind::ArrayAccess),
                         flow,
                         nested_regions,
                         span,
@@ -1784,11 +1733,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 BourneParameterExpansion::Length { reference } => {
                     self.visit_var_ref_reference(
                         reference,
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::Length
-                        },
+                        reference_kind_for_word_visit(kind, ReferenceKind::Length),
                         flow,
                         nested_regions,
                         span,
@@ -1797,11 +1742,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 BourneParameterExpansion::Indices { reference } => {
                     self.visit_var_ref_reference(
                         reference,
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::IndirectExpansion
-                        },
+                        reference_kind_for_word_visit(kind, ReferenceKind::IndirectExpansion),
                         flow,
                         nested_regions,
                         span,
@@ -1816,11 +1757,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 } => {
                     let id = self.visit_var_ref_reference(
                         reference,
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::IndirectExpansion
-                        },
+                        reference_kind_for_word_visit(kind, ReferenceKind::IndirectExpansion),
                         flow,
                         nested_regions,
                         span,
@@ -1846,11 +1783,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 } => {
                     self.visit_var_ref_reference(
                         reference,
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::ParameterExpansion
-                        },
+                        reference_kind_for_word_visit(kind, ReferenceKind::ParameterExpansion),
                         flow,
                         nested_regions,
                         span,
@@ -1875,13 +1808,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 } => {
                     let reference_id = self.visit_var_ref_reference(
                         reference,
-                        if matches!(operator, ParameterOp::Error) {
-                            ReferenceKind::RequiredRead
-                        } else if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::ParameterExpansion
-                        },
+                        parameter_operation_reference_kind(kind, operator),
                         flow,
                         nested_regions,
                         span,
@@ -1904,11 +1831,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 BourneParameterExpansion::Transformation { reference, .. } => {
                     self.visit_var_ref_reference(
                         reference,
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::ParameterExpansion
-                        },
+                        reference_kind_for_word_visit(kind, ReferenceKind::ParameterExpansion),
                         flow,
                         nested_regions,
                         span,
@@ -1921,11 +1844,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh {
                             self.visit_var_ref_reference(
                                 reference,
-                                if matches!(kind, WordVisitKind::Conditional) {
-                                    ReferenceKind::ConditionalOperand
-                                } else {
-                                    ReferenceKind::ParameterExpansion
-                                },
+                                reference_kind_for_word_visit(
+                                    kind,
+                                    ReferenceKind::ParameterExpansion,
+                                ),
                                 flow,
                                 nested_regions,
                                 span,
@@ -1983,7 +1905,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                             self.visit_fragment_word(
                                 operation.pattern_word_ast(),
                                 Some(pattern),
-                                kind,
+                                WordVisitKind::ParameterPattern,
                                 flow,
                                 nested_regions,
                             );
@@ -2068,7 +1990,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 replacement,
                 ..
             } => {
-                self.visit_pattern_into(pattern, kind, flow, nested_regions);
+                self.visit_pattern_into(
+                    pattern,
+                    WordVisitKind::ParameterPattern,
+                    flow,
+                    nested_regions,
+                );
                 self.visit_fragment_word(
                     operator.replacement_word_ast(),
                     Some(replacement),
@@ -3791,6 +3718,38 @@ fn parameter_operator_guards_unset_reference(operator: &ParameterOp) -> bool {
             | ParameterOp::UseReplacement
             | ParameterOp::Error
     )
+}
+
+fn reference_kind_for_word_visit(
+    kind: WordVisitKind,
+    expansion_kind: ReferenceKind,
+) -> ReferenceKind {
+    match kind {
+        WordVisitKind::Expansion => expansion_kind,
+        WordVisitKind::Conditional => ReferenceKind::ConditionalOperand,
+        WordVisitKind::ParameterPattern => ReferenceKind::ParameterPattern,
+    }
+}
+
+fn parameter_operation_reference_kind(
+    kind: WordVisitKind,
+    operator: &ParameterOp,
+) -> ReferenceKind {
+    if matches!(kind, WordVisitKind::ParameterPattern) {
+        ReferenceKind::ParameterPattern
+    } else if matches!(operator, ParameterOp::Error) {
+        ReferenceKind::RequiredRead
+    } else {
+        reference_kind_for_word_visit(kind, ReferenceKind::ParameterExpansion)
+    }
+}
+
+fn word_visit_kind_for_reference_kind(kind: ReferenceKind) -> WordVisitKind {
+    match kind {
+        ReferenceKind::ConditionalOperand => WordVisitKind::Conditional,
+        ReferenceKind::ParameterPattern => WordVisitKind::ParameterPattern,
+        _ => WordVisitKind::Expansion,
+    }
 }
 
 fn declaration_builtin(name: &Name) -> DeclarationBuiltin {

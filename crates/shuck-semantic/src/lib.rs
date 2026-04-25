@@ -10244,6 +10244,33 @@ echo \"${d//\\$ORIGIN/$origin}\"
     }
 
     #[test]
+    fn parameter_replacement_pattern_reads_do_not_count_as_uninitialized() {
+        let source = "\
+#!/bin/bash
+dir=all/retroarch.cfg
+echo \"${dir//$configdir\\/}\"
+find \"$configdir\"
+";
+        let model = model(source);
+        assert!(model.references().iter().any(|reference| {
+            reference.name == "configdir"
+                && reference.kind == ReferenceKind::ParameterPattern
+                && reference.span.slice(source) == "$configdir"
+        }));
+
+        let analysis = model.analysis();
+        let uninitialized = analysis.uninitialized_references();
+        assert!(uninitialized.iter().any(|uninitialized| {
+            let reference = model.reference(uninitialized.reference);
+            reference.name == "configdir" && reference.span.slice(source) == "$configdir"
+        }));
+        assert!(!uninitialized.iter().any(|uninitialized| {
+            let reference = model.reference(uninitialized.reference);
+            reference.name == "configdir" && reference.kind == ReferenceKind::ParameterPattern
+        }));
+    }
+
+    #[test]
     fn recorded_program_and_cfg_capture_non_arithmetic_var_ref_nested_regions() {
         let source = "\
 [[ -v assoc[\"$(printf inner)\"] ]]
