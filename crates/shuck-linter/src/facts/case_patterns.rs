@@ -386,6 +386,10 @@ impl StaticCasePatternMatcher {
             }
         }
 
+        if next.is_empty() {
+            return CasePatternStates::new();
+        }
+
         self.epsilon_closure(next)
     }
 
