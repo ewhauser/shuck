@@ -1866,6 +1866,51 @@ echo $bar
     }
 
     #[test]
+    fn shellcheck_disable_inside_function_suppresses_heredoc_body_diagnostics() {
+        let source = "\
+#!/bin/bash
+echo ready
+emit_file() {
+  # shellcheck disable=SC2154
+  cat \"$path\" <<EOF
+value=$body_value
+other=${other_value}
+EOF
+  echo \"$later\"
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            &output.file,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+            Some(&suppressions),
+            None,
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$later"]
+        );
+    }
+
+    #[test]
     fn unused_assignment_flags_unread_variable() {
         let source = "#!/bin/sh\nfoo=1\n";
         let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);

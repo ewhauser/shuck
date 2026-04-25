@@ -77,13 +77,6 @@ reviewed_divergences:
     end_column: 19
     reason: "This RetroPie fixture exchanges menu ids, config roots, or launching-image options through the surrounding setup framework, so the remaining C006 hits are reviewed framework state rather than missing local assignments."
   - side: shuck-only
-    path_suffix: "bin456789__reinstall__reinstall.sh"
-    line: 3542
-    end_line: 3542
-    column: 20
-    end_column: 38
-    reason: "This distro-reinstall helper threads release metadata through large case-driven installer plumbing, so the remaining C006 read is a reviewed cross-branch handoff rather than an isolated undefined local."
-  - side: shuck-only
     path_suffix: "ko1nksm__shellspec__spec__libexec__translator_spec.sh"
     line: 283
     end_line: 283
