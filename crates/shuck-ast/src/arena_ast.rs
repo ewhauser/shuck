@@ -72,6 +72,7 @@ pub struct AstStore {
     stmt_seq_id_lists: ListArena<StmtSeqId>,
     comment_lists: ListArena<Comment>,
     redirect_lists: ListArena<Redirect>,
+    assignment_lists: ListArena<Assignment>,
     word_id_lists: ListArena<WordId>,
     word_part_lists: ListArena<WordPartNode>,
     brace_syntax_lists: ListArena<crate::BraceSyntax>,
@@ -89,6 +90,7 @@ impl Default for AstStore {
             stmt_seq_id_lists: ListArena::new(),
             comment_lists: ListArena::new(),
             redirect_lists: ListArena::new(),
+            assignment_lists: ListArena::new(),
             word_id_lists: ListArena::new(),
             word_part_lists: ListArena::new(),
             brace_syntax_lists: ListArena::new(),
@@ -175,7 +177,7 @@ impl AstStore {
         let node = &self.stmts[id.index()];
         Stmt {
             leading_comments: self.comment_lists.get(node.leading_comments).to_vec(),
-            command: self.commands[node.command.index()].legacy.clone(),
+            command: self.materialize_command(node.command),
             negated: node.negated,
             redirects: self
                 .redirect_lists
@@ -186,6 +188,84 @@ impl AstStore {
             terminator_span: node.terminator_span,
             inline_comment: node.inline_comment,
             span: node.span,
+        }
+    }
+
+    fn materialize_command(&self, id: CommandId) -> Command {
+        let node = &self.commands[id.index()];
+        match &node.payload {
+            CommandNodePayload::Simple(command) => Command::Simple(crate::SimpleCommand {
+                name: self.materialize_word(command.name),
+                args: self
+                    .word_id_lists
+                    .get(command.args)
+                    .iter()
+                    .copied()
+                    .map(|id| self.materialize_word(id))
+                    .collect(),
+                assignments: self
+                    .assignment_lists
+                    .get(command.assignments)
+                    .to_vec()
+                    .into_boxed_slice(),
+                span: node.span,
+            }),
+            CommandNodePayload::Builtin(command) => {
+                let primary = command.primary.map(|id| self.materialize_word(id));
+                let extra_args = self
+                    .word_id_lists
+                    .get(command.extra_args)
+                    .iter()
+                    .copied()
+                    .map(|id| self.materialize_word(id))
+                    .collect();
+                let assignments = self
+                    .assignment_lists
+                    .get(command.assignments)
+                    .to_vec()
+                    .into_boxed_slice();
+                let command = match command.kind {
+                    BuiltinCommandNodeKind::Break => BuiltinCommand::Break(crate::BreakCommand {
+                        depth: primary,
+                        extra_args,
+                        assignments,
+                        span: node.span,
+                    }),
+                    BuiltinCommandNodeKind::Continue => {
+                        BuiltinCommand::Continue(crate::ContinueCommand {
+                            depth: primary,
+                            extra_args,
+                            assignments,
+                            span: node.span,
+                        })
+                    }
+                    BuiltinCommandNodeKind::Return => {
+                        BuiltinCommand::Return(crate::ReturnCommand {
+                            code: primary,
+                            extra_args,
+                            assignments,
+                            span: node.span,
+                        })
+                    }
+                    BuiltinCommandNodeKind::Exit => BuiltinCommand::Exit(crate::ExitCommand {
+                        code: primary,
+                        extra_args,
+                        assignments,
+                        span: node.span,
+                    }),
+                };
+                Command::Builtin(command)
+            }
+            CommandNodePayload::Legacy => node.legacy.clone(),
+        }
+    }
+
+    fn materialize_word(&self, id: WordId) -> Word {
+        let node = &self.words[id.index()];
+        Word {
+            parts: self.word_part_lists.get(node.parts).to_vec(),
+            span: node.span,
+            brace_syntax: self.brace_syntax_lists.get(node.brace_syntax).to_vec(),
         }
     }
 }
@@ -248,7 +328,57 @@ pub struct CommandNode {
     pub words: IdRange<WordId>,
     /// Nested statement sequences found under this command.
     pub child_sequences: IdRange<StmtSeqId>,
+    /// Native arena payload for command families that have been migrated.
+    pub payload: CommandNodePayload,
     legacy: Command,
+}
+
+/// Arena-native command payloads.
+#[derive(Debug, Clone)]
+pub enum CommandNodePayload {
+    /// Simple command payload.
+    Simple(SimpleCommandNode),
+    /// Typed builtin command payload.
+    Builtin(BuiltinCommandNode),
+    /// Compatibility payload for command families that still materialize from `legacy`.
+    Legacy,
+}
+
+/// Arena-native simple command payload.
+#[derive(Debug, Clone)]
+pub struct SimpleCommandNode {
+    /// Command name word.
+    pub name: WordId,
+    /// Command argument words.
+    pub args: IdRange<WordId>,
+    /// Prefix assignments.
+    pub assignments: IdRange<Assignment>,
+}
+
+/// Arena-native typed builtin command payload.
+#[derive(Debug, Clone)]
+pub struct BuiltinCommandNode {
+    /// Builtin command kind.
+    pub kind: BuiltinCommandNodeKind,
+    /// Optional primary operand (`depth` or `code` depending on the builtin).
+    pub primary: Option<WordId>,
+    /// Additional operands preserved for fidelity.
+    pub extra_args: IdRange<WordId>,
+    /// Prefix assignments.
+    pub assignments: IdRange<Assignment>,
+}
+
+/// Arena-native typed builtin command kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BuiltinCommandNodeKind {
+    /// `break [N]`.
+    Break,
+    /// `continue [N]`.
+    Continue,
+    /// `return [N]`.
+    Return,
+    /// `exit [N]`.
+    Exit,
 }
 
 /// Coarse command family stored with command arena nodes.
@@ -452,6 +582,28 @@ impl<'a> CommandView<'a> {
             .map(move |id| self.store.word(id))
     }
 
+    /// Returns the native simple command payload when this command is simple.
+    pub fn simple(self) -> Option<SimpleCommandView<'a>> {
+        match &self.node().payload {
+            CommandNodePayload::Simple(_) => Some(SimpleCommandView {
+                store: self.store,
+                id: self.id,
+            }),
+            CommandNodePayload::Builtin(_) | CommandNodePayload::Legacy => None,
+        }
+    }
+
+    /// Returns the native typed builtin payload when this command is a typed builtin.
+    pub fn builtin(self) -> Option<BuiltinCommandView<'a>> {
+        match &self.node().payload {
+            CommandNodePayload::Builtin(_) => Some(BuiltinCommandView {
+                store: self.store,
+                id: self.id,
+            }),
+            CommandNodePayload::Simple(_) | CommandNodePayload::Legacy => None,
+        }
+    }
+
     /// Returns IDs for nested statement sequences found under this command.
     pub fn child_sequence_ids(self) -> &'a [StmtSeqId] {
         self.store
@@ -466,6 +618,103 @@ impl<'a> CommandView<'a> {
 
     fn node(self) -> &'a CommandNode {
         &self.store.commands[self.id.index()]
+    }
+}
+
+/// Borrowed view of an arena-native simple command payload.
+#[derive(Debug, Clone, Copy)]
+pub struct SimpleCommandView<'a> {
+    store: &'a AstStore,
+    id: CommandId,
+}
+
+impl<'a> SimpleCommandView<'a> {
+    /// Returns the command name word.
+    pub fn name(self) -> WordView<'a> {
+        self.store.word(self.node().name)
+    }
+
+    /// Returns the command name word ID.
+    pub fn name_id(self) -> WordId {
+        self.node().name
+    }
+
+    /// Returns command argument word IDs.
+    pub fn arg_ids(self) -> &'a [WordId] {
+        self.store.word_id_lists.get(self.node().args)
+    }
+
+    /// Returns command argument words.
+    pub fn args(self) -> impl ExactSizeIterator<Item = WordView<'a>> + 'a {
+        self.arg_ids()
+            .iter()
+            .copied()
+            .map(move |id| self.store.word(id))
+    }
+
+    /// Returns prefix assignments.
+    pub fn assignments(self) -> &'a [Assignment] {
+        self.store.assignment_lists.get(self.node().assignments)
+    }
+
+    fn node(self) -> &'a SimpleCommandNode {
+        match &self.store.commands[self.id.index()].payload {
+            CommandNodePayload::Simple(command) => command,
+            CommandNodePayload::Builtin(_) | CommandNodePayload::Legacy => {
+                unreachable!("simple view requires simple payload")
+            }
+        }
+    }
+}
+
+/// Borrowed view of an arena-native typed builtin payload.
+#[derive(Debug, Clone, Copy)]
+pub struct BuiltinCommandView<'a> {
+    store: &'a AstStore,
+    id: CommandId,
+}
+
+impl<'a> BuiltinCommandView<'a> {
+    /// Returns the builtin command kind.
+    pub fn kind(self) -> BuiltinCommandNodeKind {
+        self.node().kind
+    }
+
+    /// Returns the primary operand word, if present.
+    pub fn primary(self) -> Option<WordView<'a>> {
+        self.node().primary.map(|id| self.store.word(id))
+    }
+
+    /// Returns the primary operand word ID, if present.
+    pub fn primary_id(self) -> Option<WordId> {
+        self.node().primary
+    }
+
+    /// Returns additional operand word IDs.
+    pub fn extra_arg_ids(self) -> &'a [WordId] {
+        self.store.word_id_lists.get(self.node().extra_args)
+    }
+
+    /// Returns additional operand words.
+    pub fn extra_args(self) -> impl ExactSizeIterator<Item = WordView<'a>> + 'a {
+        self.extra_arg_ids()
+            .iter()
+            .copied()
+            .map(move |id| self.store.word(id))
+    }
+
+    /// Returns prefix assignments.
+    pub fn assignments(self) -> &'a [Assignment] {
+        self.store.assignment_lists.get(self.node().assignments)
+    }
+
+    fn node(self) -> &'a BuiltinCommandNode {
+        match &self.store.commands[self.id.index()].payload {
+            CommandNodePayload::Builtin(command) => command,
+            CommandNodePayload::Simple(_) | CommandNodePayload::Legacy => {
+                unreachable!("builtin view requires builtin payload")
+            }
+        }
     }
 }
 
@@ -663,7 +912,7 @@ impl AstStoreBuilder {
     fn lower_command(&mut self, command: &Command) -> CommandId {
         let mut words = Vec::new();
         let mut child_sequences = Vec::new();
-        self.collect_command_children(command, &mut words, &mut child_sequences);
+        let payload = self.collect_command_children(command, &mut words, &mut child_sequences);
 
         let words = self.store.word_id_lists.push_many(words);
         let child_sequences = self.store.stmt_seq_id_lists.push_many(child_sequences);
@@ -673,6 +922,7 @@ impl AstStoreBuilder {
             span: command_span(command),
             words,
             child_sequences,
+            payload,
             legacy: command.clone(),
         });
         id
@@ -681,7 +931,7 @@ impl AstStoreBuilder {
     fn lower_command_owned(&mut self, command: Command) -> CommandId {
         let mut words = Vec::new();
         let mut child_sequences = Vec::new();
-        self.collect_command_children(&command, &mut words, &mut child_sequences);
+        let payload = self.collect_command_children(&command, &mut words, &mut child_sequences);
 
         let words = self.store.word_id_lists.push_many(words);
         let child_sequences = self.store.stmt_seq_id_lists.push_many(child_sequences);
@@ -691,6 +941,7 @@ impl AstStoreBuilder {
             span: command_span(&command),
             words,
             child_sequences,
+            payload,
             legacy: command,
         });
         id
@@ -724,19 +975,43 @@ impl AstStoreBuilder {
         words.push(self.lower_word(word));
     }
 
+    fn collect_word_id(
+        &mut self,
+        word: &Word,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) -> WordId {
+        self.collect_word_part_children(word.parts.as_slice(), words, child_sequences);
+        let id = self.lower_word(word);
+        words.push(id);
+        id
+    }
+
     fn collect_command_children(
         &mut self,
         command: &Command,
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
-    ) {
+    ) -> CommandNodePayload {
         match command {
             Command::Simple(command) => {
-                self.collect_word(&command.name, words, child_sequences);
-                for word in &command.args {
-                    self.collect_word(word, words, child_sequences);
-                }
+                let name = self.collect_word_id(&command.name, words, child_sequences);
+                let args = command
+                    .args
+                    .iter()
+                    .map(|word| self.collect_word_id(word, words, child_sequences))
+                    .collect::<Vec<_>>();
+                let args = self.store.word_id_lists.push_many(args);
                 self.collect_assignments(command.assignments.iter(), words, child_sequences);
+                let assignments = self
+                    .store
+                    .assignment_lists
+                    .push_many(command.assignments.iter().cloned());
+                CommandNodePayload::Simple(SimpleCommandNode {
+                    name,
+                    args,
+                    assignments,
+                })
             }
             Command::Builtin(command) => {
                 self.collect_builtin_children(command, words, child_sequences)
@@ -746,16 +1021,23 @@ impl AstStoreBuilder {
                     self.collect_decl_operand(operand, words, child_sequences);
                 }
                 self.collect_assignments(command.assignments.iter(), words, child_sequences);
+                CommandNodePayload::Legacy
             }
-            Command::Binary(command) => self.collect_binary_children(command, child_sequences),
+            Command::Binary(command) => {
+                self.collect_binary_children(command, child_sequences);
+                CommandNodePayload::Legacy
+            }
             Command::Compound(command) => {
-                self.collect_compound_children(command, words, child_sequences)
+                self.collect_compound_children(command, words, child_sequences);
+                CommandNodePayload::Legacy
             }
             Command::Function(function) => {
-                self.collect_function_children(function, words, child_sequences)
+                self.collect_function_children(function, words, child_sequences);
+                CommandNodePayload::Legacy
             }
             Command::AnonymousFunction(function) => {
                 self.collect_anonymous_function_children(function, words, child_sequences);
+                CommandNodePayload::Legacy
             }
         }
     }
@@ -765,33 +1047,66 @@ impl AstStoreBuilder {
         command: &BuiltinCommand,
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
-    ) {
+    ) -> CommandNodePayload {
         match command {
-            BuiltinCommand::Break(command) => {
-                for word in command.depth.iter().chain(command.extra_args.iter()) {
-                    self.collect_word(word, words, child_sequences);
-                }
-                self.collect_assignments(command.assignments.iter(), words, child_sequences);
-            }
-            BuiltinCommand::Continue(command) => {
-                for word in command.depth.iter().chain(command.extra_args.iter()) {
-                    self.collect_word(word, words, child_sequences);
-                }
-                self.collect_assignments(command.assignments.iter(), words, child_sequences);
-            }
-            BuiltinCommand::Return(command) => {
-                for word in command.code.iter().chain(command.extra_args.iter()) {
-                    self.collect_word(word, words, child_sequences);
-                }
-                self.collect_assignments(command.assignments.iter(), words, child_sequences);
-            }
-            BuiltinCommand::Exit(command) => {
-                for word in command.code.iter().chain(command.extra_args.iter()) {
-                    self.collect_word(word, words, child_sequences);
-                }
-                self.collect_assignments(command.assignments.iter(), words, child_sequences);
-            }
+            BuiltinCommand::Break(command) => self.collect_builtin_payload(
+                BuiltinCommandNodeKind::Break,
+                command.depth.as_ref(),
+                &command.extra_args,
+                command.assignments.iter(),
+                words,
+                child_sequences,
+            ),
+            BuiltinCommand::Continue(command) => self.collect_builtin_payload(
+                BuiltinCommandNodeKind::Continue,
+                command.depth.as_ref(),
+                &command.extra_args,
+                command.assignments.iter(),
+                words,
+                child_sequences,
+            ),
+            BuiltinCommand::Return(command) => self.collect_builtin_payload(
+                BuiltinCommandNodeKind::Return,
+                command.code.as_ref(),
+                &command.extra_args,
+                command.assignments.iter(),
+                words,
+                child_sequences,
+            ),
+            BuiltinCommand::Exit(command) => self.collect_builtin_payload(
+                BuiltinCommandNodeKind::Exit,
+                command.code.as_ref(),
+                &command.extra_args,
+                command.assignments.iter(),
+                words,
+                child_sequences,
+            ),
         }
+    }
+
+    fn collect_builtin_payload<'a>(
+        &mut self,
+        kind: BuiltinCommandNodeKind,
+        primary: Option<&Word>,
+        extra_args: &[Word],
+        assignments: impl Iterator<Item = &'a Assignment> + Clone,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) -> CommandNodePayload {
+        let primary = primary.map(|word| self.collect_word_id(word, words, child_sequences));
+        let extra_args = extra_args
+            .iter()
+            .map(|word| self.collect_word_id(word, words, child_sequences))
+            .collect::<Vec<_>>();
+        let extra_args = self.store.word_id_lists.push_many(extra_args);
+        self.collect_assignments(assignments.clone(), words, child_sequences);
+        let assignments = self.store.assignment_lists.push_many(assignments.cloned());
+        CommandNodePayload::Builtin(BuiltinCommandNode {
+            kind,
+            primary,
+            extra_args,
+            assignments,
+        })
     }
 
     fn collect_binary_children(
@@ -1558,14 +1873,14 @@ fn command_span(command: &Command) -> Span {
 mod tests {
     use crate::{
         ArenaFile, ArithmeticCommand, ArithmeticExpr, ArithmeticExprNode, ArrayElem, ArrayExpr,
-        ArrayKind, ArrayValueWord, Assignment, AssignmentValue, BourneParameterExpansion, Command,
-        CommandSubstitutionSyntax, CompoundCommand, ConditionalCommand, ConditionalExpr,
-        DeclClause, DeclOperand, Heredoc, HeredocBody, HeredocBodyMode, HeredocBodyPart,
-        HeredocBodyPartNode, HeredocDelimiter, Name, ParameterExpansion, ParameterExpansionSyntax,
-        Pattern, PatternPart, PatternPartNode, Redirect, RedirectKind, RedirectTarget,
-        SimpleCommand, Span, Stmt, StmtSeq, Subscript, SubscriptInterpretation, SubscriptKind,
-        Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshParameterExpansion,
-        ZshQualifiedGlob,
+        ArrayKind, ArrayValueWord, Assignment, AssignmentValue, BourneParameterExpansion,
+        BuiltinCommand, BuiltinCommandNodeKind, Command, CommandSubstitutionSyntax,
+        CompoundCommand, ConditionalCommand, ConditionalExpr, DeclClause, DeclOperand, Heredoc,
+        HeredocBody, HeredocBodyMode, HeredocBodyPart, HeredocBodyPartNode, HeredocDelimiter, Name,
+        ParameterExpansion, ParameterExpansionSyntax, Pattern, PatternPart, PatternPartNode,
+        Redirect, RedirectKind, RedirectTarget, SimpleCommand, Span, Stmt, StmtSeq, Subscript,
+        SubscriptInterpretation, SubscriptKind, Word, WordPart, WordPartNode, ZshExpansionTarget,
+        ZshGlobSegment, ZshParameterExpansion, ZshQualifiedGlob,
     };
 
     #[test]
@@ -1642,6 +1957,83 @@ mod tests {
 
         assert_eq!(command.child_sequence_ids().len(), 1);
         assert!(command.word_ids().len() >= 2);
+    }
+
+    #[test]
+    fn simple_command_payload_is_arena_native() {
+        let file = file_with_command(Command::Simple(SimpleCommand {
+            name: Word::literal("printf"),
+            args: vec![Word::literal("%s"), Word::literal("value")],
+            assignments: Box::new([Assignment {
+                target: crate::VarRef {
+                    name: Name::new("LC_ALL"),
+                    name_span: Span::new(),
+                    subscript: None,
+                    span: Span::new(),
+                },
+                value: AssignmentValue::Scalar(Word::literal("C")),
+                append: false,
+                span: Span::new(),
+            }]),
+            span: Span::new(),
+        }));
+
+        let arena = ArenaFile::from_file(&file);
+        let command = arena.view().body().stmts().next().unwrap().command();
+        let simple = command.simple().expect("expected native simple payload");
+
+        assert_eq!(simple.name().parts().len(), 1);
+        assert_eq!(simple.arg_ids().len(), 2);
+        assert_eq!(simple.args().len(), 2);
+        assert_eq!(simple.assignments().len(), 1);
+
+        let materialized = arena.to_file();
+        let Command::Simple(command) = &materialized.body[0].command else {
+            panic!("expected simple command");
+        };
+        assert_eq!(command.args.len(), 2);
+        assert_eq!(command.assignments.len(), 1);
+    }
+
+    #[test]
+    fn builtin_command_payload_is_arena_native() {
+        let file = file_with_command(Command::Builtin(BuiltinCommand::Return(
+            crate::ReturnCommand {
+                code: Some(Word::literal("7")),
+                extra_args: vec![Word::literal("extra")],
+                assignments: Box::new([Assignment {
+                    target: crate::VarRef {
+                        name: Name::new("status"),
+                        name_span: Span::new(),
+                        subscript: None,
+                        span: Span::new(),
+                    },
+                    value: AssignmentValue::Scalar(Word::literal("set")),
+                    append: false,
+                    span: Span::new(),
+                }]),
+                span: Span::new(),
+            },
+        )));
+
+        let arena = ArenaFile::from_file(&file);
+        let command = arena.view().body().stmts().next().unwrap().command();
+        let builtin = command.builtin().expect("expected native builtin payload");
+
+        assert_eq!(builtin.kind(), BuiltinCommandNodeKind::Return);
+        assert!(builtin.primary().is_some());
+        assert_eq!(builtin.extra_arg_ids().len(), 1);
+        assert_eq!(builtin.extra_args().len(), 1);
+        assert_eq!(builtin.assignments().len(), 1);
+
+        let materialized = arena.to_file();
+        let Command::Builtin(BuiltinCommand::Return(command)) = &materialized.body[0].command
+        else {
+            panic!("expected return command");
+        };
+        assert!(command.code.is_some());
+        assert_eq!(command.extra_args.len(), 1);
+        assert_eq!(command.assignments.len(), 1);
     }
 
     #[test]

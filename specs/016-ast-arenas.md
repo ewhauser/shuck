@@ -22,9 +22,12 @@ The goal is not to make every AST consumer switch in one patch. The goal is to i
 
 The first implementation pass adds an `ArenaFile` sidecar to `ParseResult`, backed by `AstStore` and borrowed view types in `shuck-ast`. The parser now moves the parsed root `StmtSeq` into `ArenaFile::from_body` after comment attachment and materializes the legacy `File` from that arena for compatibility. `shuck check` builds its index and lint diagnostics through arena-aware entry points. The indexer, semantic model, and linter have arena entry points that materialize the current recursive compatibility shape internally while downstream logic migrates.
 
+The arena is now beginning to replace command payloads with native data rather than only carrying graph links plus a legacy escape hatch. Simple commands and typed builtins (`break`, `continue`, `return`, and `exit`) have arena-native payloads and borrowed views. Compatibility materialization for those command families is rebuilt from the arena payloads; other command families still materialize from the legacy command stored on `CommandNode`.
+
 Still remaining:
 
 - pushing arena construction deeper into parser command/word builders instead of moving the completed root body at the end
+- migrating the remaining command families off `CommandNode::legacy`
 - replacing linter fact references with stable AST IDs
 - native arena traversal in semantic analysis instead of compatibility materialization
 - formatter-native arena support, intentionally deferred while the formatter is being reworked
