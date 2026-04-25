@@ -74,6 +74,7 @@ pub(crate) struct BuildOutput {
 
 pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     source: &'a str,
+    line_start_offsets: Vec<usize>,
     shell_profile: ShellProfile,
     observer: &'observer mut dyn TraversalObserver,
     scopes: Vec<Scope>,
@@ -179,6 +180,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let runtime = RuntimePrelude::new(bash_runtime_vars_enabled);
         let mut builder = Self {
             source,
+            line_start_offsets: source_line_start_offsets(source),
             shell_profile: shell_profile.clone(),
             observer,
             scopes: vec![file_scope],
@@ -3390,9 +3392,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             return None;
         }
         Some((
-            source_position_at_offset(self.source, start)?,
-            source_position_at_offset(self.source, end)?,
+            self.source_position_at_offset(start)?,
+            self.source_position_at_offset(end)?,
         ))
+    }
+
+    fn source_position_at_offset(&self, offset: usize) -> Option<Position> {
+        source_position_at_offset(self.source, &self.line_start_offsets, offset)
     }
 
     fn add_parameter_default_binding(&mut self, reference: &VarRef) {
@@ -5844,12 +5850,35 @@ fn recorded_list_operator(op: BinaryOp) -> RecordedListOperator {
     }
 }
 
-fn source_position_at_offset(source: &str, offset: usize) -> Option<Position> {
+fn source_line_start_offsets(source: &str) -> Vec<usize> {
+    let mut starts = vec![0];
+    for (offset, ch) in source.char_indices() {
+        if ch == '\n' {
+            starts.push(offset + ch.len_utf8());
+        }
+    }
+    starts
+}
+
+fn source_position_at_offset(
+    source: &str,
+    line_start_offsets: &[usize],
+    offset: usize,
+) -> Option<Position> {
     if offset > source.len() || !source.is_char_boundary(offset) {
         return None;
     }
 
-    Some(Position::new().advanced_by(source.get(..offset)?))
+    let line_index = line_start_offsets
+        .partition_point(|line_start| *line_start <= offset)
+        .checked_sub(1)?;
+    let line_start = *line_start_offsets.get(line_index)?;
+    let column = source.get(line_start..offset)?.chars().count() + 1;
+    Some(Position {
+        line: line_index + 1,
+        column,
+        offset,
+    })
 }
 
 fn reference_kind_uses_braced_parameter_syntax(kind: ReferenceKind) -> bool {
@@ -5998,6 +6027,47 @@ mod tests {
                 .collect(),
             span,
         }
+    }
+
+    #[test]
+    fn source_position_lookup_uses_precomputed_line_starts() {
+        let source = "alpha\nb\u{e9}ta\n";
+        let line_starts = source_line_start_offsets(source);
+
+        assert_eq!(
+            source_position_at_offset(source, &line_starts, 0),
+            Some(Position {
+                line: 1,
+                column: 1,
+                offset: 0
+            })
+        );
+        let beta_offset = source.find('b').expect("expected second line");
+        assert_eq!(
+            source_position_at_offset(source, &line_starts, beta_offset),
+            Some(Position {
+                line: 2,
+                column: 1,
+                offset: beta_offset
+            })
+        );
+        let after_e_acute = beta_offset + "b\u{e9}".len();
+        assert_eq!(
+            source_position_at_offset(source, &line_starts, after_e_acute),
+            Some(Position {
+                line: 2,
+                column: 3,
+                offset: after_e_acute
+            })
+        );
+        assert_eq!(
+            source_position_at_offset(source, &line_starts, source.len()),
+            Some(Position {
+                line: 3,
+                column: 1,
+                offset: source.len()
+            })
+        );
     }
 
     #[test]
