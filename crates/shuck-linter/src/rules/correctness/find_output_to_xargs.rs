@@ -62,9 +62,11 @@ fn unsafe_find_to_xargs_diagnostics(
                 return None;
             }
 
-            if right.options().xargs().is_some_and(|xargs| {
-                xargs.uses_null_input || xargs_uses_shellcheck_parallel_exemption(xargs)
-            }) {
+            if right
+                .options()
+                .xargs()
+                .is_some_and(|xargs| xargs.uses_null_input || xargs.has_zero_digit_option_word())
+            {
                 return None;
             }
 
@@ -137,12 +139,6 @@ fn find_command_span(segment: &PipelineSegmentFact<'_>, fact: CommandFactRef<'_,
     }
 }
 
-fn xargs_uses_shellcheck_parallel_exemption(xargs: &crate::XargsCommandFacts) -> bool {
-    xargs
-        .max_procs()
-        .is_some_and(|max_procs| max_procs == 0 || max_procs >= 10)
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -203,17 +199,24 @@ find \"$pkg\" -print1 | xargs -0 file
     }
 
     #[test]
-    fn ignores_parallel_xargs_when_shellcheck_does() {
+    fn follows_shellcheck_zero_digit_xargs_option_exemption() {
         let source = "\
 find \"$dir\" \\( -type f -o -type l \\) -and -not -path \"$dir/plugins/*\" | xargs -I % -P10 bash -c '. /tmp/lib.sh && foo %'
+find . -type f | xargs -P0 rm
+find . -type f | xargs -P 10 rm
+find . -type f | xargs --max-procs=10 rm
+find . -type f -print0 | xargs -P10 rm
+find . -type f | xargs -P11 rm
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FindOutputToXargs));
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "find . -type f");
+        assert_eq!(diagnostics[1].span.slice(source), "find . -type f");
     }
 
     #[test]
-    fn still_reports_replacement_xargs_when_parallelism_does_not_trigger_the_exemption() {
+    fn reports_replacement_xargs_without_null_input() {
         let source = "\
 find \"$dir\" \\( -type f -o -type l \\) -and -not -path \"$dir/plugins/*\" | xargs -I % -P1 bash -c '. /tmp/lib.sh && foo %'
 ";

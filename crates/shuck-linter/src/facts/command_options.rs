@@ -260,12 +260,17 @@ impl MapfileCommandFacts {
 pub struct XargsCommandFacts {
     pub uses_null_input: bool,
     max_procs: Option<u64>,
+    zero_digit_option_word: bool,
     inline_replace_option_spans: Box<[Span]>,
 }
 
 impl XargsCommandFacts {
     pub fn max_procs(&self) -> Option<u64> {
         self.max_procs
+    }
+
+    pub fn has_zero_digit_option_word(&self) -> bool {
+        self.zero_digit_option_word
     }
 
     pub fn inline_replace_option_spans(&self) -> &[Span] {
