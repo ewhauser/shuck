@@ -4,6 +4,7 @@ pub struct CommandFact<'a> {
     key: FactSpan,
     visit: CommandVisit<'a>,
     nested_word_command: bool,
+    scope: Option<ScopeId>,
     normalized: NormalizedCommand<'a>,
     zsh_options: Option<ZshOptionState>,
     redirect_facts: IdRange<RedirectFact<'a>>,
@@ -33,6 +34,10 @@ impl<'a> CommandFact<'a> {
 
     pub fn is_nested_word_command(&self) -> bool {
         self.nested_word_command
+    }
+
+    pub fn scope(&self) -> Option<ScopeId> {
+        self.scope
     }
 
     pub fn stmt(&self) -> &'a Stmt {
@@ -198,6 +203,10 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
 
     pub fn is_nested_word_command(self) -> bool {
         self.fact.is_nested_word_command()
+    }
+
+    pub fn scope(self) -> Option<ScopeId> {
+        self.fact.scope()
     }
 
     pub fn stmt(self) -> &'a Stmt {

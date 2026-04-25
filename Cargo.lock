@@ -1530,6 +1530,7 @@ dependencies = [
  "shuck-semantic",
  "tempfile",
  "tikv-jemallocator",
+ "walkdir",
 ]
 
 [[package]]
