@@ -1,6 +1,7 @@
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 use shuck_ast::{Name, Position, Span};
+use smallvec::SmallVec;
 
 use crate::facts::ComparableNameUseKind;
 use crate::{Checker, Rule, Violation};
@@ -482,9 +483,12 @@ fn canonical_uppercase_name(name: &str) -> String {
 }
 
 fn candidate_match_rank(target_name: &str, candidate_name: &str) -> Option<u8> {
-    let candidate_upper = canonical_uppercase_name(candidate_name);
-
-    if target_name.len() >= 4 && candidate_upper == target_name {
+    if target_name.len() >= 4
+        && target_name.len() == candidate_name.len()
+        && candidate_name
+            .as_bytes()
+            .eq_ignore_ascii_case(target_name.as_bytes())
+    {
         return Some(0);
     }
 
@@ -496,11 +500,11 @@ fn candidate_match_rank(target_name: &str, candidate_name: &str) -> Option<u8> {
     }
 
     let distance =
-        bounded_ascii_edit_distance(target_name.as_bytes(), candidate_upper.as_bytes(), 2)?;
+        bounded_ascii_edit_distance(target_name.as_bytes(), candidate_name.as_bytes(), 2)?;
     if distance == 0 {
         return None;
     }
-    if distance == 2 && !has_strong_two_edit_shape(target_name, candidate_upper.as_str()) {
+    if distance == 2 && !has_strong_two_edit_shape(target_name, candidate_name) {
         return None;
     }
     Some(distance + 1)
@@ -710,8 +714,9 @@ fn bounded_ascii_edit_distance(left: &[u8], right: &[u8], max_distance: u8) -> O
         return None;
     }
 
-    let mut previous = (0..=right.len()).collect::<Vec<_>>();
-    let mut current = vec![0; right.len() + 1];
+    let mut previous = (0..=right.len()).collect::<SmallVec<[usize; 32]>>();
+    let mut current = SmallVec::<[usize; 32]>::new();
+    current.resize(right.len() + 1, 0);
 
     for (left_index, left_byte) in left.iter().enumerate() {
         current[0] = left_index + 1;
