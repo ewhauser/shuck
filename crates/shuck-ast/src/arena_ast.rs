@@ -1084,6 +1084,7 @@ impl AstStoreBuilder {
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
     ) {
+        self.collect_var_ref_words(&assignment.target, words, child_sequences);
         match &assignment.value {
             AssignmentValue::Scalar(word) => self.collect_word(word, words, child_sequences),
             AssignmentValue::Compound(array) => {
@@ -1247,23 +1248,36 @@ impl AstStoreBuilder {
     ) {
         match &expansion.syntax {
             crate::ParameterExpansionSyntax::Bourne(expansion) => match expansion {
+                crate::BourneParameterExpansion::Access { reference }
+                | crate::BourneParameterExpansion::Length { reference }
+                | crate::BourneParameterExpansion::Indices { reference }
+                | crate::BourneParameterExpansion::Transformation { reference, .. } => {
+                    self.collect_var_ref_words(reference, words, child_sequences);
+                }
                 crate::BourneParameterExpansion::Indirect {
-                    operand_word_ast, ..
+                    reference,
+                    operand_word_ast,
+                    ..
                 }
                 | crate::BourneParameterExpansion::Operation {
-                    operand_word_ast, ..
+                    reference,
+                    operand_word_ast,
+                    ..
                 } => {
+                    self.collect_var_ref_words(reference, words, child_sequences);
                     if let Some(word) = operand_word_ast {
                         self.collect_word(word, words, child_sequences);
                     }
                 }
                 crate::BourneParameterExpansion::Slice {
+                    reference,
                     offset_ast,
                     offset_word_ast,
                     length_ast,
                     length_word_ast,
                     ..
                 } => {
+                    self.collect_var_ref_words(reference, words, child_sequences);
                     self.collect_arithmetic_expr_option(
                         offset_ast.as_ref(),
                         words,
@@ -1279,11 +1293,7 @@ impl AstStoreBuilder {
                         self.collect_word(word, words, child_sequences);
                     }
                 }
-                crate::BourneParameterExpansion::Access { .. }
-                | crate::BourneParameterExpansion::Length { .. }
-                | crate::BourneParameterExpansion::Indices { .. }
-                | crate::BourneParameterExpansion::PrefixMatch { .. }
-                | crate::BourneParameterExpansion::Transformation { .. } => {}
+                crate::BourneParameterExpansion::PrefixMatch { .. } => {}
             },
             crate::ParameterExpansionSyntax::Zsh(expansion) => {
                 match &expansion.target {
@@ -1541,12 +1551,13 @@ fn command_span(command: &Command) -> Span {
 mod tests {
     use crate::{
         ArenaFile, ArithmeticCommand, ArithmeticExpr, ArithmeticExprNode, ArrayElem, ArrayExpr,
-        ArrayKind, ArrayValueWord, Assignment, AssignmentValue, Command, CommandSubstitutionSyntax,
-        CompoundCommand, ConditionalCommand, ConditionalExpr, Heredoc, HeredocBody,
-        HeredocBodyMode, HeredocBodyPart, HeredocBodyPartNode, HeredocDelimiter, Name, Pattern,
-        PatternPart, PatternPartNode, Redirect, RedirectKind, RedirectTarget, SimpleCommand, Span,
-        Stmt, StmtSeq, Subscript, SubscriptInterpretation, SubscriptKind, Word, WordPart,
-        WordPartNode, ZshGlobSegment, ZshQualifiedGlob,
+        ArrayKind, ArrayValueWord, Assignment, AssignmentValue, BourneParameterExpansion, Command,
+        CommandSubstitutionSyntax, CompoundCommand, ConditionalCommand, ConditionalExpr, Heredoc,
+        HeredocBody, HeredocBodyMode, HeredocBodyPart, HeredocBodyPartNode, HeredocDelimiter, Name,
+        ParameterExpansion, ParameterExpansionSyntax, Pattern, PatternPart, PatternPartNode,
+        Redirect, RedirectKind, RedirectTarget, SimpleCommand, Span, Stmt, StmtSeq, Subscript,
+        SubscriptInterpretation, SubscriptKind, Word, WordPart, WordPartNode, ZshGlobSegment,
+        ZshQualifiedGlob,
     };
 
     #[test]
@@ -1747,14 +1758,6 @@ mod tests {
 
     #[test]
     fn keyed_array_subscript_words_are_assignment_words() {
-        let key = Subscript {
-            text: crate::SourceText::cooked(Span::new(), "$(key)"),
-            raw: None,
-            kind: SubscriptKind::Ordinary,
-            interpretation: SubscriptInterpretation::Indexed,
-            word_ast: Some(word_with_command_substitution()),
-            arithmetic_ast: None,
-        };
         let assignment = Assignment {
             target: crate::VarRef {
                 name: Name::new("arr"),
@@ -1765,7 +1768,7 @@ mod tests {
             value: AssignmentValue::Compound(ArrayExpr {
                 kind: ArrayKind::Associative,
                 elements: vec![ArrayElem::Keyed {
-                    key,
+                    key: dynamic_subscript(),
                     value: ArrayValueWord::from(Word::literal("value")),
                 }],
                 span: Span::new(),
@@ -1777,6 +1780,69 @@ mod tests {
             name: Word::literal("printf"),
             args: Vec::new(),
             assignments: Box::new([assignment]),
+            span: Span::new(),
+        }));
+
+        let arena = ArenaFile::from_file(&file);
+        let command = arena.view().body().stmts().next().unwrap().command();
+
+        assert_eq!(command.child_sequence_ids().len(), 1);
+        assert!(command.word_ids().len() >= 3);
+    }
+
+    #[test]
+    fn assignment_target_subscript_words_are_assignment_words() {
+        let assignment = Assignment {
+            target: crate::VarRef {
+                name: Name::new("arr"),
+                name_span: Span::new(),
+                subscript: Some(Box::new(dynamic_subscript())),
+                span: Span::new(),
+            },
+            value: AssignmentValue::Scalar(Word::literal("value")),
+            append: false,
+            span: Span::new(),
+        };
+        let file = file_with_command(Command::Simple(SimpleCommand {
+            name: Word::literal("printf"),
+            args: Vec::new(),
+            assignments: Box::new([assignment]),
+            span: Span::new(),
+        }));
+
+        let arena = ArenaFile::from_file(&file);
+        let command = arena.view().body().stmts().next().unwrap().command();
+
+        assert_eq!(command.child_sequence_ids().len(), 1);
+        assert!(command.word_ids().len() >= 3);
+    }
+
+    #[test]
+    fn bourne_parameter_subscript_words_are_command_words() {
+        let expansion = ParameterExpansion {
+            syntax: ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access {
+                reference: crate::VarRef {
+                    name: Name::new("arr"),
+                    name_span: Span::new(),
+                    subscript: Some(Box::new(dynamic_subscript())),
+                    span: Span::new(),
+                },
+            }),
+            span: Span::new(),
+            raw_body: crate::SourceText::cooked(Span::new(), "arr[$(idx)]"),
+        };
+        let word = Word {
+            parts: vec![WordPartNode::new(
+                WordPart::Parameter(expansion),
+                Span::new(),
+            )],
+            span: Span::new(),
+            brace_syntax: Vec::new(),
+        };
+        let file = file_with_command(Command::Simple(SimpleCommand {
+            name: Word::literal("echo"),
+            args: vec![word],
+            assignments: Box::new([]),
             span: Span::new(),
         }));
 
@@ -1846,6 +1912,17 @@ mod tests {
             )],
             span: Span::new(),
             brace_syntax: Vec::new(),
+        }
+    }
+
+    fn dynamic_subscript() -> Subscript {
+        Subscript {
+            text: crate::SourceText::cooked(Span::new(), "$(key)"),
+            raw: None,
+            kind: SubscriptKind::Ordinary,
+            interpretation: SubscriptInterpretation::Indexed,
+            word_ast: Some(word_with_command_substitution()),
+            arithmetic_ast: None,
         }
     }
 }
