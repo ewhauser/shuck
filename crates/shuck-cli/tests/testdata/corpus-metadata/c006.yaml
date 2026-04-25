@@ -111,13 +111,6 @@ reviewed_divergences:
     column: 92
     end_column: 110
     reason: "This scanner builds an output filename from the current CORS origin, and the remaining ShellCheck-only anchor is the lower-case slug fragment inside that generated path. We review this one file narrowly instead of broadening C006 around the helper's filename templating."
-  - side: shuck-only
-    path_suffix: "leebaird__discover__misc__crack-wifi.sh"
-    line: 217
-    end_line: 217
-    column: 14
-    end_column: 19
-    reason: "This interactive helper threads prompt-loop state through earlier control-flow branches, so the remaining C006 read is a reviewed loop-state handoff rather than an isolated undefined local."
   - side: shellcheck-only
     path_suffix: "moovweb__gvm__bin__gvmsudo"
     line: 11

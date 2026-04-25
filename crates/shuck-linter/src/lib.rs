@@ -3196,6 +3196,20 @@ fi
     }
 
     #[test]
+    fn undefined_variable_ignores_let_arithmetic_assignment_targets() {
+        let source = "\
+#!/bin/bash
+let line=\"$number\"+1
+printf '%s\\n' \"$line\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert_eq!(diagnostics[0].span.slice(source), "$number");
+    }
+
+    #[test]
     fn undefined_variable_reports_unparsed_indexed_subscript_prefixes() {
         let source = "\
 #!/bin/bash

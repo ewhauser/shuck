@@ -7116,6 +7116,20 @@ fi
     }
 
     #[test]
+    fn let_arithmetic_assignments_initialize_targets() {
+        let source = "\
+#!/bin/bash
+let line=\"$number\"+1
+printf '%s\\n' \"$line\"
+";
+        let model = model_with_dialect(source, ShellDialect::Bash);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["line"], &uninitialized);
+        assert_names_present(&["number"], &uninitialized);
+    }
+
+    #[test]
     fn unparsed_indexed_subscript_prefixes_are_uninitialized_reads() {
         let source = "\
 arr+=([docker:dind]=x [nats-streaming:nanoserver]=y)

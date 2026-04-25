@@ -2633,6 +2633,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     );
                 }
             }
+            "let" => self.record_let_arithmetic_assignment_targets(args),
             "eval" => self.record_eval_argument_references(args),
             "source" | "." => {
                 if normalized.wrappers.is_empty()
@@ -2662,6 +2663,25 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.visit_command_defined_variable(args);
             }
             _ => {}
+        }
+    }
+
+    fn record_let_arithmetic_assignment_targets(&mut self, args: &[&'a Word]) {
+        for argument in args {
+            let Some((name, span)) = let_arithmetic_assignment_target(argument, self.source) else {
+                continue;
+            };
+            self.add_binding(
+                &name,
+                BindingKind::ArithmeticAssignment,
+                self.current_scope(),
+                span,
+                BindingOrigin::ArithmeticAssignment {
+                    definition_span: span,
+                    target_span: span,
+                },
+                BindingAttributes::empty(),
+            );
         }
     }
 
@@ -4761,6 +4781,30 @@ fn parse_simple_declaration_assignment(
         append,
         array_like,
         value_origin,
+    })
+}
+
+fn let_arithmetic_assignment_target(word: &Word, source: &str) -> Option<(Name, Span)> {
+    let text = word.span.slice(source);
+    let name_end = variable_name_end(text)?;
+    let rest = text[name_end..].trim_start();
+    if arithmetic_assignment_operator(rest).is_none() {
+        return None;
+    }
+
+    Some((
+        Name::from(&text[..name_end]),
+        word_text_offset_span(word.span, source, 0, name_end),
+    ))
+}
+
+fn arithmetic_assignment_operator(text: &str) -> Option<&'static str> {
+    const ASSIGNMENT_OPERATORS: &[&str] = &[
+        "<<=", ">>=", "+=", "-=", "*=", "/=", "%=", "&=", "^=", "|=", "=",
+    ];
+
+    ASSIGNMENT_OPERATORS.iter().copied().find(|&operator| {
+        text.starts_with(operator) && !(operator == "=" && text.as_bytes().get(1) == Some(&b'='))
     })
 }
 
