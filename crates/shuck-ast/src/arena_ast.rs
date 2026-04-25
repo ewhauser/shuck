@@ -2423,6 +2423,11 @@ impl<'a> StmtView<'a> {
         self.node().span
     }
 
+    /// Materializes this statement into the recursive AST representation.
+    pub fn to_stmt(self) -> Stmt {
+        self.store.materialize_stmt(self.id)
+    }
+
     fn node(self) -> &'a StmtNode {
         &self.store.stmts[self.id.index()]
     }

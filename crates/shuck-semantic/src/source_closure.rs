@@ -97,8 +97,22 @@ struct ImportedFunctionContractSite {
 
 pub(crate) fn collect_source_closure_contracts(
     model: &SemanticModel,
-    file: &File,
-    source: &str,
+    _file: &File,
+    _source: &str,
+    source_path: &Path,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    analyzed_paths: Option<&FxHashSet<PathBuf>>,
+) -> SourceClosureContractResult {
+    collect_source_closure_contracts_from_model(
+        model,
+        source_path,
+        source_path_resolver,
+        analyzed_paths,
+    )
+}
+
+pub(crate) fn collect_source_closure_contracts_from_model(
+    model: &SemanticModel,
     source_path: &Path,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
     analyzed_paths: Option<&FxHashSet<PathBuf>>,
@@ -113,8 +127,6 @@ pub(crate) fn collect_source_closure_contracts(
     };
     let contracts = collect_source_closure_contracts_with_cache(
         model,
-        file,
-        source,
         source_path,
         &mut summaries,
         &mut active,
@@ -178,8 +190,6 @@ pub(crate) fn collect_source_ref_metadata(
 
 fn collect_source_closure_contracts_with_cache(
     model: &SemanticModel,
-    _file: &File,
-    _source: &str,
     source_path: &Path,
     summaries: &mut FxHashMap<HelperSummaryKey, FileContract>,
     active: &mut FxHashSet<HelperSummaryKey>,
@@ -1291,8 +1301,6 @@ fn summarize_helper_uncached(
     );
     let collected = collect_source_closure_contracts_with_cache(
         &semantic,
-        &output.file,
-        source,
         path,
         summaries,
         active,

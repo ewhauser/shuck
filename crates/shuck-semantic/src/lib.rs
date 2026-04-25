@@ -1023,6 +1023,14 @@ impl SemanticModel {
     }
 
     pub(crate) fn apply_file_entry_contract(&mut self, contract: FileContract, file: &File) {
+        self.apply_file_entry_contract_at_span(contract, file.span);
+    }
+
+    pub(crate) fn apply_file_entry_contract_at_span(
+        &mut self,
+        contract: FileContract,
+        file_span: Span,
+    ) {
         if contract.required_reads.is_empty()
             && contract.provided_bindings.is_empty()
             && contract.provided_functions.is_empty()
@@ -1039,12 +1047,12 @@ impl SemanticModel {
         for name in contract.required_reads {
             synthetic_reads.push(SyntheticRead {
                 scope: ScopeId(0),
-                span: file.span,
+                span: file_span,
                 name,
             });
         }
 
-        let entry_span = Span::from_positions(file.span.start, file.span.start);
+        let entry_span = Span::from_positions(file_span.start, file_span.start);
         let mut entry_bindings = self.entry_bindings.clone();
         let function_origin_paths = contract
             .provided_functions
@@ -2935,8 +2943,56 @@ fn build_semantic_model_arena(
     observer: &mut dyn TraversalObserver,
     options: SemanticBuildOptions<'_>,
 ) -> SemanticModel {
-    let file = ast.to_file();
-    build_semantic_model(&file, source, indexer, observer, options)
+    let mut model = build_semantic_model_base_arena(
+        ast,
+        source,
+        indexer,
+        observer,
+        options.source_path,
+        options.shell_profile.clone(),
+    );
+    if let Some(contract) = options.file_entry_contract {
+        model.apply_file_entry_contract_at_span(contract, ast.view().span());
+    }
+    if let Some(source_path) = options.source_path {
+        let (
+            synthetic_reads,
+            imported_bindings,
+            source_ref_resolutions,
+            source_ref_explicitness,
+            source_ref_diagnostic_classes,
+        ) = if options.resolve_source_closure {
+            source_closure::collect_source_closure_contracts_from_model(
+                &model,
+                source_path,
+                options.source_path_resolver,
+                options.analyzed_paths,
+            )
+        } else {
+            let (source_ref_resolutions, source_ref_explicitness, source_ref_diagnostic_classes) =
+                source_closure::collect_source_ref_metadata(
+                    &model,
+                    source_path,
+                    options.source_path_resolver,
+                    options.analyzed_paths,
+                );
+            (
+                Vec::new(),
+                Vec::new(),
+                source_ref_resolutions,
+                source_ref_explicitness,
+                source_ref_diagnostic_classes,
+            )
+        };
+        model.apply_source_contracts(
+            synthetic_reads,
+            imported_bindings,
+            source_ref_resolutions,
+            source_ref_explicitness,
+            source_ref_diagnostic_classes,
+        );
+    }
+    model
 }
 
 fn build_semantic_model(
@@ -3011,6 +3067,26 @@ pub(crate) fn build_semantic_model_base(
     let shell_profile = shell_profile.unwrap_or_else(|| infer_shell_profile(source, source_path));
     let built = SemanticModelBuilder::build(
         file,
+        source,
+        indexer,
+        observer,
+        bash_runtime_vars_enabled(source, source_path),
+        shell_profile,
+    );
+    SemanticModel::from_build_output(built)
+}
+
+pub(crate) fn build_semantic_model_base_arena(
+    ast: &ArenaFile,
+    source: &str,
+    indexer: &Indexer,
+    observer: &mut dyn TraversalObserver,
+    source_path: Option<&Path>,
+    shell_profile: Option<ShellProfile>,
+) -> SemanticModel {
+    let shell_profile = shell_profile.unwrap_or_else(|| infer_shell_profile(source, source_path));
+    let built = SemanticModelBuilder::build_arena(
+        ast,
         source,
         indexer,
         observer,
