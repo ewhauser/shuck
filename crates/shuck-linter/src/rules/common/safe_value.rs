@@ -1,8 +1,8 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand, FunctionDef, Name,
-    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, RedirectKind, SourceText, Span,
-    Stmt, StmtSeq, StmtTerminator, VarRef, Word, WordPart, WordPartNode, static_word_text,
+    BinaryOp, BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand, FunctionDef,
+    Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, RedirectKind, SourceText,
+    Span, Stmt, StmtSeq, StmtTerminator, VarRef, Word, WordPart, WordPartNode, static_word_text,
     word_is_standalone_status_capture, word_is_standalone_variable_like,
 };
 use shuck_semantic::{
@@ -310,6 +310,9 @@ impl<'a> SafeValueIndex<'a> {
 
         let mut bindings = self.safe_bindings_for_name(name, at);
         self.drop_declarations_shadowed_by_covering_loop_bindings(&mut bindings, at);
+        bindings.retain(|binding_id| {
+            !self.binding_is_cleared_by_dominating_unset(*binding_id, name, at)
+        });
         if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget) {
             bindings.retain(|binding_id| {
                 !self.binding_is_blocked_by_exit_like_function_call(*binding_id, at)
@@ -361,7 +364,7 @@ impl<'a> SafeValueIndex<'a> {
             matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget);
         let bindings_cover_all_paths = helper_bindings.is_empty()
             && needs_arg_path_coverage
-            && self.bindings_cover_all_paths_to_reference(&bindings, name, at);
+            && self.value_sources_cover_all_paths_to_reference(&bindings, name, at);
         let unset_covers_reference = needs_arg_path_coverage
             && !bindings.is_empty()
             && self.unset_command_covers_reference(name, at);
@@ -702,6 +705,10 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn binding_is_plain_empty_static_literal(&self, binding_id: BindingId) -> bool {
+        if self.binding_is_name_only_declaration(binding_id) {
+            return true;
+        }
+
         matches!(
             self.semantic.binding(binding_id).origin,
             BindingOrigin::Assignment {
@@ -714,6 +721,15 @@ impl<'a> SafeValueIndex<'a> {
             .and_then(|value| value.scalar_word())
             .and_then(|word| static_word_text(word, self.source))
             .is_some_and(|text| text.is_empty())
+    }
+
+    fn binding_is_name_only_declaration(&self, binding_id: BindingId) -> bool {
+        let binding = self.semantic.binding(binding_id);
+        matches!(binding.origin, BindingOrigin::Declaration { .. })
+            && binding.attributes.contains(BindingAttributes::LOCAL)
+            && !binding
+                .attributes
+                .contains(BindingAttributes::DECLARATION_INITIALIZED)
     }
 
     fn bindings_are_all_plain_empty_static_literals(&self, bindings: &[BindingId]) -> bool {
@@ -754,20 +770,24 @@ impl<'a> SafeValueIndex<'a> {
                 ..
             }
             | BindingOrigin::Declaration { .. } => {
-                let scalar_word = self
-                    .facts
-                    .binding_value(binding_id)
-                    .filter(|value| !value.conditional_assignment_shortcut())
-                    .and_then(|value| value.scalar_word());
-                if case_cli_scope == Some(binding.scope)
-                    && matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
-                    && scalar_word.is_some_and(word_is_standalone_status_capture)
-                {
-                    false
+                if self.binding_is_name_only_declaration(binding_id) {
+                    true
                 } else {
-                    scalar_word.is_some_and(|word| {
-                        self.word_is_safe_for_binding_value(binding_id, word, query)
-                    })
+                    let scalar_word = self
+                        .facts
+                        .binding_value(binding_id)
+                        .filter(|value| !value.conditional_assignment_shortcut())
+                        .and_then(|value| value.scalar_word());
+                    if case_cli_scope == Some(binding.scope)
+                        && matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+                        && scalar_word.is_some_and(word_is_standalone_status_capture)
+                    {
+                        false
+                    } else {
+                        scalar_word.is_some_and(|word| {
+                            self.word_is_safe_for_binding_value(binding_id, word, query)
+                        })
+                    }
                 }
             }
             BindingOrigin::LoopVariable {
@@ -971,6 +991,26 @@ impl<'a> SafeValueIndex<'a> {
             command.span().end.offset <= at.start.offset
                 && self.command_runs_in_persistent_shell_context(command.id())
                 && self.command_runs_in_unconditional_flow(command.id(), at)
+                && command
+                    .options()
+                    .unset()
+                    .is_some_and(|unset| self.unset_targets_variable_name(unset, name))
+                && self.command_blocks_cover_all_paths_to_reference(command, name, at)
+        })
+    }
+
+    fn binding_is_cleared_by_dominating_unset(
+        &self,
+        binding_id: BindingId,
+        name: &Name,
+        at: Span,
+    ) -> bool {
+        let binding = self.semantic.binding(binding_id);
+        self.facts.structural_commands().any(|command| {
+            command.span().start.offset >= binding.span.end.offset
+                && command.span().end.offset <= at.start.offset
+                && self.command_runs_in_persistent_shell_context(command.id())
+                && !self.command_is_in_background_context(command.id())
                 && command
                     .options()
                     .unset()
@@ -1253,9 +1293,12 @@ impl<'a> SafeValueIndex<'a> {
         let binding = self.semantic.binding(binding_id);
         match binding.origin {
             BindingOrigin::FunctionDefinition { .. } => false,
-            BindingOrigin::Declaration { .. } => binding.attributes.intersects(
-                BindingAttributes::DECLARATION_INITIALIZED | BindingAttributes::INTEGER,
-            ),
+            BindingOrigin::Declaration { .. } => {
+                self.binding_is_name_only_declaration(binding_id)
+                    || binding.attributes.intersects(
+                        BindingAttributes::DECLARATION_INITIALIZED | BindingAttributes::INTEGER,
+                    )
+            }
             _ => true,
         }
     }
@@ -1877,25 +1920,48 @@ impl<'a> SafeValueIndex<'a> {
         name: &Name,
         at: Span,
     ) -> bool {
+        self.value_source_blocks_cover_all_paths_to_reference(
+            bindings,
+            name,
+            at,
+            FxHashSet::default(),
+        )
+    }
+
+    fn value_sources_cover_all_paths_to_reference(
+        &self,
+        bindings: &[BindingId],
+        name: &Name,
+        at: Span,
+    ) -> bool {
+        let unset_blocks = (!bindings.is_empty())
+            .then(|| self.unset_value_blocks_for_name_before_reference(name, at))
+            .unwrap_or_default();
+        self.value_source_blocks_cover_all_paths_to_reference(bindings, name, at, unset_blocks)
+    }
+
+    fn value_source_blocks_cover_all_paths_to_reference(
+        &self,
+        bindings: &[BindingId],
+        name: &Name,
+        at: Span,
+        mut cover_blocks: FxHashSet<BlockId>,
+    ) -> bool {
         let Some(reference_block) = self.block_for_name_reference_or_virtual_offset(name, at)
         else {
             return true;
         };
 
-        let cover_blocks = bindings
-            .iter()
-            .copied()
-            .filter_map(|binding_id| {
-                let binding_block = self.block_for_binding(binding_id)?;
-                if binding_block == reference_block
-                    && self.binding_is_guarded_before_reference(binding_id, at)
-                {
-                    None
-                } else {
-                    Some(binding_block)
-                }
-            })
-            .collect::<FxHashSet<_>>();
+        cover_blocks.extend(bindings.iter().copied().filter_map(|binding_id| {
+            let binding_block = self.block_for_binding(binding_id)?;
+            if binding_block == reference_block
+                && self.binding_is_guarded_before_reference(binding_id, at)
+            {
+                None
+            } else {
+                Some(binding_block)
+            }
+        }));
         if cover_blocks.contains(&reference_block) {
             return true;
         }
@@ -1926,6 +1992,47 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         true
+    }
+
+    fn unset_value_blocks_for_name_before_reference(
+        &self,
+        name: &Name,
+        at: Span,
+    ) -> FxHashSet<BlockId> {
+        self.facts
+            .structural_commands()
+            .filter(|command| {
+                command.span().end.offset <= at.start.offset
+                    && self.enclosing_function_scope_at(command.span().start.offset)
+                        == self.enclosing_function_scope_at(at.start.offset)
+                    && self.command_runs_in_persistent_shell_context(command.id())
+                    && !self.command_is_in_background_context(command.id())
+                    && !self.command_is_in_boolean_list(command.id())
+                    && command
+                        .options()
+                        .unset()
+                        .is_some_and(|unset| self.unset_targets_variable_name(unset, name))
+            })
+            .flat_map(|command| {
+                self.analysis
+                    .block_ids_for_span(command.span())
+                    .iter()
+                    .copied()
+            })
+            .collect()
+    }
+
+    fn command_is_in_boolean_list(&self, command_id: crate::facts::CommandId) -> bool {
+        let mut current = self.facts.command_parent_id(command_id);
+        while let Some(id) = current {
+            if let Command::Binary(binary) = self.facts.command(id).command()
+                && matches!(binary.op, BinaryOp::And | BinaryOp::Or)
+            {
+                return true;
+            }
+            current = self.facts.command_parent_id(id);
+        }
+        false
     }
 
     fn bindings_cover_all_paths_to_callsite(

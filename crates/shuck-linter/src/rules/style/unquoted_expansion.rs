@@ -1971,6 +1971,78 @@ f() {
     }
 
     #[test]
+    fn skips_optional_safe_assignments_after_name_only_declarations() {
+        let source = "\
+#!/bin/bash
+f() {
+  local extra
+  if true; then
+    extra=EXTRA=-DPLAT_LINUX_RPI
+  fi
+  make $extra
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_name_only_declarations_without_safe_assignments() {
+        let source = "\
+#!/bin/bash
+f() {
+  local extra
+  make $extra
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$extra"]
+        );
+    }
+
+    #[test]
+    fn skips_safe_assignment_or_unset_branches() {
+        let source = "\
+#!/bin/bash
+if [ \"$GTK2\" = enable ]; then
+  GTK2=--with-gtk2
+else
+  unset GTK2
+fi
+./configure $GTK2
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_values_after_dominating_unsets() {
+        let source = "\
+#!/bin/bash
+opt=-n
+unset opt
+printf '%s\\n' $opt
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$opt"]
+        );
+    }
+
+    #[test]
     fn skips_safe_literal_bindings_inside_nested_command_substitutions() {
         let source = "\
 #!/bin/bash
