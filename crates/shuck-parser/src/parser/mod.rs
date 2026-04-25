@@ -6771,6 +6771,10 @@ impl<'a> Parser<'a> {
         }
 
         let inner = &raw[1..raw.len() - 1];
+        if quote == b'\'' && inner.contains('\'') {
+            return None;
+        }
+
         let inner_start = span.start.advanced_by(&raw[..1]);
         let inner_end = inner_start.advanced_by(inner);
         let inner_span = Span::from_positions(inner_start, inner_end);

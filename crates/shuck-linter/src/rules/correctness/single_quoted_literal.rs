@@ -361,6 +361,11 @@ mod tests {
     }
 
     #[test]
+    fn ignores_single_quoted_literals_split_by_double_quoted_expansions() {
+        assert_eq!(c005("rx=${rx:-'prefix'\"$pkgname\"'suffix'}\n"), 0);
+    }
+
+    #[test]
     fn reports_single_quoted_literals_inside_keyed_array_subscripts() {
         assert_eq!(c005("declare -A map=(['$HOME']=1)\n"), 1);
     }
