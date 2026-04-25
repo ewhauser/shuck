@@ -18,6 +18,8 @@ pub struct LinterFacts<'a> {
     env_prefix_expansion_scope_spans: Vec<Span>,
     presence_tested_names: FxHashSet<Name>,
     nested_presence_test_spans: FxHashMap<Name, Vec<Span>>,
+    c006_presence_tested_names: FxHashSet<Name>,
+    c006_nested_presence_test_spans: FxHashMap<Name, Vec<Span>>,
     presence_test_references_by_name: FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
     presence_test_names_by_name: FxHashMap<Name, Vec<PresenceTestNameFact>>,
     suppressed_subscript_reference_spans: FxHashSet<FactSpan>,
@@ -332,6 +334,19 @@ impl<'a> LinterFacts<'a> {
         self.presence_tested_names.contains(name)
             || self
                 .nested_presence_test_spans
+                .get(name)
+                .is_some_and(|spans| {
+                    spans
+                        .iter()
+                        .copied()
+                        .any(|outer| contains_span(outer, span))
+                })
+    }
+
+    pub fn is_c006_presence_tested_name(&self, name: &Name, span: Span) -> bool {
+        self.c006_presence_tested_names.contains(name)
+            || self
+                .c006_nested_presence_test_spans
                 .get(name)
                 .is_some_and(|spans| {
                     spans

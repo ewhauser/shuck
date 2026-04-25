@@ -3798,7 +3798,7 @@ echo \"$guarded\" \"$truthy\" \"$simple_v\" \"$test_v\" \"$chain_left\" \"$chain
         assert!(
             diagnostics
                 .iter()
-                .all(|diagnostic| !diagnostic.message.contains("test_v"))
+                .any(|diagnostic| diagnostic.message.contains("test_v"))
         );
         assert!(
             diagnostics
@@ -3864,6 +3864,28 @@ echo \"$guarded\" \"$truthy\" \"$simple_v\" \"$test_v\" \"$chain_left\" \"$chain
             diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("still_missing"))
+        );
+    }
+
+    #[test]
+    fn undefined_variable_reports_plain_test_command_presence_reads() {
+        let source = "\
+#!/bin/bash
+test -n \"$plain_test\" && echo present
+[ -n \"$bracket_test\" ] && echo present
+if [[ -n \"$conditional_test\" ]]; then
+  echo present
+fi
+echo \"$plain_test\" \"$bracket_test\" \"$conditional_test\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$plain_test"]
         );
     }
 

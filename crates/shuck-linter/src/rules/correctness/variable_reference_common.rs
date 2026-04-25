@@ -28,7 +28,7 @@ pub(super) fn is_reportable_variable_reference(
     }
     if checker
         .facts()
-        .is_presence_tested_name(&reference.name, reference.span)
+        .is_c006_presence_tested_name(&reference.name, reference.span)
     {
         return false;
     }

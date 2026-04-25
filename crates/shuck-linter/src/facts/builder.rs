@@ -642,6 +642,9 @@ impl<'a> LinterFactsBuilder<'a> {
             env_prefix_expansion_scope_spans,
             presence_tested_names: presence_tested_names.global_names,
             nested_presence_test_spans: presence_tested_names.nested_command_spans_by_name,
+            c006_presence_tested_names: presence_tested_names.c006_global_names,
+            c006_nested_presence_test_spans: presence_tested_names
+                .c006_nested_command_spans_by_name,
             presence_test_references_by_name: presence_tested_names.references_by_name,
             presence_test_names_by_name: presence_tested_names.names_by_name,
             suppressed_subscript_reference_spans,
