@@ -52,6 +52,8 @@ use shuck_ast::{
 
 use crate::error::{Error, Result};
 
+type WordPartBuffer = SmallVec<[WordPartNode; 2]>;
+
 /// Default maximum AST depth (matches ExecutionLimits default)
 const DEFAULT_MAX_AST_DEPTH: usize = 100;
 
@@ -2151,6 +2153,28 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn word_with_part_buffer(&self, parts: WordPartBuffer, span: Span) -> Word {
+        let brace_syntax = self.brace_syntax_from_parts(&parts, span.start.offset);
+        let parts = if parts.spilled() {
+            parts.into_vec()
+        } else {
+            let mut vec = Vec::with_capacity(parts.len());
+            vec.extend(parts);
+            vec
+        };
+        Word {
+            parts,
+            span,
+            brace_syntax,
+        }
+    }
+
+    fn word_with_single_part(&self, part: WordPartNode, span: Span) -> Word {
+        let mut parts = WordPartBuffer::new();
+        parts.push(part);
+        self.word_with_part_buffer(parts, span)
+    }
+
     fn heredoc_body_with_parts(
         &self,
         parts: Vec<HeredocBodyPartNode>,
@@ -3426,7 +3450,7 @@ impl<'a> Parser<'a> {
         {
             return Some(word);
         }
-        let mut parts = Vec::new();
+        let mut parts = Self::word_part_buffer_with_capacity(word.segments().size_hint().0);
 
         for segment in word.segments() {
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
@@ -3493,7 +3517,7 @@ impl<'a> Parser<'a> {
             parts.push(part);
         }
 
-        Some(self.word_with_parts(parts, span))
+        Some(self.word_with_part_buffer(parts, span))
     }
 
     fn segment_content_span(segment: &LexedWordSegment<'_>, fallback: Span) -> Span {
@@ -3600,17 +3624,12 @@ impl<'a> Parser<'a> {
                 source_backed && self.source_matches(content_span, decode_text);
 
             return match segment.kind() {
-                LexedWordSegmentKind::SingleQuoted => Some(self.word_with_parts(
-                    vec![self.single_quoted_part_from_text(
-                        text,
-                        content_span,
-                        wrapper_span,
-                        false,
-                    )],
+                LexedWordSegmentKind::SingleQuoted => Some(self.word_with_single_part(
+                    self.single_quoted_part_from_text(text, content_span, wrapper_span, false),
                     span,
                 )),
-                LexedWordSegmentKind::DollarSingleQuoted => Some(self.word_with_parts(
-                    vec![self.single_quoted_part_from_text(text, content_span, wrapper_span, true)],
+                LexedWordSegmentKind::DollarSingleQuoted => Some(self.word_with_single_part(
+                    self.single_quoted_part_from_text(text, content_span, wrapper_span, true),
                     span,
                 )),
                 LexedWordSegmentKind::Plain if Self::word_text_needs_parse(text) => Some(
@@ -3631,8 +3650,8 @@ impl<'a> Parser<'a> {
                         content_span.start,
                         source_backed,
                     );
-                    Some(self.word_with_parts(
-                        vec![WordPartNode::new(
+                    Some(self.word_with_single_part(
+                        WordPartNode::new(
                             WordPart::DoubleQuoted {
                                 parts: inner.parts,
                                 dollar: matches!(
@@ -3641,39 +3660,39 @@ impl<'a> Parser<'a> {
                                 ),
                             },
                             wrapper_span,
-                        )],
+                        ),
                         span,
                     ))
                 }
-                LexedWordSegmentKind::Plain => Some(self.word_with_parts(
-                    vec![self.literal_part_from_text(text, content_span, source_backed)],
+                LexedWordSegmentKind::Plain => Some(self.word_with_single_part(
+                    self.literal_part_from_text(text, content_span, source_backed),
                     span,
                 )),
-                LexedWordSegmentKind::DoubleQuoted => Some(self.word_with_parts(
-                    vec![self.double_quoted_literal_part_from_text(
+                LexedWordSegmentKind::DoubleQuoted => Some(self.word_with_single_part(
+                    self.double_quoted_literal_part_from_text(
                         text,
                         content_span,
                         wrapper_span,
                         source_backed,
                         false,
-                    )],
+                    ),
                     span,
                 )),
-                LexedWordSegmentKind::DollarDoubleQuoted => Some(self.word_with_parts(
-                    vec![self.double_quoted_literal_part_from_text(
+                LexedWordSegmentKind::DollarDoubleQuoted => Some(self.word_with_single_part(
+                    self.double_quoted_literal_part_from_text(
                         text,
                         content_span,
                         wrapper_span,
                         source_backed,
                         true,
-                    )],
+                    ),
                     span,
                 )),
                 LexedWordSegmentKind::Composite => None,
             };
         }
 
-        let mut parts = Vec::new();
+        let mut parts = Self::word_part_buffer_with_capacity(word.segments().size_hint().0);
         let mut cursor = span.start;
 
         for segment in word.segments() {
@@ -3760,7 +3779,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Some(self.word_with_parts(parts, span))
+        Some(self.word_with_part_buffer(parts, span))
     }
 
     fn current_word_ref(&mut self) -> Option<&Word> {
@@ -5616,18 +5635,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn push_word_part(
-        parts: &mut Vec<WordPartNode>,
-        part: WordPart,
-        start: Position,
-        end: Position,
-    ) {
+    fn push_word_part(parts: &mut WordPartBuffer, part: WordPart, start: Position, end: Position) {
         parts.push(WordPartNode::new(part, Span::from_positions(start, end)));
     }
 
     fn flush_literal_part(
         &self,
-        parts: &mut Vec<WordPartNode>,
+        parts: &mut WordPartBuffer,
         current: &mut String,
         current_start: Position,
         end: Position,
@@ -5645,6 +5659,14 @@ impl<'a> Parser<'a> {
                 current_start,
                 end,
             );
+        }
+    }
+
+    fn word_part_buffer_with_capacity(capacity: usize) -> WordPartBuffer {
+        if capacity <= 2 {
+            WordPartBuffer::new()
+        } else {
+            WordPartBuffer::with_capacity(capacity)
         }
     }
 

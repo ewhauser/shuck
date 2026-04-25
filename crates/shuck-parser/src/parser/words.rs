@@ -547,7 +547,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn pattern_from_source_text(&mut self, text: &SourceText) -> Pattern {
         let span = text.span();
-        let mut parts = Vec::new();
+        let mut parts = WordPartBuffer::new();
         self.decode_word_parts_into_with_quote_fragments(
             text.slice(self.input),
             span.start,
@@ -1716,7 +1716,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn split_word_at(&self, word: Word, start: Position) -> Word {
         let value_span = Span::from_positions(start, word.span.end);
-        let mut parts = Vec::new();
+        let mut parts = WordPartBuffer::new();
 
         for part in word.parts {
             if let Some((kind, span)) = self.trim_word_part_prefix(part.kind, part.span, start) {
@@ -1724,7 +1724,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        self.word_with_parts(parts, value_span)
+        self.word_with_part_buffer(parts, value_span)
     }
 
     pub(super) fn word_syntax_is_source_backed(&self, word: &Word) -> bool {
@@ -2926,7 +2926,7 @@ impl<'a> Parser<'a> {
         base: Position,
         source_backed: bool,
         preserve_escaped_expansion_literals: bool,
-        parts: &mut Vec<WordPartNode>,
+        parts: &mut WordPartBuffer,
     ) {
         self.decode_word_parts_into_with_quote_fragments(
             s,
@@ -2947,7 +2947,7 @@ impl<'a> Parser<'a> {
         base: Position,
         source_backed: bool,
         options: DecodeWordPartsOptions,
-        parts: &mut Vec<WordPartNode>,
+        parts: &mut WordPartBuffer,
     ) {
         let mut chars = s.chars().peekable();
         let mut current = String::new();
@@ -4909,7 +4909,7 @@ impl<'a> Parser<'a> {
         source_backed: bool,
         preserve_escaped_expansion_literals: bool,
     ) -> Word {
-        let mut parts = Vec::new();
+        let mut parts = WordPartBuffer::new();
         self.decode_word_parts_into_with_escape_mode(
             s,
             base,
@@ -4917,7 +4917,7 @@ impl<'a> Parser<'a> {
             preserve_escaped_expansion_literals,
             &mut parts,
         );
-        self.word_with_parts(parts, span)
+        self.word_with_part_buffer(parts, span)
     }
 
     fn decode_word_text_with_options(
@@ -4928,7 +4928,7 @@ impl<'a> Parser<'a> {
         source_backed: bool,
         options: DecodeWordPartsOptions,
     ) -> Word {
-        let mut parts = Vec::new();
+        let mut parts = WordPartBuffer::new();
         self.decode_word_parts_into_with_quote_fragments(
             s,
             base,
@@ -4936,7 +4936,7 @@ impl<'a> Parser<'a> {
             options,
             &mut parts,
         );
-        self.word_with_parts(parts, span)
+        self.word_with_part_buffer(parts, span)
     }
 
     pub(super) fn decode_fragment_word_text(
@@ -4957,7 +4957,7 @@ impl<'a> Parser<'a> {
         source_backed: bool,
         preserve_escaped_expansion_literals: bool,
     ) -> Word {
-        let mut parts = Vec::new();
+        let mut parts = WordPartBuffer::new();
         self.decode_word_parts_into_with_quote_fragments(
             s,
             base,
@@ -4970,7 +4970,7 @@ impl<'a> Parser<'a> {
             },
             &mut parts,
         );
-        self.word_with_parts(parts, span)
+        self.word_with_part_buffer(parts, span)
     }
 
     pub(super) fn decode_quoted_segment_text(
@@ -5003,7 +5003,7 @@ impl<'a> Parser<'a> {
         span: Span,
         source_backed: bool,
     ) -> HeredocBody {
-        let mut parts = Vec::new();
+        let mut parts = WordPartBuffer::new();
         self.decode_word_parts_into_with_quote_fragments(
             s,
             span.start,
