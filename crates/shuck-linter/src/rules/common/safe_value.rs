@@ -399,6 +399,20 @@ impl<'a> SafeValueIndex<'a> {
         let direct_bindings_cover_all_paths = needs_arg_path_coverage
             && !direct_bindings.is_empty()
             && self.bindings_cover_all_paths_to_reference(&direct_bindings, name, at);
+        if needs_arg_path_coverage
+            && !direct_bindings_cover_all_paths
+            && !bindings.is_empty()
+            && bindings
+                .iter()
+                .copied()
+                .all(|binding_id| helper_bindings.contains(&binding_id))
+            && bindings
+                .iter()
+                .copied()
+                .all(|binding_id| self.binding_is_one_sided_short_circuit_assignment(binding_id))
+        {
+            return false;
+        }
         let direct_bindings_are_status_captures =
             direct_bindings.iter().copied().all(|binding_id| {
                 self.binding_is_standalone_status_capture(binding_id, case_cli_scope)
@@ -2279,6 +2293,12 @@ impl<'a> SafeValueIndex<'a> {
         }
     }
 
+    fn binding_is_one_sided_short_circuit_assignment(&self, binding_id: BindingId) -> bool {
+        self.facts
+            .binding_value(binding_id)
+            .is_some_and(|value| value.one_sided_short_circuit_assignment())
+    }
+
     fn helper_scopes_providing_name(&self, name: &Name) -> Vec<ScopeId> {
         self.semantic
             .bindings_for(name)
@@ -2388,8 +2408,9 @@ impl<'a> SafeValueIndex<'a> {
 
         cover_blocks.extend(bindings.iter().copied().filter_map(|binding_id| {
             let binding_block = self.block_for_binding(binding_id)?;
-            if binding_block == reference_block
-                && self.binding_is_guarded_before_reference(binding_id, at)
+            if (binding_block == reference_block
+                && self.binding_is_guarded_before_reference(binding_id, at))
+                || self.binding_is_one_sided_short_circuit_assignment(binding_id)
             {
                 None
             } else {
@@ -2490,8 +2511,9 @@ impl<'a> SafeValueIndex<'a> {
             .copied()
             .filter_map(|binding_id| {
                 let binding_block = self.block_for_binding(binding_id)?;
-                if call_blocks.contains(&binding_block)
-                    && self.binding_is_guarded_before_reference(binding_id, call_span)
+                if (call_blocks.contains(&binding_block)
+                    && self.binding_is_guarded_before_reference(binding_id, call_span))
+                    || self.binding_is_one_sided_short_circuit_assignment(binding_id)
                 {
                     None
                 } else {

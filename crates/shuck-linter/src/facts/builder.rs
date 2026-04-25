@@ -491,7 +491,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 &lists,
                 self.source,
             );
-        annotate_conditional_assignment_shortcuts(self.semantic, &lists, &mut binding_values);
+        annotate_conditional_assignment_value_paths(self.semantic, &lists, &mut binding_values);
         let statement_facts =
             build_statement_facts(&commands, &command_ids_by_span, &self.file.body);
         let background_semicolon_spans =

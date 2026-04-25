@@ -80,6 +80,8 @@ check() { return 0; }
 true && w='-w' || w=''
 check && opt='-o' || opt=''
 if true; then flag='-f'; else flag=''; fi
+check && one_sided='-x'
+one_sided='-b' || one_sided='-y'
 ";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
@@ -125,6 +127,19 @@ if true; then flag='-f'; else flag=''; fi
         })
         .collect::<Vec<_>>();
     assert_eq!(flag_bindings, vec![false, false]);
+
+    let one_sided_bindings = semantic
+        .bindings_for(&Name::from("one_sided"))
+        .iter()
+        .copied()
+        .map(|binding_id| {
+            facts
+                .binding_value(binding_id)
+                .expect("expected one_sided binding value fact")
+                .one_sided_short_circuit_assignment()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(one_sided_bindings, vec![true, false, false]);
 }
 
 #[test]

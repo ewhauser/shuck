@@ -2722,6 +2722,61 @@ main
     }
 
     #[test]
+    fn reports_values_from_guarded_safe_assignments_on_uncovered_paths() {
+        let source = "\
+#!/bin/bash
+source \"$CONFIG\"
+[[ -z $folder || ! -w $(dirname \"$folder\") ]] && folder=~/gist
+mkdir -p $folder
+find $folder -maxdepth 1
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$folder", "$folder"]
+        );
+    }
+
+    #[test]
+    fn reports_helper_values_from_one_sided_short_circuit_assignments() {
+        let source = "\
+#!/bin/bash
+source \"$CONFIG\"
+init_folder() {
+  [[ -z $folder ]] && folder=~/gist
+}
+init_folder
+find $folder -maxdepth 1
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$folder"]
+        );
+    }
+
+    #[test]
+    fn skips_one_sided_short_circuit_assignments_after_covering_safe_values() {
+        let source = "\
+#!/bin/bash
+folder=/var
+[[ -d x ]] && folder=/tmp
+find $folder -maxdepth 1
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn uses_safe_top_level_bindings_at_static_function_call_sites() {
         let source = "\
 #!/bin/sh
