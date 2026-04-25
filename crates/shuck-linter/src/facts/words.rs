@@ -7671,9 +7671,7 @@ fn rename_program_argument_index(args: &[Word], source: &str) -> Option<usize> {
 fn ssh_remote_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
     let mut index = 0usize;
     while let Some(word) = args.get(index) {
-        let Some(text) = static_word_text(word, source) else {
-            return None;
-        };
+        let text = static_word_text(word, source)?;
 
         if text == "--" {
             index += 1;
