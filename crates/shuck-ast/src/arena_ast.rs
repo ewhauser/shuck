@@ -1,11 +1,10 @@
 use crate::{
-    AlwaysCommand, AnonymousFunctionCommand, ArithmeticCommand, ArithmeticExpr, ArithmeticExprNode,
+    AnonymousFunctionCommand, ArithmeticCommand, ArithmeticExpr, ArithmeticExprNode,
     ArithmeticForCommand, ArithmeticLvalue, Assignment, AssignmentValue, BinaryCommand,
     BuiltinCommand, CaseCommand, Command, Comment, CompoundCommand, ConditionalCommand,
-    ConditionalExpr, CoprocCommand, DeclOperand, File, ForCommand, FunctionDef, HeredocBodyPart,
-    IdRange, Idx, ListArena, Pattern, PatternPart, Redirect, RedirectTarget, RepeatCommand,
-    SelectCommand, Span, Stmt, StmtSeq, StmtTerminator, Subscript, TimeCommand, UntilCommand,
-    WhileCommand, Word, WordPart, WordPartNode,
+    ConditionalExpr, DeclOperand, File, ForCommand, FunctionDef, HeredocBodyPart, IdRange, Idx,
+    ListArena, Pattern, PatternPart, Redirect, RedirectTarget, RepeatCommand, SelectCommand, Span,
+    Stmt, StmtSeq, StmtTerminator, Subscript, Word, WordPart, WordPartNode,
 };
 
 /// Stable typed identifier for a parsed file node inside an [`AstStore`].
@@ -75,6 +74,10 @@ pub struct AstStore {
     assignment_lists: ListArena<Assignment>,
     decl_operand_lists: ListArena<DeclOperand>,
     function_header_entry_lists: ListArena<FunctionHeaderEntryNode>,
+    elif_branch_lists: ListArena<ElifBranchNode>,
+    for_target_lists: ListArena<ForTargetNode>,
+    case_item_lists: ListArena<CaseItemNode>,
+    pattern_lists: ListArena<Pattern>,
     word_id_lists: ListArena<WordId>,
     word_part_lists: ListArena<WordPartNode>,
     brace_syntax_lists: ListArena<crate::BraceSyntax>,
@@ -95,6 +98,10 @@ impl Default for AstStore {
             assignment_lists: ListArena::new(),
             decl_operand_lists: ListArena::new(),
             function_header_entry_lists: ListArena::new(),
+            elif_branch_lists: ListArena::new(),
+            for_target_lists: ListArena::new(),
+            case_item_lists: ListArena::new(),
+            pattern_lists: ListArena::new(),
             word_id_lists: ListArena::new(),
             word_part_lists: ListArena::new(),
             brace_syntax_lists: ListArena::new(),
@@ -329,8 +336,223 @@ impl AstStore {
                     span: node.span,
                 })
             }
+            CommandNodePayload::Compound(command) => {
+                Command::Compound(self.materialize_compound_command(command, node.span))
+            }
             CommandNodePayload::Legacy => node.legacy.clone(),
         }
+    }
+
+    fn materialize_compound_command(
+        &self,
+        command: &CompoundCommandNode,
+        span: Span,
+    ) -> CompoundCommand {
+        match command {
+            CompoundCommandNode::If {
+                condition,
+                then_branch,
+                elif_branches,
+                else_branch,
+                syntax,
+            } => CompoundCommand::If(crate::IfCommand {
+                condition: self.materialize_stmt_seq(*condition),
+                then_branch: self.materialize_stmt_seq(*then_branch),
+                elif_branches: self
+                    .elif_branch_lists
+                    .get(*elif_branches)
+                    .iter()
+                    .map(|branch| {
+                        (
+                            self.materialize_stmt_seq(branch.condition),
+                            self.materialize_stmt_seq(branch.body),
+                        )
+                    })
+                    .collect(),
+                else_branch: else_branch.map(|id| self.materialize_stmt_seq(id)),
+                syntax: *syntax,
+                span,
+            }),
+            CompoundCommandNode::For {
+                targets,
+                words,
+                body,
+                syntax,
+            } => CompoundCommand::For(crate::ForCommand {
+                targets: self
+                    .for_target_lists
+                    .get(*targets)
+                    .iter()
+                    .map(|target| crate::ForTarget {
+                        word: self.materialize_word(target.word),
+                        name: target.name.clone(),
+                        span: target.span,
+                    })
+                    .collect(),
+                words: words.map(|range| {
+                    self.word_id_lists
+                        .get(range)
+                        .iter()
+                        .copied()
+                        .map(|id| self.materialize_word(id))
+                        .collect()
+                }),
+                body: self.materialize_stmt_seq(*body),
+                syntax: *syntax,
+                span,
+            }),
+            CompoundCommandNode::Repeat {
+                count,
+                body,
+                syntax,
+            } => CompoundCommand::Repeat(crate::RepeatCommand {
+                count: self.materialize_word(*count),
+                body: self.materialize_stmt_seq(*body),
+                syntax: *syntax,
+                span,
+            }),
+            CompoundCommandNode::Foreach {
+                variable,
+                variable_span,
+                words,
+                body,
+                syntax,
+            } => CompoundCommand::Foreach(crate::ForeachCommand {
+                variable: variable.clone(),
+                variable_span: *variable_span,
+                words: self
+                    .word_id_lists
+                    .get(*words)
+                    .iter()
+                    .copied()
+                    .map(|id| self.materialize_word(id))
+                    .collect(),
+                body: self.materialize_stmt_seq(*body),
+                syntax: *syntax,
+                span,
+            }),
+            CompoundCommandNode::ArithmeticFor(command) => {
+                CompoundCommand::ArithmeticFor(Box::new(crate::ArithmeticForCommand {
+                    left_paren_span: command.left_paren_span,
+                    init_span: command.init_span,
+                    init_ast: command.init_ast.clone(),
+                    first_semicolon_span: command.first_semicolon_span,
+                    condition_span: command.condition_span,
+                    condition_ast: command.condition_ast.clone(),
+                    second_semicolon_span: command.second_semicolon_span,
+                    step_span: command.step_span,
+                    step_ast: command.step_ast.clone(),
+                    right_paren_span: command.right_paren_span,
+                    body: self.materialize_stmt_seq(command.body),
+                    span,
+                }))
+            }
+            CompoundCommandNode::While { condition, body } => {
+                CompoundCommand::While(crate::WhileCommand {
+                    condition: self.materialize_stmt_seq(*condition),
+                    body: self.materialize_stmt_seq(*body),
+                    span,
+                })
+            }
+            CompoundCommandNode::Until { condition, body } => {
+                CompoundCommand::Until(crate::UntilCommand {
+                    condition: self.materialize_stmt_seq(*condition),
+                    body: self.materialize_stmt_seq(*body),
+                    span,
+                })
+            }
+            CompoundCommandNode::Case { word, cases } => {
+                CompoundCommand::Case(crate::CaseCommand {
+                    word: self.materialize_word(*word),
+                    cases: self
+                        .case_item_lists
+                        .get(*cases)
+                        .iter()
+                        .map(|case| crate::CaseItem {
+                            patterns: self.pattern_lists.get(case.patterns).to_vec(),
+                            body: self.materialize_stmt_seq(case.body),
+                            terminator: case.terminator,
+                            terminator_span: case.terminator_span,
+                        })
+                        .collect(),
+                    span,
+                })
+            }
+            CompoundCommandNode::Select {
+                variable,
+                variable_span,
+                words,
+                body,
+            } => CompoundCommand::Select(crate::SelectCommand {
+                variable: variable.clone(),
+                variable_span: *variable_span,
+                words: self
+                    .word_id_lists
+                    .get(*words)
+                    .iter()
+                    .copied()
+                    .map(|id| self.materialize_word(id))
+                    .collect(),
+                body: self.materialize_stmt_seq(*body),
+                span,
+            }),
+            CompoundCommandNode::Subshell(body) => {
+                CompoundCommand::Subshell(self.materialize_stmt_seq(*body))
+            }
+            CompoundCommandNode::BraceGroup(body) => {
+                CompoundCommand::BraceGroup(self.materialize_stmt_seq(*body))
+            }
+            CompoundCommandNode::Arithmetic(command) => {
+                CompoundCommand::Arithmetic(crate::ArithmeticCommand {
+                    span,
+                    left_paren_span: command.left_paren_span,
+                    expr_span: command.expr_span,
+                    expr_ast: command.expr_ast.clone(),
+                    right_paren_span: command.right_paren_span,
+                })
+            }
+            CompoundCommandNode::Time {
+                posix_format,
+                command,
+            } => CompoundCommand::Time(crate::TimeCommand {
+                posix_format: *posix_format,
+                command: command.map(|id| Box::new(self.materialize_single_stmt(id))),
+                span,
+            }),
+            CompoundCommandNode::Conditional(command) => {
+                CompoundCommand::Conditional(crate::ConditionalCommand {
+                    expression: command.expression.clone(),
+                    span,
+                    left_bracket_span: command.left_bracket_span,
+                    right_bracket_span: command.right_bracket_span,
+                })
+            }
+            CompoundCommandNode::Coproc {
+                name,
+                name_span,
+                body,
+            } => CompoundCommand::Coproc(crate::CoprocCommand {
+                name: name.clone(),
+                name_span: *name_span,
+                body: Box::new(self.materialize_single_stmt(*body)),
+                span,
+            }),
+            CompoundCommandNode::Always { body, always_body } => {
+                CompoundCommand::Always(crate::AlwaysCommand {
+                    body: self.materialize_stmt_seq(*body),
+                    always_body: self.materialize_stmt_seq(*always_body),
+                    span,
+                })
+            }
+        }
+    }
+
+    fn materialize_single_stmt(&self, id: StmtSeqId) -> Stmt {
+        let mut stmts = self.materialize_stmt_seq(id).stmts.into_iter();
+        let Some(stmt) = stmts.next() else {
+            panic!("statement wrapper sequence contains one statement");
+        };
+        stmt
     }
 
     fn materialize_word(&self, id: WordId) -> Word {
@@ -421,6 +643,8 @@ pub enum CommandNodePayload {
     Function(FunctionCommandNode),
     /// Anonymous zsh function command payload.
     AnonymousFunction(AnonymousFunctionCommandNode),
+    /// Compound shell command payload.
+    Compound(CompoundCommandNode),
     /// Compatibility payload for command families that still materialize from `legacy`.
     Legacy,
 }
@@ -519,6 +743,155 @@ pub struct AnonymousFunctionCommandNode {
     pub body: StmtSeqId,
     /// Invocation argument words.
     pub args: IdRange<WordId>,
+}
+
+/// Arena-native compound command payload.
+#[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
+pub enum CompoundCommandNode {
+    /// If statement.
+    If {
+        condition: StmtSeqId,
+        then_branch: StmtSeqId,
+        elif_branches: IdRange<ElifBranchNode>,
+        else_branch: Option<StmtSeqId>,
+        syntax: crate::IfSyntax,
+    },
+    /// For loop.
+    For {
+        targets: IdRange<ForTargetNode>,
+        words: Option<IdRange<WordId>>,
+        body: StmtSeqId,
+        syntax: crate::ForSyntax,
+    },
+    /// Zsh repeat loop.
+    Repeat {
+        count: WordId,
+        body: StmtSeqId,
+        syntax: crate::RepeatSyntax,
+    },
+    /// Zsh foreach loop.
+    Foreach {
+        variable: crate::Name,
+        variable_span: Span,
+        words: IdRange<WordId>,
+        body: StmtSeqId,
+        syntax: crate::ForeachSyntax,
+    },
+    /// C-style arithmetic for loop.
+    ArithmeticFor(Box<ArithmeticForCommandNode>),
+    /// While loop.
+    While {
+        condition: StmtSeqId,
+        body: StmtSeqId,
+    },
+    /// Until loop.
+    Until {
+        condition: StmtSeqId,
+        body: StmtSeqId,
+    },
+    /// Case statement.
+    Case {
+        word: WordId,
+        cases: IdRange<CaseItemNode>,
+    },
+    /// Select loop.
+    Select {
+        variable: crate::Name,
+        variable_span: Span,
+        words: IdRange<WordId>,
+        body: StmtSeqId,
+    },
+    /// Subshell.
+    Subshell(StmtSeqId),
+    /// Brace group.
+    BraceGroup(StmtSeqId),
+    /// Arithmetic command.
+    Arithmetic(ArithmeticCommandNode),
+    /// Time command.
+    Time {
+        posix_format: bool,
+        command: Option<StmtSeqId>,
+    },
+    /// Conditional expression command.
+    Conditional(ConditionalCommandNode),
+    /// Coprocess command.
+    Coproc {
+        name: crate::Name,
+        name_span: Option<Span>,
+        body: StmtSeqId,
+    },
+    /// Zsh always/finally-style cleanup block.
+    Always {
+        body: StmtSeqId,
+        always_body: StmtSeqId,
+    },
+}
+
+/// Arena-native if/elif branch pair.
+#[derive(Debug, Clone)]
+pub struct ElifBranchNode {
+    /// Elif condition sequence.
+    pub condition: StmtSeqId,
+    /// Elif body sequence.
+    pub body: StmtSeqId,
+}
+
+/// Arena-native for-loop target.
+#[derive(Debug, Clone)]
+pub struct ForTargetNode {
+    /// Source-preserving target word.
+    pub word: WordId,
+    /// Normalized identifier when the target is a plain shell name.
+    pub name: Option<crate::Name>,
+    /// Source span of the target.
+    pub span: Span,
+}
+
+/// Arena-native case item.
+#[derive(Debug, Clone)]
+pub struct CaseItemNode {
+    /// Case patterns.
+    pub patterns: IdRange<Pattern>,
+    /// Case body sequence.
+    pub body: StmtSeqId,
+    /// Case terminator.
+    pub terminator: crate::CaseTerminator,
+    /// Source span of the case terminator token when present.
+    pub terminator_span: Option<Span>,
+}
+
+/// Arena-native arithmetic command.
+#[derive(Debug, Clone)]
+pub struct ArithmeticCommandNode {
+    pub left_paren_span: Span,
+    pub expr_span: Option<Span>,
+    pub expr_ast: Option<ArithmeticExprNode>,
+    pub right_paren_span: Span,
+}
+
+/// Arena-native arithmetic-for command.
+#[derive(Debug, Clone)]
+pub struct ArithmeticForCommandNode {
+    pub left_paren_span: Span,
+    pub init_span: Option<Span>,
+    pub init_ast: Option<ArithmeticExprNode>,
+    pub first_semicolon_span: Span,
+    pub condition_span: Option<Span>,
+    pub condition_ast: Option<ArithmeticExprNode>,
+    pub second_semicolon_span: Span,
+    pub step_span: Option<Span>,
+    pub step_ast: Option<ArithmeticExprNode>,
+    pub right_paren_span: Span,
+    pub body: StmtSeqId,
+}
+
+/// Arena-native conditional command.
+#[derive(Debug, Clone)]
+pub struct ConditionalCommandNode {
+    pub expression: ConditionalExpr,
+    pub left_bracket_span: Span,
+    pub right_bracket_span: Span,
 }
 
 /// Coarse command family stored with command arena nodes.
@@ -734,6 +1107,7 @@ impl<'a> CommandView<'a> {
             | CommandNodePayload::Binary(_)
             | CommandNodePayload::Function(_)
             | CommandNodePayload::AnonymousFunction(_)
+            | CommandNodePayload::Compound(_)
             | CommandNodePayload::Legacy => None,
         }
     }
@@ -750,6 +1124,7 @@ impl<'a> CommandView<'a> {
             | CommandNodePayload::Binary(_)
             | CommandNodePayload::Function(_)
             | CommandNodePayload::AnonymousFunction(_)
+            | CommandNodePayload::Compound(_)
             | CommandNodePayload::Legacy => None,
         }
     }
@@ -766,6 +1141,7 @@ impl<'a> CommandView<'a> {
             | CommandNodePayload::Binary(_)
             | CommandNodePayload::Function(_)
             | CommandNodePayload::AnonymousFunction(_)
+            | CommandNodePayload::Compound(_)
             | CommandNodePayload::Legacy => None,
         }
     }
@@ -782,6 +1158,7 @@ impl<'a> CommandView<'a> {
             | CommandNodePayload::Decl(_)
             | CommandNodePayload::Function(_)
             | CommandNodePayload::AnonymousFunction(_)
+            | CommandNodePayload::Compound(_)
             | CommandNodePayload::Legacy => None,
         }
     }
@@ -798,6 +1175,7 @@ impl<'a> CommandView<'a> {
             | CommandNodePayload::Decl(_)
             | CommandNodePayload::Binary(_)
             | CommandNodePayload::AnonymousFunction(_)
+            | CommandNodePayload::Compound(_)
             | CommandNodePayload::Legacy => None,
         }
     }
@@ -814,6 +1192,24 @@ impl<'a> CommandView<'a> {
             | CommandNodePayload::Decl(_)
             | CommandNodePayload::Binary(_)
             | CommandNodePayload::Function(_)
+            | CommandNodePayload::Compound(_)
+            | CommandNodePayload::Legacy => None,
+        }
+    }
+
+    /// Returns the native compound payload when this command is compound.
+    pub fn compound(self) -> Option<CompoundCommandView<'a>> {
+        match &self.node().payload {
+            CommandNodePayload::Compound(_) => Some(CompoundCommandView {
+                store: self.store,
+                id: self.id,
+            }),
+            CommandNodePayload::Simple(_)
+            | CommandNodePayload::Builtin(_)
+            | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Binary(_)
+            | CommandNodePayload::Function(_)
+            | CommandNodePayload::AnonymousFunction(_)
             | CommandNodePayload::Legacy => None,
         }
     }
@@ -879,6 +1275,7 @@ impl<'a> SimpleCommandView<'a> {
             | CommandNodePayload::Binary(_)
             | CommandNodePayload::Function(_)
             | CommandNodePayload::AnonymousFunction(_)
+            | CommandNodePayload::Compound(_)
             | CommandNodePayload::Legacy => {
                 unreachable!("simple view requires simple payload")
             }
@@ -935,6 +1332,7 @@ impl<'a> BuiltinCommandView<'a> {
             | CommandNodePayload::Binary(_)
             | CommandNodePayload::Function(_)
             | CommandNodePayload::AnonymousFunction(_)
+            | CommandNodePayload::Compound(_)
             | CommandNodePayload::Legacy => {
                 unreachable!("builtin view requires builtin payload")
             }
@@ -978,6 +1376,7 @@ impl<'a> DeclCommandView<'a> {
             | CommandNodePayload::Binary(_)
             | CommandNodePayload::Function(_)
             | CommandNodePayload::AnonymousFunction(_)
+            | CommandNodePayload::Compound(_)
             | CommandNodePayload::Legacy => unreachable!("decl view requires decl payload"),
         }
     }
@@ -1029,6 +1428,7 @@ impl<'a> BinaryCommandView<'a> {
             | CommandNodePayload::Decl(_)
             | CommandNodePayload::Function(_)
             | CommandNodePayload::AnonymousFunction(_)
+            | CommandNodePayload::Compound(_)
             | CommandNodePayload::Legacy => unreachable!("binary view requires binary payload"),
         }
     }
@@ -1077,6 +1477,7 @@ impl<'a> FunctionCommandView<'a> {
             | CommandNodePayload::Decl(_)
             | CommandNodePayload::Binary(_)
             | CommandNodePayload::AnonymousFunction(_)
+            | CommandNodePayload::Compound(_)
             | CommandNodePayload::Legacy => unreachable!("function view requires function payload"),
         }
     }
@@ -1126,9 +1527,33 @@ impl<'a> AnonymousFunctionCommandView<'a> {
             | CommandNodePayload::Decl(_)
             | CommandNodePayload::Binary(_)
             | CommandNodePayload::Function(_)
+            | CommandNodePayload::Compound(_)
             | CommandNodePayload::Legacy => {
                 unreachable!("anonymous function view requires anonymous function payload")
             }
+        }
+    }
+}
+
+/// Borrowed view of an arena-native compound command payload.
+#[derive(Debug, Clone, Copy)]
+pub struct CompoundCommandView<'a> {
+    store: &'a AstStore,
+    id: CommandId,
+}
+
+impl<'a> CompoundCommandView<'a> {
+    /// Returns the compound command payload.
+    pub fn node(self) -> &'a CompoundCommandNode {
+        match &self.store.commands[self.id.index()].payload {
+            CommandNodePayload::Compound(command) => command,
+            CommandNodePayload::Simple(_)
+            | CommandNodePayload::Builtin(_)
+            | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Binary(_)
+            | CommandNodePayload::Function(_)
+            | CommandNodePayload::AnonymousFunction(_)
+            | CommandNodePayload::Legacy => unreachable!("compound view requires compound payload"),
         }
     }
 }
@@ -1454,10 +1879,9 @@ impl AstStoreBuilder {
             Command::Binary(command) => {
                 CommandNodePayload::Binary(self.collect_binary_children(command, child_sequences))
             }
-            Command::Compound(command) => {
-                self.collect_compound_children(command, words, child_sequences);
-                CommandNodePayload::Legacy
-            }
+            Command::Compound(command) => CommandNodePayload::Compound(
+                self.collect_compound_children(command, words, child_sequences),
+            ),
             Command::Function(function) => CommandNodePayload::Function(
                 self.collect_function_children(function, words, child_sequences),
             ),
@@ -1566,61 +1990,136 @@ impl AstStoreBuilder {
         command: &CompoundCommand,
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
-    ) {
+    ) -> CompoundCommandNode {
         match command {
             CompoundCommand::If(command) => {
-                child_sequences.push(self.lower_stmt_seq(&command.condition));
-                child_sequences.push(self.lower_stmt_seq(&command.then_branch));
-                for (condition, body) in &command.elif_branches {
-                    child_sequences.push(self.lower_stmt_seq(condition));
-                    child_sequences.push(self.lower_stmt_seq(body));
-                }
-                if let Some(else_branch) = &command.else_branch {
-                    child_sequences.push(self.lower_stmt_seq(else_branch));
+                let condition = self.lower_stmt_seq(&command.condition);
+                let then_branch = self.lower_stmt_seq(&command.then_branch);
+                child_sequences.push(condition);
+                child_sequences.push(then_branch);
+                let elif_branches = command
+                    .elif_branches
+                    .iter()
+                    .map(|(condition, body)| {
+                        let condition = self.lower_stmt_seq(condition);
+                        let body = self.lower_stmt_seq(body);
+                        child_sequences.push(condition);
+                        child_sequences.push(body);
+                        ElifBranchNode { condition, body }
+                    })
+                    .collect::<Vec<_>>();
+                let elif_branches = self.store.elif_branch_lists.push_many(elif_branches);
+                let else_branch = command.else_branch.as_ref().map(|else_branch| {
+                    let id = self.lower_stmt_seq(else_branch);
+                    child_sequences.push(id);
+                    id
+                });
+                CompoundCommandNode::If {
+                    condition,
+                    then_branch,
+                    elif_branches,
+                    else_branch,
+                    syntax: command.syntax,
                 }
             }
             CompoundCommand::For(command) => {
                 self.collect_for_children(command, words, child_sequences)
             }
             CompoundCommand::Repeat(command) => {
-                self.collect_repeat_children(command, words, child_sequences);
+                self.collect_repeat_children(command, words, child_sequences)
             }
             CompoundCommand::Foreach(command) => {
-                for word in &command.words {
-                    self.collect_word(word, words, child_sequences);
+                let words_range = command
+                    .words
+                    .iter()
+                    .map(|word| self.collect_word_id(word, words, child_sequences))
+                    .collect::<Vec<_>>();
+                let words_range = self.store.word_id_lists.push_many(words_range);
+                let body = self.lower_stmt_seq(&command.body);
+                child_sequences.push(body);
+                CompoundCommandNode::Foreach {
+                    variable: command.variable.clone(),
+                    variable_span: command.variable_span,
+                    words: words_range,
+                    body,
+                    syntax: command.syntax,
                 }
-                child_sequences.push(self.lower_stmt_seq(&command.body));
             }
             CompoundCommand::ArithmeticFor(command) => {
-                self.collect_arithmetic_for_children(command, words, child_sequences);
+                self.collect_arithmetic_for_children(command, words, child_sequences)
             }
             CompoundCommand::While(command) => {
-                self.collect_while_children(command, child_sequences)
+                let condition = self.lower_stmt_seq(&command.condition);
+                let body = self.lower_stmt_seq(&command.body);
+                child_sequences.push(condition);
+                child_sequences.push(body);
+                CompoundCommandNode::While { condition, body }
             }
             CompoundCommand::Until(command) => {
-                self.collect_until_children(command, child_sequences)
+                let condition = self.lower_stmt_seq(&command.condition);
+                let body = self.lower_stmt_seq(&command.body);
+                child_sequences.push(condition);
+                child_sequences.push(body);
+                CompoundCommandNode::Until { condition, body }
             }
             CompoundCommand::Case(command) => {
                 self.collect_case_children(command, words, child_sequences)
             }
             CompoundCommand::Select(command) => {
-                self.collect_select_children(command, words, child_sequences);
+                self.collect_select_children(command, words, child_sequences)
             }
-            CompoundCommand::Subshell(sequence) | CompoundCommand::BraceGroup(sequence) => {
-                child_sequences.push(self.lower_stmt_seq(sequence));
+            CompoundCommand::Subshell(sequence) => {
+                let body = self.lower_stmt_seq(sequence);
+                child_sequences.push(body);
+                CompoundCommandNode::Subshell(body)
+            }
+            CompoundCommand::BraceGroup(sequence) => {
+                let body = self.lower_stmt_seq(sequence);
+                child_sequences.push(body);
+                CompoundCommandNode::BraceGroup(body)
             }
             CompoundCommand::Arithmetic(command) => {
-                self.collect_arithmetic_command_children(command, words, child_sequences);
+                self.collect_arithmetic_command_children(command, words, child_sequences)
             }
             CompoundCommand::Conditional(command) => {
-                self.collect_conditional_command_children(command, words, child_sequences);
+                self.collect_conditional_command_children(command, words, child_sequences)
             }
-            CompoundCommand::Time(command) => self.collect_time_children(command, child_sequences),
+            CompoundCommand::Time(command) => {
+                let body = command.command.as_ref().map(|command| {
+                    let id = self.lower_stmt_seq(&StmtSeq {
+                        leading_comments: Vec::new(),
+                        stmts: vec![(**command).clone()],
+                        trailing_comments: Vec::new(),
+                        span: command.span,
+                    });
+                    child_sequences.push(id);
+                    id
+                });
+                CompoundCommandNode::Time {
+                    posix_format: command.posix_format,
+                    command: body,
+                }
+            }
             CompoundCommand::Coproc(command) => {
-                self.collect_coproc_children(command, child_sequences)
+                let body = self.lower_stmt_seq(&StmtSeq {
+                    leading_comments: Vec::new(),
+                    stmts: vec![(*command.body).clone()],
+                    trailing_comments: Vec::new(),
+                    span: command.body.span,
+                });
+                child_sequences.push(body);
+                CompoundCommandNode::Coproc {
+                    name: command.name.clone(),
+                    name_span: command.name_span,
+                    body,
+                }
             }
             CompoundCommand::Always(command) => {
-                self.collect_always_children(command, child_sequences)
+                let body = self.lower_stmt_seq(&command.body);
+                let always_body = self.lower_stmt_seq(&command.always_body);
+                child_sequences.push(body);
+                child_sequences.push(always_body);
+                CompoundCommandNode::Always { body, always_body }
             }
         }
     }
@@ -1630,16 +2129,32 @@ impl AstStoreBuilder {
         command: &ForCommand,
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
-    ) {
-        for target in &command.targets {
-            self.collect_word(&target.word, words, child_sequences);
+    ) -> CompoundCommandNode {
+        let targets = command
+            .targets
+            .iter()
+            .map(|target| ForTargetNode {
+                word: self.collect_word_id(&target.word, words, child_sequences),
+                name: target.name.clone(),
+                span: target.span,
+            })
+            .collect::<Vec<_>>();
+        let targets = self.store.for_target_lists.push_many(targets);
+        let header_words = command.words.as_ref().map(|header_words| {
+            let header_words = header_words
+                .iter()
+                .map(|word| self.collect_word_id(word, words, child_sequences))
+                .collect::<Vec<_>>();
+            self.store.word_id_lists.push_many(header_words)
+        });
+        let body = self.lower_stmt_seq(&command.body);
+        child_sequences.push(body);
+        CompoundCommandNode::For {
+            targets,
+            words: header_words,
+            body,
+            syntax: command.syntax,
         }
-        if let Some(header_words) = &command.words {
-            for word in header_words {
-                self.collect_word(word, words, child_sequences);
-            }
-        }
-        child_sequences.push(self.lower_stmt_seq(&command.body));
     }
 
     fn collect_repeat_children(
@@ -1647,9 +2162,15 @@ impl AstStoreBuilder {
         command: &RepeatCommand,
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
-    ) {
-        self.collect_word(&command.count, words, child_sequences);
-        child_sequences.push(self.lower_stmt_seq(&command.body));
+    ) -> CompoundCommandNode {
+        let count = self.collect_word_id(&command.count, words, child_sequences);
+        let body = self.lower_stmt_seq(&command.body);
+        child_sequences.push(body);
+        CompoundCommandNode::Repeat {
+            count,
+            body,
+            syntax: command.syntax,
+        }
     }
 
     fn collect_arithmetic_for_children(
@@ -1657,29 +2178,25 @@ impl AstStoreBuilder {
         command: &ArithmeticForCommand,
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
-    ) {
+    ) -> CompoundCommandNode {
         self.collect_arithmetic_expr_option(command.init_ast.as_ref(), words, child_sequences);
         self.collect_arithmetic_expr_option(command.condition_ast.as_ref(), words, child_sequences);
         self.collect_arithmetic_expr_option(command.step_ast.as_ref(), words, child_sequences);
-        child_sequences.push(self.lower_stmt_seq(&command.body));
-    }
-
-    fn collect_while_children(
-        &mut self,
-        command: &WhileCommand,
-        child_sequences: &mut Vec<StmtSeqId>,
-    ) {
-        child_sequences.push(self.lower_stmt_seq(&command.condition));
-        child_sequences.push(self.lower_stmt_seq(&command.body));
-    }
-
-    fn collect_until_children(
-        &mut self,
-        command: &UntilCommand,
-        child_sequences: &mut Vec<StmtSeqId>,
-    ) {
-        child_sequences.push(self.lower_stmt_seq(&command.condition));
-        child_sequences.push(self.lower_stmt_seq(&command.body));
+        let body = self.lower_stmt_seq(&command.body);
+        child_sequences.push(body);
+        CompoundCommandNode::ArithmeticFor(Box::new(ArithmeticForCommandNode {
+            left_paren_span: command.left_paren_span,
+            init_span: command.init_span,
+            init_ast: command.init_ast.clone(),
+            first_semicolon_span: command.first_semicolon_span,
+            condition_span: command.condition_span,
+            condition_ast: command.condition_ast.clone(),
+            second_semicolon_span: command.second_semicolon_span,
+            step_span: command.step_span,
+            step_ast: command.step_ast.clone(),
+            right_paren_span: command.right_paren_span,
+            body,
+        }))
     }
 
     fn collect_case_children(
@@ -1687,14 +2204,31 @@ impl AstStoreBuilder {
         command: &CaseCommand,
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
-    ) {
-        self.collect_word(&command.word, words, child_sequences);
-        for case in &command.cases {
-            for pattern in &case.patterns {
-                self.collect_pattern_words(pattern, words, child_sequences);
-            }
-            child_sequences.push(self.lower_stmt_seq(&case.body));
-        }
+    ) -> CompoundCommandNode {
+        let word = self.collect_word_id(&command.word, words, child_sequences);
+        let cases = command
+            .cases
+            .iter()
+            .map(|case| {
+                for pattern in &case.patterns {
+                    self.collect_pattern_words(pattern, words, child_sequences);
+                }
+                let patterns = self
+                    .store
+                    .pattern_lists
+                    .push_many(case.patterns.iter().cloned());
+                let body = self.lower_stmt_seq(&case.body);
+                child_sequences.push(body);
+                CaseItemNode {
+                    patterns,
+                    body,
+                    terminator: case.terminator,
+                    terminator_span: case.terminator_span,
+                }
+            })
+            .collect::<Vec<_>>();
+        let cases = self.store.case_item_lists.push_many(cases);
+        CompoundCommandNode::Case { word, cases }
     }
 
     fn collect_select_children(
@@ -1702,11 +2236,21 @@ impl AstStoreBuilder {
         command: &SelectCommand,
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
-    ) {
-        for word in &command.words {
-            self.collect_word(word, words, child_sequences);
+    ) -> CompoundCommandNode {
+        let header_words = command
+            .words
+            .iter()
+            .map(|word| self.collect_word_id(word, words, child_sequences))
+            .collect::<Vec<_>>();
+        let header_words = self.store.word_id_lists.push_many(header_words);
+        let body = self.lower_stmt_seq(&command.body);
+        child_sequences.push(body);
+        CompoundCommandNode::Select {
+            variable: command.variable.clone(),
+            variable_span: command.variable_span,
+            words: header_words,
+            body,
         }
-        child_sequences.push(self.lower_stmt_seq(&command.body));
     }
 
     fn collect_arithmetic_command_children(
@@ -1714,8 +2258,14 @@ impl AstStoreBuilder {
         command: &ArithmeticCommand,
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
-    ) {
+    ) -> CompoundCommandNode {
         self.collect_arithmetic_expr_option(command.expr_ast.as_ref(), words, child_sequences);
+        CompoundCommandNode::Arithmetic(ArithmeticCommandNode {
+            left_paren_span: command.left_paren_span,
+            expr_span: command.expr_span,
+            expr_ast: command.expr_ast.clone(),
+            right_paren_span: command.right_paren_span,
+        })
     }
 
     fn collect_conditional_command_children(
@@ -1723,45 +2273,13 @@ impl AstStoreBuilder {
         command: &ConditionalCommand,
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
-    ) {
+    ) -> CompoundCommandNode {
         self.collect_conditional_expr(&command.expression, words, child_sequences);
-    }
-
-    fn collect_time_children(
-        &mut self,
-        command: &TimeCommand,
-        child_sequences: &mut Vec<StmtSeqId>,
-    ) {
-        if let Some(command) = &command.command {
-            child_sequences.push(self.lower_stmt_seq(&StmtSeq {
-                leading_comments: Vec::new(),
-                stmts: vec![(**command).clone()],
-                trailing_comments: Vec::new(),
-                span: command.span,
-            }));
-        }
-    }
-
-    fn collect_coproc_children(
-        &mut self,
-        command: &CoprocCommand,
-        child_sequences: &mut Vec<StmtSeqId>,
-    ) {
-        child_sequences.push(self.lower_stmt_seq(&StmtSeq {
-            leading_comments: Vec::new(),
-            stmts: vec![(*command.body).clone()],
-            trailing_comments: Vec::new(),
-            span: command.body.span,
-        }));
-    }
-
-    fn collect_always_children(
-        &mut self,
-        command: &AlwaysCommand,
-        child_sequences: &mut Vec<StmtSeqId>,
-    ) {
-        child_sequences.push(self.lower_stmt_seq(&command.body));
-        child_sequences.push(self.lower_stmt_seq(&command.always_body));
+        CompoundCommandNode::Conditional(ConditionalCommandNode {
+            expression: command.expression.clone(),
+            left_bracket_span: command.left_bracket_span,
+            right_bracket_span: command.right_bracket_span,
+        })
     }
 
     fn collect_function_children(
@@ -2653,6 +3171,78 @@ mod tests {
             panic!("expected anonymous function command");
         };
         assert_eq!(materialized.args.len(), 1);
+    }
+
+    #[test]
+    fn compound_payloads_are_arena_native() {
+        let if_file = file_with_command(Command::Compound(CompoundCommand::If(crate::IfCommand {
+            condition: simple_sequence("test"),
+            then_branch: simple_sequence("then"),
+            elif_branches: vec![(simple_sequence("elif"), simple_sequence("elif_body"))],
+            else_branch: Some(simple_sequence("else")),
+            syntax: crate::IfSyntax::ThenFi {
+                then_span: Span::new(),
+                fi_span: Span::new(),
+            },
+            span: Span::new(),
+        })));
+        let case_file = file_with_command(Command::Compound(CompoundCommand::Case(
+            crate::CaseCommand {
+                word: Word::literal("value"),
+                cases: vec![crate::CaseItem {
+                    patterns: vec![Pattern {
+                        parts: vec![PatternPartNode::new(
+                            PatternPart::Word(Word::literal("pattern")),
+                            Span::new(),
+                        )],
+                        span: Span::new(),
+                    }],
+                    body: simple_sequence("case_body"),
+                    terminator: crate::CaseTerminator::Break,
+                    terminator_span: Some(Span::new()),
+                }],
+                span: Span::new(),
+            },
+        )));
+
+        let arena = ArenaFile::from_file(&if_file);
+        let command = arena.view().body().stmts().next().unwrap().command();
+        let compound = command
+            .compound()
+            .expect("expected native compound payload");
+        let crate::CompoundCommandNode::If {
+            elif_branches,
+            else_branch,
+            ..
+        } = compound.node()
+        else {
+            panic!("expected if payload");
+        };
+        assert_eq!(elif_branches.len(), 1);
+        assert!(else_branch.is_some());
+        assert_eq!(command.child_sequence_ids().len(), 5);
+        let Command::Compound(CompoundCommand::If(command)) = &arena.to_file().body[0].command
+        else {
+            panic!("expected if command");
+        };
+        assert_eq!(command.elif_branches.len(), 1);
+        assert!(command.else_branch.is_some());
+
+        let arena = ArenaFile::from_file(&case_file);
+        let command = arena.view().body().stmts().next().unwrap().command();
+        let compound = command
+            .compound()
+            .expect("expected native compound payload");
+        let crate::CompoundCommandNode::Case { cases, .. } = compound.node() else {
+            panic!("expected case payload");
+        };
+        assert_eq!(cases.len(), 1);
+        assert_eq!(command.child_sequence_ids().len(), 1);
+        let Command::Compound(CompoundCommand::Case(command)) = &arena.to_file().body[0].command
+        else {
+            panic!("expected case command");
+        };
+        assert_eq!(command.cases.len(), 1);
     }
 
     #[test]
