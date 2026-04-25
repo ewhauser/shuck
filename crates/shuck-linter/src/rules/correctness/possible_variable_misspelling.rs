@@ -154,7 +154,6 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
         &guarded_name_offsets,
         &suppressed_reference_spans,
     ));
-    findings.extend(source_compat_findings(checker));
 
     findings.sort_by_key(|(span, _, _)| (span.start.offset, span.end.offset));
     let mut reported_names = FxHashSet::default();
@@ -201,9 +200,7 @@ fn heredoc_findings(
                 Some(candidate) => candidate,
                 None => continue,
             };
-            if has_prior_guarded_reference(guarded_name_offsets, reference_name, name_use.span())
-                && !is_ldap_user_ou_dc_pair(reference_name, candidate.as_str())
-            {
+            if has_prior_guarded_reference(guarded_name_offsets, reference_name, name_use.span()) {
                 continue;
             }
             if has_suppressed_reference_span(
@@ -213,9 +210,7 @@ fn heredoc_findings(
             ) {
                 continue;
             }
-            if has_same_name_defining_bindings(checker, &Name::from(reference_name))
-                && !is_ldap_user_ou_dc_pair(reference_name, candidate.as_str())
-            {
+            if has_same_name_defining_bindings(checker, &Name::from(reference_name)) {
                 continue;
             }
             if is_presence_tested_reference_name(checker, reference_name, name_use.span()) {
@@ -271,7 +266,13 @@ fn scope_compat_findings(
         if !seen.insert((reference_name.to_owned(), name_use.span().start.offset)) {
             continue;
         }
-        if !is_scope_compat_reference_name(reference_name) {
+        if !is_scope_compat_reference_name(reference_name, name_use.kind()) {
+            continue;
+        }
+        if name_use.kind() == ComparableNameUseKind::Derived
+            && is_build_flag_family_name(reference_name)
+            && !is_braced_parameter_use(checker.source(), name_use.span())
+        {
             continue;
         }
         if !looks_like_case_mismatch_reference(reference_name) {
@@ -297,7 +298,7 @@ fn scope_compat_findings(
             continue;
         }
 
-        let candidate = match preferred_candidate_name(checker, reference_name) {
+        let candidate = match preferred_scope_compat_candidate_name(checker, reference_name) {
             Some(candidate) => candidate,
             None => continue,
         };
@@ -337,40 +338,80 @@ fn scope_compat_findings(
     findings
 }
 
-fn source_compat_findings(checker: &Checker<'_>) -> Vec<(Span, String, String)> {
-    checker
-        .facts()
-        .possible_variable_misspelling_source_compat_name_uses(checker.source(), checker.semantic())
-        .into_iter()
-        .filter_map(|name_use| {
-            let reference_name = name_use.key().as_str();
-            let candidate = match reference_name {
-                "CFLAGS" => "CXXFLAGS".to_owned(),
-                "LDAP_USER_OU" => "LDAP_USER_DC".to_owned(),
-                _ => preferred_candidate_name(checker, reference_name)?,
-            };
-            Some((name_use.span(), reference_name.to_owned(), candidate))
-        })
-        .collect()
+fn is_scope_compat_reference_name(reference_name: &str, kind: ComparableNameUseKind) -> bool {
+    reference_name == "SHELLSPEC_EXECDIR"
+        || kind == ComparableNameUseKind::Derived && is_build_flag_family_name(reference_name)
 }
 
-fn is_scope_compat_reference_name(reference_name: &str) -> bool {
-    matches!(reference_name, "CFLAGS" | "SHELLSPEC_EXECDIR")
+fn is_braced_parameter_use(source: &str, span: Span) -> bool {
+    source
+        .as_bytes()
+        .get(span.start.offset..span.start.offset + 2)
+        .is_some_and(|prefix| prefix == b"${")
+}
+
+fn preferred_scope_compat_candidate_name(
+    checker: &Checker<'_>,
+    reference_name: &str,
+) -> Option<String> {
+    preferred_candidate_name(checker, reference_name)
+        .or_else(|| build_flag_scope_candidate_name(checker, reference_name))
+}
+
+fn build_flag_scope_candidate_name(checker: &Checker<'_>, reference_name: &str) -> Option<String> {
+    if !is_build_flag_family_name(reference_name) {
+        return None;
+    }
+
+    checker
+        .semantic()
+        .bindings()
+        .iter()
+        .filter_map(|binding| {
+            let candidate_name = binding.name.as_str();
+            if candidate_name == reference_name
+                || !is_build_flag_misspelling_report_pair(reference_name, candidate_name)
+            {
+                return None;
+            }
+            Some((
+                binding.span.start.offset,
+                binding.span.end.offset,
+                candidate_name.to_owned(),
+            ))
+        })
+        .chain(
+            checker
+                .facts()
+                .possible_variable_misspelling_scope_compat_name_uses()
+                .into_iter()
+                .filter_map(|name_use| {
+                    let candidate_name = name_use.key().as_str();
+                    if candidate_name == reference_name
+                        || !is_build_flag_misspelling_report_pair(reference_name, candidate_name)
+                    {
+                        return None;
+                    }
+                    Some((
+                        name_use.span().start.offset,
+                        name_use.span().end.offset,
+                        candidate_name.to_owned(),
+                    ))
+                }),
+        )
+        .min_by_key(|(start, end, _)| (*start, *end))
+        .map(|(_, _, name)| name)
 }
 
 fn is_scope_compat_pair(
-    checker: &Checker<'_>,
+    _checker: &Checker<'_>,
     reference_name: &str,
-    reference_span: Span,
+    _reference_span: Span,
     candidate_name: &str,
 ) -> bool {
     match (reference_name, candidate_name) {
         ("SHELLSPEC_EXECDIR", "SHELLSPEC_SPECDIR") => true,
-        ("CFLAGS", "CXXFLAGS") => {
-            let nearby_lines = source_line_window(checker.source(), reference_span.start.offset, 4);
-            nearby_lines.contains("--conlyopt") && nearby_lines.contains("--cxxopt")
-        }
-        _ => false,
+        _ => is_build_flag_misspelling_report_pair(reference_name, candidate_name),
     }
 }
 
@@ -642,14 +683,41 @@ fn is_build_flag_family_non_report_pair(reference_name: &str, candidate_name: &s
         return false;
     }
 
-    !matches!(
-        (reference_name, candidate_upper.as_str()),
+    !is_build_flag_misspelling_report_pair(reference_name, &candidate_upper)
+}
+
+fn is_build_flag_misspelling_report_pair(reference_name: &str, candidate_name: &str) -> bool {
+    let candidate_upper = canonical_uppercase_name(candidate_name);
+    let Some((reference_prefix, reference_suffix)) = split_build_flag_family_name(reference_name)
+    else {
+        return false;
+    };
+    let Some((candidate_prefix, candidate_suffix)) = split_build_flag_family_name(&candidate_upper)
+    else {
+        return false;
+    };
+    if reference_prefix != candidate_prefix {
+        return false;
+    }
+
+    matches!(
+        (reference_suffix, candidate_suffix),
         ("CFLAGS", "CXXFLAGS" | "CPPFLAGS") | ("CPPFLAGS", "CXXFLAGS") | ("CXXFLAGS", "CPPFLAGS")
     )
 }
 
-fn is_ldap_user_ou_dc_pair(reference_name: &str, candidate_name: &str) -> bool {
-    reference_name == "LDAP_USER_OU" && candidate_name == "LDAP_USER_DC"
+fn split_build_flag_family_name(name: &str) -> Option<(&str, &'static str)> {
+    ["CXXFLAGS", "CPPFLAGS", "CFLAGS", "LDFLAGS", "GOFLAGS"]
+        .into_iter()
+        .find_map(|suffix| {
+            if name == suffix {
+                Some(("", suffix))
+            } else {
+                name.strip_suffix(suffix)
+                    .filter(|prefix| prefix.ends_with('_'))
+                    .map(|prefix| (prefix, suffix))
+            }
+        })
 }
 
 fn is_build_flag_family_name(name: &str) -> bool {
@@ -1226,16 +1294,43 @@ echo \"$OPT\"
     }
 
     #[test]
-    fn reports_cflags_cxxflags_in_split_bazel_option_context() {
+    fn reports_build_flag_family_references_in_loop_headers() {
         let source = "\
 #!/bin/bash
 CXXFLAGS=\"${CXXFLAGS//-stdlib=libc++/}\"
 for f in ${CFLAGS}; do
-  echo \"--conlyopt=${f}\"
+  echo \"c flag: ${f}\"
 done
-for f in ${CXXFLAGS}; do
-  echo \"--cxxopt=${f}\"
+MY_CXXFLAGS=\"${MY_CXXFLAGS:-}\"
+for f in ${MY_CFLAGS}; do
+  echo \"custom c flag: ${f}\"
 done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CFLAGS}", "${MY_CFLAGS}"]
+        );
+    }
+
+    #[test]
+    fn reports_build_flag_family_references_in_declaration_command_substitution_loop_headers() {
+        let source = "\
+#!/bin/bash
+CXXFLAGS=\"${CXXFLAGS//-stdlib=libc++/}\"
+declare -r EXTRA_FLAGS=\"\\
+$(
+for f in ${CFLAGS}; do
+  echo \"c flag: ${f}\"
+done
+)\"
 ";
         let diagnostics = test_snippet(
             source,
