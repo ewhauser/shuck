@@ -6717,6 +6717,17 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_source_text_as_word(&self, text: &SourceText) -> Word {
+        let span = text.span();
+        if !text.is_source_backed()
+            && span.start.offset <= span.end.offset
+            && span.end.offset <= self.input.len()
+        {
+            let raw = span.slice(self.input);
+            if raw.contains("\\\"") {
+                return Self::parse_word_fragment(self.input, raw, span);
+            }
+        }
+
         Self::parse_word_fragment(self.input, text.slice(self.input), text.span())
     }
 
