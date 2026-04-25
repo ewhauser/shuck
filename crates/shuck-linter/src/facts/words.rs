@@ -6707,6 +6707,7 @@ fn mapfile_option_takes_argument(flag: char) -> bool {
 fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
     let mut uses_null_input = false;
     let mut max_procs = None;
+    let mut zero_digit_option_word = false;
     let mut inline_replace_options = Vec::new();
     let mut index = 0usize;
 
@@ -6725,6 +6726,8 @@ fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
         if !text.starts_with('-') || text == "-" {
             break;
         }
+
+        zero_digit_option_word |= text.contains('0');
 
         if let Some(long) = text.strip_prefix("--") {
             if long_name(long) == "null" {
@@ -6803,6 +6806,7 @@ fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
     XargsCommandFacts {
         uses_null_input,
         max_procs,
+        zero_digit_option_word,
         inline_replace_option_spans: inline_replace_option_spans.into_boxed_slice(),
     }
 }

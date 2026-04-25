@@ -2955,6 +2955,7 @@ find . | xargs -P1 echo
 find . | xargs -P 0 echo
 find . | xargs --max-procs=10 echo
 find . | xargs --max-procs \"$N\" echo
+find . | xargs -P11 echo
 ";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
@@ -2969,13 +2970,20 @@ find . | xargs --max-procs \"$N\" echo
         .filter_map(|fact| fact.options().xargs())
         .collect::<Vec<_>>();
 
-    assert_eq!(xargs_facts.len(), 5);
+    assert_eq!(xargs_facts.len(), 6);
     assert_eq!(
         xargs_facts
             .iter()
             .map(|xargs| xargs.max_procs())
             .collect::<Vec<_>>(),
-        vec![Some(10), Some(1), Some(0), Some(10), None]
+        vec![Some(10), Some(1), Some(0), Some(10), None, Some(11)]
+    );
+    assert_eq!(
+        xargs_facts
+            .iter()
+            .map(|xargs| xargs.has_zero_digit_option_word())
+            .collect::<Vec<_>>(),
+        vec![true, false, false, true, false, false]
     );
 }
 
