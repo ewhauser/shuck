@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=70`
-- Individual reviewed records classified below: 111 total (`shellcheck-only=23`, `shuck-only=88`).
+- `reviewed_divergences=64`
+- Individual reviewed records classified below: 103 total (`shellcheck-only=23`, `shuck-only=80`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -118,19 +118,13 @@ Resolved records should not remain as reviewed divergences.
 - `scop__bash-completion__completions-core__geoiplookup.bash:29:31-36` `$ipvx`
 - `termux__termux-packages__packages__lazygit__build.sh:25:41-61` `-ldflags`
 
-## [ ] Shuck-only: command-substitution initializer argument (13)
+## [ ] Shuck-only: command-substitution initializer argument (7 remaining)
 
-- `CISOfy__lynis__include__functions:2690:38-50` `${TIME_DIFF}`
-- `SlackBuildsOrg__slackbuilds__libraries__libvirt__rc.libvirt:130:16-22` `$check`
 - `acmesh-official__acme.sh__dnsapi__dns_tencent.sh:113:32-40` `$service`
 - `acmesh-official__acme.sh__dnsapi__dns_tencent.sh:116:40-48` `$service`
 - `acmesh-official__acme.sh__dnsapi__dns_tencent.sh:116:49-57` `$version`
 - `alexanderepstein__Bash-Snippets__bak2dvd__bak2dvd:245:36-43` `$tarpid`
 - `alexanderepstein__Bash-Snippets__bak2dvd__bak2dvd:259:36-43` `$tarpid`
-- `alpinelinux__aports__main__syslinux__update-extlinux:96:18-26` `$timeout`
-- `bittorf__kalua__openwrt-addons__etc__kalua__tool:87:36-45` `$UP_HOURS`
-- `juewuy__ShellCrash__scripts__menus__running_status.sh:11:28-35` `${time}`
-- `juewuy__ShellCrash__tools__tg_bot.sh:70:23-30` `${time}`
 - `swoodford__aws__vpc-sg-import-rules-cloudflare.sh:281:101-106` `$PORT`
 - `swoodford__aws__wafv2-web-acl-pingdom.sh:196:40-49` `$WAFSCOPE`
 
