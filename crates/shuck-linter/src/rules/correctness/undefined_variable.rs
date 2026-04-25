@@ -56,6 +56,12 @@ pub fn undefined_variable(checker: &mut Checker) {
         {
             continue;
         }
+        if checker
+            .facts()
+            .is_backtick_double_escaped_parameter_reference(reference.span)
+        {
+            continue;
+        }
         if !is_reportable_variable_reference(
             checker,
             reference,

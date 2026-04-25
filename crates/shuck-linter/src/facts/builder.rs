@@ -617,6 +617,11 @@ impl<'a> LinterFactsBuilder<'a> {
         let backtick_substitution_spans = word_spans::backtick_substitution_spans(source);
         let backtick_escaped_parameters =
             word_spans::backtick_escaped_parameters(source, &backtick_substitution_spans);
+        let backtick_double_escaped_parameter_spans =
+            word_spans::backtick_double_escaped_parameter_spans(
+                source,
+                &backtick_substitution_spans,
+            );
 
         LinterFacts {
             source,
@@ -689,6 +694,7 @@ impl<'a> LinterFactsBuilder<'a> {
             command_substitution_command_spans,
             backtick_substitution_spans,
             backtick_escaped_parameters,
+            backtick_double_escaped_parameter_spans,
             backtick_command_name_spans,
             dollar_question_after_command_spans,
             assignment_like_command_name_spans,

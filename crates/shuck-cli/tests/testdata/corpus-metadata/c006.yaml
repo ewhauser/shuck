@@ -77,13 +77,6 @@ reviewed_divergences:
     end_column: 19
     reason: "This RetroPie fixture exchanges menu ids, config roots, or launching-image options through the surrounding setup framework, so the remaining C006 hits are reviewed framework state rather than missing local assignments."
   - side: shuck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__system__CanAce__CanAce.SlackBuild"
-    line: 33
-    end_line: 33
-    column: 67
-    end_column: 71
-    reason: "This SlackBuild fixture relies on packaging-template variables and branch-local sentinels that the wider build wrapper supplies or probes conditionally, so the remaining C006 hits are reviewed packaging-framework reads rather than standalone assignment bugs."
-  - side: shuck-only
     path_suffix: "bin456789__reinstall__reinstall.sh"
     line: 3542
     end_line: 3542

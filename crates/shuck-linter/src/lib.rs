@@ -3244,6 +3244,19 @@ easyrsa_ksh=\\
     }
 
     #[test]
+    fn undefined_variable_ignores_backtick_double_escaped_echo_templates() {
+        let source = "\
+#!/bin/bash
+XDGPATH=`echo \"foreach dir [split [::tcl::tm::path list]] {puts \\\\$dir}\" | tclsh | tail -n1`
+printf '%s\\n' \"$missing\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "$missing");
+    }
+
+    #[test]
     fn undefined_variable_reports_unparsed_indexed_subscript_prefixes() {
         let source = "\
 #!/bin/bash
