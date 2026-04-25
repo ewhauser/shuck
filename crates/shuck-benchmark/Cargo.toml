@@ -12,6 +12,7 @@ categories = ["development-tools::profiling"]
 publish = false
 
 [features]
+large-corpus-hotspots = []
 parser-benchmarking = ["shuck-parser/benchmarking"]
 
 [dependencies]
@@ -74,3 +75,4 @@ harness = false
 [[bench]]
 name = "large_corpus_hotspots"
 harness = false
+required-features = ["large-corpus-hotspots"]
