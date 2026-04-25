@@ -147,6 +147,54 @@ impl AstStore {
         WordView { store: self, id }
     }
 
+    /// Returns word IDs from a list range.
+    pub fn word_ids(&self, range: IdRange<WordId>) -> &[WordId] {
+        self.word_id_lists.get(range)
+    }
+
+    /// Returns array element nodes from a list range.
+    pub fn array_elems(&self, range: IdRange<ArrayElemNode>) -> &[ArrayElemNode] {
+        self.array_elem_lists.get(range)
+    }
+
+    /// Returns heredoc body part nodes from a list range.
+    pub fn heredoc_body_parts(
+        &self,
+        range: IdRange<ArenaHeredocBodyPartNode>,
+    ) -> &[ArenaHeredocBodyPartNode] {
+        self.heredoc_body_part_lists.get(range)
+    }
+
+    /// Returns elif branch nodes from a list range.
+    pub fn elif_branches(&self, range: IdRange<ElifBranchNode>) -> &[ElifBranchNode] {
+        self.elif_branch_lists.get(range)
+    }
+
+    /// Returns case item nodes from a list range.
+    pub fn case_items(&self, range: IdRange<CaseItemNode>) -> &[CaseItemNode] {
+        self.case_item_lists.get(range)
+    }
+
+    /// Returns pattern nodes from a list range.
+    pub fn patterns(&self, range: IdRange<PatternNode>) -> &[PatternNode] {
+        self.pattern_lists.get(range)
+    }
+
+    /// Returns pattern part nodes from a list range.
+    pub fn pattern_parts(&self, range: IdRange<PatternPartArenaNode>) -> &[PatternPartArenaNode] {
+        self.pattern_part_lists.get(range)
+    }
+
+    /// Returns zsh glob segment nodes from a list range.
+    pub fn zsh_glob_segments(&self, range: IdRange<ZshGlobSegmentNode>) -> &[ZshGlobSegmentNode] {
+        self.zsh_glob_segment_lists.get(range)
+    }
+
+    /// Returns word part nodes from a list range.
+    pub fn word_parts(&self, range: IdRange<WordPartArenaNode>) -> &[WordPartArenaNode] {
+        self.word_part_lists.get(range)
+    }
+
     /// Number of file nodes in this store.
     pub fn file_count(&self) -> usize {
         self.files.len()
@@ -2347,6 +2395,14 @@ impl<'a> StmtView<'a> {
             .get(self.node().redirect_child_sequences)
     }
 
+    /// Returns nested statement sequences found under statement redirections.
+    pub fn redirect_child_sequences(self) -> impl ExactSizeIterator<Item = StmtSeqView<'a>> + 'a {
+        self.redirect_child_sequence_ids()
+            .iter()
+            .copied()
+            .map(move |id| self.store.stmt_seq(id))
+    }
+
     /// Returns whether this statement is negated.
     pub fn negated(self) -> bool {
         self.node().negated
@@ -2525,6 +2581,14 @@ impl<'a> CommandView<'a> {
         self.store
             .stmt_seq_id_lists
             .get(self.node().child_sequences)
+    }
+
+    /// Returns nested statement sequences found under this command.
+    pub fn child_sequences(self) -> impl ExactSizeIterator<Item = StmtSeqView<'a>> + 'a {
+        self.child_sequence_ids()
+            .iter()
+            .copied()
+            .map(move |id| self.store.stmt_seq(id))
     }
 
     fn node(self) -> &'a CommandNode {

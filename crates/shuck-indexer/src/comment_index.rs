@@ -1,10 +1,10 @@
 use std::ops::Range;
 
 use shuck_ast::{
-    ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, Comment, CompoundCommand,
-    ConditionalExpr, DeclOperand, File, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, Pattern,
-    PatternPart, Redirect, Stmt, StmtSeq, TextRange, TextSize, Word, WordPart, WordPartNode,
-    ZshGlobSegment,
+    ArenaFile, ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, CommandView,
+    Comment, CompoundCommand, ConditionalExpr, DeclOperand, File, HeredocBody, HeredocBodyPart,
+    HeredocBodyPartNode, Pattern, PatternPart, Redirect, Stmt, StmtSeq, StmtSeqView, StmtView,
+    TextRange, TextSize, Word, WordPart, WordPartNode, ZshGlobSegment,
 };
 
 use crate::LineIndex;
@@ -32,6 +32,17 @@ impl CommentIndex {
     pub fn new(source: &str, line_index: &LineIndex, file: &File) -> Self {
         let mut comments = Vec::new();
         collect_file_comments(file, &mut comments);
+        Self::from_comments(source, line_index, comments)
+    }
+
+    /// Build from arena-owned comments and source text.
+    pub fn new_arena(source: &str, line_index: &LineIndex, file: &ArenaFile) -> Self {
+        let mut comments = Vec::new();
+        collect_file_comments_arena(file, &mut comments);
+        Self::from_comments(source, line_index, comments)
+    }
+
+    fn from_comments(source: &str, line_index: &LineIndex, comments: Vec<Comment>) -> Self {
         let mut indexed_comments = comments
             .into_iter()
             .filter(|comment| {
@@ -134,12 +145,24 @@ fn collect_file_comments(file: &File, comments: &mut Vec<Comment>) {
     collect_stmt_seq_comments(&file.body, comments);
 }
 
+fn collect_file_comments_arena(file: &ArenaFile, comments: &mut Vec<Comment>) {
+    collect_stmt_seq_comments_arena(file.view().body(), comments);
+}
+
 fn collect_stmt_seq_comments(sequence: &StmtSeq, comments: &mut Vec<Comment>) {
     comments.extend(sequence.leading_comments.iter().copied());
     for stmt in sequence.iter() {
         collect_stmt_comments(stmt, comments);
     }
     comments.extend(sequence.trailing_comments.iter().copied());
+}
+
+fn collect_stmt_seq_comments_arena(sequence: StmtSeqView<'_>, comments: &mut Vec<Comment>) {
+    comments.extend(sequence.leading_comments().iter().copied());
+    for stmt in sequence.stmts() {
+        collect_stmt_comments_arena(stmt, comments);
+    }
+    comments.extend(sequence.trailing_comments().iter().copied());
 }
 
 fn collect_stmt_comments(stmt: &Stmt, comments: &mut Vec<Comment>) {
@@ -149,6 +172,23 @@ fn collect_stmt_comments(stmt: &Stmt, comments: &mut Vec<Comment>) {
     }
     collect_redirect_comments(&stmt.redirects, comments);
     collect_command_comments(&stmt.command, comments);
+}
+
+fn collect_stmt_comments_arena(stmt: StmtView<'_>, comments: &mut Vec<Comment>) {
+    comments.extend(stmt.leading_comments().iter().copied());
+    if let Some(comment) = stmt.inline_comment() {
+        comments.push(comment);
+    }
+    for sequence in stmt.redirect_child_sequences() {
+        collect_stmt_seq_comments_arena(sequence, comments);
+    }
+    collect_command_comments_arena(stmt.command(), comments);
+}
+
+fn collect_command_comments_arena(command: CommandView<'_>, comments: &mut Vec<Comment>) {
+    for sequence in command.child_sequences() {
+        collect_stmt_seq_comments_arena(sequence, comments);
+    }
 }
 
 fn collect_command_comments(command: &Command, comments: &mut Vec<Comment>) {

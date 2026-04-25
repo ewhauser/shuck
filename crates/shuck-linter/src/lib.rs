@@ -661,7 +661,7 @@ mod tests {
 
     fn lint_arena(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
         let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new_arena(source, &output.arena_file, &output.syntax_facts);
+        let indexer = Indexer::new_arena(source, &output.arena_file);
         lint_arena_file(&output, source, &indexer, settings, None, None)
     }
 

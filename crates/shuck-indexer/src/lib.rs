@@ -19,7 +19,7 @@ pub use line_index::LineIndex;
 pub use region_index::{RegionIndex, RegionKind};
 
 use shuck_ast::{ArenaFile, TextSize};
-use shuck_parser::parser::{ParseResult, SyntaxFacts};
+use shuck_parser::parser::ParseResult;
 
 /// Pre-computed positional and structural index over a parsed shell script.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,25 +33,14 @@ pub struct Indexer {
 impl Indexer {
     /// Build an index from parser output and the original source text.
     pub fn new(source: &str, output: &ParseResult) -> Self {
-        let line_index = LineIndex::new(source);
-        let comment_index = CommentIndex::new(source, &line_index, &output.file);
-        let region_index = RegionIndex::new(source, &output.file);
-        let continuation_lines = collect_continuation_lines(source, &comment_index, &region_index);
-
-        Self {
-            line_index,
-            comment_index,
-            region_index,
-            continuation_lines,
-        }
+        Self::new_arena(source, &output.arena_file)
     }
 
     /// Build an index from an arena-backed parsed shell script.
-    pub fn new_arena(source: &str, ast: &ArenaFile, _syntax_facts: &SyntaxFacts) -> Self {
-        let file = ast.to_file();
+    pub fn new_arena(source: &str, ast: &ArenaFile) -> Self {
         let line_index = LineIndex::new(source);
-        let comment_index = CommentIndex::new(source, &line_index, &file);
-        let region_index = RegionIndex::new(source, &file);
+        let comment_index = CommentIndex::new_arena(source, &line_index, ast);
+        let region_index = RegionIndex::new_arena(source, ast);
         let continuation_lines = collect_continuation_lines(source, &comment_index, &region_index);
 
         Self {
@@ -134,11 +123,6 @@ mod tests {
         Indexer::new(source, &output)
     }
 
-    fn arena_index(source: &str) -> Indexer {
-        let output = Parser::new(source).parse().unwrap();
-        Indexer::new_arena(source, &output.arena_file, &output.syntax_facts)
-    }
-
     #[test]
     fn detects_continuation_lines_without_allocating_source_copies() {
         let source = "echo foo \\\n  bar\necho \"foo\\\nbar\"\n";
@@ -186,26 +170,25 @@ cat <<'EOF'
 literal $body
 EOF
 ";
-        let recursive = index(source);
-        let arena = arena_index(source);
+        let output = Parser::new(source).parse().unwrap();
+        let line_index = LineIndex::new(source);
+        let recursive_comments = CommentIndex::new(source, &line_index, &output.file);
+        let arena_comments = CommentIndex::new_arena(source, &line_index, &output.arena_file);
+        let recursive_regions = RegionIndex::new(source, &output.file);
+        let arena_regions = RegionIndex::new_arena(source, &output.arena_file);
+        let recursive_continuations =
+            collect_continuation_lines(source, &recursive_comments, &recursive_regions);
+        let arena_continuations =
+            collect_continuation_lines(source, &arena_comments, &arena_regions);
 
-        assert_eq!(
-            arena.line_index().line_count(),
-            recursive.line_index().line_count()
-        );
-        assert_eq!(
-            arena.comment_index().comments(),
-            recursive.comment_index().comments()
-        );
-        assert_eq!(
-            arena.continuation_line_starts(),
-            recursive.continuation_line_starts()
-        );
+        assert_eq!(arena_comments.comments(), recursive_comments.comments());
+        assert_eq!(arena_regions, recursive_regions);
+        assert_eq!(arena_continuations, recursive_continuations);
 
         let heredoc_offset = TextSize::new(source.find("literal $body").unwrap() as u32);
         assert_eq!(
-            arena.region_index().region_at(heredoc_offset),
-            recursive.region_index().region_at(heredoc_offset)
+            arena_regions.region_at(heredoc_offset),
+            recursive_regions.region_at(heredoc_offset)
         );
     }
 }

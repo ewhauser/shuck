@@ -1,8 +1,14 @@
 use shuck_ast::{
-    ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
-    ConditionalExpr, DeclClause, DeclOperand, File, FunctionDef, HeredocBody, HeredocBodyPart,
-    HeredocBodyPartNode, Pattern, PatternPart, PatternPartNode, Redirect, RedirectKind, Stmt,
-    StmtSeq, Subscript, TextRange, TextSize, VarRef, Word, WordPart, WordPartNode, ZshGlobSegment,
+    ArenaFile, ArenaHeredocBodyPart, ArenaHeredocBodyPartNode, ArithmeticExprArena,
+    ArithmeticExprArenaNode, ArithmeticForCommand, ArithmeticForCommandNode, ArithmeticLvalueArena,
+    Assignment, AssignmentNode, AssignmentValue, AssignmentValueNode, AstStore, BuiltinCommand,
+    Command, CommandView, CompoundCommand, CompoundCommandNode, ConditionalExpr,
+    ConditionalExprArena, DeclClause, DeclOperand, DeclOperandNode, File, FunctionDef, HeredocBody,
+    HeredocBodyPart, HeredocBodyPartNode, Pattern, PatternNode, PatternPart, PatternPartArena,
+    PatternPartNode, Redirect, RedirectKind, RedirectNode, RedirectTargetNode, Stmt, StmtSeq,
+    StmtSeqView, StmtView, Subscript, SubscriptNode, TextRange, TextSize, VarRef, VarRefNode, Word,
+    WordId, WordPart, WordPartArena, WordPartArenaNode, WordPartNode, WordView, ZshGlobSegment,
+    ZshGlobSegmentNode,
 };
 /// A syntactic region that affects lint rule behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +50,13 @@ impl RegionIndex {
     /// Build from source text and the parsed file.
     pub fn new(source: &str, file: &File) -> Self {
         let mut collector = RegionCollector::new(source);
+        collector.visit_file(file);
+        collector.finish()
+    }
+
+    /// Build from source text and an arena-backed parsed file.
+    pub fn new_arena(source: &str, file: &ArenaFile) -> Self {
+        let mut collector = ArenaRegionCollector::new(source, &file.store);
         collector.visit_file(file);
         collector.finish()
     }
@@ -619,6 +632,489 @@ impl<'a> RegionCollector<'a> {
                 self.visit_arithmetic_shell_words(value);
             }
         }
+    }
+}
+
+struct ArenaRegionCollector<'a> {
+    _source: &'a str,
+    store: &'a AstStore,
+    single_quoted: Vec<TextRange>,
+    double_quoted: Vec<TextRange>,
+    heredocs: Vec<TextRange>,
+    command_substitutions: Vec<TextRange>,
+    arithmetic: Vec<TextRange>,
+    conditionals: Vec<TextRange>,
+    quoted_heredocs: Vec<TextRange>,
+}
+
+impl<'a> ArenaRegionCollector<'a> {
+    fn new(source: &'a str, store: &'a AstStore) -> Self {
+        Self {
+            _source: source,
+            store,
+            single_quoted: Vec::new(),
+            double_quoted: Vec::new(),
+            heredocs: Vec::new(),
+            command_substitutions: Vec::new(),
+            arithmetic: Vec::new(),
+            conditionals: Vec::new(),
+            quoted_heredocs: Vec::new(),
+        }
+    }
+
+    fn finish(mut self) -> RegionIndex {
+        sort_ranges(&mut self.single_quoted);
+        sort_ranges(&mut self.double_quoted);
+        sort_ranges(&mut self.heredocs);
+        sort_ranges(&mut self.command_substitutions);
+        sort_ranges(&mut self.arithmetic);
+        sort_ranges(&mut self.conditionals);
+        sort_ranges(&mut self.quoted_heredocs);
+
+        let mut regions = Vec::with_capacity(
+            self.single_quoted.len()
+                + self.double_quoted.len()
+                + self.heredocs.len()
+                + self.command_substitutions.len()
+                + self.arithmetic.len()
+                + self.conditionals.len(),
+        );
+        regions.extend(
+            self.single_quoted
+                .iter()
+                .copied()
+                .map(|range| IndexedRegion {
+                    kind: RegionKind::SingleQuoted,
+                    range,
+                }),
+        );
+        regions.extend(
+            self.double_quoted
+                .iter()
+                .copied()
+                .map(|range| IndexedRegion {
+                    kind: RegionKind::DoubleQuoted,
+                    range,
+                }),
+        );
+        regions.extend(self.heredocs.iter().copied().map(|range| IndexedRegion {
+            kind: RegionKind::Heredoc,
+            range,
+        }));
+        regions.extend(
+            self.command_substitutions
+                .iter()
+                .copied()
+                .map(|range| IndexedRegion {
+                    kind: RegionKind::CommandSubstitution,
+                    range,
+                }),
+        );
+        regions.extend(self.arithmetic.iter().copied().map(|range| IndexedRegion {
+            kind: RegionKind::Arithmetic,
+            range,
+        }));
+        regions.extend(
+            self.conditionals
+                .iter()
+                .copied()
+                .map(|range| IndexedRegion {
+                    kind: RegionKind::Conditional,
+                    range,
+                }),
+        );
+        regions.sort_unstable_by_key(|region| {
+            (region.range.start().to_u32(), region.range.end().to_u32())
+        });
+
+        RegionIndex {
+            single_quoted: self.single_quoted,
+            double_quoted: self.double_quoted,
+            heredocs: self.heredocs,
+            command_substitutions: self.command_substitutions,
+            arithmetic: self.arithmetic,
+            conditionals: self.conditionals,
+            quoted_heredocs: self.quoted_heredocs,
+            regions,
+        }
+    }
+
+    fn visit_file(&mut self, file: &'a ArenaFile) {
+        self.visit_stmt_seq(file.view().body());
+    }
+
+    fn visit_stmt_seq(&mut self, commands: StmtSeqView<'a>) {
+        for stmt in commands.stmts() {
+            self.visit_stmt(stmt);
+        }
+    }
+
+    fn visit_stmt(&mut self, stmt: StmtView<'a>) {
+        for redirect in stmt.redirects() {
+            self.visit_redirect(redirect);
+        }
+        self.visit_command(stmt.command());
+    }
+
+    fn visit_command(&mut self, command: CommandView<'a>) {
+        if let Some(command) = command.simple() {
+            self.visit_word(command.name());
+            for argument in command.args() {
+                self.visit_word(argument);
+            }
+            for assignment in command.assignments() {
+                self.visit_assignment(assignment);
+            }
+        } else if let Some(command) = command.builtin() {
+            if let Some(primary) = command.primary() {
+                self.visit_word(primary);
+            }
+            for argument in command.extra_args() {
+                self.visit_word(argument);
+            }
+            for assignment in command.assignments() {
+                self.visit_assignment(assignment);
+            }
+        } else if let Some(command) = command.decl() {
+            for operand in command.operands() {
+                match operand {
+                    DeclOperandNode::Flag(word) | DeclOperandNode::Dynamic(word) => {
+                        self.visit_word_id(*word);
+                    }
+                    DeclOperandNode::Name(reference) => self.visit_var_ref_subscript(reference),
+                    DeclOperandNode::Assignment(assignment) => self.visit_assignment(assignment),
+                }
+            }
+            for assignment in command.assignments() {
+                self.visit_assignment(assignment);
+            }
+        } else if let Some(command) = command.binary() {
+            self.visit_stmt_seq(command.left());
+            self.visit_stmt_seq(command.right());
+        } else if let Some(command) = command.function() {
+            for entry in command.entries() {
+                self.visit_word_id(entry.word);
+            }
+            self.visit_stmt_seq(command.body());
+        } else if let Some(command) = command.anonymous_function() {
+            self.visit_stmt_seq(command.body());
+            for argument in command.args() {
+                self.visit_word(argument);
+            }
+        } else if let Some(command) = command.compound() {
+            self.visit_compound(command.node());
+        }
+    }
+
+    fn visit_compound(&mut self, command: &CompoundCommandNode) {
+        match command {
+            CompoundCommandNode::If {
+                condition,
+                then_branch,
+                elif_branches,
+                else_branch,
+                ..
+            } => {
+                self.visit_stmt_seq_id(*condition);
+                self.visit_stmt_seq_id(*then_branch);
+                for branch in self.store.elif_branches(*elif_branches) {
+                    self.visit_stmt_seq_id(branch.condition);
+                    self.visit_stmt_seq_id(branch.body);
+                }
+                if let Some(branch) = else_branch {
+                    self.visit_stmt_seq_id(*branch);
+                }
+            }
+            CompoundCommandNode::For { words, body, .. } => {
+                if let Some(words) = words {
+                    for word in self.store.word_ids(*words) {
+                        self.visit_word_id(*word);
+                    }
+                }
+                self.visit_stmt_seq_id(*body);
+            }
+            CompoundCommandNode::Repeat { count, body, .. } => {
+                self.visit_word_id(*count);
+                self.visit_stmt_seq_id(*body);
+            }
+            CompoundCommandNode::Foreach { words, body, .. } => {
+                for word in self.store.word_ids(*words) {
+                    self.visit_word_id(*word);
+                }
+                self.visit_stmt_seq_id(*body);
+            }
+            CompoundCommandNode::ArithmeticFor(command) => {
+                self.push_arithmetic_for_range(command);
+                self.visit_stmt_seq_id(command.body);
+            }
+            CompoundCommandNode::While { condition, body }
+            | CompoundCommandNode::Until { condition, body } => {
+                self.visit_stmt_seq_id(*condition);
+                self.visit_stmt_seq_id(*body);
+            }
+            CompoundCommandNode::Case { word, cases } => {
+                self.visit_word_id(*word);
+                for item in self.store.case_items(*cases) {
+                    for pattern in self.store.patterns(item.patterns) {
+                        self.visit_pattern(pattern);
+                    }
+                    self.visit_stmt_seq_id(item.body);
+                }
+            }
+            CompoundCommandNode::Select { words, body, .. } => {
+                for word in self.store.word_ids(*words) {
+                    self.visit_word_id(*word);
+                }
+                self.visit_stmt_seq_id(*body);
+            }
+            CompoundCommandNode::Subshell(body) | CompoundCommandNode::BraceGroup(body) => {
+                self.visit_stmt_seq_id(*body);
+            }
+            CompoundCommandNode::Always { body, always_body } => {
+                self.visit_stmt_seq_id(*body);
+                self.visit_stmt_seq_id(*always_body);
+            }
+            CompoundCommandNode::Arithmetic(command) => {
+                push_range(
+                    &mut self.arithmetic,
+                    command
+                        .left_paren_span
+                        .merge(command.right_paren_span)
+                        .to_range(),
+                );
+            }
+            CompoundCommandNode::Time { command, .. } => {
+                if let Some(command) = command {
+                    self.visit_stmt_seq_id(*command);
+                }
+            }
+            CompoundCommandNode::Conditional(command) => {
+                push_range(
+                    &mut self.conditionals,
+                    command
+                        .left_bracket_span
+                        .merge(command.right_bracket_span)
+                        .to_range(),
+                );
+                self.visit_conditional_expr(&command.expression);
+            }
+            CompoundCommandNode::Coproc { body, .. } => self.visit_stmt_seq_id(*body),
+        }
+    }
+
+    fn push_arithmetic_for_range(&mut self, command: &ArithmeticForCommandNode) {
+        let range = command
+            .left_paren_span
+            .merge(command.right_paren_span)
+            .to_range();
+        push_range(&mut self.arithmetic, range);
+    }
+
+    fn visit_conditional_expr(&mut self, expression: &ConditionalExprArena) {
+        match expression {
+            ConditionalExprArena::Binary { left, right, .. } => {
+                self.visit_conditional_expr(left);
+                self.visit_conditional_expr(right);
+            }
+            ConditionalExprArena::Unary { expr, .. } => self.visit_conditional_expr(expr),
+            ConditionalExprArena::Parenthesized { expr, .. } => {
+                self.visit_conditional_expr(expr);
+            }
+            ConditionalExprArena::Word(word) | ConditionalExprArena::Regex(word) => {
+                self.visit_word_id(*word);
+            }
+            ConditionalExprArena::Pattern(pattern) => self.visit_pattern(pattern),
+            ConditionalExprArena::VarRef(reference) => self.visit_var_ref_subscript(reference),
+        }
+    }
+
+    fn visit_redirect(&mut self, redirect: &RedirectNode) {
+        match &redirect.target {
+            RedirectTargetNode::Heredoc(heredoc) => {
+                let range = heredoc.body.span.to_range();
+                push_range(&mut self.heredocs, range);
+                if heredoc.delimiter.quoted {
+                    push_range(&mut self.quoted_heredocs, range);
+                }
+                self.visit_heredoc_body_parts(self.store.heredoc_body_parts(heredoc.body.parts));
+            }
+            RedirectTargetNode::Word(word) => self.visit_word_id(*word),
+        }
+    }
+
+    fn visit_assignment(&mut self, assignment: &AssignmentNode) {
+        self.visit_var_ref_subscript(&assignment.target);
+        match &assignment.value {
+            AssignmentValueNode::Scalar(word) => self.visit_word_id(*word),
+            AssignmentValueNode::Compound(array) => {
+                for element in self.store.array_elems(array.elements) {
+                    match element {
+                        shuck_ast::ArrayElemNode::Sequential(value) => {
+                            self.visit_word_id(value.word);
+                        }
+                        shuck_ast::ArrayElemNode::Keyed { key, value }
+                        | shuck_ast::ArrayElemNode::KeyedAppend { key, value } => {
+                            self.visit_subscript(Some(key));
+                            self.visit_word_id(value.word);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn visit_word_id(&mut self, word: WordId) {
+        self.visit_word(self.store.word(word));
+    }
+
+    fn visit_word(&mut self, word: WordView<'a>) {
+        self.visit_word_parts(word.parts());
+    }
+
+    fn visit_pattern(&mut self, pattern: &PatternNode) {
+        self.visit_pattern_parts(self.store.pattern_parts(pattern.parts));
+    }
+
+    fn visit_pattern_parts(&mut self, parts: &[shuck_ast::PatternPartArenaNode]) {
+        for part in parts {
+            match &part.kind {
+                PatternPartArena::Group { patterns, .. } => {
+                    for pattern in self.store.patterns(*patterns) {
+                        self.visit_pattern(pattern);
+                    }
+                }
+                PatternPartArena::Word(word) => self.visit_word_id(*word),
+                PatternPartArena::Literal(_)
+                | PatternPartArena::AnyString
+                | PatternPartArena::AnyChar
+                | PatternPartArena::CharClass(_) => {}
+            }
+        }
+    }
+
+    fn visit_word_parts(&mut self, parts: &[WordPartArenaNode]) {
+        for part in parts {
+            let range = part.span.to_range();
+            match &part.kind {
+                WordPartArena::ZshQualifiedGlob(glob) => {
+                    for segment in self.store.zsh_glob_segments(glob.segments) {
+                        if let ZshGlobSegmentNode::Pattern(pattern) = segment {
+                            self.visit_pattern(pattern);
+                        }
+                    }
+                }
+                WordPartArena::SingleQuoted { .. } => {
+                    push_range(&mut self.single_quoted, range);
+                }
+                WordPartArena::DoubleQuoted { parts, .. } => {
+                    push_range(&mut self.double_quoted, range);
+                    self.visit_word_parts(self.store.word_parts(*parts));
+                }
+                WordPartArena::CommandSubstitution { body, .. } => {
+                    push_range(&mut self.command_substitutions, range);
+                    self.visit_stmt_seq_id(*body);
+                }
+                WordPartArena::ArithmeticExpansion { .. } => {
+                    push_range(&mut self.arithmetic, range);
+                }
+                WordPartArena::ProcessSubstitution { body, .. } => self.visit_stmt_seq_id(*body),
+                WordPartArena::Literal(_)
+                | WordPartArena::Variable(_)
+                | WordPartArena::Parameter(_)
+                | WordPartArena::ParameterExpansion { .. }
+                | WordPartArena::Length(_)
+                | WordPartArena::ArrayAccess(_)
+                | WordPartArena::ArrayLength(_)
+                | WordPartArena::ArrayIndices(_)
+                | WordPartArena::Substring { .. }
+                | WordPartArena::ArraySlice { .. }
+                | WordPartArena::IndirectExpansion { .. }
+                | WordPartArena::PrefixMatch { .. }
+                | WordPartArena::Transformation { .. } => {}
+            }
+        }
+    }
+
+    fn visit_heredoc_body_parts(&mut self, parts: &[ArenaHeredocBodyPartNode]) {
+        for part in parts {
+            let range = part.span.to_range();
+            match &part.kind {
+                ArenaHeredocBodyPart::CommandSubstitution { body, .. } => {
+                    push_range(&mut self.command_substitutions, range);
+                    self.visit_stmt_seq_id(*body);
+                }
+                ArenaHeredocBodyPart::ArithmeticExpansion { .. } => {
+                    push_range(&mut self.arithmetic, range);
+                }
+                ArenaHeredocBodyPart::Literal(_)
+                | ArenaHeredocBodyPart::Variable(_)
+                | ArenaHeredocBodyPart::Parameter(_) => {}
+            }
+        }
+    }
+
+    fn visit_var_ref_subscript(&mut self, reference: &VarRefNode) {
+        self.visit_subscript(reference.subscript.as_deref());
+    }
+
+    fn visit_subscript(&mut self, subscript: Option<&SubscriptNode>) {
+        let Some(subscript) = subscript else {
+            return;
+        };
+        if matches!(subscript.kind, shuck_ast::SubscriptKind::Selector(_)) {
+            return;
+        }
+        if let Some(expression_ast) = subscript.arithmetic_ast.as_ref() {
+            self.visit_arithmetic_shell_words(expression_ast);
+            return;
+        }
+
+        if let Some(word) = subscript.word_ast {
+            self.visit_word_id(word);
+            return;
+        }
+
+        debug_assert!(
+            subscript.word_ast.is_some(),
+            "ordinary subscripts should always carry a word AST"
+        );
+    }
+
+    fn visit_arithmetic_shell_words(&mut self, expression: &ArithmeticExprArenaNode) {
+        match &expression.kind {
+            ArithmeticExprArena::Number(_) | ArithmeticExprArena::Variable(_) => {}
+            ArithmeticExprArena::Indexed { index, .. } => self.visit_arithmetic_shell_words(index),
+            ArithmeticExprArena::ShellWord(word) => self.visit_word_id(*word),
+            ArithmeticExprArena::Parenthesized { expression } => {
+                self.visit_arithmetic_shell_words(expression);
+            }
+            ArithmeticExprArena::Unary { expr, .. } | ArithmeticExprArena::Postfix { expr, .. } => {
+                self.visit_arithmetic_shell_words(expr);
+            }
+            ArithmeticExprArena::Binary { left, right, .. } => {
+                self.visit_arithmetic_shell_words(left);
+                self.visit_arithmetic_shell_words(right);
+            }
+            ArithmeticExprArena::Conditional {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                self.visit_arithmetic_shell_words(condition);
+                self.visit_arithmetic_shell_words(then_expr);
+                self.visit_arithmetic_shell_words(else_expr);
+            }
+            ArithmeticExprArena::Assignment { target, value, .. } => {
+                if let ArithmeticLvalueArena::Indexed { index, .. } = target {
+                    self.visit_arithmetic_shell_words(index);
+                }
+                self.visit_arithmetic_shell_words(value);
+            }
+        }
+    }
+
+    fn visit_stmt_seq_id(&mut self, id: shuck_ast::StmtSeqId) {
+        self.visit_stmt_seq(self.store.stmt_seq(id));
     }
 }
 
