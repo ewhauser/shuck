@@ -654,11 +654,13 @@ impl<'a> LinterFactsBuilder<'a> {
             CommandFacts::new(&commands, &fact_store),
             &pipelines,
             &backticks,
-            &word_nodes,
-            &word_occurrences,
-            &word_index,
-            &fact_store,
-            source,
+            WordFactLookup {
+                nodes: &word_nodes,
+                occurrences: &word_occurrences,
+                word_index: &word_index,
+                fact_store: &fact_store,
+                source,
+            },
         );
         let assignment_like_command_name_spans =
             build_assignment_like_command_name_spans(&commands, self.source);

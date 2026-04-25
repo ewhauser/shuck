@@ -1268,12 +1268,17 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.occurrence().operand_class
     }
 
-    pub fn static_text(self) -> Option<&'a str> {
-        self.derived().static_text
+    pub fn static_text(self) -> Option<Cow<'a, str>> {
+        self.static_text_from_source(self.facts.source)
     }
 
     pub fn static_text_cow(self, source: &'a str) -> Option<Cow<'a, str>> {
-        self.static_text()
+        self.static_text_from_source(source)
+    }
+
+    fn static_text_from_source(self, source: &'a str) -> Option<Cow<'a, str>> {
+        self.derived()
+            .static_text
             .map(Cow::Borrowed)
             .or_else(|| static_word_text(self.word(), source))
     }
@@ -2088,30 +2093,26 @@ fn text_contains_echo_backslash_escape(text: &str, is_sensitive: fn(u8) -> bool)
     false
 }
 
+#[derive(Clone, Copy)]
+struct WordFactLookup<'facts, 'a> {
+    nodes: &'facts [WordNode<'a>],
+    occurrences: &'facts [WordOccurrence],
+    word_index: &'facts FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
+    fact_store: &'facts FactStore<'a>,
+    source: &'a str,
+}
+
 fn build_echo_to_sed_substitution_spans<'a>(
     commands: CommandFacts<'_, 'a>,
     pipelines: &[PipelineFact<'a>],
     backticks: &[BacktickFragmentFact],
-    nodes: &[WordNode<'a>],
-    occurrences: &[WordOccurrence],
-    word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
-    fact_store: &FactStore<'a>,
-    source: &str,
+    lookup: WordFactLookup<'_, 'a>,
 ) -> Vec<Span> {
     let mut spans = Vec::new();
     let mut pipeline_sed_command_ids = FxHashSet::default();
 
     for pipeline in pipelines {
-        if let Some(span) = sc2001_like_pipeline_span(
-            commands,
-            pipeline,
-            backticks,
-            nodes,
-            occurrences,
-            word_index,
-            fact_store,
-            source,
-        ) {
+        if let Some(span) = sc2001_like_pipeline_span(commands, pipeline, backticks, lookup) {
             spans.push(span);
             if let Some(last_segment) = pipeline.last_segment() {
                 pipeline_sed_command_ids.insert(last_segment.command_id());
@@ -2121,7 +2122,7 @@ fn build_echo_to_sed_substitution_spans<'a>(
 
     spans.extend(commands.iter().filter_map(|command| {
         (!pipeline_sed_command_ids.contains(&command.id()))
-            .then(|| sc2001_like_here_string_span(command, backticks, source))
+            .then(|| sc2001_like_here_string_span(command, backticks, lookup.source))
             .flatten()
     }));
 
@@ -2133,11 +2134,7 @@ fn sc2001_like_pipeline_span<'a>(
     commands: CommandFacts<'_, 'a>,
     pipeline: &PipelineFact<'a>,
     backticks: &[BacktickFragmentFact],
-    nodes: &[WordNode<'a>],
-    occurrences: &[WordOccurrence],
-    word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
-    fact_store: &FactStore<'a>,
-    source: &str,
+    lookup: WordFactLookup<'_, 'a>,
 ) -> Option<Span> {
     let [left_segment, right_segment] = pipeline.segments() else {
         return None;
@@ -2159,7 +2156,7 @@ fn sc2001_like_pipeline_span<'a>(
         return None;
     }
 
-    if !command_has_sc2001_like_sed_script(right, backticks, source) {
+    if !command_has_sc2001_like_sed_script(right, backticks, lookup.source) {
         return None;
     }
 
@@ -2168,18 +2165,18 @@ fn sc2001_like_pipeline_span<'a>(
     };
 
     let word_fact = word_occurrence_with_context(
-        nodes,
-        occurrences,
-        word_index,
+        lookup.nodes,
+        lookup.occurrences,
+        lookup.word_index,
         argument.span,
         WordFactContext::Expansion(ExpansionContext::CommandArgument),
     )?;
 
-    if occurrence_static_text(nodes, word_fact, source).is_some() {
+    if occurrence_static_text(lookup.nodes, word_fact, lookup.source).is_some() {
         return None;
     }
 
-    let derived = word_node_derived(&nodes[word_fact.node_id.index()]);
+    let derived = word_node_derived(&lookup.nodes[word_fact.node_id.index()]);
     if derived.scalar_expansion_spans.is_empty()
         && derived.array_expansion_spans.is_empty()
         && derived.command_substitution_spans.is_empty()
@@ -2188,21 +2185,31 @@ fn sc2001_like_pipeline_span<'a>(
     }
 
     if derived.has_literal_affixes
-        && !word_occurrence_is_pure_quoted_dynamic(nodes, word_fact, fact_store, source)
+        && !word_occurrence_is_pure_quoted_dynamic(
+            lookup.nodes,
+            word_fact,
+            lookup.fact_store,
+            lookup.source,
+        )
     {
         return None;
     }
 
     if command_is_inside_backtick_fragment(right, backticks)
         && word_occurrence_is_backtick_escaped_double_quoted_dynamic(
-            nodes, word_fact, fact_store, source,
+            lookup.nodes,
+            word_fact,
+            lookup.fact_store,
+            lookup.source,
         )
     {
-        return sc2001_like_backtick_pipeline_span(commands, pipeline, right, source);
+        return sc2001_like_backtick_pipeline_span(commands, pipeline, right, lookup.source);
     }
 
     Some(pipeline_span_with_shellcheck_tail(
-        commands, pipeline, source,
+        commands,
+        pipeline,
+        lookup.source,
     ))
 }
 
