@@ -8,9 +8,9 @@ use shuck_ast::{
     CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclOperand, File,
     FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, Name, NormalizedCommand,
     ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind,
-    PatternPart, PatternPartNode, Span, StaticCommandWrapperTarget, Stmt, StmtSeq, Subscript,
-    VarRef, Word, WordPart, WordPartNode, WrapperKind, ZshExpansionOperation, ZshExpansionTarget,
-    ZshGlobSegment, normalize_command_words, static_command_name_text,
+    PatternPart, PatternPartNode, Position, Span, StaticCommandWrapperTarget, Stmt, StmtSeq,
+    Subscript, VarRef, Word, WordPart, WordPartNode, WrapperKind, ZshExpansionOperation,
+    ZshExpansionTarget, ZshGlobSegment, normalize_command_words, static_command_name_text,
     static_command_wrapper_target_index, static_word_text, try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;
@@ -3105,7 +3105,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     }
 
     fn add_reference(&mut self, name: &Name, kind: ReferenceKind, span: Span) -> ReferenceId {
-        let span = self.normalize_reference_span(span);
+        let span = self.normalize_reference_span(name, kind, span);
         let id = ReferenceId(self.references.len() as u32);
         let scope = self.current_scope();
         let resolved = self.resolve_reference(name, scope, span.start.offset);
@@ -3150,26 +3150,115 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         id
     }
 
-    fn normalize_reference_span(&self, span: Span) -> Span {
+    fn normalize_reference_span(&self, name: &Name, kind: ReferenceKind, span: Span) -> Span {
         if span.end.offset >= self.source.len() {
             return span;
         }
 
         let syntax = span.slice(self.source);
-        let Some(start_rel) = syntax.find("${") else {
-            return span;
-        };
-        if self.source.as_bytes().get(span.end.offset) != Some(&b'}') {
+        if matches!(kind, ReferenceKind::Expansion)
+            && unbraced_parameter_reference_matches(syntax, name.as_str())
+        {
             return span;
         }
+        if !reference_kind_uses_braced_parameter_syntax(kind) {
+            return span;
+        }
+        let Some(start_rel) = syntax.find("${") else {
+            return self
+                .recover_braced_reference_span(name, span)
+                .unwrap_or(span);
+        };
+        if self.source.as_bytes().get(span.end.offset) != Some(&b'}') {
+            return self
+                .recover_braced_reference_span(name, span)
+                .unwrap_or(span);
+        }
 
-        let start = span.start.advanced_by(&syntax[..start_rel]);
-        let end = span.end.advanced_by("}");
+        let start_offset = span.start.offset + start_rel;
+        let end_offset = span.end.offset + '}'.len_utf8();
+        let Some((start, end)) = self.source_positions_for_offsets(start_offset, end_offset) else {
+            return span;
+        };
         if start.offset < end.offset {
             Span::from_positions(start, end)
         } else {
             span
         }
+    }
+
+    fn recover_braced_reference_span(&self, name: &Name, span: Span) -> Option<Span> {
+        if name.is_empty() || span.start.offset >= self.source.len() {
+            return None;
+        }
+
+        let name = name.as_str();
+        let search_end = self
+            .source
+            .get(span.start.offset..)?
+            .find('\n')
+            .map(|relative| span.start.offset + relative)
+            .unwrap_or(self.source.len());
+        let search = self.source.get(span.start.offset..search_end)?;
+        let needle = format!("${{{name}");
+        for (start_rel, _) in search.match_indices(&needle) {
+            let start_offset = span.start.offset + start_rel;
+            if braced_parameter_start_matches(self.source, start_offset, name)
+                && let Some(end_offset) =
+                    braced_parameter_end_offset(self.source, start_offset, search_end)
+            {
+                if let Some((start, end)) =
+                    self.source_positions_for_offsets(start_offset, end_offset)
+                    && start.offset < end.offset
+                {
+                    return Some(Span::from_positions(start, end));
+                }
+            }
+        }
+
+        self.recover_braced_reference_span_on_line(&needle, span)
+    }
+
+    fn recover_braced_reference_span_on_line(&self, needle: &str, span: Span) -> Option<Span> {
+        let (line_start_offset, line) = source_line(self.source, span.start.line)?;
+        let mut best = None::<(usize, usize, usize)>;
+        let name = needle.strip_prefix("${").unwrap_or(needle);
+        for (start, _) in line.match_indices(needle) {
+            if !braced_parameter_start_matches(line, start, name) {
+                continue;
+            }
+            let Some(end) = braced_parameter_end_offset(line, start, line.len()) else {
+                continue;
+            };
+            let column = line.get(..start)?.chars().count() + 1;
+            let distance = column.abs_diff(span.start.column);
+            if best
+                .as_ref()
+                .is_none_or(|(_, _, best_distance)| distance < *best_distance)
+            {
+                best = Some((start, end, distance));
+            }
+        }
+
+        let (start, end, _) = best?;
+        let start_offset = line_start_offset + start;
+        let end_offset = line_start_offset + end;
+        let (start, end) = self.source_positions_for_offsets(start_offset, end_offset)?;
+        (start.offset < end.offset).then(|| Span::from_positions(start, end))
+    }
+
+    fn source_positions_for_offsets(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Option<(Position, Position)> {
+        if start > end || end > self.source.len() {
+            return None;
+        }
+        Some((
+            source_position_at_offset(self.source, start)?,
+            source_position_at_offset(self.source, end)?,
+        ))
     }
 
     fn add_parameter_default_binding(&mut self, reference: &VarRef) {
@@ -5327,6 +5416,126 @@ fn recorded_list_operator(op: BinaryOp) -> RecordedListOperator {
             unreachable!("pipeline operators are not valid in logical lists")
         }
     }
+}
+
+fn source_position_at_offset(source: &str, offset: usize) -> Option<Position> {
+    if offset > source.len() || !source.is_char_boundary(offset) {
+        return None;
+    }
+
+    Some(Position::new().advanced_by(source.get(..offset)?))
+}
+
+fn reference_kind_uses_braced_parameter_syntax(kind: ReferenceKind) -> bool {
+    matches!(
+        kind,
+        ReferenceKind::Expansion
+            | ReferenceKind::ParameterExpansion
+            | ReferenceKind::Length
+            | ReferenceKind::ArrayAccess
+            | ReferenceKind::IndirectExpansion
+            | ReferenceKind::RequiredRead
+    )
+}
+
+fn unbraced_parameter_reference_matches(text: &str, name: &str) -> bool {
+    let Some(rest) = text.strip_prefix('$') else {
+        return false;
+    };
+    if rest.starts_with('{') || !rest.starts_with(name) {
+        return false;
+    }
+
+    rest.get(name.len()..)
+        .and_then(|suffix| suffix.chars().next())
+        .is_none_or(|ch| !ch.is_ascii_alphanumeric() && ch != '_')
+}
+
+fn braced_parameter_start_matches(source: &str, start_offset: usize, name: &str) -> bool {
+    let Some(after_name) = start_offset
+        .checked_add("${".len())
+        .and_then(|offset| offset.checked_add(name.len()))
+    else {
+        return false;
+    };
+    if after_name > source.len() || !source.is_char_boundary(after_name) {
+        return false;
+    }
+
+    source
+        .get(after_name..)
+        .and_then(|suffix| suffix.chars().next())
+        .is_some_and(|ch| !ch.is_ascii_alphanumeric() && ch != '_')
+}
+
+fn braced_parameter_end_offset(
+    source: &str,
+    start_offset: usize,
+    search_end: usize,
+) -> Option<usize> {
+    if start_offset >= search_end
+        || search_end > source.len()
+        || !source.is_char_boundary(start_offset)
+        || !source.is_char_boundary(search_end)
+        || source
+            .as_bytes()
+            .get(start_offset..start_offset + "${".len())?
+            != b"${"
+    {
+        return None;
+    }
+
+    let mut depth = 1usize;
+    let mut offset = start_offset + "${".len();
+    while offset < search_end {
+        let ch = source.get(offset..search_end)?.chars().next()?;
+        let next_offset = offset + ch.len_utf8();
+        if ch == '\\' {
+            offset = source
+                .get(next_offset..search_end)
+                .and_then(|suffix| suffix.chars().next())
+                .map(|escaped| next_offset + escaped.len_utf8())
+                .unwrap_or(next_offset);
+            continue;
+        }
+        if ch == '$' && source.as_bytes().get(next_offset) == Some(&b'{') {
+            depth += 1;
+            offset = next_offset + '{'.len_utf8();
+            continue;
+        }
+        if ch == '}' {
+            depth -= 1;
+            if depth == 0 {
+                return Some(next_offset);
+            }
+        }
+        offset = next_offset;
+    }
+
+    None
+}
+
+fn source_line(source: &str, target_line: usize) -> Option<(usize, &str)> {
+    if target_line == 0 {
+        return None;
+    }
+
+    let mut line_start = 0;
+    for (index, line) in source.split_inclusive('\n').enumerate() {
+        let line_number = index + 1;
+        if line_number == target_line {
+            let line = line.strip_suffix('\n').unwrap_or(line);
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            return Some((line_start, line));
+        }
+        line_start += line.len();
+    }
+
+    if target_line == source.split_inclusive('\n').count() + 1 && line_start == source.len() {
+        return Some((line_start, ""));
+    }
+
+    None
 }
 
 #[cfg(test)]

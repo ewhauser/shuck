@@ -301,6 +301,7 @@ fn analyze_uninitialized_references_exact(
             ReferenceKind::ImplicitRead | ReferenceKind::DeclarationName
         ) || context.predefined_runtime_refs.contains(&reference.id)
             || context.guarded_parameter_refs.contains(&reference.id)
+            || reference_duplicates_guarded_parameter_reference(context, reference)
         {
             continue;
         }
@@ -353,6 +354,22 @@ fn analyze_uninitialized_references_exact(
     }
 
     uninitialized_references
+}
+
+fn reference_duplicates_guarded_parameter_reference(
+    context: &DataflowContext<'_>,
+    reference: &Reference,
+) -> bool {
+    context
+        .guarded_parameter_refs
+        .iter()
+        .copied()
+        .any(|guard_id| {
+            guard_id != reference.id && {
+                let guard = &context.references[guard_id.index()];
+                guard.name == reference.name && guard.span == reference.span
+            }
+        })
 }
 
 fn parameter_guard_flow_precedes_reference_in_same_block(

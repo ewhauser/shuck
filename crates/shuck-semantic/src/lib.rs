@@ -7046,6 +7046,18 @@ printf '%s\\n' \
     }
 
     #[test]
+    fn unquoted_guarded_parameter_expansions_are_not_marked_uninitialized() {
+        let source = "\
+eval start-stop-daemon --start \\
+  ${directory:+--chdir} $directory
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["directory"], &uninitialized);
+    }
+
+    #[test]
     fn assign_default_and_error_operands_are_marked_uninitialized() {
         let source = "\
 printf '%s\\n' \
@@ -7250,6 +7262,65 @@ rvm_info=\"
         assert_eq!(reference.span.start.line, 3);
         assert_eq!(reference.span.start.column, 12);
         assert_eq!(reference.span.slice(source), "${_system_info}");
+    }
+
+    #[test]
+    fn parameter_reference_spans_recover_after_escaped_quotes_and_tabs_in_assignments() {
+        let source = "\
+#!/bin/bash
+physmemtotal=\"${physmemtotal//,/.}\"
+payload=\"{
+\t\\\"client_id\\\": \\\"${uuidinstance}\\\",
+\t\\\"events\\\": [
+\t\t{
+\t\t\\\"name\\\": \\\"LinuxGSM\\\",
+\t\t\\\"params\\\": {
+\t\t\t\\\"cpuusedmhzroundup\\\": \\\"${cpuusedmhzroundup}\\\",
+\t\t\t\\\"diskused\\\": \\\"${serverfilesdu}\\\",
+\t\t\t}
+\t\t}
+\t]
+}\"
+";
+        let model = model(source);
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "serverfilesdu")
+            .unwrap();
+
+        assert_eq!(reference.span.start.line, 10);
+        assert_eq!(reference.span.start.column, 20);
+        assert_eq!(reference.span.slice(source), "${serverfilesdu}");
+    }
+
+    #[test]
+    fn parameter_reference_spans_include_nested_parameter_operator_suffixes() {
+        let source = "\
+rvm_ruby_gem_home=\"${rvm_ruby_gem_home%%${rvm_gemset_separator:-\"@\"}*}\"
+if [ \"${skiprdeps/${_lf}/}\" != \"${skiprdeps}\" ]; then
+  :
+fi
+";
+        let model = model(source);
+        let rvm_gem_home = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "rvm_ruby_gem_home")
+            .unwrap();
+        let skiprdeps = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "skiprdeps")
+            .unwrap();
+
+        assert_eq!(
+            rvm_gem_home.span.slice(source),
+            "${rvm_ruby_gem_home%%${rvm_gemset_separator:-\"@\"}*}"
+        );
+        assert_eq!(rvm_gem_home.span.end.column, 71);
+        assert_eq!(skiprdeps.span.slice(source), "${skiprdeps/${_lf}/}");
+        assert_eq!(skiprdeps.span.end.column, 27);
     }
 
     #[test]

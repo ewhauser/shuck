@@ -3103,6 +3103,34 @@ rvm_info=\"
     }
 
     #[test]
+    fn undefined_variable_anchors_multiline_escaped_quote_parameter_expansions_to_the_parameter() {
+        let source = "\
+#!/bin/bash
+payload=\"{
+\t\\\"client_id\\\": \\\"${uuidinstance}\\\",
+\t\\\"events\\\": [
+\t\t{
+\t\t\\\"name\\\": \\\"LinuxGSM\\\",
+\t\t\\\"params\\\": {
+\t\t\t\\\"cpuusedmhzroundup\\\": \\\"${cpuusedmhzroundup}\\\",
+\t\t\t\\\"diskused\\\": \\\"${serverfilesdu}\\\",
+\t\t\t}
+\t\t}
+\t]
+}\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.message.contains("serverfilesdu"))
+            .unwrap();
+
+        assert_eq!(diagnostic.span.start.line, 9);
+        assert_eq!(diagnostic.span.start.column, 20);
+        assert_eq!(diagnostic.span.slice(source), "${serverfilesdu}");
+    }
+
+    #[test]
     fn undefined_variable_reports_self_referential_assignments() {
         let diagnostics = lint_for_rule(
             "\

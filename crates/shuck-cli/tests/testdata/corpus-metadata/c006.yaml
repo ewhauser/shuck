@@ -27,194 +27,12 @@ reviewed_divergences:
     column: 42
     end_column: 61
     reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_ts3_server_pass.sh"
-    line: 47
-    end_line: 47
-    column: 59
-    end_column: 79
-    reason: "This TeamSpeak helper reads the active server config path after the surrounding module has resolved it, so the ShellCheck-only hit is the expected module contract rather than a missing local assignment."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_ts3_server_pass.sh"
-    line: 47
-    end_line: 47
-    column: 56
-    end_column: 76
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 73
-    end_line: 73
-    column: 20
-    end_column: 36
-    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 74
-    end_line: 74
-    column: 18
-    end_column: 31
-    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 75
-    end_line: 75
-    column: 16
-    end_column: 27
-    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 78
-    end_line: 78
-    column: 21
-    end_column: 32
-    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 78
-    end_line: 78
-    column: 33
-    end_column: 44
-    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 79
-    end_line: 79
-    column: 25
-    end_column: 39
-    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 80
-    end_line: 80
-    column: 22
-    end_column: 35
-    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 83
-    end_line: 83
-    column: 23
-    end_column: 40
-    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 87
-    end_line: 87
-    column: 19
-    end_column: 29
-    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 88
-    end_line: 88
-    column: 30
-    end_column: 51
-    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 89
-    end_line: 89
-    column: 23
-    end_column: 37
-    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 90
-    end_line: 90
-    column: 16
-    end_column: 30
-    reason: "This stats module assembles an analytics payload from module-populated globals, so the ShellCheck-only reads are the expected framework contract rather than uncaught local assignments."
   - side: shuck-only
     path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
     line: 60
     end_line: 60
     column: 15
     end_column: 35
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 73
-    end_line: 73
-    column: 17
-    end_column: 33
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 74
-    end_line: 74
-    column: 15
-    end_column: 28
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 75
-    end_line: 75
-    column: 13
-    end_column: 24
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 78
-    end_line: 78
-    column: 18
-    end_column: 29
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 78
-    end_line: 78
-    column: 30
-    end_column: 41
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 79
-    end_line: 79
-    column: 22
-    end_column: 36
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 80
-    end_line: 80
-    column: 19
-    end_column: 32
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 83
-    end_line: 83
-    column: 20
-    end_column: 37
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 87
-    end_line: 87
-    column: 16
-    end_column: 26
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 88
-    end_line: 88
-    column: 27
-    end_column: 48
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 89
-    end_line: 89
-    column: 20
-    end_column: 34
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 90
-    end_line: 90
-    column: 13
-    end_column: 27
     reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
   - side: shellcheck-only
     path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__install_ts3db.sh"
@@ -538,48 +356,6 @@ reviewed_divergences:
     column: 71
     end_column: 79
     reason: "This Gentoo fixture relies on service-manager or package-manager variables populated by sourced eclass and OpenRC plumbing, so the remaining C006 hits are reviewed framework contracts rather than standalone assignment bugs."
-  - side: shellcheck-only
-    path_suffix: "juewuy__ShellCrash__scripts__libs__logger.sh"
-    line: 21
-    end_line: 21
-    column: 37
-    end_column: 47
-    reason: "This logger helper pushes to multiple notification backends using values injected by the broader ShellCrash runtime, so the remaining ShellCheck-only reads are framework-managed settings rather than script-local variables."
-  - side: shellcheck-only
-    path_suffix: "juewuy__ShellCrash__scripts__libs__logger.sh"
-    line: 37
-    end_line: 37
-    column: 59
-    end_column: 73
-    reason: "This logger helper pushes to multiple notification backends using values injected by the broader ShellCrash runtime, so the remaining ShellCheck-only reads are framework-managed settings rather than script-local variables."
-  - side: shellcheck-only
-    path_suffix: "juewuy__ShellCrash__scripts__libs__logger.sh"
-    line: 52
-    end_line: 52
-    column: 71
-    end_column: 89
-    reason: "This logger helper pushes to multiple notification backends using values injected by the broader ShellCrash runtime, so the remaining ShellCheck-only reads are framework-managed settings rather than script-local variables."
-  - side: shuck-only
-    path_suffix: "juewuy__ShellCrash__scripts__libs__logger.sh"
-    line: 21
-    end_line: 21
-    column: 34
-    end_column: 44
-    reason: "This logger helper reads notification settings injected by the broader ShellCrash runtime, so the remaining C006 hits are reviewed framework-managed settings rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "juewuy__ShellCrash__scripts__libs__logger.sh"
-    line: 37
-    end_line: 37
-    column: 52
-    end_column: 66
-    reason: "This logger helper reads notification settings injected by the broader ShellCrash runtime, so the remaining C006 hits are reviewed framework-managed settings rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "juewuy__ShellCrash__scripts__libs__logger.sh"
-    line: 52
-    end_line: 52
-    column: 65
-    end_column: 83
-    reason: "This logger helper reads notification settings injected by the broader ShellCrash runtime, so the remaining C006 hits are reviewed framework-managed settings rather than missing local assignments."
   - side: shuck-only
     path_suffix: "ko1nksm__shellspec__spec__libexec__translator_spec.sh"
     line: 283
@@ -1413,26 +1189,12 @@ reviewed_divergences:
     column: 12
     end_column: 21
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__rvmrc_set"
-    line: 95
-    end_line: 95
-    column: 23
-    end_column: 37
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__rvmrc_set"
     line: 41
     end_line: 41
     column: 9
     end_column: 21
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__rvmrc_set"
-    line: 95
-    end_line: 95
-    column: 22
-    end_column: 36
     reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__rvmrc_trust"
@@ -1541,66 +1303,10 @@ reviewed_divergences:
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__scripts__info"
-    line: 36
-    end_line: 36
-    column: 21
-    end_column: 36
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__info"
-    line: 37
-    end_line: 37
-    column: 21
-    end_column: 39
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__info"
-    line: 38
-    end_line: 38
-    column: 21
-    end_column: 36
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__info"
     line: 58
     end_line: 58
     column: 21
     end_column: 30
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__info"
-    line: 59
-    end_line: 59
-    column: 22
-    end_column: 42
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__info"
-    line: 59
-    end_line: 59
-    column: 44
-    end_column: 76
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__info"
-    line: 36
-    end_line: 36
-    column: 20
-    end_column: 35
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__info"
-    line: 37
-    end_line: 37
-    column: 20
-    end_column: 38
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__info"
-    line: 38
-    end_line: 38
-    column: 20
-    end_column: 35
     reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__info"
@@ -1608,20 +1314,6 @@ reviewed_divergences:
     end_line: 58
     column: 20
     end_column: 29
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__info"
-    line: 59
-    end_line: 59
-    column: 21
-    end_column: 41
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__info"
-    line: 59
-    end_line: 59
-    column: 43
-    end_column: 75
     reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__scripts__install"
