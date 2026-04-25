@@ -134,11 +134,8 @@ impl<'a> SelectHeaderFact<'a> {
 pub(super) fn build_for_header_facts<'a>(
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
-    command_child_index: &CommandChildIndex,
     source: &str,
 ) -> Vec<ForHeaderFact<'a>> {
-    let command_relationships =
-        CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
     commands
         .iter()
         .filter_map(|fact| {
@@ -152,8 +149,8 @@ pub(super) fn build_for_header_facts<'a>(
                 nested_word_command: fact.is_nested_word_command(),
                 words: build_loop_header_word_facts(
                     command.words.iter().flat_map(|words| words.iter()),
-                    fact.id(),
-                    command_relationships,
+                    commands,
+                    command_ids_by_span,
                     source,
                 ),
             })
@@ -164,11 +161,8 @@ pub(super) fn build_for_header_facts<'a>(
 pub(super) fn build_select_header_facts<'a>(
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
-    command_child_index: &CommandChildIndex,
     source: &str,
 ) -> Vec<SelectHeaderFact<'a>> {
-    let command_relationships =
-        CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
     commands
         .iter()
         .filter_map(|fact| {
@@ -182,8 +176,8 @@ pub(super) fn build_select_header_facts<'a>(
                 nested_word_command: fact.is_nested_word_command(),
                 words: build_loop_header_word_facts(
                     command.words.iter(),
-                    fact.id(),
-                    command_relationships,
+                    commands,
+                    command_ids_by_span,
                     source,
                 ),
             })
@@ -194,8 +188,8 @@ pub(super) fn build_select_header_facts<'a>(
 
 fn build_loop_header_word_facts<'a>(
     words: impl IntoIterator<Item = &'a Word>,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> Box<[LoopHeaderWordFact<'a>]> {
     words
@@ -213,19 +207,19 @@ fn build_loop_header_word_facts<'a>(
                     && !word_spans::unquoted_command_substitution_part_spans(word).is_empty(),
                 contains_line_oriented_substitution: word_contains_line_oriented_substitution(
                     word,
-                    parent_id,
-                    command_relationships,
+                    commands,
+                    command_ids_by_span,
                 ),
                 contains_ls_substitution: word_contains_command_substitution_named(
                     word,
                     "ls",
-                    parent_id,
-                    command_relationships,
+                    commands,
+                    command_ids_by_span,
                 ),
                 contains_find_substitution: word_contains_find_substitution(
                     word,
-                    parent_id,
-                    command_relationships,
+                    commands,
+                    command_ids_by_span,
                 ),
             }
         })
