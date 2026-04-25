@@ -491,6 +491,7 @@ impl<'a> LinterFactsBuilder<'a> {
             replacement_expansions,
             positional_parameter_trims,
             suppressed_subscript_spans,
+            subscript_later_suppression_spans,
             arithmetic_only_suppressed_subscript_spans,
         } = surface_fragments.finish();
         let function_positional_parameter_facts = build_function_positional_parameter_facts(
@@ -504,6 +505,11 @@ impl<'a> LinterFactsBuilder<'a> {
             &suppressed_subscript_spans,
             &arithmetic_only_suppressed_subscript_spans,
         );
+        let subscript_later_suppression_reference_spans =
+            build_subscript_later_suppression_reference_spans(
+                self.semantic,
+                &subscript_later_suppression_spans,
+            );
         pattern_exactly_one_extglob_spans.extend(surface_pattern_exactly_one_extglob_spans);
         pattern_charclass_spans.extend(surface_pattern_charclass_spans);
         let escape_scan_matches = build_escape_scan_matches(
@@ -648,6 +654,7 @@ impl<'a> LinterFactsBuilder<'a> {
             presence_test_references_by_name: presence_tested_names.references_by_name,
             presence_test_names_by_name: presence_tested_names.names_by_name,
             suppressed_subscript_reference_spans,
+            subscript_later_suppression_reference_spans,
             compound_assignment_value_word_spans,
             word_nodes,
             word_occurrences,

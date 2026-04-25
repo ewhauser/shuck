@@ -30,8 +30,8 @@ use self::{
         ParameterPatternSpecialTargetFragmentFact, PositionalParameterTrimFragmentFact,
         ReplacementExpansionFragmentFact, SubstringExpansionFragmentFact, SurfaceFragmentFacts,
         SurfaceFragmentSink, SurfaceScanContext, SuspectClosingQuoteFragmentFact,
-        ZshParameterIndexFlagFragmentFact, build_suppressed_subscript_reference_spans,
-        rewrite_pattern_as_single_double_quoted_string,
+        ZshParameterIndexFlagFragmentFact, build_subscript_later_suppression_reference_spans,
+        build_suppressed_subscript_reference_spans, rewrite_pattern_as_single_double_quoted_string,
         rewrite_word_as_single_double_quoted_string,
     },
 };

@@ -44,7 +44,7 @@ pub(super) fn is_reportable_variable_reference(
         || checker
             .semantic()
             .is_defaulting_parameter_operand_reference(reference.id)
-        || has_prior_c006_parameter_guard_reference(checker, reference)
+        || has_prior_c006_suppressing_reference(checker, reference)
     {
         return false;
     }
@@ -52,18 +52,41 @@ pub(super) fn is_reportable_variable_reference(
     true
 }
 
-fn has_prior_c006_parameter_guard_reference(checker: &Checker<'_>, reference: &Reference) -> bool {
+fn has_prior_c006_suppressing_reference(checker: &Checker<'_>, reference: &Reference) -> bool {
     checker.semantic().references().iter().any(|candidate| {
         candidate.id != reference.id
             && candidate.name == reference.name
             && candidate.span.start.offset < reference.span.start.offset
-            && (checker
-                .semantic()
-                .is_guarded_parameter_reference(candidate.id)
-                || checker
-                    .semantic()
-                    .is_defaulting_parameter_operand_reference(candidate.id))
+            && c006_suppresses_later_references(checker, candidate)
     })
+}
+
+fn c006_suppresses_later_references(checker: &Checker<'_>, reference: &Reference) -> bool {
+    checker
+        .semantic()
+        .is_guarded_parameter_reference(reference.id)
+        || checker
+            .semantic()
+            .is_defaulting_parameter_operand_reference(reference.id)
+        || suppressed_subscript_reference_suppresses_later_references(checker, reference)
+}
+
+fn suppressed_subscript_reference_suppresses_later_references(
+    checker: &Checker<'_>,
+    reference: &Reference,
+) -> bool {
+    if !checker
+        .facts()
+        .is_subscript_later_suppression_reference(reference.span)
+    {
+        return false;
+    }
+
+    checker
+        .facts()
+        .innermost_command_at(reference.span.start.offset)
+        .and_then(|command| command.static_utility_name())
+        .is_none_or(|name| !matches!(name, "unset" | "[" | "[[" | "test"))
 }
 
 pub(super) fn is_environment_style_name(name: &str) -> bool {

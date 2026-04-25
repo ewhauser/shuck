@@ -10249,6 +10249,7 @@ echo \"${d//\\$ORIGIN/$origin}\"
 #!/bin/bash
 dir=all/retroarch.cfg
 echo \"${dir//$configdir\\/}\"
+echo \"${dir##$trim_prefix}\"
 find \"$configdir\"
 ";
         let model = model(source);
@@ -10256,6 +10257,11 @@ find \"$configdir\"
             reference.name == "configdir"
                 && reference.kind == ReferenceKind::ParameterPattern
                 && reference.span.slice(source) == "$configdir"
+        }));
+        assert!(model.references().iter().any(|reference| {
+            reference.name == "trim_prefix"
+                && reference.kind == ReferenceKind::ParameterPattern
+                && reference.span.slice(source) == "$trim_prefix"
         }));
 
         let analysis = model.analysis();
@@ -10267,6 +10273,10 @@ find \"$configdir\"
         assert!(!uninitialized.iter().any(|uninitialized| {
             let reference = model.reference(uninitialized.reference);
             reference.name == "configdir" && reference.kind == ReferenceKind::ParameterPattern
+        }));
+        assert!(!uninitialized.iter().any(|uninitialized| {
+            let reference = model.reference(uninitialized.reference);
+            reference.name == "trim_prefix" && reference.kind == ReferenceKind::ParameterPattern
         }));
     }
 

@@ -1978,7 +1978,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             | ParameterOp::RemovePrefixLong { pattern }
             | ParameterOp::RemoveSuffixShort { pattern }
             | ParameterOp::RemoveSuffixLong { pattern } => {
-                self.visit_pattern_into(pattern, kind, flow, nested_regions);
+                self.visit_pattern_into(
+                    pattern,
+                    WordVisitKind::ParameterPattern,
+                    flow,
+                    nested_regions,
+                );
             }
             ParameterOp::ReplaceFirst {
                 pattern,

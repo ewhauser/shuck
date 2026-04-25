@@ -3374,6 +3374,25 @@ find \"$configdir\"
     }
 
     #[test]
+    fn undefined_variable_reports_plain_reads_before_parameter_patterns() {
+        let source = "\
+#!/bin/bash
+dir=all/retroarch.cfg
+find \"$configdir\"
+echo \"${dir//$configdir\\/}\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$configdir"]
+        );
+    }
+
+    #[test]
     fn undefined_variable_reports_redirect_target_references() {
         let source = "\
 #!/bin/bash
@@ -3733,7 +3752,7 @@ printf '%s %s\\n' \"${map[swift-cmark]}\" \"${map[$dynamic_key]}\"
     }
 
     #[test]
-    fn undefined_variable_reports_later_subscript_writes_after_read_subscripts() {
+    fn undefined_variable_suppresses_later_subscript_uses_after_read_subscripts() {
         let source = "\
 #!/bin/bash
 declare -a args
@@ -3743,6 +3762,7 @@ args[$__array_start]=ok
 unset args[$unset_index]
 printf '%s\\n' \"${tools[$target]}\"
 tools[$target]=ok
+printf '%s\\n' \"$__array_start\" \"$target\"
 ";
         let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
@@ -3751,18 +3771,18 @@ tools[$target]=ok
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$__array_start", "$target"]
+            Vec::<&str>::new()
         );
     }
 
     #[test]
-    fn undefined_variable_reports_later_plain_uses_after_subscript_only_uses() {
+    fn undefined_variable_reports_unseen_plain_uses_after_subscript_only_uses() {
         let source = "\
 #!/bin/bash
 declare -a args
 declare -A tools
 printf '%s %s\\n' \"${args[$idx]}\" \"${tools[$target]}\"
-printf '%s %s\\n' \"$idx\" \"$target\"
+printf '%s %s %s\\n' \"$idx\" \"$target\" \"$unseen\"
 ";
         let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
@@ -3771,7 +3791,7 @@ printf '%s %s\\n' \"$idx\" \"$target\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$idx", "$target"]
+            vec!["$unseen"]
         );
     }
 

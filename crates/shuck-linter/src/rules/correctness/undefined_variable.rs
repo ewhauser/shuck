@@ -215,7 +215,7 @@ map+=([assoc_bare_key]=value)
     }
 
     #[test]
-    fn subscript_suppression_does_not_hide_later_plain_uses() {
+    fn subscript_suppression_hides_later_same_name_uses() {
         let source = "\
 #!/bin/bash
 printf '%s\\n' \"${arr[$read_idx]}\"
@@ -230,7 +230,7 @@ printf '%s\\n' \"$read_idx\" \"$bare_check\" \"$unset_idx\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$read_idx", "$bare_check", "$unset_idx"]
+            vec!["$bare_check", "$unset_idx"]
         );
     }
 
