@@ -2,8 +2,8 @@ use rustc_hash::FxHashSet;
 use shuck_ast::Span;
 
 use crate::{
-    Checker, ExpansionContext, Rule, SafeValueIndex, SafeValueQuery, ShellDialect, Violation,
-    WordOccurrenceRef,
+    Checker, ExpansionContext, FactSpan, Rule, SafeValueIndex, SafeValueQuery, ShellDialect,
+    Violation, WordOccurrenceRef,
 };
 
 pub struct UnquotedExpansion;
@@ -34,6 +34,7 @@ pub fn unquoted_expansion(checker: &mut Checker) {
         source,
     );
     let array_assignment_split_spans = collect_array_assignment_split_candidate_spans(checker);
+    let numeric_test_operand_spans = collect_numeric_test_operand_spans(checker, source);
 
     let mut spans = Vec::new();
     for fact in checker.facts().word_facts() {
@@ -44,6 +45,7 @@ pub fn unquoted_expansion(checker: &mut Checker) {
             &mut spans,
             source,
             fact,
+            &numeric_test_operand_spans,
         );
         collect_array_assignment_split_reports(
             &mut safe_values,
@@ -88,6 +90,7 @@ fn collect_word_fact_reports(
     spans: &mut Vec<shuck_ast::Span>,
     source: &str,
     fact: WordOccurrenceRef<'_, '_>,
+    numeric_test_operand_spans: &[Span],
 ) {
     let Some(context) = fact.host_expansion_context() else {
         return;
@@ -102,6 +105,7 @@ fn collect_word_fact_reports(
         fact,
         context,
         colon_command_ids.contains(&fact.command_id()),
+        numeric_test_operand_spans,
         |_| true,
     );
 }
@@ -129,6 +133,7 @@ fn collect_arithmetic_word_fact_reports(
         fact,
         context,
         colon_command_ids.contains(&fact.command_id()),
+        &[],
         |part_span| {
             arithmetic_word_follows_command_substitution(
                 part_span,
@@ -141,6 +146,24 @@ fn collect_arithmetic_word_fact_reports(
             )
         },
     );
+}
+
+fn collect_numeric_test_operand_spans(checker: &Checker, source: &str) -> Vec<Span> {
+    let mut spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .filter_map(|fact| fact.simple_test())
+        .flat_map(|simple_test| {
+            simple_test
+                .numeric_binary_expression_operand_words(source)
+                .into_iter()
+                .map(|word| word.span)
+        })
+        .collect::<Vec<_>>();
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.dedup_by_key(|span| FactSpan::new(*span));
+    spans
 }
 
 fn collect_array_assignment_split_candidate_spans(checker: &Checker) -> Vec<Span> {
@@ -252,6 +275,7 @@ fn report_word_expansions(
     fact: WordOccurrenceRef<'_, '_>,
     context: ExpansionContext,
     in_colon_command: bool,
+    numeric_test_operand_spans: &[Span],
     part_filter: impl Fn(Span) -> bool,
 ) {
     if !fact.analysis().hazards.field_splitting && !fact.analysis().hazards.pathname_matching {
@@ -296,12 +320,24 @@ fn report_word_expansions(
         if fact.part_is_inside_backtick_escaped_double_quotes(part_span, source) {
             continue;
         }
+        if part_is_in_numeric_test_operand(part_span, numeric_test_operand_spans)
+            && safe_values.part_is_safe(part, part_span, SafeValueQuery::NumericTestOperand)
+        {
+            continue;
+        }
         if safe_values.part_is_safe(part, part_span, query) {
             continue;
         }
 
         spans.push(fact.diagnostic_part_span(part, part_span, source));
     }
+}
+
+fn part_is_in_numeric_test_operand(part_span: Span, operand_spans: &[Span]) -> bool {
+    operand_spans
+        .iter()
+        .copied()
+        .any(|operand_span| span_contains(operand_span, part_span))
 }
 
 #[cfg(test)]
@@ -1507,6 +1543,49 @@ iptables $flag -t nat -N chain
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$w"]
+        );
+    }
+
+    #[test]
+    fn skips_numeric_short_circuit_assignment_ternaries() {
+        let source = "\
+#!/bin/bash
+I=1
+while [ $I -le 3 ]; do
+  [[ -z $SPEED ]] && I=$(( I + 1 )) || I=11
+done
+J=1
+while [ $J -le 3 ]; do
+  [[ -z $SPEED ]] && J=+11 || J=-1
+done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_numeric_short_circuit_values_outside_numeric_tests() {
+        let source = "\
+#!/bin/bash
+f() {
+  RV=0
+  [[ -z $PID ]] && RV=0 || RV=1
+  return $RV
+}
+[ \"${WITH_POWER_PLANS}\" != \"no\" ] && __INCLUDE_POWER_PLANS=1 || __INCLUDE_POWER_PLANS=0
+make install INCLUDE_POWER_PLANS=${__INCLUDE_POWER_PLANS}
+[ \"${JBIG}\" = \"no\" ] && JBIGOPT=0 || JBIGOPT=1
+make DISABLE_JBIG=$JBIGOPT
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$RV", "${__INCLUDE_POWER_PLANS}", "$JBIGOPT"]
         );
     }
 

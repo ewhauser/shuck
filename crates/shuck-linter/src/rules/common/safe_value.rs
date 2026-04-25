@@ -18,6 +18,7 @@ use crate::{ExpansionContext, FactSpan, LinterFacts};
 pub enum SafeValueQuery {
     Argv,
     RedirectTarget,
+    NumericTestOperand,
     Pattern,
     Regex,
     Quoted,
@@ -49,6 +50,7 @@ impl SafeValueQuery {
     fn operand_context(self) -> Option<ExpansionContext> {
         match self {
             Self::Argv => Some(ExpansionContext::CommandArgument),
+            Self::NumericTestOperand => Some(ExpansionContext::CommandArgument),
             Self::RedirectTarget => Some(ExpansionContext::RedirectTarget(RedirectKind::Output)),
             Self::Pattern => Some(ExpansionContext::CasePattern),
             Self::Regex => Some(ExpansionContext::RegexOperand),
@@ -56,9 +58,18 @@ impl SafeValueQuery {
         }
     }
 
+    fn is_field_context(self) -> bool {
+        matches!(
+            self,
+            Self::Argv | Self::RedirectTarget | Self::NumericTestOperand
+        )
+    }
+
     fn literal_is_safe(self, text: &str) -> bool {
         match self {
-            Self::Argv | Self::RedirectTarget => literal_is_field_safe(text),
+            Self::Argv | Self::RedirectTarget | Self::NumericTestOperand => {
+                literal_is_field_safe(text)
+            }
             Self::Pattern => literal_is_pattern_safe(text),
             Self::Regex => literal_is_regex_safe(text),
             Self::Quoted => true,
@@ -315,12 +326,13 @@ impl<'a> SafeValueIndex<'a> {
         bindings.retain(|binding_id| {
             !self.binding_is_cleared_by_dominating_unset(*binding_id, name, at)
         });
-        if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget) {
+        if query.is_field_context() {
             bindings.retain(|binding_id| {
                 !self.binding_is_blocked_by_exit_like_function_call(*binding_id, at)
             });
         }
-        let case_cli_scope = matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+        let case_cli_scope = query
+            .is_field_context()
             .then(|| self.case_cli_dispatch_scope_at(at.start.offset))
             .flatten();
         if bindings.is_empty()
@@ -342,15 +354,14 @@ impl<'a> SafeValueIndex<'a> {
                 .copied()
                 .any(|binding_id| self.binding_is_in_scope_or_descendant(binding_id, scope))
         });
-        if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+        if query.is_field_context()
             && case_cli_scope.is_some()
             && !self.case_cli_dispatch_outer_bindings_can_stay_safe(&bindings, at, query)
             && !binding_belongs_to_case_cli_scope
         {
             return safe_numeric_shell_variable(name);
         }
-        if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
-            && self.bindings_are_all_plain_empty_static_literals(&bindings)
+        if query.is_field_context() && self.bindings_are_all_plain_empty_static_literals(&bindings)
         {
             return false;
         }
@@ -368,8 +379,7 @@ impl<'a> SafeValueIndex<'a> {
             .called_helper_bindings_for_name(name, at)
             .into_iter()
             .collect::<FxHashSet<_>>();
-        let needs_arg_path_coverage =
-            matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget);
+        let needs_arg_path_coverage = query.is_field_context();
         let bindings_cover_all_paths = helper_bindings.is_empty()
             && needs_arg_path_coverage
             && self.value_sources_cover_all_paths_to_reference(&bindings, name, at);
@@ -468,9 +478,7 @@ impl<'a> SafeValueIndex<'a> {
         at: Span,
         query: SafeValueQuery,
     ) -> bool {
-        if !matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
-            || self.span_is_within_command_name(at)
-        {
+        if !query.is_field_context() || self.span_is_within_command_name(at) {
             return false;
         }
         let Some(scope) = self.case_cli_reachable_function_scope_at(at.start.offset) else {
@@ -753,7 +761,7 @@ impl<'a> SafeValueIndex<'a> {
         bindings: &[BindingId],
         query: SafeValueQuery,
     ) -> bool {
-        if !matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget) {
+        if !query.is_field_context() {
             return false;
         }
 
@@ -825,15 +833,21 @@ impl<'a> SafeValueIndex<'a> {
                 if self.binding_is_name_only_declaration(binding_id) {
                     true
                 } else {
-                    let scalar_word = self
-                        .facts
-                        .binding_value(binding_id)
-                        .filter(|value| !value.conditional_assignment_shortcut())
-                        .and_then(|value| value.scalar_word());
+                    let binding_value = self.facts.binding_value(binding_id);
+                    let scalar_word = binding_value.and_then(|value| value.scalar_word());
                     if case_cli_scope == Some(binding.scope)
-                        && matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+                        && query.is_field_context()
                         && scalar_word.is_some_and(word_is_standalone_status_capture)
                     {
+                        false
+                    } else if binding_value.is_some_and(|value| {
+                        value.conditional_assignment_shortcut()
+                            && !self.conditional_assignment_shortcut_value_can_stay_safe(
+                                binding_id,
+                                scalar_word,
+                                query,
+                            )
+                    }) {
                         false
                     } else {
                         scalar_word.is_some_and(|word| {
@@ -884,6 +898,25 @@ impl<'a> SafeValueIndex<'a> {
         result
     }
 
+    fn conditional_assignment_shortcut_value_can_stay_safe(
+        &mut self,
+        binding_id: BindingId,
+        scalar_word: Option<&Word>,
+        query: SafeValueQuery,
+    ) -> bool {
+        if query != SafeValueQuery::NumericTestOperand {
+            return false;
+        }
+        let Some(word) = scalar_word else {
+            return false;
+        };
+        if word_static_text_is_shell_integer(word, self.source) {
+            return true;
+        }
+        word_has_arithmetic_expansion(word)
+            && self.word_is_safe_for_binding_value(binding_id, word, query)
+    }
+
     fn status_capture_bindings_cover_reference(
         &self,
         bindings: &[BindingId],
@@ -892,7 +925,7 @@ impl<'a> SafeValueIndex<'a> {
         query: SafeValueQuery,
         case_cli_scope: Option<ScopeId>,
     ) -> bool {
-        if !matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget) {
+        if !query.is_field_context() {
             return false;
         }
 
@@ -933,7 +966,7 @@ impl<'a> SafeValueIndex<'a> {
         query: SafeValueQuery,
         case_cli_scope: Option<ScopeId>,
     ) -> bool {
-        if !matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget) {
+        if !query.is_field_context() {
             return false;
         }
 
@@ -1000,7 +1033,7 @@ impl<'a> SafeValueIndex<'a> {
         query: SafeValueQuery,
         case_cli_scope: Option<ScopeId>,
     ) -> bool {
-        if !matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget) {
+        if !query.is_field_context() {
             return false;
         }
 
@@ -1198,7 +1231,7 @@ impl<'a> SafeValueIndex<'a> {
         if prior_bindings.is_empty() {
             return false;
         }
-        if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget) {
+        if query.is_field_context() {
             if self.bindings_are_all_plain_empty_static_literals(&prior_bindings) {
                 return false;
             }
@@ -1258,7 +1291,8 @@ impl<'a> SafeValueIndex<'a> {
         if bindings.is_empty() {
             return false;
         }
-        let case_cli_scope = matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+        let case_cli_scope = query
+            .is_field_context()
             .then(|| self.case_cli_dispatch_scope_at(at.start.offset))
             .flatten();
 
@@ -2405,9 +2439,10 @@ impl<'a> SafeValueIndex<'a> {
         source_text_literal_value(text.slice(self.source)).is_some_and(|literal| match literal {
             SourceTextLiteral::Bare(text) => query.literal_is_safe(text),
             SourceTextLiteral::Quoted(text) => match query {
-                SafeValueQuery::Argv | SafeValueQuery::RedirectTarget | SafeValueQuery::Quoted => {
-                    true
-                }
+                SafeValueQuery::Argv
+                | SafeValueQuery::RedirectTarget
+                | SafeValueQuery::NumericTestOperand
+                | SafeValueQuery::Quoted => true,
                 SafeValueQuery::Pattern | SafeValueQuery::Regex => query.literal_is_safe(text),
             },
         })
@@ -2565,6 +2600,30 @@ fn safe_numeric_shell_variable(name: &Name) -> bool {
             | "SECONDS"
             | "UID"
     )
+}
+
+fn word_static_text_is_shell_integer(word: &Word, source: &str) -> bool {
+    static_word_text(word, source).is_some_and(|text| shell_integer_text_is_safe(&text))
+}
+
+fn shell_integer_text_is_safe(text: &str) -> bool {
+    let digits = text
+        .strip_prefix(['+', '-'])
+        .filter(|rest| !rest.is_empty())
+        .unwrap_or(text);
+    !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn word_has_arithmetic_expansion(word: &Word) -> bool {
+    parts_have_arithmetic_expansion(&word.parts)
+}
+
+fn parts_have_arithmetic_expansion(parts: &[WordPartNode]) -> bool {
+    parts.iter().any(|part| match &part.kind {
+        WordPart::ArithmeticExpansion { .. } => true,
+        WordPart::DoubleQuoted { parts, .. } => parts_have_arithmetic_expansion(parts),
+        _ => false,
+    })
 }
 
 fn word_contains_special_parameter_slice(word: &Word) -> bool {
@@ -3142,6 +3201,43 @@ iptables $flag -t nat -N chain
 
         assert!(!safe_values.word_occurrence_is_safe(short_circuit_word, SafeValueQuery::Argv));
         assert!(safe_values.word_occurrence_is_safe(if_else_word, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn numeric_assignment_ternary_bindings_stay_safe() {
+        let source = "\
+#!/bin/bash
+I=1
+while [ $I -le 3 ]; do
+  [[ -z $SPEED ]] && I=$(( I + 1 )) || I=11
+done
+J=1
+while [ $J -le 3 ]; do
+  [[ -z $SPEED ]] && J=+11 || J=-1
+done
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let loop_words = facts
+            .word_facts()
+            .iter()
+            .filter(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && matches!(fact.span().slice(source), "$I" | "$J")
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(loop_words.len(), 2);
+        for fact in loop_words {
+            assert!(!safe_values.word_occurrence_is_safe(fact, SafeValueQuery::Argv));
+            assert!(safe_values.word_occurrence_is_safe(fact, SafeValueQuery::NumericTestOperand));
+        }
     }
 
     #[test]
