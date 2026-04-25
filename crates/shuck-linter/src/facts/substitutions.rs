@@ -574,12 +574,14 @@ fn classify_substitution_body<'a>(
         body_is_pgrep_lookup: substitution_body_is_pgrep_lookup(
             body,
             commands,
-            command_relationships.command_ids_by_span,
+            parent_id,
+            command_relationships,
         ),
         body_is_seq_utility: substitution_body_is_seq_utility(
             body,
             commands,
-            command_relationships.command_ids_by_span,
+            parent_id,
+            command_relationships,
         ),
         body_has_commands: !visits.is_empty(),
         bash_file_slurp: matches!(visits.as_slice(), [visit] if is_bash_file_slurp_command(visit.command, visit.redirects, source)),

@@ -1282,6 +1282,30 @@ impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
         self.id_for_command(command).map(|id| self.fact(id))
     }
 
+    fn fact_for_command_with_parent(
+        self,
+        parent_id: Option<CommandId>,
+        command: &Command,
+    ) -> Option<&'facts CommandFact<'a>> {
+        parent_id
+            .and_then(|parent_id| self.child_id_for_command(parent_id, command))
+            .map(|id| self.fact(id))
+            .or_else(|| self.fact_for_command(command))
+    }
+
+    fn fact_for_command_lookup_with_parent(
+        self,
+        parent_id: Option<CommandId>,
+        command: &Command,
+    ) -> Option<&'facts CommandFact<'a>> {
+        self.fact_for_command(command).or_else(|| {
+            parent_id.and_then(|parent_id| {
+                self.child_id_for_command(parent_id, command)
+                    .map(|id| self.fact(id))
+            })
+        })
+    }
+
     fn fact_for_stmt(self, stmt: &Stmt) -> Option<&'facts CommandFact<'a>> {
         self.fact_for_command(&stmt.command)
     }
@@ -1308,6 +1332,22 @@ impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
             .or_else(|| self.fact_for_stmt(stmt))
     }
 
+    fn fact_for_stmt_with_parent(
+        self,
+        parent_id: Option<CommandId>,
+        stmt: &Stmt,
+    ) -> Option<&'facts CommandFact<'a>> {
+        self.fact_for_command_with_parent(parent_id, &stmt.command)
+    }
+
+    fn fact_for_stmt_lookup_with_parent(
+        self,
+        parent_id: Option<CommandId>,
+        stmt: &Stmt,
+    ) -> Option<&'facts CommandFact<'a>> {
+        self.fact_for_stmt(stmt)
+            .or_else(|| parent_id.and_then(|parent_id| self.child_fact_for_stmt(parent_id, stmt)))
+    }
 }
 
 fn build_command_parent_ids(
@@ -1425,22 +1465,6 @@ fn trim_trailing_whitespace_span(span: Span, source: &str) -> Span {
     Span::from_positions(span.start, span.start.advanced_by(trimmed))
 }
 
-fn command_fact_for_command<'a>(
-    command: &Command,
-    commands: &'a [CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-) -> Option<&'a CommandFact<'a>> {
-    command_id_for_command(command, command_ids_by_span).map(|id| command_fact(commands, id))
-}
-
-fn command_fact_for_stmt<'a>(
-    stmt: &Stmt,
-    commands: &'a [CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-) -> Option<&'a CommandFact<'a>> {
-    command_fact_for_command(&stmt.command, commands, command_ids_by_span)
-}
-
 fn child_command_id_for_command(
     parent_id: CommandId,
     command: &Command,
@@ -1452,14 +1476,6 @@ fn child_command_id_for_command(
         .iter()
         .copied()
         .find(|id| std::ptr::eq(command_fact(commands, *id).command(), command))
-}
-
-fn command_fact_ref_for_stmt<'facts, 'a>(
-    stmt: &Stmt,
-    commands: CommandFacts<'facts, 'a>,
-    command_ids_by_span: &CommandLookupIndex,
-) -> Option<CommandFactRef<'facts, 'a>> {
-    command_id_for_command(&stmt.command, command_ids_by_span).map(|id| command_fact_ref(commands, id))
 }
 
 fn builtin_span(command: &BuiltinCommand) -> Span {

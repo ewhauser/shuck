@@ -483,9 +483,18 @@ impl<'a> LinterFactsBuilder<'a> {
             &structural_command_ids,
             self.source,
         );
-        let for_headers = build_for_header_facts(&commands, &command_ids_by_span, self.source);
-        let select_headers =
-            build_select_header_facts(&commands, &command_ids_by_span, self.source);
+        let for_headers = build_for_header_facts(
+            &commands,
+            &command_ids_by_span,
+            &command_child_index,
+            self.source,
+        );
+        let select_headers = build_select_header_facts(
+            &commands,
+            &command_ids_by_span,
+            &command_child_index,
+            self.source,
+        );
         let case_items = build_case_item_facts(&commands, self.source);
         let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
         let case_pattern_impossible_spans =
@@ -513,7 +522,12 @@ impl<'a> LinterFactsBuilder<'a> {
             );
         annotate_conditional_assignment_value_paths(self.semantic, &lists, &mut binding_values);
         let statement_facts =
-            build_statement_facts(&commands, &command_ids_by_span, &self.file.body);
+            build_statement_facts(
+                &commands,
+                &command_ids_by_span,
+                &command_child_index,
+                &self.file.body,
+            );
         let background_semicolon_spans =
             build_background_semicolon_spans(&commands, &case_items, self.source);
         let single_test_subshell_spans =
