@@ -344,17 +344,9 @@ impl<'a> LinterFacts<'a> {
                 })
     }
 
-    pub fn is_c006_presence_tested_name(&self, name: &Name, span: Span) -> bool {
+    pub fn is_c006_presence_tested_name(&self, name: &Name, _span: Span) -> bool {
         self.c006_presence_tested_names.contains(name)
-            || self
-                .c006_nested_presence_test_spans
-                .get(name)
-                .is_some_and(|spans| {
-                    spans
-                        .iter()
-                        .copied()
-                        .any(|outer| contains_span(outer, span))
-                })
+            || self.c006_nested_presence_test_spans.contains_key(name)
     }
 
     pub fn assignment_value_target_name_for_span(&self, span: Span) -> Option<&Name> {

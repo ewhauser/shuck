@@ -172,6 +172,32 @@ printf '%s\\n' \"${before_default:-fallback}\" \"${before_error:?missing}\"
     }
 
     #[test]
+    fn nested_presence_tests_suppress_same_name_c006_reports() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"$late_guarded\"
+options=(
+  no_ask \"$( [[ -n \"$no_ask\" ]] && printf true || printf false)\"
+  truthy \"$( [ \"$truthy\" ] && printf true || printf false)\"
+)
+printf '%s\\n' \"$( [[ -n \"$late_guarded\" ]] && printf true)\"
+printf '%s\\n' \"$no_ask\" \"$truthy\"
+printf '%s\\n' \"$(test -n \"$plain_test\" && printf true)\"
+printf '%s\\n' \"$( [[ -s \"$file_test\" ]] && printf true)\"
+printf '%s\\n' \"$plain_test\" \"$file_test\" \"$still_missing\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$plain_test", "$file_test", "$still_missing"]
+        );
+    }
+
+    #[test]
     fn reports_index_arithmetic_subscript_references() {
         let source = "\
 #!/bin/bash
