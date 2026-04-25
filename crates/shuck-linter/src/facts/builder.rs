@@ -708,7 +708,13 @@ impl<'a> LinterFactsBuilder<'a> {
         let command_parent_ids = build_command_parent_ids(&commands);
         let command_dominance_barrier_flags = build_command_dominance_barrier_flags(&commands);
 
-        let backtick_substitution_spans = word_spans::backtick_substitution_spans(source);
+        let mut backtick_substitution_spans = word_spans::backtick_substitution_spans(source);
+        backtick_substitution_spans.retain(|span| {
+            !self
+                ._indexer
+                .region_index()
+                .is_quoted_heredoc(TextSize::new(span.start.offset as u32))
+        });
         let backtick_escaped_parameters =
             word_spans::backtick_escaped_parameters(source, &backtick_substitution_spans);
 

@@ -1633,6 +1633,35 @@ printf '%s\\n' `echo \\$1 \\$HOME \\$SAFE \\$PPID`
     }
 
     #[test]
+    fn ignores_escaped_parameters_in_quoted_heredoc_backticks() {
+        let source = "\
+#!/bin/sh
+cat <<'EOF'
+`echo \\$HOME`
+EOF
+cat <<EOF
+`echo \\$HOME`
+EOF
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    (
+                        diagnostic.span.start.line,
+                        diagnostic.span.start.column,
+                        diagnostic.span.end.line,
+                        diagnostic.span.end.column,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![(6, 7, 6, 12)]
+        );
+    }
+
+    #[test]
     fn reports_unsafe_escaped_parameters_in_legacy_backticks() {
         let source = "\
 #!/bin/sh

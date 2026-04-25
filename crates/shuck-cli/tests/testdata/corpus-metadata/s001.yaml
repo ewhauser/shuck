@@ -630,13 +630,6 @@ reviewed_divergences:
     end_column: 109
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "dylanaraps__neofetch__neofetch"
-    line: 7233
-    end_line: 7233
-    column: 28
-    end_column: 33
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "gentoo__gentoo__dev-libs__kpathsea__files__texmf-update-r2"
     line: 28
     end_line: 28

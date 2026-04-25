@@ -87,6 +87,11 @@ impl RegionIndex {
         contains_any(&self.heredocs, offset)
     }
 
+    /// Check if a byte offset falls inside a quoted heredoc body.
+    pub fn is_quoted_heredoc(&self, offset: TextSize) -> bool {
+        contains_any(&self.quoted_heredocs, offset)
+    }
+
     /// Check if a byte offset falls inside a command substitution.
     pub fn is_command_substitution(&self, offset: TextSize) -> bool {
         contains_any(&self.command_substitutions, offset)
