@@ -218,6 +218,21 @@ fn collect_arithmetic_words<'a>(expression: &'a ArithmeticExprNode, words: &mut 
     }
 }
 
+fn collect_arithmetic_expression_visits<'a, F>(
+    expression: &'a ArithmeticExprNode,
+    options: CommandWalkOptions,
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
+    let mut arithmetic_words = Vec::new();
+    collect_arithmetic_words(expression, &mut arithmetic_words);
+    for word in arithmetic_words {
+        collect_word_visits(word, options, context, visitor);
+    }
+}
+
 fn visit_arithmetic_lvalue_words<'a>(
     target: &'a ArithmeticLvalue,
     visitor: &mut impl FnMut(&'a Word),
@@ -422,6 +437,16 @@ fn collect_compound_visits<'a, F>(
             collect_command_visits(&command.body, options, loop_context(context), visitor);
         }
         CompoundCommand::ArithmeticFor(command) => {
+            for expression in [
+                command.init_ast.as_ref(),
+                command.condition_ast.as_ref(),
+                command.step_ast.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                collect_arithmetic_expression_visits(expression, options, context, visitor);
+            }
             collect_command_visits(&command.body, options, loop_context(context), visitor);
         }
         CompoundCommand::While(command) => {
@@ -462,7 +487,11 @@ fn collect_compound_visits<'a, F>(
             collect_command_visits(&command.body, options, context, visitor);
             collect_command_visits(&command.always_body, options, context, visitor);
         }
-        CompoundCommand::Arithmetic(_) => {}
+        CompoundCommand::Arithmetic(command) => {
+            if let Some(expression) = command.expr_ast.as_ref() {
+                collect_arithmetic_expression_visits(expression, options, context, visitor);
+            }
+        }
         CompoundCommand::Time(command) => {
             if let Some(command) = &command.command {
                 collect_command_visit(command, options, context, visitor);
@@ -576,11 +605,7 @@ fn collect_word_part_visits<'a, F>(
             }
             WordPart::ArithmeticExpansion { expression_ast, .. } => {
                 if let Some(expression_ast) = expression_ast.as_ref() {
-                    let mut arithmetic_words = Vec::new();
-                    collect_optional_arithmetic_words(Some(expression_ast), &mut arithmetic_words);
-                    for word in arithmetic_words {
-                        collect_word_visits(word, options, context, visitor);
-                    }
+                    collect_arithmetic_expression_visits(expression_ast, options, context, visitor);
                 }
             }
             WordPart::Parameter(parameter) => {

@@ -53,6 +53,19 @@ pub fn unquoted_expansion(checker: &mut Checker) {
             &array_assignment_split_spans,
         );
     }
+    let arithmetic_command_substitution_spans =
+        checker.facts().arithmetic_command_substitution_spans();
+    for fact in checker.facts().arithmetic_command_word_facts() {
+        collect_arithmetic_word_fact_reports(
+            checker,
+            &colon_command_ids,
+            &mut safe_values,
+            &mut spans,
+            source,
+            fact,
+            arithmetic_command_substitution_spans,
+        );
+    }
     for escaped in checker.facts().backtick_escaped_parameters() {
         if escaped.standalone_command_name {
             continue;
@@ -89,6 +102,44 @@ fn collect_word_fact_reports(
         fact,
         context,
         colon_command_ids.contains(&fact.command_id()),
+        |_| true,
+    );
+}
+
+fn collect_arithmetic_word_fact_reports(
+    checker: &Checker,
+    colon_command_ids: &FxHashSet<crate::facts::core::CommandId>,
+    safe_values: &mut SafeValueIndex<'_>,
+    spans: &mut Vec<shuck_ast::Span>,
+    source: &str,
+    fact: WordOccurrenceRef<'_, '_>,
+    arithmetic_command_substitution_spans: &[Span],
+) {
+    let Some(context) = fact.host_expansion_context() else {
+        return;
+    };
+    if !should_check_context(context, checker.shell()) {
+        return;
+    }
+    let fact_command_substitution_spans = fact.command_substitution_spans();
+    report_word_expansions(
+        spans,
+        safe_values,
+        source,
+        fact,
+        context,
+        colon_command_ids.contains(&fact.command_id()),
+        |part_span| {
+            arithmetic_word_follows_command_substitution(
+                part_span,
+                source,
+                fact_command_substitution_spans,
+            ) || arithmetic_word_follows_command_substitution(
+                part_span,
+                source,
+                arithmetic_command_substitution_spans,
+            )
+        },
     );
 }
 
@@ -178,6 +229,22 @@ fn span_contains(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
 }
 
+fn arithmetic_word_follows_command_substitution(
+    word_span: Span,
+    source: &str,
+    command_substitution_spans: &[Span],
+) -> bool {
+    command_substitution_spans.iter().copied().any(|span| {
+        if span.end.offset > word_span.start.offset {
+            return false;
+        }
+        let Some(between) = source.get(span.end.offset..word_span.start.offset) else {
+            return false;
+        };
+        !between.contains('\n') && between.chars().all(char::is_whitespace)
+    })
+}
+
 fn report_word_expansions(
     spans: &mut Vec<Span>,
     safe_values: &mut SafeValueIndex<'_>,
@@ -185,6 +252,7 @@ fn report_word_expansions(
     fact: WordOccurrenceRef<'_, '_>,
     context: ExpansionContext,
     in_colon_command: bool,
+    part_filter: impl Fn(Span) -> bool,
 ) {
     if !fact.analysis().hazards.field_splitting && !fact.analysis().hazards.pathname_matching {
         return;
@@ -214,6 +282,9 @@ fn report_word_expansions(
     for (part, part_span) in fact.parts_with_spans() {
         let report_unquoted_star = star_spans.contains(&part_span);
         if !scalar_spans.contains(&part_span) && !report_unquoted_star {
+            continue;
+        }
+        if !part_filter(part_span) {
             continue;
         }
         if assign_default_spans.contains(&part_span) {
@@ -278,6 +349,44 @@ printf '%s\\n' \"$(echo $name)\"
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$name"]
+        );
+    }
+
+    #[test]
+    fn descends_into_arithmetic_command_substitutions() {
+        let source = "\
+#!/bin/bash
+if (( $(du -c $profraw_file_mask | tail -n 1 | cut -f 1) == 0 )); then
+  :
+fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$profraw_file_mask"]
+        );
+    }
+
+    #[test]
+    fn reports_arithmetic_words_following_command_substitutions() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"$(( $(cat \"$backlight/brightness\") $1 step ))\"
+printf '%s\\n' \"$(( $(cat \"$backlight/brightness\") + $count ))\"
+printf '%s\\n' \"$(( $count + 1 ))\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$1"]
         );
     }
 
