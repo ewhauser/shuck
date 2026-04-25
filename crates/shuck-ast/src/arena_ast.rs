@@ -269,6 +269,23 @@ impl AstStore {
                     .into_boxed_slice(),
                 span: node.span,
             }),
+            CommandNodePayload::Binary(command) => {
+                let mut left_stmts = self.materialize_stmt_seq(command.left).stmts.into_iter();
+                let Some(left) = left_stmts.next() else {
+                    panic!("binary left sequence contains one statement");
+                };
+                let mut right_stmts = self.materialize_stmt_seq(command.right).stmts.into_iter();
+                let Some(right) = right_stmts.next() else {
+                    panic!("binary right sequence contains one statement");
+                };
+                Command::Binary(crate::BinaryCommand {
+                    left: Box::new(left),
+                    op: command.op,
+                    op_span: command.op_span,
+                    right: Box::new(right),
+                    span: node.span,
+                })
+            }
             CommandNodePayload::Legacy => node.legacy.clone(),
         }
     }
@@ -355,6 +372,8 @@ pub enum CommandNodePayload {
     Builtin(BuiltinCommandNode),
     /// Declaration builtin command payload.
     Decl(DeclCommandNode),
+    /// Binary shell command payload.
+    Binary(BinaryCommandNode),
     /// Compatibility payload for command families that still materialize from `legacy`.
     Legacy,
 }
@@ -407,6 +426,19 @@ pub struct DeclCommandNode {
     pub operands: IdRange<DeclOperand>,
     /// Prefix assignments.
     pub assignments: IdRange<Assignment>,
+}
+
+/// Arena-native binary command payload.
+#[derive(Debug, Clone)]
+pub struct BinaryCommandNode {
+    /// Left-hand statement sequence.
+    pub left: StmtSeqId,
+    /// Binary operator.
+    pub op: crate::BinaryOp,
+    /// Source span of the operator token.
+    pub op_span: Span,
+    /// Right-hand statement sequence.
+    pub right: StmtSeqId,
 }
 
 /// Coarse command family stored with command arena nodes.
@@ -619,6 +651,7 @@ impl<'a> CommandView<'a> {
             }),
             CommandNodePayload::Builtin(_)
             | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Binary(_)
             | CommandNodePayload::Legacy => None,
         }
     }
@@ -632,6 +665,7 @@ impl<'a> CommandView<'a> {
             }),
             CommandNodePayload::Simple(_)
             | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Binary(_)
             | CommandNodePayload::Legacy => None,
         }
     }
@@ -645,6 +679,21 @@ impl<'a> CommandView<'a> {
             }),
             CommandNodePayload::Simple(_)
             | CommandNodePayload::Builtin(_)
+            | CommandNodePayload::Binary(_)
+            | CommandNodePayload::Legacy => None,
+        }
+    }
+
+    /// Returns the native binary payload when this command is a binary shell command.
+    pub fn binary(self) -> Option<BinaryCommandView<'a>> {
+        match &self.node().payload {
+            CommandNodePayload::Binary(_) => Some(BinaryCommandView {
+                store: self.store,
+                id: self.id,
+            }),
+            CommandNodePayload::Simple(_)
+            | CommandNodePayload::Builtin(_)
+            | CommandNodePayload::Decl(_)
             | CommandNodePayload::Legacy => None,
         }
     }
@@ -707,6 +756,7 @@ impl<'a> SimpleCommandView<'a> {
             CommandNodePayload::Simple(command) => command,
             CommandNodePayload::Builtin(_)
             | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Binary(_)
             | CommandNodePayload::Legacy => {
                 unreachable!("simple view requires simple payload")
             }
@@ -760,6 +810,7 @@ impl<'a> BuiltinCommandView<'a> {
             CommandNodePayload::Builtin(command) => command,
             CommandNodePayload::Simple(_)
             | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Binary(_)
             | CommandNodePayload::Legacy => {
                 unreachable!("builtin view requires builtin payload")
             }
@@ -800,7 +851,57 @@ impl<'a> DeclCommandView<'a> {
             CommandNodePayload::Decl(command) => command,
             CommandNodePayload::Simple(_)
             | CommandNodePayload::Builtin(_)
+            | CommandNodePayload::Binary(_)
             | CommandNodePayload::Legacy => unreachable!("decl view requires decl payload"),
+        }
+    }
+}
+
+/// Borrowed view of an arena-native binary command payload.
+#[derive(Debug, Clone, Copy)]
+pub struct BinaryCommandView<'a> {
+    store: &'a AstStore,
+    id: CommandId,
+}
+
+impl<'a> BinaryCommandView<'a> {
+    /// Returns the left-hand statement sequence.
+    pub fn left(self) -> StmtSeqView<'a> {
+        self.store.stmt_seq(self.node().left)
+    }
+
+    /// Returns the left-hand statement sequence ID.
+    pub fn left_id(self) -> StmtSeqId {
+        self.node().left
+    }
+
+    /// Returns the binary operator.
+    pub fn op(self) -> crate::BinaryOp {
+        self.node().op
+    }
+
+    /// Returns the source span of the operator token.
+    pub fn op_span(self) -> Span {
+        self.node().op_span
+    }
+
+    /// Returns the right-hand statement sequence.
+    pub fn right(self) -> StmtSeqView<'a> {
+        self.store.stmt_seq(self.node().right)
+    }
+
+    /// Returns the right-hand statement sequence ID.
+    pub fn right_id(self) -> StmtSeqId {
+        self.node().right
+    }
+
+    fn node(self) -> &'a BinaryCommandNode {
+        match &self.store.commands[self.id.index()].payload {
+            CommandNodePayload::Binary(command) => command,
+            CommandNodePayload::Simple(_)
+            | CommandNodePayload::Builtin(_)
+            | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Legacy => unreachable!("binary view requires binary payload"),
         }
     }
 }
@@ -1124,8 +1225,7 @@ impl AstStoreBuilder {
                 })
             }
             Command::Binary(command) => {
-                self.collect_binary_children(command, child_sequences);
-                CommandNodePayload::Legacy
+                CommandNodePayload::Binary(self.collect_binary_children(command, child_sequences))
             }
             Command::Compound(command) => {
                 self.collect_compound_children(command, words, child_sequences);
@@ -1213,19 +1313,27 @@ impl AstStoreBuilder {
         &mut self,
         command: &BinaryCommand,
         child_sequences: &mut Vec<StmtSeqId>,
-    ) {
-        child_sequences.push(self.lower_stmt_seq(&StmtSeq {
+    ) -> BinaryCommandNode {
+        let left = self.lower_stmt_seq(&StmtSeq {
             leading_comments: Vec::new(),
             stmts: vec![(*command.left).clone()],
             trailing_comments: Vec::new(),
             span: command.left.span,
-        }));
-        child_sequences.push(self.lower_stmt_seq(&StmtSeq {
+        });
+        let right = self.lower_stmt_seq(&StmtSeq {
             leading_comments: Vec::new(),
             stmts: vec![(*command.right).clone()],
             trailing_comments: Vec::new(),
             span: command.right.span,
-        }));
+        });
+        child_sequences.push(left);
+        child_sequences.push(right);
+        BinaryCommandNode {
+            left,
+            op: command.op,
+            op_span: command.op_span,
+            right,
+        }
     }
 
     fn collect_compound_children(
@@ -2174,6 +2282,62 @@ mod tests {
         };
         assert_eq!(command.operands.len(), 2);
         assert_eq!(command.assignments.len(), 1);
+    }
+
+    #[test]
+    fn binary_command_payload_is_arena_native() {
+        let left = Stmt {
+            leading_comments: Vec::new(),
+            command: Command::Simple(SimpleCommand {
+                name: Word::literal("left"),
+                args: Vec::new(),
+                assignments: Box::new([]),
+                span: Span::new(),
+            }),
+            negated: false,
+            redirects: Box::new([]),
+            terminator: None,
+            terminator_span: None,
+            inline_comment: None,
+            span: Span::new(),
+        };
+        let right = Stmt {
+            leading_comments: Vec::new(),
+            command: Command::Simple(SimpleCommand {
+                name: Word::literal("right"),
+                args: Vec::new(),
+                assignments: Box::new([]),
+                span: Span::new(),
+            }),
+            negated: false,
+            redirects: Box::new([]),
+            terminator: None,
+            terminator_span: None,
+            inline_comment: None,
+            span: Span::new(),
+        };
+        let file = file_with_command(Command::Binary(crate::BinaryCommand {
+            left: Box::new(left),
+            op: crate::BinaryOp::And,
+            op_span: Span::new(),
+            right: Box::new(right),
+            span: Span::new(),
+        }));
+
+        let arena = ArenaFile::from_file(&file);
+        let command = arena.view().body().stmts().next().unwrap().command();
+        let binary = command.binary().expect("expected native binary payload");
+
+        assert_eq!(binary.op(), crate::BinaryOp::And);
+        assert_eq!(binary.left().stmt_ids().len(), 1);
+        assert_eq!(binary.right().stmt_ids().len(), 1);
+        assert_eq!(command.child_sequence_ids().len(), 2);
+
+        let materialized = arena.to_file();
+        let Command::Binary(command) = &materialized.body[0].command else {
+            panic!("expected binary command");
+        };
+        assert_eq!(command.op, crate::BinaryOp::And);
     }
 
     #[test]
