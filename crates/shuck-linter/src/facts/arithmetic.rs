@@ -1020,11 +1020,12 @@ fn var_ref_name_has_visible_assoc_binding_from_named_callers(
         return false;
     };
 
-    let mut seen = FxHashSet::default();
-    let mut worklist = function_names.to_vec();
+    let mut seen = AssocCallerSeenNames::new();
+    let mut worklist = SmallVec::<[Name; 4]>::new();
+    worklist.extend(function_names.iter().cloned());
 
     while let Some(function_name) = worklist.pop() {
-        if !seen.insert(function_name.clone()) {
+        if !seen.insert(&function_name) {
             continue;
         }
 
@@ -1048,6 +1049,44 @@ fn var_ref_name_has_visible_assoc_binding_from_named_callers(
     }
 
     false
+}
+
+struct AssocCallerSeenNames {
+    inline: SmallVec<[Name; 8]>,
+    hashed: Option<FxHashSet<Name>>,
+}
+
+impl AssocCallerSeenNames {
+    const HASH_THRESHOLD: usize = 32;
+
+    fn new() -> Self {
+        Self {
+            inline: SmallVec::new(),
+            hashed: None,
+        }
+    }
+
+    fn insert(&mut self, name: &Name) -> bool {
+        if let Some(hashed) = &mut self.hashed {
+            return hashed.insert(name.clone());
+        }
+
+        if self.inline.iter().any(|seen_name| seen_name == name) {
+            return false;
+        }
+
+        if self.inline.len() < Self::HASH_THRESHOLD {
+            self.inline.push(name.clone());
+            return true;
+        }
+
+        let mut hashed =
+            FxHashSet::with_capacity_and_hasher(Self::HASH_THRESHOLD * 2, Default::default());
+        hashed.extend(self.inline.drain(..));
+        let inserted = hashed.insert(name.clone());
+        self.hashed = Some(hashed);
+        inserted
+    }
 }
 
 fn named_function_scope_names(semantic: &SemanticModel, offset: usize) -> Option<&[Name]> {

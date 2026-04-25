@@ -5152,11 +5152,12 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             return false;
         };
 
-        let mut seen = FxHashSet::default();
-        let mut worklist = function_names.to_vec();
+        let mut seen = AssocCallerSeenNames::new();
+        let mut worklist = SmallVec::<[Name; 4]>::new();
+        worklist.extend(function_names.iter().cloned());
 
         while let Some(function_name) = worklist.pop() {
-            if !seen.insert(function_name.clone()) {
+            if !seen.insert(&function_name) {
                 continue;
             }
 
