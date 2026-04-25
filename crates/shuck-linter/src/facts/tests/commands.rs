@@ -3555,6 +3555,32 @@ shown=$({ printf hi; } >/dev/tty)
 }
 
 #[test]
+fn leaves_inner_compound_redirects_out_of_substitution_output_warnings() {
+    let source = "\
+#!/bin/sh
+file=$({ printf hi >out.txt; })
+fd=$({ printf hi >&5; })
+";
+
+    with_facts(source, None, |_, facts| {
+        let substitutions = facts
+            .commands()
+            .iter()
+            .flat_map(|fact| fact.substitution_facts().iter())
+            .collect::<Vec<_>>();
+
+        for substitution in substitutions {
+            assert_eq!(
+                substitution.stdout_intent(),
+                SubstitutionOutputIntent::Captured
+            );
+            assert!(substitution.stdout_redirect_spans().is_empty());
+            assert!(substitution.stdout_dev_null_redirect_spans().is_empty());
+        }
+    });
+}
+
+#[test]
 fn builds_docker_ps_substitution_facts_without_pgrep_exemptions() {
     let source = "\
 #!/bin/bash

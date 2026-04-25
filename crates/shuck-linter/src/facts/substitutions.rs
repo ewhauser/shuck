@@ -601,25 +601,6 @@ fn summarize_stmt_redirects<'a>(
                 merge_redirect_summaries(left, right, true)
             }
         },
-        Command::Compound(CompoundCommand::Subshell(body))
-        | Command::Compound(CompoundCommand::BraceGroup(body)) => {
-            summarize_compound_stmt_redirects(
-                summarize_stmt_seq_redirects(body, commands, command_ids_by_span, source),
-                &stmt.redirects,
-                source,
-            )
-        }
-        Command::Compound(CompoundCommand::Time(command)) => command
-            .command
-            .as_deref()
-            .map(|inner_stmt| {
-                summarize_compound_stmt_redirects(
-                    summarize_stmt_redirects(inner_stmt, commands, command_ids_by_span, source),
-                    &stmt.redirects,
-                    source,
-                )
-            })
-            .unwrap_or_else(default_redirect_summary),
         Command::Simple(_)
         | Command::Builtin(_)
         | Command::Decl(_)
@@ -637,47 +618,13 @@ fn summarize_stmt_redirects<'a>(
             | CompoundCommand::Select(_)
             | CompoundCommand::Arithmetic(_)
             | CompoundCommand::Conditional(_)
+            | CompoundCommand::Subshell(_)
+            | CompoundCommand::BraceGroup(_)
+            | CompoundCommand::Time(_)
             | CompoundCommand::Coproc(_)
             | CompoundCommand::Always(_),
         ) => summarize_command_redirects(&stmt.command, &stmt.redirects, commands, command_ids_by_span, source),
     }
-}
-
-fn summarize_compound_stmt_redirects(
-    mut summary: RedirectSummary,
-    redirects: &[Redirect],
-    source: &str,
-) -> RedirectSummary {
-    let redirect_facts = build_redirect_facts(redirects, None, source, None);
-    if redirect_facts.is_empty() {
-        return summary;
-    }
-
-    let outer_summary = summarize_redirect_facts(&redirect_facts);
-    summary.has_stdout_redirect |= outer_summary.has_stdout_redirect;
-    summary
-        .stdout_redirect_spans
-        .extend(outer_summary.stdout_redirect_spans);
-    summary
-        .stdout_dev_null_redirect_spans
-        .extend(outer_summary.stdout_dev_null_redirect_spans);
-
-    if outer_summary.has_stdout_redirect {
-        summary.stdout_intent = outer_summary.stdout_intent;
-        summary.terminal_stdout_intent = outer_summary.terminal_stdout_intent;
-    }
-
-    if compound_redirects_capture_stderr_to_stdout(&redirect_facts) {
-        summary.stdout_intent = SubstitutionOutputIntent::Captured;
-        summary.terminal_stdout_intent = SubstitutionOutputIntent::Captured;
-        if !outer_summary.has_stdout_redirect {
-            summary.has_stdout_redirect = false;
-            summary.stdout_redirect_spans.clear();
-            summary.stdout_dev_null_redirect_spans.clear();
-        }
-    }
-
-    summary
 }
 
 fn summarize_command_redirects<'a>(
@@ -688,21 +635,21 @@ fn summarize_command_redirects<'a>(
     source: &str,
 ) -> RedirectSummary {
     if let Some(id) = command_id_for_command(command, command_ids_by_span) {
-        summarize_redirect_facts(command_fact(commands, id).redirect_facts())
+        summarize_redirect_facts(command_fact(commands, id).redirect_facts(), source)
     } else {
         let redirect_facts = build_redirect_facts(redirects, None, source, None);
-        summarize_redirect_facts(&redirect_facts)
+        summarize_redirect_facts(&redirect_facts, source)
     }
 }
 
-fn summarize_redirect_facts(redirects: &[RedirectFact<'_>]) -> RedirectSummary {
+fn summarize_redirect_facts(redirects: &[RedirectFact<'_>], source: &str) -> RedirectSummary {
     let state = classify_redirect_facts(redirects);
     RedirectSummary {
         stdout_intent: state.stdout_intent,
         terminal_stdout_intent: state.stdout_intent,
         has_stdout_redirect: state.has_stdout_redirect,
-        stdout_redirect_spans: stdout_redirect_spans_for_fix(redirects),
-        stdout_dev_null_redirect_spans: stdout_dev_null_redirect_spans_for_fix(redirects),
+        stdout_redirect_spans: stdout_redirect_spans_for_fix(redirects, source),
+        stdout_dev_null_redirect_spans: stdout_dev_null_redirect_spans_for_fix(redirects, source),
     }
 }
 
@@ -727,16 +674,6 @@ fn merge_redirect_summaries(
         next.stdout_intent
     };
     current
-}
-
-fn default_redirect_summary() -> RedirectSummary {
-    RedirectSummary {
-        stdout_intent: SubstitutionOutputIntent::Captured,
-        terminal_stdout_intent: SubstitutionOutputIntent::Captured,
-        has_stdout_redirect: false,
-        stdout_redirect_spans: Vec::new(),
-        stdout_dev_null_redirect_spans: Vec::new(),
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -803,18 +740,23 @@ fn classify_redirect_facts(redirects: &[RedirectFact<'_>]) -> RedirectState {
     }
 }
 
-fn stdout_redirect_spans_for_fix(redirects: &[RedirectFact<'_>]) -> Vec<Span> {
+fn stdout_redirect_spans_for_fix(redirects: &[RedirectFact<'_>], source: &str) -> Vec<Span> {
     redirects
         .iter()
-        .filter(|redirect| redirect_matches_substitution_warning(redirect))
+        .filter(|redirect| redirect_matches_substitution_warning(redirect, source))
         .map(|redirect| redirect.redirect().span)
         .collect()
 }
 
-fn stdout_dev_null_redirect_spans_for_fix(redirects: &[RedirectFact<'_>]) -> Vec<Span> {
+fn stdout_dev_null_redirect_spans_for_fix(
+    redirects: &[RedirectFact<'_>],
+    source: &str,
+) -> Vec<Span> {
     redirects
         .iter()
-        .filter(|redirect| redirect_targets_stdout_dev_null_for_substitution_warning(redirect))
+        .filter(|redirect| {
+            redirect_targets_stdout_dev_null_for_substitution_warning(redirect, source)
+        })
         .map(|redirect| redirect.redirect().span)
         .collect()
 }
@@ -839,29 +781,40 @@ fn redirect_targets_stdout_dev_null(redirect: &RedirectFact<'_>) -> bool {
     redirect_affects_stdout(redirect) && redirect_file_sink(redirect) == OutputSink::DevNull
 }
 
-fn redirect_targets_stdout_dev_null_for_substitution_warning(redirect: &RedirectFact<'_>) -> bool {
-    redirect_matches_substitution_warning(redirect) && redirect_targets_stdout_dev_null(redirect)
+fn redirect_targets_stdout_dev_null_for_substitution_warning(
+    redirect: &RedirectFact<'_>,
+    source: &str,
+) -> bool {
+    redirect_matches_substitution_warning(redirect, source)
+        && redirect_targets_stdout_dev_null(redirect)
 }
 
-fn redirect_matches_substitution_warning(redirect: &RedirectFact<'_>) -> bool {
-    matches!(
-        redirect.redirect().kind,
-        RedirectKind::Output | RedirectKind::Clobber | RedirectKind::Append
-    ) && redirect.redirect().fd.unwrap_or(1) == 1
+fn redirect_matches_substitution_warning(redirect: &RedirectFact<'_>, source: &str) -> bool {
+    match redirect.redirect().kind {
+        RedirectKind::Output | RedirectKind::Clobber | RedirectKind::Append => {
+            redirect.redirect().fd.unwrap_or(1) == 1
+        }
+        RedirectKind::DupOutput => {
+            redirect.redirect().fd.unwrap_or(1) == 1
+                && redirect.redirect().span.slice(source).trim_start().starts_with(">&")
+                && dup_stdout_target_redirects_capture_away(redirect, source)
+        }
+        RedirectKind::Input
+        | RedirectKind::ReadWrite
+        | RedirectKind::HereDoc
+        | RedirectKind::HereDocStrip
+        | RedirectKind::HereString
+        | RedirectKind::OutputBoth
+        | RedirectKind::DupInput => false,
+    }
 }
 
-fn compound_redirects_capture_stderr_to_stdout(redirects: &[RedirectFact<'_>]) -> bool {
-    classify_redirect_facts(redirects).stdout_intent == SubstitutionOutputIntent::Captured
-        && redirects.iter().any(is_stderr_to_stdout_dup)
-}
+fn dup_stdout_target_redirects_capture_away(redirect: &RedirectFact<'_>, source: &str) -> bool {
+    let Some(target) = redirect.target_span().map(|span| span.slice(source).trim()) else {
+        return false;
+    };
 
-fn is_stderr_to_stdout_dup(redirect: &RedirectFact<'_>) -> bool {
-    redirect.redirect().kind == RedirectKind::DupOutput
-        && redirect.redirect().fd == Some(2)
-        && redirect
-            .analysis()
-            .and_then(|analysis| analysis.numeric_descriptor_target)
-            == Some(1)
+    target == "-" || (target.chars().all(|ch| ch.is_ascii_digit()) && target != "1")
 }
 
 fn substitution_body_contains_echo(body: &StmtSeq, source: &str) -> bool {
