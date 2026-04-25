@@ -470,6 +470,25 @@ echo 2>&$fd
     }
 
     #[test]
+    fn reports_descriptor_dup_target_before_new_brace_fd_binding() {
+        let source = "\
+#!/bin/bash
+fd='1 2'
+exec {fd}>&$fd
+printf '%s\\n' \"$fd\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$fd"]
+        );
+    }
+
+    #[test]
     fn reports_descriptor_dup_targets_without_visible_fd_bindings() {
         let source = "\
 #!/bin/bash
