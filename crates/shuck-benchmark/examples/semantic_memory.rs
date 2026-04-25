@@ -175,16 +175,20 @@ struct CaseReport {
     files: usize,
     recovered_files: usize,
     command_count: usize,
+    semantic_item_count: usize,
+    cfg_block_count: usize,
     metrics: MemoryMetrics,
+    cfg_metrics: MemoryMetrics,
 }
 
-fn build_semantic(source: &str) -> (usize, usize, bool) {
+fn build_semantic(source: &str) -> (SemanticModel, usize, usize, bool) {
     let output = parse_fixture(source);
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
     let semantic_count =
         semantic.bindings().len() + semantic.references().len() + semantic.scopes().len();
     (
+        semantic,
         semantic_count,
         output.file.body.len(),
         output.status != ParseStatus::Clean,
@@ -195,20 +199,42 @@ fn single_case_report(case_name: &str) -> Option<CaseReport> {
     let cases = benchmark_cases();
     let case = cases.into_iter().find(|case| case.name == case_name)?;
 
-    let (frame, (recovered_files, command_count)) = measure(|| {
+    let (frame, (models, recovered_files, command_count, semantic_item_count)) = measure(|| {
         let mut recovered_files = 0usize;
         let mut command_count = 0usize;
         let mut semantic_count = 0usize;
+        let mut models = Vec::with_capacity(case.files.len());
 
         for file in case.files {
-            let (file_semantic_count, file_command_count, recovered) = build_semantic(file.source);
+            let (model, file_semantic_count, file_command_count, recovered) =
+                build_semantic(file.source);
             semantic_count += file_semantic_count;
             command_count += file_command_count;
             recovered_files += usize::from(recovered);
+            models.push(model);
         }
 
         std::hint::black_box(semantic_count);
-        (recovered_files, command_count)
+        (models, recovered_files, command_count, semantic_count)
+    });
+
+    let (cfg_frame, cfg_block_count) = measure(|| {
+        let mut cfg_block_count = 0usize;
+        let mut cfg_edge_count = 0usize;
+
+        for model in &models {
+            let analysis = model.analysis();
+            let cfg = analysis.cfg();
+            cfg_block_count += cfg.blocks().len();
+            cfg_edge_count += cfg
+                .blocks()
+                .iter()
+                .map(|block| cfg.successors(block.id).len())
+                .sum::<usize>();
+        }
+
+        std::hint::black_box(cfg_edge_count);
+        cfg_block_count
     });
 
     Some(CaseReport {
@@ -216,7 +242,10 @@ fn single_case_report(case_name: &str) -> Option<CaseReport> {
         files: case.files.len(),
         recovered_files,
         command_count,
+        semantic_item_count,
+        cfg_block_count,
         metrics: frame.into(),
+        cfg_metrics: cfg_frame.into(),
     })
 }
 

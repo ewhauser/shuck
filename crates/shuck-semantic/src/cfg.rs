@@ -49,8 +49,8 @@ pub struct FlowContext {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ControlFlowGraph {
     blocks: Vec<BasicBlock>,
-    successors: FxHashMap<BlockId, SmallVec<[(BlockId, EdgeKind); 2]>>,
-    predecessors: FxHashMap<BlockId, SmallVec<[BlockId; 2]>>,
+    successors: Vec<SmallVec<[FlowEdge; 2]>>,
+    predecessors: Vec<SmallVec<[BlockId; 2]>>,
     entry: BlockId,
     exits: Vec<BlockId>,
     natural_exits: Vec<BlockId>,
@@ -63,6 +63,8 @@ pub struct ControlFlowGraph {
     pub(crate) unreachable_causes: FxHashMap<BlockId, UnreachableCause>,
 }
 
+type FlowEdge = (BlockId, EdgeKind);
+
 impl ControlFlowGraph {
     pub fn blocks(&self) -> &[BasicBlock] {
         &self.blocks
@@ -74,14 +76,14 @@ impl ControlFlowGraph {
 
     pub fn successors(&self, id: BlockId) -> &[(BlockId, EdgeKind)] {
         self.successors
-            .get(&id)
+            .get(id.index())
             .map(SmallVec::as_slice)
             .unwrap_or(&[])
     }
 
     pub fn predecessors(&self, id: BlockId) -> &[BlockId] {
         self.predecessors
-            .get(&id)
+            .get(id.index())
             .map(SmallVec::as_slice)
             .unwrap_or(&[])
     }
@@ -1355,7 +1357,7 @@ struct GraphBuilder<'a> {
     command_references: &'a FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
     script_terminating_calls: FxHashSet<SpanKey>,
     blocks: Vec<BasicBlock>,
-    successors: FxHashMap<BlockId, SmallVec<[(BlockId, EdgeKind); 2]>>,
+    successors: Vec<SmallVec<[FlowEdge; 2]>>,
     command_blocks: FxHashMap<SpanKey, SmallVec<[BlockId; 1]>>,
     unreachable_causes: FxHashMap<BlockId, UnreachableCause>,
     scope_entries: FxHashMap<ScopeId, BlockId>,
@@ -1385,7 +1387,7 @@ pub(crate) fn build_control_flow_graph(
         command_references,
         script_terminating_calls,
         blocks: Vec::with_capacity(command_count),
-        successors: FxHashMap::with_capacity_and_hasher(command_count, Default::default()),
+        successors: Vec::with_capacity(command_count),
         command_blocks: FxHashMap::with_capacity_and_hasher(command_count, Default::default()),
         unreachable_causes: FxHashMap::default(),
         scope_entries: FxHashMap::with_capacity_and_hasher(scope_count, Default::default()),
@@ -1429,9 +1431,9 @@ pub(crate) fn build_control_flow_graph(
         exits.extend(function_exits.iter().copied());
     }
 
-    let predecessors = derive_predecessors(&builder.successors);
     let unreachable =
         compute_unreachable(&builder.blocks, &builder.scope_entries, &builder.successors);
+    let predecessors = derive_predecessors(&builder.successors);
 
     ControlFlowGraph {
         blocks: builder.blocks,
@@ -2186,6 +2188,7 @@ impl<'a> GraphBuilder<'a> {
                 .cloned()
                 .unwrap_or_default(),
         });
+        self.successors.push(SmallVec::new());
         self.command_blocks.entry(key).or_default().push(id);
         id
     }
@@ -2198,11 +2201,12 @@ impl<'a> GraphBuilder<'a> {
             bindings: SmallVec::new(),
             references: SmallVec::new(),
         });
+        self.successors.push(SmallVec::new());
         id
     }
 
     fn add_edge(&mut self, from: BlockId, to: BlockId, kind: EdgeKind) {
-        self.successors.entry(from).or_default().push((to, kind));
+        self.successors[from.index()].push((to, kind));
     }
 }
 
@@ -2210,14 +2214,12 @@ fn resolve_break_target(loops: &[LoopTarget], depth: usize) -> Option<&LoopTarge
     loops.iter().rev().nth(depth.saturating_sub(1))
 }
 
-fn derive_predecessors(
-    successors: &FxHashMap<BlockId, SmallVec<[(BlockId, EdgeKind); 2]>>,
-) -> FxHashMap<BlockId, SmallVec<[BlockId; 2]>> {
-    let mut predecessors: FxHashMap<BlockId, SmallVec<[BlockId; 2]>> =
-        FxHashMap::with_capacity_and_hasher(successors.len(), Default::default());
-    for (block, edges) in successors {
+fn derive_predecessors(successors: &[SmallVec<[FlowEdge; 2]>]) -> Vec<SmallVec<[BlockId; 2]>> {
+    let mut predecessors = vec![SmallVec::<[BlockId; 2]>::new(); successors.len()];
+    for (block_index, edges) in successors.iter().enumerate() {
+        let block = BlockId(block_index as u32);
         for (target, _) in edges {
-            predecessors.entry(*target).or_default().push(*block);
+            predecessors[target.index()].push(block);
         }
     }
     predecessors
@@ -2226,7 +2228,7 @@ fn derive_predecessors(
 fn compute_unreachable(
     blocks: &[BasicBlock],
     roots: &FxHashMap<ScopeId, BlockId>,
-    successors: &FxHashMap<BlockId, SmallVec<[(BlockId, EdgeKind); 2]>>,
+    successors: &[SmallVec<[FlowEdge; 2]>],
 ) -> Vec<BlockId> {
     let mut visited = FxHashSet::with_capacity_and_hasher(blocks.len(), Default::default());
     let mut stack: Vec<BlockId> = roots.values().copied().collect();
@@ -2234,10 +2236,8 @@ fn compute_unreachable(
         if !visited.insert(block) {
             continue;
         }
-        if let Some(edges) = successors.get(&block) {
-            for (target, _) in edges {
-                stack.push(*target);
-            }
+        for (target, _) in &successors[block.index()] {
+            stack.push(*target);
         }
     }
 
