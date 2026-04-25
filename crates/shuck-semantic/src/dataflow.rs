@@ -1370,10 +1370,7 @@ fn build_unreachable_block_set(cfg: &ControlFlowGraph) -> DenseBitSet {
 }
 
 fn command_block_for_span(cfg: &ControlFlowGraph, span: Span) -> Option<BlockId> {
-    cfg.command_blocks
-        .get(&SpanKey::new(span))
-        .and_then(|blocks| blocks.last())
-        .copied()
+    cfg.block_ids_for_span(span).last().copied()
 }
 
 fn compute_reaching_definitions_dense(
