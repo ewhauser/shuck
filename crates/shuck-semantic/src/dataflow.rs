@@ -299,7 +299,9 @@ fn analyze_uninitialized_references_exact(
     for reference in context.references {
         if matches!(
             reference.kind,
-            ReferenceKind::ImplicitRead | ReferenceKind::DeclarationName
+            ReferenceKind::ImplicitRead
+                | ReferenceKind::DeclarationName
+                | ReferenceKind::ParameterSliceArithmetic
         ) || context.predefined_runtime_refs.contains(&reference.id)
             || context.guarded_parameter_refs.contains(&reference.id)
             || context

@@ -7168,6 +7168,24 @@ printf '%s\\n' \
     }
 
     #[test]
+    fn parameter_slice_arithmetic_operands_are_not_uninitialized() {
+        let source = "\
+value=abcdef
+printf '%s\\n' \"${value:offset}\" \"${value:1:$length}\"
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["offset", "length"], &uninitialized);
+        assert!(model.references().iter().any(|reference| {
+            reference.kind == ReferenceKind::ParameterSliceArithmetic && reference.name == "offset"
+        }));
+        assert!(model.references().iter().any(|reference| {
+            reference.kind == ReferenceKind::ParameterSliceArithmetic && reference.name == "length"
+        }));
+    }
+
+    #[test]
     fn defaulting_parameter_operand_references_are_marked_for_sc2154_suppression() {
         let source = "\
 printf '%s\\n' \

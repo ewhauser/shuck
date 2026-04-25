@@ -30,6 +30,7 @@ pub enum ReferenceKind {
     ArrayAccess,
     IndirectExpansion,
     ArithmeticRead,
+    ParameterSliceArithmetic,
     ConditionalOperand,
     RequiredRead,
 }

@@ -105,13 +105,6 @@ reviewed_divergences:
     end_column: 71
     reason: "This SlackBuild fixture relies on packaging-template variables and branch-local sentinels that the wider build wrapper supplies or probes conditionally, so the remaining C006 hits are reviewed packaging-framework reads rather than standalone assignment bugs."
   - side: shuck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__system__lightdm__lightdm.SlackBuild"
-    line: 146
-    end_line: 146
-    column: 16
-    end_column: 18
-    reason: "This SlackBuild fixture relies on packaging-template variables and branch-local sentinels that the wider build wrapper supplies or probes conditionally, so the remaining C006 hits are reviewed packaging-framework reads rather than standalone assignment bugs."
-  - side: shuck-only
     path_suffix: "bin456789__reinstall__reinstall.sh"
     line: 3542
     end_line: 3542
@@ -251,13 +244,6 @@ reviewed_divergences:
     column: 24
     end_column: 38
     reason: "This Easy-RSA front-end carries shell-mode and temporary-file bookkeeping through long helper-driven control flow, so the remaining C006 reads are reviewed runtime handoffs rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "rupa__z__z.sh"
-    line: 237
-    end_line: 237
-    column: 34
-    end_column: 35
-    reason: "This directory-ranking helper builds matcher state through branch-local accumulators, so the remaining C006 read is a reviewed control-flow handoff rather than an isolated undefined local."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__bin__rvmsudo"
     line: 31

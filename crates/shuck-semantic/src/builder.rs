@@ -108,6 +108,8 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     guarded_parameter_operand_depth: u32,
     defaulting_parameter_operand_depth: u32,
     short_circuit_condition_depth: u32,
+    arithmetic_reference_kind: ReferenceKind,
+    word_reference_kind_override: Option<ReferenceKind>,
 }
 
 fn semantic_statement_span(stmt: &Stmt) -> Span {
@@ -210,6 +212,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             guarded_parameter_operand_depth: 0,
             defaulting_parameter_operand_depth: 0,
             short_circuit_condition_depth: 0,
+            arithmetic_reference_kind: ReferenceKind::ArithmeticRead,
+            word_reference_kind_override: None,
         };
         let file_commands = builder.visit_stmt_seq(&file.body, FlowState::default());
         builder.recorded_program.set_file_commands(file_commands);
@@ -1354,6 +1358,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         nested_regions: &mut Vec<IsolatedRegion>,
         span: Span,
     ) -> ReferenceId {
+        let reference_kind = self.word_reference_kind_override.unwrap_or(reference_kind);
         let id = self.add_reference(&reference.name, reference_kind, span);
         self.visit_var_ref_subscript_words(
             Some(&reference.name),
@@ -1456,11 +1461,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             WordPart::Variable(name) => {
                 self.add_reference(
                     name,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::Expansion
-                    },
+                    self.word_reference_kind_override.unwrap_or(
+                        if matches!(kind, WordVisitKind::Conditional) {
+                            ReferenceKind::ConditionalOperand
+                        } else {
+                            ReferenceKind::Expansion
+                        },
+                    ),
                     span,
                 );
             }
@@ -1838,12 +1845,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         nested_regions,
                         span,
                     );
-                    self.visit_optional_arithmetic_expr_into(
+                    self.visit_parameter_slice_arithmetic_expr_into(
                         offset_ast.as_ref(),
                         flow,
                         nested_regions,
                     );
-                    self.visit_optional_arithmetic_expr_into(
+                    self.visit_parameter_slice_arithmetic_expr_into(
                         length_ast.as_ref(),
                         flow,
                         nested_regions,
@@ -2213,6 +2220,18 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn visit_parameter_slice_arithmetic_expr_into(
+        &mut self,
+        expr: Option<&'a ArithmeticExprNode>,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        let previous_kind = self.arithmetic_reference_kind;
+        self.arithmetic_reference_kind = ReferenceKind::ParameterSliceArithmetic;
+        self.visit_optional_arithmetic_expr_into(expr, flow, nested_regions);
+        self.arithmetic_reference_kind = previous_kind;
+    }
+
     fn visit_arithmetic_expr_into(
         &mut self,
         expr: &'a ArithmeticExprNode,
@@ -2222,18 +2241,28 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         match &expr.kind {
             ArithmeticExpr::Number(_) => {}
             ArithmeticExpr::Variable(name) => {
-                self.add_reference(name, ReferenceKind::ArithmeticRead, expr.span);
+                self.add_reference(name, self.arithmetic_reference_kind, expr.span);
             }
             ArithmeticExpr::Indexed { name, index } => {
                 self.add_reference(
                     name,
-                    ReferenceKind::ArithmeticRead,
+                    self.arithmetic_reference_kind,
                     arithmetic_name_span(expr.span, name),
                 );
                 self.visit_arithmetic_index_into(name, index, flow, nested_regions);
             }
             ArithmeticExpr::ShellWord(word) => {
+                let previous_kind =
+                    if self.arithmetic_reference_kind == ReferenceKind::ParameterSliceArithmetic {
+                        self.word_reference_kind_override
+                            .replace(ReferenceKind::ParameterSliceArithmetic)
+                    } else {
+                        None
+                    };
                 self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions);
+                if self.arithmetic_reference_kind == ReferenceKind::ParameterSliceArithmetic {
+                    self.word_reference_kind_override = previous_kind;
+                }
             }
             ArithmeticExpr::Parenthesized { expression } => {
                 self.visit_arithmetic_expr_into(expression, flow, nested_regions);
@@ -2397,7 +2426,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         match &expr.kind {
             ArithmeticExpr::Variable(name) => {
                 let reference_id =
-                    self.add_reference(name, ReferenceKind::ArithmeticRead, expr.span);
+                    self.add_reference(name, self.arithmetic_reference_kind, expr.span);
                 self.self_referential_assignment_refs.insert(reference_id);
                 self.add_binding(
                     name,
@@ -2417,7 +2446,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             ArithmeticExpr::Indexed { name, index } => {
                 self.visit_arithmetic_index_into(name, index, flow, nested_regions);
                 let span = arithmetic_name_span(expr.span, name);
-                let reference_id = self.add_reference(name, ReferenceKind::ArithmeticRead, span);
+                let reference_id = self.add_reference(name, self.arithmetic_reference_kind, span);
                 self.self_referential_assignment_refs.insert(reference_id);
                 self.add_binding(
                     name,
@@ -2464,7 +2493,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.visit_arithmetic_lvalue_indices_into(target, flow, nested_regions);
         let mut attributes = self.arithmetic_binding_attributes(target, target_span.start.offset);
         if !matches!(op, ArithmeticAssignOp::Assign) {
-            self.add_reference(name, ReferenceKind::ArithmeticRead, name_span);
+            self.add_reference(name, self.arithmetic_reference_kind, name_span);
         }
         self.visit_arithmetic_expr_into(value, flow, nested_regions);
         let self_referential_refs =
