@@ -3161,6 +3161,23 @@ echo \"$ret\"
     }
 
     #[test]
+    fn undefined_variable_reports_arithmetic_conditional_literal_operands() {
+        let source = "\
+#!/bin/bash
+version=1
+if [[ $version -eq \"latest\" ]]; then
+  :
+fi
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[0].message.contains("latest"));
+        assert_eq!(diagnostics[0].span.slice(source), "\"latest\"");
+    }
+
+    #[test]
     fn undefined_variable_ignores_bound_name_between_escaped_quote_literals() {
         let diagnostics = lint_for_rule(
             "\

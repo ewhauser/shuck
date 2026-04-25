@@ -7088,6 +7088,23 @@ printf '%s\\n' \"$ret\"
     }
 
     #[test]
+    fn arithmetic_conditional_literal_operands_are_uninitialized_reads() {
+        let source = "\
+version=1
+if [[ $version -eq \"latest\" ]]; then
+  :
+fi
+if [[ 1 -ne bare ]]; then
+  :
+fi
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_present(&["latest", "bare"], &uninitialized);
+    }
+
+    #[test]
     fn assign_default_and_error_operands_are_marked_uninitialized() {
         let source = "\
 printf '%s\\n' \

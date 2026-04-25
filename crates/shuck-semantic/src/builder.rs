@@ -2082,12 +2082,24 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         match expression {
             ConditionalExpr::Binary(expr) => {
-                self.visit_conditional_expr_into(&expr.left, flow, nested_regions);
-                if matches!(expr.op, ConditionalBinaryOp::And | ConditionalBinaryOp::Or) {
+                if conditional_binary_op_uses_arithmetic_operands(expr.op) {
+                    self.visit_conditional_arithmetic_operand_into(
+                        &expr.left,
+                        flow,
+                        nested_regions,
+                    );
+                    self.visit_conditional_arithmetic_operand_into(
+                        &expr.right,
+                        flow,
+                        nested_regions,
+                    );
+                } else if matches!(expr.op, ConditionalBinaryOp::And | ConditionalBinaryOp::Or) {
+                    self.visit_conditional_expr_into(&expr.left, flow, nested_regions);
                     self.short_circuit_condition_depth += 1;
                     self.visit_conditional_expr_into(&expr.right, flow, nested_regions);
                     self.short_circuit_condition_depth -= 1;
                 } else {
+                    self.visit_conditional_expr_into(&expr.left, flow, nested_regions);
                     self.visit_conditional_expr_into(&expr.right, flow, nested_regions);
                 }
             }
@@ -2119,6 +2131,20 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 );
             }
         }
+    }
+
+    fn visit_conditional_arithmetic_operand_into(
+        &mut self,
+        expression: &'a ConditionalExpr,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        if let Some((name, span)) = conditional_arithmetic_operand_name(expression, self.source) {
+            self.add_reference(&name, ReferenceKind::ArithmeticRead, span);
+            return;
+        }
+
+        self.visit_conditional_expr_into(expression, flow, nested_regions);
     }
 
     fn visit_optional_arithmetic_expr(
@@ -4089,6 +4115,47 @@ fn variable_set_test_operand_name(
         }
         ConditionalExpr::Unary(_) | ConditionalExpr::Binary(_) => None,
     }
+}
+
+fn conditional_binary_op_uses_arithmetic_operands(op: ConditionalBinaryOp) -> bool {
+    matches!(
+        op,
+        ConditionalBinaryOp::ArithmeticEq
+            | ConditionalBinaryOp::ArithmeticNe
+            | ConditionalBinaryOp::ArithmeticLe
+            | ConditionalBinaryOp::ArithmeticGe
+            | ConditionalBinaryOp::ArithmeticLt
+            | ConditionalBinaryOp::ArithmeticGt
+    )
+}
+
+fn conditional_arithmetic_operand_name(
+    expression: &ConditionalExpr,
+    source: &str,
+) -> Option<(Name, Span)> {
+    match strip_parenthesized_conditional(expression) {
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            static_word_text(word, source).and_then(|text| {
+                is_name(text.as_ref()).then(|| (Name::from(text.as_ref()), word.span))
+            })
+        }
+        ConditionalExpr::Pattern(pattern) => {
+            let text = pattern.span.slice(source).trim();
+            is_name(text).then(|| (Name::from(text), pattern.span))
+        }
+        ConditionalExpr::VarRef(_)
+        | ConditionalExpr::Unary(_)
+        | ConditionalExpr::Binary(_)
+        | ConditionalExpr::Parenthesized(_) => None,
+    }
+}
+
+fn strip_parenthesized_conditional(expression: &ConditionalExpr) -> &ConditionalExpr {
+    let mut current = expression;
+    while let ConditionalExpr::Parenthesized(paren) = current {
+        current = &paren.expr;
+    }
+    current
 }
 
 fn variable_name_operand_from_source(text: &str, span: Span) -> Option<(Name, Span)> {
