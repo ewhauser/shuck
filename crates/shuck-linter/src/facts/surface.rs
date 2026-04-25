@@ -378,6 +378,10 @@ impl<'a> SurfaceScanContext<'a> {
 pub(super) struct SurfaceFragmentSink<'a> {
     source: &'a str,
     facts: SurfaceFragmentFacts,
+    zsh_parameter_index_flag_scratch: Vec<Span>,
+    parameter_special_target_word_scratch: Vec<Span>,
+    open_double_quote_scratch: Vec<(Span, Span)>,
+    split_suspect_closing_quote_scratch: Vec<Span>,
 }
 
 impl<'a> SurfaceFragmentSink<'a> {
@@ -385,6 +389,10 @@ impl<'a> SurfaceFragmentSink<'a> {
         Self {
             source,
             facts: SurfaceFragmentFacts::default(),
+            zsh_parameter_index_flag_scratch: Vec::new(),
+            parameter_special_target_word_scratch: Vec::new(),
+            open_double_quote_scratch: Vec::new(),
+            split_suspect_closing_quote_scratch: Vec::new(),
         }
     }
 
@@ -547,8 +555,14 @@ impl<'a> SurfaceFragmentSink<'a> {
             false,
             &mut self.facts.unicode_smart_quote_spans,
         );
-        for span in zsh_parameter_index_flag_spans_in_word(word.span.slice(self.source), word.span)
-        {
+        self.zsh_parameter_index_flag_scratch.clear();
+        collect_zsh_parameter_index_flag_spans_in_word(
+            word.span.slice(self.source),
+            word.span,
+            &mut self.zsh_parameter_index_flag_scratch,
+        );
+        for index in 0..self.zsh_parameter_index_flag_scratch.len() {
+            let span = self.zsh_parameter_index_flag_scratch[index];
             self.record_zsh_parameter_index_flag(span);
         }
         if context.collect_open_double_quotes {
@@ -582,15 +596,22 @@ impl<'a> SurfaceFragmentSink<'a> {
         command_name: Option<&str>,
         assignment_target: Option<&str>,
     ) {
-        let fragments =
-            suspect_double_quote_spans(word, self.source, command_name, assignment_target);
-        if fragments.is_empty() {
+        self.open_double_quote_scratch.clear();
+        collect_suspect_double_quote_spans(
+            word,
+            self.source,
+            command_name,
+            assignment_target,
+            &mut self.open_double_quote_scratch,
+        );
+        if self.open_double_quote_scratch.is_empty() {
             return;
         }
 
         let replacement =
             rewrite_word_as_single_double_quoted_string(word, self.source, assignment_target);
-        for (opening_span, closing_span) in fragments {
+        for index in 0..self.open_double_quote_scratch.len() {
+            let (opening_span, closing_span) = self.open_double_quote_scratch[index];
             self.facts
                 .open_double_quotes
                 .push(OpenDoubleQuoteFragmentFact {
@@ -607,7 +628,15 @@ impl<'a> SurfaceFragmentSink<'a> {
     pub(super) fn collect_split_suspect_closing_quote_fragment_in_words(&mut self, words: &[Word]) {
         for (index, word) in words.iter().enumerate() {
             let has_later_words = index + 1 < words.len();
-            for span in split_suspect_closing_quote_spans(word, self.source, has_later_words) {
+            self.split_suspect_closing_quote_scratch.clear();
+            collect_split_suspect_closing_quote_spans(
+                word,
+                self.source,
+                has_later_words,
+                &mut self.split_suspect_closing_quote_scratch,
+            );
+            for index in 0..self.split_suspect_closing_quote_scratch.len() {
+                let span = self.split_suspect_closing_quote_scratch[index];
                 if self
                     .facts
                     .suspect_closing_quotes
@@ -763,7 +792,13 @@ impl<'a> SurfaceFragmentSink<'a> {
                         self.record_array_reference(part.span, false);
                     }
                     if parameter_pattern_target_is_special(reference, operator) {
-                        for pattern_span in parameter_operator_special_target_word_spans(operator) {
+                        self.parameter_special_target_word_scratch.clear();
+                        collect_parameter_operator_special_target_word_spans(
+                            operator,
+                            &mut self.parameter_special_target_word_scratch,
+                        );
+                        for index in 0..self.parameter_special_target_word_scratch.len() {
+                            let pattern_span = self.parameter_special_target_word_scratch[index];
                             self.record_parameter_pattern_special_target(pattern_span);
                         }
                     }
@@ -1157,7 +1192,13 @@ impl<'a> SurfaceFragmentSink<'a> {
                     ..
                 } => {
                     if parameter_pattern_target_is_special(reference, operator) {
-                        for pattern_span in parameter_operator_special_target_word_spans(operator) {
+                        self.parameter_special_target_word_scratch.clear();
+                        collect_parameter_operator_special_target_word_spans(
+                            operator,
+                            &mut self.parameter_special_target_word_scratch,
+                        );
+                        for index in 0..self.parameter_special_target_word_scratch.len() {
+                            let pattern_span = self.parameter_special_target_word_scratch[index];
                             self.record_parameter_pattern_special_target(pattern_span);
                         }
                     }
@@ -1452,8 +1493,7 @@ fn quoted_parameter_target_len(text: &str) -> Option<usize> {
     }
 }
 
-fn zsh_parameter_index_flag_spans_in_word(text: &str, span: Span) -> Vec<Span> {
-    let mut spans = Vec::new();
+fn collect_zsh_parameter_index_flag_spans_in_word(text: &str, span: Span, spans: &mut Vec<Span>) {
     let mut search_from = 0usize;
 
     while let Some(start) = next_live_parameter_expansion_start(text, search_from) {
@@ -1472,8 +1512,6 @@ fn zsh_parameter_index_flag_spans_in_word(text: &str, span: Span) -> Vec<Span> {
         spans.push(Span::from_positions(target_start, target_end));
         search_from = start + 2 + target_len;
     }
-
-    spans
 }
 
 fn next_live_parameter_expansion_start(text: &str, search_from: usize) -> Option<usize> {
@@ -1866,14 +1904,19 @@ fn parameter_operator_is_trim(operator: &ParameterOp) -> bool {
     )
 }
 
-fn parameter_operator_special_target_word_spans(operator: &ParameterOp) -> Vec<Span> {
+fn collect_parameter_operator_special_target_word_spans(
+    operator: &ParameterOp,
+    spans: &mut Vec<Span>,
+) {
     match operator {
         ParameterOp::RemovePrefixShort { pattern }
         | ParameterOp::RemovePrefixLong { pattern }
         | ParameterOp::RemoveSuffixShort { pattern }
         | ParameterOp::RemoveSuffixLong { pattern }
         | ParameterOp::ReplaceFirst { pattern, .. }
-        | ParameterOp::ReplaceAll { pattern, .. } => pattern_special_target_word_spans(pattern),
+        | ParameterOp::ReplaceAll { pattern, .. } => {
+            collect_pattern_special_target_word_spans(pattern, spans);
+        }
         ParameterOp::UseDefault
         | ParameterOp::AssignDefault
         | ParameterOp::UseReplacement
@@ -1881,14 +1924,8 @@ fn parameter_operator_special_target_word_spans(operator: &ParameterOp) -> Vec<S
         | ParameterOp::UpperFirst
         | ParameterOp::UpperAll
         | ParameterOp::LowerFirst
-        | ParameterOp::LowerAll => Vec::new(),
+        | ParameterOp::LowerAll => {}
     }
-}
-
-fn pattern_special_target_word_spans(pattern: &Pattern) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_pattern_special_target_word_spans(pattern, &mut spans);
-    spans
 }
 
 fn collect_pattern_special_target_word_spans(pattern: &Pattern, spans: &mut Vec<Span>) {
@@ -2390,32 +2427,32 @@ fn word_looks_like_unset_array_target(word: &Word, source: &str) -> bool {
     text.ends_with(']') && is_shell_variable_name(name)
 }
 
-fn suspect_double_quote_spans(
+fn collect_suspect_double_quote_spans(
     word: &Word,
     source: &str,
     _command_name: Option<&str>,
     assignment_target: Option<&str>,
-) -> Vec<(Span, Span)> {
-    word.parts
-        .iter()
-        .enumerate()
-        .filter_map(|(index, current)| {
-            if !suspicious_open_quote_fragment(
-                word,
-                source,
-                index,
-                current,
-                assignment_target.is_some(),
-            ) {
-                return None;
-            }
+    spans: &mut Vec<(Span, Span)>,
+) {
+    for (index, current) in word.parts.iter().enumerate() {
+        if !suspicious_open_quote_fragment(
+            word,
+            source,
+            index,
+            current,
+            assignment_target.is_some(),
+        ) {
+            continue;
+        }
 
-            Some((
-                opening_quote_span(current, source)?,
-                closing_quote_span(current, source)?,
-            ))
-        })
-        .collect()
+        let Some(opening_span) = opening_quote_span(current, source) else {
+            continue;
+        };
+        let Some(closing_span) = closing_quote_span(current, source) else {
+            continue;
+        };
+        spans.push((opening_span, closing_span));
+    }
 }
 
 pub(super) fn rewrite_word_as_single_double_quoted_string(
@@ -2551,7 +2588,20 @@ pub(super) fn word_has_reopened_double_quote_window(
     source: &str,
     command_name: Option<&str>,
 ) -> bool {
-    !suspect_double_quote_spans(word, source, command_name, None).is_empty()
+    word_has_suspect_double_quote_span(word, source, command_name, None)
+}
+
+fn word_has_suspect_double_quote_span(
+    word: &Word,
+    source: &str,
+    _command_name: Option<&str>,
+    assignment_target: Option<&str>,
+) -> bool {
+    word.parts.iter().enumerate().any(|(index, current)| {
+        suspicious_open_quote_fragment(word, source, index, current, assignment_target.is_some())
+            && opening_quote_span(current, source).is_some()
+            && closing_quote_span(current, source).is_some()
+    })
 }
 
 fn suspicious_open_quote_fragment(
@@ -2724,45 +2774,42 @@ fn double_quoted_part_is_empty(part: &WordPartNode, source: &str) -> bool {
     })
 }
 
-fn split_suspect_closing_quote_spans(
+fn collect_split_suspect_closing_quote_spans(
     word: &Word,
     source: &str,
     has_later_words: bool,
-) -> Vec<Span> {
-    word.parts
-        .windows(2)
-        .enumerate()
-        .filter_map(|window| {
-            let (index, [current, next]) = window else {
-                return None;
-            };
-            let WordPart::DoubleQuoted { .. } = &current.kind else {
-                return None;
-            };
-            let WordPart::Literal(text) = &next.kind else {
-                return None;
-            };
-            if !current.span.slice(source).contains('\n') {
-                return None;
-            }
+    spans: &mut Vec<Span>,
+) {
+    for (index, window) in word.parts.windows(2).enumerate() {
+        let [current, next] = window else {
+            continue;
+        };
+        let WordPart::DoubleQuoted { .. } = &current.kind else {
+            continue;
+        };
+        let WordPart::Literal(text) = &next.kind else {
+            continue;
+        };
+        if !current.span.slice(source).contains('\n') {
+            continue;
+        }
 
-            let tail = text.as_str(source, next.span);
-            if !split_quote_tail_is_suspicious(tail) {
-                return None;
-            }
+        let tail = text.as_str(source, next.span);
+        if !split_quote_tail_is_suspicious(tail) {
+            continue;
+        }
 
-            let span = closing_quote_span(current, source)?;
-            if span.start.column == 1
-                || (index > 0
-                    && double_quoted_part_is_empty(&word.parts[index - 1], source)
-                    && has_later_words)
-            {
-                Some(span)
-            } else {
-                None
-            }
-        })
-        .collect()
+        let Some(span) = closing_quote_span(current, source) else {
+            continue;
+        };
+        if span.start.column == 1
+            || (index > 0
+                && double_quoted_part_is_empty(&word.parts[index - 1], source)
+                && has_later_words)
+        {
+            spans.push(span);
+        }
+    }
 }
 
 fn split_quote_tail_is_suspicious(text: &str) -> bool {

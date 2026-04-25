@@ -106,6 +106,8 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut compound_assignment_value_word_spans = FxHashSet::default();
         let mut array_assignment_split_word_ids =
             Vec::with_capacity(capacity.commands.saturating_div(8));
+        let mut seen_word_occurrences = FxHashSet::default();
+        let mut seen_pending_arithmetic_word_occurrences = FxHashSet::default();
         let mut assoc_binding_visibility_memo = FxHashMap::default();
         let mut pattern_exactly_one_extglob_spans = Vec::new();
         let mut case_pattern_expansions = Vec::new();
@@ -202,6 +204,9 @@ impl<'a> LinterFactsBuilder<'a> {
                         compound_assignment_value_word_spans:
                             &mut compound_assignment_value_word_spans,
                         array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
+                        seen_word_occurrences: &mut seen_word_occurrences,
+                        seen_pending_arithmetic_word_occurrences:
+                            &mut seen_pending_arithmetic_word_occurrences,
                         assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
                         case_pattern_expansions: &mut case_pattern_expansions,
                         pattern_literal_spans: &mut pattern_literal_spans,
@@ -859,7 +864,7 @@ impl<'a> LinterFactsBuilder<'a> {
 fn build_c006_suppressing_reference_offsets_by_name(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
-    innermost_command_ids_by_offset: &FxHashMap<usize, Option<CommandId>>,
+    innermost_command_ids_by_offset: &CommandOffsetLookup,
     subscript_later_suppression_reference_spans: &FxHashSet<FactSpan>,
 ) -> FxHashMap<Name, Vec<usize>> {
     let mut offsets_by_name = FxHashMap::<Name, Vec<usize>>::default();
@@ -890,7 +895,7 @@ fn build_c006_suppressing_reference_offsets_by_name(
 fn c006_reference_suppresses_later_references(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
-    innermost_command_ids_by_offset: &FxHashMap<usize, Option<CommandId>>,
+    innermost_command_ids_by_offset: &CommandOffsetLookup,
     subscript_later_suppression_reference_spans: &FxHashSet<FactSpan>,
     reference: &Reference,
 ) -> bool {
@@ -906,7 +911,7 @@ fn c006_reference_suppresses_later_references(
 
 fn c006_subscript_reference_suppresses_later_references(
     commands: &[CommandFact<'_>],
-    innermost_command_ids_by_offset: &FxHashMap<usize, Option<CommandId>>,
+    innermost_command_ids_by_offset: &CommandOffsetLookup,
     subscript_later_suppression_reference_spans: &FxHashSet<FactSpan>,
     reference: &Reference,
 ) -> bool {

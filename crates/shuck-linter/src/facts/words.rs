@@ -3416,6 +3416,8 @@ pub(crate) fn benchmark_collect_word_facts(
     let mut pending_arithmetic_word_occurrences = Vec::new();
     let mut compound_assignment_value_word_spans = FxHashSet::default();
     let mut array_assignment_split_word_ids = Vec::new();
+    let mut seen_word_occurrences = FxHashSet::default();
+    let mut seen_pending_arithmetic_word_occurrences = FxHashSet::default();
     let mut word_spans = ListArena::new();
     let mut word_span_scratch = Vec::new();
     let mut assoc_binding_visibility_memo = FxHashMap::default();
@@ -3454,6 +3456,9 @@ pub(crate) fn benchmark_collect_word_facts(
                     pending_arithmetic_word_occurrences: &mut pending_arithmetic_word_occurrences,
                     compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
                     array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
+                    seen_word_occurrences: &mut seen_word_occurrences,
+                    seen_pending_arithmetic_word_occurrences:
+                        &mut seen_pending_arithmetic_word_occurrences,
                     word_spans: &mut word_spans,
                     word_span_scratch: &mut word_span_scratch,
                     assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
@@ -3505,6 +3510,8 @@ struct WordFactOutputs<'out, 'a> {
     pending_arithmetic_word_occurrences: &'out mut Vec<PendingArithmeticWordOccurrence>,
     compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
     array_assignment_split_word_ids: &'out mut Vec<WordOccurrenceId>,
+    seen_word_occurrences: &'out mut FxHashSet<WordOccurrenceSeenKey>,
+    seen_pending_arithmetic_word_occurrences: &'out mut FxHashSet<PendingArithmeticSeenKey>,
     assoc_binding_visibility_memo: &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
     case_pattern_expansions: &'out mut Vec<CasePatternExpansionFact>,
     pattern_literal_spans: &'out mut Vec<Span>,
@@ -3519,6 +3526,9 @@ struct PendingArithmeticWordOccurrence {
     host_kind: WordFactHostKind,
     enclosing_expansion_context: ExpansionContext,
 }
+
+type WordOccurrenceSeenKey = (FactSpan, WordFactContext, WordFactHostKind);
+type PendingArithmeticSeenKey = (FactSpan, ExpansionContext, WordFactHostKind);
 
 fn derive_word_fact_data<'a>(
     word: &'a Word,
@@ -3808,8 +3818,8 @@ struct WordFactCollector<'out, 'a, 'norm> {
     pending_arithmetic_word_occurrences: &'out mut Vec<PendingArithmeticWordOccurrence>,
     array_assignment_split_word_ids: &'out mut Vec<WordOccurrenceId>,
     assoc_binding_visibility_memo: &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
-    seen: FxHashSet<(FactSpan, WordFactContext, WordFactHostKind)>,
-    seen_pending_arithmetic: FxHashSet<(FactSpan, ExpansionContext, WordFactHostKind)>,
+    seen: &'out mut FxHashSet<WordOccurrenceSeenKey>,
+    seen_pending_arithmetic: &'out mut FxHashSet<PendingArithmeticSeenKey>,
     compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
     case_pattern_expansions: &'out mut Vec<CasePatternExpansionFact>,
     pattern_literal_spans: &'out mut Vec<Span>,
@@ -3861,8 +3871,14 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             pending_arithmetic_word_occurrences: outputs.pending_arithmetic_word_occurrences,
             array_assignment_split_word_ids: outputs.array_assignment_split_word_ids,
             assoc_binding_visibility_memo: outputs.assoc_binding_visibility_memo,
-            seen: FxHashSet::default(),
-            seen_pending_arithmetic: FxHashSet::default(),
+            seen: {
+                outputs.seen_word_occurrences.clear();
+                outputs.seen_word_occurrences
+            },
+            seen_pending_arithmetic: {
+                outputs.seen_pending_arithmetic_word_occurrences.clear();
+                outputs.seen_pending_arithmetic_word_occurrences
+            },
             compound_assignment_value_word_spans: outputs.compound_assignment_value_word_spans,
             case_pattern_expansions: outputs.case_pattern_expansions,
             pattern_literal_spans: outputs.pattern_literal_spans,
