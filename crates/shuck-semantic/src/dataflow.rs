@@ -74,6 +74,7 @@ pub(crate) struct DataflowContext<'a> {
     pub(crate) predefined_runtime_refs: &'a FxHashSet<ReferenceId>,
     pub(crate) guarded_parameter_refs: &'a FxHashSet<ReferenceId>,
     pub(crate) parameter_guard_flow_refs: &'a FxHashSet<ReferenceId>,
+    pub(crate) self_referential_assignment_refs: &'a FxHashSet<ReferenceId>,
     pub(crate) resolved: &'a FxHashMap<ReferenceId, BindingId>,
     pub(crate) call_sites: &'a FxHashMap<Name, SmallVec<[CallSite; 2]>>,
     pub(crate) indirect_targets_by_reference: &'a FxHashMap<ReferenceId, Vec<BindingId>>,
@@ -301,6 +302,9 @@ fn analyze_uninitialized_references_exact(
             ReferenceKind::ImplicitRead | ReferenceKind::DeclarationName
         ) || context.predefined_runtime_refs.contains(&reference.id)
             || context.guarded_parameter_refs.contains(&reference.id)
+            || context
+                .self_referential_assignment_refs
+                .contains(&reference.id)
             || reference_duplicates_guarded_parameter_reference(context, reference)
         {
             continue;

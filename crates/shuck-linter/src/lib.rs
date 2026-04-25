@@ -3131,18 +3131,19 @@ payload=\"{
     }
 
     #[test]
-    fn undefined_variable_reports_self_referential_assignments() {
+    fn undefined_variable_ignores_self_referential_assignments() {
         let diagnostics = lint_for_rule(
             "\
 #!/bin/sh
 foo=\"$foo\"
+for flag in a b; do
+  valid_flags=\"${valid_flags} $flag\"
+done
 ",
             Rule::UndefinedVariable,
         );
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
-        assert!(diagnostics[0].message.contains("foo"));
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]

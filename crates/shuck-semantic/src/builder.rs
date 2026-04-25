@@ -51,6 +51,7 @@ pub(crate) struct BuildOutput {
     pub(crate) guarded_parameter_refs: FxHashSet<ReferenceId>,
     pub(crate) parameter_guard_flow_refs: FxHashSet<ReferenceId>,
     pub(crate) defaulting_parameter_operand_refs: FxHashSet<ReferenceId>,
+    pub(crate) self_referential_assignment_refs: FxHashSet<ReferenceId>,
     pub(crate) binding_index: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     pub(crate) resolved: FxHashMap<ReferenceId, BindingId>,
     pub(crate) unresolved: Vec<ReferenceId>,
@@ -81,6 +82,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     guarded_parameter_refs: FxHashSet<ReferenceId>,
     parameter_guard_flow_refs: FxHashSet<ReferenceId>,
     defaulting_parameter_operand_refs: FxHashSet<ReferenceId>,
+    self_referential_assignment_refs: FxHashSet<ReferenceId>,
     binding_index: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     resolved: FxHashMap<ReferenceId, BindingId>,
     unresolved: Vec<ReferenceId>,
@@ -181,6 +183,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             guarded_parameter_refs: FxHashSet::default(),
             parameter_guard_flow_refs: FxHashSet::default(),
             defaulting_parameter_operand_refs: FxHashSet::default(),
+            self_referential_assignment_refs: FxHashSet::default(),
             binding_index: FxHashMap::default(),
             resolved: FxHashMap::default(),
             unresolved: Vec::new(),
@@ -223,6 +226,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             guarded_parameter_refs: builder.guarded_parameter_refs,
             parameter_guard_flow_refs: builder.parameter_guard_flow_refs,
             defaulting_parameter_operand_refs: builder.defaulting_parameter_operand_refs,
+            self_referential_assignment_refs: builder.self_referential_assignment_refs,
             binding_index: builder.binding_index,
             resolved: builder.resolved,
             unresolved: builder.unresolved,
@@ -1080,8 +1084,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         if assignment_has_empty_initializer(assignment, self.source) {
             attributes |= BindingAttributes::EMPTY_INITIALIZER;
         }
-        if self.newly_added_references_read_name(&assignment.target.name, reference_start) {
+        let self_referential_refs =
+            self.newly_added_reference_ids_reading_name(&assignment.target.name, reference_start);
+        if !self_referential_refs.is_empty() {
             attributes |= BindingAttributes::SELF_REFERENTIAL_READ;
+            self.self_referential_assignment_refs
+                .extend(self_referential_refs);
         }
         if assignment.target.subscript.is_some()
             && !attributes.contains(BindingAttributes::ASSOC)
@@ -2317,7 +2325,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         match &expr.kind {
             ArithmeticExpr::Variable(name) => {
-                self.add_reference(name, ReferenceKind::ArithmeticRead, expr.span);
+                let reference_id =
+                    self.add_reference(name, ReferenceKind::ArithmeticRead, expr.span);
+                self.self_referential_assignment_refs.insert(reference_id);
                 self.add_binding(
                     name,
                     BindingKind::ArithmeticAssignment,
@@ -2336,7 +2346,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             ArithmeticExpr::Indexed { name, index } => {
                 self.visit_arithmetic_index_into(name, index, flow, nested_regions);
                 let span = arithmetic_name_span(expr.span, name);
-                self.add_reference(name, ReferenceKind::ArithmeticRead, span);
+                let reference_id = self.add_reference(name, ReferenceKind::ArithmeticRead, span);
+                self.self_referential_assignment_refs.insert(reference_id);
                 self.add_binding(
                     name,
                     BindingKind::ArithmeticAssignment,
@@ -2385,8 +2396,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             self.add_reference(name, ReferenceKind::ArithmeticRead, name_span);
         }
         self.visit_arithmetic_expr_into(value, flow, nested_regions);
-        if self.newly_added_references_read_name(name, reference_start) {
+        let self_referential_refs =
+            self.newly_added_reference_ids_reading_name(name, reference_start);
+        if !self_referential_refs.is_empty() {
             attributes |= BindingAttributes::SELF_REFERENTIAL_READ;
+            self.self_referential_assignment_refs
+                .extend(self_referential_refs);
         }
         self.add_binding(
             name,
@@ -3306,10 +3321,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
-    fn newly_added_references_read_name(&self, name: &Name, start: usize) -> bool {
+    fn newly_added_reference_ids_reading_name(
+        &self,
+        name: &Name,
+        start: usize,
+    ) -> Vec<ReferenceId> {
         self.references[start..]
             .iter()
-            .any(|reference| reference.name == *name)
+            .filter(|reference| reference.name == *name)
+            .map(|reference| reference.id)
+            .collect()
     }
 
     fn resolve_reference(&self, name: &Name, scope: ScopeId, offset: usize) -> Option<BindingId> {

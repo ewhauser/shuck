@@ -27,13 +27,6 @@ reviewed_divergences:
     column: 42
     end_column: 61
     reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__info_stats.sh"
-    line: 60
-    end_line: 60
-    column: 15
-    end_column: 35
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
   - side: shellcheck-only
     path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__install_ts3db.sh"
     line: 43
@@ -118,20 +111,6 @@ reviewed_divergences:
     column: 16
     end_column: 18
     reason: "This SlackBuild fixture relies on packaging-template variables and branch-local sentinels that the wider build wrapper supplies or probes conditionally, so the remaining C006 hits are reviewed packaging-framework reads rather than standalone assignment bugs."
-  - side: shuck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__system__tinyterm__tinyterm.SlackBuild"
-    line: 85
-    end_line: 85
-    column: 24
-    end_column: 28
-    reason: "This SlackBuild fixture relies on packaging-template variables and branch-local sentinels that the wider build wrapper supplies or probes conditionally, so the remaining C006 hits are reviewed packaging-framework reads rather than standalone assignment bugs."
-  - side: shuck-only
-    path_suffix: "acmesh-official__acme.sh__acme.sh"
-    line: 6170
-    end_line: 6170
-    column: 10
-    end_column: 14
-    reason: "This acme.sh helper uses directive-heavy project-local plumbing that ShellCheck leaves alone in the corpus run, so we review this file narrowly instead of teaching C006 a special helper contract."
   - side: shellcheck-only
     path_suffix: "alexanderepstein__Bash-Snippets__transfer__transfer"
     line: 291
@@ -139,13 +118,6 @@ reviewed_divergences:
     column: 33
     end_column: 39
     reason: "This uploader checks for the literal client name with a numeric-style comparison, so the ShellCheck-only anchor is the right-hand string sentinel rather than a missing variable read."
-  - side: shuck-only
-    path_suffix: "alpinelinux__aports__scripts__mkimg.base.sh"
-    line: 302
-    end_line: 302
-    column: 14
-    end_column: 23
-    reason: "This mkimg helper assembles image options from sourced profile setup, so the remaining iso_opts read is a reviewed build-framework handoff rather than a missing local assignment."
   - side: shuck-only
     path_suffix: "bin456789__reinstall__reinstall.sh"
     line: 3542
@@ -195,125 +167,6 @@ reviewed_divergences:
     column: 3
     end_column: 10
     reason: "This generated test matrix is just a bundle of image-to-test mappings, so the ShellCheck-only C006 hits are the literal associative-array keys in those compound assignments rather than live variable reads."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__builder-dockerfile__internal-functions"
-    line: 53
-    end_line: 53
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__builder-herokuish__internal-functions"
-    line: 53
-    end_line: 53
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__builder-lambda__internal-functions"
-    line: 53
-    end_line: 53
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__builder-nixpacks__internal-functions"
-    line: 53
-    end_line: 53
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__builder-pack__internal-functions"
-    line: 53
-    end_line: 53
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__builder-railpack__internal-functions"
-    line: 53
-    end_line: 53
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__caddy-vhosts__command-functions"
-    line: 81
-    end_line: 81
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__certs__internal-functions"
-    line: 58
-    end_line: 58
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__checks__internal-functions"
-    line: 56
-    end_line: 56
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__docker-options__internal-functions"
-    line: 53
-    end_line: 53
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__domains__internal-functions"
-    line: 72
-    end_line: 72
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__git__internal-functions"
-    line: 328
-    end_line: 328
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__haproxy-vhosts__command-functions"
-    line: 79
-    end_line: 79
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__nginx-vhosts__command-functions"
-    line: 143
-    end_line: 143
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__openresty-vhosts__command-functions"
-    line: 108
-    end_line: 108
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__scheduler-docker-local__internal-functions"
-    line: 53
-    end_line: 53
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "dokku__dokku__plugins__traefik-vhosts__command-functions"
-    line: 125
-    end_line: 125
-    column: 20
-    end_column: 34
-    reason: "This Dokku plugin helper builds flag tables and dispatch metadata through the plugin runtime before the local helper consumes them, so the remaining C006 hits are reviewed plugin-framework reads rather than missing local assignments."
   - side: shellcheck-only
     path_suffix: "fideloper__Vaprobash__scripts__go.sh"
     line: 23
@@ -328,27 +181,6 @@ reviewed_divergences:
     column: 31
     end_column: 39
     reason: "This installer compares `NODEJS_VERSION` against the literal sentinel `latest`, so the ShellCheck-only hit is the guarded string case that the numeric comparison syntax makes look like a read."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__dev-lang__ocaml__files__ocaml-rebuild.sh"
-    line: 35
-    end_line: 35
-    column: 35
-    end_column: 43
-    reason: "This Gentoo fixture relies on service-manager or package-manager variables populated by sourced eclass and OpenRC plumbing, so the remaining C006 hits are reviewed framework contracts rather than standalone assignment bugs."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__dev-lang__ocaml__files__ocaml-rebuild.sh"
-    line: 36
-    end_line: 36
-    column: 40
-    end_column: 51
-    reason: "This Gentoo fixture relies on service-manager or package-manager variables populated by sourced eclass and OpenRC plumbing, so the remaining C006 hits are reviewed framework contracts rather than standalone assignment bugs."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__net-dns__avahi__files__autoipd-openrc.sh"
-    line: 5
-    end_line: 5
-    column: 15
-    end_column: 28
-    reason: "This Gentoo fixture relies on service-manager or package-manager variables populated by sourced eclass and OpenRC plumbing, so the remaining C006 hits are reviewed framework contracts rather than standalone assignment bugs."
   - side: shuck-only
     path_suffix: "gentoo__gentoo__net-dns__avahi__files__autoipd.sh"
     line: 23
@@ -405,20 +237,6 @@ reviewed_divergences:
     column: 11
     end_column: 71
     reason: "This generated install helper carries a trap around its temporary-directory probe, and the remaining ShellCheck-only read is part of that cleanup path."
-  - side: shuck-only
-    path_suffix: "nvm-sh__nvm__test__fast__Unit tests__nvm_install_no_progress_bar"
-    line: 64
-    end_line: 64
-    column: 20
-    end_column: 31
-    reason: "This nvm test harness reads helper-produced line bookkeeping that ShellCheck does not compare as live state in the corpus run."
-  - side: shuck-only
-    path_suffix: "openrc__openrc__sh__rc-cgroup.sh"
-    line: 11
-    end_line: 11
-    column: 25
-    end_column: 50
-    reason: "This OpenRC helper expects daemon options or service-command lists to arrive from the wider service runtime, so the remaining C006 hits are reviewed service-framework reads rather than standalone assignment bugs."
   - side: shellcheck-only
     path_suffix: "openrc__openrc__sh__s6.sh"
     line: 57
@@ -490,27 +308,6 @@ reviewed_divergences:
     end_column: 28
     reason: "This OpenRC helper translates service options into generated execline and logger setup, so the remaining ShellCheck-only reads are the expected ambient service settings instead of local shell state."
   - side: shuck-only
-    path_suffix: "openrc__openrc__sh__s6.sh"
-    line: 25
-    end_line: 25
-    column: 32
-    end_column: 49
-    reason: "This OpenRC helper expects daemon options or service-command lists to arrive from the wider service runtime, so the remaining C006 hits are reviewed service-framework reads rather than standalone assignment bugs."
-  - side: shuck-only
-    path_suffix: "openrc__openrc__sh__supervise-daemon.sh"
-    line: 13
-    end_line: 13
-    column: 39
-    end_column: 56
-    reason: "This OpenRC helper expects daemon options or service-command lists to arrive from the wider service runtime, so the remaining C006 hits are reviewed service-framework reads rather than standalone assignment bugs."
-  - side: shuck-only
-    path_suffix: "openvpn__easy-rsa__easyrsa3__easyrsa"
-    line: 989
-    end_line: 989
-    column: 24
-    end_column: 38
-    reason: "This Easy-RSA front-end carries shell-mode and temporary-file bookkeeping through long helper-driven control flow, so the remaining C006 reads are reviewed runtime handoffs rather than missing local assignments."
-  - side: shuck-only
     path_suffix: "openvpn__easy-rsa__easyrsa3__easyrsa"
     line: 5599
     end_line: 5599
@@ -573,13 +370,6 @@ reviewed_divergences:
     column: 24
     end_column: 39
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__cli"
-    line: 155
-    end_line: 155
-    column: 40
-    end_column: 58
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__scripts__extras__rails"
     line: 83
@@ -789,13 +579,6 @@ reviewed_divergences:
     end_line: 34
     column: 30
     end_column: 55
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__base"
-    line: 47
-    end_line: 47
-    column: 22
-    end_column: 73
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__base_fetch"
@@ -1211,13 +994,6 @@ reviewed_divergences:
     end_column: 16
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__selector"
-    line: 286
-    end_line: 286
-    column: 25
-    end_column: 43
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__support"
     line: 75
     end_line: 75
@@ -1470,27 +1246,6 @@ reviewed_divergences:
     end_column: 17
     reason: "This RVM script helper is sourced into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion, so the remaining C006 hits are reviewed library/runtime contracts rather than standalone missing assignments."
   - side: shuck-only
-    path_suffix: "tj__git-extras__bin__git-brv"
-    line: 43
-    end_line: 43
-    column: 24
-    end_column: 30
-    reason: "This formatter computes column widths across earlier display branches, so the remaining C006 reads are reviewed layout-state handoffs rather than isolated undefined locals."
-  - side: shuck-only
-    path_suffix: "tj__git-extras__bin__git-brv"
-    line: 44
-    end_line: 44
-    column: 24
-    end_column: 30
-    reason: "This formatter computes column widths across earlier display branches, so the remaining C006 reads are reviewed layout-state handoffs rather than isolated undefined locals."
-  - side: shuck-only
-    path_suffix: "tj__git-extras__bin__git-brv"
-    line: 49
-    end_line: 49
-    column: 24
-    end_column: 30
-    reason: "This formatter computes column widths across earlier display branches, so the remaining C006 reads are reviewed layout-state handoffs rather than isolated undefined locals."
-  - side: shuck-only
     path_suffix: "void-linux__void-packages__common__build-style__gem.sh"
     line: 20
     end_line: 20
@@ -1503,13 +1258,6 @@ reviewed_divergences:
     end_line: 21
     column: 35
     end_column: 51
-    reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__chroot-style__ethereal.sh"
-    line: 97
-    end_line: 97
-    column: 10
-    end_column: 19
     reason: "This Void helper still produces a Shuck-side unresolved read from collapsed framework context in this one file, so it stays reviewed narrowly rather than relaxing C006 across the wider shell-collapse family."
   - side: shuck-only
     path_suffix: "void-linux__void-packages__common__environment__setup__replace-interpreter.sh"

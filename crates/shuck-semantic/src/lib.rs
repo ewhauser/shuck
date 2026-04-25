@@ -445,6 +445,7 @@ pub struct SemanticModel {
     guarded_parameter_refs: FxHashSet<ReferenceId>,
     parameter_guard_flow_refs: FxHashSet<ReferenceId>,
     defaulting_parameter_operand_refs: FxHashSet<ReferenceId>,
+    self_referential_assignment_refs: FxHashSet<ReferenceId>,
     binding_index: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     resolved: FxHashMap<ReferenceId, BindingId>,
     unresolved: Vec<ReferenceId>,
@@ -562,6 +563,7 @@ impl SemanticModel {
             guarded_parameter_refs: built.guarded_parameter_refs,
             parameter_guard_flow_refs: built.parameter_guard_flow_refs,
             defaulting_parameter_operand_refs: built.defaulting_parameter_operand_refs,
+            self_referential_assignment_refs: built.self_referential_assignment_refs,
             binding_index: built.binding_index,
             resolved: built.resolved,
             unresolved: built.unresolved,
@@ -1244,6 +1246,7 @@ impl SemanticModel {
             predefined_runtime_refs: &self.predefined_runtime_refs,
             guarded_parameter_refs: &self.guarded_parameter_refs,
             parameter_guard_flow_refs: &self.parameter_guard_flow_refs,
+            self_referential_assignment_refs: &self.self_referential_assignment_refs,
             resolved: &self.resolved,
             call_sites: &self.call_sites,
             indirect_targets_by_reference: &self.indirect_targets_by_reference,
@@ -7055,6 +7058,21 @@ eval start-stop-daemon --start \\
         let uninitialized = uninitialized_names(&model);
 
         assert_names_absent(&["directory"], &uninitialized);
+    }
+
+    #[test]
+    fn self_referential_assignments_are_not_marked_uninitialized() {
+        let source = "\
+foo=\"$foo\"
+for flag in a b; do
+  valid_flags=\"${valid_flags} $flag\"
+done
+foo[$foo]=x
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["foo", "valid_flags"], &uninitialized);
     }
 
     #[test]
