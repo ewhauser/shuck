@@ -263,6 +263,7 @@ pub struct XargsCommandFacts<'a> {
     zero_digit_option_word: bool,
     inline_replace_options: Box<[XargsInlineReplaceOptionFact]>,
     command_operand_words: Box<[&'a Word]>,
+    sc2267_default_replace_silent_shape: bool,
 }
 
 impl<'a> XargsCommandFacts<'a> {
@@ -286,6 +287,10 @@ impl<'a> XargsCommandFacts<'a> {
 
     pub fn command_operand_words(&self) -> &[&'a Word] {
         &self.command_operand_words
+    }
+
+    pub fn has_sc2267_default_replace_silent_shape(&self) -> bool {
+        self.sc2267_default_replace_silent_shape
     }
 }
 

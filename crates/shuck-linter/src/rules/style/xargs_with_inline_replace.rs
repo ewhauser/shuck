@@ -1,5 +1,4 @@
-use crate::{Checker, Rule, ShellDialect, Violation, facts::leading_literal_word_prefix};
-use shuck_ast::{Word, static_word_text};
+use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct XargsWithInlineReplace;
 
@@ -21,7 +20,6 @@ pub fn xargs_with_inline_replace(checker: &mut Checker) {
         return;
     }
 
-    let source = checker.source();
     let spans = checker
         .facts()
         .commands()
@@ -34,66 +32,13 @@ pub fn xargs_with_inline_replace(checker: &mut Checker) {
                 .copied()
                 .filter(move |option| {
                     !option.uses_default_replacement()
-                        || !matches_sc2267_default_replace_silent_shape(
-                            xargs.command_operand_words(),
-                            source,
-                        )
+                        || !xargs.has_sc2267_default_replace_silent_shape()
                 })
                 .map(|option| option.span())
         })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || XargsWithInlineReplace);
-}
-
-fn matches_sc2267_default_replace_silent_shape(args: &[&Word], source: &str) -> bool {
-    matches_shell_c_wrapper(args, source) || matches_echo_leading_dash_replacement(args, source)
-}
-
-fn matches_shell_c_wrapper(args: &[&Word], source: &str) -> bool {
-    let args = if args
-        .first()
-        .and_then(|word| static_word_text(word, source))
-        .as_deref()
-        == Some("command")
-    {
-        &args[1..]
-    } else {
-        args
-    };
-
-    let Some(command_name) = args.first().and_then(|word| static_word_text(word, source)) else {
-        return false;
-    };
-
-    matches!(
-        command_basename(command_name.as_ref()),
-        "sh" | "bash" | "dash" | "ksh" | "zsh"
-    ) && args
-        .get(1)
-        .and_then(|word| static_word_text(word, source))
-        .as_deref()
-        == Some("-c")
-}
-
-fn matches_echo_leading_dash_replacement(args: &[&Word], source: &str) -> bool {
-    let Some(command_name) = args.first().and_then(|word| static_word_text(word, source)) else {
-        return false;
-    };
-
-    if command_basename(command_name.as_ref()) != "echo" {
-        return false;
-    }
-
-    let Some(first_operand) = args.get(1) else {
-        return false;
-    };
-    let literal_prefix = leading_literal_word_prefix(first_operand, source);
-    literal_prefix.starts_with('-') && literal_prefix != "-" && literal_prefix.contains("{}")
-}
-
-fn command_basename(name: &str) -> &str {
-    name.rsplit('/').next().unwrap_or(name)
 }
 
 #[cfg(test)]

@@ -7266,7 +7266,62 @@ fn parse_xargs_command<'a>(args: &[&'a Word], source: &str) -> XargsCommandFacts
         zero_digit_option_word,
         inline_replace_options: inline_replace_options.into_boxed_slice(),
         command_operand_words: args[index..].to_vec().into_boxed_slice(),
+        sc2267_default_replace_silent_shape: xargs_sc2267_default_replace_silent_shape(
+            &args[index..],
+            source,
+        ),
     }
+}
+
+fn xargs_sc2267_default_replace_silent_shape(args: &[&Word], source: &str) -> bool {
+    xargs_command_is_shell_c_wrapper(args, source)
+        || xargs_command_is_echo_leading_dash_replacement(args, source)
+}
+
+fn xargs_command_is_shell_c_wrapper(args: &[&Word], source: &str) -> bool {
+    let args = if args
+        .first()
+        .and_then(|word| static_word_text(word, source))
+        .as_deref()
+        == Some("command")
+    {
+        &args[1..]
+    } else {
+        args
+    };
+
+    let Some(command_name) = args.first().and_then(|word| static_word_text(word, source)) else {
+        return false;
+    };
+
+    matches!(
+        command_basename(command_name.as_ref()),
+        "sh" | "bash" | "dash" | "ksh" | "zsh"
+    ) && args
+        .get(1)
+        .and_then(|word| static_word_text(word, source))
+        .as_deref()
+        == Some("-c")
+}
+
+fn xargs_command_is_echo_leading_dash_replacement(args: &[&Word], source: &str) -> bool {
+    let Some(command_name) = args.first().and_then(|word| static_word_text(word, source)) else {
+        return false;
+    };
+
+    if command_basename(command_name.as_ref()) != "echo" {
+        return false;
+    }
+
+    let Some(first_operand) = args.get(1) else {
+        return false;
+    };
+    let literal_prefix = leading_literal_word_prefix(first_operand, source);
+    literal_prefix.starts_with('-') && literal_prefix != "-" && literal_prefix.contains("{}")
+}
+
+fn command_basename(name: &str) -> &str {
+    name.rsplit('/').next().unwrap_or(name)
 }
 
 fn xargs_long_option_argument(
