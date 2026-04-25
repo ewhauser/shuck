@@ -21,6 +21,7 @@ shuck-indexer = { workspace = true }
 shuck-linter = { workspace = true, features = ["benchmarking"] }
 shuck-parser = { workspace = true }
 shuck-semantic = { workspace = true }
+walkdir = "2"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 tikv-jemallocator = "0.6"
@@ -35,6 +36,10 @@ tempfile = { workspace = true }
 [[example]]
 name = "parser_counts"
 required-features = ["parser-benchmarking"]
+
+[[example]]
+name = "large_corpus_profile"
+required-features = ["large-corpus-hotspots"]
 
 [[bench]]
 name = "lexer"

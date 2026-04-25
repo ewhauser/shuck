@@ -277,6 +277,8 @@ impl<'a> LinterFactsBuilder<'a> {
                 );
                 let redirect_fact_range = redirect_fact_store.push_many(redirect_facts);
                 let options = CommandOptionFacts::build(visit.command, &normalized, self.source);
+                let scope =
+                    (!nested_word_command).then(|| self.semantic.scope_at(normalized.body_span.start.offset));
                 let declaration_assignment_probes = build_declaration_assignment_probes(
                     visit.command,
                     &normalized,
@@ -297,6 +299,7 @@ impl<'a> LinterFactsBuilder<'a> {
                     key,
                     visit,
                     nested_word_command,
+                    scope,
                     normalized,
                     zsh_options: command_zsh_options,
                     redirect_facts: redirect_fact_range,

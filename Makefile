@@ -1,4 +1,4 @@
-.PHONY: build test run check check-scripts setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark test-oracle-shellcheck-cli fuzz-setup fuzz-list fuzz-smoke fuzz-run fuzz-cli bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-large-corpus-hotspots bench-macro bench-macro-single bench-macro-format bench-macro-format-summary bench-macro-format-single bench-macro-site-local profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli harden-release check-release-security
+.PHONY: build test run check check-scripts setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark test-oracle-shellcheck-cli fuzz-setup fuzz-list fuzz-smoke fuzz-run fuzz-cli bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-large-corpus-hotspots bench-macro bench-macro-single bench-macro-format bench-macro-format-summary bench-macro-format-single bench-macro-site-local profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view profile-large-corpus profile-large-corpus-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli harden-release check-release-security
 
 ARGS ?= --help
 BENCH_FILE ?=
@@ -15,6 +15,8 @@ PROFILE_FILE ?= crates/shuck-benchmark/resources/files/$(PROFILE_CASE).sh
 PROFILE_DIR ?= .cache/profiles
 PROFILE_RATE ?= 1000
 PROFILE_ITERATIONS ?= 1
+PROFILE_CORPUS_FIXTURE ?= xwmx__nb__nb
+PROFILE_CORPUS_ITERATIONS ?= 1
 SHUCK_LARGE_CORPUS_TIMEOUT_SECS ?= 300
 SHUCK_LARGE_CORPUS_SHUCK_TIMEOUT_SECS ?=
 SHUCK_LARGE_CORPUS_SAMPLE_PERCENT ?= 100
@@ -239,6 +241,12 @@ profile-cli:
 
 profile-cli-view:
 	SAMPLY_VIEW=1 $(NIX_DEVELOP) ./scripts/profiling/profile_cli.sh "$(PROFILE_FILE)" "$(PROFILE_DIR)" "$(PROFILE_RATE)" "$(PROFILE_ITERATIONS)"
+
+profile-large-corpus: ensure-cache
+	$(NIX_DEVELOP) ./scripts/profiling/profile_large_corpus.sh "$(PROFILE_CORPUS_FIXTURE)" "$(PROFILE_DIR)" "$(PROFILE_RATE)" "$(PROFILE_ITERATIONS)" "$(PROFILE_CORPUS_ITERATIONS)"
+
+profile-large-corpus-view: ensure-cache
+	SAMPLY_VIEW=1 $(NIX_DEVELOP) ./scripts/profiling/profile_large_corpus.sh "$(PROFILE_CORPUS_FIXTURE)" "$(PROFILE_DIR)" "$(PROFILE_RATE)" "$(PROFILE_ITERATIONS)" "$(PROFILE_CORPUS_ITERATIONS)"
 
 flame-parser:
 	@mkdir -p $(PROFILE_DIR)
