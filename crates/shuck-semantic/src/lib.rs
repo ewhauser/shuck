@@ -2316,6 +2316,13 @@ impl<'model> SemanticAnalysis<'model> {
             return false;
         }
 
+        if let Some(visible) = self.model.visible_binding(name, site.span)
+            && visible.id != binding_id
+            && visible.scope != binding.scope
+        {
+            return false;
+        }
+
         if site.scope == binding.scope
             || self
                 .model
@@ -4932,6 +4939,25 @@ outer() {
             });
 
         assert!(unreached.is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_ignore_inner_shadow_inside_command_substitution() {
+        let source = "\
+outer() {
+  inner() { :; }
+  value=$(inner() { :; }; inner)
+}
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached =
+            analysis.unreached_functions_with_options(UnreachedFunctionAnalysisOptions {
+                report_unreached_nested_definitions: true,
+            });
+
+        assert_eq!(unreached.len(), 1);
+        assert_eq!(unreached[0].name, "inner");
     }
 
     #[test]

@@ -172,6 +172,13 @@ struct CompatReachState<'a> {
     function_bindings_by_scope: &'a CompatFunctionBindingsByScope,
 }
 
+#[derive(Clone, Copy)]
+struct BoundaryCallWindow {
+    after_offset: usize,
+    before_offset: usize,
+    boundary_scope: ScopeId,
+}
+
 fn build_compat_call_facts_by_name(checker: &Checker<'_>) -> CompatCallFactsByName {
     let mut calls = CompatCallFactsByName::default();
     for fact in checker.facts().structural_commands() {
@@ -340,12 +347,15 @@ fn report_transient_shadowed_file_scope_definitions(checker: &mut Checker<'_>) {
                     .then_some(span.start.offset)
                 })
                 .min()?;
+            let terminator_offset =
+                last_script_terminator_offset_after(checker, binding.span.start.offset)?;
 
-            if last_script_terminator_offset_after(checker, binding.span.start.offset).is_none()
-                || has_direct_call_to_binding_before_offset(
+            if has_direct_call_to_binding_before_offset(checker, binding.id, first_shadow_offset)
+                || has_non_transient_direct_call_to_binding_between_offsets(
                     checker,
                     binding.id,
                     first_shadow_offset,
+                    terminator_offset,
                 )
             {
                 return None;
@@ -649,6 +659,76 @@ fn has_direct_call_to_binding_before_offset_cached(
                     reach,
                     &mut visiting,
                 )
+            })
+}
+
+fn has_non_transient_direct_call_to_binding_between_offsets(
+    checker: &Checker<'_>,
+    binding_id: shuck_semantic::BindingId,
+    after_offset: usize,
+    before_offset: usize,
+) -> bool {
+    let mut scope_run_cache = FxHashMap::default();
+    let mut scope_between_cache = FxHashMap::default();
+    let call_facts_by_name = build_compat_call_facts_by_name(checker);
+    let function_bindings_by_scope = build_compat_function_bindings_by_scope(checker);
+    let mut reach = CompatReachState {
+        scope_run_cache: &mut scope_run_cache,
+        scope_between_cache: &mut scope_between_cache,
+        call_facts_by_name: &call_facts_by_name,
+        function_bindings_by_scope: &function_bindings_by_scope,
+    };
+    let mut visiting = FxHashSet::default();
+    let binding = checker.semantic().binding(binding_id);
+
+    reach
+        .call_facts_by_name
+        .get(binding.name.as_str())
+        .into_iter()
+        .flat_map(|facts| facts.iter())
+        .any(|fact| {
+            let call_offset = fact.span.start.offset;
+            call_offset > after_offset
+                && call_offset <= before_offset
+                && !scope_has_transient_ancestor(checker, fact.scope)
+                && call_may_resolve_to_binding(
+                    checker, binding_id, fact.scope, fact.span, fact.span,
+                )
+                && call_can_reach_binding_before_offset(
+                    checker,
+                    fact.scope,
+                    call_offset,
+                    binding.span.start.offset,
+                    before_offset,
+                    &mut reach,
+                    &mut visiting,
+                )
+        })
+        || checker
+            .semantic()
+            .call_sites_for(&binding.name)
+            .iter()
+            .any(|site| {
+                let call_offset = site.name_span.start.offset;
+                call_offset > after_offset
+                    && call_offset <= before_offset
+                    && !scope_has_transient_ancestor(checker, site.scope)
+                    && call_may_resolve_to_binding(
+                        checker,
+                        binding_id,
+                        site.scope,
+                        site.name_span,
+                        site.span,
+                    )
+                    && call_can_reach_binding_before_offset(
+                        checker,
+                        site.scope,
+                        call_offset,
+                        binding.span.start.offset,
+                        before_offset,
+                        &mut reach,
+                        &mut visiting,
+                    )
             })
 }
 
@@ -1517,6 +1597,11 @@ fn has_direct_call_inside_enclosing_function(
         function_bindings_by_scope: &function_bindings_by_scope,
     };
     let mut visiting = FxHashSet::default();
+    let window = BoundaryCallWindow {
+        after_offset: binding.span.start.offset,
+        before_offset: usize::MAX,
+        boundary_scope: enclosing_scope,
+    };
 
     reach
         .call_facts_by_name
@@ -1532,9 +1617,7 @@ fn has_direct_call_inside_enclosing_function(
                     checker,
                     fact.scope,
                     fact.span.start.offset,
-                    binding.span.start.offset,
-                    usize::MAX,
-                    enclosing_scope,
+                    window,
                     &mut reach,
                     &mut visiting,
                 )
@@ -1556,9 +1639,7 @@ fn has_direct_call_inside_enclosing_function(
                         checker,
                         site.scope,
                         site.name_span.start.offset,
-                        binding.span.start.offset,
-                        usize::MAX,
-                        enclosing_scope,
+                        window,
                         &mut reach,
                         &mut visiting,
                     )
@@ -1577,50 +1658,40 @@ fn call_scope_can_execute_inside_boundary_after_offset_before_offset(
     checker: &Checker<'_>,
     call_scope: ScopeId,
     call_offset: usize,
-    after_offset: usize,
-    before_offset: usize,
-    boundary_scope: ScopeId,
+    window: BoundaryCallWindow,
     reach: &mut CompatReachState<'_>,
     visiting: &mut FxHashSet<ScopeId>,
 ) -> bool {
-    if call_offset > before_offset {
+    if call_offset > window.before_offset {
         return false;
     }
 
     let Some(function_scope) = enclosing_function_scope(checker, call_scope) else {
-        return call_offset > after_offset;
+        return call_offset > window.after_offset;
     };
-    if function_scope == boundary_scope {
-        return call_offset > after_offset;
+    if function_scope == window.boundary_scope {
+        return call_offset > window.after_offset;
     }
 
     command_scope_can_run_inside_boundary_between_offsets(
-        checker,
-        call_scope,
-        after_offset,
-        before_offset,
-        boundary_scope,
-        reach,
-        visiting,
+        checker, call_scope, window, reach, visiting,
     )
 }
 
 fn command_scope_can_run_inside_boundary_between_offsets(
     checker: &Checker<'_>,
     scope: ScopeId,
-    after_offset: usize,
-    before_offset: usize,
-    boundary_scope: ScopeId,
+    window: BoundaryCallWindow,
     reach: &mut CompatReachState<'_>,
     visiting: &mut FxHashSet<ScopeId>,
 ) -> bool {
     let Some(function_scope) = enclosing_function_scope(checker, scope) else {
         return true;
     };
-    if function_scope == boundary_scope {
+    if function_scope == window.boundary_scope {
         return true;
     }
-    if !call_is_inside_scope(checker, function_scope, boundary_scope) {
+    if !call_is_inside_scope(checker, function_scope, window.boundary_scope) {
         return false;
     }
     if !visiting.insert(function_scope) {
@@ -1636,9 +1707,7 @@ fn command_scope_can_run_inside_boundary_between_offsets(
             has_call_to_function_binding_inside_boundary_between_offsets(
                 checker,
                 *function_binding,
-                after_offset,
-                before_offset,
-                boundary_scope,
+                window,
                 reach,
                 visiting,
             )
@@ -1651,14 +1720,15 @@ fn command_scope_can_run_inside_boundary_between_offsets(
 fn has_call_to_function_binding_inside_boundary_between_offsets(
     checker: &Checker<'_>,
     function_binding: shuck_semantic::BindingId,
-    after_offset: usize,
-    before_offset: usize,
-    boundary_scope: ScopeId,
+    window: BoundaryCallWindow,
     reach: &mut CompatReachState<'_>,
     visiting: &mut FxHashSet<ScopeId>,
 ) -> bool {
     let binding = checker.semantic().binding(function_binding);
-    let required_after = after_offset.max(binding.span.start.offset);
+    let nested_window = BoundaryCallWindow {
+        after_offset: window.after_offset.max(binding.span.start.offset),
+        ..window
+    };
     reach
         .call_facts_by_name
         .get(binding.name.as_str())
@@ -1666,8 +1736,8 @@ fn has_call_to_function_binding_inside_boundary_between_offsets(
         .flat_map(|facts| facts.iter())
         .any(|fact| {
             let call_offset = fact.span.start.offset;
-            call_offset <= before_offset
-                && call_is_inside_scope(checker, fact.scope, boundary_scope)
+            call_offset <= window.before_offset
+                && call_is_inside_scope(checker, fact.scope, window.boundary_scope)
                 && call_may_resolve_to_binding(
                     checker,
                     function_binding,
@@ -1679,9 +1749,7 @@ fn has_call_to_function_binding_inside_boundary_between_offsets(
                     checker,
                     fact.scope,
                     call_offset,
-                    required_after,
-                    before_offset,
-                    boundary_scope,
+                    nested_window,
                     reach,
                     visiting,
                 )
@@ -1692,8 +1760,8 @@ fn has_call_to_function_binding_inside_boundary_between_offsets(
             .iter()
             .any(|site| {
                 let call_offset = site.name_span.start.offset;
-                call_offset <= before_offset
-                    && call_is_inside_scope(checker, site.scope, boundary_scope)
+                call_offset <= window.before_offset
+                    && call_is_inside_scope(checker, site.scope, window.boundary_scope)
                     && call_may_resolve_to_binding(
                         checker,
                         function_binding,
@@ -1705,9 +1773,7 @@ fn has_call_to_function_binding_inside_boundary_between_offsets(
                         checker,
                         site.scope,
                         call_offset,
-                        required_after,
-                        before_offset,
-                        boundary_scope,
+                        nested_window,
                         reach,
                         visiting,
                     )
@@ -2600,6 +2666,26 @@ exit 0
 
         assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
         assert_eq!(diagnostics[0].span.start.line, 1);
+    }
+
+    #[test]
+    fn c063_option_accepts_file_scope_call_after_transient_shadow() {
+        let source = "\
+redefine() { echo redefine; }
+if [ \"$(redefine() { :; }; redefine)\" = redefine ]; then
+  echo changed
+fi
+redefine
+exit 0
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/shellspec-inspection.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_c063_report_unreached_nested_definitions(true),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
