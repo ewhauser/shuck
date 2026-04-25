@@ -833,41 +833,6 @@ impl<'a> LinterFacts<'a> {
         &self.conditional_portability
     }
 
-    pub(crate) fn possible_variable_misspelling_source_compat_name_uses(
-        &self,
-        source: &str,
-        semantic: &SemanticModel,
-    ) -> Vec<ComparableNameUse> {
-        let mut uses = Vec::new();
-
-        if !has_defining_binding(semantic, "CFLAGS")
-            && source.contains("--conlyopt")
-            && source.contains("--cxxopt")
-            && let Some(name_use) =
-                source_compat_name_use(source, semantic, "${CFLAGS}", "CFLAGS", false, |line| {
-                    line.trim_start().starts_with("for f in ${CFLAGS};")
-                })
-        {
-            uses.push(name_use);
-        }
-
-        if source.contains("LDAP_USER_DC")
-            && source.contains("LDAP_USER_OU=\"${LDAP_USER_OU:-")
-            && let Some(name_use) = source_compat_name_use(
-                source,
-                semantic,
-                "${LDAP_USER_OU/#/ou=}",
-                "LDAP_USER_OU",
-                true,
-                |_| true,
-            )
-        {
-            uses.push(name_use);
-        }
-
-        uses
-    }
-
     pub(crate) fn possible_variable_misspelling_scope_compat_name_uses(
         &self,
     ) -> Vec<ComparableNameUse> {
@@ -884,6 +849,42 @@ impl<'a> LinterFacts<'a> {
                     .filter(|name_use| name_use.kind() == ComparableNameUseKind::Parameter),
             );
         }
+        for command in self.commands() {
+            visit_command_words_for_substitutions(
+                command.command(),
+                command.redirects(),
+                self.source,
+                &mut |word| {
+                    uses.extend(
+                        comparable_name_uses(word, self.source)
+                            .into_vec()
+                            .into_iter()
+                            .filter(|name_use| name_use.kind() == ComparableNameUseKind::Derived),
+                    );
+                },
+            );
+        }
+        for word in self
+            .for_headers()
+            .iter()
+            .flat_map(|header| header.words())
+            .chain(self.select_headers().iter().flat_map(|header| header.words()))
+        {
+            uses.extend(
+                comparable_name_uses(word.word(), self.source)
+                    .into_vec()
+                    .into_iter()
+                    .filter_map(|mut name_use| {
+                        if name_use.kind() == ComparableNameUseKind::Parameter {
+                            name_use.mark_derived();
+                            Some(name_use)
+                        } else {
+                            None
+                        }
+                    }),
+            );
+        }
+        uses.extend(build_flag_for_loop_source_name_uses(self.source));
         uses
     }
 }
@@ -972,41 +973,69 @@ fn collect_array_assignment_split_scalar_expansion_spans(
     sort_and_dedup_spans(split_sensitive_spans);
 }
 
-fn source_compat_name_use(
-    source: &str,
-    semantic: &SemanticModel,
-    needle: &str,
-    name: &str,
-    require_reference_overlap: bool,
-    line_matches: impl Fn(&str) -> bool,
-) -> Option<ComparableNameUse> {
-    source.match_indices(needle).find_map(|(start, text)| {
-        if !line_matches(source_line_at(source, start)) {
-            return None;
-        }
-
-        let start_position = source_position_at_offset(source, start)?;
-        let end_position = source_position_at_offset(source, start + text.len())?;
-        let span = Span::from_positions(start_position, end_position);
-        let overlaps_reference = !require_reference_overlap
-            || semantic.references().iter().any(|reference| {
-                reference.name.as_str() == name && spans_overlap(reference.span, span)
-            });
-        overlaps_reference.then(|| ComparableNameUse {
-            span,
-            key: ComparableNameKey(name.into()),
-            kind: ComparableNameUseKind::Parameter,
-        })
-    })
+fn shell_has_brace_expansion(shell: ShellDialect) -> bool {
+    matches!(
+        shell,
+        ShellDialect::Bash | ShellDialect::Ksh | ShellDialect::Mksh | ShellDialect::Zsh
+    )
 }
 
-fn has_defining_binding(semantic: &SemanticModel, name: &str) -> bool {
-    semantic.bindings_for(&Name::from(name)).iter().any(|binding_id| {
-        !matches!(
-            semantic.binding(*binding_id).kind,
-            BindingKind::FunctionDefinition | BindingKind::Imported
-        )
-    })
+fn build_flag_for_loop_source_name_uses(source: &str) -> Vec<ComparableNameUse> {
+    let mut uses = Vec::new();
+    let mut line_start = 0;
+    for line in source.split_inclusive('\n') {
+        let line_without_newline = line.trim_end_matches('\n');
+        let trimmed = line_without_newline.trim_start();
+        let leading_whitespace = line_without_newline.len() - trimmed.len();
+        if let Some(after_for) = trimmed.strip_prefix("for ")
+            && let Some(in_offset) = after_for.find(" in ")
+        {
+            let list = &after_for[in_offset + 4..];
+            if let Some(name_start_in_list) = list.find("${") {
+                let name_start = line_start
+                    + leading_whitespace
+                    + "for ".len()
+                    + in_offset
+                    + 4
+                    + name_start_in_list
+                    + 2;
+                let name_text = &source[name_start..];
+                let name_len = name_text
+                    .bytes()
+                    .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+                    .count();
+                let name = &source[name_start..name_start + name_len];
+                if is_build_flag_source_name(name)
+                    && source
+                        .as_bytes()
+                        .get(name_start + name_len)
+                        .is_some_and(|byte| *byte == b'}')
+                    && let (Some(start), Some(end)) = (
+                        source_position_at_offset(source, name_start - 2),
+                        source_position_at_offset(source, name_start + name_len + 1),
+                    )
+                {
+                    uses.push(ComparableNameUse {
+                        span: Span::from_positions(start, end),
+                        key: ComparableNameKey(name.into()),
+                        kind: ComparableNameUseKind::Derived,
+                    });
+                }
+            }
+        }
+        line_start += line.len();
+    }
+    uses
+}
+
+fn is_build_flag_source_name(name: &str) -> bool {
+    matches!(
+        name,
+        "CFLAGS" | "CXXFLAGS" | "CPPFLAGS" | "LDFLAGS" | "GOFLAGS"
+    ) || name.ends_with("_CFLAGS")
+        || name.ends_with("_CXXFLAGS")
+        || name.ends_with("_CPPFLAGS")
+        || name.ends_with("_LDFLAGS")
 }
 
 fn source_position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
@@ -1018,25 +1047,6 @@ fn source_position_at_offset(source: &str, target_offset: usize) -> Option<Posit
         position.advance(char);
     }
     Some(position)
-}
-
-fn source_line_at(source: &str, offset: usize) -> &str {
-    let start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
-    let end = source[offset..]
-        .find('\n')
-        .map_or(source.len(), |index| offset + index);
-    &source[start..end]
-}
-
-fn spans_overlap(left: Span, right: Span) -> bool {
-    left.start.offset < right.end.offset && right.start.offset < left.end.offset
-}
-
-fn shell_has_brace_expansion(shell: ShellDialect) -> bool {
-    matches!(
-        shell,
-        ShellDialect::Bash | ShellDialect::Ksh | ShellDialect::Mksh | ShellDialect::Zsh
-    )
 }
 
 fn assignment_value_span(value: &AssignmentValue) -> Option<Span> {
