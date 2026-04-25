@@ -215,6 +215,9 @@ fn heredoc_findings(
             {
                 continue;
             }
+            if is_presence_tested_reference_name(checker, reference_name, name_use.span()) {
+                continue;
+            }
             if is_build_flag_family_non_report_pair(reference_name, candidate.as_str()) {
                 continue;
             }
@@ -285,6 +288,9 @@ fn scope_compat_findings(
             continue;
         }
         if has_same_name_defining_bindings(checker, &Name::from(reference_name)) {
+            continue;
+        }
+        if is_presence_tested_reference_name(checker, reference_name, name_use.span()) {
             continue;
         }
 
@@ -392,6 +398,16 @@ fn spans_overlap(left: Span, right: Span) -> bool {
     left.start.offset < right.end.offset && right.start.offset < left.end.offset
 }
 
+fn is_presence_tested_reference_name(
+    checker: &Checker<'_>,
+    reference_name: &str,
+    reference_span: Span,
+) -> bool {
+    checker
+        .facts()
+        .is_presence_tested_name(&Name::from(reference_name), reference_span)
+}
+
 fn parameter_reference_span(source: &str, span: Span) -> Span {
     let Some(previous_offset) = span.start.offset.checked_sub(1) else {
         return span;
@@ -443,39 +459,44 @@ fn preferred_candidate_name(checker: &Checker<'_>, target_name: &str) -> Option<
     binding_candidates
         .min_by_key(|(rank, start, end, _)| (*rank, *start, *end))
         .map(|(_, _, _, name)| name)
-        .or_else(|| shellcheck_oracle_reference_candidate_name(checker, target_name))
+        .or_else(|| presence_tested_candidate_name(checker, target_name))
 }
 
-fn shellcheck_oracle_reference_candidate_name(
-    checker: &Checker<'_>,
-    target_name: &str,
-) -> Option<String> {
+fn presence_tested_candidate_name(checker: &Checker<'_>, target_name: &str) -> Option<String> {
     checker
-        .semantic()
-        .references()
+        .facts()
+        .presence_tested_names()
         .iter()
-        .filter(|reference| {
-            shellcheck_oracle_reference_candidate_pair(target_name, reference.name.as_str())
+        .filter(|candidate_name| candidate_name.as_str() != target_name)
+        .filter_map(|candidate_name| {
+            let first_span = first_presence_test_span(checker, candidate_name)?;
+            candidate_match_rank(target_name, candidate_name.as_str()).map(|rank| {
+                (
+                    rank,
+                    first_span.start.offset,
+                    first_span.end.offset,
+                    candidate_name.to_string(),
+                )
+            })
         })
-        .min_by_key(|reference| (reference.span.start.offset, reference.span.end.offset))
-        .map(|reference| reference.name.to_string())
+        .min_by_key(|(rank, start, end, _)| (*rank, *start, *end))
+        .map(|(_, _, _, name)| name)
 }
 
-fn shellcheck_oracle_reference_candidate_pair(target_name: &str, candidate_name: &str) -> bool {
-    // Narrow black-box parity cases where the source of truth reports a
-    // reference-only candidate. Do not generalize this to arbitrary references.
-    matches!(
-        (target_name, candidate_name),
-        ("AWKBINARY", "APKBINARY")
-            | ("SEDBINARY", "CMDBINARY" | "SSBINARY")
-            | ("CUTBINARY", "YUMBINARY")
-            | ("HOSTID", "HOSTID2")
-            | ("ISTATBINARY", "STATBINARY")
-            | ("SKIP_TESTS", "SKIPTEST")
-            | ("SHELLSPEC_EXECDIR", "SHELLSPEC_SPECDIR")
-            | ("TRBINARY" | "WCBINARY", "IPBINARY")
-            | ("INTERNAL_IP6_DNS", "INTERNAL_IP4_DNS")
-    )
+fn first_presence_test_span(checker: &Checker<'_>, candidate_name: &Name) -> Option<Span> {
+    checker
+        .facts()
+        .presence_test_references(candidate_name)
+        .iter()
+        .map(|presence| checker.semantic().reference(presence.reference_id()).span)
+        .chain(
+            checker
+                .facts()
+                .presence_test_names(candidate_name)
+                .iter()
+                .map(|presence| presence.tested_span()),
+        )
+        .min_by_key(|span| (span.start.offset, span.end.offset))
 }
 
 fn canonical_uppercase_name(name: &str) -> String {
@@ -519,9 +540,38 @@ fn has_strong_two_edit_shape(target_name: &str, candidate_upper: &str) -> bool {
 
     matches!((target_name, candidate_upper), ("CFLAGS", "CXXFLAGS"))
         || matches!((target_name, candidate_upper), ("OS_NAME", "HOSTNAME"))
+        || has_separator_plural_compaction(target_name, candidate_upper)
         || common_prefix >= 5
         || common_suffix >= 5
         || (common_prefix >= 4 && common_suffix >= 4)
+}
+
+fn has_separator_plural_compaction(left: &str, right: &str) -> bool {
+    compacted_plural_matches(left, right) || compacted_plural_matches(right, left)
+}
+
+fn compacted_plural_matches(pluralish_name: &str, compact_singular_name: &str) -> bool {
+    let Some((prefix, last_segment)) = pluralish_name.rsplit_once('_') else {
+        return false;
+    };
+    let Some(singular_segment) = last_segment.strip_suffix('S') else {
+        return false;
+    };
+    if compacted_len(prefix) < 4 || singular_segment.len() < 4 {
+        return false;
+    }
+
+    let compacted = pluralish_name
+        .chars()
+        .filter(|char| *char != '_')
+        .collect::<String>();
+    compacted
+        .strip_suffix('S')
+        .is_some_and(|singular| singular == compact_singular_name)
+}
+
+fn compacted_len(name: &str) -> usize {
+    name.chars().filter(|char| *char != '_').count()
 }
 
 fn common_prefix_len(left: &[u8], right: &[u8]) -> usize {
@@ -980,8 +1030,10 @@ echo \"$CLDFLAGS\"
 #!/bin/sh
 CT_ID=100
 PKG_CONFIG=pkg-config
+SKIPTEST=0
 echo \"$CTID\"
 echo \"$PKGCONFIG\"
+echo \"$SKIP_TESTS\"
 ";
         let diagnostics = test_snippet(
             source,
@@ -993,8 +1045,23 @@ echo \"$PKGCONFIG\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$CTID", "$PKGCONFIG"]
+            vec!["$CTID", "$PKGCONFIG", "$SKIP_TESTS"]
         );
+    }
+
+    #[test]
+    fn ignores_short_plural_compaction_segments() {
+        let source = "\
+#!/bin/sh
+WIFIDEV=wlan0
+echo \"$WIFI_DEVS\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
@@ -1088,6 +1155,24 @@ package_name=demo
 cat << EOF
 ${PACKAGE_NAME:-demo}
 EOF
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_presence_tested_names_inside_expanding_heredocs() {
+        let source = "\
+#!/bin/sh
+cat << EOF
+$INTERNAL_IP4_ADDRESS
+EOF
+if [ -n \"$INTERNAL_IP4_ADDRESS\" ]; then :; fi
+if [ -n \"$INTERNAL_IP6_ADDRESS\" ]; then :; fi
 ";
         let diagnostics = test_snippet(
             source,
@@ -1236,6 +1321,65 @@ echo \"$OS_NAME\"
                 .collect::<Vec<_>>(),
             vec!["$HOSTID", "$OS_NAME"]
         );
+    }
+
+    #[test]
+    fn reports_presence_tested_names_as_reference_candidates() {
+        let source = "\
+#!/bin/sh
+echo \"$AWKBINARY\"
+echo \"$TRBINARY\"
+if [ -n \"$APKBINARY\" ]; then :; fi
+if [ \"$IPBINARY\" ]; then :; fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$AWKBINARY", "$TRBINARY"]
+        );
+    }
+
+    #[test]
+    fn reports_variable_set_tests_as_reference_candidates() {
+        let source = "\
+#!/bin/bash
+echo \"$AWKBINARY\"
+if [[ -v APKBINARY ]]; then :; fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$AWKBINARY"]
+        );
+    }
+
+    #[test]
+    fn ignores_plain_reference_only_candidate_names() {
+        let source = "\
+#!/bin/sh
+echo \"$AWKBINARY\"
+echo \"$APKBINARY\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
