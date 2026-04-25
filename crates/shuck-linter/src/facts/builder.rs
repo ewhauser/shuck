@@ -561,6 +561,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 }),
         );
         let mut word_index = FxHashMap::<FactSpan, SmallVec<[WordOccurrenceId; 2]>>::default();
+        word_index.reserve(word_occurrences.len());
         let mut word_occurrence_ids_by_command =
             vec![SmallVec::<[WordOccurrenceId; 4]>::new(); commands.len()];
         for (index, fact) in word_occurrences.iter().enumerate() {

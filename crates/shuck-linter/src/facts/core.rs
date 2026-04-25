@@ -103,7 +103,7 @@ pub(super) struct CommandLookupEntry {
     id: CommandId,
 }
 
-type CommandLookupIndex = FxHashMap<FactSpan, Vec<CommandLookupEntry>>;
+type CommandLookupIndex = FxHashMap<FactSpan, SmallVec<[CommandLookupEntry; 1]>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SudoFamilyInvoker {
