@@ -62,13 +62,6 @@ reviewed_divergences:
     column: 36
     end_column: 56
     reason: "This ShellSpec translator fixture compares block line markers produced by the surrounding spec harness, so the remaining C006 read is reviewed harness state rather than a free-standing missing assignment."
-  - side: shellcheck-only
-    path_suffix: "leebaird__discover__dev-api-scanner.sh"
-    line: 632
-    end_line: 632
-    column: 92
-    end_column: 110
-    reason: "This scanner builds an output filename from the current CORS origin, and the remaining ShellCheck-only anchor is the lower-case slug fragment inside that generated path. We review this one file narrowly instead of broadening C006 around the helper's filename templating."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__cleanup"
     line: 90
@@ -257,48 +250,6 @@ reviewed_divergences:
     end_line: 170
     column: 8
     end_column: 22
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
-    line: 126
-    end_line: 126
-    column: 11
-    end_column: 28
-    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
-    line: 133
-    end_line: 133
-    column: 28
-    end_column: 41
-    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
-    line: 135
-    end_line: 135
-    column: 15
-    end_column: 38
-    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
-    line: 137
-    end_line: 137
-    column: 23
-    end_column: 36
-    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
-    line: 151
-    end_line: 151
-    column: 6
-    end_column: 23
-    reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
-    line: 151
-    end_line: 151
-    column: 32
-    end_column: 45
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__ruby"

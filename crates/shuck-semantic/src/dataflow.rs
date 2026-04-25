@@ -323,9 +323,6 @@ fn analyze_uninitialized_references_exact(
         let Some(block_id) = exact.reference_blocks[reference.id.index()] else {
             continue;
         };
-        if exact.unreachable_blocks.contains(block_id.index()) {
-            continue;
-        }
         // File-entry contracts describe ambient names supplied by the caller
         // environment, not assignments performed by this file, so a read that
         // resolves only to such an import remains uninitialized until we see a

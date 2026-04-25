@@ -3392,6 +3392,27 @@ echo \"${ordinary_missing}/out\"
     }
 
     #[test]
+    fn undefined_variable_reports_unreachable_references() {
+        let source = "\
+#!/bin/bash
+load_value() {
+  return 1
+  printf '%s\\n' \"$after_return\"
+}
+load_value
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$after_return"]
+        );
+    }
+
+    #[test]
     fn undefined_variable_ignores_bound_name_between_escaped_quote_literals() {
         let diagnostics = lint_for_rule(
             "\

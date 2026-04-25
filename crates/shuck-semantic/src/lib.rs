@@ -10290,6 +10290,22 @@ echo \"${ordinary_missing}/out\"
     }
 
     #[test]
+    fn unreachable_references_are_still_uninitialized_reads() {
+        let source = "\
+#!/bin/bash
+load_value() {
+  return 1
+  printf '%s\\n' \"$after_return\"
+}
+load_value
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_present(&["after_return"], &uninitialized);
+    }
+
+    #[test]
     fn recorded_program_and_cfg_capture_non_arithmetic_var_ref_nested_regions() {
         let source = "\
 [[ -v assoc[\"$(printf inner)\"] ]]
