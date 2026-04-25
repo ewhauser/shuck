@@ -467,16 +467,18 @@ fn case_pattern_epsilon_closure(
     tokens: &[CasePatternToken],
     seeds: impl IntoIterator<Item = usize>,
 ) -> CasePatternStates {
+    let mut seen = SmallVec::<[bool; 16]>::new();
+    seen.resize(tokens.len() + 1, false);
     let mut states = CasePatternStates::new();
     let mut stack = CasePatternStates::new();
 
     for state in seeds {
-        push_case_pattern_state(tokens.len(), &mut states, &mut stack, state);
+        push_case_pattern_state(&mut seen, &mut states, &mut stack, state);
     }
 
     while let Some(state) = stack.pop() {
         if matches!(tokens.get(state), Some(CasePatternToken::AnyString)) {
-            push_case_pattern_state(tokens.len(), &mut states, &mut stack, state + 1);
+            push_case_pattern_state(&mut seen, &mut states, &mut stack, state + 1);
         }
     }
 
@@ -489,12 +491,15 @@ fn case_pattern_states_from_slice(states: &[usize]) -> CasePatternStates {
 }
 
 fn push_case_pattern_state(
-    token_len: usize,
+    seen: &mut [bool],
     states: &mut CasePatternStates,
     stack: &mut CasePatternStates,
     state: usize,
 ) {
-    if state <= token_len && !states.contains(&state) {
+    if let Some(present) = seen.get_mut(state)
+        && !*present
+    {
+        *present = true;
         states.push(state);
         stack.push(state);
     }
