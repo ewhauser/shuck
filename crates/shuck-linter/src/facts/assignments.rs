@@ -1343,14 +1343,6 @@ fn build_nonpersistent_assignment_spans(
 
     let innermost_command_ids_by_offset =
         build_innermost_command_ids_by_offset(commands, command_id_query_offsets);
-    let commands_by_id = commands
-        .iter()
-        .map(|command| (command.id(), command))
-        .collect::<FxHashMap<_, _>>();
-    let command_end_offsets = commands
-        .iter()
-        .map(|command| (command.id(), command.span().end.offset))
-        .collect::<FxHashMap<_, _>>();
     let persistent_reset_offsets_by_name: FxHashMap<Name, Vec<PersistentReset>> =
         persistent_reset_offsets_by_name
             .into_iter()
@@ -1363,7 +1355,9 @@ fn build_nonpersistent_assignment_spans(
                             offset,
                         );
                         let command_end_offset = command_id
-                            .and_then(|id| command_end_offsets.get(&id).copied())
+                            .and_then(|id| commands.get(id.index()))
+                            .map(CommandFact::span)
+                            .map(|span| span.end.offset)
                             .unwrap_or(offset);
 
                         PersistentReset {
@@ -1434,12 +1428,14 @@ fn build_nonpersistent_assignment_spans(
             synthetic_read.span().start.offset,
         );
         let same_command_prefix_reset = synthetic_command_id
-            .and_then(|id| commands_by_id.get(&id).copied())
+            .and_then(|id| commands.get(id.index()))
             .is_some_and(|command| {
                 command_prefix_assignments_reset_name(command.command(), synthetic_read.name())
             });
         let synthetic_command_end_offset = synthetic_command_id
-            .and_then(|id| command_end_offsets.get(&id).copied())
+            .and_then(|id| commands.get(id.index()))
+            .map(CommandFact::span)
+            .map(|span| span.end.offset)
             .unwrap_or(synthetic_read.span().start.offset);
         let synthetic_function_scope =
             enclosing_function_scope_for_scope(semantic, synthetic_read.scope());
@@ -1885,7 +1881,8 @@ fn build_innermost_command_ids_by_offset(
         command_spans.sort_unstable_by(|left, right| compare_command_offset_entries(*left, *right));
     }
 
-    let mut command_ids_by_offset = FxHashMap::default();
+    let mut command_ids_by_offset =
+        FxHashMap::with_capacity_and_hasher(offsets.len(), Default::default());
     let mut active_commands = Vec::new();
     let mut next_command = 0;
     for offset in offsets {

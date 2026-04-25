@@ -372,27 +372,11 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn word_facts(&self) -> WordOccurrenceIter<'_, 'a> {
-        WordOccurrenceIter {
-            inner: Box::new(
-                self.word_occurrences
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, occurrence)| occurrence.context != WordFactContext::ArithmeticCommand)
-                    .map(|(index, _)| self.word_occurrence_ref(WordOccurrenceId::new(index))),
-            ),
-        }
+        WordOccurrenceIter::all(self, WordOccurrenceFilter::NonArithmetic)
     }
 
     pub fn arithmetic_command_word_facts(&self) -> WordOccurrenceIter<'_, 'a> {
-        WordOccurrenceIter {
-            inner: Box::new(
-                self.word_occurrences
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, occurrence)| occurrence.context == WordFactContext::ArithmeticCommand)
-                    .map(|(index, _)| self.word_occurrence_ref(WordOccurrenceId::new(index))),
-            ),
-        }
+        WordOccurrenceIter::all(self, WordOccurrenceFilter::ArithmeticCommand)
     }
 
     pub fn is_compound_assignment_value_word(&self, fact: WordOccurrenceRef<'_, '_>) -> bool {
@@ -401,18 +385,11 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn expansion_word_facts(&self, context: ExpansionContext) -> WordOccurrenceIter<'_, 'a> {
-        WordOccurrenceIter {
-            inner: Box::new(
-                self.word_facts()
-                    .filter(move |fact| fact.expansion_context() == Some(context)),
-            ),
-        }
+        WordOccurrenceIter::all(self, WordOccurrenceFilter::Expansion(context))
     }
 
     pub fn case_subject_facts(&self) -> WordOccurrenceIter<'_, 'a> {
-        WordOccurrenceIter {
-            inner: Box::new(self.word_facts().filter(|fact| fact.is_case_subject())),
-        }
+        WordOccurrenceIter::all(self, WordOccurrenceFilter::CaseSubject)
     }
 
     pub fn word_fact(
@@ -449,14 +426,11 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn array_assignment_split_word_facts(&self) -> WordOccurrenceIter<'_, 'a> {
-        WordOccurrenceIter {
-            inner: Box::new(
-                self.array_assignment_split_word_ids
-                    .iter()
-                    .copied()
-                    .map(|id| self.word_occurrence_ref(id)),
-            ),
-        }
+        WordOccurrenceIter::ids(
+            self,
+            &self.array_assignment_split_word_ids,
+            WordOccurrenceFilter::Any,
+        )
     }
 
     fn word_occurrence_ref(&self, id: WordOccurrenceId) -> WordOccurrenceRef<'_, 'a> {

@@ -1103,12 +1103,65 @@ pub struct WordOccurrenceRef<'facts, 'a> {
 }
 
 pub struct WordOccurrenceIter<'facts, 'a> {
-    inner: Box<dyn Iterator<Item = WordOccurrenceRef<'facts, 'a>> + 'facts>,
+    facts: &'facts LinterFacts<'a>,
+    source: WordOccurrenceIterSource<'facts>,
+    filter: WordOccurrenceFilter,
+}
+
+enum WordOccurrenceIterSource<'facts> {
+    All { next: usize },
+    Ids(std::slice::Iter<'facts, WordOccurrenceId>),
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum WordOccurrenceFilter {
+    Any,
+    NonArithmetic,
+    ArithmeticCommand,
+    Expansion(ExpansionContext),
+    CaseSubject,
 }
 
 impl<'facts, 'a> WordOccurrenceIter<'facts, 'a> {
+    pub(crate) fn all(facts: &'facts LinterFacts<'a>, filter: WordOccurrenceFilter) -> Self {
+        Self {
+            facts,
+            source: WordOccurrenceIterSource::All { next: 0 },
+            filter,
+        }
+    }
+
+    pub(crate) fn ids(
+        facts: &'facts LinterFacts<'a>,
+        ids: &'facts [WordOccurrenceId],
+        filter: WordOccurrenceFilter,
+    ) -> Self {
+        Self {
+            facts,
+            source: WordOccurrenceIterSource::Ids(ids.iter()),
+            filter,
+        }
+    }
+
     pub fn iter(self) -> Self {
         self
+    }
+
+    fn accepts(&self, id: WordOccurrenceId) -> bool {
+        let occurrence = self.facts.word_occurrence(id);
+        match self.filter {
+            WordOccurrenceFilter::Any => true,
+            WordOccurrenceFilter::NonArithmetic => {
+                occurrence.context != WordFactContext::ArithmeticCommand
+            }
+            WordOccurrenceFilter::ArithmeticCommand => {
+                occurrence.context == WordFactContext::ArithmeticCommand
+            }
+            WordOccurrenceFilter::Expansion(context) => {
+                occurrence.context == WordFactContext::Expansion(context)
+            }
+            WordOccurrenceFilter::CaseSubject => self.facts.word_occurrence_ref(id).is_case_subject(),
+        }
     }
 }
 
@@ -1116,7 +1169,20 @@ impl<'facts, 'a> Iterator for WordOccurrenceIter<'facts, 'a> {
     type Item = WordOccurrenceRef<'facts, 'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
+        loop {
+            let id = match &mut self.source {
+                WordOccurrenceIterSource::All { next } => {
+                    let id = WordOccurrenceId::new(*next);
+                    *next += 1;
+                    (id.index() < self.facts.word_occurrences.len()).then_some(id)
+                }
+                WordOccurrenceIterSource::Ids(ids) => ids.next().copied(),
+            }?;
+
+            if self.accepts(id) {
+                return Some(self.facts.word_occurrence_ref(id));
+            }
+        }
     }
 }
 

@@ -286,18 +286,29 @@ pub fn word_literal_part_spans_excluding_parameter_operator_tails(
     word: &Word,
     source: &str,
 ) -> Vec<Span> {
-    word.parts
-        .iter()
-        .enumerate()
-        .filter_map(|(index, part)| match &part.kind {
-            WordPart::Literal(_)
-                if !literal_part_is_parameter_operator_tail(&word.parts, index, source) =>
-            {
-                Some(part.span)
-            }
-            _ => None,
-        })
-        .collect()
+    let mut spans = Vec::new();
+    collect_word_literal_part_spans_excluding_parameter_operator_tails(word, source, &mut spans);
+    spans
+}
+
+pub fn collect_word_literal_part_spans_excluding_parameter_operator_tails(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    spans.extend(
+        word.parts
+            .iter()
+            .enumerate()
+            .filter_map(|(index, part)| match &part.kind {
+                WordPart::Literal(_)
+                    if !literal_part_is_parameter_operator_tail(&word.parts, index, source) =>
+                {
+                    Some(part.span)
+                }
+                _ => None,
+            }),
+    );
 }
 
 pub fn word_has_single_literal_part(word: &Word) -> bool {
@@ -310,7 +321,19 @@ pub fn word_has_single_literal_part(word: &Word) -> bool {
 pub fn word_literal_scan_segments_excluding_expansions(word: &Word, source: &str) -> Vec<Span> {
     let mut excluded = Vec::new();
     collect_literal_scan_exclusions(&word.parts, &mut excluded);
-    scan_span_excluding(word.span, &excluded, source)
+    let mut spans = Vec::new();
+    collect_scan_span_excluding(word.span, &excluded, source, &mut spans);
+    spans
+}
+
+pub fn collect_word_literal_scan_segments_excluding_expansions(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let mut excluded = Vec::new();
+    collect_literal_scan_exclusions(&word.parts, &mut excluded);
+    collect_scan_span_excluding(word.span, &excluded, source, spans);
 }
 
 pub fn word_unquoted_glob_pattern_spans(word: &Word, source: &str) -> Vec<Span> {
@@ -3242,11 +3265,17 @@ fn span_within_literal(span: Span, source: &str, start: usize, end: usize) -> Sp
 }
 
 fn scan_span_excluding(span: Span, excluded: &[Span], source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_scan_span_excluding(span, excluded, source, &mut spans);
+    spans
+}
+
+fn collect_scan_span_excluding(span: Span, excluded: &[Span], source: &str, spans: &mut Vec<Span>) {
     if excluded.is_empty() {
-        return vec![span];
+        spans.push(span);
+        return;
     }
 
-    let mut spans = Vec::new();
     let mut cursor = span.start.offset;
     for excluded_span in excluded.iter().copied().filter(|excluded_span| {
         excluded_span.end.offset > span.start.offset && excluded_span.start.offset < span.end.offset
@@ -3261,8 +3290,6 @@ fn scan_span_excluding(span: Span, excluded: &[Span], source: &str) -> Vec<Span>
     if cursor < span.end.offset {
         spans.push(scan_span_segment(span, cursor, span.end.offset, source));
     }
-
-    spans
 }
 
 fn merge_adjacent_spans(spans: Vec<Span>, source: &str) -> Vec<Span> {

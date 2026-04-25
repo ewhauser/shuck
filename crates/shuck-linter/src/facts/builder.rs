@@ -637,22 +637,19 @@ impl<'a> LinterFactsBuilder<'a> {
         );
         let mut word_index = FxHashMap::<FactSpan, SmallVec<[WordOccurrenceId; 2]>>::default();
         word_index.reserve(word_occurrences.len());
-        let mut word_occurrence_counts_by_command = vec![0usize; commands.len()];
+        let mut word_occurrence_offsets_by_command = vec![0usize; commands.len()];
         for fact in &word_occurrences {
-            word_occurrence_counts_by_command[fact.command_id.index()] += 1;
+            word_occurrence_offsets_by_command[fact.command_id.index()] += 1;
         }
         let mut next_word_occurrence_offset = 0usize;
-        let word_occurrence_ids_by_command = word_occurrence_counts_by_command
-            .iter()
+        let word_occurrence_ids_by_command = word_occurrence_offsets_by_command
+            .iter_mut()
             .map(|count| {
                 let range = IdRange::from_start_len(next_word_occurrence_offset, *count);
-                next_word_occurrence_offset += *count;
+                *count = next_word_occurrence_offset;
+                next_word_occurrence_offset = range.end_index();
                 range
             })
-            .collect::<Vec<_>>();
-        let mut next_word_occurrence_offsets = word_occurrence_ids_by_command
-            .iter()
-            .map(|range| range.start_index())
             .collect::<Vec<_>>();
         let mut word_occurrence_ids =
             vec![WordOccurrenceId::new(0); next_word_occurrence_offset];
@@ -663,9 +660,9 @@ impl<'a> LinterFactsBuilder<'a> {
                 .or_default()
                 .push(id);
             let command_index = fact.command_id.index();
-            let offset = next_word_occurrence_offsets[command_index];
+            let offset = word_occurrence_offsets_by_command[command_index];
             word_occurrence_ids[offset] = id;
-            next_word_occurrence_offsets[command_index] += 1;
+            word_occurrence_offsets_by_command[command_index] += 1;
         }
         fact_store.word_occurrence_ids = word_occurrence_ids;
         fact_store.word_occurrence_ids_by_command = word_occurrence_ids_by_command;

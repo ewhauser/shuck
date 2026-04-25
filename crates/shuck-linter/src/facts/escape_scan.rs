@@ -96,6 +96,7 @@ pub(super) fn build_escape_scan_matches(
     }
 
     let mut matches = Vec::new();
+    let mut span_buffer = Vec::new();
 
     for fact in occurrences
         .iter()
@@ -117,10 +118,13 @@ pub(super) fn build_escape_scan_matches(
             inputs.single_quoted_fragments,
         );
 
-        for span in word_spans::word_literal_part_spans_excluding_parameter_operator_tails(
+        span_buffer.clear();
+        word_spans::collect_word_literal_part_spans_excluding_parameter_operator_tails(
             word,
             context.source,
-        ) {
+            &mut span_buffer,
+        );
+        for span in span_buffer.drain(..) {
             append_escape_scan_matches(
                 &mut matches,
                 span,
@@ -183,10 +187,13 @@ pub(super) fn build_escape_scan_matches(
             inputs.single_quoted_fragments,
         );
 
-        for span in word_spans::word_literal_scan_segments_excluding_expansions(
+        span_buffer.clear();
+        word_spans::collect_word_literal_scan_segments_excluding_expansions(
             occurrence_word(nodes, fact),
             context.source,
-        ) {
+            &mut span_buffer,
+        );
+        for span in span_buffer.drain(..) {
             append_escape_scan_matches(
                 &mut matches,
                 span,

@@ -6,70 +6,27 @@ fn build_literal_brace_spans(
     heredoc_ranges: &[TextRange],
 ) -> Vec<Span> {
     let mut spans = Vec::new();
+    let mut processed_word_nodes = vec![false; nodes.len()];
 
     for fact in occurrences {
         if fact.context == WordFactContext::Expansion(ExpansionContext::RegexOperand) {
             continue;
         }
 
-        let word = occurrence_word(nodes, fact);
         let is_find_exec_placeholder_word =
             is_find_exec_placeholder_word(commands, nodes, fact, source);
         let is_xargs_replacement_word = is_xargs_replacement_word(commands, nodes, fact, source);
-        spans.extend(
-            word.brace_syntax()
-                .iter()
-                .copied()
-                .filter(|brace| brace.quote_context == BraceQuoteContext::Unquoted)
-                .filter(|brace| !literal_brace_syntax_looks_like_active_expansion(*brace, source))
-                .filter(|brace| {
-                    matches!(
-                        brace.kind,
-                        BraceSyntaxKind::Literal | BraceSyntaxKind::TemplatePlaceholder
-                    ) || brace_syntax_with_whitespace_is_literal(*brace, source)
-                })
-                .filter(|brace| {
-                    brace.span.slice(source) != "{}"
-                        && !brace_span_has_escaped_dollar_prefix(brace.span, source)
-                        && !is_find_exec_placeholder_word
-                        && !is_xargs_replacement_word
-                })
-                .flat_map(|brace| brace_character_spans(brace.span, source))
-                .filter(|span| !span_inside_nested_escaped_parameter_template(word, *span, source))
-                .filter(|span| !brace_span_is_plain_parameter_expansion_edge(word, *span, source))
-                .filter(|span| {
-                    !word_span_is_inside_command_substitution(nodes, fact, *span, source)
-                }),
-        );
-
-        if !is_find_exec_placeholder_word && !is_xargs_replacement_word {
-            spans.extend(
-                unclassified_literal_brace_spans(word, source)
-                    .into_iter()
-                    .filter(|span| {
-                        !span_inside_nested_escaped_parameter_template(word, *span, source)
-                    })
-                    .filter(|span| {
-                        !brace_span_is_plain_parameter_expansion_edge(word, *span, source)
-                    })
-                    .filter(|span| {
-                        !word_span_is_inside_command_substitution(nodes, fact, *span, source)
-                    }),
-            );
-            spans.extend(
-                escaped_parameter_expansion_brace_edge_spans(word, source)
-                    .into_iter()
-                    .filter(|span| {
-                        !span_inside_nested_escaped_parameter_template(word, *span, source)
-                    })
-                    .filter(|span| {
-                        !brace_span_is_plain_parameter_expansion_edge(word, *span, source)
-                    })
-                    .filter(|span| {
-                        !word_span_is_inside_command_substitution(nodes, fact, *span, source)
-                    }),
-            );
+        if is_find_exec_placeholder_word || is_xargs_replacement_word {
+            continue;
         }
+
+        let node_index = fact.node_id.index();
+        if processed_word_nodes[node_index] {
+            continue;
+        }
+        processed_word_nodes[node_index] = true;
+
+        collect_literal_brace_spans_for_word(nodes, fact, source, &mut spans);
     }
 
     spans.extend(uncovered_command_brace_spans(
@@ -87,6 +44,61 @@ fn build_literal_brace_spans(
     spans.sort_by_key(|span| (span.start.offset, span.end.offset));
     spans.dedup_by_key(|span| (span.start.offset, span.end.offset));
     spans
+}
+
+fn collect_literal_brace_spans_for_word(
+    nodes: &[WordNode<'_>],
+    fact: &WordOccurrence,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let word = occurrence_word(nodes, fact);
+    let mut dynamic_exclusions = Vec::new();
+    collect_dynamic_brace_exclusions(
+        &word.parts,
+        word.span.start.offset,
+        word.span.end.offset,
+        source,
+        &mut dynamic_exclusions,
+    );
+    dynamic_exclusions.sort_by_key(|span| (span.start_offset, span.end_offset));
+
+    spans.extend(
+        word.brace_syntax()
+            .iter()
+            .copied()
+            .filter(|brace| brace.quote_context == BraceQuoteContext::Unquoted)
+            .filter(|brace| !literal_brace_syntax_looks_like_active_expansion(*brace, source))
+            .filter(|brace| {
+                matches!(
+                    brace.kind,
+                    BraceSyntaxKind::Literal | BraceSyntaxKind::TemplatePlaceholder
+                ) || brace_syntax_with_whitespace_is_literal(*brace, source)
+            })
+            .filter(|brace| {
+                brace.span.slice(source) != "{}"
+                    && !brace_span_has_escaped_dollar_prefix(brace.span, source)
+            })
+            .flat_map(|brace| brace_character_spans(brace.span, source))
+            .filter(|span| !span_inside_nested_escaped_parameter_template(word, *span, source))
+            .filter(|span| !brace_span_is_plain_parameter_expansion_edge(word, *span, source))
+            .filter(|span| !word_span_is_inside_command_substitution(nodes, fact, *span, source)),
+    );
+
+    spans.extend(
+        escaped_parameter_expansion_brace_edge_spans(word, source, &dynamic_exclusions)
+            .into_iter()
+            .filter(|span| !span_inside_nested_escaped_parameter_template(word, *span, source))
+            .filter(|span| !brace_span_is_plain_parameter_expansion_edge(word, *span, source))
+            .filter(|span| !word_span_is_inside_command_substitution(nodes, fact, *span, source)),
+    );
+    spans.extend(
+        unclassified_literal_brace_spans(word, source, &mut dynamic_exclusions)
+            .into_iter()
+            .filter(|span| !span_inside_nested_escaped_parameter_template(word, *span, source))
+            .filter(|span| !brace_span_is_plain_parameter_expansion_edge(word, *span, source))
+            .filter(|span| !word_span_is_inside_command_substitution(nodes, fact, *span, source)),
+    );
 }
 
 fn word_span_is_inside_command_substitution(
@@ -536,17 +548,13 @@ fn word_is_empty_brace_pair_variant(word: &Word, source: &str) -> bool {
     matches!(word.span.slice(source), "{}" | "\\{\\}")
 }
 
-fn unclassified_literal_brace_spans(word: &Word, source: &str) -> Vec<Span> {
+fn unclassified_literal_brace_spans(
+    word: &Word,
+    source: &str,
+    excluded: &mut Vec<DynamicBraceExcludedSpan>,
+) -> Vec<Span> {
     let span = word.span;
     let text = span.slice(source);
-    let mut excluded = Vec::new();
-    collect_dynamic_brace_exclusions(
-        &word.parts,
-        span.start.offset,
-        span.end.offset,
-        source,
-        &mut excluded,
-    );
     excluded.extend(
         word.brace_syntax()
             .iter()
@@ -1079,20 +1087,15 @@ struct DynamicBraceExcludedSpan {
     kind: DynamicBraceExcludedSpanKind,
 }
 
-fn escaped_parameter_expansion_brace_edge_spans(word: &Word, source: &str) -> Vec<Span> {
+fn escaped_parameter_expansion_brace_edge_spans(
+    word: &Word,
+    source: &str,
+    excluded: &[DynamicBraceExcludedSpan],
+) -> Vec<Span> {
     let span = word.span;
     let text = span.slice(source);
     let mut spans = Vec::new();
     let mut literal_stack: Vec<LiteralBraceCandidate> = Vec::new();
-    let mut excluded = Vec::new();
-    collect_dynamic_brace_exclusions(
-        &word.parts,
-        span.start.offset,
-        span.end.offset,
-        source,
-        &mut excluded,
-    );
-    excluded.sort_by_key(|span| (span.start_offset, span.end_offset));
     let mut excluded_index = 0usize;
     let mut index = 0usize;
     let mut previous_char = None;
