@@ -102,7 +102,10 @@ impl<'a> PipelineFact<'a> {
 pub(super) fn build_pipeline_facts<'a>(
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
+    command_child_index: &CommandChildIndex,
 ) -> Vec<PipelineFact<'a>> {
+    let command_relationships =
+        CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
     let mut nested_pipeline_commands = FxHashSet::default();
 
     for fact in commands {
@@ -113,19 +116,14 @@ pub(super) fn build_pipeline_facts<'a>(
             continue;
         }
 
-        if matches!(
-            &command.left.command,
-            Command::Binary(left) if matches!(left.op, BinaryOp::Pipe | BinaryOp::PipeAll)
-        ) && let Some(id) = command_id_for_command(&command.left.command, command_ids_by_span)
-        {
-            nested_pipeline_commands.insert(id);
-        }
-        if matches!(
-            &command.right.command,
-            Command::Binary(right) if matches!(right.op, BinaryOp::Pipe | BinaryOp::PipeAll)
-        ) && let Some(id) = command_id_for_command(&command.right.command, command_ids_by_span)
-        {
-            nested_pipeline_commands.insert(id);
+        for child_id in command_relationships.child_ids(fact.id()) {
+            let child = command_relationships.fact(*child_id);
+            if matches!(
+                child.command(),
+                Command::Binary(child) if matches!(child.op, BinaryOp::Pipe | BinaryOp::PipeAll)
+            ) {
+                nested_pipeline_commands.insert(*child_id);
+            }
         }
     }
 
@@ -147,7 +145,13 @@ pub(super) fn build_pipeline_facts<'a>(
                 command,
                 segments: segments
                     .into_iter()
-                    .map(|stmt| build_pipeline_segment_fact(stmt, commands, command_ids_by_span))
+                    .map(|stmt| {
+                        build_pipeline_segment_fact(
+                            stmt,
+                            command_relationships,
+                            fact.id(),
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
                 operators: pipeline_operator_facts(command),
@@ -212,10 +216,10 @@ fn collect_pipeline_operator_facts(command: &BinaryCommand, out: &mut Vec<Pipeli
 
 fn build_pipeline_segment_fact<'a>(
     stmt: &'a Stmt,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
+    parent_id: CommandId,
 ) -> PipelineSegmentFact<'a> {
-    let Some(fact) = command_fact_for_stmt(stmt, commands, command_ids_by_span) else {
+    let Some(fact) = command_relationships.child_or_lookup_fact(parent_id, stmt) else {
         unreachable!("pipeline segment should have a corresponding command fact");
     };
 
