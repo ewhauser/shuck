@@ -316,6 +316,17 @@ impl<'a> LinterFacts<'a> {
         &self.presence_tested_names
     }
 
+    pub(crate) fn all_presence_tested_names(&self) -> Vec<&Name> {
+        let mut names = self
+            .presence_test_references_by_name
+            .keys()
+            .chain(self.presence_test_names_by_name.keys())
+            .collect::<Vec<_>>();
+        names.sort_unstable_by(|left, right| left.as_str().cmp(right.as_str()));
+        names.dedup_by(|left, right| left.as_str() == right.as_str());
+        names
+    }
+
     pub fn is_presence_tested_name(&self, name: &Name, span: Span) -> bool {
         self.presence_tested_names.contains(name)
             || self

@@ -465,8 +465,8 @@ fn preferred_candidate_name(checker: &Checker<'_>, target_name: &str) -> Option<
 fn presence_tested_candidate_name(checker: &Checker<'_>, target_name: &str) -> Option<String> {
     checker
         .facts()
-        .presence_tested_names()
-        .iter()
+        .all_presence_tested_names()
+        .into_iter()
         .filter(|candidate_name| candidate_name.as_str() != target_name)
         .filter_map(|candidate_name| {
             let first_span = first_presence_test_span(checker, candidate_name)?;
@@ -1352,6 +1352,27 @@ if [ \"$IPBINARY\" ]; then :; fi
 #!/bin/bash
 echo \"$AWKBINARY\"
 if [[ -v APKBINARY ]]; then :; fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$AWKBINARY"]
+        );
+    }
+
+    #[test]
+    fn reports_nested_presence_tested_names_as_reference_candidates() {
+        let source = "\
+#!/bin/sh
+echo \"$AWKBINARY\"
+: \"$(if [ -n \"$APKBINARY\" ]; then echo ok; fi)\"
 ";
         let diagnostics = test_snippet(
             source,
