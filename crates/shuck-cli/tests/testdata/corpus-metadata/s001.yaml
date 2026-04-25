@@ -916,27 +916,6 @@ reviewed_divergences:
     column: 21
     end_column: 39
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "romkatv__powerlevel10k__gitstatus__gitstatus.plugin.sh"
-    line: 226
-    end_line: 226
-    column: 23
-    end_column: 42
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "romkatv__powerlevel10k__gitstatus__gitstatus.plugin.sh"
-    line: 234
-    end_line: 234
-    column: 39
-    end_column: 58
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shellcheck-only
-    path_suffix: "romkatv__powerlevel10k__gitstatus__gitstatus.plugin.sh"
-    line: 384
-    end_line: 384
-    column: 61
-    end_column: 79
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__binscripts__rvm-installer"
     line: 89

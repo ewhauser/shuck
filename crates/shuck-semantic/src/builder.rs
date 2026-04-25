@@ -1228,6 +1228,19 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
         for redirect in redirects {
+            if let (Some(name), Some(span)) = (&redirect.fd_var, redirect.fd_var_span) {
+                self.add_binding(
+                    name,
+                    BindingKind::Assignment,
+                    self.current_scope(),
+                    span,
+                    BindingOrigin::Assignment {
+                        definition_span: span,
+                        value: AssignmentValueOrigin::StaticLiteral,
+                    },
+                    BindingAttributes::INTEGER,
+                );
+            }
             match redirect.word_target() {
                 Some(word) => {
                     self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions)

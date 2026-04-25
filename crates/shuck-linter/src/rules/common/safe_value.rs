@@ -35,7 +35,9 @@ impl SafeValueQuery {
             | ExpansionContext::CommandArgument
             | ExpansionContext::HereString
             | ExpansionContext::DeclarationAssignmentValue => Some(Self::Argv),
-            ExpansionContext::RedirectTarget(_) => Some(Self::RedirectTarget),
+            ExpansionContext::RedirectTarget(_) | ExpansionContext::DescriptorDupTarget(_) => {
+                Some(Self::RedirectTarget)
+            }
             ExpansionContext::CasePattern
             | ExpansionContext::ConditionalPattern
             | ExpansionContext::ParameterPattern => Some(Self::Pattern),
@@ -2790,6 +2792,12 @@ mod tests {
         );
         assert_eq!(
             SafeValueQuery::from_context(ExpansionContext::RedirectTarget(RedirectKind::Output)),
+            Some(SafeValueQuery::RedirectTarget)
+        );
+        assert_eq!(
+            SafeValueQuery::from_context(ExpansionContext::DescriptorDupTarget(
+                RedirectKind::DupOutput
+            )),
             Some(SafeValueQuery::RedirectTarget)
         );
         assert_eq!(

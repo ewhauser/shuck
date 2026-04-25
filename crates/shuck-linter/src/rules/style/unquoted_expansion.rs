@@ -158,6 +158,7 @@ fn array_assignment_split_context_is_checked(context: ExpansionContext) -> bool 
             | ExpansionContext::CommandArgument
             | ExpansionContext::HereString
             | ExpansionContext::RedirectTarget(_)
+            | ExpansionContext::DescriptorDupTarget(_)
     )
 }
 
@@ -166,7 +167,8 @@ fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool 
         ExpansionContext::CommandName
         | ExpansionContext::CommandArgument
         | ExpansionContext::HereString
-        | ExpansionContext::RedirectTarget(_) => true,
+        | ExpansionContext::RedirectTarget(_)
+        | ExpansionContext::DescriptorDupTarget(_) => true,
         ExpansionContext::DeclarationAssignmentValue => shell != ShellDialect::Bash,
         _ => false,
     }
@@ -289,6 +291,43 @@ flags=\"`echo \\\"$CFLAGS\\\" | sed \\\"s/ $COVERAGE_FLAGS//\\\"`\"
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn treats_brace_fd_redirect_bindings_as_numeric_values() {
+        let source = "\
+#!/bin/bash
+exec {fd}< <(:)
+read -u $fd value
+echo >&$fd
+echo 2>&$fd
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_descriptor_dup_targets_without_visible_fd_bindings() {
+        let source = "\
+#!/bin/bash
+function start() {
+  exec {_GITSTATUS_REQ_FD}>>\"$req_fifo\" {_GITSTATUS_RESP_FD}<\"$resp_fifo\" || return
+  IFS='' read -r -u $_GITSTATUS_RESP_FD GITSTATUS_DAEMON_PID || return
+}
+function query() {
+  echo -nE \"$req_id\"$'\\x1f'\"$dir\"$'\\x1e' >&$_GITSTATUS_REQ_FD || return
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$_GITSTATUS_REQ_FD"]
+        );
     }
 
     #[test]
