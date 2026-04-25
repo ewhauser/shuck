@@ -5504,7 +5504,7 @@ impl<'a> Parser<'a> {
         let mut in_double = false;
         let mut double_quote_depth = 0usize;
         let mut escaped = false;
-        let use_source = source_backed && self.brace_operand_can_use_source(chars.clone(), *cursor);
+        let use_source = source_backed && self.brace_operand_starts_at_source(chars, *cursor);
         let mut operand = (!use_source).then(String::new);
 
         while let Some(&c) = chars.peek() {
@@ -5622,112 +5622,19 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn brace_operand_can_use_source(
+    fn brace_operand_starts_at_source(
         &self,
-        mut chars: std::iter::Peekable<std::str::Chars<'_>>,
+        chars: &std::iter::Peekable<std::str::Chars<'_>>,
         cursor: Position,
     ) -> bool {
+        let mut probe = chars.clone();
+        let Some(first) = probe.next() else {
+            return true;
+        };
         let Some(source_suffix) = self.input.get(cursor.offset..) else {
             return false;
         };
-        let mut source_chars = source_suffix.chars();
-        let mut depth = 1;
-        let mut literal_brace_depth = 0usize;
-        let mut in_single = false;
-        let mut in_double = false;
-        let mut double_quote_depth = 0usize;
-        let mut escaped = false;
-
-        while let Some(&c) = chars.peek() {
-            if c == '\x00' {
-                return false;
-            }
-
-            if escaped {
-                if !Self::consume_matching_source_char(&mut chars, &mut source_chars) {
-                    return false;
-                }
-                escaped = false;
-                continue;
-            }
-
-            match c {
-                '\\' if !in_single => {
-                    if !Self::consume_matching_source_char(&mut chars, &mut source_chars) {
-                        return false;
-                    }
-                    escaped = true;
-                }
-                '\'' if !in_double => {
-                    in_single = !in_single;
-                    if !Self::consume_matching_source_char(&mut chars, &mut source_chars) {
-                        return false;
-                    }
-                }
-                '"' if !in_single => {
-                    in_double = !in_double;
-                    double_quote_depth = if in_double { depth } else { 0 };
-                    if !Self::consume_matching_source_char(&mut chars, &mut source_chars) {
-                        return false;
-                    }
-                }
-                '$' if !in_single => {
-                    if !Self::consume_matching_source_char(&mut chars, &mut source_chars) {
-                        return false;
-                    }
-                    if chars.peek() == Some(&'{') {
-                        depth += 1;
-                        if !Self::consume_matching_source_char(&mut chars, &mut source_chars) {
-                            return false;
-                        }
-                    }
-                }
-                '{' if !in_single && !in_double => {
-                    literal_brace_depth += 1;
-                    if !Self::consume_matching_source_char(&mut chars, &mut source_chars) {
-                        return false;
-                    }
-                }
-                '}' if !in_single && (!in_double || depth > double_quote_depth) => {
-                    if depth == 1 && literal_brace_depth > 0 {
-                        let mut remaining = chars.clone();
-                        remaining.next();
-                        if Self::brace_operand_has_later_top_level_closer(remaining, depth) {
-                            literal_brace_depth -= 1;
-                            if !Self::consume_matching_source_char(&mut chars, &mut source_chars) {
-                                return false;
-                            }
-                            continue;
-                        }
-                    }
-
-                    if depth == 1 {
-                        return true;
-                    }
-                    depth -= 1;
-                    if !Self::consume_matching_source_char(&mut chars, &mut source_chars) {
-                        return false;
-                    }
-                }
-                _ => {
-                    if !Self::consume_matching_source_char(&mut chars, &mut source_chars) {
-                        return false;
-                    }
-                }
-            }
-        }
-
-        true
-    }
-
-    fn consume_matching_source_char(
-        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
-        source_chars: &mut std::str::Chars<'_>,
-    ) -> bool {
-        let Some(ch) = chars.next() else {
-            return false;
-        };
-        source_chars.next() == Some(ch)
+        source_suffix.starts_with(first)
     }
 
     fn brace_operand_has_later_top_level_closer(
