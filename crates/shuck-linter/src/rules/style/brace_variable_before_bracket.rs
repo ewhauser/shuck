@@ -17,11 +17,8 @@ pub fn brace_variable_before_bracket(checker: &mut Checker) {
         return;
     }
 
-    checker.report_all_dedup(
-        checker
-            .facts()
-            .brace_variable_before_bracket_spans()
-            .to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.brace_variable_before_bracket_spans(),
         || BraceVariableBeforeBracket,
     );
 }

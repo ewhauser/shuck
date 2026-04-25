@@ -13,9 +13,7 @@ impl Violation for EchoHereDoc {
 }
 
 pub fn echo_here_doc(checker: &mut Checker) {
-    checker.report_all_dedup(checker.facts().echo_here_doc_spans().to_vec(), || {
-        EchoHereDoc
-    });
+    checker.report_fact_slice_dedup(|facts| facts.echo_here_doc_spans(), || EchoHereDoc);
 }
 
 #[cfg(test)]

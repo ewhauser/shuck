@@ -190,6 +190,168 @@ impl<'a> Checker<'a> {
         }
     }
 
+    pub fn report_iter<V, I>(&mut self, spans: I, violation: impl Fn() -> V)
+    where
+        V: Violation,
+        I: IntoIterator<Item = Span>,
+    {
+        for span in spans {
+            self.report(violation(), span);
+        }
+    }
+
+    pub fn report_iter_dedup<V, I>(&mut self, spans: I, violation: impl Fn() -> V)
+    where
+        V: Violation,
+        I: IntoIterator<Item = Span>,
+    {
+        for span in spans {
+            self.report_dedup(violation(), span);
+        }
+    }
+
+    pub fn report_fact_spans<V>(
+        &mut self,
+        collect: impl FnOnce(&LinterFacts<'a>, &mut dyn FnMut(Span)),
+        violation: impl Fn() -> V,
+    ) where
+        V: Violation,
+    {
+        let facts = self.facts.get_or_init(|| {
+            LinterFacts::build_with_shell_and_ambient_shell_options(
+                self.file,
+                self.source,
+                self.semantic,
+                self.indexer,
+                self.file_context,
+                self.shell,
+                self.ambient_shell_options,
+            )
+        });
+        let diagnostics = &mut self.diagnostics;
+        let reported = &mut self.reported;
+        let mut report = |span| {
+            let diagnostic = Diagnostic::new(violation(), span);
+            reported.insert(DiagnosticKey::new(diagnostic.rule, diagnostic.span));
+            diagnostics.push(diagnostic);
+        };
+        collect(facts, &mut report);
+    }
+
+    pub fn report_fact_spans_dedup<V>(
+        &mut self,
+        collect: impl FnOnce(&LinterFacts<'a>, &mut dyn FnMut(Span)),
+        violation: impl Fn() -> V,
+    ) where
+        V: Violation,
+    {
+        let facts = self.facts.get_or_init(|| {
+            LinterFacts::build_with_shell_and_ambient_shell_options(
+                self.file,
+                self.source,
+                self.semantic,
+                self.indexer,
+                self.file_context,
+                self.shell,
+                self.ambient_shell_options,
+            )
+        });
+        let diagnostics = &mut self.diagnostics;
+        let reported = &mut self.reported;
+        let mut report = |span| {
+            let diagnostic = Diagnostic::new(violation(), span);
+            let key = DiagnosticKey::new(diagnostic.rule, diagnostic.span);
+            if reported.insert(key) {
+                diagnostics.push(diagnostic);
+            }
+        };
+        collect(facts, &mut report);
+    }
+
+    pub fn report_fact_slice<V>(
+        &mut self,
+        spans: impl for<'facts> FnOnce(&'facts LinterFacts<'a>) -> &'facts [Span],
+        violation: impl Fn() -> V,
+    ) where
+        V: Violation,
+    {
+        self.report_fact_spans(
+            |facts, report| {
+                for span in spans(facts).iter().copied() {
+                    report(span);
+                }
+            },
+            violation,
+        );
+    }
+
+    pub fn report_fact_slice_dedup<V>(
+        &mut self,
+        spans: impl for<'facts> FnOnce(&'facts LinterFacts<'a>) -> &'facts [Span],
+        violation: impl Fn() -> V,
+    ) where
+        V: Violation,
+    {
+        self.report_fact_spans_dedup(
+            |facts, report| {
+                for span in spans(facts).iter().copied() {
+                    report(span);
+                }
+            },
+            violation,
+        );
+    }
+
+    pub fn report_fact_diagnostics_dedup(
+        &mut self,
+        collect: impl FnOnce(&LinterFacts<'a>, &mut dyn FnMut(Diagnostic)),
+    ) {
+        let facts = self.facts.get_or_init(|| {
+            LinterFacts::build_with_shell_and_ambient_shell_options(
+                self.file,
+                self.source,
+                self.semantic,
+                self.indexer,
+                self.file_context,
+                self.shell,
+                self.ambient_shell_options,
+            )
+        });
+        let diagnostics = &mut self.diagnostics;
+        let reported = &mut self.reported;
+        let mut report = |diagnostic: Diagnostic| {
+            let key = DiagnosticKey::new(diagnostic.rule, diagnostic.span);
+            if reported.insert(key) {
+                diagnostics.push(diagnostic);
+            }
+        };
+        collect(facts, &mut report);
+    }
+
+    pub fn report_fact_diagnostics(
+        &mut self,
+        collect: impl FnOnce(&LinterFacts<'a>, &mut dyn FnMut(Diagnostic)),
+    ) {
+        let facts = self.facts.get_or_init(|| {
+            LinterFacts::build_with_shell_and_ambient_shell_options(
+                self.file,
+                self.source,
+                self.semantic,
+                self.indexer,
+                self.file_context,
+                self.shell,
+                self.ambient_shell_options,
+            )
+        });
+        let diagnostics = &mut self.diagnostics;
+        let reported = &mut self.reported;
+        let mut report = |diagnostic: Diagnostic| {
+            reported.insert(DiagnosticKey::new(diagnostic.rule, diagnostic.span));
+            diagnostics.push(diagnostic);
+        };
+        collect(facts, &mut report);
+    }
+
     pub fn check(mut self) -> Vec<Diagnostic> {
         if self.rules.is_empty() {
             return self.diagnostics;

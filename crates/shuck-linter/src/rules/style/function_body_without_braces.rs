@@ -20,11 +20,8 @@ pub fn function_body_without_braces(checker: &mut Checker) {
         return;
     }
 
-    checker.report_all_dedup(
-        checker
-            .facts()
-            .function_body_without_braces_spans()
-            .to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.function_body_without_braces_spans(),
         || FunctionBodyWithoutBraces,
     );
 }

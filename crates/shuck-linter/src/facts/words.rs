@@ -1058,29 +1058,29 @@ pub struct WordNode<'a> {
     key: FactSpan,
     word: &'a Word,
     analysis: ExpansionAnalysis,
-    derived: OnceCell<WordNodeDerived>,
+    derived: WordNodeDerived<'a>,
 }
 
 #[derive(Debug)]
-pub(crate) struct WordNodeDerived {
-    static_text: Option<Box<str>>,
+pub(crate) struct WordNodeDerived<'a> {
+    static_text: Option<&'a str>,
     trailing_literal_char: Option<char>,
     starts_with_extglob: bool,
     has_literal_affixes: bool,
     contains_shell_quoting_literals: bool,
-    active_expansion_spans: Box<[Span]>,
-    scalar_expansion_spans: Box<[Span]>,
-    unquoted_scalar_expansion_spans: Box<[Span]>,
-    array_expansion_spans: Box<[Span]>,
-    all_elements_array_expansion_spans: Box<[Span]>,
-    direct_all_elements_array_expansion_spans: Box<[Span]>,
-    unquoted_all_elements_array_expansion_spans: Box<[Span]>,
-    unquoted_array_expansion_spans: Box<[Span]>,
-    command_substitution_spans: Box<[Span]>,
-    unquoted_command_substitution_spans: Box<[Span]>,
-    unquoted_dollar_paren_command_substitution_spans: Box<[Span]>,
-    double_quoted_expansion_spans: Box<[Span]>,
-    unquoted_literal_between_double_quoted_segments_spans: Box<[Span]>,
+    active_expansion_spans: IdRange<Span>,
+    scalar_expansion_spans: IdRange<Span>,
+    unquoted_scalar_expansion_spans: IdRange<Span>,
+    array_expansion_spans: IdRange<Span>,
+    all_elements_array_expansion_spans: IdRange<Span>,
+    direct_all_elements_array_expansion_spans: IdRange<Span>,
+    unquoted_all_elements_array_expansion_spans: IdRange<Span>,
+    unquoted_array_expansion_spans: IdRange<Span>,
+    command_substitution_spans: IdRange<Span>,
+    unquoted_command_substitution_spans: IdRange<Span>,
+    unquoted_dollar_paren_command_substitution_spans: IdRange<Span>,
+    double_quoted_expansion_spans: IdRange<Span>,
+    unquoted_literal_between_double_quoted_segments_spans: IdRange<Span>,
 }
 
 #[derive(Debug)]
@@ -1093,7 +1093,7 @@ pub struct WordOccurrence {
     runtime_literal: RuntimeLiteralAnalysis,
     operand_class: Option<TestOperandClass>,
     enclosing_expansion_context: Option<ExpansionContext>,
-    array_assignment_split_scalar_expansion_spans: OnceCell<Box<[Span]>>,
+    array_assignment_split_scalar_expansion_spans: IdRange<Span>,
 }
 
 #[derive(Clone, Copy)]
@@ -1195,7 +1195,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.facts.word_node(self.occurrence().node_id)
     }
 
-    fn derived(self) -> &'facts WordNodeDerived {
+    fn derived(self) -> &'facts WordNodeDerived<'a> {
         self.facts.word_node_derived(self.occurrence().node_id)
     }
 
@@ -1268,8 +1268,19 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.occurrence().operand_class
     }
 
-    pub fn static_text(self) -> Option<&'facts str> {
-        self.derived().static_text.as_deref()
+    pub fn static_text(self) -> Option<Cow<'a, str>> {
+        self.static_text_from_source(self.facts.source)
+    }
+
+    pub fn static_text_cow(self, source: &'a str) -> Option<Cow<'a, str>> {
+        self.static_text_from_source(source)
+    }
+
+    fn static_text_from_source(self, source: &'a str) -> Option<Cow<'a, str>> {
+        self.derived()
+            .static_text
+            .map(Cow::Borrowed)
+            .or_else(|| static_word_text(self.word(), source))
     }
 
     pub fn trailing_literal_char(self) -> Option<char> {
@@ -1317,63 +1328,75 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 
     pub fn active_expansion_spans(self) -> &'facts [Span] {
-        &self.derived().active_expansion_spans
+        self.facts.fact_store.word_spans(self.derived().active_expansion_spans)
     }
 
     pub fn scalar_expansion_spans(self) -> &'facts [Span] {
-        &self.derived().scalar_expansion_spans
+        self.facts.fact_store.word_spans(self.derived().scalar_expansion_spans)
     }
 
     pub fn unquoted_scalar_expansion_spans(self) -> &'facts [Span] {
-        &self.derived().unquoted_scalar_expansion_spans
+        self.facts
+            .fact_store
+            .word_spans(self.derived().unquoted_scalar_expansion_spans)
     }
 
     pub fn array_assignment_split_scalar_expansion_spans(self) -> &'facts [Span] {
-        self.occurrence()
-            .array_assignment_split_scalar_expansion_spans
-            .get_or_init(|| {
-                self.facts
-                    .compute_array_assignment_split_scalar_expansion_spans(self.id)
-            })
-            .as_ref()
+        self.facts
+            .fact_store
+            .word_spans(self.occurrence().array_assignment_split_scalar_expansion_spans)
     }
 
     pub fn array_expansion_spans(self) -> &'facts [Span] {
-        &self.derived().array_expansion_spans
+        self.facts.fact_store.word_spans(self.derived().array_expansion_spans)
     }
 
     pub fn all_elements_array_expansion_spans(self) -> &'facts [Span] {
-        &self.derived().all_elements_array_expansion_spans
+        self.facts
+            .fact_store
+            .word_spans(self.derived().all_elements_array_expansion_spans)
     }
 
     pub fn direct_all_elements_array_expansion_spans(self) -> &'facts [Span] {
-        &self.derived().direct_all_elements_array_expansion_spans
+        self.facts
+            .fact_store
+            .word_spans(self.derived().direct_all_elements_array_expansion_spans)
     }
 
     pub fn unquoted_all_elements_array_expansion_spans(self) -> &'facts [Span] {
-        &self.derived().unquoted_all_elements_array_expansion_spans
+        self.facts
+            .fact_store
+            .word_spans(self.derived().unquoted_all_elements_array_expansion_spans)
     }
 
     pub fn unquoted_array_expansion_spans(self) -> &'facts [Span] {
-        &self.derived().unquoted_array_expansion_spans
+        self.facts
+            .fact_store
+            .word_spans(self.derived().unquoted_array_expansion_spans)
     }
 
     pub fn command_substitution_spans(self) -> &'facts [Span] {
-        &self.derived().command_substitution_spans
+        self.facts
+            .fact_store
+            .word_spans(self.derived().command_substitution_spans)
     }
 
     pub fn unquoted_command_substitution_spans(self) -> &'facts [Span] {
-        &self.derived().unquoted_command_substitution_spans
+        self.facts
+            .fact_store
+            .word_spans(self.derived().unquoted_command_substitution_spans)
     }
 
     pub fn unquoted_dollar_paren_command_substitution_spans(self) -> &'facts [Span] {
-        &self
-            .derived()
-            .unquoted_dollar_paren_command_substitution_spans
+        self.facts
+            .fact_store
+            .word_spans(self.derived().unquoted_dollar_paren_command_substitution_spans)
     }
 
     pub fn double_quoted_expansion_spans(self) -> &'facts [Span] {
-        &self.derived().double_quoted_expansion_spans
+        self.facts
+            .fact_store
+            .word_spans(self.derived().double_quoted_expansion_spans)
     }
 
     pub fn single_quoted_equivalent_if_plain_double_quoted(self, source: &str) -> Option<String> {
@@ -1381,9 +1404,9 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 
     pub fn unquoted_literal_between_double_quoted_segments_spans(self) -> &'facts [Span] {
-        &self
-            .derived()
-            .unquoted_literal_between_double_quoted_segments_spans
+        self.facts
+            .fact_store
+            .word_spans(self.derived().unquoted_literal_between_double_quoted_segments_spans)
     }
 
     pub fn has_single_part(self) -> bool {
@@ -1577,9 +1600,10 @@ pub(crate) fn occurrence_analysis(
     nodes[occurrence.node_id.index()].analysis
 }
 
-pub(crate) fn word_node_derived<'a>(node: &'a WordNode<'_>, source: &str) -> &'a WordNodeDerived {
-    node.derived
-        .get_or_init(|| derive_word_fact_data(node.word, source))
+pub(crate) fn word_node_derived<'node, 'word>(
+    node: &'node WordNode<'word>,
+) -> &'node WordNodeDerived<'word> {
+    &node.derived
 }
 
 fn word_is_plain_scalar_reference(word: &Word) -> bool {
@@ -1687,6 +1711,7 @@ fn build_function_in_alias_spans(commands: &[CommandFact<'_>], source: &str) -> 
 
 fn build_alias_definition_expansion_spans(
     commands: &[CommandFact<'_>],
+    fact_store: &FactStore<'_>,
     nodes: &[WordNode<'_>],
     occurrences: &[WordOccurrence],
     word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
@@ -1712,8 +1737,9 @@ fn build_alias_definition_expansion_spans(
                         })
                 })
                 .flat_map(|fact| {
-                    word_node_derived(&nodes[fact.node_id.index()], source)
-                        .active_expansion_spans
+                    let derived = word_node_derived(&nodes[fact.node_id.index()]);
+                    fact_store
+                        .word_spans(derived.active_expansion_spans)
                         .iter()
                         .copied()
                 })
@@ -2067,28 +2093,26 @@ fn text_contains_echo_backslash_escape(text: &str, is_sensitive: fn(u8) -> bool)
     false
 }
 
+#[derive(Clone, Copy)]
+struct WordFactLookup<'facts, 'a> {
+    nodes: &'facts [WordNode<'a>],
+    occurrences: &'facts [WordOccurrence],
+    word_index: &'facts FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
+    fact_store: &'facts FactStore<'a>,
+    source: &'a str,
+}
+
 fn build_echo_to_sed_substitution_spans<'a>(
     commands: CommandFacts<'_, 'a>,
     pipelines: &[PipelineFact<'a>],
     backticks: &[BacktickFragmentFact],
-    nodes: &[WordNode<'a>],
-    occurrences: &[WordOccurrence],
-    word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
-    source: &str,
+    lookup: WordFactLookup<'_, 'a>,
 ) -> Vec<Span> {
     let mut spans = Vec::new();
     let mut pipeline_sed_command_ids = FxHashSet::default();
 
     for pipeline in pipelines {
-        if let Some(span) = sc2001_like_pipeline_span(
-            commands,
-            pipeline,
-            backticks,
-            nodes,
-            occurrences,
-            word_index,
-            source,
-        ) {
+        if let Some(span) = sc2001_like_pipeline_span(commands, pipeline, backticks, lookup) {
             spans.push(span);
             if let Some(last_segment) = pipeline.last_segment() {
                 pipeline_sed_command_ids.insert(last_segment.command_id());
@@ -2098,7 +2122,7 @@ fn build_echo_to_sed_substitution_spans<'a>(
 
     spans.extend(commands.iter().filter_map(|command| {
         (!pipeline_sed_command_ids.contains(&command.id()))
-            .then(|| sc2001_like_here_string_span(command, backticks, source))
+            .then(|| sc2001_like_here_string_span(command, backticks, lookup.source))
             .flatten()
     }));
 
@@ -2110,10 +2134,7 @@ fn sc2001_like_pipeline_span<'a>(
     commands: CommandFacts<'_, 'a>,
     pipeline: &PipelineFact<'a>,
     backticks: &[BacktickFragmentFact],
-    nodes: &[WordNode<'a>],
-    occurrences: &[WordOccurrence],
-    word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
-    source: &str,
+    lookup: WordFactLookup<'_, 'a>,
 ) -> Option<Span> {
     let [left_segment, right_segment] = pipeline.segments() else {
         return None;
@@ -2135,7 +2156,7 @@ fn sc2001_like_pipeline_span<'a>(
         return None;
     }
 
-    if !command_has_sc2001_like_sed_script(right, backticks, source) {
+    if !command_has_sc2001_like_sed_script(right, backticks, lookup.source) {
         return None;
     }
 
@@ -2144,18 +2165,18 @@ fn sc2001_like_pipeline_span<'a>(
     };
 
     let word_fact = word_occurrence_with_context(
-        nodes,
-        occurrences,
-        word_index,
+        lookup.nodes,
+        lookup.occurrences,
+        lookup.word_index,
         argument.span,
         WordFactContext::Expansion(ExpansionContext::CommandArgument),
     )?;
 
-    if occurrence_static_text(nodes, word_fact, source).is_some() {
+    if occurrence_static_text(lookup.nodes, word_fact, lookup.source).is_some() {
         return None;
     }
 
-    let derived = word_node_derived(&nodes[word_fact.node_id.index()], source);
+    let derived = word_node_derived(&lookup.nodes[word_fact.node_id.index()]);
     if derived.scalar_expansion_spans.is_empty()
         && derived.array_expansion_spans.is_empty()
         && derived.command_substitution_spans.is_empty()
@@ -2164,19 +2185,31 @@ fn sc2001_like_pipeline_span<'a>(
     }
 
     if derived.has_literal_affixes
-        && !word_occurrence_is_pure_quoted_dynamic(nodes, word_fact, source)
+        && !word_occurrence_is_pure_quoted_dynamic(
+            lookup.nodes,
+            word_fact,
+            lookup.fact_store,
+            lookup.source,
+        )
     {
         return None;
     }
 
     if command_is_inside_backtick_fragment(right, backticks)
-        && word_occurrence_is_backtick_escaped_double_quoted_dynamic(nodes, word_fact, source)
+        && word_occurrence_is_backtick_escaped_double_quoted_dynamic(
+            lookup.nodes,
+            word_fact,
+            lookup.fact_store,
+            lookup.source,
+        )
     {
-        return sc2001_like_backtick_pipeline_span(commands, pipeline, right, source);
+        return sc2001_like_backtick_pipeline_span(commands, pipeline, right, lookup.source);
     }
 
     Some(pipeline_span_with_shellcheck_tail(
-        commands, pipeline, source,
+        commands,
+        pipeline,
+        lookup.source,
     ))
 }
 
@@ -2395,70 +2428,79 @@ fn word_occurrence_with_context<'a>(
 pub(crate) fn occurrence_static_text<'a>(
     nodes: &'a [WordNode<'a>],
     occurrence: &WordOccurrence,
-    source: &str,
-) -> Option<&'a str> {
-    word_node_derived(&nodes[occurrence.node_id.index()], source)
+    source: &'a str,
+) -> Option<Cow<'a, str>> {
+    let node = &nodes[occurrence.node_id.index()];
+    word_node_derived(node)
         .static_text
-        .as_deref()
+        .map(Cow::Borrowed)
+        .or_else(|| static_word_text(node.word, source))
 }
 
-pub(crate) fn word_occurrence_is_pure_quoted_dynamic(
+fn word_occurrence_is_pure_quoted_dynamic(
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
+    fact_store: &FactStore<'_>,
     source: &str,
 ) -> bool {
     let word = occurrence_word(nodes, fact);
     !word_spans::word_double_quoted_scalar_only_expansion_spans(word).is_empty()
         || !word_spans::word_quoted_all_elements_array_slice_spans(word).is_empty()
-        || word_occurrence_is_double_quoted_command_substitution_only(nodes, fact, source)
-        || word_occurrence_is_backtick_escaped_double_quoted_dynamic(nodes, fact, source)
+        || word_occurrence_is_double_quoted_command_substitution_only(
+            nodes, fact, fact_store, source,
+        )
+        || word_occurrence_is_backtick_escaped_double_quoted_dynamic(
+            nodes, fact, fact_store, source,
+        )
 }
 
-fn build_unquoted_literal_between_double_quoted_segments_spans(
+fn collect_unquoted_literal_between_double_quoted_segments_spans(
     word: &Word,
     source: &str,
-) -> Vec<Span> {
-    let nested_fragment_parts = mixed_quote_word_parts_inside_nested_shell_fragments(word, source);
+    spans: &mut Vec<Span>,
+) {
+    let mut command_depth = 0i32;
+    let mut parameter_depth = 0i32;
 
-    let mut spans = word
-        .parts
-        .windows(3)
-        .enumerate()
-        .filter_map(|(window_index, window)| {
-            let [left, middle, right] = window else {
-                return None;
-            };
-            let WordPart::DoubleQuoted {
-                parts: left_inner, ..
-            } = &left.kind
-            else {
-                return None;
-            };
-            let WordPart::Literal(text) = &middle.kind else {
-                return None;
-            };
-            let WordPart::DoubleQuoted {
-                parts: right_inner, ..
-            } = &right.kind
-            else {
-                return None;
-            };
+    for index in 0..word.parts.len() {
+        let middle_is_nested = command_depth > 0 || parameter_depth > 0;
 
-            let neighbor_has_literal =
-                mixed_quote_double_quoted_parts_contain_literal_content(left_inner)
-                    || mixed_quote_double_quoted_parts_contain_literal_content(right_inner);
-            let middle_is_nested = nested_fragment_parts
-                .get(window_index + 1)
-                .copied()
-                .unwrap_or(false);
-            (neighbor_has_literal
-                && !middle_is_nested
-                && mixed_quote_literal_is_warnable_between_double_quotes(
-                    text.as_str(source, middle.span),
-                ))
-            .then_some(middle.span)
-        })
-        .collect::<Vec<_>>();
+        if index > 0 && index + 1 < word.parts.len() {
+            let left = &word.parts[index - 1];
+            let middle = &word.parts[index];
+            let right = &word.parts[index + 1];
+
+            if let (
+                WordPart::DoubleQuoted {
+                    parts: left_inner, ..
+                },
+                WordPart::Literal(text),
+                WordPart::DoubleQuoted {
+                    parts: right_inner, ..
+                },
+            ) = (&left.kind, &middle.kind, &right.kind)
+            {
+                let neighbor_has_literal =
+                    mixed_quote_double_quoted_parts_contain_literal_content(left_inner)
+                        || mixed_quote_double_quoted_parts_contain_literal_content(right_inner);
+                if neighbor_has_literal
+                    && !middle_is_nested
+                    && mixed_quote_literal_is_warnable_between_double_quotes(
+                        text.as_str(source, middle.span),
+                    )
+                {
+                    spans.push(middle.span);
+                }
+            }
+        }
+
+        let (command_delta, parameter_delta) =
+            mixed_quote_shell_fragment_balance_delta_for_part(&word.parts[index], source);
+        command_depth += command_delta;
+        parameter_depth += parameter_delta;
+        command_depth = command_depth.max(0);
+        parameter_depth = parameter_depth.max(0);
+    }
 
     for span in mixed_quote_line_join_between_double_quotes_spans(word, source) {
         if !spans.contains(&span) {
@@ -2483,8 +2525,6 @@ fn build_unquoted_literal_between_double_quoted_segments_spans(
     {
         spans.push(span);
     }
-
-    spans
 }
 
 fn mixed_quote_double_quoted_parts_contain_literal_content(parts: &[WordPartNode]) -> bool {
@@ -2561,25 +2601,6 @@ fn mixed_quote_literal_has_shellcheck_skipped_word_operator(text: &str) -> bool 
     text.contains('+') || text.contains('@')
 }
 
-fn mixed_quote_word_parts_inside_nested_shell_fragments(word: &Word, source: &str) -> Vec<bool> {
-    let mut command_depth = 0i32;
-    let mut parameter_depth = 0i32;
-    let mut nested = Vec::with_capacity(word.parts.len());
-
-    for part in &word.parts {
-        nested.push(command_depth > 0 || parameter_depth > 0);
-
-        let (command_delta, parameter_delta) =
-            mixed_quote_shell_fragment_balance_delta_for_part(part, source);
-        command_depth += command_delta;
-        parameter_depth += parameter_delta;
-        command_depth = command_depth.max(0);
-        parameter_depth = parameter_depth.max(0);
-    }
-
-    nested
-}
-
 fn mixed_quote_shell_fragment_balance_delta_for_part(
     part: &WordPartNode,
     source: &str,
@@ -2628,8 +2649,8 @@ fn mixed_quote_shell_fragment_balance_delta(
     let mut in_single_quotes = false;
     let mut in_double_quotes = false;
     let mut in_comment = false;
-    let mut command_frames = Vec::new();
-    let mut parameter_frames = Vec::new();
+    let mut command_frames = SmallVec::<[MixedQuoteShellParenFrame; 4]>::new();
+    let mut parameter_frames = SmallVec::<[bool; 4]>::new();
     let mut previous_char = None;
 
     while let Some(ch) = chars.next() {
@@ -2832,6 +2853,17 @@ fn mixed_quote_following_line_join_between_double_quotes_span(
     word: &Word,
     source: &str,
 ) -> Option<Span> {
+    let suffix = mixed_quote_following_line_join_suffix_after_word(word, source)?;
+    Some(Span::from_positions(
+        word.span.end,
+        word.span.end.advanced_by(suffix),
+    ))
+}
+
+fn mixed_quote_following_line_join_suffix_after_word(
+    word: &Word,
+    source: &str,
+) -> Option<&'static str> {
     if !matches!(
         word.parts.first().map(|part| &part.kind),
         Some(WordPart::DoubleQuoted { .. })
@@ -2839,22 +2871,17 @@ fn mixed_quote_following_line_join_between_double_quotes_span(
         return None;
     }
 
+    let tail = &source[word.span.end.offset..];
+    let suffix = tail
+        .strip_prefix("\\\r\n\"")
+        .map(|_| "\\\r\n")
+        .or_else(|| tail.strip_prefix("\\\n\"").map(|_| "\\\n"))?;
+
     if !mixed_quote_text_ends_with_unescaped_double_quote(word.span.slice(source)) {
         return None;
     }
 
-    let suffix = source[word.span.end.offset..]
-        .strip_prefix("\\\r\n\"")
-        .map(|_| "\\\r\n")
-        .or_else(|| {
-            source[word.span.end.offset..]
-                .strip_prefix("\\\n\"")
-                .map(|_| "\\\n")
-        })?;
-    Some(Span::from_positions(
-        word.span.end,
-        word.span.end.advanced_by(suffix),
-    ))
+    Some(suffix)
 }
 
 fn mixed_quote_chained_line_join_between_double_quotes_spans(
@@ -2912,8 +2939,8 @@ fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
     let mut escaped = false;
     let mut command_depth = 0i32;
     let mut parameter_depth = 0i32;
-    let mut command_frames = Vec::new();
-    let mut parameter_frames = Vec::new();
+    let mut command_frames = SmallVec::<[MixedQuoteShellParenFrame; 4]>::new();
+    let mut parameter_frames = SmallVec::<[bool; 4]>::new();
     let mut in_backtick_command = false;
     let mut in_single_quotes = false;
     let mut in_double_quotes = false;
@@ -3063,13 +3090,15 @@ fn mixed_quote_text_ends_with_unescaped_double_quote(text: &str) -> bool {
     backslash_count % 2 == 0
 }
 
-pub(crate) fn word_occurrence_is_double_quoted_command_substitution_only(
+fn word_occurrence_is_double_quoted_command_substitution_only(
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
+    fact_store: &FactStore<'_>,
     source: &str,
 ) -> bool {
-    let derived = word_node_derived(&nodes[fact.node_id.index()], source);
-    let [command_substitution] = derived.command_substitution_spans.as_ref() else {
+    let derived = word_node_derived(&nodes[fact.node_id.index()]);
+    let command_substitution_spans = fact_store.word_spans(derived.command_substitution_spans);
+    let [command_substitution] = command_substitution_spans else {
         return false;
     };
 
@@ -3084,12 +3113,13 @@ pub(crate) fn word_occurrence_is_double_quoted_command_substitution_only(
         && &word_text[1..word_text.len() - 1] == command_substitution.slice(source)
 }
 
-pub(crate) fn word_occurrence_is_backtick_escaped_double_quoted_dynamic(
+fn word_occurrence_is_backtick_escaped_double_quoted_dynamic(
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
+    fact_store: &FactStore<'_>,
     source: &str,
 ) -> bool {
-    let derived = word_node_derived(&nodes[fact.node_id.index()], source);
+    let derived = word_node_derived(&nodes[fact.node_id.index()]);
     let word_text = occurrence_span(nodes, fact).slice(source);
     if !word_text.starts_with("\\\"") || !word_text.ends_with("\\\"") {
         return false;
@@ -3097,9 +3127,9 @@ pub(crate) fn word_occurrence_is_backtick_escaped_double_quoted_dynamic(
 
     let inner = &word_text[2..word_text.len() - 2];
     match (
-        derived.scalar_expansion_spans.as_ref(),
-        derived.array_expansion_spans.as_ref(),
-        derived.command_substitution_spans.as_ref(),
+        fact_store.word_spans(derived.scalar_expansion_spans),
+        fact_store.word_spans(derived.array_expansion_spans),
+        fact_store.word_spans(derived.command_substitution_spans),
     ) {
         ([scalar], [], []) => inner == scalar.slice(source),
         ([], [array], []) => inner == array.slice(source),
@@ -3200,6 +3230,8 @@ pub(crate) fn benchmark_collect_word_facts(
     let mut pending_arithmetic_word_occurrences = Vec::new();
     let mut compound_assignment_value_word_spans = FxHashSet::default();
     let mut array_assignment_split_word_ids = Vec::new();
+    let mut word_spans = ListArena::new();
+    let mut word_span_scratch = Vec::new();
     let mut assoc_binding_visibility_memo = FxHashMap::default();
     let mut case_pattern_expansions = Vec::new();
     let mut pattern_literal_spans = Vec::new();
@@ -3236,6 +3268,8 @@ pub(crate) fn benchmark_collect_word_facts(
                     pending_arithmetic_word_occurrences: &mut pending_arithmetic_word_occurrences,
                     compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
                     array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
+                    word_spans: &mut word_spans,
+                    word_span_scratch: &mut word_span_scratch,
                     assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
                     case_pattern_expansions: &mut case_pattern_expansions,
                     pattern_literal_spans: &mut pattern_literal_spans,
@@ -3278,6 +3312,8 @@ struct WordFactCommandContext {
 
 struct WordFactOutputs<'out, 'a> {
     word_nodes: &'out mut Vec<WordNode<'a>>,
+    word_spans: &'out mut ListArena<Span>,
+    word_span_scratch: &'out mut Vec<Span>,
     word_node_ids_by_span: &'out mut FxHashMap<FactSpan, WordNodeId>,
     word_occurrences: &'out mut Vec<WordOccurrence>,
     pending_arithmetic_word_occurrences: &'out mut Vec<PendingArithmeticWordOccurrence>,
@@ -3298,53 +3334,246 @@ struct PendingArithmeticWordOccurrence {
     enclosing_expansion_context: ExpansionContext,
 }
 
-fn derive_word_fact_data(word: &Word, source: &str) -> WordNodeDerived {
+fn derive_word_fact_data<'a>(
+    word: &'a Word,
+    source: &'a str,
+    span_store: &mut ListArena<Span>,
+    scratch: &mut Vec<Span>,
+) -> WordNodeDerived<'a> {
+    let may_have_runtime_expansion_spans = word_may_have_runtime_expansion_spans(word);
+    let may_have_command_substitution_spans = word_may_have_command_substitution_spans(word);
+    let may_have_mixed_quote_spans =
+        word_may_have_unquoted_literal_between_double_quoted_segments_spans(word, source);
+
     WordNodeDerived {
-        static_text: static_word_text(word, source).map(|text| text.into_owned().into_boxed_str()),
+        static_text: borrowed_static_word_text(word, source),
         trailing_literal_char: word_trailing_literal_char(word, source),
         starts_with_extglob: word_spans::word_starts_with_extglob(word, source),
         has_literal_affixes: word_has_literal_affixes(word),
         contains_shell_quoting_literals: word_contains_shell_quoting_literals(word, source),
-        active_expansion_spans: word_spans::active_expansion_spans_in_source(word, source)
-            .into_boxed_slice(),
-        scalar_expansion_spans: word_spans::scalar_expansion_part_spans(word, source)
-            .into_boxed_slice(),
-        unquoted_scalar_expansion_spans: word_spans::unquoted_scalar_expansion_part_spans(
-            word, source,
+        active_expansion_spans: push_needed_word_span_list(
+            span_store,
+            scratch,
+            may_have_runtime_expansion_spans || word.has_active_brace_expansion(),
+            |spans| {
+                word_spans::collect_active_expansion_spans_in_source(word, source, spans);
+            },
+        ),
+        scalar_expansion_spans: push_needed_word_span_list(
+            span_store,
+            scratch,
+            may_have_runtime_expansion_spans,
+            |spans| {
+                word_spans::collect_scalar_expansion_part_spans(word, spans);
+            },
+        ),
+        unquoted_scalar_expansion_spans: push_needed_word_span_list(
+            span_store,
+            scratch,
+            may_have_runtime_expansion_spans,
+            |spans| {
+                word_spans::collect_unquoted_scalar_expansion_part_spans(word, spans);
+            },
+        ),
+        array_expansion_spans: push_needed_word_span_list(
+            span_store,
+            scratch,
+            may_have_runtime_expansion_spans,
+            |spans| {
+                word_spans::collect_array_expansion_part_spans(word, spans);
+            },
+        ),
+        all_elements_array_expansion_spans: push_needed_word_span_list(
+            span_store,
+            scratch,
+            may_have_runtime_expansion_spans,
+            |spans| {
+                word_spans::collect_all_elements_array_expansion_part_spans(word, source, spans);
+            },
+        ),
+        direct_all_elements_array_expansion_spans: push_needed_word_span_list(
+            span_store,
+            scratch,
+            may_have_runtime_expansion_spans,
+            |spans| {
+                word_spans::collect_direct_all_elements_array_expansion_part_spans(
+                    word, source, spans,
+                );
+            },
+        ),
+        unquoted_all_elements_array_expansion_spans: push_needed_word_span_list(
+            span_store,
+            scratch,
+            may_have_runtime_expansion_spans,
+            |spans| {
+                word_spans::collect_unquoted_all_elements_array_expansion_part_spans(
+                    word, source, spans,
+                );
+            },
+        ),
+        unquoted_array_expansion_spans: push_needed_word_span_list(
+            span_store,
+            scratch,
+            may_have_runtime_expansion_spans,
+            |spans| {
+                word_spans::collect_unquoted_array_expansion_part_spans(word, spans);
+            },
+        ),
+        command_substitution_spans: push_needed_word_span_list(
+            span_store,
+            scratch,
+            may_have_command_substitution_spans,
+            |spans| {
+                word_spans::collect_command_substitution_part_spans_in_source(word, source, spans);
+            },
+        ),
+        unquoted_command_substitution_spans: push_needed_word_span_list(
+            span_store,
+            scratch,
+            may_have_command_substitution_spans,
+            |spans| {
+                word_spans::collect_unquoted_command_substitution_part_spans_in_source(
+                    word, source, spans,
+                );
+            },
+        ),
+        unquoted_dollar_paren_command_substitution_spans: push_needed_word_span_list(
+            span_store,
+            scratch,
+            may_have_command_substitution_spans,
+            |spans| {
+                word_spans::collect_unquoted_dollar_paren_command_substitution_part_spans_in_source(
+                    word, source, spans,
+                );
+            },
+        ),
+        double_quoted_expansion_spans: push_needed_word_span_list(
+            span_store,
+            scratch,
+            may_have_runtime_expansion_spans,
+            |spans| {
+                collect_double_quoted_expansion_part_spans(word, spans);
+            },
+        ),
+        unquoted_literal_between_double_quoted_segments_spans: push_needed_word_span_list(
+            span_store,
+            scratch,
+            may_have_mixed_quote_spans,
+            |spans| {
+                collect_unquoted_literal_between_double_quoted_segments_spans(word, source, spans);
+            },
+        ),
+    }
+}
+
+fn push_word_span_list(
+    span_store: &mut ListArena<Span>,
+    scratch: &mut Vec<Span>,
+    collect: impl FnOnce(&mut Vec<Span>),
+) -> IdRange<Span> {
+    scratch.clear();
+    collect(scratch);
+    span_store.push_many(scratch.drain(..))
+}
+
+fn push_needed_word_span_list(
+    span_store: &mut ListArena<Span>,
+    scratch: &mut Vec<Span>,
+    needed: bool,
+    collect: impl FnOnce(&mut Vec<Span>),
+) -> IdRange<Span> {
+    if needed {
+        push_word_span_list(span_store, scratch, collect)
+    } else {
+        IdRange::empty()
+    }
+}
+
+fn word_may_have_runtime_expansion_spans(word: &Word) -> bool {
+    word_parts_may_have_runtime_expansion_spans(&word.parts)
+}
+
+fn word_parts_may_have_runtime_expansion_spans(parts: &[WordPartNode]) -> bool {
+    parts.iter().any(|part| match &part.kind {
+        WordPart::Literal(_) | WordPart::SingleQuoted { .. } => false,
+        WordPart::DoubleQuoted { parts, .. } => word_parts_may_have_runtime_expansion_spans(parts),
+        _ => true,
+    })
+}
+
+fn word_may_have_command_substitution_spans(word: &Word) -> bool {
+    word_parts_may_have_command_substitution_spans(&word.parts)
+}
+
+fn word_parts_may_have_command_substitution_spans(parts: &[WordPartNode]) -> bool {
+    parts.iter().any(|part| match &part.kind {
+        WordPart::DoubleQuoted { parts, .. } => word_parts_may_have_command_substitution_spans(parts),
+        WordPart::CommandSubstitution { .. } => true,
+        _ => false,
+    })
+}
+
+fn word_may_have_unquoted_literal_between_double_quoted_segments_spans(
+    word: &Word,
+    source: &str,
+) -> bool {
+    let has_reopened_literal = word.parts.windows(3).any(|window| {
+        matches!(
+            window,
+            [
+                WordPartNode {
+                    kind: WordPart::DoubleQuoted { .. },
+                    ..
+                },
+                WordPartNode {
+                    kind: WordPart::Literal(_),
+                    ..
+                },
+                WordPartNode {
+                    kind: WordPart::DoubleQuoted { .. },
+                    ..
+                },
+            ]
         )
-        .into_boxed_slice(),
-        array_expansion_spans: word_spans::array_expansion_part_spans(word, source)
-            .into_boxed_slice(),
-        all_elements_array_expansion_spans: word_spans::all_elements_array_expansion_part_spans(
-            word, source,
-        )
-        .into_boxed_slice(),
-        direct_all_elements_array_expansion_spans:
-            word_spans::direct_all_elements_array_expansion_part_spans(word, source)
-                .into_boxed_slice(),
-        unquoted_all_elements_array_expansion_spans:
-            word_spans::unquoted_all_elements_array_expansion_part_spans(word, source)
-                .into_boxed_slice(),
-        unquoted_array_expansion_spans: word_spans::unquoted_array_expansion_part_spans(
-            word, source,
-        )
-        .into_boxed_slice(),
-        command_substitution_spans: word_spans::command_substitution_part_spans_in_source(
-            word, source,
-        )
-        .into_boxed_slice(),
-        unquoted_command_substitution_spans:
-            word_spans::unquoted_command_substitution_part_spans_in_source(word, source)
-                .into_boxed_slice(),
-        unquoted_dollar_paren_command_substitution_spans:
-            word_spans::unquoted_dollar_paren_command_substitution_part_spans_in_source(
-                word, source,
-            )
-            .into_boxed_slice(),
-        double_quoted_expansion_spans: double_quoted_expansion_part_spans(word).into_boxed_slice(),
-        unquoted_literal_between_double_quoted_segments_spans:
-            build_unquoted_literal_between_double_quoted_segments_spans(word, source)
-                .into_boxed_slice(),
+    });
+    if has_reopened_literal {
+        return true;
+    }
+
+    if !matches!(
+        word.parts.first().map(|part| &part.kind),
+        Some(WordPart::DoubleQuoted { .. })
+    ) {
+        return false;
+    }
+
+    let text = word.span.slice(source);
+    text.contains("\\\n")
+        || text.contains("\\\r\n")
+        || mixed_quote_following_line_join_suffix_after_word(word, source).is_some()
+}
+
+fn borrowed_static_word_text<'a>(word: &'a Word, source: &'a str) -> Option<&'a str> {
+    let [part] = word.parts.as_slice() else {
+        return None;
+    };
+    borrowed_static_word_part_text(part, source)
+}
+
+fn borrowed_static_word_part_text<'a>(
+    part: &'a WordPartNode,
+    source: &'a str,
+) -> Option<&'a str> {
+    match &part.kind {
+        WordPart::Literal(text) => Some(text.as_str(source, part.span)),
+        WordPart::SingleQuoted { value, .. } => Some(value.slice(source)),
+        WordPart::DoubleQuoted { parts, .. } => {
+            let [part] = parts.as_slice() else {
+                return None;
+            };
+            borrowed_static_word_part_text(part, source)
+        }
+        _ => None,
     }
 }
 
@@ -3386,6 +3615,8 @@ struct WordFactCollector<'out, 'a, 'norm> {
     surface_command_name: Option<&'norm str>,
     command_zsh_options: Option<ZshOptionState>,
     word_nodes: &'out mut Vec<WordNode<'a>>,
+    word_spans: &'out mut ListArena<Span>,
+    word_span_scratch: &'out mut Vec<Span>,
     word_node_ids_by_span: &'out mut FxHashMap<FactSpan, WordNodeId>,
     word_occurrences: &'out mut Vec<WordOccurrence>,
     pending_arithmetic_word_occurrences: &'out mut Vec<PendingArithmeticWordOccurrence>,
@@ -3437,6 +3668,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             surface_command_name: normalized.effective_or_literal_name(),
             command_zsh_options,
             word_nodes: outputs.word_nodes,
+            word_spans: outputs.word_spans,
+            word_span_scratch: outputs.word_span_scratch,
             word_node_ids_by_span: outputs.word_node_ids_by_span,
             word_occurrences: outputs.word_occurrences,
             pending_arithmetic_word_occurrences: outputs.pending_arithmetic_word_occurrences,
@@ -4277,11 +4510,13 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
 
         let id = WordNodeId::new(self.word_nodes.len());
         let analysis = analyze_word(word, self.source, self.command_zsh_options.as_ref());
+        let derived =
+            derive_word_fact_data(word, self.source, self.word_spans, self.word_span_scratch);
         self.word_nodes.push(WordNode {
             key,
             word,
             analysis,
-            derived: OnceCell::new(),
+            derived,
         });
         self.word_node_ids_by_span.insert(key, id);
         id
@@ -4344,7 +4579,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             runtime_literal,
             operand_class,
             enclosing_expansion_context: None,
-            array_assignment_split_scalar_expansion_spans: OnceCell::new(),
+            array_assignment_split_scalar_expansion_spans: IdRange::empty(),
         });
         if let WordFactContext::Expansion(enclosing_expansion_context) = context {
             self.collect_pending_arithmetic_word_occurrences(
@@ -4900,19 +5135,17 @@ fn text_contains_shell_quoting_literals(
         return true;
     }
 
-    let chars = text.chars().collect::<Vec<_>>();
-    let mut index = 0usize;
-    while index < chars.len() {
-        if chars[index] != '\\' {
-            index += 1;
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
             continue;
         }
 
-        let mut end = index + 1;
-        while end < chars.len() && chars[end] == '\\' {
-            end += 1;
+        while chars.peek().is_some_and(|next| *next == '\\') {
+            chars.next();
         }
-        if chars.get(end).is_some_and(|next| {
+
+        if chars.peek().is_some_and(|next| {
             matches!(next, '"' | '\'')
                 || (next.is_whitespace()
                     && (matches!(
@@ -4922,8 +5155,6 @@ fn text_contains_shell_quoting_literals(
         }) {
             return true;
         }
-
-        index = end;
     }
 
     false
@@ -6455,8 +6686,12 @@ fn word_classification_from_analysis(analysis: ExpansionAnalysis) -> WordClassif
 
 fn double_quoted_expansion_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_double_quoted_expansion_spans(&word.parts, false, &mut spans);
+    collect_double_quoted_expansion_part_spans(word, &mut spans);
     spans
+}
+
+fn collect_double_quoted_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
+    collect_double_quoted_expansion_spans(&word.parts, false, spans);
 }
 
 fn single_quoted_equivalent_if_plain_double_quoted_word(

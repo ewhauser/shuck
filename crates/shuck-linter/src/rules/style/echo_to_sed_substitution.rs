@@ -17,8 +17,8 @@ pub fn echo_to_sed_substitution(checker: &mut Checker) {
         return;
     }
 
-    checker.report_all_dedup(
-        checker.facts().echo_to_sed_substitution_spans().to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.echo_to_sed_substitution_spans(),
         || EchoToSedSubstitution,
     );
 }

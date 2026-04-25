@@ -177,12 +177,14 @@ macro_rules! cached_portability_rule {
                 return;
             }
 
-            let spans = checker
-                .facts()
-                .conditional_portability()
-                .$accessor()
-                .to_vec();
-            checker.report_all_dedup(spans, || $violation);
+            checker.report_fact_spans_dedup(
+                |facts, report| {
+                    for span in facts.conditional_portability().$accessor().iter().copied() {
+                        report(span);
+                    }
+                },
+                || $violation,
+            );
         }
     };
 }
@@ -219,12 +221,19 @@ pub fn extglob_in_test(checker: &mut Checker) {
         return;
     }
 
-    let spans = checker
-        .facts()
-        .conditional_portability()
-        .extglob_in_test()
-        .to_vec();
-    checker.report_all_dedup(spans, || ExtglobInTest);
+    checker.report_fact_spans_dedup(
+        |facts, report| {
+            for span in facts
+                .conditional_portability()
+                .extglob_in_test()
+                .iter()
+                .copied()
+            {
+                report(span);
+            }
+        },
+        || ExtglobInTest,
+    );
 }
 cached_portability_rule!(
     lexical_comparison_in_double_bracket,

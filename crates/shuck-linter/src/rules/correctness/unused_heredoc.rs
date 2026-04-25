@@ -13,9 +13,7 @@ impl Violation for UnusedHeredoc {
 }
 
 pub fn unused_heredoc(checker: &mut Checker) {
-    checker.report_all_dedup(checker.facts().unused_heredoc_spans().to_vec(), || {
-        UnusedHeredoc
-    });
+    checker.report_fact_slice_dedup(|facts| facts.unused_heredoc_spans(), || UnusedHeredoc);
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Diagnostic, Rule, Violation};
 
 pub struct SubshellLocalAssignment {
     pub name: String,
@@ -18,16 +18,16 @@ impl Violation for SubshellLocalAssignment {
 }
 
 pub fn subshell_local_assignment(checker: &mut Checker) {
-    let sites = checker.facts().subshell_assignment_sites().to_vec();
-
-    for site in sites {
-        checker.report(
-            SubshellLocalAssignment {
-                name: site.name.to_string(),
-            },
-            site.span,
-        );
-    }
+    checker.report_fact_diagnostics(|facts, report| {
+        for site in facts.subshell_assignment_sites() {
+            report(Diagnostic::new(
+                SubshellLocalAssignment {
+                    name: site.name.to_string(),
+                },
+                site.span,
+            ));
+        }
+    });
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Diagnostic, Rule, Violation};
 
 pub struct SubshellSideEffect {
     pub name: String,
@@ -18,16 +18,16 @@ impl Violation for SubshellSideEffect {
 }
 
 pub fn subshell_side_effect(checker: &mut Checker) {
-    let sites = checker.facts().subshell_later_use_sites().to_vec();
-
-    for site in sites {
-        checker.report(
-            SubshellSideEffect {
-                name: site.name.to_string(),
-            },
-            site.span,
-        );
-    }
+    checker.report_fact_diagnostics(|facts, report| {
+        for site in facts.subshell_later_use_sites() {
+            report(Diagnostic::new(
+                SubshellSideEffect {
+                    name: site.name.to_string(),
+                },
+                site.span,
+            ));
+        }
+    });
 }
 
 #[cfg(test)]

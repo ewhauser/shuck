@@ -13,8 +13,10 @@ impl Violation for SingleTestSubshell {
 }
 
 pub fn single_test_subshell(checker: &mut Checker) {
-    let spans = checker.facts().single_test_subshell_spans().to_vec();
-    checker.report_all_dedup(spans, || SingleTestSubshell);
+    checker.report_fact_slice_dedup(
+        |facts| facts.single_test_subshell_spans(),
+        || SingleTestSubshell,
+    );
 }
 
 #[cfg(test)]

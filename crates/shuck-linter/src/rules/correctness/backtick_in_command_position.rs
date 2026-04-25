@@ -13,8 +13,8 @@ impl Violation for BacktickInCommandPosition {
 }
 
 pub fn backtick_in_command_position(checker: &mut Checker) {
-    checker.report_all_dedup(
-        checker.facts().backtick_command_name_spans().to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.backtick_command_name_spans(),
         || BacktickInCommandPosition,
     );
 }

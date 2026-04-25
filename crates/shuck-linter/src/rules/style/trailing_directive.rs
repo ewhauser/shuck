@@ -13,8 +13,8 @@ impl Violation for TrailingDirective {
 }
 
 pub fn trailing_directive(checker: &mut Checker) {
-    checker.report_all_dedup(
-        checker.facts().trailing_directive_comment_spans().to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.trailing_directive_comment_spans(),
         || TrailingDirective,
     );
 }

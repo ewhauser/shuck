@@ -128,7 +128,10 @@ fn simple_test_word_is_bare_operator(
 
     fact.classification().quote == WordQuote::Unquoted
         && fact.classification().is_fixed_literal()
-        && fact.static_text().is_some_and(predicate)
+        && fact
+            .static_text_cow(checker.source())
+            .as_deref()
+            .is_some_and(predicate)
 }
 
 #[cfg(test)]

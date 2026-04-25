@@ -34,10 +34,6 @@ struct HeredocFactSummary {
     spaced_tabstrip_close_spans: Vec<Span>,
 }
 
-fn total_child_len<T>(lists: &[Vec<T>]) -> usize {
-    lists.iter().map(Vec::len).sum()
-}
-
 fn estimate_fact_build_capacity(file: &File) -> FactBuildCapacity {
     let mut capacity = FactBuildCapacity::default();
     walk_commands(
@@ -100,6 +96,8 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut comma_array_assignment_spans = Vec::new();
         let mut ifs_literal_backslash_assignment_value_spans = Vec::new();
         let mut word_nodes = Vec::with_capacity(estimated_word_nodes);
+        let mut word_spans = ListArena::with_capacity(estimated_word_nodes.saturating_mul(2));
+        let mut word_span_scratch = Vec::new();
         let mut word_node_ids_by_span =
             FxHashMap::with_capacity_and_hasher(estimated_word_nodes, Default::default());
         let mut word_occurrences = Vec::with_capacity(estimated_word_occurrences);
@@ -195,6 +193,8 @@ impl<'a> LinterFactsBuilder<'a> {
                     command_zsh_options.clone(),
                     WordFactOutputs {
                         word_nodes: &mut word_nodes,
+                        word_spans: &mut word_spans,
+                        word_span_scratch: &mut word_span_scratch,
                         word_node_ids_by_span: &mut word_node_ids_by_span,
                         word_occurrences: &mut word_occurrences,
                         pending_arithmetic_word_occurrences:
@@ -388,22 +388,17 @@ impl<'a> LinterFactsBuilder<'a> {
         arithmetic_update_operator_spans.dedup();
 
         let mut fact_store = FactStore::empty();
-        fact_store.redirect_facts = redirect_fact_store.into_vec();
-        fact_store.declaration_assignment_probes = declaration_assignment_probe_store.into_vec();
+        fact_store.redirect_facts = redirect_fact_store;
+        fact_store.declaration_assignment_probes = declaration_assignment_probe_store;
+        fact_store.word_spans = word_spans;
 
         populate_linebreak_in_test_facts(&mut commands, self.source);
-        let substitution_facts = build_substitution_facts(
-            CommandFacts::new(&commands, &fact_store),
+        populate_substitution_fact_ranges(
+            &mut commands,
+            &mut fact_store,
             &command_ids_by_span,
             self.source,
         );
-        let mut substitution_fact_store = ListArena::with_capacity(total_child_len(
-            &substitution_facts,
-        ));
-        for (fact, substitutions) in commands.iter_mut().zip(substitution_facts) {
-            fact.substitution_facts = substitution_fact_store.push_many(substitutions);
-        }
-        fact_store.substitution_facts = substitution_fact_store.into_vec();
 
         let presence_tested_names =
             build_presence_tested_names(&commands, self.source, self.semantic);
@@ -449,40 +444,13 @@ impl<'a> LinterFactsBuilder<'a> {
         let case_pattern_impossible_spans =
             build_case_pattern_impossible_spans(&commands, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
-        let command_facts = CommandFacts::new(&commands, &fact_store);
-        let scope_read_source_words = build_scope_read_source_words(
-            command_facts,
+        populate_scope_fact_ranges(
+            &mut commands,
+            &mut fact_store,
             &pipelines,
             &if_condition_command_ids,
             source,
         );
-        let (scope_name_read_uses, scope_heredoc_name_read_uses, scope_name_write_uses) =
-            build_scope_name_uses(command_facts, &pipelines, source);
-        let mut scope_read_source_word_store =
-            ListArena::with_capacity(total_child_len(&scope_read_source_words));
-        let mut scope_name_read_use_store =
-            ListArena::with_capacity(total_child_len(&scope_name_read_uses));
-        let mut scope_heredoc_name_read_use_store =
-            ListArena::with_capacity(total_child_len(&scope_heredoc_name_read_uses));
-        let mut scope_name_write_use_store =
-            ListArena::with_capacity(total_child_len(&scope_name_write_uses));
-        for ((((fact, words), name_reads), heredoc_name_reads), name_writes) in commands
-            .iter_mut()
-            .zip(scope_read_source_words)
-            .zip(scope_name_read_uses)
-            .zip(scope_heredoc_name_read_uses)
-            .zip(scope_name_write_uses)
-        {
-            fact.scope_read_source_words = scope_read_source_word_store.push_many(words);
-            fact.scope_name_read_uses = scope_name_read_use_store.push_many(name_reads);
-            fact.scope_heredoc_name_read_uses =
-                scope_heredoc_name_read_use_store.push_many(heredoc_name_reads);
-            fact.scope_name_write_uses = scope_name_write_use_store.push_many(name_writes);
-        }
-        fact_store.scope_read_source_words = scope_read_source_word_store.into_vec();
-        fact_store.scope_name_read_uses = scope_name_read_use_store.into_vec();
-        fact_store.scope_heredoc_name_read_uses = scope_heredoc_name_read_use_store.into_vec();
-        fact_store.scope_name_write_uses = scope_name_write_use_store.into_vec();
         let lists = build_list_facts(&commands, &command_ids_by_span, self.source);
         let completion_registered_function_command_flags =
             build_completion_registered_function_command_flags(
@@ -538,6 +506,7 @@ impl<'a> LinterFactsBuilder<'a> {
             &word_nodes,
             &word_occurrences,
             CommandFacts::new(&commands, &fact_store),
+            &fact_store,
             source,
             self._indexer.region_index().heredoc_ranges(),
         );
@@ -632,7 +601,7 @@ impl<'a> LinterFactsBuilder<'a> {
                     runtime_literal: RuntimeLiteralAnalysis::default(),
                     operand_class: None,
                     enclosing_expansion_context: Some(pending.enclosing_expansion_context),
-                    array_assignment_split_scalar_expansion_spans: OnceCell::new(),
+                    array_assignment_split_scalar_expansion_spans: IdRange::empty(),
                 }),
         );
         let mut word_index = FxHashMap::<FactSpan, SmallVec<[WordOccurrenceId; 2]>>::default();
@@ -664,16 +633,34 @@ impl<'a> LinterFactsBuilder<'a> {
             word_occurrence_ids[offset] = id;
             word_occurrence_offsets_by_command[command_index] += 1;
         }
-        fact_store.word_occurrence_ids = word_occurrence_ids;
+        let mut word_occurrence_id_store = ListArena::with_capacity(word_occurrence_ids.len());
+        let all_word_occurrence_ids = word_occurrence_id_store.push_many(word_occurrence_ids);
+        debug_assert_eq!(all_word_occurrence_ids.start_index(), 0);
+        debug_assert_eq!(
+            all_word_occurrence_ids.end_index(),
+            next_word_occurrence_offset
+        );
+        fact_store.word_occurrence_ids = word_occurrence_id_store;
         fact_store.word_occurrence_ids_by_command = word_occurrence_ids_by_command;
+        populate_array_assignment_split_scalar_expansion_spans(
+            self.shell,
+            &commands,
+            &word_nodes,
+            &mut word_occurrences,
+            &mut fact_store,
+            &array_assignment_split_word_ids,
+        );
         let echo_to_sed_substitution_spans = build_echo_to_sed_substitution_spans(
             CommandFacts::new(&commands, &fact_store),
             &pipelines,
             &backticks,
-            &word_nodes,
-            &word_occurrences,
-            &word_index,
-            source,
+            WordFactLookup {
+                nodes: &word_nodes,
+                occurrences: &word_occurrences,
+                word_index: &word_index,
+                fact_store: &fact_store,
+                source,
+            },
         );
         let assignment_like_command_name_spans =
             build_assignment_like_command_name_spans(&commands, self.source);
@@ -693,6 +680,7 @@ impl<'a> LinterFactsBuilder<'a> {
             build_brace_variable_before_bracket_spans(&word_nodes, &word_occurrences, source);
         let alias_definition_expansion_spans = build_alias_definition_expansion_spans(
             &commands,
+            &fact_store,
             &word_nodes,
             &word_occurrences,
             &word_index,
@@ -714,7 +702,6 @@ impl<'a> LinterFactsBuilder<'a> {
 
         LinterFacts {
             source,
-            shell: self.shell,
             commands,
             structural_command_ids,
             command_ids_by_span,

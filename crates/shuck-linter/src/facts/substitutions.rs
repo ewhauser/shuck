@@ -148,15 +148,22 @@ impl SubstitutionFact {
     }
 }
 
-pub(super) fn build_substitution_facts<'a>(
-    commands: CommandFacts<'_, 'a>,
+fn populate_substitution_fact_ranges<'a>(
+    commands: &mut [CommandFact<'a>],
+    fact_store: &mut FactStore<'a>,
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
-) -> Vec<Vec<SubstitutionFact>> {
-    commands
-        .iter()
-        .map(|fact| build_command_substitution_facts(fact, commands, command_ids_by_span, source))
-        .collect()
+) {
+    for index in 0..commands.len() {
+        let substitutions = {
+            let command_facts = CommandFacts::new(commands, fact_store);
+            let fact = command_facts
+                .get(index)
+                .expect("command index should resolve while populating substitution facts");
+            build_command_substitution_facts(fact, command_facts, command_ids_by_span, source)
+        };
+        commands[index].substitution_facts = fact_store.substitution_facts.push_many(substitutions);
+    }
 }
 
 fn build_command_substitution_facts<'a>(

@@ -13,11 +13,8 @@ impl Violation for IfsSetToLiteralBackslashN {
 }
 
 pub fn ifs_set_to_literal_backslash_n(checker: &mut Checker) {
-    checker.report_all_dedup(
-        checker
-            .facts()
-            .ifs_literal_backslash_assignment_value_spans()
-            .to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.ifs_literal_backslash_assignment_value_spans(),
         || IfsSetToLiteralBackslashN,
     );
 }

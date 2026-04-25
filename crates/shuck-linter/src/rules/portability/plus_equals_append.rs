@@ -20,8 +20,10 @@ pub fn plus_equals_append(checker: &mut Checker) {
         return;
     }
 
-    let spans = checker.facts().plus_equals_assignment_spans().to_vec();
-    checker.report_all_dedup(spans, || PlusEqualsAppend);
+    checker.report_fact_slice_dedup(
+        |facts| facts.plus_equals_assignment_spans(),
+        || PlusEqualsAppend,
+    );
 }
 
 #[cfg(test)]

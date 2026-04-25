@@ -13,9 +13,10 @@ impl Violation for HeredocMissingEnd {
 }
 
 pub fn heredoc_missing_end(checker: &mut Checker) {
-    checker.report_all_dedup(checker.facts().heredoc_missing_end_spans().to_vec(), || {
-        HeredocMissingEnd
-    });
+    checker.report_fact_slice_dedup(
+        |facts| facts.heredoc_missing_end_spans(),
+        || HeredocMissingEnd,
+    );
 }
 
 #[cfg(test)]

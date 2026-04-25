@@ -1,4 +1,4 @@
-use crate::{Checker, Edit, Fix, FixAvailability, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct CommentedContinuationLine;
 
@@ -19,22 +19,20 @@ impl Violation for CommentedContinuationLine {
 }
 
 pub fn commented_continuation_line(checker: &mut Checker) {
-    let spans = checker
-        .facts()
-        .commented_continuation_comment_spans()
-        .to_vec();
-    for span in spans {
-        let backslash_offset = span
-            .start
-            .offset
-            .checked_sub(1)
-            .expect("commented continuation anchors should follow a trailing backslash");
-        checker.report_diagnostic_dedup(
-            crate::Diagnostic::new(CommentedContinuationLine, span).with_fix(Fix::unsafe_edit(
-                Edit::deletion_at(backslash_offset, span.start.offset),
-            )),
-        );
-    }
+    checker.report_fact_diagnostics_dedup(|facts, report| {
+        for span in facts.commented_continuation_comment_spans().iter().copied() {
+            let backslash_offset = span
+                .start
+                .offset
+                .checked_sub(1)
+                .expect("commented continuation anchors should follow a trailing backslash");
+            report(
+                Diagnostic::new(CommentedContinuationLine, span).with_fix(Fix::unsafe_edit(
+                    Edit::deletion_at(backslash_offset, span.start.offset),
+                )),
+            );
+        }
+    });
 }
 
 #[cfg(test)]

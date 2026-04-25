@@ -13,8 +13,8 @@ impl Violation for CommaArrayElements {
 }
 
 pub fn comma_array_elements(checker: &mut Checker) {
-    checker.report_all_dedup(
-        checker.facts().comma_array_assignment_spans().to_vec(),
+    checker.report_fact_slice_dedup(
+        |facts| facts.comma_array_assignment_spans(),
         || CommaArrayElements,
     );
 }

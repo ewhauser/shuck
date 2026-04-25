@@ -20,15 +20,15 @@ impl Violation for UnicodeQuoteInString {
 
 pub fn unicode_quote_in_string(checker: &mut Checker) {
     let source = checker.source();
-    let spans = checker.facts().unicode_smart_quote_spans().to_vec();
-    for span in spans {
-        checker.report_diagnostic_dedup(Diagnostic::new(UnicodeQuoteInString, span).with_fix(
-            Fix::unsafe_edit(Edit::replacement(
-                ascii_quote_replacement(span.slice(source)),
-                span,
-            )),
-        ));
-    }
+    checker.report_fact_diagnostics_dedup(|facts, report| {
+        for span in facts.unicode_smart_quote_spans().iter().copied() {
+            report(
+                Diagnostic::new(UnicodeQuoteInString, span).with_fix(Fix::unsafe_edit(
+                    Edit::replacement(ascii_quote_replacement(span.slice(source)), span),
+                )),
+            );
+        }
+    });
 }
 
 fn ascii_quote_replacement(quote: &str) -> &'static str {

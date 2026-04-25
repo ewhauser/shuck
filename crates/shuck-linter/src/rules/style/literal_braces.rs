@@ -13,9 +13,7 @@ impl Violation for LiteralBraces {
 }
 
 pub fn literal_braces(checker: &mut Checker) {
-    checker.report_all_dedup(checker.facts().literal_brace_spans().to_vec(), || {
-        LiteralBraces
-    });
+    checker.report_fact_slice_dedup(|facts| facts.literal_brace_spans(), || LiteralBraces);
 }
 
 #[cfg(test)]

@@ -17,39 +17,42 @@ impl Violation for UnquotedVariableInTest {
 }
 
 pub fn unquoted_variable_in_test(checker: &mut Checker) {
-    let spans = checker
-        .facts()
-        .commands()
-        .iter()
-        .flat_map(|fact| {
-            let Some(simple_test) = fact.simple_test() else {
-                return Vec::new();
-            };
-            if simple_test.syntax() != SimpleTestSyntax::Bracket {
-                return Vec::new();
+    let source = checker.source();
+    checker.report_fact_spans_dedup(
+        |facts, report| {
+            for fact in facts.commands() {
+                let Some(simple_test) = fact.simple_test() else {
+                    continue;
+                };
+                if simple_test.syntax() != SimpleTestSyntax::Bracket {
+                    continue;
+                }
+                if simple_test.shape() != SimpleTestShape::Unary
+                    || simple_test.operands().len() != 2
+                {
+                    continue;
+                }
+
+                let operator = simple_test.operands()[0];
+                if static_word_text(operator, source).as_deref() != Some("-n") {
+                    continue;
+                }
+
+                let operand = simple_test.operands()[1];
+                let Some(word_fact) = facts.word_fact(
+                    operand.span,
+                    WordFactContext::Expansion(ExpansionContext::CommandArgument),
+                ) else {
+                    continue;
+                };
+
+                for span in word_fact.unquoted_scalar_expansion_spans().iter().copied() {
+                    report(span);
+                }
             }
-            if simple_test.shape() != SimpleTestShape::Unary || simple_test.operands().len() != 2 {
-                return Vec::new();
-            }
-
-            let operator = simple_test.operands()[0];
-            if static_word_text(operator, checker.source()).as_deref() != Some("-n") {
-                return Vec::new();
-            }
-
-            let operand = simple_test.operands()[1];
-            let Some(word_fact) = checker.facts().word_fact(
-                operand.span,
-                WordFactContext::Expansion(ExpansionContext::CommandArgument),
-            ) else {
-                return Vec::new();
-            };
-
-            word_fact.unquoted_scalar_expansion_spans().to_vec()
-        })
-        .collect::<Vec<_>>();
-
-    checker.report_all_dedup(spans, || UnquotedVariableInTest);
+        },
+        || UnquotedVariableInTest,
+    );
 }
 
 #[cfg(test)]
