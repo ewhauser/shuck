@@ -48,10 +48,9 @@ impl Indexer {
 
     /// Build an index from an arena-backed parsed shell script.
     pub fn new_arena(source: &str, ast: &ArenaFile, _syntax_facts: &SyntaxFacts) -> Self {
-        let file = ast.to_file();
         let line_index = LineIndex::new(source);
-        let comment_index = CommentIndex::new(source, &line_index, &file);
-        let region_index = RegionIndex::new(source, &file);
+        let comment_index = CommentIndex::new_arena(source, &line_index, ast);
+        let region_index = RegionIndex::new_arena(source, ast);
         let continuation_lines = collect_continuation_lines(source, &comment_index, &region_index);
 
         Self {

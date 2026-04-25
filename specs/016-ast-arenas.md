@@ -20,13 +20,13 @@ The goal is not to make every AST consumer switch in one patch. The goal is to i
 
 ## Implementation Status
 
-The first implementation pass adds an `ArenaFile` sidecar to `ParseResult`, backed by `AstStore` and borrowed view types in `shuck-ast`. The parser lowers the existing recursive tree into the store after parsing, and `shuck check` now builds its index and lint diagnostics through arena-aware entry points. The indexer, semantic model, and linter have arena entry points that materialize the current recursive compatibility shape internally while downstream logic migrates.
+The first implementation pass adds an `ArenaFile` sidecar to `ParseResult`, backed by `AstStore` and borrowed view types in `shuck-ast`. The parser lowers the existing recursive tree into the store after parsing, and `shuck check` now builds its index and lint diagnostics through arena-aware entry points. The indexer now walks arena views directly for comment and region indexes instead of materializing a full recursive `File`. The semantic model and linter still have arena entry points that materialize the current recursive compatibility shape internally while downstream logic migrates.
 
 Still remaining:
 
 - direct parser construction into `AstStore`
 - replacing linter fact references with stable AST IDs
-- native arena traversal in semantic analysis instead of compatibility materialization
+- native arena traversal in semantic analysis and linter facts instead of compatibility materialization
 - formatter-native arena support, intentionally deferred while the formatter is being reworked
 
 ## Design

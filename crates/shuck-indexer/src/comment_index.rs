@@ -1,10 +1,10 @@
 use std::ops::Range;
 
 use shuck_ast::{
-    ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, Comment, CompoundCommand,
-    ConditionalExpr, DeclOperand, File, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, Pattern,
-    PatternPart, Redirect, Stmt, StmtSeq, TextRange, TextSize, Word, WordPart, WordPartNode,
-    ZshGlobSegment,
+    ArenaFile, ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, Comment,
+    CompoundCommand, ConditionalExpr, DeclOperand, File, HeredocBody, HeredocBodyPart,
+    HeredocBodyPartNode, Pattern, PatternPart, Redirect, Stmt, StmtSeq, StmtSeqView, TextRange,
+    TextSize, Word, WordPart, WordPartNode, ZshGlobSegment,
 };
 
 use crate::LineIndex;
@@ -32,6 +32,17 @@ impl CommentIndex {
     pub fn new(source: &str, line_index: &LineIndex, file: &File) -> Self {
         let mut comments = Vec::new();
         collect_file_comments(file, &mut comments);
+        Self::from_comments(source, line_index, comments)
+    }
+
+    /// Build from arena AST-owned comments and source text.
+    pub fn new_arena(source: &str, line_index: &LineIndex, file: &ArenaFile) -> Self {
+        let mut comments = Vec::new();
+        collect_arena_file_comments(file, &mut comments);
+        Self::from_comments(source, line_index, comments)
+    }
+
+    fn from_comments(source: &str, line_index: &LineIndex, comments: Vec<Comment>) -> Self {
         let mut indexed_comments = comments
             .into_iter()
             .filter(|comment| {
@@ -132,6 +143,23 @@ fn is_horizontal_whitespace(text: &str) -> bool {
 
 fn collect_file_comments(file: &File, comments: &mut Vec<Comment>) {
     collect_stmt_seq_comments(&file.body, comments);
+}
+
+fn collect_arena_file_comments(file: &ArenaFile, comments: &mut Vec<Comment>) {
+    collect_arena_stmt_seq_comments(file.view().body(), comments);
+}
+
+fn collect_arena_stmt_seq_comments(sequence: StmtSeqView<'_>, comments: &mut Vec<Comment>) {
+    comments.extend(sequence.leading_comments().iter().copied());
+    for stmt in sequence.stmts() {
+        comments.extend(stmt.leading_comments().iter().copied());
+        if let Some(comment) = stmt.inline_comment() {
+            comments.push(comment);
+        }
+        collect_redirect_comments(stmt.redirects(), comments);
+        collect_command_comments(stmt.command().legacy(), comments);
+    }
+    comments.extend(sequence.trailing_comments().iter().copied());
 }
 
 fn collect_stmt_seq_comments(sequence: &StmtSeq, comments: &mut Vec<Comment>) {
@@ -502,6 +530,12 @@ mod tests {
         CommentIndex::new(source, &lines, &output.file)
     }
 
+    fn arena_comments(source: &str) -> CommentIndex {
+        let output = Parser::new(source).parse().unwrap();
+        let lines = LineIndex::new(source);
+        CommentIndex::new_arena(source, &lines, &output.arena_file)
+    }
+
     #[test]
     fn distinguishes_own_line_and_inline_comments() {
         let source = "# head\necho hi # tail\n";
@@ -533,5 +567,27 @@ mod tests {
         assert_eq!(index.comments_on_line(1).len(), 1);
         assert_eq!(index.comments_on_line(2).len(), 1);
         assert!(index.comments_on_line(3).is_empty());
+    }
+
+    #[test]
+    fn arena_comments_match_recursive_comments_for_nested_syntax() {
+        let source = "\
+# head
+echo \"$(
+  # inner
+  printf '%s\\n' hi
+)\" # tail
+cat <<'EOF'
+# heredoc
+EOF
+";
+        let recursive = comments(source);
+        let arena = arena_comments(source);
+
+        assert_eq!(arena.comments(), recursive.comments());
+        assert_eq!(arena.comments_on_line(1), recursive.comments_on_line(1));
+        assert_eq!(arena.comments_on_line(3), recursive.comments_on_line(3));
+        assert_eq!(arena.comments_on_line(5), recursive.comments_on_line(5));
+        assert_eq!(arena.comments_on_line(7), recursive.comments_on_line(7));
     }
 }

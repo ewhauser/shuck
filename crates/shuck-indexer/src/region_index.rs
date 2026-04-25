@@ -1,8 +1,9 @@
 use shuck_ast::{
-    ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
-    ConditionalExpr, DeclClause, DeclOperand, File, FunctionDef, HeredocBody, HeredocBodyPart,
-    HeredocBodyPartNode, Pattern, PatternPart, PatternPartNode, Redirect, RedirectKind, Stmt,
-    StmtSeq, Subscript, TextRange, TextSize, VarRef, Word, WordPart, WordPartNode, ZshGlobSegment,
+    ArenaFile, ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, Command,
+    CompoundCommand, ConditionalExpr, DeclClause, DeclOperand, File, FunctionDef, HeredocBody,
+    HeredocBodyPart, HeredocBodyPartNode, Pattern, PatternPart, PatternPartNode, Redirect,
+    RedirectKind, Stmt, StmtSeq, StmtSeqView, Subscript, TextRange, TextSize, VarRef, Word,
+    WordPart, WordPartNode, ZshGlobSegment,
 };
 /// A syntactic region that affects lint rule behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,6 +46,13 @@ impl RegionIndex {
     pub fn new(source: &str, file: &File) -> Self {
         let mut collector = RegionCollector::new(source);
         collector.visit_file(file);
+        collector.finish()
+    }
+
+    /// Build from source text and an arena-backed parsed file.
+    pub fn new_arena(source: &str, file: &ArenaFile) -> Self {
+        let mut collector = RegionCollector::new(source);
+        collector.visit_arena_file(file);
         collector.finish()
     }
 
@@ -212,6 +220,19 @@ impl<'a> RegionCollector<'a> {
 
     fn visit_file(&mut self, file: &File) {
         self.visit_stmt_seq(&file.body);
+    }
+
+    fn visit_arena_file(&mut self, file: &ArenaFile) {
+        self.visit_arena_stmt_seq(file.view().body());
+    }
+
+    fn visit_arena_stmt_seq(&mut self, commands: StmtSeqView<'_>) {
+        for stmt in commands.stmts() {
+            for redirect in stmt.redirects() {
+                self.visit_redirect(redirect);
+            }
+            self.visit_command(stmt.command().legacy());
+        }
     }
 
     fn visit_stmt_seq(&mut self, commands: &StmtSeq) {
@@ -674,6 +695,11 @@ mod tests {
         RegionIndex::new(source, &output.file)
     }
 
+    fn arena_regions(source: &str) -> RegionIndex {
+        let output = Parser::new(source).parse().unwrap();
+        RegionIndex::new_arena(source, &output.arena_file)
+    }
+
     #[test]
     fn finds_single_and_double_quoted_regions() {
         let source = "echo 'hello' \"world $name\"\n";
@@ -756,5 +782,33 @@ mod tests {
         let offset = TextSize::new(source.find("foo").unwrap() as u32);
 
         assert_eq!(regions.region_at(offset), Some(RegionKind::Conditional));
+    }
+
+    #[test]
+    fn arena_regions_match_recursive_regions_for_nested_syntax() {
+        let source = "\
+declare -A map=(['$HOME']=\"$(printf '%s' \"$name\")\")
+cat <<'EOF'
+literal $body
+EOF
+";
+        let recursive = regions(source);
+        let arena = arena_regions(source);
+
+        for needle in ["$HOME", "printf", "%s", "$name", "literal $body"] {
+            let offset = TextSize::new(source.find(needle).unwrap() as u32);
+            assert_eq!(
+                arena.region_with_range_at(offset),
+                recursive.region_with_range_at(offset),
+                "region mismatch at {needle}"
+            );
+            assert_eq!(
+                arena.is_quoted(offset),
+                recursive.is_quoted(offset),
+                "quote mismatch at {needle}"
+            );
+        }
+
+        assert_eq!(arena.heredoc_ranges(), recursive.heredoc_ranges());
     }
 }
