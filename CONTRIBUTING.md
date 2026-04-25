@@ -216,16 +216,17 @@ CLI fuzzer failures are minimized automatically and written under `fuzz/artifact
 
 | Crate | Purpose |
 |-------|---------|
-| `shuck-cli` | CLI binary `shuck` — file discovery, parsing, reporting |
-| `shuck-linter` | Lint rule registry, checker dispatch, violation types |
+| `shuck-cli` | CLI binary `shuck` — command orchestration, discovery, config, caching, fixes, and reporting |
+| `shuck-linter` | Lint rule registry, checker dispatch, facts, suppressions, fixes, and diagnostics |
 | `shuck-semantic` | Semantic model — bindings, scopes, CFG, dataflow |
 | `shuck-indexer` | Positional and structural indexes over parsed scripts |
 | `shuck-parser` | Recursive-descent Bash parser |
 | `shuck-ast` | AST node types, tokens, spans |
-| `shuck-syntax` | Dialect profiles, comment collection, suppression directives |
+| `shuck-extract` | Embedded shell extraction for supported host files such as GitHub Actions workflows |
 | `shuck-cache` | SHA-256 keyed file-level result caching |
 | `shuck-formatter` | Shell script formatter |
 | `shuck-format` | Low-level formatting document and printer primitives |
+| `shuck-benchmark` | Shared benchmark fixtures and benchmark harness helpers |
 
 ## Adding a Lint Rule
 
@@ -282,20 +283,21 @@ declare_rules! {
 
 If the rule has a legacy `SH-NNN` code, add an alias in the `code_to_rule()` function in the same file.
 
-### Step 3: Add ShellCheck mapping
+### Step 3: Populate generated metadata
 
-If the rule maps to a ShellCheck code, add the mapping in `crates/shuck-linter/src/suppression/shellcheck_map.rs`:
-
-```rust
-(2034, Rule::YourRuleName),  // SC2034
-```
-
-Then populate the matching ShellCheck log level in the rule metadata:
+If the rule maps to a ShellCheck code, set `shellcheck_code` in `docs/rules/{CODE}.yaml` and populate the matching ShellCheck log level:
 
 ```bash
 nix --extra-experimental-features 'nix-command flakes' develop --command \
   python3 scripts/update_shellcheck_levels.py --rules C042
 ```
+
+`crates/shuck-linter/build.rs` generates the runtime rule metadata and ordinary
+ShellCheck-code mappings from `docs/rules/*.yaml`. Do not hand-edit
+`crates/shuck-linter/src/suppression/shellcheck_map.rs` for normal rule
+mappings; only update `SUPPRESSION_ALIAS_CODES` there when an old ShellCheck
+code should suppress a rule without being the rule's canonical compatibility
+code.
 
 ### Step 4: Implement the rule
 
@@ -319,7 +321,7 @@ impl Violation for YourRuleName {
 }
 
 pub fn your_rule_name(checker: &mut Checker) {
-    // Query the semantic model, facts, or AST
+    // Query the semantic model or precomputed linter facts.
     // Report violations with checker.report(violation, span)
 }
 ```
@@ -327,11 +329,15 @@ pub fn your_rule_name(checker: &mut Checker) {
 Key APIs available on `Checker`:
 - `checker.semantic()` — bindings, references, scopes, call graph
 - `checker.facts()` — normalized commands, pipelines, conditionals
-- `checker.ast()` — raw AST
 - `checker.source()` — source text
 - `checker.shell()` — detected shell dialect
 - `checker.report(violation, span)` — emit a diagnostic
 - `checker.report_dedup(violation, span)` — emit with deduplication
+
+New rule files should be cheap filters over `checker.facts()` or
+`checker.semantic()`. Do not directly walk the AST or rescan source text to
+rediscover shell structure; if a rule needs structural data that facts do not
+expose yet, add that data to `crates/shuck-linter/src/facts/` first.
 
 Look at existing rules for patterns:
 - Simple semantic rule: `rules/correctness/unused_assignment.rs`

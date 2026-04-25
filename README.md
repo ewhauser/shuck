@@ -7,7 +7,7 @@ Shuck parses and analyzes shell scripts to catch common bugs, style issues, and 
 ## Features
 
 - High performance — ~20x faster than ShellCheck
-- Linting with rules across correctness and style categories
+- Linting with rules across correctness, security, performance, portability, and style categories
 - Safe and unsafe fix support for selected diagnostics
 - Multi-dialect support: bash, sh/POSIX, mksh, zsh
 - Automatic file discovery via extensions and shebang detection
@@ -108,7 +108,7 @@ deploy.sh:45:3: warning[S005] legacy backtick command substitution
 
 ## Rules
 
-Shuck ships with rules organized into four categories:
+Shuck ships with rules organized into five categories:
 
 | Category | Prefix | Description |
 |----------|--------|-------------|
@@ -116,6 +116,7 @@ Shuck ships with rules organized into four categories:
 | Style | S | Code quality and best-practice suggestions. |
 | Performance | P | Inefficient patterns that have simpler or faster alternatives. |
 | Portability | X | Bash-isms and shell-specific constructs that break under POSIX or other shells. |
+| Security | K | Potentially dangerous shell patterns such as risky deletion, unsafe evaluation, or local expansion. |
 
 Each rule has a short code (e.g., `C006`, `S001`) that appears in diagnostics and can be used in suppression directives. Diagnostics are classified as error, warning, or hint depending on severity.
 

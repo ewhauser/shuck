@@ -270,9 +270,13 @@ The `Indexer` is constructed once per file and shared immutably across all rules
 
 ## Alternatives Considered
 
-### Embed indexing in shuck-syntax
+### Embed indexing in a syntax facade
 
-shuck-syntax (referenced in CLAUDE.md but not yet created as a crate) is described as a "linter-oriented syntax wrapper." We could build the indexer directly into that crate. Rejected because: shuck-syntax's role is dialect/profile management and parse-view selection. The indexer is a distinct concern — positional metadata over a parsed AST — and separating it keeps both crates focused. The indexer has no opinion about dialects or parse modes; it works on any `ParseOutput`.
+A linter-oriented syntax facade could own dialect/profile management, parse-view
+selection, and positional indexing. Rejected because the indexer is a distinct
+concern — positional metadata over a parsed AST — and separating it keeps both
+crates focused. The indexer has no opinion about dialects or parse modes; it
+works on any parser output.
 
 ### Build indexes lazily on first query
 
