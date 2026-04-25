@@ -1384,6 +1384,14 @@ impl<'model> SemanticAnalysis<'model> {
         })
     }
 
+    #[cfg(test)]
+    fn materialized_reaching_definitions(&self) -> ReachingDefinitions {
+        let cfg = self.cfg();
+        let context = self.model.dataflow_context(cfg);
+        let exact = self.exact_variable_dataflow();
+        dataflow::materialize_reaching_definitions(&context, exact)
+    }
+
     /// Returns every binding that dataflow proves is never read again.
     ///
     /// Higher layers may still collapse mutually exclusive branch families down to a single
@@ -5920,7 +5928,7 @@ echo $value
     fn materialized_reaching_definitions_match_dense_exact_results() {
         let model = model("VAR=outer\nif cond; then VAR=inner; fi\necho $VAR\n");
         let analysis = model.analysis();
-        let dataflow = analysis.dataflow();
+        let reaching_definitions = analysis.materialized_reaching_definitions();
         let reference = model
             .references()
             .iter()
@@ -5931,9 +5939,7 @@ echo $value
         assert_eq!(
             sorted_binding_names(
                 &model,
-                dataflow.reaching_definitions.reaching_in[&block_id]
-                    .iter()
-                    .copied()
+                reaching_definitions.reaching_in[&block_id].iter().copied()
             ),
             vec!["VAR", "VAR"]
         );
