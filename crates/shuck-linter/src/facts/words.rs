@@ -3784,11 +3784,11 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
                         Some(&reference.name),
                         Some(reference.name_span),
-                        reference.subscript.as_ref(),
+                        reference.subscript.as_deref(),
                     );
                     if !indexed_semantics {
                         self.surface.record_arithmetic_only_suppressed_subscript(
-                            reference.subscript.as_ref(),
+                            reference.subscript.as_deref(),
                         );
                     }
                     visit_var_ref_subscript_words_with_source(
@@ -3838,11 +3838,11 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
             Some(&assignment.target.name),
             Some(assignment.target.name_span),
-            assignment.target.subscript.as_ref(),
+            assignment.target.subscript.as_deref(),
         );
         if !indexed_semantics {
             self.surface
-                .record_arithmetic_only_suppressed_subscript(assignment.target.subscript.as_ref());
+                .record_arithmetic_only_suppressed_subscript(assignment.target.subscript.as_deref());
         }
         visit_var_ref_subscript_words_with_source(&assignment.target, self.source, &mut |word| {
             collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
@@ -4090,7 +4090,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             }
             ConditionalExpr::VarRef(reference) => {
                 self.surface
-                    .record_arithmetic_only_suppressed_subscript(reference.subscript.as_ref());
+                    .record_arithmetic_only_suppressed_subscript(reference.subscript.as_deref());
                 visit_var_ref_subscript_words_with_source(reference, self.source, &mut |word| {
                     self.push_word_with_surface(
                         word,
@@ -5970,7 +5970,7 @@ fn collect_arithmetic_update_operator_spans_in_var_ref_impl(
 ) {
     if !var_ref_subscript_has_assoc_semantics(reference, semantic) {
         collect_arithmetic_update_operator_spans_in_subscript(
-            reference.subscript.as_ref(),
+            reference.subscript.as_deref(),
             source,
             spans,
         );

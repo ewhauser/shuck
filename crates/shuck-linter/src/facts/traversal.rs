@@ -99,7 +99,7 @@ fn visit_var_ref_subscript_words_with_source<'a>(
     _source: &'a str,
     visitor: &mut impl FnMut(&'a Word),
 ) {
-    visit_subscript_words(reference.subscript.as_ref(), _source, visitor);
+    visit_subscript_words(reference.subscript.as_deref(), _source, visitor);
 }
 
 fn visit_subscript_words<'a>(

@@ -764,7 +764,7 @@ fn collect_var_ref_word_visits<'a>(
     reference: &'a VarRef,
     visits: &mut Vec<DirectiveCommandVisit<'a>>,
 ) {
-    let Some(subscript) = reference.subscript.as_ref() else {
+    let Some(subscript) = reference.subscript.as_deref() else {
         return;
     };
     if subscript.selector().is_some() {

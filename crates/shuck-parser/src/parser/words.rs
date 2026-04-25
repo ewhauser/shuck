@@ -1716,11 +1716,11 @@ impl<'a> Parser<'a> {
 
     pub(super) fn split_word_at(&self, word: Word, start: Position) -> Word {
         let value_span = Span::from_positions(start, word.span.end);
-        let mut parts = WordPartBuffer::new();
+        let mut parts = Self::word_part_buffer_with_capacity(word.parts.len());
 
         for part in word.parts {
             if let Some((kind, span)) = self.trim_word_part_prefix(part.kind, part.span, start) {
-                parts.push(WordPartNode::new(kind, span));
+                Self::push_word_part_node(&mut parts, WordPartNode::new(kind, span));
             }
         }
 
@@ -3876,7 +3876,7 @@ impl<'a> Parser<'a> {
                         );
                         let part = if reference
                             .subscript
-                            .as_ref()
+                            .as_deref()
                             .and_then(Subscript::selector)
                             .is_some()
                         {
@@ -3966,7 +3966,7 @@ impl<'a> Parser<'a> {
                         let part = self.parameter_word_part_from_legacy(
                             if reference
                                 .subscript
-                                .as_ref()
+                                .as_deref()
                                 .and_then(Subscript::selector)
                                 .is_some()
                             {

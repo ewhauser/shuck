@@ -1262,7 +1262,7 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 
     pub(super) fn record_var_ref_subscript(&mut self, reference: &VarRef) {
-        let Some(subscript) = reference.subscript.as_ref() else {
+        let Some(subscript) = reference.subscript.as_deref() else {
             return;
         };
         if subscript.selector().is_some() {

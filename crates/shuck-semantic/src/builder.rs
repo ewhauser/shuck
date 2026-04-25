@@ -520,7 +520,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 DeclOperand::Name(name) => {
                     self.visit_var_ref_subscript_words(
                         Some(&name.name),
-                        name.subscript.as_ref(),
+                        name.subscript.as_deref(),
                         WordVisitKind::Expansion,
                         flow,
                         &mut nested_regions,
@@ -1058,7 +1058,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let reference_start = self.references.len();
         self.visit_var_ref_subscript_words(
             Some(&assignment.target.name),
-            assignment.target.subscript.as_ref(),
+            assignment.target.subscript.as_deref(),
             WordVisitKind::Expansion,
             flow,
             nested_regions,
@@ -1346,7 +1346,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let id = self.add_reference(&reference.name, reference_kind, span);
         self.visit_var_ref_subscript_words(
             Some(&reference.name),
-            reference.subscript.as_ref(),
+            reference.subscript.as_deref(),
             if matches!(reference_kind, ReferenceKind::ConditionalOperand) {
                 WordVisitKind::Conditional
             } else {
@@ -4906,7 +4906,7 @@ fn binding_origin_for_assignment(assignment: &Assignment, source: &str) -> Bindi
 }
 
 fn assignment_target_span(assignment: &Assignment, source: &str) -> Span {
-    let Some(subscript) = assignment.target.subscript.as_ref() else {
+    let Some(subscript) = assignment.target.subscript.as_deref() else {
         return assignment.target.name_span;
     };
 

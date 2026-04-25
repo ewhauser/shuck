@@ -554,7 +554,7 @@ impl<'a> RegionCollector<'a> {
     }
 
     fn visit_var_ref_subscript(&mut self, reference: &VarRef) {
-        self.visit_subscript(reference.subscript.as_ref());
+        self.visit_subscript(reference.subscript.as_deref());
     }
 
     fn visit_subscript(&mut self, subscript: Option<&Subscript>) {
