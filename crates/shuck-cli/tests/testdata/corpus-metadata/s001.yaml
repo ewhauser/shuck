@@ -1120,20 +1120,6 @@ reviewed_divergences:
     end_column: 24
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "tteck__Proxmox__ct__create_lxc.sh"
-    line: 28
-    end_line: 28
-    column: 37
-    end_column: 49
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "tteck__Proxmox__ct__create_lxc.sh"
-    line: 28
-    end_line: 28
-    column: 73
-    end_column: 85
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "tteck__Proxmox__misc__glances.sh"
     line: 100
     end_line: 100
@@ -1160,20 +1146,6 @@ reviewed_divergences:
     end_line: 410
     column: 23
     end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "tteck__Proxmox__vm__haos-vm.sh"
-    line: 46
-    end_line: 46
-    column: 37
-    end_column: 49
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "tteck__Proxmox__vm__haos-vm.sh"
-    line: 46
-    end_line: 46
-    column: 73
-    end_column: 85
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "tteck__Proxmox__vm__haos-vm.sh"

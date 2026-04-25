@@ -2950,6 +2950,58 @@ printf '%s\\n' $foo
     }
 
     #[test]
+    fn skips_uncalled_function_references_after_safe_global_initialization() {
+        let source = "\
+#!/bin/bash
+value=\"$1\"
+helper() { printf '%s\\n' $value; }
+value=abc
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_uncalled_function_references_after_unsafe_global_initialization() {
+        let source = "\
+#!/bin/bash
+value=abc
+helper() { printf '%s\\n' $value; }
+value=\"$1\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$value"]
+        );
+    }
+
+    #[test]
+    fn reports_uncalled_function_references_after_partial_global_initialization() {
+        let source = "\
+#!/bin/bash
+helper() { printf '%s\\n' $value; }
+if [ \"$1\" = yes ]; then
+  value=abc
+fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$value"]
+        );
+    }
+
+    #[test]
     fn skips_straight_line_safe_overwrites_in_test_operands() {
         let source = "\
 #!/bin/bash

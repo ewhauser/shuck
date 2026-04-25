@@ -1,9 +1,9 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     BinaryOp, BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand, FunctionDef,
-    Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, RedirectKind, SourceText,
-    Span, Stmt, StmtSeq, StmtTerminator, VarRef, Word, WordPart, WordPartNode, static_word_text,
-    word_is_standalone_status_capture, word_is_standalone_variable_like,
+    Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Position, RedirectKind,
+    SourceText, Span, Stmt, StmtSeq, StmtTerminator, VarRef, Word, WordPart, WordPartNode,
+    static_word_text, word_is_standalone_status_capture, word_is_standalone_variable_like,
 };
 use shuck_semantic::{
     AssignmentValueOrigin, BindingAttributes, BindingKind, BindingOrigin, LoopValueOrigin, ScopeId,
@@ -1317,6 +1317,19 @@ impl<'a> SafeValueIndex<'a> {
         helper_bindings.dedup();
         let mut caller_bindings = self.caller_bindings_covering_all_static_call_sites(name, at);
         self.retain_value_bindings(&mut caller_bindings);
+        let mut uncalled_function_bindings = self.uncalled_function_outer_bindings_at_end(name, at);
+        self.retain_value_bindings(&mut uncalled_function_bindings);
+        let function_local_binding = self
+            .enclosing_function_scope_at(at.start.offset)
+            .is_some_and(|scope| {
+                bindings
+                    .iter()
+                    .copied()
+                    .any(|binding_id| self.binding_is_in_scope_or_descendant(binding_id, scope))
+            });
+        if !uncalled_function_bindings.is_empty() && !function_local_binding {
+            bindings = uncalled_function_bindings;
+        }
         if bindings.is_empty() {
             bindings = caller_bindings;
             bindings.extend(helper_bindings);
@@ -1329,6 +1342,47 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         self.retain_value_bindings(&mut bindings);
+        bindings
+    }
+
+    fn uncalled_function_outer_bindings_at_end(&mut self, name: &Name, at: Span) -> Vec<BindingId> {
+        let Some(helper_scope) = self.enclosing_function_scope_at(at.start.offset) else {
+            return Vec::new();
+        };
+        if self
+            .case_cli_reachable_function_scopes
+            .contains(&helper_scope)
+            || !self.named_function_call_sites(helper_scope).is_empty()
+        {
+            return Vec::new();
+        }
+        let Some(file_scope) = self
+            .semantic
+            .ancestor_scopes(helper_scope)
+            .find(|scope| matches!(self.semantic.scope(*scope).kind, ScopeKind::File))
+        else {
+            return Vec::new();
+        };
+
+        let eof = Position::new().advanced_by(self.source);
+        let eof_span = Span::from_positions(eof, eof);
+        let mut bindings = self.caller_branch_bindings_before(name, file_scope, eof_span);
+        bindings.retain(|binding_id| {
+            let binding = self.semantic.binding(*binding_id);
+            binding.scope != helper_scope
+                && !self.binding_is_in_scope_or_descendant(*binding_id, helper_scope)
+        });
+        let latest_unguarded = bindings
+            .iter()
+            .copied()
+            .filter(|binding_id| !self.binding_is_guarded_before_reference(*binding_id, eof_span))
+            .max_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+        let Some(latest_unguarded) = latest_unguarded else {
+            return Vec::new();
+        };
+        bindings.retain(|binding_id| *binding_id == latest_unguarded);
+        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+        bindings.dedup();
         bindings
     }
 
