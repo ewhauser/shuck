@@ -1,9 +1,11 @@
 use crate::{
-    AlwaysCommand, AnonymousFunctionCommand, Assignment, AssignmentValue, BinaryCommand,
-    BuiltinCommand, CaseCommand, Command, Comment, CompoundCommand, CoprocCommand, DeclOperand,
-    File, ForCommand, FunctionDef, HeredocBodyPart, IdRange, Idx, ListArena, Pattern, PatternPart,
-    Redirect, RedirectTarget, RepeatCommand, SelectCommand, Span, Stmt, StmtSeq, StmtTerminator,
-    TimeCommand, UntilCommand, WhileCommand, Word, WordPart, WordPartNode,
+    AlwaysCommand, AnonymousFunctionCommand, ArithmeticCommand, ArithmeticExpr, ArithmeticExprNode,
+    ArithmeticForCommand, ArithmeticLvalue, Assignment, AssignmentValue, BinaryCommand,
+    BuiltinCommand, CaseCommand, Command, Comment, CompoundCommand, ConditionalCommand,
+    ConditionalExpr, CoprocCommand, DeclOperand, File, ForCommand, FunctionDef, HeredocBodyPart,
+    IdRange, Idx, ListArena, Pattern, PatternPart, Redirect, RedirectTarget, RepeatCommand,
+    SelectCommand, Span, Stmt, StmtSeq, StmtTerminator, Subscript, TimeCommand, UntilCommand,
+    WhileCommand, Word, WordPart, WordPartNode,
 };
 
 /// Stable typed identifier for a parsed file node inside an [`AstStore`].
@@ -211,6 +213,10 @@ pub struct StmtNode {
     pub negated: bool,
     /// Statement redirections.
     pub redirects: IdRange<Redirect>,
+    /// Words found under statement-level redirections.
+    pub redirect_words: IdRange<WordId>,
+    /// Nested statement sequences found under statement-level redirections.
+    pub redirect_child_sequences: IdRange<StmtSeqId>,
     /// Optional statement terminator.
     pub terminator: Option<StmtTerminator>,
     /// Source span of the terminator token when present.
@@ -361,6 +367,18 @@ impl<'a> StmtView<'a> {
     /// Returns this statement's redirections.
     pub fn redirects(self) -> &'a [Redirect] {
         self.store.redirect_lists.get(self.node().redirects)
+    }
+
+    /// Returns IDs for words found under statement redirections.
+    pub fn redirect_word_ids(self) -> &'a [WordId] {
+        self.store.word_id_lists.get(self.node().redirect_words)
+    }
+
+    /// Returns IDs for nested statement sequences found under statement redirections.
+    pub fn redirect_child_sequence_ids(self) -> &'a [StmtSeqId] {
+        self.store
+            .stmt_seq_id_lists
+            .get(self.node().redirect_child_sequences)
     }
 
     /// Returns whether this statement is negated.
@@ -526,9 +544,20 @@ impl AstStoreBuilder {
             .comment_lists
             .push_many(stmt.leading_comments.iter().copied());
         let command = self.lower_command(&stmt.command);
+        let mut redirect_words = Vec::new();
+        let mut redirect_child_sequences = Vec::new();
         for redirect in stmt.redirects.iter() {
-            self.collect_redirect_words(redirect);
+            self.collect_redirect_children(
+                redirect,
+                &mut redirect_words,
+                &mut redirect_child_sequences,
+            );
         }
+        let redirect_words = self.store.word_id_lists.push_many(redirect_words);
+        let redirect_child_sequences = self
+            .store
+            .stmt_seq_id_lists
+            .push_many(redirect_child_sequences);
         let redirects = self
             .store
             .redirect_lists
@@ -540,6 +569,8 @@ impl AstStoreBuilder {
             command,
             negated: stmt.negated,
             redirects,
+            redirect_words,
+            redirect_child_sequences,
             terminator: stmt.terminator,
             terminator_span: stmt.terminator_span,
             inline_comment: stmt.inline_comment,
@@ -567,7 +598,6 @@ impl AstStoreBuilder {
     }
 
     fn lower_word(&mut self, word: &Word) -> WordId {
-        self.collect_word_part_children(word.parts.as_slice());
         let parts = self
             .store
             .word_part_lists
@@ -585,6 +615,16 @@ impl AstStoreBuilder {
         id
     }
 
+    fn collect_word(
+        &mut self,
+        word: &Word,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
+        self.collect_word_part_children(word.parts.as_slice(), words, child_sequences);
+        words.push(self.lower_word(word));
+    }
+
     fn collect_command_children(
         &mut self,
         command: &Command,
@@ -593,16 +633,20 @@ impl AstStoreBuilder {
     ) {
         match command {
             Command::Simple(command) => {
-                words.push(self.lower_word(&command.name));
-                words.extend(command.args.iter().map(|word| self.lower_word(word)));
-                self.collect_assignments(command.assignments.iter(), words);
+                self.collect_word(&command.name, words, child_sequences);
+                for word in &command.args {
+                    self.collect_word(word, words, child_sequences);
+                }
+                self.collect_assignments(command.assignments.iter(), words, child_sequences);
             }
-            Command::Builtin(command) => self.collect_builtin_children(command, words),
+            Command::Builtin(command) => {
+                self.collect_builtin_children(command, words, child_sequences)
+            }
             Command::Decl(command) => {
                 for operand in &command.operands {
-                    self.collect_decl_operand(operand, words);
+                    self.collect_decl_operand(operand, words, child_sequences);
                 }
-                self.collect_assignments(command.assignments.iter(), words);
+                self.collect_assignments(command.assignments.iter(), words, child_sequences);
             }
             Command::Binary(command) => self.collect_binary_children(command, child_sequences),
             Command::Compound(command) => {
@@ -617,27 +661,36 @@ impl AstStoreBuilder {
         }
     }
 
-    fn collect_builtin_children(&mut self, command: &BuiltinCommand, words: &mut Vec<WordId>) {
+    fn collect_builtin_children(
+        &mut self,
+        command: &BuiltinCommand,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
         match command {
             BuiltinCommand::Break(command) => {
-                words.extend(command.depth.iter().map(|word| self.lower_word(word)));
-                words.extend(command.extra_args.iter().map(|word| self.lower_word(word)));
-                self.collect_assignments(command.assignments.iter(), words);
+                for word in command.depth.iter().chain(command.extra_args.iter()) {
+                    self.collect_word(word, words, child_sequences);
+                }
+                self.collect_assignments(command.assignments.iter(), words, child_sequences);
             }
             BuiltinCommand::Continue(command) => {
-                words.extend(command.depth.iter().map(|word| self.lower_word(word)));
-                words.extend(command.extra_args.iter().map(|word| self.lower_word(word)));
-                self.collect_assignments(command.assignments.iter(), words);
+                for word in command.depth.iter().chain(command.extra_args.iter()) {
+                    self.collect_word(word, words, child_sequences);
+                }
+                self.collect_assignments(command.assignments.iter(), words, child_sequences);
             }
             BuiltinCommand::Return(command) => {
-                words.extend(command.code.iter().map(|word| self.lower_word(word)));
-                words.extend(command.extra_args.iter().map(|word| self.lower_word(word)));
-                self.collect_assignments(command.assignments.iter(), words);
+                for word in command.code.iter().chain(command.extra_args.iter()) {
+                    self.collect_word(word, words, child_sequences);
+                }
+                self.collect_assignments(command.assignments.iter(), words, child_sequences);
             }
             BuiltinCommand::Exit(command) => {
-                words.extend(command.code.iter().map(|word| self.lower_word(word)));
-                words.extend(command.extra_args.iter().map(|word| self.lower_word(word)));
-                self.collect_assignments(command.assignments.iter(), words);
+                for word in command.code.iter().chain(command.extra_args.iter()) {
+                    self.collect_word(word, words, child_sequences);
+                }
+                self.collect_assignments(command.assignments.iter(), words, child_sequences);
             }
         }
     }
@@ -686,11 +739,13 @@ impl AstStoreBuilder {
                 self.collect_repeat_children(command, words, child_sequences);
             }
             CompoundCommand::Foreach(command) => {
-                words.extend(command.words.iter().map(|word| self.lower_word(word)));
+                for word in &command.words {
+                    self.collect_word(word, words, child_sequences);
+                }
                 child_sequences.push(self.lower_stmt_seq(&command.body));
             }
             CompoundCommand::ArithmeticFor(command) => {
-                child_sequences.push(self.lower_stmt_seq(&command.body));
+                self.collect_arithmetic_for_children(command, words, child_sequences);
             }
             CompoundCommand::While(command) => {
                 self.collect_while_children(command, child_sequences)
@@ -707,7 +762,12 @@ impl AstStoreBuilder {
             CompoundCommand::Subshell(sequence) | CompoundCommand::BraceGroup(sequence) => {
                 child_sequences.push(self.lower_stmt_seq(sequence));
             }
-            CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => {}
+            CompoundCommand::Arithmetic(command) => {
+                self.collect_arithmetic_command_children(command, words, child_sequences);
+            }
+            CompoundCommand::Conditional(command) => {
+                self.collect_conditional_command_children(command, words, child_sequences);
+            }
             CompoundCommand::Time(command) => self.collect_time_children(command, child_sequences),
             CompoundCommand::Coproc(command) => {
                 self.collect_coproc_children(command, child_sequences)
@@ -724,14 +784,13 @@ impl AstStoreBuilder {
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
     ) {
-        words.extend(
-            command
-                .targets
-                .iter()
-                .map(|target| self.lower_word(&target.word)),
-        );
+        for target in &command.targets {
+            self.collect_word(&target.word, words, child_sequences);
+        }
         if let Some(header_words) = &command.words {
-            words.extend(header_words.iter().map(|word| self.lower_word(word)));
+            for word in header_words {
+                self.collect_word(word, words, child_sequences);
+            }
         }
         child_sequences.push(self.lower_stmt_seq(&command.body));
     }
@@ -742,7 +801,19 @@ impl AstStoreBuilder {
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
     ) {
-        words.push(self.lower_word(&command.count));
+        self.collect_word(&command.count, words, child_sequences);
+        child_sequences.push(self.lower_stmt_seq(&command.body));
+    }
+
+    fn collect_arithmetic_for_children(
+        &mut self,
+        command: &ArithmeticForCommand,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
+        self.collect_arithmetic_expr_option(command.init_ast.as_ref(), words, child_sequences);
+        self.collect_arithmetic_expr_option(command.condition_ast.as_ref(), words, child_sequences);
+        self.collect_arithmetic_expr_option(command.step_ast.as_ref(), words, child_sequences);
         child_sequences.push(self.lower_stmt_seq(&command.body));
     }
 
@@ -770,10 +841,10 @@ impl AstStoreBuilder {
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
     ) {
-        words.push(self.lower_word(&command.word));
+        self.collect_word(&command.word, words, child_sequences);
         for case in &command.cases {
             for pattern in &case.patterns {
-                self.collect_pattern_words(pattern, words);
+                self.collect_pattern_words(pattern, words, child_sequences);
             }
             child_sequences.push(self.lower_stmt_seq(&case.body));
         }
@@ -785,8 +856,28 @@ impl AstStoreBuilder {
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
     ) {
-        words.extend(command.words.iter().map(|word| self.lower_word(word)));
+        for word in &command.words {
+            self.collect_word(word, words, child_sequences);
+        }
         child_sequences.push(self.lower_stmt_seq(&command.body));
+    }
+
+    fn collect_arithmetic_command_children(
+        &mut self,
+        command: &ArithmeticCommand,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
+        self.collect_arithmetic_expr_option(command.expr_ast.as_ref(), words, child_sequences);
+    }
+
+    fn collect_conditional_command_children(
+        &mut self,
+        command: &ConditionalCommand,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
+        self.collect_conditional_expr(&command.expression, words, child_sequences);
     }
 
     fn collect_time_children(
@@ -832,13 +923,9 @@ impl AstStoreBuilder {
         words: &mut Vec<WordId>,
         child_sequences: &mut Vec<StmtSeqId>,
     ) {
-        words.extend(
-            function
-                .header
-                .entries
-                .iter()
-                .map(|entry| self.lower_word(&entry.word)),
-        );
+        for entry in &function.header.entries {
+            self.collect_word(&entry.word, words, child_sequences);
+        }
         child_sequences.push(self.lower_stmt_seq(&StmtSeq {
             leading_comments: Vec::new(),
             stmts: vec![(*function.body).clone()],
@@ -859,15 +946,24 @@ impl AstStoreBuilder {
             trailing_comments: Vec::new(),
             span: function.body.span,
         }));
-        words.extend(function.args.iter().map(|word| self.lower_word(word)));
+        for word in &function.args {
+            self.collect_word(word, words, child_sequences);
+        }
     }
 
-    fn collect_decl_operand(&mut self, operand: &DeclOperand, words: &mut Vec<WordId>) {
+    fn collect_decl_operand(
+        &mut self,
+        operand: &DeclOperand,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
         match operand {
             DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                words.push(self.lower_word(word));
+                self.collect_word(word, words, child_sequences);
             }
-            DeclOperand::Assignment(assignment) => self.collect_assignment(assignment, words),
+            DeclOperand::Assignment(assignment) => {
+                self.collect_assignment(assignment, words, child_sequences)
+            }
             DeclOperand::Name(_) => {}
         }
     }
@@ -876,22 +972,31 @@ impl AstStoreBuilder {
         &mut self,
         assignments: impl Iterator<Item = &'a Assignment>,
         words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
     ) {
         for assignment in assignments {
-            self.collect_assignment(assignment, words);
+            self.collect_assignment(assignment, words, child_sequences);
         }
     }
 
-    fn collect_assignment(&mut self, assignment: &Assignment, words: &mut Vec<WordId>) {
+    fn collect_assignment(
+        &mut self,
+        assignment: &Assignment,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
         match &assignment.value {
-            AssignmentValue::Scalar(word) => words.push(self.lower_word(word)),
+            AssignmentValue::Scalar(word) => self.collect_word(word, words, child_sequences),
             AssignmentValue::Compound(array) => {
                 for element in &array.elements {
                     match element {
-                        crate::ArrayElem::Sequential(value)
-                        | crate::ArrayElem::Keyed { value, .. }
-                        | crate::ArrayElem::KeyedAppend { value, .. } => {
-                            words.push(self.lower_word(&value.word));
+                        crate::ArrayElem::Sequential(value) => {
+                            self.collect_word(&value.word, words, child_sequences);
+                        }
+                        crate::ArrayElem::Keyed { key, value }
+                        | crate::ArrayElem::KeyedAppend { key, value } => {
+                            self.collect_subscript_words(key, words, child_sequences);
+                            self.collect_word(&value.word, words, child_sequences);
                         }
                     }
                 }
@@ -899,26 +1004,35 @@ impl AstStoreBuilder {
         }
     }
 
-    fn collect_redirect_words(&mut self, redirect: &Redirect) {
+    fn collect_redirect_children(
+        &mut self,
+        redirect: &Redirect,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
         match &redirect.target {
             RedirectTarget::Word(word) => {
-                self.lower_word(word);
+                self.collect_word(word, words, child_sequences);
             }
             RedirectTarget::Heredoc(heredoc) => {
-                self.lower_word(&heredoc.delimiter.raw);
+                self.collect_word(&heredoc.delimiter.raw, words, child_sequences);
                 for part in &heredoc.body.parts {
                     match &part.kind {
                         HeredocBodyPart::CommandSubstitution { body, .. } => {
-                            self.lower_stmt_seq(body);
+                            child_sequences.push(self.lower_stmt_seq(body));
                         }
                         HeredocBodyPart::ArithmeticExpansion {
                             expression_word_ast,
                             ..
                         } => {
-                            self.lower_word(expression_word_ast);
+                            self.collect_word(expression_word_ast, words, child_sequences);
                         }
                         HeredocBodyPart::Parameter(expansion) => {
-                            self.collect_parameter_expansion_words(expansion);
+                            self.collect_parameter_expansion_words(
+                                expansion,
+                                words,
+                                child_sequences,
+                            );
                         }
                         HeredocBodyPart::Literal(_) | HeredocBodyPart::Variable(_) => {}
                     }
@@ -927,67 +1041,111 @@ impl AstStoreBuilder {
         }
     }
 
-    fn collect_word_part_children(&mut self, parts: &[WordPartNode]) {
+    fn collect_word_part_children(
+        &mut self,
+        parts: &[WordPartNode],
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
         for part in parts {
             match &part.kind {
-                WordPart::DoubleQuoted { parts, .. } => self.collect_word_part_children(parts),
+                WordPart::DoubleQuoted { parts, .. } => {
+                    self.collect_word_part_children(parts, words, child_sequences)
+                }
                 WordPart::CommandSubstitution { body, .. }
                 | WordPart::ProcessSubstitution { body, .. } => {
-                    self.lower_stmt_seq(body);
+                    child_sequences.push(self.lower_stmt_seq(body));
                 }
                 WordPart::ArithmeticExpansion {
+                    expression_ast,
                     expression_word_ast,
                     ..
                 } => {
-                    self.lower_word(expression_word_ast);
+                    self.collect_arithmetic_expr_option(
+                        expression_ast.as_ref(),
+                        words,
+                        child_sequences,
+                    );
+                    self.collect_word(expression_word_ast, words, child_sequences);
                 }
-                WordPart::Parameter(expansion) => self.collect_parameter_expansion_words(expansion),
+                WordPart::Parameter(expansion) => {
+                    self.collect_parameter_expansion_words(expansion, words, child_sequences);
+                }
                 WordPart::ParameterExpansion {
-                    operand_word_ast, ..
+                    reference,
+                    operand_word_ast,
+                    ..
                 }
                 | WordPart::IndirectExpansion {
-                    operand_word_ast, ..
+                    reference,
+                    operand_word_ast,
+                    ..
                 } => {
+                    self.collect_var_ref_words(reference, words, child_sequences);
                     if let Some(word) = operand_word_ast {
-                        self.lower_word(word);
+                        self.collect_word(word, words, child_sequences);
                     }
                 }
+                WordPart::Length(reference)
+                | WordPart::ArrayAccess(reference)
+                | WordPart::ArrayLength(reference)
+                | WordPart::ArrayIndices(reference) => {
+                    self.collect_var_ref_words(reference, words, child_sequences);
+                }
                 WordPart::Substring {
+                    reference,
+                    offset_ast,
                     offset_word_ast,
+                    length_ast,
                     length_word_ast,
                     ..
                 }
                 | WordPart::ArraySlice {
+                    reference,
+                    offset_ast,
                     offset_word_ast,
+                    length_ast,
                     length_word_ast,
                     ..
                 } => {
-                    self.lower_word(offset_word_ast);
+                    self.collect_var_ref_words(reference, words, child_sequences);
+                    self.collect_arithmetic_expr_option(
+                        offset_ast.as_ref(),
+                        words,
+                        child_sequences,
+                    );
+                    self.collect_word(offset_word_ast, words, child_sequences);
+                    self.collect_arithmetic_expr_option(
+                        length_ast.as_ref(),
+                        words,
+                        child_sequences,
+                    );
                     if let Some(word) = length_word_ast {
-                        self.lower_word(word);
+                        self.collect_word(word, words, child_sequences);
                     }
                 }
                 WordPart::ZshQualifiedGlob(glob) => {
                     for segment in &glob.segments {
                         if let crate::ZshGlobSegment::Pattern(pattern) = segment {
-                            self.collect_pattern_words(pattern, &mut Vec::new());
+                            self.collect_pattern_words(pattern, words, child_sequences);
                         }
                     }
                 }
                 WordPart::Literal(_)
                 | WordPart::SingleQuoted { .. }
                 | WordPart::Variable(_)
-                | WordPart::Length(_)
-                | WordPart::ArrayAccess(_)
-                | WordPart::ArrayLength(_)
-                | WordPart::ArrayIndices(_)
                 | WordPart::PrefixMatch { .. }
                 | WordPart::Transformation { .. } => {}
             }
         }
     }
 
-    fn collect_parameter_expansion_words(&mut self, expansion: &crate::ParameterExpansion) {
+    fn collect_parameter_expansion_words(
+        &mut self,
+        expansion: &crate::ParameterExpansion,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
         match &expansion.syntax {
             crate::ParameterExpansionSyntax::Bourne(expansion) => match expansion {
                 crate::BourneParameterExpansion::Indirect {
@@ -997,17 +1155,29 @@ impl AstStoreBuilder {
                     operand_word_ast, ..
                 } => {
                     if let Some(word) = operand_word_ast {
-                        self.lower_word(word);
+                        self.collect_word(word, words, child_sequences);
                     }
                 }
                 crate::BourneParameterExpansion::Slice {
+                    offset_ast,
                     offset_word_ast,
+                    length_ast,
                     length_word_ast,
                     ..
                 } => {
-                    self.lower_word(offset_word_ast);
+                    self.collect_arithmetic_expr_option(
+                        offset_ast.as_ref(),
+                        words,
+                        child_sequences,
+                    );
+                    self.collect_word(offset_word_ast, words, child_sequences);
+                    self.collect_arithmetic_expr_option(
+                        length_ast.as_ref(),
+                        words,
+                        child_sequences,
+                    );
                     if let Some(word) = length_word_ast {
-                        self.lower_word(word);
+                        self.collect_word(word, words, child_sequences);
                     }
                 }
                 crate::BourneParameterExpansion::Access { .. }
@@ -1019,26 +1189,31 @@ impl AstStoreBuilder {
             crate::ParameterExpansionSyntax::Zsh(expansion) => {
                 match &expansion.target {
                     crate::ZshExpansionTarget::Nested(nested) => {
-                        self.collect_parameter_expansion_words(nested);
+                        self.collect_parameter_expansion_words(nested, words, child_sequences);
                     }
                     crate::ZshExpansionTarget::Word(word) => {
-                        self.lower_word(word);
+                        self.collect_word(word, words, child_sequences);
                     }
                     crate::ZshExpansionTarget::Reference(_) | crate::ZshExpansionTarget::Empty => {}
                 }
                 for modifier in &expansion.modifiers {
                     if let Some(word) = &modifier.argument_word_ast {
-                        self.lower_word(word);
+                        self.collect_word(word, words, child_sequences);
                     }
                 }
                 if let Some(operation) = &expansion.operation {
-                    self.collect_zsh_operation_words(operation);
+                    self.collect_zsh_operation_words(operation, words, child_sequences);
                 }
             }
         }
     }
 
-    fn collect_zsh_operation_words(&mut self, operation: &crate::ZshExpansionOperation) {
+    fn collect_zsh_operation_words(
+        &mut self,
+        operation: &crate::ZshExpansionOperation,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
         match operation {
             crate::ZshExpansionOperation::PatternOperation {
                 operand_word_ast, ..
@@ -1049,16 +1224,16 @@ impl AstStoreBuilder {
             | crate::ZshExpansionOperation::TrimOperation {
                 operand_word_ast, ..
             } => {
-                self.lower_word(operand_word_ast);
+                self.collect_word(operand_word_ast, words, child_sequences);
             }
             crate::ZshExpansionOperation::ReplacementOperation {
                 pattern_word_ast,
                 replacement_word_ast,
                 ..
             } => {
-                self.lower_word(pattern_word_ast);
+                self.collect_word(pattern_word_ast, words, child_sequences);
                 if let Some(word) = replacement_word_ast {
-                    self.lower_word(word);
+                    self.collect_word(word, words, child_sequences);
                 }
             }
             crate::ZshExpansionOperation::Slice {
@@ -1066,31 +1241,157 @@ impl AstStoreBuilder {
                 length_word_ast,
                 ..
             } => {
-                self.lower_word(offset_word_ast);
+                self.collect_word(offset_word_ast, words, child_sequences);
                 if let Some(word) = length_word_ast {
-                    self.lower_word(word);
+                    self.collect_word(word, words, child_sequences);
                 }
             }
             crate::ZshExpansionOperation::Unknown { word_ast, .. } => {
-                self.lower_word(word_ast);
+                self.collect_word(word_ast, words, child_sequences);
             }
         }
     }
 
-    fn collect_pattern_words(&mut self, pattern: &Pattern, words: &mut Vec<WordId>) {
+    fn collect_pattern_words(
+        &mut self,
+        pattern: &Pattern,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
         for part in &pattern.parts {
             match &part.kind {
                 PatternPart::Group { patterns, .. } => {
                     for pattern in patterns {
-                        self.collect_pattern_words(pattern, words);
+                        self.collect_pattern_words(pattern, words, child_sequences);
                     }
                 }
-                PatternPart::Word(word) => words.push(self.lower_word(word)),
+                PatternPart::Word(word) => self.collect_word(word, words, child_sequences),
                 PatternPart::Literal(_)
                 | PatternPart::AnyString
                 | PatternPart::AnyChar
                 | PatternPart::CharClass(_) => {}
             }
+        }
+    }
+
+    fn collect_conditional_expr(
+        &mut self,
+        expression: &ConditionalExpr,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
+        match expression {
+            ConditionalExpr::Binary(expr) => {
+                self.collect_conditional_expr(&expr.left, words, child_sequences);
+                self.collect_conditional_expr(&expr.right, words, child_sequences);
+            }
+            ConditionalExpr::Unary(expr) => {
+                self.collect_conditional_expr(&expr.expr, words, child_sequences);
+            }
+            ConditionalExpr::Parenthesized(expr) => {
+                self.collect_conditional_expr(&expr.expr, words, child_sequences);
+            }
+            ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+                self.collect_word(word, words, child_sequences);
+            }
+            ConditionalExpr::Pattern(pattern) => {
+                self.collect_pattern_words(pattern, words, child_sequences);
+            }
+            ConditionalExpr::VarRef(var_ref) => {
+                self.collect_var_ref_words(var_ref, words, child_sequences);
+            }
+        }
+    }
+
+    fn collect_arithmetic_expr_option(
+        &mut self,
+        expression: Option<&ArithmeticExprNode>,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
+        if let Some(expression) = expression {
+            self.collect_arithmetic_expr(expression, words, child_sequences);
+        }
+    }
+
+    fn collect_arithmetic_expr(
+        &mut self,
+        expression: &ArithmeticExprNode,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
+        match &expression.kind {
+            ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
+            ArithmeticExpr::Indexed { index, .. } => {
+                self.collect_arithmetic_expr(index, words, child_sequences);
+            }
+            ArithmeticExpr::ShellWord(word) => {
+                self.collect_word(word, words, child_sequences);
+            }
+            ArithmeticExpr::Parenthesized { expression } => {
+                self.collect_arithmetic_expr(expression, words, child_sequences);
+            }
+            ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+                self.collect_arithmetic_expr(expr, words, child_sequences);
+            }
+            ArithmeticExpr::Binary { left, right, .. } => {
+                self.collect_arithmetic_expr(left, words, child_sequences);
+                self.collect_arithmetic_expr(right, words, child_sequences);
+            }
+            ArithmeticExpr::Conditional {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                self.collect_arithmetic_expr(condition, words, child_sequences);
+                self.collect_arithmetic_expr(then_expr, words, child_sequences);
+                self.collect_arithmetic_expr(else_expr, words, child_sequences);
+            }
+            ArithmeticExpr::Assignment { target, value, .. } => {
+                self.collect_arithmetic_lvalue(target, words, child_sequences);
+                self.collect_arithmetic_expr(value, words, child_sequences);
+            }
+        }
+    }
+
+    fn collect_arithmetic_lvalue(
+        &mut self,
+        lvalue: &ArithmeticLvalue,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
+        match lvalue {
+            ArithmeticLvalue::Variable(_) => {}
+            ArithmeticLvalue::Indexed { index, .. } => {
+                self.collect_arithmetic_expr(index, words, child_sequences);
+            }
+        }
+    }
+
+    fn collect_subscript_words(
+        &mut self,
+        subscript: &Subscript,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
+        if let Some(word) = subscript.word_ast() {
+            self.collect_word(word, words, child_sequences);
+        }
+        self.collect_arithmetic_expr_option(
+            subscript.arithmetic_ast.as_ref(),
+            words,
+            child_sequences,
+        );
+    }
+
+    fn collect_var_ref_words(
+        &mut self,
+        var_ref: &crate::VarRef,
+        words: &mut Vec<WordId>,
+        child_sequences: &mut Vec<StmtSeqId>,
+    ) {
+        if let Some(subscript) = var_ref.subscript.as_deref() {
+            self.collect_subscript_words(subscript, words, child_sequences);
         }
     }
 }
@@ -1139,7 +1440,15 @@ fn command_span(command: &Command) -> Span {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ArenaFile, Command, Span, Stmt, StmtSeq, Word};
+    use crate::{
+        ArenaFile, ArithmeticCommand, ArithmeticExpr, ArithmeticExprNode, ArrayElem, ArrayExpr,
+        ArrayKind, ArrayValueWord, Assignment, AssignmentValue, Command, CommandSubstitutionSyntax,
+        CompoundCommand, ConditionalCommand, ConditionalExpr, Heredoc, HeredocBody,
+        HeredocBodyMode, HeredocBodyPart, HeredocBodyPartNode, HeredocDelimiter, Name, Pattern,
+        PatternPart, PatternPartNode, Redirect, RedirectKind, RedirectTarget, SimpleCommand, Span,
+        Stmt, StmtSeq, Subscript, SubscriptInterpretation, SubscriptKind, Word, WordPart,
+        WordPartNode, ZshGlobSegment, ZshQualifiedGlob,
+    };
 
     #[test]
     fn arena_file_round_trips_simple_sequence() {
@@ -1182,5 +1491,245 @@ mod tests {
             panic!("expected simple command");
         };
         assert_eq!(command.args.len(), 1);
+    }
+
+    #[test]
+    fn command_substitution_body_is_reachable_from_command() {
+        let file = file_with_command(Command::Simple(SimpleCommand {
+            name: Word::literal("echo"),
+            args: vec![word_with_command_substitution()],
+            assignments: Box::new([]),
+            span: Span::new(),
+        }));
+
+        let arena = ArenaFile::from_file(&file);
+        let command = arena.view().body().stmts().next().unwrap().command();
+
+        assert_eq!(command.child_sequence_ids().len(), 1);
+        assert!(command.word_ids().len() >= 2);
+    }
+
+    #[test]
+    fn heredoc_substitution_body_is_reachable_from_statement_redirects() {
+        let redirect = Redirect {
+            fd: None,
+            fd_var: None,
+            fd_var_span: None,
+            kind: RedirectKind::HereDoc,
+            span: Span::new(),
+            target: RedirectTarget::Heredoc(Heredoc {
+                delimiter: HeredocDelimiter {
+                    raw: Word::literal("EOF"),
+                    cooked: "EOF".to_string(),
+                    span: Span::new(),
+                    quoted: false,
+                    expands_body: true,
+                    strip_tabs: false,
+                },
+                body: HeredocBody {
+                    mode: HeredocBodyMode::Expanding,
+                    source_backed: false,
+                    parts: vec![HeredocBodyPartNode::new(
+                        HeredocBodyPart::CommandSubstitution {
+                            body: simple_sequence("inner"),
+                            syntax: CommandSubstitutionSyntax::DollarParen,
+                        },
+                        Span::new(),
+                    )],
+                    span: Span::new(),
+                },
+            }),
+        };
+        let file = file_with_stmt(Stmt {
+            leading_comments: Vec::new(),
+            command: Command::Simple(SimpleCommand {
+                name: Word::literal("cat"),
+                args: Vec::new(),
+                assignments: Box::new([]),
+                span: Span::new(),
+            }),
+            negated: false,
+            redirects: Box::new([redirect]),
+            terminator: None,
+            terminator_span: None,
+            inline_comment: None,
+            span: Span::new(),
+        });
+
+        let arena = ArenaFile::from_file(&file);
+        let stmt = arena.view().body().stmts().next().unwrap();
+
+        assert_eq!(stmt.redirect_child_sequence_ids().len(), 1);
+        assert!(!stmt.redirect_word_ids().is_empty());
+    }
+
+    #[test]
+    fn zsh_qualified_glob_pattern_words_are_command_words() {
+        let pattern = Pattern {
+            parts: vec![PatternPartNode::new(
+                PatternPart::Word(Word::literal("nested")),
+                Span::new(),
+            )],
+            span: Span::new(),
+        };
+        let glob_word = Word {
+            parts: vec![WordPartNode::new(
+                WordPart::ZshQualifiedGlob(ZshQualifiedGlob {
+                    span: Span::new(),
+                    segments: vec![ZshGlobSegment::Pattern(pattern)],
+                    qualifiers: None,
+                }),
+                Span::new(),
+            )],
+            span: Span::new(),
+            brace_syntax: Vec::new(),
+        };
+        let file = file_with_command(Command::Simple(SimpleCommand {
+            name: Word::literal("print"),
+            args: vec![glob_word],
+            assignments: Box::new([]),
+            span: Span::new(),
+        }));
+
+        let arena = ArenaFile::from_file(&file);
+        let command = arena.view().body().stmts().next().unwrap().command();
+
+        assert_eq!(command.word_ids().len(), 3);
+    }
+
+    #[test]
+    fn conditional_and_arithmetic_words_link_nested_substitutions() {
+        let conditional_file = file_with_command(Command::Compound(CompoundCommand::Conditional(
+            ConditionalCommand {
+                expression: ConditionalExpr::Word(word_with_command_substitution()),
+                span: Span::new(),
+                left_bracket_span: Span::new(),
+                right_bracket_span: Span::new(),
+            },
+        )));
+        let arithmetic_file = file_with_command(Command::Compound(CompoundCommand::Arithmetic(
+            ArithmeticCommand {
+                span: Span::new(),
+                left_paren_span: Span::new(),
+                expr_span: Some(Span::new()),
+                expr_ast: Some(ArithmeticExprNode::new(
+                    ArithmeticExpr::ShellWord(word_with_command_substitution()),
+                    Span::new(),
+                )),
+                right_paren_span: Span::new(),
+            },
+        )));
+
+        for file in [conditional_file, arithmetic_file] {
+            let arena = ArenaFile::from_file(&file);
+            let command = arena.view().body().stmts().next().unwrap().command();
+
+            assert_eq!(command.child_sequence_ids().len(), 1);
+            assert!(!command.word_ids().is_empty());
+        }
+    }
+
+    #[test]
+    fn keyed_array_subscript_words_are_assignment_words() {
+        let key = Subscript {
+            text: crate::SourceText::cooked(Span::new(), "$(key)"),
+            raw: None,
+            kind: SubscriptKind::Ordinary,
+            interpretation: SubscriptInterpretation::Indexed,
+            word_ast: Some(word_with_command_substitution()),
+            arithmetic_ast: None,
+        };
+        let assignment = Assignment {
+            target: crate::VarRef {
+                name: Name::new("arr"),
+                name_span: Span::new(),
+                subscript: None,
+                span: Span::new(),
+            },
+            value: AssignmentValue::Compound(ArrayExpr {
+                kind: ArrayKind::Associative,
+                elements: vec![ArrayElem::Keyed {
+                    key,
+                    value: ArrayValueWord::from(Word::literal("value")),
+                }],
+                span: Span::new(),
+            }),
+            append: false,
+            span: Span::new(),
+        };
+        let file = file_with_command(Command::Simple(SimpleCommand {
+            name: Word::literal("printf"),
+            args: Vec::new(),
+            assignments: Box::new([assignment]),
+            span: Span::new(),
+        }));
+
+        let arena = ArenaFile::from_file(&file);
+        let command = arena.view().body().stmts().next().unwrap().command();
+
+        assert_eq!(command.child_sequence_ids().len(), 1);
+        assert!(command.word_ids().len() >= 3);
+    }
+
+    fn file_with_command(command: Command) -> crate::File {
+        file_with_stmt(Stmt {
+            leading_comments: Vec::new(),
+            command,
+            negated: false,
+            redirects: Box::new([]),
+            terminator: None,
+            terminator_span: None,
+            inline_comment: None,
+            span: Span::new(),
+        })
+    }
+
+    fn file_with_stmt(stmt: Stmt) -> crate::File {
+        crate::File {
+            body: StmtSeq {
+                leading_comments: Vec::new(),
+                stmts: vec![stmt],
+                trailing_comments: Vec::new(),
+                span: Span::new(),
+            },
+            span: Span::new(),
+        }
+    }
+
+    fn simple_sequence(name: &str) -> StmtSeq {
+        StmtSeq {
+            leading_comments: Vec::new(),
+            stmts: vec![Stmt {
+                leading_comments: Vec::new(),
+                command: Command::Simple(SimpleCommand {
+                    name: Word::literal(name),
+                    args: Vec::new(),
+                    assignments: Box::new([]),
+                    span: Span::new(),
+                }),
+                negated: false,
+                redirects: Box::new([]),
+                terminator: None,
+                terminator_span: None,
+                inline_comment: None,
+                span: Span::new(),
+            }],
+            trailing_comments: Vec::new(),
+            span: Span::new(),
+        }
+    }
+
+    fn word_with_command_substitution() -> Word {
+        Word {
+            parts: vec![WordPartNode::new(
+                WordPart::CommandSubstitution {
+                    body: simple_sequence("subcmd"),
+                    syntax: CommandSubstitutionSyntax::DollarParen,
+                },
+                Span::new(),
+            )],
+            span: Span::new(),
+            brace_syntax: Vec::new(),
+        }
     }
 }
