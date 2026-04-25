@@ -3288,6 +3288,25 @@ value=\"$1\"
     }
 
     #[test]
+    fn reports_uncalled_function_references_after_guarded_unsafe_global_update() {
+        let source = "\
+#!/bin/bash
+value=abc
+if cond; then value=\"$1\"; fi
+helper() { printf '%s\\n' $value; }
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$value"]
+        );
+    }
+
+    #[test]
     fn reports_uncalled_function_references_after_partial_global_initialization() {
         let source = "\
 #!/bin/bash

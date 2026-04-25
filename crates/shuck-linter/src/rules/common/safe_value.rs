@@ -1555,7 +1555,12 @@ impl<'a> SafeValueIndex<'a> {
         let Some(latest_unguarded) = latest_unguarded else {
             return Vec::new();
         };
-        bindings.retain(|binding_id| *binding_id == latest_unguarded);
+        let latest_unguarded_offset = self.semantic.binding(latest_unguarded).span.start.offset;
+        bindings.retain(|binding_id| {
+            *binding_id == latest_unguarded
+                || (self.semantic.binding(*binding_id).span.start.offset > latest_unguarded_offset
+                    && self.binding_is_guarded_before_reference(*binding_id, eof_span))
+        });
         bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
         bindings.dedup();
         bindings
