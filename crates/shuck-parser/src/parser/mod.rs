@@ -2758,6 +2758,10 @@ impl<'a> Parser<'a> {
         quote_context: BraceQuoteContext,
         out: &mut Vec<BraceSyntax>,
     ) {
+        if memchr(b'{', text.as_bytes()).is_none() {
+            return;
+        }
+
         #[derive(Clone, Copy)]
         struct ScanFrame<'a> {
             text: &'a str,
@@ -2765,11 +2769,12 @@ impl<'a> Parser<'a> {
             position: Position,
         }
 
-        let mut work = vec![ScanFrame {
+        let mut work = SmallVec::<[ScanFrame<'_>; 2]>::new();
+        work.push(ScanFrame {
             text,
             index: 0,
             position: base,
-        }];
+        });
 
         while let Some(mut frame) = work.pop() {
             let bytes = frame.text.as_bytes();
