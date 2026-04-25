@@ -352,6 +352,9 @@ impl<'a> SafeValueIndex<'a> {
         {
             return false;
         }
+        if self.optional_field_safe_bindings_can_stay_safe(&bindings, query) {
+            return true;
+        }
         if self.status_capture_bindings_cover_reference(&bindings, name, at, query, case_cli_scope)
         {
             return true;
@@ -741,6 +744,50 @@ impl<'a> SafeValueIndex<'a> {
                 .iter()
                 .copied()
                 .all(|binding_id| self.binding_is_plain_empty_static_literal(binding_id))
+    }
+
+    fn optional_field_safe_bindings_can_stay_safe(
+        &self,
+        bindings: &[BindingId],
+        query: SafeValueQuery,
+    ) -> bool {
+        if !matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget) {
+            return false;
+        }
+
+        let mut saw_name_only_declaration = false;
+        let mut saw_field_safe_value = false;
+        for binding_id in bindings.iter().copied() {
+            if self.binding_is_name_only_declaration(binding_id) {
+                saw_name_only_declaration = true;
+                continue;
+            }
+
+            let binding = self.semantic.binding(binding_id);
+            if !matches!(
+                binding.origin,
+                BindingOrigin::Assignment {
+                    value: AssignmentValueOrigin::StaticLiteral,
+                    ..
+                } | BindingOrigin::Declaration { .. }
+            ) {
+                return false;
+            }
+            let Some(text) = self
+                .facts
+                .binding_value(binding_id)
+                .and_then(|value| value.scalar_word())
+                .and_then(|word| static_word_text(word, self.source))
+            else {
+                return false;
+            };
+            if text.is_empty() || !query.literal_is_safe(&text) {
+                return false;
+            }
+            saw_field_safe_value = true;
+        }
+
+        saw_name_only_declaration && saw_field_safe_value
     }
 
     fn binding_is_safe(

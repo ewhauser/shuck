@@ -2177,6 +2177,22 @@ exit $?
     }
 
     #[test]
+    fn skips_name_only_local_option_bindings() {
+        let source = "\
+#!/bin/bash
+request() {
+  local header_opt data_opt
+  [[ -n $token ]] && header_opt=--header
+  [[ $method == POST ]] && data_opt=--data
+  curl $header_opt \"$header\" $data_opt \"$payload\"
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn skips_status_capture_declarations_with_initializers() {
         let source = "\
 #!/bin/bash

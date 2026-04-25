@@ -104,34 +104,6 @@ reviewed_divergences:
     column: 36
     end_column: 43
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "alexanderepstein__Bash-Snippets__gist__gist"
-    line: 132
-    end_line: 132
-    column: 36
-    end_column: 47
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "alexanderepstein__Bash-Snippets__gist__gist"
-    line: 132
-    end_line: 132
-    column: 58
-    end_column: 67
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "alexanderepstein__Bash-Snippets__gist__gist"
-    line: 135
-    end_line: 135
-    column: 36
-    end_column: 47
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "alexanderepstein__Bash-Snippets__gist__gist"
-    line: 135
-    end_line: 135
-    column: 58
-    end_column: 67
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "alexanderepstein__Bash-Snippets__gist__gist"
     line: 591
