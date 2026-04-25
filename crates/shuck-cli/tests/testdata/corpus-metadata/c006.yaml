@@ -98,13 +98,6 @@ reviewed_divergences:
     end_column: 38
     reason: "This distro-reinstall helper threads release metadata through large case-driven installer plumbing, so the remaining C006 read is a reviewed cross-branch handoff rather than an isolated undefined local."
   - side: shuck-only
-    path_suffix: "gentoo__gentoo__net-dns__avahi__files__autoipd.sh"
-    line: 23
-    end_line: 23
-    column: 71
-    end_column: 79
-    reason: "This Gentoo fixture relies on service-manager or package-manager variables populated by sourced eclass and OpenRC plumbing, so the remaining C006 hits are reviewed framework contracts rather than standalone assignment bugs."
-  - side: shuck-only
     path_suffix: "ko1nksm__shellspec__spec__libexec__translator_spec.sh"
     line: 283
     end_line: 283

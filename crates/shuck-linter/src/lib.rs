@@ -3337,6 +3337,23 @@ helper
     }
 
     #[test]
+    fn undefined_variable_ignores_same_declaration_command_bindings() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/bash
+f() {
+  local first=1 second=\"$first\"
+  local later=\"$after\" after=1
+}
+f
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn undefined_variable_reports_only_first_reportable_use_per_name() {
         let source = "\
 #!/bin/bash

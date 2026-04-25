@@ -5,7 +5,6 @@ use crate::{Checker, Rule, Violation};
 
 use super::variable_reference_common::{
     VariableReferenceFilter, has_same_name_defining_bindings, is_reportable_variable_reference,
-    is_sc2154_defining_binding,
 };
 
 pub struct UndefinedVariable {
@@ -66,21 +65,7 @@ pub fn undefined_variable(checker: &mut Checker) {
         ) {
             continue;
         }
-        if has_same_name_defining_bindings(checker, &reference.name)
-            && !checker
-                .semantic()
-                .bindings_for(&reference.name)
-                .iter()
-                .copied()
-                .filter(|binding_id| {
-                    is_sc2154_defining_binding(checker.semantic().binding(*binding_id).kind)
-                })
-                .all(|binding_id| {
-                    let binding = checker.semantic().binding(binding_id);
-                    binding.span.start.line == reference.span.start.line
-                        && binding.span.start.offset < reference.span.start.offset
-                })
-        {
+        if has_same_name_defining_bindings(checker, &reference.name) {
             suppressed_names.insert(reference.name.clone());
             continue;
         }
