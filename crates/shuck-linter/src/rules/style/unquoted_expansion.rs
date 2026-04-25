@@ -4126,7 +4126,31 @@ printf '%s\\n' ${!name} $a
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["${!name}", "$a"]
+            vec!["$a"]
+        );
+    }
+
+    #[test]
+    fn indirect_expansions_follow_visible_name_safety() {
+        let source = "\
+#!/bin/bash
+target='a b'
+name=target
+printf '%s\\n' ${!name}
+for loop_name in target unset_name; do
+  printf '%s\\n' ${!loop_name}
+done
+dynamic=$1
+printf '%s\\n' ${!dynamic}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${!dynamic}"]
         );
     }
 

@@ -364,13 +364,6 @@ reviewed_divergences:
     end_column: 109
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "gentoo__gentoo__dev-libs__kpathsea__files__texmf-update-r2"
-    line: 28
-    end_line: 28
-    column: 15
-    end_column: 25
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "gentoo__gentoo__eclass__tests__toolchain-funcs.sh"
     line: 61
     end_line: 61
@@ -383,13 +376,6 @@ reviewed_divergences:
     end_line: 155
     column: 7
     end_column: 13
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__net-vpn__derper__files__derper-pre.sh"
-    line: 44
-    end_line: 44
-    column: 12
-    end_column: 19
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "google__oss-fuzz__projects__threetenbp__build.sh"

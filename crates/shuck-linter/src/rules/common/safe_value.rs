@@ -1600,27 +1600,7 @@ impl<'a> SafeValueIndex<'a> {
         if query != SafeValueQuery::Quoted && reference.has_array_selector() {
             return false;
         }
-        if self.maybe_uninitialized_refs.contains(&FactSpan::new(at)) {
-            return false;
-        }
-
-        let bindings = self.safe_bindings_for_name(&reference.name, at);
-        if bindings.is_empty() {
-            return false;
-        }
-        let case_cli_scope = query
-            .is_field_context()
-            .then(|| self.case_cli_dispatch_scope_at(at.start.offset))
-            .flatten();
-
-        bindings.into_iter().all(|binding_id| {
-            let targets = self.semantic.indirect_targets_for_binding(binding_id);
-            !targets.is_empty()
-                && targets
-                    .iter()
-                    .copied()
-                    .all(|target| self.binding_is_safe(target, at, query, case_cli_scope))
-        })
+        self.reference_is_safe(reference, at, query)
     }
 
     fn safe_bindings_for_name(&mut self, name: &Name, at: Span) -> Vec<BindingId> {
