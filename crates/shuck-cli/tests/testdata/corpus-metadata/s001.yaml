@@ -1,1 +1,2003 @@
-reviewed_divergences: []
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__functions"
+    line: 548
+    end_line: 548
+    column: 22
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__functions"
+    line: 2607
+    end_line: 2607
+    column: 14
+    end_column: 28
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__functions"
+    line: 2694
+    end_line: 2694
+    column: 39
+    end_column: 56
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "CISOfy__lynis__include__functions"
+    line: 2690
+    end_line: 2690
+    column: 38
+    end_column: 50
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__helper_show"
+    line: 368
+    end_line: 368
+    column: 22
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__helper_update"
+    line: 71
+    end_line: 71
+    column: 34
+    end_column: 47
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__osdetection"
+    line: 990
+    end_line: 990
+    column: 37
+    end_column: 53
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__parameters"
+    line: 492
+    end_line: 492
+    column: 14
+    end_column: 26
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__parameters"
+    line: 493
+    end_line: 493
+    column: 18
+    end_column: 26
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__report"
+    line: 52
+    end_line: 52
+    column: 10
+    end_column: 21
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_authentication"
+    line: 381
+    end_line: 381
+    column: 14
+    end_column: 33
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_authentication"
+    line: 388
+    end_line: 388
+    column: 46
+    end_column: 65
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_authentication"
+    line: 389
+    end_line: 389
+    column: 18
+    end_column: 37
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_authentication"
+    line: 1594
+    end_line: 1594
+    column: 14
+    end_column: 42
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_boot_services"
+    line: 259
+    end_line: 259
+    column: 14
+    end_column: 28
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_boot_services"
+    line: 261
+    end_line: 261
+    column: 18
+    end_column: 39
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_containers"
+    line: 157
+    end_line: 157
+    column: 14
+    end_column: 42
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_containers"
+    line: 176
+    end_line: 176
+    column: 14
+    end_column: 40
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_firewalls"
+    line: 303
+    end_line: 303
+    column: 10
+    end_column: 20
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_hardening"
+    line: 118
+    end_line: 118
+    column: 14
+    end_column: 25
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_insecure_services"
+    line: 360
+    end_line: 360
+    column: 14
+    end_column: 22
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_logging"
+    line: 482
+    end_line: 482
+    column: 14
+    end_column: 39
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_mac_frameworks"
+    line: 245
+    end_line: 245
+    column: 14
+    end_column: 28
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_nameservices"
+    line: 249
+    end_line: 249
+    column: 10
+    end_column: 28
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_networking"
+    line: 675
+    end_line: 675
+    column: 26
+    end_column: 56
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_ssh"
+    line: 157
+    end_line: 157
+    column: 14
+    end_column: 39
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_ssh"
+    line: 160
+    end_line: 160
+    column: 16
+    end_column: 41
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_ssh"
+    line: 162
+    end_line: 162
+    column: 18
+    end_column: 43
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_ssh"
+    line: 167
+    end_line: 167
+    column: 18
+    end_column: 43
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_time"
+    line: 460
+    end_line: 460
+    column: 22
+    end_column: 29
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__lynis"
+    line: 763
+    end_line: 763
+    column: 14
+    end_column: 27
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__lynis"
+    line: 763
+    end_line: 763
+    column: 32
+    end_column: 45
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__lynis"
+    line: 767
+    end_line: 767
+    column: 44
+    end_column: 57
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__lynis"
+    line: 810
+    end_line: 810
+    column: 18
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__lynis"
+    line: 1112
+    end_line: 1112
+    column: 14
+    end_column: 33
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__plugins__plugin_pam_phase1"
+    line: 437
+    end_line: 437
+    column: 6
+    end_column: 40
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__plugins__plugin_pam_phase1"
+    line: 449
+    end_line: 449
+    column: 6
+    end_column: 37
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__plugins__plugin_pam_phase1"
+    line: 462
+    end_line: 462
+    column: 10
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__plugins__plugin_pam_phase1"
+    line: 466
+    end_line: 466
+    column: 12
+    end_column: 33
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__plugins__plugin_pam_phase1"
+    line: 472
+    end_line: 472
+    column: 10
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__plugins__plugin_pam_phase1"
+    line: 476
+    end_line: 476
+    column: 12
+    end_column: 33
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__plugins__plugin_pam_phase1"
+    line: 482
+    end_line: 482
+    column: 10
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__plugins__plugin_pam_phase1"
+    line: 486
+    end_line: 486
+    column: 12
+    end_column: 33
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__plugins__plugin_pam_phase1"
+    line: 492
+    end_line: 492
+    column: 10
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__plugins__plugin_pam_phase1"
+    line: 496
+    end_line: 496
+    column: 12
+    end_column: 33
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__plugins__plugin_pam_phase1"
+    line: 512
+    end_line: 512
+    column: 10
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__plugins__plugin_pam_phase1"
+    line: 517
+    end_line: 517
+    column: 6
+    end_column: 39
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__plugins__plugin_pam_phase1"
+    line: 525
+    end_line: 525
+    column: 6
+    end_column: 39
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "HariSekhon__DevOps-Bash-tools__lib__docker.sh"
+    line: 125
+    end_line: 125
+    column: 56
+    end_column: 77
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__runcommand__runcommand.sh"
+    line: 235
+    end_line: 235
+    column: 32
+    end_column: 38
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__splashscreen__asplashscreen.sh"
+    line: 48
+    end_line: 48
+    column: 7
+    end_column: 13
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__splashscreen__asplashscreen.sh"
+    line: 49
+    end_line: 49
+    column: 7
+    end_column: 13
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__development__Xdialog__Xdialog.SlackBuild"
+    line: 83
+    end_line: 83
+    column: 3
+    end_column: 8
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__QuickNES-Core__QuickNES-Core.SlackBuild"
+    line: 75
+    end_line: 75
+    column: 24
+    end_column: 30
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__QuickNES-Core__QuickNES-Core.SlackBuild"
+    line: 80
+    end_line: 80
+    column: 6
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__beetle-psx-libretro__beetle-psx-libretro.SlackBuild"
+    line: 78
+    end_line: 78
+    column: 6
+    end_column: 13
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__beetle-psx-libretro__beetle-psx-libretro.SlackBuild"
+    line: 78
+    end_line: 78
+    column: 26
+    end_column: 33
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__beetle-psx-libretro__beetle-psx-libretro.SlackBuild"
+    line: 83
+    end_line: 83
+    column: 9
+    end_column: 15
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__beetle-psx-libretro__beetle-psx-libretro.SlackBuild"
+    line: 84
+    end_line: 84
+    column: 16
+    end_column: 22
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__beetle-psx-libretro__beetle-psx-libretro.SlackBuild"
+    line: 85
+    end_line: 85
+    column: 15
+    end_column: 22
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__beetle-psx-libretro__beetle-psx-libretro.SlackBuild"
+    line: 86
+    end_line: 86
+    column: 15
+    end_column: 22
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__beetle-psx-libretro__beetle-psx-libretro.SlackBuild"
+    line: 91
+    end_line: 91
+    column: 6
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__fbneo-libretro__fbneo-libretro.SlackBuild"
+    line: 73
+    end_line: 73
+    column: 35
+    end_column: 41
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__fbneo-libretro__fbneo-libretro.SlackBuild"
+    line: 78
+    end_line: 78
+    column: 6
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__mame2000-libretro__mame2000-libretro.SlackBuild"
+    line: 76
+    end_line: 76
+    column: 12
+    end_column: 18
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__mame2000-libretro__mame2000-libretro.SlackBuild"
+    line: 81
+    end_line: 81
+    column: 6
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__pcsx-rearmed__pcsx-rearmed.SlackBuild"
+    line: 73
+    end_line: 73
+    column: 33
+    end_column: 39
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__pcsx-rearmed__pcsx-rearmed.SlackBuild"
+    line: 78
+    end_line: 78
+    column: 6
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__snes9x2010__snes9x2010.SlackBuild"
+    line: 76
+    end_line: 76
+    column: 33
+    end_column: 39
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__snes9x2010__snes9x2010.SlackBuild"
+    line: 81
+    end_line: 81
+    column: 6
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__vice-libretro__vice-libretro.SlackBuild"
+    line: 76
+    end_line: 76
+    column: 14
+    end_column: 20
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__vice-libretro__vice-libretro.SlackBuild"
+    line: 81
+    end_line: 81
+    column: 20
+    end_column: 26
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__vice-libretro__vice-libretro.SlackBuild"
+    line: 84
+    end_line: 84
+    column: 6
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__vitaquake2-libretro__vitaquake2-libretro.SlackBuild"
+    line: 89
+    end_line: 89
+    column: 12
+    end_column: 18
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__libraries__libvirt__rc.libvirt"
+    line: 132
+    end_line: 132
+    column: 8
+    end_column: 14
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__libraries__libvirt__rc.libvirt"
+    line: 130
+    end_line: 130
+    column: 16
+    end_column: 22
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__multimedia__ytdlp-gui__ytdlp-gui.SlackBuild"
+    line: 83
+    end_line: 83
+    column: 14
+    end_column: 21
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__node_exporter__config__rc.node_exporter"
+    line: 35
+    end_line: 35
+    column: 14
+    end_column: 18
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__openconnect__vpnc-script"
+    line: 625
+    end_line: 625
+    column: 11
+    end_column: 13
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__openconnect__vpnc-script"
+    line: 645
+    end_line: 645
+    column: 11
+    end_column: 13
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__openconnect__vpnc-script"
+    line: 672
+    end_line: 672
+    column: 11
+    end_column: 13
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__openconnect__vpnc-script"
+    line: 693
+    end_line: 693
+    column: 11
+    end_column: 13
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__webex__doinst.sh"
+    line: 19
+    end_line: 19
+    column: 43
+    end_column: 56
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__nvidia-kernel__nvidia-kernel.SlackBuild"
+    line: 113
+    end_line: 113
+    column: 22
+    end_column: 28
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__nvidia-legacy580-kernel__nvidia-legacy580-kernel.SlackBuild"
+    line: 115
+    end_line: 115
+    column: 22
+    end_column: 28
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__spice-vdagent__files__rc.spice-vdagent"
+    line: 28
+    end_line: 28
+    column: 5
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__spice-vdagent__files__rc.spice-vdagent"
+    line: 42
+    end_line: 42
+    column: 5
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__xen__openvswitch__openvswitch-clean.sh"
+    line: 53
+    end_line: 53
+    column: 12
+    end_column: 17
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__xen__openvswitch__vif-openvswitch-extended"
+    line: 109
+    end_line: 109
+    column: 14
+    end_column: 19
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "acmesh-official__acme.sh__acme.sh"
+    line: 2306
+    end_line: 2306
+    column: 14
+    end_column: 40
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "acmesh-official__acme.sh__acme.sh"
+    line: 7467
+    end_line: 7467
+    column: 14
+    end_column: 22
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "acmesh-official__acme.sh__acme.sh"
+    line: 7467
+    end_line: 7467
+    column: 27
+    end_column: 35
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "alexanderepstein__Bash-Snippets__bak2dvd__bak2dvd"
+    line: 245
+    end_line: 245
+    column: 36
+    end_column: 43
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "alexanderepstein__Bash-Snippets__bak2dvd__bak2dvd"
+    line: 259
+    end_line: 259
+    column: 36
+    end_column: 43
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "alexanderepstein__Bash-Snippets__extras__Linux__maps__maps"
+    line: 134
+    end_line: 134
+    column: 10
+    end_column: 16
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "alexanderepstein__Bash-Snippets__extras__Linux__maps__maps"
+    line: 137
+    end_line: 137
+    column: 12
+    end_column: 18
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "alpinelinux__aports__main__acf-weblog__acf-weblog-update-schema"
+    line: 11
+    end_line: 11
+    column: 66
+    end_column: 76
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "alpinelinux__aports__main__bridge__bridge.pre-up"
+    line: 112
+    end_line: 112
+    column: 5
+    end_column: 13
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "alpinelinux__aports__main__sysklogd__sysklogd.daily"
+    line: 62
+    end_line: 62
+    column: 10
+    end_column: 16
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "alpinelinux__aports__main__syslinux__update-extlinux"
+    line: 96
+    end_line: 96
+    column: 18
+    end_column: 26
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bats-core__bats-core__contrib__semver"
+    line: 152
+    end_line: 152
+    column: 7
+    end_column: 13
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "bats-core__bats-core__libexec__bats-core__bats-format-pretty"
+    line: 67
+    end_line: 67
+    column: 16
+    end_column: 34
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "bats-core__bats-core__libexec__bats-core__bats-format-pretty"
+    line: 78
+    end_line: 78
+    column: 13
+    end_column: 32
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__curl"
+    line: 136
+    end_line: 136
+    column: 12
+    end_column: 16
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__curl"
+    line: 201
+    end_line: 201
+    column: 12
+    end_column: 15
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__db"
+    line: 1153
+    end_line: 1153
+    column: 12
+    end_column: 20
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__db"
+    line: 1294
+    end_line: 1294
+    column: 11
+    end_column: 13
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__file"
+    line: 42
+    end_line: 42
+    column: 4
+    end_column: 18
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__log"
+    line: 65
+    end_line: 65
+    column: 10
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__math"
+    line: 28
+    end_line: 28
+    column: 7
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__net"
+    line: 170
+    end_line: 170
+    column: 7
+    end_column: 10
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__net"
+    line: 244
+    end_line: 244
+    column: 5
+    end_column: 7
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__netfilter"
+    line: 642
+    end_line: 642
+    column: 5
+    end_column: 20
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__netfilter"
+    line: 643
+    end_line: 643
+    column: 5
+    end_column: 18
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__netfilter"
+    line: 787
+    end_line: 787
+    column: 8
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__netfilter"
+    line: 1870
+    end_line: 1870
+    column: 11
+    end_column: 15
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__olsr"
+    line: 1700
+    end_line: 1700
+    column: 8
+    end_column: 21
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__rrd"
+    line: 264
+    end_line: 264
+    column: 6
+    end_column: 15
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__sanitizer"
+    line: 386
+    end_line: 386
+    column: 18
+    end_column: 22
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__speedtest"
+    line: 317
+    end_line: 317
+    column: 9
+    end_column: 14
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__speedtest"
+    line: 318
+    end_line: 318
+    column: 9
+    end_column: 14
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__speedtest"
+    line: 341
+    end_line: 341
+    column: 48
+    end_column: 60
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__stopwatch"
+    line: 48
+    end_line: 48
+    column: 7
+    end_column: 15
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__tool"
+    line: 87
+    end_line: 87
+    column: 36
+    end_column: 45
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__vpn"
+    line: 393
+    end_line: 393
+    column: 5
+    end_column: 16
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
+    line: 687
+    end_line: 687
+    column: 7
+    end_column: 13
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
+    line: 1624
+    end_line: 1624
+    column: 6
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
+    line: 1632
+    end_line: 1632
+    column: 6
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
+    line: 2096
+    end_line: 2096
+    column: 10
+    end_column: 15
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
+    line: 362
+    end_line: 362
+    column: 40
+    end_column: 58
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__wifi"
+    line: 291
+    end_line: 291
+    column: 12
+    end_column: 20
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__wifi"
+    line: 293
+    end_line: 293
+    column: 12
+    end_column: 20
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__wifi"
+    line: 617
+    end_line: 617
+    column: 19
+    end_column: 23
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__wifi"
+    line: 634
+    end_line: 634
+    column: 21
+    end_column: 25
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__wifi"
+    line: 1026
+    end_line: 1026
+    column: 6
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__wifi"
+    line: 2034
+    end_line: 2034
+    column: 4
+    end_column: 29
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__wifi"
+    line: 2809
+    end_line: 2809
+    column: 13
+    end_column: 19
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__wifi"
+    line: 2810
+    end_line: 2810
+    column: 14
+    end_column: 20
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__profile.d__kalua.sh"
+    line: 11
+    end_line: 11
+    column: 33
+    end_column: 36
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__usr__sbin__cron.check_inet_gw_fff+"
+    line: 56
+    end_line: 56
+    column: 20
+    end_column: 28
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__usr__sbin__cron.check_interrupts"
+    line: 37
+    end_line: 37
+    column: 3
+    end_column: 14
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__usr__sbin__cron.db_generate_statistics"
+    line: 52
+    end_line: 52
+    column: 12
+    end_column: 25
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__usr__sbin__cron.db_generate_statistics"
+    line: 57
+    end_line: 57
+    column: 13
+    end_column: 28
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__usr__sbin__cron.db_generate_statistics"
+    line: 58
+    end_line: 58
+    column: 13
+    end_column: 25
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__usr__sbin__cron.db_generate_statistics"
+    line: 110
+    end_line: 110
+    column: 12
+    end_column: 25
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__usr__sbin__cron.minutely"
+    line: 331
+    end_line: 331
+    column: 8
+    end_column: 16
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__www__cgi-bin-webcam.sh"
+    line: 59
+    end_line: 59
+    column: 24
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__www__cgi-bin-webcam.sh"
+    line: 60
+    end_line: 60
+    column: 24
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__www__cgi-bin__userdb"
+    line: 425
+    end_line: 425
+    column: 15
+    end_column: 33
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__www__cgi-bin__userdb"
+    line: 532
+    end_line: 532
+    column: 11
+    end_column: 17
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__www__cgi-bin__userdb"
+    line: 536
+    end_line: 536
+    column: 11
+    end_column: 15
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-build__build.sh"
+    line: 125
+    end_line: 125
+    column: 10
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-build__build.sh"
+    line: 558
+    end_line: 558
+    column: 11
+    end_column: 35
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-build__build.sh"
+    line: 1743
+    end_line: 1743
+    column: 6
+    end_column: 35
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-build__build.sh"
+    line: 1980
+    end_line: 1980
+    column: 4
+    end_column: 28
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_map.sh"
+    line: 208
+    end_line: 208
+    column: 10
+    end_column: 15
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_map.sh"
+    line: 210
+    end_line: 210
+    column: 10
+    end_column: 15
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_map.sh"
+    line: 216
+    end_line: 216
+    column: 8
+    end_column: 13
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_map.sh"
+    line: 263
+    end_line: 263
+    column: 70
+    end_column: 75
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_netjson.sh"
+    line: 477
+    end_line: 477
+    column: 10
+    end_column: 15
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_netjson.sh"
+    line: 479
+    end_line: 479
+    column: 10
+    end_column: 15
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_netjson.sh"
+    line: 485
+    end_line: 485
+    column: 8
+    end_column: 13
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_netjson.sh"
+    line: 567
+    end_line: 567
+    column: 10
+    end_column: 15
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_netjson.sh"
+    line: 569
+    end_line: 569
+    column: 10
+    end_column: 15
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_netjson.sh"
+    line: 575
+    end_line: 575
+    column: 8
+    end_column: 13
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_netjson.sh"
+    line: 577
+    end_line: 577
+    column: 70
+    end_column: 75
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_netjson.sh"
+    line: 611
+    end_line: 611
+    column: 6
+    end_column: 11
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    line: 364
+    end_line: 364
+    column: 24
+    end_column: 37
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    line: 1073
+    end_line: 1073
+    column: 42
+    end_column: 44
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    line: 1466
+    end_line: 1466
+    column: 9
+    end_column: 18
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    line: 1484
+    end_line: 1484
+    column: 7
+    end_column: 11
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    line: 1490
+    end_line: 1490
+    column: 7
+    end_column: 11
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    line: 1508
+    end_line: 1508
+    column: 9
+    end_column: 13
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    line: 1728
+    end_line: 1728
+    column: 8
+    end_column: 14
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    line: 1977
+    end_line: 1977
+    column: 6
+    end_column: 17
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    line: 1977
+    end_line: 1977
+    column: 29
+    end_column: 40
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    line: 2702
+    end_line: 2702
+    column: 7
+    end_column: 16
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    line: 2895
+    end_line: 2895
+    column: 9
+    end_column: 18
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    line: 2897
+    end_line: 2897
+    column: 9
+    end_column: 18
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    line: 4521
+    end_line: 4521
+    column: 3
+    end_column: 16
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__tests__test_all.sh"
+    line: 144
+    end_line: 144
+    column: 8
+    end_column: 17
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__tests__test_all.sh"
+    line: 225
+    end_line: 225
+    column: 24
+    end_column: 28
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "dehydrated-io__dehydrated__dehydrated"
+    line: 1077
+    end_line: 1077
+    column: 85
+    end_column: 109
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "dylanaraps__neofetch__neofetch"
+    line: 7233
+    end_line: 7233
+    column: 28
+    end_column: 33
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "gentoo__gentoo__dev-libs__kpathsea__files__texmf-update-r2"
+    line: 28
+    end_line: 28
+    column: 15
+    end_column: 25
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
+    line: 249
+    end_line: 249
+    column: 21
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
+    line: 262
+    end_line: 262
+    column: 21
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
+    line: 277
+    end_line: 277
+    column: 21
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
+    line: 290
+    end_line: 290
+    column: 21
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
+    line: 311
+    end_line: 311
+    column: 21
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
+    line: 327
+    end_line: 327
+    column: 21
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
+    line: 345
+    end_line: 345
+    column: 21
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "gentoo__gentoo__eclass__tests__dot-a.sh"
+    line: 361
+    end_line: 361
+    column: 21
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__games-server__minecraft-server__files__minecraft-server-bin"
+    line: 21
+    end_line: 21
+    column: 25
+    end_column: 37
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "gentoo__gentoo__net-firewall__nftables__files__libexec__nftables.sh"
+    line: 114
+    end_line: 114
+    column: 36
+    end_column: 55
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "gentoo__gentoo__net-firewall__nftables__files__libexec__nftables.sh"
+    line: 116
+    end_line: 116
+    column: 37
+    end_column: 56
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "gentoo__gentoo__net-vpn__derper__files__derper-pre.sh"
+    line: 44
+    end_line: 44
+    column: 12
+    end_column: 19
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__scripts__bootstrap.sh"
+    line: 110
+    end_line: 110
+    column: 7
+    end_column: 25
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__scripts__bootstrap.sh"
+    line: 118
+    end_line: 118
+    column: 9
+    end_column: 27
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__scripts__bootstrap.sh"
+    line: 145
+    end_line: 145
+    column: 7
+    end_column: 25
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__scripts__bootstrap.sh"
+    line: 162
+    end_line: 162
+    column: 8
+    end_column: 26
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__scripts__bootstrap.sh"
+    line: 296
+    end_line: 296
+    column: 6
+    end_column: 24
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__scripts__bootstrap.sh"
+    line: 304
+    end_line: 304
+    column: 6
+    end_column: 24
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__sys-libs__musl__files__ldconfig.in-r3"
+    line: 116
+    end_line: 116
+    column: 28
+    end_column: 34
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__infra__base-images__base-clang__checkout_build_install_llvm.sh"
+    line: 262
+    end_line: 262
+    column: 7
+    end_column: 18
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__infra__base-images__base-clang__checkout_build_install_llvm_ubuntu_20_04.sh"
+    line: 262
+    end_line: 262
+    column: 7
+    end_column: 18
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__infra__base-images__base-clang__checkout_build_install_llvm_ubuntu_24_04.sh"
+    line: 260
+    end_line: 260
+    column: 7
+    end_column: 18
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__infra__base-images__base-runner__coverage"
+    line: 115
+    end_line: 115
+    column: 17
+    end_column: 35
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__infra__base-images__base-runner__coverage"
+    line: 329
+    end_line: 329
+    column: 17
+    end_column: 27
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__threetenbp__build.sh"
+    line: 57
+    end_line: 57
+    column: 37
+    end_column: 47
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "google__oss-fuzz__projects__threetenbp__build.sh"
+    line: 56
+    end_line: 56
+    column: 89
+    end_column: 99
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "itzg__docker-minecraft-server__scripts__start"
+    line: 24
+    end_line: 24
+    column: 20
+    end_column: 24
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "juewuy__ShellCrash__scripts__menus__9_upgrade.sh"
+    line: 651
+    end_line: 651
+    column: 70
+    end_column: 80
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "juewuy__ShellCrash__scripts__menus__9_upgrade.sh"
+    line: 867
+    end_line: 867
+    column: 52
+    end_column: 62
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "juewuy__ShellCrash__scripts__menus__running_status.sh"
+    line: 11
+    end_line: 11
+    column: 28
+    end_column: 35
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "juewuy__ShellCrash__scripts__starts__core_config.sh"
+    line: 29
+    end_line: 29
+    column: 32
+    end_column: 44
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "juewuy__ShellCrash__tools__tg_bot.sh"
+    line: 70
+    end_line: 70
+    column: 23
+    end_column: 30
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "ko1nksm__shellspec__lib__general.sh"
+    line: 442
+    end_line: 442
+    column: 15
+    end_column: 39
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "kward__shunit2__.githooks__generic"
+    line: 30
+    end_line: 30
+    column: 11
+    end_column: 22
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "megastep__makeself__makeself.sh"
+    line: 401
+    end_line: 401
+    column: 36
+    end_column: 38
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "megastep__makeself__makeself.sh"
+    line: 401
+    end_line: 401
+    column: 38
+    end_column: 40
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "megastep__makeself__test__variabletest"
+    line: 15
+    end_line: 15
+    column: 56
+    end_column: 60
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__depcomp"
+    line: 126
+    end_line: 126
+    column: 19
+    end_column: 34
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__depcomp"
+    line: 418
+    end_line: 418
+    column: 11
+    end_column: 16
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "moovweb__gvm__examples__native__depcomp"
+    line: 126
+    end_line: 126
+    column: 20
+    end_column: 35
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "nvm-sh__nvm__test__slow__nvm_get_latest__nvm_get_latest"
+    line: 26
+    end_line: 26
+    column: 10
+    end_column: 14
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "openrc__openrc__sh__runit.sh"
+    line: 25
+    end_line: 25
+    column: 10
+    end_column: 12
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "openrc__openrc__src__rc-sstat__rc-sstat"
+    line: 86
+    end_line: 86
+    column: 22
+    end_column: 39
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "openvpn__easy-rsa__easyrsa3__easyrsa"
+    line: 4098
+    end_line: 4098
+    column: 4
+    end_column: 18
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "pi-hole__pi-hole__automated install__basic-install.sh"
+    line: 1833
+    end_line: 1833
+    column: 21
+    end_column: 39
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "romkatv__powerlevel10k__gitstatus__gitstatus.plugin.sh"
+    line: 384
+    end_line: 384
+    column: 61
+    end_column: 79
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "romkatv__powerlevel10k__gitstatus__gitstatus.plugin.sh"
+    line: 226
+    end_line: 226
+    column: 23
+    end_column: 42
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "romkatv__powerlevel10k__gitstatus__gitstatus.plugin.sh"
+    line: 234
+    end_line: 234
+    column: 39
+    end_column: 58
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__binscripts__rvm-installer"
+    line: 89
+    end_line: 89
+    column: 24
+    end_column: 48
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__binscripts__rvm-installer"
+    line: 513
+    end_line: 513
+    column: 5
+    end_column: 25
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__extras__chruby.sh"
+    line: 31
+    end_line: 31
+    column: 10
+    end_column: 21
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__extras__rails"
+    line: 225
+    end_line: 225
+    column: 20
+    end_column: 25
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__extras__rails"
+    line: 233
+    end_line: 233
+    column: 19
+    end_column: 24
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__extras__rails"
+    line: 235
+    end_line: 235
+    column: 15
+    end_column: 20
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__extras__rails"
+    line: 271
+    end_line: 271
+    column: 30
+    end_column: 35
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__extras__rails"
+    line: 275
+    end_line: 275
+    column: 33
+    end_column: 38
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__extras__rails"
+    line: 279
+    end_line: 279
+    column: 29
+    end_column: 34
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__fetch"
+    line: 73
+    end_line: 73
+    column: 20
+    end_column: 27
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__build_requirements"
+    line: 160
+    end_line: 160
+    column: 10
+    end_column: 29
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_fetch"
+    line: 223
+    end_line: 223
+    column: 18
+    end_column: 25
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_fetch"
+    line: 243
+    end_line: 243
+    column: 24
+    end_column: 31
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_fetch"
+    line: 251
+    end_line: 251
+    column: 18
+    end_column: 25
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__base_fetch"
+    line: 45
+    end_line: 45
+    column: 12
+    end_column: 24
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
+    line: 145
+    end_line: 145
+    column: 14
+    end_column: 21
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__requirements__openbsd"
+    line: 35
+    end_line: 35
+    column: 12
+    end_column: 23
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__requirements__osx_brew"
+    line: 485
+    end_line: 485
+    column: 55
+    end_column: 74
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__requirements__osx_brew"
+    line: 486
+    end_line: 486
+    column: 32
+    end_column: 51
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__requirements__osx_brew"
+    line: 491
+    end_line: 491
+    column: 35
+    end_column: 51
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__migrate"
+    line: 208
+    end_line: 208
+    column: 21
+    end_column: 23
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__set"
+    line: 150
+    end_line: 150
+    column: 27
+    end_column: 42
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__set"
+    line: 151
+    end_line: 151
+    column: 23
+    end_column: 35
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__set"
+    line: 150
+    end_line: 150
+    column: 26
+    end_column: 41
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__set"
+    line: 151
+    end_line: 151
+    column: 21
+    end_column: 33
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "scop__bash-completion__completions-core__geoiplookup.bash"
+    line: 29
+    end_line: 29
+    column: 31
+    end_column: 36
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "swoodford__aws__vpc-eni-monitor.sh"
+    line: 118
+    end_line: 118
+    column: 8
+    end_column: 15
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "swoodford__aws__vpc-eni-monitor.sh"
+    line: 122
+    end_line: 122
+    column: 17
+    end_column: 24
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "swoodford__aws__vpc-eni-monitor.sh"
+    line: 122
+    end_line: 122
+    column: 41
+    end_column: 48
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "swoodford__aws__vpc-eni-monitor.sh"
+    line: 125
+    end_line: 125
+    column: 17
+    end_column: 24
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "swoodford__aws__vpc-eni-monitor.sh"
+    line: 129
+    end_line: 129
+    column: 17
+    end_column: 24
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "swoodford__aws__vpc-sg-import-rules-cloudflare.sh"
+    line: 281
+    end_line: 281
+    column: 101
+    end_column: 106
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "swoodford__aws__wafv2-web-acl-pingdom.sh"
+    line: 196
+    end_line: 196
+    column: 40
+    end_column: 49
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__lazygit__build.sh"
+    line: 26
+    end_line: 26
+    column: 30
+    end_column: 50
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__lazygit__build.sh"
+    line: 25
+    end_line: 25
+    column: 41
+    end_column: 61
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__libminizip__build.sh"
+    line: 15
+    end_line: 15
+    column: 5
+    end_column: 23
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__aptly_api.sh"
+    line: 18
+    end_line: 18
+    column: 30
+    end_column: 55
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__x11-packages__python-qscintilla__build.sh"
+    line: 35
+    end_line: 35
+    column: 16
+    end_column: 36
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__x11-packages__python-qscintilla__build.sh"
+    line: 36
+    end_line: 36
+    column: 11
+    end_column: 21
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__x11-packages__python-qscintilla__build.sh"
+    line: 41
+    end_line: 41
+    column: 41
+    end_column: 51
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__x11-packages__python-qscintilla__build.sh"
+    line: 42
+    end_line: 42
+    column: 13
+    end_column: 23
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__x11-packages__python-qscintilla__build.sh"
+    line: 43
+    end_line: 43
+    column: 14
+    end_column: 24
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "tteck__Proxmox__ct__create_lxc.sh"
+    line: 28
+    end_line: 28
+    column: 37
+    end_column: 49
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "tteck__Proxmox__ct__create_lxc.sh"
+    line: 28
+    end_line: 28
+    column: 73
+    end_column: 85
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "tteck__Proxmox__misc__glances.sh"
+    line: 100
+    end_line: 100
+    column: 37
+    end_column: 49
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "tteck__Proxmox__misc__glances.sh"
+    line: 100
+    end_line: 100
+    column: 73
+    end_column: 85
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "tteck__Proxmox__vm__haos-vm.sh"
+    line: 46
+    end_line: 46
+    column: 37
+    end_column: 49
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "tteck__Proxmox__vm__haos-vm.sh"
+    line: 46
+    end_line: 46
+    column: 73
+    end_column: 85
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "tteck__Proxmox__vm__nextcloud-vm.sh"
+    line: 210
+    end_line: 210
+    column: 96
+    end_column: 99
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shuck-only
+    path_suffix: "v1s1t0r1sh3r3__airgeddon__airgeddon.sh"
+    line: 16442
+    end_line: 16442
+    column: 11
+    end_column: 23
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__cross.sh"
+    line: 20
+    end_line: 20
+    column: 24
+    end_column: 30
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__srcpkgs__acpid__files__handler.sh"
+    line: 13
+    end_line: 13
+    column: 57
+    end_column: 59
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__srcpkgs__clockspeed__files__clockspeed_adjust__clock_adjust.sh"
+    line: 23
+    end_line: 23
+    column: 10
+    end_column: 17
+    reason: "Current S001 large-corpus residual; tracked as known while remaining safe-value parity work continues."
