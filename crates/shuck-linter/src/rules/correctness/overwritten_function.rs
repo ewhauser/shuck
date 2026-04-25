@@ -347,6 +347,9 @@ fn report_transient_shadowed_file_scope_definitions(checker: &mut Checker<'_>) {
                     .then_some(span.start.offset)
                 })
                 .min()?;
+            if !checker.semantic_analysis().cfg().script_always_terminates() {
+                return None;
+            }
             let terminator_offset =
                 last_script_terminator_offset_after(checker, binding.span.start.offset)?;
 
@@ -688,17 +691,16 @@ fn has_non_transient_direct_call_to_binding_between_offsets(
         .flat_map(|facts| facts.iter())
         .any(|fact| {
             let call_offset = fact.span.start.offset;
-            call_offset > after_offset
-                && call_offset <= before_offset
+            call_offset <= before_offset
                 && !scope_has_transient_ancestor(checker, fact.scope)
                 && call_may_resolve_to_binding(
                     checker, binding_id, fact.scope, fact.span, fact.span,
                 )
-                && call_can_reach_binding_before_offset(
+                && call_scope_can_execute_after_offset_before_offset(
                     checker,
                     fact.scope,
                     call_offset,
-                    binding.span.start.offset,
+                    after_offset,
                     before_offset,
                     &mut reach,
                     &mut visiting,
@@ -710,8 +712,7 @@ fn has_non_transient_direct_call_to_binding_between_offsets(
             .iter()
             .any(|site| {
                 let call_offset = site.name_span.start.offset;
-                call_offset > after_offset
-                    && call_offset <= before_offset
+                call_offset <= before_offset
                     && !scope_has_transient_ancestor(checker, site.scope)
                     && call_may_resolve_to_binding(
                         checker,
@@ -720,11 +721,11 @@ fn has_non_transient_direct_call_to_binding_between_offsets(
                         site.name_span,
                         site.span,
                     )
-                    && call_can_reach_binding_before_offset(
+                    && call_scope_can_execute_after_offset_before_offset(
                         checker,
                         site.scope,
                         call_offset,
-                        binding.span.start.offset,
+                        after_offset,
                         before_offset,
                         &mut reach,
                         &mut visiting,
@@ -2676,6 +2677,49 @@ if [ \"$(redefine() { :; }; redefine)\" = redefine ]; then
   echo changed
 fi
 redefine
+exit 0
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/shellspec-inspection.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_c063_report_unreached_nested_definitions(true),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn c063_option_accepts_transient_shadow_with_conditional_terminator() {
+        let source = "\
+redefine() { echo redefine; }
+if should_stop; then
+  exit 0
+fi
+if [ \"$(redefine() { :; }; redefine)\" = redefine ]; then
+  echo changed
+fi
+redefine
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/shellspec-inspection.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_c063_report_unreached_nested_definitions(true),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn c063_option_accepts_pre_shadow_wrapper_call_after_transient_shadow() {
+        let source = "\
+redefine() { echo redefine; }
+wrapper() { redefine; }
+if [ \"$(redefine() { :; }; redefine)\" = redefine ]; then
+  echo changed
+fi
+wrapper
 exit 0
 ";
         let diagnostics = test_snippet_at_path(
