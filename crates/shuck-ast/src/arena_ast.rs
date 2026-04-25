@@ -73,6 +73,7 @@ pub struct AstStore {
     comment_lists: ListArena<Comment>,
     redirect_lists: ListArena<Redirect>,
     assignment_lists: ListArena<Assignment>,
+    decl_operand_lists: ListArena<DeclOperand>,
     word_id_lists: ListArena<WordId>,
     word_part_lists: ListArena<WordPartNode>,
     brace_syntax_lists: ListArena<crate::BraceSyntax>,
@@ -91,6 +92,7 @@ impl Default for AstStore {
             comment_lists: ListArena::new(),
             redirect_lists: ListArena::new(),
             assignment_lists: ListArena::new(),
+            decl_operand_lists: ListArena::new(),
             word_id_lists: ListArena::new(),
             word_part_lists: ListArena::new(),
             brace_syntax_lists: ListArena::new(),
@@ -256,6 +258,17 @@ impl AstStore {
                 };
                 Command::Builtin(command)
             }
+            CommandNodePayload::Decl(command) => Command::Decl(crate::DeclClause {
+                variant: command.variant.clone(),
+                variant_span: command.variant_span,
+                operands: self.decl_operand_lists.get(command.operands).to_vec(),
+                assignments: self
+                    .assignment_lists
+                    .get(command.assignments)
+                    .to_vec()
+                    .into_boxed_slice(),
+                span: node.span,
+            }),
             CommandNodePayload::Legacy => node.legacy.clone(),
         }
     }
@@ -340,6 +353,8 @@ pub enum CommandNodePayload {
     Simple(SimpleCommandNode),
     /// Typed builtin command payload.
     Builtin(BuiltinCommandNode),
+    /// Declaration builtin command payload.
+    Decl(DeclCommandNode),
     /// Compatibility payload for command families that still materialize from `legacy`.
     Legacy,
 }
@@ -379,6 +394,19 @@ pub enum BuiltinCommandNodeKind {
     Return,
     /// `exit [N]`.
     Exit,
+}
+
+/// Arena-native declaration command payload.
+#[derive(Debug, Clone)]
+pub struct DeclCommandNode {
+    /// Declaration builtin variant.
+    pub variant: crate::Name,
+    /// Source span of the declaration builtin name.
+    pub variant_span: Span,
+    /// Parsed declaration operands.
+    pub operands: IdRange<DeclOperand>,
+    /// Prefix assignments.
+    pub assignments: IdRange<Assignment>,
 }
 
 /// Coarse command family stored with command arena nodes.
@@ -589,7 +617,9 @@ impl<'a> CommandView<'a> {
                 store: self.store,
                 id: self.id,
             }),
-            CommandNodePayload::Builtin(_) | CommandNodePayload::Legacy => None,
+            CommandNodePayload::Builtin(_)
+            | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Legacy => None,
         }
     }
 
@@ -600,7 +630,22 @@ impl<'a> CommandView<'a> {
                 store: self.store,
                 id: self.id,
             }),
-            CommandNodePayload::Simple(_) | CommandNodePayload::Legacy => None,
+            CommandNodePayload::Simple(_)
+            | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Legacy => None,
+        }
+    }
+
+    /// Returns the native declaration payload when this command is a declaration builtin.
+    pub fn decl(self) -> Option<DeclCommandView<'a>> {
+        match &self.node().payload {
+            CommandNodePayload::Decl(_) => Some(DeclCommandView {
+                store: self.store,
+                id: self.id,
+            }),
+            CommandNodePayload::Simple(_)
+            | CommandNodePayload::Builtin(_)
+            | CommandNodePayload::Legacy => None,
         }
     }
 
@@ -660,7 +705,9 @@ impl<'a> SimpleCommandView<'a> {
     fn node(self) -> &'a SimpleCommandNode {
         match &self.store.commands[self.id.index()].payload {
             CommandNodePayload::Simple(command) => command,
-            CommandNodePayload::Builtin(_) | CommandNodePayload::Legacy => {
+            CommandNodePayload::Builtin(_)
+            | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Legacy => {
                 unreachable!("simple view requires simple payload")
             }
         }
@@ -711,9 +758,49 @@ impl<'a> BuiltinCommandView<'a> {
     fn node(self) -> &'a BuiltinCommandNode {
         match &self.store.commands[self.id.index()].payload {
             CommandNodePayload::Builtin(command) => command,
-            CommandNodePayload::Simple(_) | CommandNodePayload::Legacy => {
+            CommandNodePayload::Simple(_)
+            | CommandNodePayload::Decl(_)
+            | CommandNodePayload::Legacy => {
                 unreachable!("builtin view requires builtin payload")
             }
+        }
+    }
+}
+
+/// Borrowed view of an arena-native declaration command payload.
+#[derive(Debug, Clone, Copy)]
+pub struct DeclCommandView<'a> {
+    store: &'a AstStore,
+    id: CommandId,
+}
+
+impl<'a> DeclCommandView<'a> {
+    /// Returns the declaration builtin variant.
+    pub fn variant(self) -> &'a crate::Name {
+        &self.node().variant
+    }
+
+    /// Returns the source span of the declaration builtin name.
+    pub fn variant_span(self) -> Span {
+        self.node().variant_span
+    }
+
+    /// Returns parsed declaration operands.
+    pub fn operands(self) -> &'a [DeclOperand] {
+        self.store.decl_operand_lists.get(self.node().operands)
+    }
+
+    /// Returns prefix assignments.
+    pub fn assignments(self) -> &'a [Assignment] {
+        self.store.assignment_lists.get(self.node().assignments)
+    }
+
+    fn node(self) -> &'a DeclCommandNode {
+        match &self.store.commands[self.id.index()].payload {
+            CommandNodePayload::Decl(command) => command,
+            CommandNodePayload::Simple(_)
+            | CommandNodePayload::Builtin(_)
+            | CommandNodePayload::Legacy => unreachable!("decl view requires decl payload"),
         }
     }
 }
@@ -1021,7 +1108,20 @@ impl AstStoreBuilder {
                     self.collect_decl_operand(operand, words, child_sequences);
                 }
                 self.collect_assignments(command.assignments.iter(), words, child_sequences);
-                CommandNodePayload::Legacy
+                let operands = self
+                    .store
+                    .decl_operand_lists
+                    .push_many(command.operands.iter().cloned());
+                let assignments = self
+                    .store
+                    .assignment_lists
+                    .push_many(command.assignments.iter().cloned());
+                CommandNodePayload::Decl(DeclCommandNode {
+                    variant: command.variant.clone(),
+                    variant_span: command.variant_span,
+                    operands,
+                    assignments,
+                })
             }
             Command::Binary(command) => {
                 self.collect_binary_children(command, child_sequences);
@@ -2033,6 +2133,46 @@ mod tests {
         };
         assert!(command.code.is_some());
         assert_eq!(command.extra_args.len(), 1);
+        assert_eq!(command.assignments.len(), 1);
+    }
+
+    #[test]
+    fn declaration_command_payload_is_arena_native() {
+        let file = file_with_command(Command::Decl(DeclClause {
+            variant: Name::new("declare"),
+            variant_span: Span::new(),
+            operands: vec![
+                DeclOperand::Flag(Word::literal("-a")),
+                DeclOperand::Name(var_ref_with_dynamic_subscript("arr")),
+            ],
+            assignments: Box::new([Assignment {
+                target: crate::VarRef {
+                    name: Name::new("prefix"),
+                    name_span: Span::new(),
+                    subscript: None,
+                    span: Span::new(),
+                },
+                value: AssignmentValue::Scalar(Word::literal("value")),
+                append: false,
+                span: Span::new(),
+            }]),
+            span: Span::new(),
+        }));
+
+        let arena = ArenaFile::from_file(&file);
+        let command = arena.view().body().stmts().next().unwrap().command();
+        let decl = command.decl().expect("expected native declaration payload");
+
+        assert_eq!(decl.variant(), "declare");
+        assert_eq!(decl.operands().len(), 2);
+        assert_eq!(decl.assignments().len(), 1);
+        assert_eq!(command.child_sequence_ids().len(), 1);
+
+        let materialized = arena.to_file();
+        let Command::Decl(command) = &materialized.body[0].command else {
+            panic!("expected declaration command");
+        };
+        assert_eq!(command.operands.len(), 2);
         assert_eq!(command.assignments.len(), 1);
     }
 
