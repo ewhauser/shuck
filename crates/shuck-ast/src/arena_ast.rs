@@ -1063,7 +1063,9 @@ impl AstStoreBuilder {
             DeclOperand::Assignment(assignment) => {
                 self.collect_assignment(assignment, words, child_sequences)
             }
-            DeclOperand::Name(_) => {}
+            DeclOperand::Name(reference) => {
+                self.collect_var_ref_words(reference, words, child_sequences);
+            }
         }
     }
 
@@ -1234,8 +1236,10 @@ impl AstStoreBuilder {
                 WordPart::Literal(_)
                 | WordPart::SingleQuoted { .. }
                 | WordPart::Variable(_)
-                | WordPart::PrefixMatch { .. }
-                | WordPart::Transformation { .. } => {}
+                | WordPart::PrefixMatch { .. } => {}
+                WordPart::Transformation { reference, .. } => {
+                    self.collect_var_ref_words(reference, words, child_sequences);
+                }
             }
         }
     }
@@ -1303,7 +1307,10 @@ impl AstStoreBuilder {
                     crate::ZshExpansionTarget::Word(word) => {
                         self.collect_word(word, words, child_sequences);
                     }
-                    crate::ZshExpansionTarget::Reference(_) | crate::ZshExpansionTarget::Empty => {}
+                    crate::ZshExpansionTarget::Reference(reference) => {
+                        self.collect_var_ref_words(reference, words, child_sequences);
+                    }
+                    crate::ZshExpansionTarget::Empty => {}
                 }
                 for modifier in &expansion.modifiers {
                     if let Some(word) = &modifier.argument_word_ast {
@@ -1552,11 +1559,12 @@ mod tests {
     use crate::{
         ArenaFile, ArithmeticCommand, ArithmeticExpr, ArithmeticExprNode, ArrayElem, ArrayExpr,
         ArrayKind, ArrayValueWord, Assignment, AssignmentValue, BourneParameterExpansion, Command,
-        CommandSubstitutionSyntax, CompoundCommand, ConditionalCommand, ConditionalExpr, Heredoc,
-        HeredocBody, HeredocBodyMode, HeredocBodyPart, HeredocBodyPartNode, HeredocDelimiter, Name,
-        ParameterExpansion, ParameterExpansionSyntax, Pattern, PatternPart, PatternPartNode,
-        Redirect, RedirectKind, RedirectTarget, SimpleCommand, Span, Stmt, StmtSeq, Subscript,
-        SubscriptInterpretation, SubscriptKind, Word, WordPart, WordPartNode, ZshGlobSegment,
+        CommandSubstitutionSyntax, CompoundCommand, ConditionalCommand, ConditionalExpr,
+        DeclClause, DeclOperand, Heredoc, HeredocBody, HeredocBodyMode, HeredocBodyPart,
+        HeredocBodyPartNode, HeredocDelimiter, Name, ParameterExpansion, ParameterExpansionSyntax,
+        Pattern, PatternPart, PatternPartNode, Redirect, RedirectKind, RedirectTarget,
+        SimpleCommand, Span, Stmt, StmtSeq, Subscript, SubscriptInterpretation, SubscriptKind,
+        Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshParameterExpansion,
         ZshQualifiedGlob,
     };
 
@@ -1821,27 +1829,14 @@ mod tests {
     fn bourne_parameter_subscript_words_are_command_words() {
         let expansion = ParameterExpansion {
             syntax: ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access {
-                reference: crate::VarRef {
-                    name: Name::new("arr"),
-                    name_span: Span::new(),
-                    subscript: Some(Box::new(dynamic_subscript())),
-                    span: Span::new(),
-                },
+                reference: var_ref_with_dynamic_subscript("arr"),
             }),
             span: Span::new(),
             raw_body: crate::SourceText::cooked(Span::new(), "arr[$(idx)]"),
         };
-        let word = Word {
-            parts: vec![WordPartNode::new(
-                WordPart::Parameter(expansion),
-                Span::new(),
-            )],
-            span: Span::new(),
-            brace_syntax: Vec::new(),
-        };
         let file = file_with_command(Command::Simple(SimpleCommand {
             name: Word::literal("echo"),
-            args: vec![word],
+            args: vec![word(vec![WordPart::Parameter(expansion)])],
             assignments: Box::new([]),
             span: Span::new(),
         }));
@@ -1851,6 +1846,68 @@ mod tests {
 
         assert_eq!(command.child_sequence_ids().len(), 1);
         assert!(command.word_ids().len() >= 3);
+    }
+
+    #[test]
+    fn declaration_name_subscript_words_are_command_words() {
+        let file = file_with_command(Command::Decl(DeclClause {
+            variant: Name::new("declare"),
+            variant_span: Span::new(),
+            operands: vec![DeclOperand::Name(var_ref_with_dynamic_subscript("arr"))],
+            assignments: Box::new([]),
+            span: Span::new(),
+        }));
+
+        let arena = ArenaFile::from_file(&file);
+        let command = arena.view().body().stmts().next().unwrap().command();
+
+        assert_eq!(command.child_sequence_ids().len(), 1);
+        assert!(!command.word_ids().is_empty());
+    }
+
+    #[test]
+    fn zsh_reference_target_subscript_words_are_command_words() {
+        let expansion = ParameterExpansion {
+            syntax: ParameterExpansionSyntax::Zsh(ZshParameterExpansion {
+                target: ZshExpansionTarget::Reference(var_ref_with_dynamic_subscript("arr")),
+                modifiers: Vec::new(),
+                length_prefix: None,
+                operation: None,
+            }),
+            span: Span::new(),
+            raw_body: crate::SourceText::cooked(Span::new(), "arr[$(idx)]"),
+        };
+        let file = file_with_command(Command::Simple(SimpleCommand {
+            name: Word::literal("echo"),
+            args: vec![word(vec![WordPart::Parameter(expansion)])],
+            assignments: Box::new([]),
+            span: Span::new(),
+        }));
+
+        let arena = ArenaFile::from_file(&file);
+        let command = arena.view().body().stmts().next().unwrap().command();
+
+        assert_eq!(command.child_sequence_ids().len(), 1);
+        assert!(command.word_ids().len() >= 2);
+    }
+
+    #[test]
+    fn transformation_subscript_words_are_command_words() {
+        let file = file_with_command(Command::Simple(SimpleCommand {
+            name: Word::literal("echo"),
+            args: vec![word(vec![WordPart::Transformation {
+                reference: var_ref_with_dynamic_subscript("arr"),
+                operator: 'Q',
+            }])],
+            assignments: Box::new([]),
+            span: Span::new(),
+        }));
+
+        let arena = ArenaFile::from_file(&file);
+        let command = arena.view().body().stmts().next().unwrap().command();
+
+        assert_eq!(command.child_sequence_ids().len(), 1);
+        assert!(command.word_ids().len() >= 2);
     }
 
     fn file_with_command(command: Command) -> crate::File {
@@ -1902,16 +1959,29 @@ mod tests {
     }
 
     fn word_with_command_substitution() -> Word {
+        word(vec![WordPart::CommandSubstitution {
+            body: simple_sequence("subcmd"),
+            syntax: CommandSubstitutionSyntax::DollarParen,
+        }])
+    }
+
+    fn word(parts: Vec<WordPart>) -> Word {
         Word {
-            parts: vec![WordPartNode::new(
-                WordPart::CommandSubstitution {
-                    body: simple_sequence("subcmd"),
-                    syntax: CommandSubstitutionSyntax::DollarParen,
-                },
-                Span::new(),
-            )],
+            parts: parts
+                .into_iter()
+                .map(|part| WordPartNode::new(part, Span::new()))
+                .collect(),
             span: Span::new(),
             brace_syntax: Vec::new(),
+        }
+    }
+
+    fn var_ref_with_dynamic_subscript(name: &str) -> crate::VarRef {
+        crate::VarRef {
+            name: Name::new(name),
+            name_span: Span::new(),
+            subscript: Some(Box::new(dynamic_subscript())),
+            span: Span::new(),
         }
     }
 
