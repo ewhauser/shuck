@@ -39,6 +39,16 @@ impl ArenaFile {
         }
     }
 
+    /// Builds an arena representation from an owned parsed root body.
+    pub fn from_body(body: StmtSeq, span: Span) -> Self {
+        let mut builder = AstStoreBuilder::default();
+        let root = builder.lower_file_body(body, span);
+        Self {
+            root,
+            store: builder.finish(),
+        }
+    }
+
     /// Returns a borrowed view of the root file node.
     pub fn view(&self) -> FileView<'_> {
         self.store.file(self.root)
@@ -512,6 +522,13 @@ impl AstStoreBuilder {
         id
     }
 
+    fn lower_file_body(&mut self, body: StmtSeq, span: Span) -> FileId {
+        let body = self.lower_stmt_seq_owned(body);
+        let id = Idx::new(self.store.files.len());
+        self.store.files.push(FileNode { body, span });
+        id
+    }
+
     fn lower_stmt_seq(&mut self, sequence: &StmtSeq) -> StmtSeqId {
         let leading_comments = self
             .store
@@ -527,6 +544,32 @@ impl AstStoreBuilder {
             .store
             .comment_lists
             .push_many(sequence.trailing_comments.iter().copied());
+
+        let id = Idx::new(self.store.stmt_seqs.len());
+        self.store.stmt_seqs.push(StmtSeqNode {
+            leading_comments,
+            stmts,
+            trailing_comments,
+            span: sequence.span,
+        });
+        id
+    }
+
+    fn lower_stmt_seq_owned(&mut self, sequence: StmtSeq) -> StmtSeqId {
+        let leading_comments = self
+            .store
+            .comment_lists
+            .push_many(sequence.leading_comments);
+        let stmts = sequence
+            .stmts
+            .into_iter()
+            .map(|stmt| self.lower_stmt_owned(stmt))
+            .collect::<Vec<_>>();
+        let stmts = self.store.stmt_id_lists.push_many(stmts);
+        let trailing_comments = self
+            .store
+            .comment_lists
+            .push_many(sequence.trailing_comments);
 
         let id = Idx::new(self.store.stmt_seqs.len());
         self.store.stmt_seqs.push(StmtSeqNode {
@@ -579,6 +622,44 @@ impl AstStoreBuilder {
         id
     }
 
+    fn lower_stmt_owned(&mut self, stmt: Stmt) -> StmtId {
+        let leading_comments = self.store.comment_lists.push_many(stmt.leading_comments);
+        let command = self.lower_command_owned(stmt.command);
+        let mut redirect_words = Vec::new();
+        let mut redirect_child_sequences = Vec::new();
+        for redirect in stmt.redirects.iter() {
+            self.collect_redirect_children(
+                redirect,
+                &mut redirect_words,
+                &mut redirect_child_sequences,
+            );
+        }
+        let redirect_words = self.store.word_id_lists.push_many(redirect_words);
+        let redirect_child_sequences = self
+            .store
+            .stmt_seq_id_lists
+            .push_many(redirect_child_sequences);
+        let redirects = self
+            .store
+            .redirect_lists
+            .push_many(stmt.redirects.into_vec());
+
+        let id = Idx::new(self.store.stmts.len());
+        self.store.stmts.push(StmtNode {
+            leading_comments,
+            command,
+            negated: stmt.negated,
+            redirects,
+            redirect_words,
+            redirect_child_sequences,
+            terminator: stmt.terminator,
+            terminator_span: stmt.terminator_span,
+            inline_comment: stmt.inline_comment,
+            span: stmt.span,
+        });
+        id
+    }
+
     fn lower_command(&mut self, command: &Command) -> CommandId {
         let mut words = Vec::new();
         let mut child_sequences = Vec::new();
@@ -593,6 +674,24 @@ impl AstStoreBuilder {
             words,
             child_sequences,
             legacy: command.clone(),
+        });
+        id
+    }
+
+    fn lower_command_owned(&mut self, command: Command) -> CommandId {
+        let mut words = Vec::new();
+        let mut child_sequences = Vec::new();
+        self.collect_command_children(&command, &mut words, &mut child_sequences);
+
+        let words = self.store.word_id_lists.push_many(words);
+        let child_sequences = self.store.stmt_seq_id_lists.push_many(child_sequences);
+        let id = Idx::new(self.store.commands.len());
+        self.store.commands.push(CommandNode {
+            kind: command_kind(&command),
+            span: command_span(&command),
+            words,
+            child_sequences,
+            legacy: command,
         });
         id
     }
@@ -1491,6 +1590,23 @@ mod tests {
             panic!("expected simple command");
         };
         assert_eq!(command.args.len(), 1);
+    }
+
+    #[test]
+    fn arena_file_builds_from_owned_body() {
+        let file = file_with_command(Command::Simple(SimpleCommand {
+            name: Word::literal("echo"),
+            args: vec![Word::literal("hello")],
+            assignments: Box::new([]),
+            span: Span::new(),
+        }));
+
+        let arena = ArenaFile::from_body(file.body, file.span);
+        let materialized = arena.to_file();
+
+        assert_eq!(arena.store.file_count(), 1);
+        assert_eq!(arena.store.stmt_seq_count(), 1);
+        assert_eq!(materialized.body.len(), 1);
     }
 
     #[test]

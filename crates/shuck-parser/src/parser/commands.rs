@@ -258,7 +258,8 @@ impl<'a> Parser<'a> {
             ParseStatus::Recovered
         };
 
-        let arena_file = ArenaFile::from_file(&file);
+        let arena_file = ArenaFile::from_body(file.body, file_span);
+        let file = arena_file.to_file();
 
         ParseResult {
             file,
