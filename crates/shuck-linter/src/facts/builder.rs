@@ -9,6 +9,13 @@ struct LinterFactsBuilder<'a> {
 }
 
 #[derive(Debug, Default)]
+struct FactBuildCapacity {
+    commands: usize,
+    structural_commands: usize,
+    functions: usize,
+}
+
+#[derive(Debug, Default)]
 struct ArithmeticFactSummary {
     array_index_arithmetic_spans: Vec<Span>,
     arithmetic_score_line_spans: Vec<Span>,
@@ -29,6 +36,26 @@ struct HeredocFactSummary {
 
 fn total_child_len<T>(lists: &[Vec<T>]) -> usize {
     lists.iter().map(Vec::len).sum()
+}
+
+fn estimate_fact_build_capacity(file: &File) -> FactBuildCapacity {
+    let mut capacity = FactBuildCapacity::default();
+    walk_commands(
+        &file.body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |visit, context| {
+            capacity.commands += 1;
+            if !context.nested_word_command {
+                capacity.structural_commands += 1;
+            }
+            if matches!(visit.command, Command::Function(_)) {
+                capacity.functions += 1;
+            }
+        },
+    );
+    capacity
 }
 
 impl<'a> LinterFactsBuilder<'a> {
@@ -54,23 +81,33 @@ impl<'a> LinterFactsBuilder<'a> {
 
     fn build(self) -> LinterFacts<'a> {
         let source = self.source;
-        let mut commands = Vec::new();
+        let capacity = estimate_fact_build_capacity(self.file);
+        let estimated_word_nodes = capacity.commands.saturating_mul(2);
+        let estimated_word_occurrences = capacity.commands.saturating_mul(3);
+
+        let mut commands = Vec::with_capacity(capacity.commands);
         let mut redirect_fact_store = ListArena::new();
         let mut declaration_assignment_probe_store = ListArena::new();
-        let mut structural_command_ids = Vec::new();
-        let mut command_ids_by_span = CommandLookupIndex::default();
-        let mut if_condition_command_ids = FxHashSet::default();
-        let mut elif_condition_command_ids = FxHashSet::default();
+        let mut structural_command_ids = Vec::with_capacity(capacity.structural_commands);
+        let mut command_ids_by_span =
+            CommandLookupIndex::with_capacity_and_hasher(capacity.commands, Default::default());
+        let mut if_condition_command_ids =
+            FxHashSet::with_capacity_and_hasher(capacity.commands / 4, Default::default());
+        let mut elif_condition_command_ids =
+            FxHashSet::with_capacity_and_hasher(capacity.commands / 8, Default::default());
         let mut binding_values = FxHashMap::default();
         let mut broken_assoc_key_spans = Vec::new();
         let mut comma_array_assignment_spans = Vec::new();
         let mut ifs_literal_backslash_assignment_value_spans = Vec::new();
-        let mut word_nodes = Vec::new();
-        let mut word_node_ids_by_span = FxHashMap::default();
-        let mut word_occurrences = Vec::new();
-        let mut pending_arithmetic_word_occurrences = Vec::new();
+        let mut word_nodes = Vec::with_capacity(estimated_word_nodes);
+        let mut word_node_ids_by_span =
+            FxHashMap::with_capacity_and_hasher(estimated_word_nodes, Default::default());
+        let mut word_occurrences = Vec::with_capacity(estimated_word_occurrences);
+        let mut pending_arithmetic_word_occurrences =
+            Vec::with_capacity(capacity.commands.saturating_div(4));
         let mut compound_assignment_value_word_spans = FxHashSet::default();
-        let mut array_assignment_split_word_ids = Vec::new();
+        let mut array_assignment_split_word_ids =
+            Vec::with_capacity(capacity.commands.saturating_div(8));
         let mut assoc_binding_visibility_memo = FxHashMap::default();
         let mut pattern_exactly_one_extglob_spans = Vec::new();
         let mut case_pattern_expansions = Vec::new();
@@ -78,8 +115,8 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut pattern_charclass_spans = Vec::new();
         let mut arithmetic_summary = ArithmeticFactSummary::default();
         let mut surface_fragments = SurfaceFragmentSink::new(self.source);
-        let mut functions = Vec::new();
-        let mut function_body_without_braces_spans = Vec::new();
+        let mut functions = Vec::with_capacity(capacity.functions);
+        let mut function_body_without_braces_spans = Vec::with_capacity(capacity.functions);
         let redundant_return_status_spans = Vec::new();
         let mut getopts_cases = Vec::new();
         let mut condition_status_capture_spans = Vec::new();
