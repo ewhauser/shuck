@@ -34,6 +34,7 @@ pub enum EdgeKind {
     CaseArm,
     CaseFallthrough,
     CaseContinue,
+    NestedRegion,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -54,6 +55,7 @@ pub struct ControlFlowGraph {
     exits: Vec<BlockId>,
     natural_exits: Vec<BlockId>,
     script_terminators: Vec<BlockId>,
+    script_always_terminates: bool,
     unreachable: Vec<BlockId>,
     pub(crate) scope_entries: FxHashMap<ScopeId, BlockId>,
     pub(crate) scope_exits: FxHashMap<ScopeId, SmallVec<[BlockId; 2]>>,
@@ -98,6 +100,10 @@ impl ControlFlowGraph {
 
     pub fn script_terminators(&self) -> &[BlockId] {
         &self.script_terminators
+    }
+
+    pub fn script_always_terminates(&self) -> bool {
+        self.script_always_terminates
     }
 
     pub fn scope_entry(&self, scope: ScopeId) -> Option<BlockId> {
@@ -1389,6 +1395,7 @@ pub(crate) fn build_control_flow_graph(
     let file = builder.build_sequence(program.file_commands(), &[]);
     let entry = file.entry.unwrap_or_else(|| builder.empty_block());
     builder.scope_entries.insert(ScopeId(0), entry);
+    let script_always_terminates = file.exits.is_empty() && file.entry.is_some();
     let mut natural_exits: Vec<BlockId> = if file.entry.is_none() {
         vec![entry]
     } else {
@@ -1434,6 +1441,7 @@ pub(crate) fn build_control_flow_graph(
         exits,
         natural_exits,
         script_terminators: builder.script_terminators,
+        script_always_terminates,
         unreachable,
         scope_entries: builder.scope_entries,
         scope_exits,
@@ -1617,7 +1625,7 @@ impl<'a> GraphBuilder<'a> {
                 self.attach_nested_regions(block, command.nested_regions, loops);
                 let body_sequence = self.build_sequence(*body, loops);
                 if let Some(body_entry) = body_sequence.entry {
-                    self.add_edge(block, body_entry, EdgeKind::Sequential);
+                    self.add_edge(block, body_entry, EdgeKind::NestedRegion);
                 }
                 SequenceResult {
                     entry: Some(block),
@@ -1634,7 +1642,7 @@ impl<'a> GraphBuilder<'a> {
                         self.scope_entries
                             .entry(segment.scope)
                             .or_insert(segment_entry);
-                        self.add_edge(block, segment_entry, EdgeKind::Sequential);
+                        self.add_edge(block, segment_entry, EdgeKind::NestedRegion);
                     }
                 }
                 SequenceResult {
@@ -2157,7 +2165,7 @@ impl<'a> GraphBuilder<'a> {
             let sequence = self.build_sequence(region.commands, loops);
             if let Some(entry) = sequence.entry {
                 self.scope_entries.entry(region.scope).or_insert(entry);
-                self.add_edge(block, entry, EdgeKind::Sequential);
+                self.add_edge(block, entry, EdgeKind::NestedRegion);
             }
         }
     }

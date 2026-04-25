@@ -322,6 +322,23 @@ fn test_posix_function_with_brace_group_preserves_surface_form() {
 }
 
 #[test]
+fn test_alias_expansion_does_not_replace_posix_function_name() {
+    let input = "\
+shopt -s expand_aliases
+alias wget='wget -V'
+wget() { echo hi; }
+";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let function = expect_function(&script.body[2]);
+
+    assert_eq!(
+        function.static_names().next().map(|name| name.as_str()),
+        Some("wget")
+    );
+}
+
+#[test]
 fn test_posix_function_allows_subshell_body() {
     let input = "inc_subshell() ( j=$((j+5)); )\n";
     let script = Parser::new(input).parse().unwrap().file;

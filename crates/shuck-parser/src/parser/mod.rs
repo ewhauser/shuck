@@ -6854,6 +6854,9 @@ impl<'a> Parser<'a> {
             let Some(name) = self.current_token.as_ref().and_then(LexedToken::word_text) else {
                 break;
             };
+            if self.current_source_word_starts_posix_function_header(name) {
+                break;
+            }
             let Some(alias) = self.aliases.get(name).cloned() else {
                 break;
             };
@@ -6869,6 +6872,30 @@ impl<'a> Parser<'a> {
         }
 
         self.expand_next_word = expands_next_word;
+    }
+
+    fn current_source_word_starts_posix_function_header(&self, name: &str) -> bool {
+        if name.contains('=') || name.contains('[') {
+            return false;
+        }
+
+        if self
+            .current_token
+            .as_ref()
+            .is_some_and(|token| token.flags.is_synthetic())
+        {
+            return false;
+        }
+
+        let Some(tail) = self.input.get(self.current_span.end.offset..) else {
+            return false;
+        };
+        let tail = tail.trim_start_matches([' ', '\t']);
+        let Some(after_left) = tail.strip_prefix('(') else {
+            return false;
+        };
+        let after_left = after_left.trim_start_matches([' ', '\t']);
+        after_left.starts_with(')')
     }
 
     fn next_word_char(
