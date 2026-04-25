@@ -2251,6 +2251,19 @@ report \"$@\"
     }
 
     #[test]
+    fn skips_arithmetic_and_escaped_declaration_assignment_arguments() {
+        let source = "\
+#!/bin/bash
+let COOLDOWN=$AUTOPAUSE_TIMEOUT_KN/2
+\\typeset counter=${1:-0}
+\\typeset __action=$1
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn uses_static_loop_values_from_static_function_call_sites() {
         let source = "\
 #!/bin/bash

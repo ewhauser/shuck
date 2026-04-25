@@ -3733,9 +3733,14 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                                 &mut self.arithmetic.arithmetic_command_substitution_spans,
                             );
                         }
+                        let word_context = Self::simple_command_argument_expansion_context(
+                            surface_command_name,
+                            word,
+                            self.source,
+                        );
                         let (_, opened) = self.push_word_with_surface(
                             word,
-                            WordFactContext::Expansion(ExpansionContext::CommandArgument),
+                            word_context,
                             WordFactHostKind::Direct,
                             surface_word_context,
                         );
@@ -3837,6 +3842,31 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 );
             }
         }
+    }
+
+    fn simple_command_argument_expansion_context(
+        command_name: Option<&str>,
+        word: &Word,
+        source: &str,
+    ) -> WordFactContext {
+        match command_name {
+            Some("let") => WordFactContext::ArithmeticCommand,
+            Some("declare" | "export" | "local" | "readonly" | "typeset")
+                if Self::simple_assignment_like_word(word, source) =>
+            {
+                WordFactContext::Expansion(ExpansionContext::DeclarationAssignmentValue)
+            }
+            _ => WordFactContext::Expansion(ExpansionContext::CommandArgument),
+        }
+    }
+
+    fn simple_assignment_like_word(word: &Word, source: &str) -> bool {
+        let text = word.span.slice(source);
+        let Some((name, _)) = text.split_once('=') else {
+            return false;
+        };
+
+        is_shell_variable_name(name)
     }
 
     fn collect_expansion_assignment_value_words(&mut self, command: &'a Command) {
