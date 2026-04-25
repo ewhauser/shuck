@@ -533,23 +533,27 @@ fn collect_condition_status_capture_from_sequence_segment(
     trailing_tail_has_test: bool,
     has_prior_barrier: bool,
 ) {
+    let tail_contains_test = sequence_tail_test_index(commands, source);
+    let mut recent = RecentSequenceStatus::default();
     for (index, window) in commands.windows(2).enumerate() {
         let [previous, current] = window else {
             continue;
         };
-        let recent = recent_sequence_region(&commands[..index], source);
-        let tail = &commands[index + 2..];
-        let effective_tail_has_test =
-            trailing_tail_has_test || sequence_tail_contains_test_command(tail, source);
-        let in_tbegin_region = commands[..index]
-            .iter()
-            .any(|stmt| stmt_is_named_simple_command(stmt, source, "tbegin"));
+        if index > 0 {
+            recent.push(&commands[index - 1], source);
+        }
+        let tail_has_test = tail_contains_test
+            .get(index + 2)
+            .copied()
+            .unwrap_or(false);
+        let effective_tail_has_test = trailing_tail_has_test || tail_has_test;
+        let in_tbegin_region = recent.seen_tbegin;
 
         if stmt_is_assignment_only_unquoted_status_capture(current) {
             if stmt_is_standalone_non_status_test_command(previous, source)
                 && in_tbegin_region
-                && recent_status_capture_stmt_count(recent, source) >= 2
-                && sequence_tail_contains_test_command(tail, source)
+                && recent.status_capture_count >= 2
+                && tail_has_test
             {
                 collect_status_parameter_spans_in_stmt(current, source, spans);
             }
@@ -561,8 +565,7 @@ fn collect_condition_status_capture_from_sequence_segment(
         }
 
         if stmt_is_status_based_test_command(previous, source) {
-            if (!has_prior_barrier && effective_tail_has_test)
-                || recent_contains_status_based_test(recent, source)
+            if (!has_prior_barrier && effective_tail_has_test) || recent.contains_status_based_test
             {
                 collect_status_parameter_spans_in_stmt(current, source, spans);
             }
@@ -574,7 +577,7 @@ fn collect_condition_status_capture_from_sequence_segment(
         }
 
         if in_tbegin_region
-            && recent_has_prior_non_status_capture_pair(recent, source)
+            && recent.has_prior_non_status_capture_pair
         {
             continue;
         }
@@ -585,10 +588,50 @@ fn collect_condition_status_capture_from_sequence_segment(
     }
 }
 
-fn sequence_tail_contains_test_command(commands: &[Stmt], source: &str) -> bool {
-    commands
-        .iter()
-        .any(|stmt| stmt_terminals_are_test_commands(stmt, source))
+#[derive(Default)]
+struct RecentSequenceStatus<'a> {
+    seen_tbegin: bool,
+    status_capture_count: usize,
+    contains_status_based_test: bool,
+    has_prior_non_status_capture_pair: bool,
+    last_stmt: Option<&'a Stmt>,
+}
+
+impl<'a> RecentSequenceStatus<'a> {
+    fn push(&mut self, stmt: &'a Stmt, source: &str) {
+        if stmt_is_named_simple_command(stmt, source, "tbegin") {
+            self.seen_tbegin = true;
+            self.status_capture_count = 0;
+            self.contains_status_based_test = false;
+            self.has_prior_non_status_capture_pair = false;
+            self.last_stmt = None;
+            return;
+        }
+
+        let contains_status_capture = stmt_contains_status_capture(stmt, source);
+        if self
+            .last_stmt
+            .is_some_and(|previous| stmt_is_standalone_non_status_test_command(previous, source))
+            && contains_status_capture
+        {
+            self.has_prior_non_status_capture_pair = true;
+        }
+        if contains_status_capture {
+            self.status_capture_count += 1;
+        }
+        if stmt_is_status_based_test_command(stmt, source) {
+            self.contains_status_based_test = true;
+        }
+        self.last_stmt = Some(stmt);
+    }
+}
+
+fn sequence_tail_test_index(commands: &[Stmt], source: &str) -> Vec<bool> {
+    let mut suffix = vec![false; commands.len() + 1];
+    for (index, stmt) in commands.iter().enumerate().rev() {
+        suffix[index] = suffix[index + 1] || stmt_terminals_are_test_commands(stmt, source);
+    }
+    suffix
 }
 
 fn sequence_tail_contains_nested_test_command(commands: &[Stmt], source: &str) -> bool {
@@ -1348,20 +1391,6 @@ fn stmt_contains_unquoted_standalone_status_capture(stmt: &Stmt, source: &str) -
     !spans.is_empty()
 }
 
-fn recent_sequence_region<'a>(commands: &'a [Stmt], source: &str) -> &'a [Stmt] {
-    let start = commands
-        .iter()
-        .rposition(|stmt| stmt_is_named_simple_command(stmt, source, "tbegin"))
-        .map_or(0, |index| index + 1);
-    &commands[start..]
-}
-
-fn recent_contains_status_based_test(commands: &[Stmt], source: &str) -> bool {
-    commands
-        .iter()
-        .any(|stmt| stmt_is_status_based_test_command(stmt, source))
-}
-
 fn stmt_starts_sequence_barrier(stmt: &Stmt) -> bool {
     matches!(
         &stmt.command,
@@ -1426,23 +1455,6 @@ fn assignment_value_is_unquoted_status_capture(value: &AssignmentValue) -> bool 
         AssignmentValue::Scalar(word) => word_is_unquoted_standalone_status_capture(word),
         AssignmentValue::Compound(_) => false,
     }
-}
-
-fn recent_has_prior_non_status_capture_pair(commands: &[Stmt], source: &str) -> bool {
-    commands.windows(2).any(|window| {
-        let [previous, current] = window else {
-            return false;
-        };
-        stmt_is_standalone_non_status_test_command(previous, source)
-            && stmt_contains_status_capture(current, source)
-    })
-}
-
-fn recent_status_capture_stmt_count(commands: &[Stmt], source: &str) -> usize {
-    commands
-        .iter()
-        .filter(|stmt| stmt_contains_status_capture(stmt, source))
-        .count()
 }
 
 fn stmt_is_exit_or_return_builtin(stmt: &Stmt) -> bool {

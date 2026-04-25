@@ -1943,12 +1943,16 @@ impl<'model> SemanticAnalysis<'model> {
         scope_execution_cache: &mut FxHashMap<ScopeId, bool>,
     ) -> bool {
         let binding = self.model.binding(binding_id);
-        if self.enclosing_function_scope(binding.scope).is_none() {
+        let Some(enclosing_scope) = self.enclosing_function_or_transient_scope(binding.scope)
+        else {
             return false;
-        }
+        };
 
         let empty_terminators = FxHashSet::default();
-        if self.binding_execution_scope_can_run_before_termination(
+        if matches!(
+            self.model.scope_kind(enclosing_scope),
+            ScopeKind::Function(function) if !function.is_anonymous()
+        ) && self.binding_execution_scope_can_run_persistently_before_termination(
             binding_id,
             cfg,
             unreachable,
@@ -2006,6 +2010,30 @@ impl<'model> SemanticAnalysis<'model> {
         )
     }
 
+    fn binding_execution_scope_can_run_persistently_before_termination(
+        &self,
+        binding_id: BindingId,
+        cfg: &ControlFlowGraph,
+        unreachable: &FxHashSet<BlockId>,
+        script_terminators: &FxHashSet<BlockId>,
+        scope_execution_cache: &mut FxHashMap<ScopeId, bool>,
+    ) -> bool {
+        let binding = self.model.binding(binding_id);
+        let Some(function_scope) = self.enclosing_function_scope(binding.scope) else {
+            return true;
+        };
+
+        let mut visiting_scopes = FxHashSet::default();
+        self.function_scope_can_run_persistently_before_termination(
+            function_scope,
+            cfg,
+            unreachable,
+            script_terminators,
+            &mut visiting_scopes,
+            scope_execution_cache,
+        )
+    }
+
     fn function_scope_can_run_before_termination(
         &self,
         function_scope: ScopeId,
@@ -2040,6 +2068,9 @@ impl<'model> SemanticAnalysis<'model> {
                             &function.name,
                             site,
                             function_binding,
+                        ) && self.call_site_can_execute_after_function_definition(
+                            site,
+                            function.span.start.offset,
                         ) && self.call_site_context_can_run_before_termination(
                             site,
                             cfg,
@@ -2053,6 +2084,115 @@ impl<'model> SemanticAnalysis<'model> {
 
         visiting_scopes.remove(&function_scope);
         scope_execution_cache.insert(function_scope, can_run);
+        can_run
+    }
+
+    fn function_scope_can_run_persistently_before_termination(
+        &self,
+        function_scope: ScopeId,
+        cfg: &ControlFlowGraph,
+        unreachable: &FxHashSet<BlockId>,
+        script_terminators: &FxHashSet<BlockId>,
+        visiting_scopes: &mut FxHashSet<ScopeId>,
+        scope_execution_cache: &mut FxHashMap<ScopeId, bool>,
+    ) -> bool {
+        if !visiting_scopes.contains(&function_scope)
+            && let Some(cached) = scope_execution_cache.get(&function_scope)
+        {
+            return *cached;
+        }
+        if !visiting_scopes.insert(function_scope) {
+            return false;
+        }
+
+        let can_run = self
+            .model
+            .recorded_program
+            .function_body_scopes
+            .iter()
+            .filter_map(|(binding, body_scope)| (*body_scope == function_scope).then_some(*binding))
+            .any(|function_binding| {
+                let function = self.model.binding(function_binding);
+                self.model
+                    .call_sites_for(&function.name)
+                    .iter()
+                    .any(|site| {
+                        self.overwrite_call_site_resolves_to_binding(
+                            &function.name,
+                            site,
+                            function_binding,
+                        ) && self.call_site_can_execute_after_function_definition(
+                            site,
+                            function.span.start.offset,
+                        ) && !self.call_site_runs_in_transient_context(site.scope)
+                            && self.call_site_context_can_run_persistently_before_termination(
+                                site,
+                                cfg,
+                                unreachable,
+                                script_terminators,
+                                visiting_scopes,
+                                scope_execution_cache,
+                            )
+                    })
+            });
+
+        visiting_scopes.remove(&function_scope);
+        scope_execution_cache.insert(function_scope, can_run);
+        can_run
+    }
+
+    fn call_site_can_execute_after_function_definition(
+        &self,
+        site: &CallSite,
+        function_offset: usize,
+    ) -> bool {
+        site.span.start.offset > function_offset || {
+            let mut visiting_scopes = FxHashSet::default();
+            self.call_site_context_can_run_after_offset(site, function_offset, &mut visiting_scopes)
+        }
+    }
+
+    fn call_site_context_can_run_after_offset(
+        &self,
+        site: &CallSite,
+        after_offset: usize,
+        visiting_scopes: &mut FxHashSet<ScopeId>,
+    ) -> bool {
+        let Some(function_scope) = self.enclosing_function_scope(site.scope) else {
+            return site.span.start.offset > after_offset;
+        };
+        if !visiting_scopes.insert(function_scope) {
+            return false;
+        }
+
+        let can_run = self
+            .model
+            .recorded_program
+            .function_body_scopes
+            .iter()
+            .filter_map(|(binding_id, body_scope)| {
+                (*body_scope == function_scope).then_some(*binding_id)
+            })
+            .any(|function_binding| {
+                let function = self.model.binding(function_binding);
+                self.model
+                    .call_sites_for(&function.name)
+                    .iter()
+                    .any(|caller| {
+                        self.overwrite_call_site_resolves_to_binding(
+                            &function.name,
+                            caller,
+                            function_binding,
+                        ) && (caller.span.start.offset > after_offset
+                            || self.call_site_context_can_run_after_offset(
+                                caller,
+                                after_offset,
+                                visiting_scopes,
+                            ))
+                    })
+            });
+
+        visiting_scopes.remove(&function_scope);
         can_run
     }
 
@@ -2095,6 +2235,54 @@ impl<'model> SemanticAnalysis<'model> {
         )
     }
 
+    fn call_site_context_can_run_persistently_before_termination(
+        &self,
+        site: &CallSite,
+        cfg: &ControlFlowGraph,
+        unreachable: &FxHashSet<BlockId>,
+        script_terminators: &FxHashSet<BlockId>,
+        visiting_scopes: &mut FxHashSet<ScopeId>,
+        scope_execution_cache: &mut FxHashMap<ScopeId, bool>,
+    ) -> bool {
+        let site_blocks = self.reachable_call_site_blocks_in_cfg(cfg, site, unreachable);
+        if site_blocks.is_empty() {
+            return false;
+        }
+
+        let Some(function_scope) = self.enclosing_function_scope(site.scope) else {
+            return blocks_have_path_avoiding(
+                cfg,
+                &[cfg.entry()],
+                &site_blocks,
+                script_terminators,
+            );
+        };
+        let Some(scope_entry) = cfg.scope_entry(function_scope) else {
+            return false;
+        };
+        if !blocks_have_path_avoiding(cfg, &[scope_entry], &site_blocks, script_terminators) {
+            return false;
+        }
+
+        self.function_scope_can_run_persistently_before_termination(
+            function_scope,
+            cfg,
+            unreachable,
+            script_terminators,
+            visiting_scopes,
+            scope_execution_cache,
+        )
+    }
+
+    fn call_site_runs_in_transient_context(&self, scope: ScopeId) -> bool {
+        self.model.ancestor_scopes(scope).any(|scope_id| {
+            matches!(
+                self.model.scope_kind(scope_id),
+                ScopeKind::Subshell | ScopeKind::CommandSubstitution | ScopeKind::Pipeline
+            )
+        })
+    }
+
     fn function_binding_has_direct_call_before_termination(
         &self,
         name: &Name,
@@ -2113,6 +2301,10 @@ impl<'model> SemanticAnalysis<'model> {
         site: &CallSite,
         window: &FunctionReachWindow<'_>,
     ) -> bool {
+        if self.call_site_has_prior_shadowing_function_definition(name, site, window.binding) {
+            return false;
+        }
+
         let binding = self.model.binding(window.binding);
         if site.scope == binding.scope {
             let site_blocks =
@@ -2128,6 +2320,10 @@ impl<'model> SemanticAnalysis<'model> {
         }
 
         if self.overwrite_call_site_resolves_to_binding(name, site, window.binding) {
+            return true;
+        }
+
+        if self.call_site_can_use_function_binding_provided_earlier(site, window) {
             return true;
         }
 
@@ -2155,6 +2351,142 @@ impl<'model> SemanticAnalysis<'model> {
             })
     }
 
+    fn call_site_has_prior_shadowing_function_definition(
+        &self,
+        name: &Name,
+        site: &CallSite,
+        binding_id: BindingId,
+    ) -> bool {
+        let binding = self.model.binding(binding_id);
+        for scope in self.model.ancestor_scopes(site.scope) {
+            if scope == binding.scope {
+                return false;
+            }
+
+            if self.model.scopes[scope.index()]
+                .bindings
+                .get(name)
+                .into_iter()
+                .flat_map(|bindings| bindings.iter())
+                .any(|other| {
+                    *other != binding_id
+                        && matches!(
+                            self.model.binding(*other).kind,
+                            BindingKind::FunctionDefinition
+                        )
+                        && self.model.binding(*other).span.start.offset < site.span.start.offset
+                })
+            {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn call_site_can_use_function_binding_provided_earlier(
+        &self,
+        site: &CallSite,
+        window: &FunctionReachWindow<'_>,
+    ) -> bool {
+        let binding = self.model.binding(window.binding);
+        let Some(provider_scope) = self.enclosing_function_scope(binding.scope) else {
+            return false;
+        };
+        let consumer_execution_scope = self.call_site_execution_scope(site.scope);
+        if self.function_scope_is_called_before_offset(
+            consumer_execution_scope,
+            binding.span.start.offset,
+            window,
+        ) {
+            return false;
+        }
+        let site_blocks =
+            self.reachable_call_site_blocks_in_cfg(window.cfg, site, window.unreachable);
+        if site_blocks.is_empty() {
+            return false;
+        }
+
+        self.model
+            .recorded_program
+            .function_body_scopes
+            .iter()
+            .filter_map(|(function_binding, body_scope)| {
+                (*body_scope == provider_scope).then_some(*function_binding)
+            })
+            .any(|provider_binding| {
+                let provider = self.model.binding(provider_binding);
+                self.model
+                    .call_sites_for(&provider.name)
+                    .iter()
+                    .any(|provider_site| {
+                        provider_site.span.start.offset < site.span.start.offset
+                            && self.call_site_execution_scope(provider_site.scope)
+                                == consumer_execution_scope
+                            && self.overwrite_call_site_resolves_to_binding(
+                                &provider.name,
+                                provider_site,
+                                provider_binding,
+                            )
+                            && {
+                                let provider_blocks = self.reachable_call_site_blocks_in_cfg(
+                                    window.cfg,
+                                    provider_site,
+                                    window.unreachable,
+                                );
+                                !provider_blocks.is_empty()
+                                    && blocks_have_path_avoiding_many(
+                                        window.cfg,
+                                        &provider_blocks,
+                                        &site_blocks,
+                                        window.shadow_blocks,
+                                        window.script_terminators,
+                                    )
+                            }
+                    })
+            })
+    }
+
+    fn function_scope_is_called_before_offset(
+        &self,
+        scope: ScopeId,
+        offset: usize,
+        window: &FunctionReachWindow<'_>,
+    ) -> bool {
+        self.model
+            .recorded_program
+            .function_body_scopes
+            .iter()
+            .filter_map(|(function_binding, body_scope)| {
+                (*body_scope == scope).then_some(*function_binding)
+            })
+            .any(|function_binding| {
+                let function = self.model.binding(function_binding);
+                self.model
+                    .call_sites_for(&function.name)
+                    .iter()
+                    .any(|site| {
+                        site.span.start.offset < offset
+                            && self.overwrite_call_site_resolves_to_binding(
+                                &function.name,
+                                site,
+                                function_binding,
+                            )
+                            && !self
+                                .reachable_call_site_blocks_in_cfg(
+                                    window.cfg,
+                                    site,
+                                    window.unreachable,
+                                )
+                                .is_empty()
+                    })
+            })
+    }
+
+    fn call_site_execution_scope(&self, scope: ScopeId) -> ScopeId {
+        self.enclosing_function_scope(scope).unwrap_or(scope)
+    }
+
     fn call_site_executes_before_termination(
         &self,
         site: &CallSite,
@@ -2165,6 +2497,10 @@ impl<'model> SemanticAnalysis<'model> {
             self.reachable_call_site_blocks_in_cfg(window.cfg, site, window.unreachable);
         if site_blocks.is_empty() {
             return false;
+        }
+
+        if self.call_site_can_use_function_binding_provided_earlier(site, window) {
+            return true;
         }
 
         let binding = self.model.binding(window.binding);
@@ -2222,7 +2558,9 @@ impl<'model> SemanticAnalysis<'model> {
                 (*body_scope == function_scope).then_some(*binding_id)
             })
             .any(|function_binding| {
-                let function_name = self.model.binding(function_binding).name.clone();
+                let function = self.model.binding(function_binding);
+                let function_name = function.name.clone();
+                let function_offset = function.span.start.offset;
                 self.model
                     .call_sites_for(&function_name)
                     .iter()
@@ -2231,6 +2569,9 @@ impl<'model> SemanticAnalysis<'model> {
                             &function_name,
                             caller,
                             function_binding,
+                        ) && self.call_site_can_execute_after_function_definition(
+                            caller,
+                            function_offset,
                         ) && self.call_site_executes_before_termination(
                             caller,
                             window,
@@ -2281,6 +2622,18 @@ impl<'model> SemanticAnalysis<'model> {
         })
     }
 
+    fn enclosing_function_or_transient_scope(&self, scope: ScopeId) -> Option<ScopeId> {
+        self.model.ancestor_scopes(scope).find(|scope_id| {
+            matches!(
+                self.model.scope_kind(*scope_id),
+                ScopeKind::Function(function) if !function.is_anonymous()
+            ) || matches!(
+                self.model.scope_kind(*scope_id),
+                ScopeKind::Subshell | ScopeKind::CommandSubstitution | ScopeKind::Pipeline
+            )
+        })
+    }
+
     fn compute_overwritten_functions(&self) -> Vec<OverwrittenFunction> {
         if self.model.functions.is_empty() {
             return Vec::new();
@@ -2288,6 +2641,11 @@ impl<'model> SemanticAnalysis<'model> {
 
         let cfg = self.cfg();
         let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let script_terminators = cfg
+            .script_terminators()
+            .iter()
+            .copied()
+            .collect::<FxHashSet<_>>();
         let binding_blocks = build_binding_block_index(cfg.blocks(), self.model.bindings.len());
         let mut reachability = ReachabilityCache::new(cfg);
         let mut overwritten = Vec::new();
@@ -2319,7 +2677,15 @@ impl<'model> SemanticAnalysis<'model> {
                         continue;
                     };
 
-                    if !blocks_have_path(&first_blocks, &second_blocks, &mut reachability) {
+                    if !blocks_have_path(&first_blocks, &second_blocks, &mut reachability)
+                        || !all_paths_reach_any_block_or_terminate(
+                            &first_blocks,
+                            &second_blocks,
+                            cfg,
+                            &unreachable,
+                            &script_terminators,
+                        )
+                    {
                         continue;
                     }
 
@@ -2704,6 +3070,66 @@ fn blocks_have_path(
     })
 }
 
+fn all_paths_reach_any_block_or_terminate(
+    starts: &[BlockId],
+    targets: &[BlockId],
+    cfg: &ControlFlowGraph,
+    unreachable: &FxHashSet<BlockId>,
+    script_terminators: &FxHashSet<BlockId>,
+) -> bool {
+    let targets = targets.iter().copied().collect::<FxHashSet<_>>();
+    starts.iter().copied().all(|start| {
+        path_reaches_any_target_or_terminates(
+            start,
+            &targets,
+            cfg,
+            unreachable,
+            script_terminators,
+            &mut FxHashSet::default(),
+        )
+    })
+}
+
+fn path_reaches_any_target_or_terminates(
+    block: BlockId,
+    targets: &FxHashSet<BlockId>,
+    cfg: &ControlFlowGraph,
+    unreachable: &FxHashSet<BlockId>,
+    script_terminators: &FxHashSet<BlockId>,
+    visiting: &mut FxHashSet<BlockId>,
+) -> bool {
+    if unreachable.contains(&block) {
+        return false;
+    }
+    if targets.contains(&block) || script_terminators.contains(&block) {
+        return true;
+    }
+    if !visiting.insert(block) {
+        return false;
+    }
+
+    let successors = cfg
+        .successors(block)
+        .iter()
+        .filter(|(_, edge)| !matches!(edge, EdgeKind::NestedRegion))
+        .copied()
+        .collect::<Vec<_>>();
+    let reaches = !successors.is_empty()
+        && successors.iter().all(|(successor, _)| {
+            path_reaches_any_target_or_terminates(
+                *successor,
+                targets,
+                cfg,
+                unreachable,
+                script_terminators,
+                visiting,
+            )
+        });
+
+    visiting.remove(&block);
+    reaches
+}
+
 fn reachable_blocks_for_binding(
     cfg: &ControlFlowGraph,
     binding: BindingId,
@@ -2850,7 +3276,13 @@ fn path_terminates_before_natural_exit(
         return false;
     }
 
-    let successors = context.cfg.successors(block);
+    let successors = context
+        .cfg
+        .successors(block)
+        .iter()
+        .filter(|(_, edge)| !matches!(edge, EdgeKind::NestedRegion))
+        .copied()
+        .collect::<Vec<_>>();
     let terminates = !successors.is_empty()
         && successors.iter().all(|(successor, _)| {
             path_terminates_before_natural_exit(*successor, visiting, context)
@@ -4222,6 +4654,36 @@ helper
     }
 
     #[test]
+    fn precise_overwritten_functions_ignore_conditional_redefinition_after_default() {
+        let source = "\
+helper() { return 0; }
+if cond; then
+  helper() { return 1; }
+fi
+helper
+";
+        let model = model(source);
+
+        assert!(model.analysis().overwritten_functions().is_empty());
+    }
+
+    #[test]
+    fn precise_overwritten_functions_allow_terminating_paths_before_redefinition() {
+        let source = "\
+helper() { return 0; }
+maybe || exit 1
+helper() { return 1; }
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let overwritten = analysis.overwritten_functions();
+
+        assert_eq!(overwritten.len(), 1);
+        assert_eq!(overwritten[0].name, "helper");
+        assert!(!overwritten[0].first_called);
+    }
+
+    #[test]
     fn precise_overwritten_functions_do_not_merge_distinct_helper_scopes() {
         let source = "\
 factory_one() {
@@ -4256,6 +4718,25 @@ factory_two
     }
 
     #[test]
+    fn unreached_functions_report_definitions_before_terminating_function_call() {
+        let source = "\
+f() { echo hi; }
+die() { exit 0; }
+die
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached = analysis.unreached_functions();
+
+        assert_eq!(unreached.len(), 1);
+        assert_eq!(unreached[0].name, "f");
+        assert_eq!(
+            unreached[0].reason,
+            UnreachedFunctionReason::ScriptTerminates
+        );
+    }
+
+    #[test]
     fn unreached_functions_ignore_definitions_at_plain_eof() {
         let source = "f() { echo hi; }\n";
         let model = model(source);
@@ -4270,6 +4751,27 @@ outer() {
   inner() { :; }
 }
 ";
+        let model = model(source);
+        let analysis = model.analysis();
+
+        assert!(analysis.unreached_functions().is_empty());
+
+        let unreached =
+            analysis.unreached_functions_with_options(UnreachedFunctionAnalysisOptions {
+                report_unreached_nested_definitions: true,
+            });
+
+        assert_eq!(unreached.len(), 1);
+        assert_eq!(unreached[0].name, "inner");
+        assert_eq!(
+            unreached[0].reason,
+            UnreachedFunctionReason::EnclosingFunctionUnreached
+        );
+    }
+
+    #[test]
+    fn unreached_functions_report_subshell_definitions_with_compat_option() {
+        let source = "( inner() { :; }; )\n";
         let model = model(source);
         let analysis = model.analysis();
 
@@ -4363,6 +4865,23 @@ outer() {
     }
 
     #[test]
+    fn transient_call_sites_include_function_scopes_under_command_substitution() {
+        let source = "\
+printf '%s\\n' \"$(
+  caller() {
+    target
+  }
+  caller
+)\"
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let site = &model.call_sites_for(&Name::from("target"))[0];
+
+        assert!(analysis.call_site_runs_in_transient_context(site.scope));
+    }
+
+    #[test]
     fn unreached_functions_count_transitive_nested_calls_before_enclosing_scope_exits() {
         let source = "\
 outer() {
@@ -4393,6 +4912,99 @@ outer() {
   wrapper
 }
 outer
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached =
+            analysis.unreached_functions_with_options(UnreachedFunctionAnalysisOptions {
+                report_unreached_nested_definitions: true,
+            });
+
+        assert!(unreached.is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_count_nested_definitions_installed_before_later_body_call() {
+        let source = "\
+provider() {
+  helper() { :; }
+}
+consumer() {
+  provider
+  helper
+}
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached =
+            analysis.unreached_functions_with_options(UnreachedFunctionAnalysisOptions {
+                report_unreached_nested_definitions: true,
+            });
+
+        assert!(unreached.is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_report_nested_definitions_when_provider_call_follows_use() {
+        let source = "\
+provider() {
+  helper() { :; }
+}
+consumer() {
+  helper
+  provider
+}
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached =
+            analysis.unreached_functions_with_options(UnreachedFunctionAnalysisOptions {
+                report_unreached_nested_definitions: true,
+            });
+
+        assert_eq!(unreached.len(), 1);
+        assert_eq!(unreached[0].name, "helper");
+    }
+
+    #[test]
+    fn unreached_functions_do_not_count_provider_call_when_consumer_runs_before_definition() {
+        let source = "\
+consumer() {
+  provider
+  helper
+}
+consumer
+provider() {
+  helper() { :; }
+}
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached =
+            analysis.unreached_functions_with_options(UnreachedFunctionAnalysisOptions {
+                report_unreached_nested_definitions: true,
+            });
+
+        assert_eq!(unreached.len(), 1);
+        assert_eq!(unreached[0].name, "helper");
+    }
+
+    #[test]
+    fn unreached_functions_ignore_unreachable_consumer_calls_before_provider_definition() {
+        let source = "\
+consumer() {
+  provider
+  helper
+}
+guard() {
+  return
+  consumer
+}
+guard
+provider() {
+  helper() { :; }
+}
+consumer
 ";
         let model = model(source);
         let analysis = model.analysis();
@@ -4499,6 +5111,30 @@ exit 0
     }
 
     #[test]
+    fn unreached_functions_ignore_body_calls_when_enclosing_function_runs_before_definition() {
+        let source = "\
+helper() { :; }
+main() {
+  late
+}
+main
+late() {
+  helper
+}
+exit 0
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached = analysis.unreached_functions();
+        let names = unreached
+            .iter()
+            .map(|function| function.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, ["helper", "late"]);
+    }
+
+    #[test]
     fn unreached_functions_count_nested_substitution_calls_before_termination() {
         let source = "\
 run_case() {
@@ -4511,6 +5147,84 @@ exit 0
         let model = model(source);
 
         assert!(model.analysis().unreached_functions().is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_ignore_shadowed_command_substitution_calls_before_termination() {
+        let source = "\
+helper() { echo hi; }
+output=$(helper() { :; }; helper)
+exit 0
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached = analysis.unreached_functions();
+
+        assert_eq!(unreached.len(), 1);
+        assert_eq!(unreached[0].name, "helper");
+        assert_eq!(
+            unreached[0].reason,
+            UnreachedFunctionReason::ScriptTerminates
+        );
+    }
+
+    #[test]
+    fn unreached_functions_ignore_shadowed_test_argument_command_substitution_calls() {
+        let source = "\
+helper() { echo hi; }
+if [ \"$(helper() { :; }; helper)\" = hi ]; then
+  echo yes
+fi
+exit 0
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached = analysis.unreached_functions();
+
+        assert_eq!(unreached.len(), 1);
+        assert_eq!(unreached[0].name, "helper");
+        assert_eq!(
+            unreached[0].reason,
+            UnreachedFunctionReason::ScriptTerminates
+        );
+    }
+
+    #[test]
+    fn unreached_functions_ignore_command_substitution_paths_before_later_termination() {
+        let source = "\
+f() { echo hi; }
+output=$(echo value)
+exit 0
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached = analysis.unreached_functions();
+
+        assert_eq!(unreached.len(), 1);
+        assert_eq!(unreached[0].name, "f");
+        assert_eq!(
+            unreached[0].reason,
+            UnreachedFunctionReason::ScriptTerminates
+        );
+    }
+
+    #[test]
+    fn unreached_functions_ignore_pipeline_paths_before_later_termination() {
+        let source = "\
+f() { echo hi; }
+echo value | cat
+exit 0
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached = analysis.unreached_functions();
+
+        assert_eq!(unreached.len(), 1);
+        assert_eq!(unreached[0].name, "f");
+        assert_eq!(
+            unreached[0].reason,
+            UnreachedFunctionReason::ScriptTerminates
+        );
     }
 
     #[test]
