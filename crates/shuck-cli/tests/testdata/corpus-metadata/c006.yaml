@@ -517,34 +517,6 @@ reviewed_divergences:
     column: 32
     end_column: 45
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__ree"
-    line: 85
-    end_line: 85
-    column: 32
-    end_column: 53
-    reason: "This RVM helper still depends on project-local helper state that we are not modeling with a repo-specific ambient table, so the remaining ShellCheck-only hit stays reviewed for this file."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__ree"
-    line: 84
-    end_line: 84
-    column: 32
-    end_column: 54
-    reason: "This RVM helper relies on `__rvm_db` to populate `db_configure_flags` through a by-name helper side effect, and we keep the remaining file-local read reviewed narrowly instead of modeling that contract."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__rubinius"
-    line: 125
-    end_line: 125
-    column: 30
-    end_column: 51
-    reason: "This RVM helper relies on `__rvm_db` to populate `db_configure_flags` through a by-name helper side effect, and the remaining comparison difference is just the file-local anchor around that helper-managed read."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__rubinius"
-    line: 124
-    end_line: 124
-    column: 30
-    end_column: 52
-    reason: "This RVM helper relies on `__rvm_db` to populate `db_configure_flags` through a by-name helper side effect, and the remaining comparison difference is just the file-local anchor around that helper-managed read."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__ruby"
     line: 44

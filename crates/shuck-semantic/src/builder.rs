@@ -6,12 +6,13 @@ use shuck_ast::{
     ArithmeticLvalue, ArithmeticUnaryOp, ArrayElem, ArrayExpr, ArrayKind, Assignment,
     AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command,
     CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclOperand, File,
-    FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, Name, NormalizedCommand,
-    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind,
-    PatternPart, PatternPartNode, Position, SourceText, Span, StaticCommandWrapperTarget, Stmt,
-    StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode, WrapperKind, ZshExpansionOperation,
-    ZshExpansionTarget, ZshGlobSegment, normalize_command_words, static_command_name_text,
-    static_command_wrapper_target_index, static_word_text, try_static_word_parts_text,
+    FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, LiteralText, Name,
+    NormalizedCommand, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
+    PatternGroupKind, PatternPart, PatternPartNode, Position, SourceText, Span,
+    StaticCommandWrapperTarget, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode,
+    WrapperKind, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
+    normalize_command_words, static_command_name_text, static_command_wrapper_target_index,
+    static_word_text, try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::{ShellProfile, ZshEmulationMode};
@@ -73,6 +74,7 @@ pub(crate) struct BuildOutput {
 
 pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     source: &'a str,
+    shell_profile: ShellProfile,
     observer: &'observer mut dyn TraversalObserver,
     scopes: Vec<Scope>,
     bindings: Vec<Binding>,
@@ -174,6 +176,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let runtime = RuntimePrelude::new(bash_runtime_vars_enabled);
         let mut builder = Self {
             source,
+            shell_profile: shell_profile.clone(),
             observer,
             scopes: vec![file_scope],
             bindings: Vec::new(),
@@ -1124,13 +1127,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     }
 
     fn record_prompt_assignment_references(&mut self, assignment: &'a Assignment) {
-        if assignment.target.name.as_str() != "PS1" {
-            return;
-        }
-
         let AssignmentValue::Scalar(word) = &assignment.value else {
             return;
         };
+
+        if assignment.target.name.as_str() != "PS1" {
+            return;
+        }
 
         for (name, span) in prompt_assignment_reference_names(word, self.source) {
             self.add_reference(&name, ReferenceKind::ImplicitRead, span);
@@ -1668,22 +1671,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         match part {
             HeredocBodyPart::Literal(text) => {
-                if text.is_source_backed() {
-                    for (name, span) in escaped_heredoc_literal_reference_names(
-                        text.syntax_str(self.source, span),
-                        span,
-                    ) {
-                        self.add_reference(
-                            &name,
-                            if matches!(kind, WordVisitKind::Conditional) {
-                                ReferenceKind::ConditionalOperand
-                            } else {
-                                ReferenceKind::Expansion
-                            },
-                            span,
-                        );
-                    }
-                }
+                self.visit_escaped_braced_literal_references(text, span, kind);
             }
             HeredocBodyPart::Variable(name) => {
                 self.add_reference(
@@ -1725,6 +1713,31 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             HeredocBodyPart::Parameter(parameter) => {
                 self.visit_parameter_expansion(parameter, kind, flow, nested_regions, span);
             }
+        }
+    }
+
+    fn visit_escaped_braced_literal_references(
+        &mut self,
+        text: &LiteralText,
+        span: Span,
+        kind: WordVisitKind,
+    ) {
+        if !text.is_source_backed() {
+            return;
+        }
+
+        for (name, span) in
+            escaped_braced_literal_reference_names(text.syntax_str(self.source, span), span)
+        {
+            self.add_reference(
+                &name,
+                if matches!(kind, WordVisitKind::Conditional) {
+                    ReferenceKind::ConditionalOperand
+                } else {
+                    ReferenceKind::Expansion
+                },
+                span,
+            );
         }
     }
 
@@ -1888,17 +1901,19 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             ParameterExpansionSyntax::Zsh(syntax) => {
                 match &syntax.target {
                     ZshExpansionTarget::Reference(reference) => {
-                        self.visit_var_ref_reference(
-                            reference,
-                            if matches!(kind, WordVisitKind::Conditional) {
-                                ReferenceKind::ConditionalOperand
-                            } else {
-                                ReferenceKind::ParameterExpansion
-                            },
-                            flow,
-                            nested_regions,
-                            span,
-                        );
+                        if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh {
+                            self.visit_var_ref_reference(
+                                reference,
+                                if matches!(kind, WordVisitKind::Conditional) {
+                                    ReferenceKind::ConditionalOperand
+                                } else {
+                                    ReferenceKind::ParameterExpansion
+                                },
+                                flow,
+                                nested_regions,
+                                span,
+                            );
+                        }
                     }
                     ZshExpansionTarget::Word(word) => {
                         self.visit_word_into(word, kind, flow, nested_regions);
@@ -4199,7 +4214,7 @@ fn unparsed_arithmetic_subscript_reference_names(
     references
 }
 
-fn escaped_heredoc_literal_reference_names(text: &str, span: Span) -> Vec<(Name, Span)> {
+fn escaped_braced_literal_reference_names(text: &str, span: Span) -> Vec<(Name, Span)> {
     let mut references = Vec::new();
     let mut search_start = 0;
 
@@ -4271,7 +4286,7 @@ fn escaped_heredoc_literal_reference_names(text: &str, span: Span) -> Vec<(Name,
     references
 }
 
-fn escaped_heredoc_literal_may_contain_reference(text: &str) -> bool {
+fn escaped_braced_literal_may_contain_reference(text: &str) -> bool {
     text.contains("\\${")
 }
 
@@ -5536,7 +5551,7 @@ fn heredoc_body_part_is_semantically_inert(
     match part {
         HeredocBodyPart::Literal(text) => {
             !text.is_source_backed()
-                || !escaped_heredoc_literal_may_contain_reference(text.syntax_str(source, span))
+                || !escaped_braced_literal_may_contain_reference(text.syntax_str(source, span))
         }
         HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => expression_ast.is_none(),
         HeredocBodyPart::Variable(_)

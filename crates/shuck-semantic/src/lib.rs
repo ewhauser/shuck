@@ -3379,17 +3379,28 @@ printf '%s\\n' \"$scoped\"
 
     #[test]
     fn zsh_parameter_modifiers_still_register_references() {
-        let model = model_with_dialect("print ${(m)foo}\n", ShellDialect::Zsh);
+        let model =
+            model_with_profile("print ${(m)foo}\n", ShellProfile::native(ShellDialect::Zsh));
         let unresolved = unresolved_names(&model);
 
         assert_names_present(&["foo"], &unresolved);
     }
 
     #[test]
+    fn bash_profile_ignores_zsh_parameter_modifier_references() {
+        let model =
+            model_with_dialect("printf '%s\\n' ${=zsh_only} ${plain}\n", ShellDialect::Bash);
+        let unresolved = unresolved_names(&model);
+
+        assert_names_present(&["plain"], &unresolved);
+        assert_names_absent(&["zsh_only"], &unresolved);
+    }
+
+    #[test]
     fn zsh_parameter_operations_walk_operand_references_conservatively() {
-        let model = model_with_dialect(
+        let model = model_with_profile(
             "print ${(m)foo#${needle}} ${(S)foo/$pattern/$replacement} ${(m)foo:$offset:${length}}\n",
-            ShellDialect::Zsh,
+            ShellProfile::native(ShellDialect::Zsh),
         );
         let unresolved = unresolved_names(&model);
 

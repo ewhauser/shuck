@@ -3257,6 +3257,24 @@ EOF
     }
 
     #[test]
+    fn undefined_variable_reports_bash_fallback_after_zsh_split_branch() {
+        let source = "\
+#!/bin/bash
+if [[ -n \"${ZSH_VERSION:-}\" ]]; then
+  rvm_configure_flags=( ${=db_configure_flags} \"${rvm_configure_flags[@]}\" )
+else
+  rvm_configure_flags=( ${db_configure_flags} \"${rvm_configure_flags[@]}\" )
+fi
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert_eq!(diagnostics[0].span.start.line, 5);
+        assert_eq!(diagnostics[0].span.slice(source), "${db_configure_flags}");
+    }
+
+    #[test]
     fn undefined_variable_ignores_names_bound_anywhere_in_the_file() {
         let source = "\
 #!/bin/bash
