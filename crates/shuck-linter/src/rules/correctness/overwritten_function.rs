@@ -1189,6 +1189,21 @@ fn call_may_resolve_to_binding(
     cfg_span: shuck_ast::Span,
 ) -> bool {
     let binding = checker.semantic().binding(binding_id);
+    if let Some(visible) = checker
+        .semantic()
+        .visible_binding(&binding.name, visibility_span)
+        && visible.id != binding_id
+        && visible.scope != binding.scope
+        && matches!(visible.kind, BindingKind::FunctionDefinition)
+        && visible.span.start.offset < visibility_span.start.offset
+        && checker
+            .semantic()
+            .ancestor_scopes(call_scope)
+            .any(|scope| scope == visible.scope)
+    {
+        return false;
+    }
+
     let has_visible_shadow = checker
         .semantic()
         .visible_binding(&binding.name, visibility_span)
@@ -2730,6 +2745,28 @@ exit 0
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn c063_option_reports_file_scope_function_only_called_under_inner_shadow() {
+        let source = "\
+redefine() { echo redefine; }
+wrapper() {
+  redefine() { echo inner; }
+  redefine
+}
+wrapper
+exit 0
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/shellspec-inspection.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_c063_report_unreached_nested_definitions(true),
+        );
+
+        assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
+        assert_eq!(diagnostics[0].span.start.line, 1);
     }
 
     #[test]
