@@ -877,19 +877,22 @@ impl<'a> SafeValueIndex<'a> {
                 } else {
                     let binding_value = self.facts.binding_value(binding_id);
                     let scalar_word = binding_value.and_then(|value| value.scalar_word());
-                    if case_cli_scope == Some(binding.scope)
+                    let case_cli_status_capture_stays_unsafe = case_cli_scope
+                        == Some(binding.scope)
                         && query.is_field_context()
-                        && scalar_word.is_some_and(word_is_standalone_status_capture)
+                        && scalar_word.is_some_and(word_is_standalone_status_capture);
+                    let conditional_assignment_shortcut_stays_unsafe =
+                        binding_value.is_some_and(|value| {
+                            value.conditional_assignment_shortcut()
+                                && !self.conditional_assignment_shortcut_value_can_stay_safe(
+                                    binding_id,
+                                    scalar_word,
+                                    query,
+                                )
+                        });
+                    if case_cli_status_capture_stays_unsafe
+                        || conditional_assignment_shortcut_stays_unsafe
                     {
-                        false
-                    } else if binding_value.is_some_and(|value| {
-                        value.conditional_assignment_shortcut()
-                            && !self.conditional_assignment_shortcut_value_can_stay_safe(
-                                binding_id,
-                                scalar_word,
-                                query,
-                            )
-                    }) {
                         false
                     } else {
                         scalar_word.is_some_and(|word| {
@@ -2508,9 +2511,11 @@ impl<'a> SafeValueIndex<'a> {
         name: &Name,
         at: Span,
     ) -> bool {
-        let unset_blocks = (!bindings.is_empty())
-            .then(|| self.unset_value_blocks_for_name_before_reference(name, at))
-            .unwrap_or_default();
+        let unset_blocks = if bindings.is_empty() {
+            Default::default()
+        } else {
+            self.unset_value_blocks_for_name_before_reference(name, at)
+        };
         self.value_source_blocks_cover_all_paths_to_reference(bindings, name, at, unset_blocks)
     }
 

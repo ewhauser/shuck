@@ -103,10 +103,12 @@ fn collect_word_fact_reports(
         safe_values,
         source,
         fact,
-        context,
-        colon_command_ids.contains(&fact.command_id()),
-        numeric_test_operand_spans,
-        |_| true,
+        WordReportOptions {
+            context,
+            in_colon_command: colon_command_ids.contains(&fact.command_id()),
+            numeric_test_operand_spans,
+            part_filter: |_| true,
+        },
     );
 }
 
@@ -131,19 +133,21 @@ fn collect_arithmetic_word_fact_reports(
         safe_values,
         source,
         fact,
-        context,
-        colon_command_ids.contains(&fact.command_id()),
-        &[],
-        |part_span| {
-            arithmetic_word_follows_command_substitution(
-                part_span,
-                source,
-                fact_command_substitution_spans,
-            ) || arithmetic_word_follows_command_substitution(
-                part_span,
-                source,
-                arithmetic_command_substitution_spans,
-            )
+        WordReportOptions {
+            context,
+            in_colon_command: colon_command_ids.contains(&fact.command_id()),
+            numeric_test_operand_spans: &[],
+            part_filter: |part_span| {
+                arithmetic_word_follows_command_substitution(
+                    part_span,
+                    source,
+                    fact_command_substitution_spans,
+                ) || arithmetic_word_follows_command_substitution(
+                    part_span,
+                    source,
+                    arithmetic_command_substitution_spans,
+                )
+            },
         },
     );
 }
@@ -268,16 +272,29 @@ fn arithmetic_word_follows_command_substitution(
     })
 }
 
-fn report_word_expansions(
+struct WordReportOptions<'a, F> {
+    context: ExpansionContext,
+    in_colon_command: bool,
+    numeric_test_operand_spans: &'a [Span],
+    part_filter: F,
+}
+
+fn report_word_expansions<F>(
     spans: &mut Vec<Span>,
     safe_values: &mut SafeValueIndex<'_>,
     source: &str,
     fact: WordOccurrenceRef<'_, '_>,
-    context: ExpansionContext,
-    in_colon_command: bool,
-    numeric_test_operand_spans: &[Span],
-    part_filter: impl Fn(Span) -> bool,
-) {
+    options: WordReportOptions<'_, F>,
+) where
+    F: Fn(Span) -> bool,
+{
+    let WordReportOptions {
+        context,
+        in_colon_command,
+        numeric_test_operand_spans,
+        part_filter,
+    } = options;
+
     if !fact.analysis().hazards.field_splitting && !fact.analysis().hazards.pathname_matching {
         return;
     }
@@ -1419,7 +1436,7 @@ cat <<< $here >$out
     }
 
     #[test]
-    fn skips_assignment_values_and_descriptor_dup_targets() {
+    fn skips_assignment_values_and_reports_descriptor_dup_targets() {
         let source = "\
 #!/bin/bash
 value=$name
@@ -1427,7 +1444,13 @@ printf '%s\\n' ok >&$fd
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$fd"]
+        );
     }
 
     #[test]
@@ -1692,36 +1715,54 @@ template=\"${template/IMG_DOWNLOAD_SIZE/$(stat -c %s ${image_file}.xz)}\"
     }
 
     #[test]
-    fn skips_dynamic_values_inside_parameter_replacement_arithmetic_expansions() {
+    fn reports_dynamic_values_inside_parameter_replacement_arithmetic_expansions() {
         let source = "\
 #!/bin/bash
 printf '%s\\n' \"${template/IMG_OFFSET/$(( $(cat file) $1 step ))}\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
-        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$1"]
+        );
     }
 
     #[test]
-    fn skips_dynamic_values_inside_parameter_default_arithmetic_expansions() {
+    fn reports_dynamic_values_inside_parameter_default_arithmetic_expansions() {
         let source = "\
 #!/bin/bash
 printf '%s\\n' \"${value:-$(( $(cat file) $1 step ))}\" \"${value:=$(( $2 + 1 ))}\" \"${value:+$(( $3 + 1 ))}\" \"${value:?$(( $4 + 1 ))}\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
-        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$1"]
+        );
     }
 
     #[test]
-    fn skips_dynamic_values_inside_arithmetic_shell_words() {
+    fn reports_dynamic_values_inside_arithmetic_shell_words() {
         let source = "\
 #!/bin/sh
 printf '%s' \"$(( $(cat file) $1 step ))\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
-        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$1"]
+        );
     }
 
     #[test]

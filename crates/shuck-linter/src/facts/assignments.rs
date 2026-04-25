@@ -2670,13 +2670,13 @@ fn annotate_conditional_assignment_value_paths<'a>(
             let Some(span) = segment.assignment_span() else {
                 continue;
             };
-            if index > 0 && !prior_assignment_targets.contains(target) {
-                if let Some(binding_id) =
+            if index > 0
+                && !prior_assignment_targets.contains(target)
+                && let Some(binding_id) =
                     binding_value_visible_id_for_name(semantic, &Name::from(target), span)
-                    && let Some(binding_value) = binding_values.get_mut(&binding_id)
-                {
-                    binding_value.mark_one_sided_short_circuit_assignment();
-                }
+                && let Some(binding_value) = binding_values.get_mut(&binding_id)
+            {
+                binding_value.mark_one_sided_short_circuit_assignment();
             }
             prior_assignment_targets.insert(target.to_owned());
         }
