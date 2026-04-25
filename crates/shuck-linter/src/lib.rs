@@ -783,13 +783,12 @@ End
     }
 
     #[test]
-    fn ambient_build_style_contract_keeps_uppercase_context_but_reports_lowercase_reads() {
+    fn project_specific_paths_do_not_suppress_undefined_variables() {
         let diagnostics = lint_named_source(
             Path::new("/tmp/void-packages/common/build-style/void-cross.sh"),
             "\
 build() {
-printf '%s\\n' \"$pkgname\" \"$pkgver\" \"$XBPS_SRCPKGDIR\" \"$configure_args\" \"$cross_gcc_configure_args\"
-printf '%s\\n' \"$wrksrc\"
+printf '%s\\n' \"$XBPS_SRCPKGDIR\" \"$configure_args\" \"$wrksrc\"
 }
 build
 ",
@@ -799,37 +798,17 @@ build
         assert!(
             diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("pkgname"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("pkgver"))
-        );
-        assert!(
-            diagnostics
-                .iter()
                 .any(|diagnostic| diagnostic.message.contains("configure_args"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("cross_gcc_configure_args"))
         );
         assert!(
             diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("wrksrc"))
         );
-        assert!(
-            diagnostics
-                .iter()
-                .all(|diagnostic| !diagnostic.message.contains("XBPS_SRCPKGDIR"))
-        );
     }
 
     #[test]
-    fn ambient_build_style_contract_reports_lowercase_reads_on_flattened_corpus_paths() {
+    fn flattened_corpus_paths_do_not_suppress_undefined_variables() {
         let diagnostics = lint_named_source(
             Path::new("/tmp/scripts/void-linux__void-packages__common__build-style__void-cross.sh"),
             "\
@@ -850,197 +829,6 @@ build
             diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("wrksrc"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .all(|diagnostic| !diagnostic.message.contains("XBPS_SRCPKGDIR"))
-        );
-    }
-
-    #[test]
-    fn ambient_pre_pkg_hook_contract_keeps_uppercase_context_but_reports_lowercase_reads() {
-        let diagnostics = lint_named_source(
-            Path::new("/tmp/void-packages/common/hooks/pre-pkg/99-pkglint.sh"),
-            "\
-hook() {
-for f in lib; do
-if [ \"${pkgname}\" = \"base-files\" ]; then
-  :
-else
-  msg_red \"${pkgver}: /${f} must not exist.\\n\"
-fi
-done
-if [ -d ${PKGDESTDIR}/usr/lib/libexec ]; then
-  msg_red \"${pkgver}: /usr/lib/libexec directory is not allowed!\\n\"
-fi
-printf '%s\\n' \"$XBPS_COMMONDIR\" \"$XBPS_QUERY_XCMD\"
-}
-hook
-",
-            &LinterSettings::for_rule(Rule::UndefinedVariable),
-        );
-
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("pkgname"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("pkgver"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .all(|diagnostic| !diagnostic.message.contains("XBPS_COMMONDIR"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .all(|diagnostic| !diagnostic.message.contains("XBPS_QUERY_XCMD"))
-        );
-    }
-
-    #[test]
-    fn ambient_xbps_src_shutils_contract_keeps_uppercase_context_but_reports_lowercase_reads() {
-        let diagnostics = lint_named_source(
-            Path::new("/tmp/void-packages/common/xbps-src/shutils/common.sh"),
-            "\
-helper() {
-printf '%s\\n' \"$XBPS_COMMONDIR\" \"$XBPS_SRCPKGDIR\" \"$XBPS_STATEDIR\" \"$pkgname\" \"$build_style\" \"$NOCOLORS\"
-}
-helper
-",
-            &LinterSettings::for_rule(Rule::UndefinedVariable),
-        );
-
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("pkgname"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("build_style"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .all(|diagnostic| !diagnostic.message.contains("XBPS_COMMONDIR"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .all(|diagnostic| !diagnostic.message.contains("XBPS_SRCPKGDIR"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .all(|diagnostic| !diagnostic.message.contains("XBPS_STATEDIR"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .all(|diagnostic| !diagnostic.message.contains("NOCOLORS"))
-        );
-    }
-
-    #[test]
-    fn ambient_xbps_src_libexec_contract_keeps_uppercase_context_but_reports_lowercase_reads() {
-        let diagnostics = lint_named_source(
-            Path::new("/tmp/void-packages/common/xbps-src/libexec/build.sh"),
-            "\
-readonly XBPS_TARGET=\"$1\"
-setup_pkg \"$PKGNAME\"
-for subpkg in ${subpackages} ${sourcepkg}; do
-  $XBPS_LIBEXECDIR/xbps-src-prepkg.sh $subpkg $XBPS_CROSS_BUILD || exit 1
-done
-printf '' > ${XBPS_STATEDIR}/.${sourcepkg}_register_pkg
-printf '%s\\n' \"$XBPS_TARGET\" \"$pkgname\"
-",
-            &LinterSettings::for_rule(Rule::UndefinedVariable),
-        );
-
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("subpackages"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("sourcepkg"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("pkgname"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .all(|diagnostic| !diagnostic.message.contains("XBPS_LIBEXECDIR"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .all(|diagnostic| !diagnostic.message.contains("XBPS_CROSS_BUILD"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .all(|diagnostic| !diagnostic.message.contains("XBPS_STATEDIR"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .all(|diagnostic| !diagnostic.message.contains("XBPS_TARGET"))
-        );
-    }
-
-    #[test]
-    fn ambient_pycompile_trigger_contract_reports_lowercase_reads() {
-        let diagnostics = lint_named_source(
-            Path::new("/tmp/void-packages/srcpkgs/xbps-triggers/files/pycompile"),
-            "\
-ACTION=\"$1\"
-TARGET=\"$2\"
-compile() {
-for f in ${pycompile_dirs}; do
-  python${pycompile_version} -m compileall -f -q ./${f}
-done
-for f in ${pycompile_module}; do
-  echo \"Byte-compiling python${pycompile_version} code for module ${f}...\"
-  if [ -d \"usr/lib/python${pycompile_version}/site-packages/${f}\" ]; then
-    python${pycompile_version} -O -m compileall -f -q \
-      usr/lib/python${pycompile_version}/site-packages/${f}
-  fi
-done
-}
-case \"$ACTION\" in
-run) compile ;;
-esac
-",
-            &LinterSettings::for_rule(Rule::UndefinedVariable),
-        );
-
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("pycompile_dirs"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("pycompile_module"))
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("pycompile_version"))
         );
     }
 
