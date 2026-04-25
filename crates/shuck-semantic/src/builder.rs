@@ -3280,9 +3280,23 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         if !reference_kind_uses_braced_parameter_syntax(kind) {
             return span;
         }
+        if let Some(start_rel) = syntax.find('$') {
+            let candidate = &syntax[start_rel..];
+            if unbraced_parameter_reference_matches(candidate, name.as_str()) {
+                let start_offset = span.start.offset + start_rel;
+                let end_offset = start_offset + '$'.len_utf8() + name.as_str().len();
+                if let Some((start, end)) =
+                    self.source_positions_for_offsets(start_offset, end_offset)
+                    && start.offset < end.offset
+                {
+                    return Span::from_positions(start, end);
+                }
+            }
+        }
         let Some(start_rel) = syntax.find("${") else {
             return self
-                .recover_braced_reference_span(name, span)
+                .recover_unbraced_reference_span(name, span)
+                .or_else(|| self.recover_braced_reference_span(name, span))
                 .unwrap_or(span);
         };
         if self.source.as_bytes().get(span.end.offset) != Some(&b'}') {
@@ -3333,6 +3347,36 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
 
         self.recover_braced_reference_span_on_line(&needle, span)
+    }
+
+    fn recover_unbraced_reference_span(&self, name: &Name, span: Span) -> Option<Span> {
+        if name.is_empty() || span.start.offset >= self.source.len() {
+            return None;
+        }
+
+        let (line_start_offset, line) = source_line(self.source, span.start.line)?;
+        let name = name.as_str();
+        let mut best = None::<(usize, usize, usize)>;
+        for (start, _) in line.match_indices('$') {
+            if !unbraced_parameter_start_matches(line, start, name) {
+                continue;
+            }
+            let end = start + '$'.len_utf8() + name.len();
+            let column = line.get(..start)?.chars().count() + 1;
+            let distance = column.abs_diff(span.start.column);
+            if best
+                .as_ref()
+                .is_none_or(|(_, _, best_distance)| distance < *best_distance)
+            {
+                best = Some((start, end, distance));
+            }
+        }
+
+        let (start, end, _) = best?;
+        let start_offset = line_start_offset + start;
+        let end_offset = line_start_offset + end;
+        let (start, end) = self.source_positions_for_offsets(start_offset, end_offset)?;
+        (start.offset < end.offset).then(|| Span::from_positions(start, end))
     }
 
     fn recover_braced_reference_span_on_line(&self, needle: &str, span: Span) -> Option<Span> {
@@ -5739,6 +5783,14 @@ fn unbraced_parameter_reference_matches(text: &str, name: &str) -> bool {
     rest.get(name.len()..)
         .and_then(|suffix| suffix.chars().next())
         .is_none_or(|ch| !ch.is_ascii_alphanumeric() && ch != '_')
+}
+
+fn unbraced_parameter_start_matches(source: &str, start_offset: usize, name: &str) -> bool {
+    let Some(candidate) = source.get(start_offset..) else {
+        return false;
+    };
+
+    unbraced_parameter_reference_matches(candidate, name)
 }
 
 fn braced_parameter_start_matches(source: &str, start_offset: usize, name: &str) -> bool {

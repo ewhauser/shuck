@@ -3131,6 +3131,24 @@ payload=\"{
     }
 
     #[test]
+    fn undefined_variable_anchors_unbraced_references_after_escaped_quotes() {
+        let source = "\
+#!/bin/bash
+rvm_info=\"
+  path:         \\\"$rvm_path\\\"
+\"
+addtimestamp=\"gawk '{ print strftime(\\\\\\\"[$logtimestampformat]\\\\\\\"), \\\\\\$0 }'\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        let spans = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.span.slice(source))
+            .collect::<Vec<_>>();
+        assert_eq!(spans, vec!["$rvm_path", "$logtimestampformat"]);
+    }
+
+    #[test]
     fn undefined_variable_ignores_self_referential_assignments() {
         let diagnostics = lint_for_rule(
             "\

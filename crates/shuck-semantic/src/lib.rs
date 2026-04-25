@@ -7397,6 +7397,31 @@ payload=\"{
     }
 
     #[test]
+    fn unbraced_parameter_reference_spans_recover_after_escaped_quotes() {
+        let source = "\
+#!/bin/bash
+rvm_info=\"
+  path:         \\\"$rvm_path\\\"
+\"
+addtimestamp=\"gawk '{ print strftime(\\\\\\\"[$logtimestampformat]\\\\\\\"), \\\\\\$0 }'\"
+";
+        let model = model(source);
+        let rvm_path = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "rvm_path")
+            .unwrap();
+        let logtimestampformat = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "logtimestampformat")
+            .unwrap();
+
+        assert_eq!(rvm_path.span.slice(source), "$rvm_path");
+        assert_eq!(logtimestampformat.span.slice(source), "$logtimestampformat");
+    }
+
+    #[test]
     fn parameter_reference_spans_include_nested_parameter_operator_suffixes() {
         let source = "\
 rvm_ruby_gem_home=\"${rvm_ruby_gem_home%%${rvm_gemset_separator:-\"@\"}*}\"

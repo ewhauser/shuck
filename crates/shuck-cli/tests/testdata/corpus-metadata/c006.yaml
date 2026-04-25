@@ -14,20 +14,6 @@ reviewed_divergences:
     end_column: 25
     reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
   - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_start.sh"
-    line: 11
-    end_line: 11
-    column: 43
-    end_column: 62
-    reason: "This start module builds a logging formatter and lockfiles from LinuxGSM-managed runtime state, so the remaining ShellCheck-only anchor is a guarded expansion against framework-provided configuration."
-  - side: shuck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__command_start.sh"
-    line: 11
-    end_line: 11
-    column: 42
-    end_column: 61
-    reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shellcheck-only
     path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__install_ts3db.sh"
     line: 43
     end_line: 43
@@ -608,20 +594,6 @@ reviewed_divergences:
     column: 53
     end_column: 64
     reason: "This RVM helper still surfaces a file-local unresolved helper read under Shuck's project-local analysis, and we keep it reviewed narrowly instead of hard-coding RVM-specific ambient variables."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__info"
-    line: 58
-    end_line: 58
-    column: 21
-    end_column: 30
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__info"
-    line: 58
-    end_line: 58
-    column: 20
-    end_column: 29
-    reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__scripts__install"
     line: 4
