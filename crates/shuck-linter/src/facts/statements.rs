@@ -22,32 +22,36 @@ impl StatementFact {
 pub(super) fn build_statement_facts<'a>(
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
+    command_child_index: &CommandChildIndex,
     body: &StmtSeq,
 ) -> Vec<StatementFact> {
+    let command_relationships =
+        CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
     let mut facts = Vec::new();
-    collect_statement_facts_in_stmt_seq(body, commands, command_ids_by_span, &mut facts);
+    collect_statement_facts_in_stmt_seq(body, None, command_relationships, &mut facts);
     facts
 }
 
 fn collect_statement_facts_in_stmt_seq<'a>(
     body: &StmtSeq,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+    parent_id: Option<CommandId>,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
     facts: &mut Vec<StatementFact>,
 ) {
     for stmt in &body.stmts {
-        if let Some(id) = command_fact_for_stmt(stmt, commands, command_ids_by_span) {
+        let stmt_fact = command_relationships.fact_for_stmt_with_parent(parent_id, stmt);
+        if let Some(fact) = stmt_fact {
             facts.push(StatementFact {
                 body_span: body.span,
                 stmt_span: stmt.span,
-                command_id: id.id(),
+                command_id: fact.id(),
             });
         }
 
         collect_statement_sequence_facts_in_command(
             &stmt.command,
-            commands,
-            command_ids_by_span,
+            stmt_fact.map(CommandFact::id),
+            command_relationships,
             facts,
         );
     }
@@ -55,8 +59,8 @@ fn collect_statement_facts_in_stmt_seq<'a>(
 
 fn collect_statement_sequence_facts_in_command<'a>(
     command: &Command,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+    parent_id: Option<CommandId>,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
     facts: &mut Vec<StatementFact>,
 ) {
     match command {
@@ -64,14 +68,14 @@ fn collect_statement_sequence_facts_in_command<'a>(
         Command::Binary(binary) => {
             collect_statement_sequence_facts_in_stmt(
                 &binary.left,
-                commands,
-                command_ids_by_span,
+                parent_id,
+                command_relationships,
                 facts,
             );
             collect_statement_sequence_facts_in_stmt(
                 &binary.right,
-                commands,
-                command_ids_by_span,
+                parent_id,
+                command_relationships,
                 facts,
             );
         }
@@ -79,86 +83,96 @@ fn collect_statement_sequence_facts_in_command<'a>(
             CompoundCommand::If(command) => {
                 collect_statement_facts_in_stmt_seq(
                     &command.condition,
-                    commands,
-                    command_ids_by_span,
+                    parent_id,
+                    command_relationships,
                     facts,
                 );
                 collect_statement_facts_in_stmt_seq(
                     &command.then_branch,
-                    commands,
-                    command_ids_by_span,
+                    parent_id,
+                    command_relationships,
                     facts,
                 );
                 for (condition, body) in &command.elif_branches {
                     collect_statement_facts_in_stmt_seq(
                         condition,
-                        commands,
-                        command_ids_by_span,
+                        parent_id,
+                        command_relationships,
                         facts,
                     );
-                    collect_statement_facts_in_stmt_seq(body, commands, command_ids_by_span, facts);
+                    collect_statement_facts_in_stmt_seq(
+                        body,
+                        parent_id,
+                        command_relationships,
+                        facts,
+                    );
                 }
                 if let Some(body) = &command.else_branch {
-                    collect_statement_facts_in_stmt_seq(body, commands, command_ids_by_span, facts);
+                    collect_statement_facts_in_stmt_seq(
+                        body,
+                        parent_id,
+                        command_relationships,
+                        facts,
+                    );
                 }
             }
             CompoundCommand::For(command) => {
                 collect_statement_facts_in_stmt_seq(
                     &command.body,
-                    commands,
-                    command_ids_by_span,
+                    parent_id,
+                    command_relationships,
                     facts,
                 );
             }
             CompoundCommand::Repeat(command) => {
                 collect_statement_facts_in_stmt_seq(
                     &command.body,
-                    commands,
-                    command_ids_by_span,
+                    parent_id,
+                    command_relationships,
                     facts,
                 );
             }
             CompoundCommand::Foreach(command) => {
                 collect_statement_facts_in_stmt_seq(
                     &command.body,
-                    commands,
-                    command_ids_by_span,
+                    parent_id,
+                    command_relationships,
                     facts,
                 );
             }
             CompoundCommand::ArithmeticFor(command) => {
                 collect_statement_facts_in_stmt_seq(
                     &command.body,
-                    commands,
-                    command_ids_by_span,
+                    parent_id,
+                    command_relationships,
                     facts,
                 );
             }
             CompoundCommand::While(command) => {
                 collect_statement_facts_in_stmt_seq(
                     &command.condition,
-                    commands,
-                    command_ids_by_span,
+                    parent_id,
+                    command_relationships,
                     facts,
                 );
                 collect_statement_facts_in_stmt_seq(
                     &command.body,
-                    commands,
-                    command_ids_by_span,
+                    parent_id,
+                    command_relationships,
                     facts,
                 );
             }
             CompoundCommand::Until(command) => {
                 collect_statement_facts_in_stmt_seq(
                     &command.condition,
-                    commands,
-                    command_ids_by_span,
+                    parent_id,
+                    command_relationships,
                     facts,
                 );
                 collect_statement_facts_in_stmt_seq(
                     &command.body,
-                    commands,
-                    command_ids_by_span,
+                    parent_id,
+                    command_relationships,
                     facts,
                 );
             }
@@ -166,8 +180,8 @@ fn collect_statement_sequence_facts_in_command<'a>(
                 for case in &command.cases {
                     collect_statement_facts_in_stmt_seq(
                         &case.body,
-                        commands,
-                        command_ids_by_span,
+                        parent_id,
+                        command_relationships,
                         facts,
                     );
                 }
@@ -175,21 +189,26 @@ fn collect_statement_sequence_facts_in_command<'a>(
             CompoundCommand::Select(command) => {
                 collect_statement_facts_in_stmt_seq(
                     &command.body,
-                    commands,
-                    command_ids_by_span,
+                    parent_id,
+                    command_relationships,
                     facts,
                 );
             }
             CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
-                collect_statement_facts_in_stmt_seq(body, commands, command_ids_by_span, facts);
+                collect_statement_facts_in_stmt_seq(
+                    body,
+                    parent_id,
+                    command_relationships,
+                    facts,
+                );
             }
             CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => {}
             CompoundCommand::Time(command) => {
                 if let Some(inner) = &command.command {
                     collect_statement_sequence_facts_in_stmt(
                         inner,
-                        commands,
-                        command_ids_by_span,
+                        parent_id,
+                        command_relationships,
                         facts,
                     );
                 }
@@ -197,22 +216,22 @@ fn collect_statement_sequence_facts_in_command<'a>(
             CompoundCommand::Coproc(command) => {
                 collect_statement_sequence_facts_in_stmt(
                     &command.body,
-                    commands,
-                    command_ids_by_span,
+                    parent_id,
+                    command_relationships,
                     facts,
                 );
             }
             CompoundCommand::Always(command) => {
                 collect_statement_facts_in_stmt_seq(
                     &command.body,
-                    commands,
-                    command_ids_by_span,
+                    parent_id,
+                    command_relationships,
                     facts,
                 );
                 collect_statement_facts_in_stmt_seq(
                     &command.always_body,
-                    commands,
-                    command_ids_by_span,
+                    parent_id,
+                    command_relationships,
                     facts,
                 );
             }
@@ -220,16 +239,16 @@ fn collect_statement_sequence_facts_in_command<'a>(
         Command::Function(function) => {
             collect_statement_sequence_facts_in_stmt(
                 &function.body,
-                commands,
-                command_ids_by_span,
+                parent_id,
+                command_relationships,
                 facts,
             );
         }
         Command::AnonymousFunction(function) => {
             collect_statement_sequence_facts_in_stmt(
                 &function.body,
-                commands,
-                command_ids_by_span,
+                parent_id,
+                command_relationships,
                 facts,
             );
         }
@@ -238,15 +257,15 @@ fn collect_statement_sequence_facts_in_command<'a>(
 
 fn collect_statement_sequence_facts_in_stmt<'a>(
     stmt: &Stmt,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+    parent_id: Option<CommandId>,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
     facts: &mut Vec<StatementFact>,
 ) {
+    let stmt_fact = command_relationships.fact_for_stmt_with_parent(parent_id, stmt);
     collect_statement_sequence_facts_in_command(
         &stmt.command,
-        commands,
-        command_ids_by_span,
+        stmt_fact.map(CommandFact::id),
+        command_relationships,
         facts,
     );
 }
-
