@@ -13,13 +13,6 @@ reviewed_divergences:
     column: 13
     end_column: 25
     reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shellcheck-only
-    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__install_ts3db.sh"
-    line: 43
-    end_line: 43
-    column: 8
-    end_column: 23
-    reason: "This installer writes database plugin config using the caller-supplied server config directory, so the ShellCheck-only read is a framework-provided path rather than a free-standing variable."
   - side: shuck-only
     path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__update_steamcmd.sh"
     line: 34

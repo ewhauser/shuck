@@ -10271,6 +10271,25 @@ find \"$configdir\"
     }
 
     #[test]
+    fn redirect_target_references_are_uninitialized_reads() {
+        let source = "\
+#!/bin/bash
+{ echo value; } >> \"${missing_target}/out\"
+echo \"${ordinary_missing}/out\"
+";
+        let model = model(source);
+        let redirect_reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "missing_target")
+            .expect("redirect target reference should be recorded");
+        block_with_reference(model.analysis().cfg(), redirect_reference.id);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_present(&["missing_target", "ordinary_missing"], &uninitialized);
+    }
+
+    #[test]
     fn recorded_program_and_cfg_capture_non_arithmetic_var_ref_nested_regions() {
         let source = "\
 [[ -v assoc[\"$(printf inner)\"] ]]
