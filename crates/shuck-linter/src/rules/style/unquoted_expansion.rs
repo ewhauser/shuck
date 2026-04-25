@@ -2447,6 +2447,50 @@ f() {
     }
 
     #[test]
+    fn skips_mixed_empty_and_safe_branch_aliases() {
+        let source = "\
+#!/bin/bash
+SRCNAM64=foo
+SRCNAM32=
+COMPRESS=deb
+if [ \"$ARCH\" = i586 ]; then
+  SRCNAM=\"$SRCNAM32\"
+elif [ \"$ARCH\" = x86_64 ]; then
+  SRCNAM=\"$SRCNAM64\"
+else
+  SRCNAM=
+fi
+ar x \"$CWD\"/$SRCNAM.$COMPRESS
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_all_empty_branch_aliases() {
+        let source = "\
+#!/bin/bash
+empty=
+if [ \"$1\" = yes ]; then
+  value=$empty
+else
+  value=
+fi
+printf '%s\\n' $value
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$value"]
+        );
+    }
+
+    #[test]
     fn reports_name_only_declarations_without_safe_assignments() {
         let source = "\
 #!/bin/bash

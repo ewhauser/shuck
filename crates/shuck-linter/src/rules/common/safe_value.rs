@@ -29,6 +29,12 @@ enum SourceTextLiteral<'a> {
     Quoted(&'a str),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FieldSafeBindingClass {
+    Empty,
+    NonEmpty,
+}
+
 impl SafeValueQuery {
     pub fn from_context(context: ExpansionContext) -> Option<Self> {
         match context {
@@ -365,6 +371,9 @@ impl<'a> SafeValueIndex<'a> {
         if query.is_field_context() && self.bindings_are_all_plain_empty_static_literals(&bindings)
         {
             return false;
+        }
+        if self.covering_optional_field_safe_bindings_can_stay_safe(&bindings, name, at, query) {
+            return true;
         }
         if self.optional_field_safe_bindings_can_stay_safe(&bindings, query) {
             return true;
@@ -838,6 +847,160 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         saw_name_only_declaration && saw_field_safe_value
+    }
+
+    fn covering_optional_field_safe_bindings_can_stay_safe(
+        &mut self,
+        bindings: &[BindingId],
+        name: &Name,
+        at: Span,
+        query: SafeValueQuery,
+    ) -> bool {
+        if !query.is_field_context()
+            || bindings.is_empty()
+            || bindings.iter().copied().any(|binding_id| {
+                self.semantic.binding(binding_id).span.end.offset > at.start.offset
+            })
+            || !self.bindings_cover_all_paths_to_reference(bindings, name, at)
+        {
+            return false;
+        }
+
+        let mut saw_empty = false;
+        let mut saw_non_empty = false;
+        let mut visiting = FxHashSet::default();
+        for binding_id in bindings.iter().copied() {
+            match self.field_safe_binding_class(binding_id, query, &mut visiting) {
+                Some(FieldSafeBindingClass::Empty) => saw_empty = true,
+                Some(FieldSafeBindingClass::NonEmpty) => saw_non_empty = true,
+                None => return false,
+            }
+        }
+
+        saw_empty && saw_non_empty
+    }
+
+    fn field_safe_binding_group_class(
+        &mut self,
+        bindings: &[BindingId],
+        query: SafeValueQuery,
+        visiting: &mut FxHashSet<BindingId>,
+    ) -> Option<FieldSafeBindingClass> {
+        let mut saw_non_empty = false;
+        for binding_id in bindings.iter().copied() {
+            match self.field_safe_binding_class(binding_id, query, visiting)? {
+                FieldSafeBindingClass::Empty => {}
+                FieldSafeBindingClass::NonEmpty => saw_non_empty = true,
+            }
+        }
+
+        Some(if saw_non_empty {
+            FieldSafeBindingClass::NonEmpty
+        } else {
+            FieldSafeBindingClass::Empty
+        })
+    }
+
+    fn field_safe_binding_class(
+        &mut self,
+        binding_id: BindingId,
+        query: SafeValueQuery,
+        visiting: &mut FxHashSet<BindingId>,
+    ) -> Option<FieldSafeBindingClass> {
+        if !visiting.insert(binding_id) {
+            return None;
+        }
+
+        let result = self.field_safe_binding_class_uncached(binding_id, query, visiting);
+        visiting.remove(&binding_id);
+        result
+    }
+
+    fn field_safe_binding_class_uncached(
+        &mut self,
+        binding_id: BindingId,
+        query: SafeValueQuery,
+        visiting: &mut FxHashSet<BindingId>,
+    ) -> Option<FieldSafeBindingClass> {
+        if self.binding_is_name_only_declaration(binding_id) {
+            return Some(FieldSafeBindingClass::Empty);
+        }
+
+        let binding = self.semantic.binding(binding_id);
+        if !matches!(
+            binding.kind,
+            BindingKind::Assignment | BindingKind::Declaration(_)
+        ) || self.facts.binding_value(binding_id).is_some_and(|value| {
+            value.one_sided_short_circuit_assignment() || value.conditional_assignment_shortcut()
+        }) {
+            return None;
+        }
+
+        match binding.origin {
+            BindingOrigin::Assignment {
+                value: AssignmentValueOrigin::StaticLiteral,
+                ..
+            }
+            | BindingOrigin::Declaration { .. } => {
+                self.static_field_safe_binding_class(binding_id, query)
+            }
+            BindingOrigin::Assignment {
+                value: AssignmentValueOrigin::PlainScalarAccess,
+                ..
+            } => self.plain_scalar_field_safe_binding_class(binding_id, query, visiting),
+            _ => None,
+        }
+    }
+
+    fn static_field_safe_binding_class(
+        &self,
+        binding_id: BindingId,
+        query: SafeValueQuery,
+    ) -> Option<FieldSafeBindingClass> {
+        let text = self
+            .facts
+            .binding_value(binding_id)
+            .and_then(|value| value.scalar_word())
+            .and_then(|word| static_word_text(word, self.source))?;
+        if text.is_empty() {
+            Some(FieldSafeBindingClass::Empty)
+        } else {
+            query
+                .literal_is_safe(&text)
+                .then_some(FieldSafeBindingClass::NonEmpty)
+        }
+    }
+
+    fn plain_scalar_field_safe_binding_class(
+        &mut self,
+        binding_id: BindingId,
+        query: SafeValueQuery,
+        visiting: &mut FxHashSet<BindingId>,
+    ) -> Option<FieldSafeBindingClass> {
+        if let Some(class) = self.static_field_safe_binding_class(binding_id, query) {
+            return Some(class);
+        }
+
+        let word = self
+            .facts
+            .binding_value(binding_id)
+            .and_then(|value| value.scalar_word())?;
+        let target_name = plain_scalar_reference_name(word)?;
+        let binding_span = self.semantic.binding(binding_id).span;
+        self.binding_value_stack.push(binding_id);
+        let prior_bindings = self.safe_bindings_for_name(&target_name, binding_span);
+        self.binding_value_stack.pop();
+        if prior_bindings.is_empty()
+            || !self.bindings_cover_all_paths_to_reference(
+                &prior_bindings,
+                &target_name,
+                binding_span,
+            )
+        {
+            return None;
+        }
+
+        self.field_safe_binding_group_class(&prior_bindings, query, visiting)
     }
 
     fn binding_is_safe(
@@ -2959,6 +3122,35 @@ fn literal_is_regex_safe(text: &str) -> bool {
     }
 
     !escaped
+}
+
+fn plain_scalar_reference_name(word: &Word) -> Option<Name> {
+    let [part] = word.parts.as_slice() else {
+        return None;
+    };
+    plain_scalar_reference_name_from_part(&part.kind)
+}
+
+fn plain_scalar_reference_name_from_part(part: &WordPart) -> Option<Name> {
+    match part {
+        WordPart::Variable(name) if !matches!(name.as_str(), "@" | "*") => Some(name.clone()),
+        WordPart::DoubleQuoted { parts, .. } => {
+            let [part] = parts.as_slice() else {
+                return None;
+            };
+            plain_scalar_reference_name_from_part(&part.kind)
+        }
+        WordPart::Parameter(parameter) => match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+                if reference.subscript.is_none()
+                    && !matches!(reference.name.as_str(), "@" | "*") =>
+            {
+                Some(reference.name.clone())
+            }
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 fn span_contains(container: Span, inner: Span) -> bool {

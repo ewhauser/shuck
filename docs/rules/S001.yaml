@@ -10,8 +10,8 @@ shells:
   - bash
   - dash
   - ksh
-description: Ordinary scalar parameter expansions such as $1, $foo, and ${foo:-fallback} can split or match path patterns when they are used unquoted in a shell word.
-rationale: Quote scalar parameter expansions in split-sensitive positions, including inside command substitutions. Array-style splats and the outer $(...) form have their own rules.
+description: Ordinary scalar parameter expansions such as $1, $foo, and ${foo:-fallback} can split or match path patterns when they appear unquoted in argument-like shell words.
+rationale: Quote scalar parameter expansions in split-sensitive command arguments, command names, here-strings, redirect targets, file-descriptor duplication targets, and non-Bash declaration assignment values. This rule intentionally stays scoped to scalar expansions; unquoted command substitutions, @-style splats, and *-style splats are reported by their own ShellCheck-mapped rules.
 safe_fix: false
 fix_description: "Wrap the reported expansion in double quotes."
 source:

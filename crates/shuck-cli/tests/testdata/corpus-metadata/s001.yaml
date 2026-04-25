@@ -13,13 +13,6 @@ reviewed_divergences:
     column: 38
     end_column: 50
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "HariSekhon__DevOps-Bash-tools__lib__docker.sh"
-    line: 125
-    end_line: 125
-    column: 56
-    end_column: 77
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__runcommand__runcommand.sh"
     line: 235
@@ -33,13 +26,6 @@ reviewed_divergences:
     end_line: 130
     column: 16
     end_column: 22
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__multimedia__ytdlp-gui__ytdlp-gui.SlackBuild"
-    line: 83
-    end_line: 83
-    column: 14
-    end_column: 21
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "SlackBuildsOrg__slackbuilds__system__sboui__doinst.sh"
@@ -126,53 +112,11 @@ reviewed_divergences:
     end_column: 31
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__db"
-    line: 1258
-    end_line: 1258
-    column: 4
-    end_column: 17
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__net"
-    line: 585
-    end_line: 585
-    column: 7
-    end_column: 27
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__net"
-    line: 591
-    end_line: 591
-    column: 5
-    end_column: 25
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__net"
     line: 2620
     end_line: 2620
     column: 79
     end_column: 81
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__rrd"
-    line: 340
-    end_line: 340
-    column: 45
-    end_column: 55
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__speedtest"
-    line: 83
-    end_line: 83
-    column: 8
-    end_column: 10
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__speedtest"
-    line: 341
-    end_line: 341
-    column: 48
-    end_column: 60
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__tool"
@@ -182,67 +126,11 @@ reviewed_divergences:
     end_column: 45
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__vpn"
-    line: 396
-    end_line: 396
-    column: 28
-    end_column: 45
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
     line: 362
     end_line: 362
     column: 40
     end_column: 58
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
-    line: 1289
-    end_line: 1289
-    column: 83
-    end_column: 90
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
-    line: 1294
-    end_line: 1294
-    column: 12
-    end_column: 19
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
-    line: 1299
-    end_line: 1299
-    column: 16
-    end_column: 23
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
-    line: 1300
-    end_line: 1300
-    column: 77
-    end_column: 84
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
-    line: 1438
-    end_line: 1438
-    column: 15
-    end_column: 24
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
-    line: 1439
-    end_line: 1439
-    column: 9
-    end_column: 21
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
-    line: 1442
-    end_line: 1442
-    column: 9
-    end_column: 21
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
@@ -252,25 +140,11 @@ reviewed_divergences:
     end_column: 15
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__wifi"
-    line: 2448
-    end_line: 2448
-    column: 9
-    end_column: 23
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "bittorf__kalua__openwrt-addons__etc__profile.d__kalua.sh"
     line: 11
     end_line: 11
     column: 33
     end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-build__mybuild.sh"
-    line: 1192
-    end_line: 1192
-    column: 41
-    end_column: 48
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_map.sh"
@@ -285,13 +159,6 @@ reviewed_divergences:
     end_line: 577
     column: 70
     end_column: 75
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
-    line: 1662
-    end_line: 1662
-    column: 8
-    end_column: 16
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
@@ -313,13 +180,6 @@ reviewed_divergences:
     end_line: 145
     column: 10
     end_column: 19
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__tests__test_all.sh"
-    line: 231
-    end_line: 231
-    column: 4
-    end_column: 6
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "community-scripts__ProxmoxVE__vm__archlinux-vm.sh"
@@ -631,31 +491,10 @@ reviewed_divergences:
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "nvm-sh__nvm__nvm.sh"
-    line: 104
-    end_line: 104
-    column: 28
-    end_column: 53
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "nvm-sh__nvm__nvm.sh"
     line: 3785
     end_line: 3785
     column: 16
     end_column: 25
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "nvm-sh__nvm__nvm.sh"
-    line: 4700
-    end_line: 4700
-    column: 8
-    end_column: 18
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "nvm-sh__nvm__nvm.sh"
-    line: 4701
-    end_line: 4701
-    column: 12
-    end_column: 22
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "nvm-sh__nvm__test__slow__nvm_get_latest__nvm_get_latest"
@@ -805,41 +644,6 @@ reviewed_divergences:
     end_column: 36
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "scop__bash-completion__completions-core__ping.bash"
-    line: 67
-    end_line: 67
-    column: 31
-    end_column: 39
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "scop__bash-completion__completions-core__ssh-keyscan.bash"
-    line: 49
-    end_line: 49
-    column: 31
-    end_column: 39
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "scop__bash-completion__completions-core__tracepath.bash"
-    line: 21
-    end_line: 21
-    column: 31
-    end_column: 39
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "scop__bash-completion__completions-fallback__mount.bash"
-    line: 37
-    end_line: 37
-    column: 26
-    end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "scop__bash-completion__completions-fallback__mount.linux.bash"
-    line: 224
-    end_line: 224
-    column: 26
-    end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "super-linter__super-linter__test__run-super-linter-tests.sh"
     line: 724
     end_line: 724
@@ -859,13 +663,6 @@ reviewed_divergences:
     end_line: 196
     column: 40
     end_column: 49
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__packages__dart__build.sh"
-    line: 56
-    end_line: 56
-    column: 25
-    end_column: 34
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "termux__termux-packages__packages__lazygit__build.sh"
@@ -992,11 +789,4 @@ reviewed_divergences:
     end_line: 16442
     column: 11
     end_column: 23
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__build-style__void-cross.sh"
-    line: 377
-    end_line: 377
-    column: 12
-    end_column: 17
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
