@@ -1,7 +1,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{CaseTerminator, Name, Span};
 use shuck_parser::ZshEmulationMode;
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 use std::marker::PhantomData;
 
 use crate::source_closure::SourcePathTemplate;
@@ -19,9 +19,9 @@ impl BlockId {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BasicBlock {
     pub id: BlockId,
-    pub commands: Vec<Span>,
-    pub bindings: Vec<BindingId>,
-    pub references: Vec<ReferenceId>,
+    pub commands: SmallVec<[Span; 1]>,
+    pub bindings: SmallVec<[BindingId; 2]>,
+    pub references: SmallVec<[ReferenceId; 4]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,16 +48,16 @@ pub struct FlowContext {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ControlFlowGraph {
     blocks: Vec<BasicBlock>,
-    successors: FxHashMap<BlockId, Vec<(BlockId, EdgeKind)>>,
-    predecessors: FxHashMap<BlockId, Vec<BlockId>>,
+    successors: FxHashMap<BlockId, SmallVec<[(BlockId, EdgeKind); 2]>>,
+    predecessors: FxHashMap<BlockId, SmallVec<[BlockId; 2]>>,
     entry: BlockId,
     exits: Vec<BlockId>,
     natural_exits: Vec<BlockId>,
     script_terminators: Vec<BlockId>,
     unreachable: Vec<BlockId>,
     pub(crate) scope_entries: FxHashMap<ScopeId, BlockId>,
-    pub(crate) scope_exits: FxHashMap<ScopeId, Vec<BlockId>>,
-    pub(crate) command_blocks: FxHashMap<SpanKey, Vec<BlockId>>,
+    pub(crate) scope_exits: FxHashMap<ScopeId, SmallVec<[BlockId; 2]>>,
+    pub(crate) command_blocks: FxHashMap<SpanKey, SmallVec<[BlockId; 1]>>,
     pub(crate) unreachable_causes: FxHashMap<BlockId, UnreachableCause>,
 }
 
@@ -71,11 +71,17 @@ impl ControlFlowGraph {
     }
 
     pub fn successors(&self, id: BlockId) -> &[(BlockId, EdgeKind)] {
-        self.successors.get(&id).map(Vec::as_slice).unwrap_or(&[])
+        self.successors
+            .get(&id)
+            .map(SmallVec::as_slice)
+            .unwrap_or(&[])
     }
 
     pub fn predecessors(&self, id: BlockId) -> &[BlockId] {
-        self.predecessors.get(&id).map(Vec::as_slice).unwrap_or(&[])
+        self.predecessors
+            .get(&id)
+            .map(SmallVec::as_slice)
+            .unwrap_or(&[])
     }
 
     pub fn entry(&self) -> BlockId {
@@ -99,7 +105,7 @@ impl ControlFlowGraph {
     }
 
     pub(crate) fn scope_exits(&self, scope: ScopeId) -> Option<&[BlockId]> {
-        self.scope_exits.get(&scope).map(Vec::as_slice)
+        self.scope_exits.get(&scope).map(SmallVec::as_slice)
     }
 
     pub fn unreachable(&self) -> &[BlockId] {
@@ -109,7 +115,7 @@ impl ControlFlowGraph {
     pub(crate) fn block_ids_for_span(&self, span: Span) -> &[BlockId] {
         self.command_blocks
             .get(&SpanKey::new(span))
-            .map(Vec::as_slice)
+            .map(SmallVec::as_slice)
             .unwrap_or(&[])
     }
 
@@ -1299,7 +1305,7 @@ fn ancestor_scopes(scopes: &[Scope], start: ScopeId) -> impl Iterator<Item = Sco
 
 struct SequenceResult {
     entry: Option<BlockId>,
-    exits: Vec<BlockId>,
+    exits: SmallVec<[BlockId; 2]>,
     terminal_cause: Option<UnreachableCause>,
 }
 
@@ -1343,8 +1349,8 @@ struct GraphBuilder<'a> {
     command_references: &'a FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
     script_terminating_calls: FxHashSet<SpanKey>,
     blocks: Vec<BasicBlock>,
-    successors: FxHashMap<BlockId, Vec<(BlockId, EdgeKind)>>,
-    command_blocks: FxHashMap<SpanKey, Vec<BlockId>>,
+    successors: FxHashMap<BlockId, SmallVec<[(BlockId, EdgeKind); 2]>>,
+    command_blocks: FxHashMap<SpanKey, SmallVec<[BlockId; 1]>>,
     unreachable_causes: FxHashMap<BlockId, UnreachableCause>,
     scope_entries: FxHashMap<ScopeId, BlockId>,
     script_terminators: Vec<BlockId>,
@@ -1365,36 +1371,38 @@ pub(crate) fn build_control_flow_graph(
         bindings,
         call_sites,
     );
+    let command_count = program.commands().len();
+    let scope_count = scopes.len().max(1);
     let mut builder = GraphBuilder {
         program,
         command_bindings,
         command_references,
         script_terminating_calls,
-        blocks: Vec::new(),
-        successors: FxHashMap::default(),
-        command_blocks: FxHashMap::default(),
+        blocks: Vec::with_capacity(command_count),
+        successors: FxHashMap::with_capacity_and_hasher(command_count, Default::default()),
+        command_blocks: FxHashMap::with_capacity_and_hasher(command_count, Default::default()),
         unreachable_causes: FxHashMap::default(),
-        scope_entries: FxHashMap::default(),
+        scope_entries: FxHashMap::with_capacity_and_hasher(scope_count, Default::default()),
         script_terminators: Vec::new(),
     };
 
     let file = builder.build_sequence(program.file_commands(), &[]);
     let entry = file.entry.unwrap_or_else(|| builder.empty_block());
     builder.scope_entries.insert(ScopeId(0), entry);
-    let mut natural_exits = if file.entry.is_none() {
+    let mut natural_exits: Vec<BlockId> = if file.entry.is_none() {
         vec![entry]
     } else {
-        file.exits.clone()
+        file.exits.iter().copied().collect()
     };
     let file_exits = if file.exits.is_empty() {
-        vec![entry]
+        smallvec![entry]
     } else {
         file.exits.clone()
     };
-    let mut scope_exits = FxHashMap::default();
+    let mut scope_exits = FxHashMap::with_capacity_and_hasher(scope_count, Default::default());
     scope_exits.insert(ScopeId(0), file_exits.clone());
 
-    let mut exits = file_exits;
+    let mut exits = file_exits.iter().copied().collect::<Vec<_>>();
 
     for (scope, commands) in program.function_bodies() {
         let function = builder.build_sequence(*commands, &[]);
@@ -1406,12 +1414,12 @@ pub(crate) fn build_control_flow_graph(
             natural_exits.extend(function.exits.iter().copied());
         }
         let function_exits = if function.exits.is_empty() {
-            vec![function_entry]
+            smallvec![function_entry]
         } else {
             function.exits
         };
         scope_exits.insert(*scope, function_exits.clone());
-        exits.extend(function_exits);
+        exits.extend(function_exits.iter().copied());
     }
 
     let predecessors = derive_predecessors(&builder.successors);
@@ -1441,7 +1449,7 @@ impl<'a> GraphBuilder<'a> {
         loops: &[LoopTarget],
     ) -> SequenceResult {
         let mut entry = None;
-        let mut pending = Vec::new();
+        let mut pending = SmallVec::<[BlockId; 2]>::new();
         let mut unreachable_cause = None;
 
         for &command_id in self.program.commands_in(commands) {
@@ -1504,9 +1512,9 @@ impl<'a> GraphBuilder<'a> {
                     .contains(&SpanKey::new(command.span))
                 {
                     self.script_terminators.push(block);
-                    Vec::new()
+                    SmallVec::new()
                 } else {
-                    vec![block]
+                    smallvec![block]
                 };
                 SequenceResult {
                     entry: Some(block),
@@ -1528,7 +1536,7 @@ impl<'a> GraphBuilder<'a> {
                 }
                 SequenceResult {
                     entry: Some(block),
-                    exits: Vec::new(),
+                    exits: SmallVec::new(),
                     terminal_cause: Some(UnreachableCause::loop_control(command.span)),
                 }
             }
@@ -1539,7 +1547,7 @@ impl<'a> GraphBuilder<'a> {
                 }
                 SequenceResult {
                     entry: Some(block),
-                    exits: Vec::new(),
+                    exits: SmallVec::new(),
                     terminal_cause: Some(UnreachableCause::loop_control(command.span)),
                 }
             }
@@ -1550,7 +1558,7 @@ impl<'a> GraphBuilder<'a> {
                 }
                 SequenceResult {
                     entry: Some(block),
-                    exits: Vec::new(),
+                    exits: SmallVec::new(),
                     terminal_cause: Some(UnreachableCause::shell_terminator(command.span)),
                 }
             }
@@ -1613,7 +1621,7 @@ impl<'a> GraphBuilder<'a> {
                 }
                 SequenceResult {
                     entry: Some(block),
-                    exits: vec![block],
+                    exits: smallvec![block],
                     terminal_cause: None,
                 }
             }
@@ -1631,7 +1639,7 @@ impl<'a> GraphBuilder<'a> {
                 }
                 SequenceResult {
                     entry: Some(block),
-                    exits: vec![block],
+                    exits: smallvec![block],
                     terminal_cause: None,
                 }
             }
@@ -1655,7 +1663,7 @@ impl<'a> GraphBuilder<'a> {
         if let Some(entry) = sequence.entry {
             self.add_edge(header, entry, EdgeKind::Sequential);
         } else {
-            sequence.exits = vec![header];
+            sequence.exits = smallvec![header];
             sequence.terminal_cause = None;
         }
         sequence.entry = Some(header);
@@ -1710,7 +1718,7 @@ impl<'a> GraphBuilder<'a> {
                 if next_reachable {
                     (next.exits.clone(), next.exits, next.terminal_cause)
                 } else {
-                    (Vec::new(), Vec::new(), triggering_cause)
+                    (SmallVec::new(), SmallVec::new(), triggering_cause)
                 };
             let next_success_cause = next_success_exits
                 .is_empty()
@@ -1813,7 +1821,7 @@ impl<'a> GraphBuilder<'a> {
         let mut branch_exits = if then_reachable {
             then_seq.exits
         } else {
-            Vec::new()
+            SmallVec::new()
         };
         let mut branch_cause = if then_reachable && branch_exits.is_empty() {
             then_seq.terminal_cause
@@ -1861,7 +1869,7 @@ impl<'a> GraphBuilder<'a> {
             false_exits = if elif_reachable {
                 elif_cond.exits
             } else {
-                Vec::new()
+                SmallVec::new()
             };
             false_cause = if false_exits.is_empty() {
                 if elif_reachable {
@@ -1962,7 +1970,7 @@ impl<'a> GraphBuilder<'a> {
         let condition_seq = self.build_sequence(condition, loops);
         let entry = condition_seq.entry.or_else(|| Some(self.empty_block()));
         let continue_target = condition_seq.entry.unwrap_or(exit_block);
-        let mut next_loops = loops.to_vec();
+        let mut next_loops = SmallVec::<[LoopTarget; 2]>::from_slice(loops);
         next_loops.push(LoopTarget {
             continue_target,
             break_target: exit_block,
@@ -2003,7 +2011,7 @@ impl<'a> GraphBuilder<'a> {
             command,
             SequenceResult {
                 entry,
-                exits: vec![exit_block],
+                exits: smallvec![exit_block],
                 terminal_cause: None,
             },
             loops,
@@ -2021,7 +2029,7 @@ impl<'a> GraphBuilder<'a> {
         let header = self.command_block(command.span);
         self.attach_nested_regions(header, command.nested_regions, loops);
         let exit_block = self.empty_block();
-        let mut next_loops = loops.to_vec();
+        let mut next_loops = SmallVec::<[LoopTarget; 2]>::from_slice(loops);
         next_loops.push(LoopTarget {
             continue_target: header,
             break_target: exit_block,
@@ -2038,7 +2046,7 @@ impl<'a> GraphBuilder<'a> {
         }
         SequenceResult {
             entry: Some(header),
-            exits: vec![exit_block],
+            exits: smallvec![exit_block],
             terminal_cause: None,
         }
     }
@@ -2088,7 +2096,7 @@ impl<'a> GraphBuilder<'a> {
             }
         }
 
-        let mut fallthrough_from = Vec::new();
+        let mut fallthrough_from = SmallVec::<[BlockId; 2]>::new();
 
         for (arm_index, arm) in arms.iter().enumerate() {
             let arm_seq = &arm_sequences[arm_index];
@@ -2134,7 +2142,7 @@ impl<'a> GraphBuilder<'a> {
 
         SequenceResult {
             entry: Some(head),
-            exits: vec![exit_block],
+            exits: smallvec![exit_block],
             terminal_cause: None,
         }
     }
@@ -2159,19 +2167,13 @@ impl<'a> GraphBuilder<'a> {
         let key = SpanKey::new(span);
         self.blocks.push(BasicBlock {
             id,
-            commands: vec![span],
-            bindings: self
-                .command_bindings
-                .get(&key)
-                .cloned()
-                .unwrap_or_default()
-                .into_vec(),
+            commands: smallvec![span],
+            bindings: self.command_bindings.get(&key).cloned().unwrap_or_default(),
             references: self
                 .command_references
                 .get(&key)
                 .cloned()
-                .unwrap_or_default()
-                .into_vec(),
+                .unwrap_or_default(),
         });
         self.command_blocks.entry(key).or_default().push(id);
         id
@@ -2181,9 +2183,9 @@ impl<'a> GraphBuilder<'a> {
         let id = BlockId(self.blocks.len() as u32);
         self.blocks.push(BasicBlock {
             id,
-            commands: Vec::new(),
-            bindings: Vec::new(),
-            references: Vec::new(),
+            commands: SmallVec::new(),
+            bindings: SmallVec::new(),
+            references: SmallVec::new(),
         });
         id
     }
@@ -2198,9 +2200,10 @@ fn resolve_break_target(loops: &[LoopTarget], depth: usize) -> Option<&LoopTarge
 }
 
 fn derive_predecessors(
-    successors: &FxHashMap<BlockId, Vec<(BlockId, EdgeKind)>>,
-) -> FxHashMap<BlockId, Vec<BlockId>> {
-    let mut predecessors: FxHashMap<BlockId, Vec<BlockId>> = FxHashMap::default();
+    successors: &FxHashMap<BlockId, SmallVec<[(BlockId, EdgeKind); 2]>>,
+) -> FxHashMap<BlockId, SmallVec<[BlockId; 2]>> {
+    let mut predecessors: FxHashMap<BlockId, SmallVec<[BlockId; 2]>> =
+        FxHashMap::with_capacity_and_hasher(successors.len(), Default::default());
     for (block, edges) in successors {
         for (target, _) in edges {
             predecessors.entry(*target).or_default().push(*block);
@@ -2212,12 +2215,12 @@ fn derive_predecessors(
 fn compute_unreachable(
     blocks: &[BasicBlock],
     roots: &FxHashMap<ScopeId, BlockId>,
-    successors: &FxHashMap<BlockId, Vec<(BlockId, EdgeKind)>>,
+    successors: &FxHashMap<BlockId, SmallVec<[(BlockId, EdgeKind); 2]>>,
 ) -> Vec<BlockId> {
-    let mut visited = FxHashMap::default();
+    let mut visited = FxHashSet::with_capacity_and_hasher(blocks.len(), Default::default());
     let mut stack: Vec<BlockId> = roots.values().copied().collect();
     while let Some(block) = stack.pop() {
-        if visited.insert(block, ()).is_some() {
+        if !visited.insert(block) {
             continue;
         }
         if let Some(edges) = successors.get(&block) {
@@ -2229,11 +2232,11 @@ fn compute_unreachable(
 
     blocks
         .iter()
-        .filter_map(|block| (!visited.contains_key(&block.id)).then_some(block.id))
+        .filter_map(|block| (!visited.contains(&block.id)).then_some(block.id))
         .collect()
 }
 
-fn append_unique_block_ids(target: &mut Vec<BlockId>, source: &[BlockId]) {
+fn append_unique_block_ids(target: &mut SmallVec<[BlockId; 2]>, source: &[BlockId]) {
     for &block in source {
         if !target.contains(&block) {
             target.push(block);
