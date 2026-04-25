@@ -36,6 +36,8 @@ impl PresenceTestNameFact {
 pub(super) struct PresenceTestedNames {
     pub(super) global_names: FxHashSet<Name>,
     pub(super) nested_command_spans_by_name: FxHashMap<Name, Vec<Span>>,
+    pub(super) c006_global_names: FxHashSet<Name>,
+    pub(super) c006_nested_command_spans_by_name: FxHashMap<Name, Vec<Span>>,
     pub(super) references_by_name: FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
     pub(super) names_by_name: FxHashMap<Name, Vec<PresenceTestNameFact>>,
 }
@@ -47,6 +49,8 @@ pub(super) fn build_presence_tested_names(
 ) -> PresenceTestedNames {
     let mut global_names = FxHashSet::default();
     let mut nested_command_spans_by_name = FxHashMap::<Name, Vec<Span>>::default();
+    let mut c006_global_names = FxHashSet::default();
+    let mut c006_nested_command_spans_by_name = FxHashMap::<Name, Vec<Span>>::default();
     let mut references_by_name = FxHashMap::<Name, Vec<PresenceTestReferenceFact>>::default();
     let mut names_by_name = FxHashMap::<Name, Vec<PresenceTestNameFact>>::default();
     let outermost_nested_scopes = build_outermost_nested_presence_scopes(commands);
@@ -54,31 +58,40 @@ pub(super) fn build_presence_tested_names(
 
     for command in commands {
         let mut command_names = FxHashSet::default();
+        let mut c006_command_names = FxHashSet::default();
         let mut command_reference_ids = FxHashSet::default();
         let mut command_name_spans = Vec::<(Name, Span)>::new();
 
         if let Some(simple_test) = command.simple_test() {
+            let mut simple_test_names = FxHashSet::default();
             collect_presence_tested_names_from_simple_test_operands(
                 simple_test.operands(),
                 source,
                 semantic.references(),
                 &sorted_reference_indices,
-                &mut command_names,
+                &mut simple_test_names,
                 &mut command_reference_ids,
                 &mut command_name_spans,
             );
+            if simple_test.syntax() == SimpleTestSyntax::Bracket {
+                c006_command_names.extend(simple_test_names.iter().cloned());
+            }
+            command_names.extend(simple_test_names);
         }
 
         if let Some(conditional) = command.conditional() {
+            let mut conditional_names = FxHashSet::default();
             collect_presence_tested_names_from_conditional_expr(
                 conditional.root().expression(),
                 source,
                 semantic.references(),
                 &sorted_reference_indices,
-                &mut command_names,
+                &mut conditional_names,
                 &mut command_reference_ids,
                 &mut command_name_spans,
             );
+            c006_command_names.extend(conditional_names.iter().cloned());
+            command_names.extend(conditional_names);
         }
 
         for reference_id in command_reference_ids {
@@ -111,12 +124,23 @@ pub(super) fn build_presence_tested_names(
                     .or_default()
                     .push(span);
             }
+            for name in c006_command_names {
+                c006_nested_command_spans_by_name
+                    .entry(name)
+                    .or_default()
+                    .push(span);
+            }
         } else {
             global_names.extend(command_names);
+            c006_global_names.extend(c006_command_names);
         }
     }
 
     for spans in nested_command_spans_by_name.values_mut() {
+        spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+        spans.dedup();
+    }
+    for spans in c006_nested_command_spans_by_name.values_mut() {
         spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
         spans.dedup();
     }
@@ -149,6 +173,8 @@ pub(super) fn build_presence_tested_names(
     PresenceTestedNames {
         global_names,
         nested_command_spans_by_name,
+        c006_global_names,
+        c006_nested_command_spans_by_name,
         references_by_name,
         names_by_name,
     }

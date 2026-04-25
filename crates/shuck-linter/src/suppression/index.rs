@@ -189,7 +189,7 @@ fn walk_command<F>(stmt: &Stmt, visit: &mut F)
 where
     F: FnMut(Span),
 {
-    visit(stmt.span);
+    visit(statement_suppression_span(stmt));
 
     match &stmt.command {
         Command::Simple(command) => {
@@ -246,15 +246,104 @@ where
             for entry in &header.entries {
                 walk_word(&entry.word, visit);
             }
-            walk_command(body, visit);
+            walk_function_body(body, visit);
         }
         Command::AnonymousFunction(function) => {
             walk_words(&function.args, visit);
-            walk_command(&function.body, visit);
+            walk_function_body(&function.body, visit);
         }
     }
 
     walk_redirects(&stmt.redirects, visit);
+}
+
+fn walk_function_body<F>(stmt: &Stmt, visit: &mut F)
+where
+    F: FnMut(Span),
+{
+    match &stmt.command {
+        Command::Compound(CompoundCommand::BraceGroup(commands))
+        | Command::Compound(CompoundCommand::Subshell(commands)) => {
+            walk_commands(commands, visit);
+            walk_redirects(&stmt.redirects, visit);
+        }
+        _ => walk_command(stmt, visit),
+    }
+}
+
+fn statement_suppression_span(stmt: &Stmt) -> Span {
+    let mut span = command_suppression_base_span(stmt);
+    extend_span_with_redirects(&mut span, &stmt.redirects);
+    span
+}
+
+fn command_suppression_base_span(stmt: &Stmt) -> Span {
+    match &stmt.command {
+        Command::Simple(command) => command.span,
+        Command::Builtin(BuiltinCommand::Break(command)) => command.span,
+        Command::Builtin(BuiltinCommand::Continue(command)) => command.span,
+        Command::Builtin(BuiltinCommand::Return(command)) => command.span,
+        Command::Builtin(BuiltinCommand::Exit(command)) => command.span,
+        Command::Decl(command) => command.span,
+        Command::Binary(command) => command.span,
+        Command::Compound(command) => compound_suppression_base_span(command, stmt.span),
+        Command::Function(command) => command.span,
+        Command::AnonymousFunction(command) => command.span,
+    }
+}
+
+fn compound_suppression_base_span(command: &CompoundCommand, fallback: Span) -> Span {
+    match command {
+        CompoundCommand::If(command) => command.span,
+        CompoundCommand::For(command) => command.span,
+        CompoundCommand::Repeat(command) => command.span,
+        CompoundCommand::Foreach(command) => command.span,
+        CompoundCommand::ArithmeticFor(command) => command.span,
+        CompoundCommand::While(command) => command.span,
+        CompoundCommand::Until(command) => command.span,
+        CompoundCommand::Case(command) => command.span,
+        CompoundCommand::Select(command) => command.span,
+        CompoundCommand::Subshell(_) | CompoundCommand::BraceGroup(_) => fallback,
+        CompoundCommand::Arithmetic(command) => command.span,
+        CompoundCommand::Time(command) => command.span,
+        CompoundCommand::Conditional(command) => command.span,
+        CompoundCommand::Coproc(command) => command.span,
+        CompoundCommand::Always(command) => command.span,
+    }
+}
+
+fn extend_span_with_redirects(span: &mut Span, redirects: &[Redirect]) {
+    for redirect in redirects {
+        if let Some(heredoc) = redirect.heredoc() {
+            extend_span_with_heredoc_body(span, &heredoc.body.parts);
+        }
+    }
+}
+
+fn extend_span_with_heredoc_body(span: &mut Span, parts: &[HeredocBodyPartNode]) {
+    for part in parts {
+        match &part.kind {
+            shuck_ast::HeredocBodyPart::Variable(_)
+            | shuck_ast::HeredocBodyPart::Parameter(_)
+            | shuck_ast::HeredocBodyPart::CommandSubstitution { .. }
+            | shuck_ast::HeredocBodyPart::ArithmeticExpansion { .. } => {
+                extend_span(span, part.span);
+            }
+            shuck_ast::HeredocBodyPart::Literal(_) => {}
+        }
+    }
+}
+
+fn extend_span(span: &mut Span, extension: Span) {
+    if extension.start.line == 0 || extension.end.line == 0 {
+        return;
+    }
+    if span.start.line == 0 || extension.start.offset < span.start.offset {
+        span.start = extension.start;
+    }
+    if span.end.line == 0 || extension.end.offset > span.end.offset {
+        span.end = extension.end;
+    }
 }
 
 fn walk_compound<F>(command: &CompoundCommand, visit: &mut F)
@@ -729,6 +818,28 @@ echo $foo
         assert!(index.is_suppressed(Rule::UnquotedExpansion, 4));
         assert!(index.is_suppressed(Rule::UnquotedExpansion, 5));
         assert!(!index.is_suppressed(Rule::UnquotedExpansion, 6));
+    }
+
+    #[test]
+    fn scopes_shellcheck_disable_inside_function_to_heredoc_body() {
+        let source = "\
+#!/bin/bash
+echo ready
+emit_file() {
+  # shellcheck disable=SC2154
+  cat \"$path\" <<EOF
+value=$body_value
+other=${other_value}
+EOF
+  echo \"$later\"
+}
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UndefinedVariable, 5));
+        assert!(index.is_suppressed(Rule::UndefinedVariable, 6));
+        assert!(index.is_suppressed(Rule::UndefinedVariable, 7));
+        assert!(!index.is_suppressed(Rule::UndefinedVariable, 9));
     }
 
     #[test]

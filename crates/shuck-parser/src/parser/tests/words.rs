@@ -53,6 +53,34 @@ fn collect_bourne_parameter_names(parts: &[WordPartNode], names: &mut Vec<String
     }
 }
 
+fn collect_bourne_parameter_trim_patterns(
+    parts: &[WordPartNode],
+    source: &str,
+    patterns: &mut Vec<String>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_bourne_parameter_trim_patterns(parts, source, patterns);
+            }
+            WordPart::Parameter(parameter) => {
+                if let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+                    operator:
+                        ParameterOp::RemovePrefixShort { pattern }
+                        | ParameterOp::RemovePrefixLong { pattern }
+                        | ParameterOp::RemoveSuffixShort { pattern }
+                        | ParameterOp::RemoveSuffixLong { pattern },
+                    ..
+                }) = &parameter.syntax
+                {
+                    patterns.push(pattern.render(source));
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 #[test]
 fn test_current_word_cache_tracks_token_changes() {
     let input = "\"$foo\" bar\n";
@@ -317,6 +345,18 @@ fn test_parse_mixed_quoted_and_cooked_plain_continuation_keeps_variable_live() {
         ) && text.as_str(input, word.parts[1].span) == "\\"
             && name.as_str() == "HOME"
     ));
+}
+
+#[test]
+fn test_parse_assignment_value_after_line_continuation() {
+    let input = "easyrsa_ksh=\\\n'value'\nprintf '%s\\n' \"$easyrsa_ksh\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let command = expect_simple(&script.body[0]);
+    assert_eq!(command.assignments.len(), 1);
+    assert_eq!(command.name.render(input), "");
+    assert!(command.args.is_empty());
+    assert_eq!(command.assignments[0].target.name, "easyrsa_ksh");
 }
 
 #[test]
@@ -1168,8 +1208,11 @@ usage: ${0##*/} <resource_type>
 
     let mut names = Vec::new();
     collect_bourne_parameter_names(&word.parts, &mut names);
+    let mut patterns = Vec::new();
+    collect_bourne_parameter_trim_patterns(&word.parts, input, &mut patterns);
 
     assert_eq!(names, vec!["0", "0", "0"]);
+    assert_eq!(patterns, vec!["*/", "*/", "*/"]);
 }
 
 #[test]

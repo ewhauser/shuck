@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
@@ -6,12 +6,13 @@ use shuck_ast::{
     ArithmeticLvalue, ArithmeticUnaryOp, ArrayElem, ArrayExpr, ArrayKind, Assignment,
     AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command,
     CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclOperand, File,
-    FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, Name, NormalizedCommand,
-    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind,
-    PatternPart, PatternPartNode, Span, StaticCommandWrapperTarget, Stmt, StmtSeq, Subscript,
-    VarRef, Word, WordPart, WordPartNode, WrapperKind, ZshExpansionOperation, ZshExpansionTarget,
-    ZshGlobSegment, normalize_command_words, static_command_name_text,
-    static_command_wrapper_target_index, static_word_text, try_static_word_parts_text,
+    FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, LiteralText, Name,
+    NormalizedCommand, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
+    PatternGroupKind, PatternPart, PatternPartNode, Position, SourceText, Span,
+    StaticCommandWrapperTarget, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode,
+    WrapperKind, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
+    normalize_command_words, static_command_name_text, static_command_wrapper_target_index,
+    static_word_text, try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::{ShellProfile, ZshEmulationMode};
@@ -51,6 +52,7 @@ pub(crate) struct BuildOutput {
     pub(crate) guarded_parameter_refs: FxHashSet<ReferenceId>,
     pub(crate) parameter_guard_flow_refs: FxHashSet<ReferenceId>,
     pub(crate) defaulting_parameter_operand_refs: FxHashSet<ReferenceId>,
+    pub(crate) self_referential_assignment_refs: FxHashSet<ReferenceId>,
     pub(crate) binding_index: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     pub(crate) resolved: FxHashMap<ReferenceId, BindingId>,
     pub(crate) unresolved: Vec<ReferenceId>,
@@ -72,6 +74,8 @@ pub(crate) struct BuildOutput {
 
 pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     source: &'a str,
+    line_start_offsets: Vec<usize>,
+    shell_profile: ShellProfile,
     observer: &'observer mut dyn TraversalObserver,
     scopes: Vec<Scope>,
     bindings: Vec<Binding>,
@@ -81,6 +85,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     guarded_parameter_refs: FxHashSet<ReferenceId>,
     parameter_guard_flow_refs: FxHashSet<ReferenceId>,
     defaulting_parameter_operand_refs: FxHashSet<ReferenceId>,
+    self_referential_assignment_refs: FxHashSet<ReferenceId>,
     binding_index: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     resolved: FxHashMap<ReferenceId, BindingId>,
     unresolved: Vec<ReferenceId>,
@@ -104,6 +109,8 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     guarded_parameter_operand_depth: u32,
     defaulting_parameter_operand_depth: u32,
     short_circuit_condition_depth: u32,
+    arithmetic_reference_kind: ReferenceKind,
+    word_reference_kind_override: Option<ReferenceKind>,
 }
 
 fn semantic_statement_span(stmt: &Stmt) -> Span {
@@ -144,6 +151,7 @@ impl FlowState {
 enum WordVisitKind {
     Expansion,
     Conditional,
+    ParameterPattern,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -172,6 +180,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let runtime = RuntimePrelude::new(bash_runtime_vars_enabled);
         let mut builder = Self {
             source,
+            line_start_offsets: source_line_start_offsets(source),
+            shell_profile: shell_profile.clone(),
             observer,
             scopes: vec![file_scope],
             bindings: Vec::new(),
@@ -181,6 +191,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             guarded_parameter_refs: FxHashSet::default(),
             parameter_guard_flow_refs: FxHashSet::default(),
             defaulting_parameter_operand_refs: FxHashSet::default(),
+            self_referential_assignment_refs: FxHashSet::default(),
             binding_index: FxHashMap::default(),
             resolved: FxHashMap::default(),
             unresolved: Vec::new(),
@@ -204,6 +215,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             guarded_parameter_operand_depth: 0,
             defaulting_parameter_operand_depth: 0,
             short_circuit_condition_depth: 0,
+            arithmetic_reference_kind: ReferenceKind::ArithmeticRead,
+            word_reference_kind_override: None,
         };
         let file_commands = builder.visit_stmt_seq(&file.body, FlowState::default());
         builder.recorded_program.set_file_commands(file_commands);
@@ -223,6 +236,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             guarded_parameter_refs: builder.guarded_parameter_refs,
             parameter_guard_flow_refs: builder.parameter_guard_flow_refs,
             defaulting_parameter_operand_refs: builder.defaulting_parameter_operand_refs,
+            self_referential_assignment_refs: builder.self_referential_assignment_refs,
             binding_index: builder.binding_index,
             resolved: builder.resolved,
             unresolved: builder.unresolved,
@@ -1080,8 +1094,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         if assignment_has_empty_initializer(assignment, self.source) {
             attributes |= BindingAttributes::EMPTY_INITIALIZER;
         }
-        if self.newly_added_references_read_name(&assignment.target.name, reference_start) {
+        let self_referential_refs =
+            self.newly_added_reference_ids_reading_name(&assignment.target.name, reference_start);
+        if !self_referential_refs.is_empty() {
             attributes |= BindingAttributes::SELF_REFERENTIAL_READ;
+            self.self_referential_assignment_refs
+                .extend(self_referential_refs);
         }
         if assignment.target.subscript.is_some()
             && !attributes.contains(BindingAttributes::ASSOC)
@@ -1116,16 +1134,26 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     }
 
     fn record_prompt_assignment_references(&mut self, assignment: &'a Assignment) {
-        if assignment.target.name.as_str() != "PS1" {
-            return;
-        }
-
         let AssignmentValue::Scalar(word) = &assignment.value else {
             return;
         };
 
-        for (name, span) in prompt_assignment_reference_names(word, self.source) {
-            self.add_reference(&name, ReferenceKind::ImplicitRead, span);
+        match assignment.target.name.as_str() {
+            "PS1" => {
+                for (name, span) in prompt_assignment_reference_names(word, self.source) {
+                    self.add_reference(&name, ReferenceKind::ImplicitRead, span);
+                }
+            }
+            "PS4" => {
+                for name in escaped_prompt_assignment_reference_names(word, self.source) {
+                    self.add_reference(
+                        &name,
+                        ReferenceKind::PromptExpansion,
+                        assignment.target.name_span,
+                    );
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1298,7 +1326,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
-        if !body.mode.expands() || heredoc_body_is_semantically_inert(body) {
+        if !body.mode.expands() || heredoc_body_is_semantically_inert(body, self.source) {
             return;
         }
         self.visit_heredoc_body_part_nodes(&body.parts, kind, flow, nested_regions);
@@ -1361,15 +1389,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         nested_regions: &mut Vec<IsolatedRegion>,
         span: Span,
     ) -> ReferenceId {
+        let reference_kind = self.word_reference_kind_override.unwrap_or(reference_kind);
         let id = self.add_reference(&reference.name, reference_kind, span);
         self.visit_var_ref_subscript_words(
             Some(&reference.name),
             reference.subscript.as_deref(),
-            if matches!(reference_kind, ReferenceKind::ConditionalOperand) {
-                WordVisitKind::Conditional
-            } else {
-                WordVisitKind::Expansion
-            },
+            word_visit_kind_for_reference_kind(reference_kind),
             flow,
             nested_regions,
         );
@@ -1409,6 +1434,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             return;
         }
 
+        if !uses_associative_word_semantics {
+            self.visit_unparsed_arithmetic_subscript_references(subscript);
+        }
+
         self.visit_fragment_word(
             subscript.word_ast(),
             Some(subscript.syntax_source_text()),
@@ -1416,6 +1445,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             flow,
             nested_regions,
         );
+    }
+
+    fn visit_unparsed_arithmetic_subscript_references(&mut self, subscript: &Subscript) {
+        for (name, span) in unparsed_arithmetic_subscript_reference_names(
+            subscript.syntax_source_text(),
+            self.source,
+        ) {
+            self.add_reference(&name, ReferenceKind::ArithmeticRead, span);
+        }
     }
 
     fn visit_word_part(
@@ -1450,11 +1488,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             WordPart::Variable(name) => {
                 self.add_reference(
                     name,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::Expansion
-                    },
+                    self.word_reference_kind_override
+                        .unwrap_or(reference_kind_for_word_visit(
+                            kind,
+                            ReferenceKind::Expansion,
+                        )),
                     span,
                 );
             }
@@ -1503,13 +1541,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             } => {
                 let reference_id = self.visit_var_ref_reference(
                     reference,
-                    if matches!(operator, ParameterOp::Error) {
-                        ReferenceKind::RequiredRead
-                    } else if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::ParameterExpansion
-                    },
+                    parameter_operation_reference_kind(kind, operator),
                     flow,
                     nested_regions,
                     reference.span,
@@ -1532,11 +1564,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             WordPart::Length(reference) | WordPart::ArrayLength(reference) => {
                 self.visit_var_ref_reference(
                     reference,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::Length
-                    },
+                    reference_kind_for_word_visit(kind, ReferenceKind::Length),
                     flow,
                     nested_regions,
                     reference.span,
@@ -1545,11 +1573,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             WordPart::ArrayAccess(reference) => {
                 self.visit_var_ref_reference(
                     reference,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::ArrayAccess
-                    },
+                    reference_kind_for_word_visit(kind, ReferenceKind::ArrayAccess),
                     flow,
                     nested_regions,
                     reference.span,
@@ -1558,11 +1582,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             WordPart::ArrayIndices(reference) => {
                 self.visit_var_ref_reference(
                     reference,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::IndirectExpansion
-                    },
+                    reference_kind_for_word_visit(kind, ReferenceKind::IndirectExpansion),
                     flow,
                     nested_regions,
                     reference.span,
@@ -1578,11 +1598,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             } => {
                 let id = self.visit_var_ref_reference(
                     reference,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::IndirectExpansion
-                    },
+                    reference_kind_for_word_visit(kind, ReferenceKind::IndirectExpansion),
                     flow,
                     nested_regions,
                     reference.span,
@@ -1607,11 +1623,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             } => {
                 self.visit_var_ref_reference(
                     reference,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::ParameterExpansion
-                    },
+                    reference_kind_for_word_visit(kind, ReferenceKind::ParameterExpansion),
                     flow,
                     nested_regions,
                     reference.span,
@@ -1627,11 +1639,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             } => {
                 self.visit_var_ref_reference(
                     reference,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::ParameterExpansion
-                    },
+                    reference_kind_for_word_visit(kind, ReferenceKind::ParameterExpansion),
                     flow,
                     nested_regions,
                     reference.span,
@@ -1642,11 +1650,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             WordPart::Transformation { reference, .. } => {
                 self.visit_var_ref_reference(
                     reference,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::ParameterExpansion
-                    },
+                    reference_kind_for_word_visit(kind, ReferenceKind::ParameterExpansion),
                     flow,
                     nested_regions,
                     reference.span,
@@ -1664,15 +1668,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
         match part {
-            HeredocBodyPart::Literal(_) => {}
+            HeredocBodyPart::Literal(text) => {
+                self.visit_escaped_braced_literal_references(text, span, kind);
+            }
             HeredocBodyPart::Variable(name) => {
                 self.add_reference(
                     name,
-                    if matches!(kind, WordVisitKind::Conditional) {
-                        ReferenceKind::ConditionalOperand
-                    } else {
-                        ReferenceKind::Expansion
-                    },
+                    reference_kind_for_word_visit(kind, ReferenceKind::Expansion),
                     span,
                 );
             }
@@ -1708,6 +1710,27 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn visit_escaped_braced_literal_references(
+        &mut self,
+        text: &LiteralText,
+        span: Span,
+        kind: WordVisitKind,
+    ) {
+        if !text.is_source_backed() {
+            return;
+        }
+
+        for (name, span) in
+            escaped_braced_literal_reference_names(text.syntax_str(self.source, span), span)
+        {
+            self.add_reference(
+                &name,
+                reference_kind_for_word_visit(kind, ReferenceKind::Expansion),
+                span,
+            );
+        }
+    }
+
     fn visit_parameter_expansion(
         &mut self,
         parameter: &'a ParameterExpansion,
@@ -1721,11 +1744,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 BourneParameterExpansion::Access { reference } => {
                     self.visit_var_ref_reference(
                         reference,
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::ArrayAccess
-                        },
+                        reference_kind_for_word_visit(kind, ReferenceKind::ArrayAccess),
                         flow,
                         nested_regions,
                         span,
@@ -1734,11 +1753,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 BourneParameterExpansion::Length { reference } => {
                     self.visit_var_ref_reference(
                         reference,
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::Length
-                        },
+                        reference_kind_for_word_visit(kind, ReferenceKind::Length),
                         flow,
                         nested_regions,
                         span,
@@ -1747,11 +1762,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 BourneParameterExpansion::Indices { reference } => {
                     self.visit_var_ref_reference(
                         reference,
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::IndirectExpansion
-                        },
+                        reference_kind_for_word_visit(kind, ReferenceKind::IndirectExpansion),
                         flow,
                         nested_regions,
                         span,
@@ -1766,11 +1777,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 } => {
                     let id = self.visit_var_ref_reference(
                         reference,
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::IndirectExpansion
-                        },
+                        reference_kind_for_word_visit(kind, ReferenceKind::IndirectExpansion),
                         flow,
                         nested_regions,
                         span,
@@ -1796,21 +1803,17 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 } => {
                     self.visit_var_ref_reference(
                         reference,
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::ParameterExpansion
-                        },
+                        reference_kind_for_word_visit(kind, ReferenceKind::ParameterExpansion),
                         flow,
                         nested_regions,
                         span,
                     );
-                    self.visit_optional_arithmetic_expr_into(
+                    self.visit_parameter_slice_arithmetic_expr_into(
                         offset_ast.as_ref(),
                         flow,
                         nested_regions,
                     );
-                    self.visit_optional_arithmetic_expr_into(
+                    self.visit_parameter_slice_arithmetic_expr_into(
                         length_ast.as_ref(),
                         flow,
                         nested_regions,
@@ -1825,13 +1828,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 } => {
                     let reference_id = self.visit_var_ref_reference(
                         reference,
-                        if matches!(operator, ParameterOp::Error) {
-                            ReferenceKind::RequiredRead
-                        } else if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::ParameterExpansion
-                        },
+                        parameter_operation_reference_kind(kind, operator),
                         flow,
                         nested_regions,
                         span,
@@ -1854,11 +1851,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 BourneParameterExpansion::Transformation { reference, .. } => {
                     self.visit_var_ref_reference(
                         reference,
-                        if matches!(kind, WordVisitKind::Conditional) {
-                            ReferenceKind::ConditionalOperand
-                        } else {
-                            ReferenceKind::ParameterExpansion
-                        },
+                        reference_kind_for_word_visit(kind, ReferenceKind::ParameterExpansion),
                         flow,
                         nested_regions,
                         span,
@@ -1868,17 +1861,18 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             ParameterExpansionSyntax::Zsh(syntax) => {
                 match &syntax.target {
                     ZshExpansionTarget::Reference(reference) => {
-                        self.visit_var_ref_reference(
-                            reference,
-                            if matches!(kind, WordVisitKind::Conditional) {
-                                ReferenceKind::ConditionalOperand
-                            } else {
-                                ReferenceKind::ParameterExpansion
-                            },
-                            flow,
-                            nested_regions,
-                            span,
-                        );
+                        if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh {
+                            self.visit_var_ref_reference(
+                                reference,
+                                reference_kind_for_word_visit(
+                                    kind,
+                                    ReferenceKind::ParameterExpansion,
+                                ),
+                                flow,
+                                nested_regions,
+                                span,
+                            );
+                        }
                     }
                     ZshExpansionTarget::Word(word) => {
                         self.visit_word_into(word, kind, flow, nested_regions);
@@ -1931,7 +1925,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                             self.visit_fragment_word(
                                 operation.pattern_word_ast(),
                                 Some(pattern),
-                                kind,
+                                WordVisitKind::ParameterPattern,
                                 flow,
                                 nested_regions,
                             );
@@ -2004,7 +1998,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             | ParameterOp::RemovePrefixLong { pattern }
             | ParameterOp::RemoveSuffixShort { pattern }
             | ParameterOp::RemoveSuffixLong { pattern } => {
-                self.visit_pattern_into(pattern, kind, flow, nested_regions);
+                self.visit_pattern_into(
+                    pattern,
+                    WordVisitKind::ParameterPattern,
+                    flow,
+                    nested_regions,
+                );
             }
             ParameterOp::ReplaceFirst {
                 pattern,
@@ -2016,7 +2015,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 replacement,
                 ..
             } => {
-                self.visit_pattern_into(pattern, kind, flow, nested_regions);
+                self.visit_pattern_into(
+                    pattern,
+                    WordVisitKind::ParameterPattern,
+                    flow,
+                    nested_regions,
+                );
                 self.visit_fragment_word(
                     operator.replacement_word_ast(),
                     Some(replacement),
@@ -2092,12 +2096,24 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         match expression {
             ConditionalExpr::Binary(expr) => {
-                self.visit_conditional_expr_into(&expr.left, flow, nested_regions);
-                if matches!(expr.op, ConditionalBinaryOp::And | ConditionalBinaryOp::Or) {
+                if conditional_binary_op_uses_arithmetic_operands(expr.op) {
+                    self.visit_conditional_arithmetic_operand_into(
+                        &expr.left,
+                        flow,
+                        nested_regions,
+                    );
+                    self.visit_conditional_arithmetic_operand_into(
+                        &expr.right,
+                        flow,
+                        nested_regions,
+                    );
+                } else if matches!(expr.op, ConditionalBinaryOp::And | ConditionalBinaryOp::Or) {
+                    self.visit_conditional_expr_into(&expr.left, flow, nested_regions);
                     self.short_circuit_condition_depth += 1;
                     self.visit_conditional_expr_into(&expr.right, flow, nested_regions);
                     self.short_circuit_condition_depth -= 1;
                 } else {
+                    self.visit_conditional_expr_into(&expr.left, flow, nested_regions);
                     self.visit_conditional_expr_into(&expr.right, flow, nested_regions);
                 }
             }
@@ -2131,6 +2147,20 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn visit_conditional_arithmetic_operand_into(
+        &mut self,
+        expression: &'a ConditionalExpr,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        if let Some((name, span)) = conditional_arithmetic_operand_name(expression, self.source) {
+            self.add_reference(&name, ReferenceKind::ArithmeticRead, span);
+            return;
+        }
+
+        self.visit_conditional_expr_into(expression, flow, nested_regions);
+    }
+
     fn visit_optional_arithmetic_expr(
         &mut self,
         expr: Option<&'a ArithmeticExprNode>,
@@ -2152,6 +2182,18 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn visit_parameter_slice_arithmetic_expr_into(
+        &mut self,
+        expr: Option<&'a ArithmeticExprNode>,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        let previous_kind = self.arithmetic_reference_kind;
+        self.arithmetic_reference_kind = ReferenceKind::ParameterSliceArithmetic;
+        self.visit_optional_arithmetic_expr_into(expr, flow, nested_regions);
+        self.arithmetic_reference_kind = previous_kind;
+    }
+
     fn visit_arithmetic_expr_into(
         &mut self,
         expr: &'a ArithmeticExprNode,
@@ -2161,18 +2203,28 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         match &expr.kind {
             ArithmeticExpr::Number(_) => {}
             ArithmeticExpr::Variable(name) => {
-                self.add_reference(name, ReferenceKind::ArithmeticRead, expr.span);
+                self.add_reference(name, self.arithmetic_reference_kind, expr.span);
             }
             ArithmeticExpr::Indexed { name, index } => {
                 self.add_reference(
                     name,
-                    ReferenceKind::ArithmeticRead,
+                    self.arithmetic_reference_kind,
                     arithmetic_name_span(expr.span, name),
                 );
                 self.visit_arithmetic_index_into(name, index, flow, nested_regions);
             }
             ArithmeticExpr::ShellWord(word) => {
+                let previous_kind =
+                    if self.arithmetic_reference_kind == ReferenceKind::ParameterSliceArithmetic {
+                        self.word_reference_kind_override
+                            .replace(ReferenceKind::ParameterSliceArithmetic)
+                    } else {
+                        None
+                    };
                 self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions);
+                if self.arithmetic_reference_kind == ReferenceKind::ParameterSliceArithmetic {
+                    self.word_reference_kind_override = previous_kind;
+                }
             }
             ArithmeticExpr::Parenthesized { expression } => {
                 self.visit_arithmetic_expr_into(expression, flow, nested_regions);
@@ -2335,7 +2387,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         match &expr.kind {
             ArithmeticExpr::Variable(name) => {
-                self.add_reference(name, ReferenceKind::ArithmeticRead, expr.span);
+                let reference_id =
+                    self.add_reference(name, self.arithmetic_reference_kind, expr.span);
+                self.self_referential_assignment_refs.insert(reference_id);
                 self.add_binding(
                     name,
                     BindingKind::ArithmeticAssignment,
@@ -2354,7 +2408,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             ArithmeticExpr::Indexed { name, index } => {
                 self.visit_arithmetic_index_into(name, index, flow, nested_regions);
                 let span = arithmetic_name_span(expr.span, name);
-                self.add_reference(name, ReferenceKind::ArithmeticRead, span);
+                let reference_id = self.add_reference(name, self.arithmetic_reference_kind, span);
+                self.self_referential_assignment_refs.insert(reference_id);
                 self.add_binding(
                     name,
                     BindingKind::ArithmeticAssignment,
@@ -2400,11 +2455,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.visit_arithmetic_lvalue_indices_into(target, flow, nested_regions);
         let mut attributes = self.arithmetic_binding_attributes(target, target_span.start.offset);
         if !matches!(op, ArithmeticAssignOp::Assign) {
-            self.add_reference(name, ReferenceKind::ArithmeticRead, name_span);
+            self.add_reference(name, self.arithmetic_reference_kind, name_span);
         }
         self.visit_arithmetic_expr_into(value, flow, nested_regions);
-        if self.newly_added_references_read_name(name, reference_start) {
+        let self_referential_refs =
+            self.newly_added_reference_ids_reading_name(name, reference_start);
+        if !self_referential_refs.is_empty() {
             attributes |= BindingAttributes::SELF_REFERENTIAL_READ;
+            self.self_referential_assignment_refs
+                .extend(self_referential_refs);
         }
         self.add_binding(
             name,
@@ -2536,7 +2595,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     );
                 }
             }
+            "let" => self.record_let_arithmetic_assignment_targets(args),
             "eval" => self.record_eval_argument_references(args),
+            "trap" => self.record_trap_action_references(args),
             "source" | "." => {
                 if normalized.wrappers.is_empty()
                     && let Some(argument) = args.first().copied()
@@ -2565,6 +2626,38 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.visit_command_defined_variable(args);
             }
             _ => {}
+        }
+    }
+
+    fn record_trap_action_references(&mut self, args: &[&'a Word]) {
+        let Some(argument) = trap_action_argument(args, self.source) else {
+            return;
+        };
+
+        let mut seen = FxHashSet::default();
+        for name in trap_action_reference_names(argument, self.source) {
+            if seen.insert(name.clone()) {
+                self.add_reference(&name, ReferenceKind::TrapAction, argument.span);
+            }
+        }
+    }
+
+    fn record_let_arithmetic_assignment_targets(&mut self, args: &[&'a Word]) {
+        for argument in args {
+            let Some((name, span)) = let_arithmetic_assignment_target(argument, self.source) else {
+                continue;
+            };
+            self.add_binding(
+                &name,
+                BindingKind::ArithmeticAssignment,
+                self.current_scope(),
+                span,
+                BindingOrigin::ArithmeticAssignment {
+                    definition_span: span,
+                    target_span: span,
+                },
+                BindingAttributes::empty(),
+            );
         }
     }
 
@@ -2608,13 +2701,6 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 parsing_options = false;
             }
 
-            let Some(text) = static_word_text(argument, self.source) else {
-                operands.push(DeclarationOperand::DynamicWord {
-                    span: argument.span,
-                });
-                continue;
-            };
-
             if name_operands_are_function_names {
                 operands.push(DeclarationOperand::DynamicWord {
                     span: argument.span,
@@ -2622,8 +2708,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 continue;
             }
 
+            let assignment_text = declaration_assignment_text(argument, self.source);
             if let Some(assignment) =
-                parse_simple_declaration_assignment(argument, text.as_ref(), self.source)
+                parse_simple_declaration_assignment(argument, assignment_text.as_ref(), self.source)
             {
                 let (scope, mut attributes) = self.simple_declaration_scope_and_attributes(
                     builtin,
@@ -2660,6 +2747,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     name_span: assignment.name_span,
                     value_span: assignment.value_span,
                     append: assignment.append,
+                });
+                continue;
+            }
+
+            if static_word_text(argument, self.source).is_none() {
+                operands.push(DeclarationOperand::DynamicWord {
+                    span: argument.span,
                 });
                 continue;
             }
@@ -3123,7 +3217,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     }
 
     fn add_reference(&mut self, name: &Name, kind: ReferenceKind, span: Span) -> ReferenceId {
-        let span = self.normalize_reference_span(span);
+        let span = self.normalize_reference_span(name, kind, span);
         let id = ReferenceId(self.references.len() as u32);
         let scope = self.current_scope();
         let resolved = self.resolve_reference(name, scope, span.start.offset);
@@ -3168,26 +3262,161 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         id
     }
 
-    fn normalize_reference_span(&self, span: Span) -> Span {
+    fn normalize_reference_span(&self, name: &Name, kind: ReferenceKind, span: Span) -> Span {
         if span.end.offset >= self.source.len() {
             return span;
         }
 
         let syntax = span.slice(self.source);
-        let Some(start_rel) = syntax.find("${") else {
-            return span;
-        };
-        if self.source.as_bytes().get(span.end.offset) != Some(&b'}') {
+        if matches!(kind, ReferenceKind::Expansion)
+            && unbraced_parameter_reference_matches(syntax, name.as_str())
+        {
             return span;
         }
+        if !reference_kind_uses_braced_parameter_syntax(kind) {
+            return span;
+        }
+        if let Some(start_rel) = syntax.find('$') {
+            let candidate = &syntax[start_rel..];
+            if unbraced_parameter_reference_matches(candidate, name.as_str()) {
+                let start_offset = span.start.offset + start_rel;
+                let end_offset = start_offset + '$'.len_utf8() + name.as_str().len();
+                if let Some((start, end)) =
+                    self.source_positions_for_offsets(start_offset, end_offset)
+                    && start.offset < end.offset
+                {
+                    return Span::from_positions(start, end);
+                }
+            }
+        }
+        let Some(start_rel) = syntax.find("${") else {
+            return self
+                .recover_unbraced_reference_span(name, span)
+                .or_else(|| self.recover_braced_reference_span(name, span))
+                .unwrap_or(span);
+        };
+        if self.source.as_bytes().get(span.end.offset) != Some(&b'}') {
+            return self
+                .recover_braced_reference_span(name, span)
+                .unwrap_or(span);
+        }
 
-        let start = span.start.advanced_by(&syntax[..start_rel]);
-        let end = span.end.advanced_by("}");
+        let start_offset = span.start.offset + start_rel;
+        let end_offset = span.end.offset + '}'.len_utf8();
+        let Some((start, end)) = self.source_positions_for_offsets(start_offset, end_offset) else {
+            return span;
+        };
         if start.offset < end.offset {
             Span::from_positions(start, end)
         } else {
             span
         }
+    }
+
+    fn recover_braced_reference_span(&self, name: &Name, span: Span) -> Option<Span> {
+        if name.is_empty() || span.start.offset >= self.source.len() {
+            return None;
+        }
+
+        let name = name.as_str();
+        let search_end = self
+            .source
+            .get(span.start.offset..)?
+            .find('\n')
+            .map(|relative| span.start.offset + relative)
+            .unwrap_or(self.source.len());
+        let search = self.source.get(span.start.offset..search_end)?;
+        let needle = format!("${{{name}");
+        for (start_rel, _) in search.match_indices(&needle) {
+            let start_offset = span.start.offset + start_rel;
+            if braced_parameter_start_matches(self.source, start_offset, name)
+                && let Some(end_offset) =
+                    braced_parameter_end_offset(self.source, start_offset, search_end)
+                && let Some((start, end)) =
+                    self.source_positions_for_offsets(start_offset, end_offset)
+                && start.offset < end.offset
+            {
+                return Some(Span::from_positions(start, end));
+            }
+        }
+
+        self.recover_braced_reference_span_on_line(&needle, span)
+    }
+
+    fn recover_unbraced_reference_span(&self, name: &Name, span: Span) -> Option<Span> {
+        if name.is_empty() || span.start.offset >= self.source.len() {
+            return None;
+        }
+
+        let (line_start_offset, line) = source_line(self.source, span.start.line)?;
+        let name = name.as_str();
+        let mut best = None::<(usize, usize, usize)>;
+        for (start, _) in line.match_indices('$') {
+            if !unbraced_parameter_start_matches(line, start, name) {
+                continue;
+            }
+            let end = start + '$'.len_utf8() + name.len();
+            let column = line.get(..start)?.chars().count() + 1;
+            let distance = column.abs_diff(span.start.column);
+            if best
+                .as_ref()
+                .is_none_or(|(_, _, best_distance)| distance < *best_distance)
+            {
+                best = Some((start, end, distance));
+            }
+        }
+
+        let (start, end, _) = best?;
+        let start_offset = line_start_offset + start;
+        let end_offset = line_start_offset + end;
+        let (start, end) = self.source_positions_for_offsets(start_offset, end_offset)?;
+        (start.offset < end.offset).then(|| Span::from_positions(start, end))
+    }
+
+    fn recover_braced_reference_span_on_line(&self, needle: &str, span: Span) -> Option<Span> {
+        let (line_start_offset, line) = source_line(self.source, span.start.line)?;
+        let mut best = None::<(usize, usize, usize)>;
+        let name = needle.strip_prefix("${").unwrap_or(needle);
+        for (start, _) in line.match_indices(needle) {
+            if !braced_parameter_start_matches(line, start, name) {
+                continue;
+            }
+            let Some(end) = braced_parameter_end_offset(line, start, line.len()) else {
+                continue;
+            };
+            let column = line.get(..start)?.chars().count() + 1;
+            let distance = column.abs_diff(span.start.column);
+            if best
+                .as_ref()
+                .is_none_or(|(_, _, best_distance)| distance < *best_distance)
+            {
+                best = Some((start, end, distance));
+            }
+        }
+
+        let (start, end, _) = best?;
+        let start_offset = line_start_offset + start;
+        let end_offset = line_start_offset + end;
+        let (start, end) = self.source_positions_for_offsets(start_offset, end_offset)?;
+        (start.offset < end.offset).then(|| Span::from_positions(start, end))
+    }
+
+    fn source_positions_for_offsets(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Option<(Position, Position)> {
+        if start > end || end > self.source.len() {
+            return None;
+        }
+        Some((
+            self.source_position_at_offset(start)?,
+            self.source_position_at_offset(end)?,
+        ))
+    }
+
+    fn source_position_at_offset(&self, offset: usize) -> Option<Position> {
+        source_position_at_offset(self.source, &self.line_start_offsets, offset)
     }
 
     fn add_parameter_default_binding(&mut self, reference: &VarRef) {
@@ -3235,10 +3464,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
-    fn newly_added_references_read_name(&self, name: &Name, start: usize) -> bool {
+    fn newly_added_reference_ids_reading_name(
+        &self,
+        name: &Name,
+        start: usize,
+    ) -> Vec<ReferenceId> {
         self.references[start..]
             .iter()
-            .any(|reference| reference.name == *name)
+            .filter(|reference| reference.name == *name)
+            .map(|reference| reference.id)
+            .collect()
     }
 
     fn resolve_reference(&self, name: &Name, scope: ScopeId, offset: usize) -> Option<BindingId> {
@@ -3510,6 +3745,38 @@ fn parameter_operator_guards_unset_reference(operator: &ParameterOp) -> bool {
             | ParameterOp::UseReplacement
             | ParameterOp::Error
     )
+}
+
+fn reference_kind_for_word_visit(
+    kind: WordVisitKind,
+    expansion_kind: ReferenceKind,
+) -> ReferenceKind {
+    match kind {
+        WordVisitKind::Expansion => expansion_kind,
+        WordVisitKind::Conditional => ReferenceKind::ConditionalOperand,
+        WordVisitKind::ParameterPattern => ReferenceKind::ParameterPattern,
+    }
+}
+
+fn parameter_operation_reference_kind(
+    kind: WordVisitKind,
+    operator: &ParameterOp,
+) -> ReferenceKind {
+    if matches!(kind, WordVisitKind::ParameterPattern) {
+        ReferenceKind::ParameterPattern
+    } else if matches!(operator, ParameterOp::Error) {
+        ReferenceKind::RequiredRead
+    } else {
+        reference_kind_for_word_visit(kind, ReferenceKind::ParameterExpansion)
+    }
+}
+
+fn word_visit_kind_for_reference_kind(kind: ReferenceKind) -> WordVisitKind {
+    match kind {
+        ReferenceKind::ConditionalOperand => WordVisitKind::Conditional,
+        ReferenceKind::ParameterPattern => WordVisitKind::ParameterPattern,
+        _ => WordVisitKind::Expansion,
+    }
 }
 
 fn declaration_builtin(name: &Name) -> DeclarationBuiltin {
@@ -3998,6 +4265,163 @@ fn variable_set_test_operand_name(
     }
 }
 
+fn conditional_binary_op_uses_arithmetic_operands(op: ConditionalBinaryOp) -> bool {
+    matches!(
+        op,
+        ConditionalBinaryOp::ArithmeticEq
+            | ConditionalBinaryOp::ArithmeticNe
+            | ConditionalBinaryOp::ArithmeticLe
+            | ConditionalBinaryOp::ArithmeticGe
+            | ConditionalBinaryOp::ArithmeticLt
+            | ConditionalBinaryOp::ArithmeticGt
+    )
+}
+
+fn unparsed_arithmetic_subscript_reference_names(
+    source_text: &SourceText,
+    source: &str,
+) -> Vec<(Name, Span)> {
+    if !source_text.is_source_backed() {
+        return Vec::new();
+    }
+
+    let text = source_text.slice(source);
+    let Some((leading, _)) = text.split_once(':') else {
+        return Vec::new();
+    };
+
+    let mut references = Vec::new();
+    let mut chars = leading.char_indices().peekable();
+    while let Some((start, ch)) = chars.next() {
+        if !is_name_start_character(ch) || text[..start].ends_with('$') {
+            continue;
+        }
+
+        let mut end = start + ch.len_utf8();
+        while let Some((next_index, next)) = chars.peek().copied() {
+            if !is_name_character(next) {
+                break;
+            }
+            chars.next();
+            end = next_index + next.len_utf8();
+        }
+
+        let name = &leading[start..end];
+        let start_position = source_text.span().start.advanced_by(&text[..start]);
+        references.push((
+            Name::from(name),
+            Span::from_positions(start_position, start_position.advanced_by(name)),
+        ));
+    }
+
+    references
+}
+
+fn escaped_braced_literal_reference_names(text: &str, span: Span) -> Vec<(Name, Span)> {
+    let mut references = Vec::new();
+    let mut search_start = 0;
+
+    while let Some(start_rel) = text[search_start..].find("\\${") {
+        let start = search_start + start_rel;
+        let mut cursor = start + "\\${".len();
+        let mut depth = 1usize;
+        let mut escaped = false;
+
+        while cursor < text.len() {
+            let Some(ch) = text[cursor..].chars().next() else {
+                break;
+            };
+            let next = cursor + ch.len_utf8();
+
+            if escaped {
+                escaped = false;
+                cursor = next;
+                continue;
+            }
+
+            if ch == '\\' {
+                escaped = true;
+                cursor = next;
+                continue;
+            }
+
+            if ch == '$' {
+                let after_dollar = next;
+                if text[after_dollar..].starts_with('{') {
+                    depth += 1;
+                }
+                if let Some((name_start, name_end)) =
+                    parameter_name_bounds_after_dollar(text, after_dollar)
+                {
+                    let name = &text[name_start..name_end];
+                    let mut reference_end = name_end;
+                    if text[after_dollar..].starts_with('{') && text[name_end..].starts_with('}') {
+                        reference_end += '}'.len_utf8();
+                    }
+                    let start_position = span.start.advanced_by(&text[..cursor]);
+                    references.push((
+                        Name::from(name),
+                        Span::from_positions(
+                            start_position,
+                            start_position.advanced_by(&text[cursor..reference_end]),
+                        ),
+                    ));
+                }
+                cursor = next;
+                continue;
+            }
+
+            if ch == '}' {
+                depth = depth.saturating_sub(1);
+                cursor = next;
+                if depth == 0 {
+                    break;
+                }
+                continue;
+            }
+
+            cursor = next;
+        }
+
+        search_start = cursor;
+    }
+
+    references
+}
+
+fn escaped_braced_literal_may_contain_reference(text: &str) -> bool {
+    text.contains("\\${")
+}
+
+fn conditional_arithmetic_operand_name(
+    expression: &ConditionalExpr,
+    source: &str,
+) -> Option<(Name, Span)> {
+    match strip_parenthesized_conditional(expression) {
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            static_word_text(word, source).and_then(|text| {
+                is_name(text.as_ref()).then(|| (Name::from(text.as_ref()), word.span))
+            })
+        }
+        ConditionalExpr::Pattern(pattern) => {
+            let text = pattern.span.slice(source).trim();
+            is_name(text).then(|| (Name::from(text), pattern.span))
+        }
+        ConditionalExpr::VarRef(_)
+        | ConditionalExpr::Unary(_)
+        | ConditionalExpr::Binary(_)
+        | ConditionalExpr::Parenthesized(_) => None,
+    }
+}
+
+fn strip_parenthesized_conditional(expression: &ConditionalExpr) -> &ConditionalExpr {
+    let mut current = expression;
+    while let ConditionalExpr::Parenthesized(paren) = current {
+        current = &paren.expr;
+    }
+    current
+}
+
 fn variable_name_operand_from_source(text: &str, span: Span) -> Option<(Name, Span)> {
     let leading_whitespace = text.len() - text.trim_start().len();
     let trimmed = text.trim();
@@ -4067,11 +4491,66 @@ fn eval_argument_reference_names(word: &Word, source: &str) -> Vec<(Name, Span)>
     )
 }
 
+fn trap_action_argument<'a>(args: &[&'a Word], source: &str) -> Option<&'a Word> {
+    let argument = *args.first()?;
+    let text = static_word_text(argument, source)?;
+
+    if text == "--" {
+        return args.get(1).copied();
+    }
+    if is_trap_inspection_option(&text) {
+        return None;
+    }
+
+    Some(argument)
+}
+
+fn is_trap_inspection_option(text: &str) -> bool {
+    text.len() > 1
+        && text.starts_with('-')
+        && text[1..].chars().all(|flag| matches!(flag, 'l' | 'p'))
+}
+
+fn trap_action_reference_names(word: &Word, source: &str) -> Vec<Name> {
+    let Some(text) = static_word_text(word, source) else {
+        return Vec::new();
+    };
+
+    scan_parameter_reference_name_ranges(&text)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect()
+}
+
 fn prompt_assignment_reference_names(word: &Word, source: &str) -> Vec<(Name, Span)> {
     let Some(text) = static_word_text(word, source) else {
         return Vec::new();
     };
     scan_prompt_parameter_reference_names(text.as_ref(), word.span)
+}
+
+fn escaped_prompt_assignment_reference_names(word: &Word, source: &str) -> Vec<Name> {
+    if static_word_text(word, source).is_none() {
+        return Vec::new();
+    }
+
+    let text = word.span.slice(source);
+    let mut names = Vec::new();
+    let mut search_start = 0;
+
+    while let Some(start_rel) = text[search_start..].find("\\${") {
+        let start = search_start + start_rel;
+        let after_dollar = start + "\\$".len();
+        if let Some((name_start, name_end)) = parameter_name_bounds_after_dollar(text, after_dollar)
+        {
+            names.push(Name::from(&text[name_start..name_end]));
+            search_start = name_end;
+        } else {
+            search_start = start + "\\${".len();
+        }
+    }
+
+    names
 }
 
 fn scan_prompt_parameter_reference_names(text: &str, span: Span) -> Vec<(Name, Span)> {
@@ -4166,6 +4645,24 @@ fn scan_parameter_reference_names(
     source_offsets: &[usize],
     span: Span,
 ) -> Vec<(Name, Span)> {
+    scan_parameter_reference_name_ranges(text)
+        .into_iter()
+        .map(|(name, (name_start, _name_end))| {
+            let source_name_start = source_offsets[name_start];
+            let source_name_end = source_name_start + name.as_str().len();
+            let start = span.start.advanced_by(&source_text[..source_name_start]);
+            (
+                name,
+                Span::from_positions(
+                    start,
+                    start.advanced_by(&source_text[source_name_start..source_name_end]),
+                ),
+            )
+        })
+        .collect()
+}
+
+fn scan_parameter_reference_name_ranges(text: &str) -> Vec<(Name, (usize, usize))> {
     let mut references = Vec::new();
     let mut in_single_quotes = false;
     let mut in_double_quotes = false;
@@ -4231,16 +4728,7 @@ fn scan_parameter_reference_names(
             continue;
         };
         let name = &text[name_start..name_end];
-        let source_name_start = source_offsets[name_start];
-        let source_name_end = source_name_start + name.len();
-        let start = span.start.advanced_by(&source_text[..source_name_start]);
-        references.push((
-            Name::from(name),
-            Span::from_positions(
-                start,
-                start.advanced_by(&source_text[source_name_start..source_name_end]),
-            ),
-        ));
+        references.push((Name::from(name), (name_start, name_end)));
     }
     references
 }
@@ -4306,6 +4794,10 @@ fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
     is_name(&text).then_some((Name::from(text.as_ref()), word.span))
 }
 
+fn declaration_assignment_text<'a>(word: &'a Word, source: &'a str) -> Cow<'a, str> {
+    static_word_text(word, source).unwrap_or_else(|| Cow::Borrowed(word.span.slice(source)))
+}
+
 #[derive(Debug, Clone)]
 struct SimpleDeclarationAssignment {
     name: Name,
@@ -4363,6 +4855,28 @@ fn parse_simple_declaration_assignment(
         append,
         array_like,
         value_origin,
+    })
+}
+
+fn let_arithmetic_assignment_target(word: &Word, source: &str) -> Option<(Name, Span)> {
+    let text = word.span.slice(source);
+    let name_end = variable_name_end(text)?;
+    let rest = text[name_end..].trim_start();
+    arithmetic_assignment_operator(rest)?;
+
+    Some((
+        Name::from(&text[..name_end]),
+        word_text_offset_span(word.span, source, 0, name_end),
+    ))
+}
+
+fn arithmetic_assignment_operator(text: &str) -> Option<&'static str> {
+    const ASSIGNMENT_OPERATORS: &[&str] = &[
+        "<<=", ">>=", "+=", "-=", "*=", "/=", "%=", "&=", "^=", "|=", "=",
+    ];
+
+    ASSIGNMENT_OPERATORS.iter().copied().find(|&operator| {
+        text.starts_with(operator) && !(operator == "=" && text.as_bytes().get(1) == Some(&b'='))
     })
 }
 
@@ -5187,10 +5701,10 @@ fn word_is_semantically_inert(word: &Word) -> bool {
         .all(|part| word_part_is_semantically_inert(&part.kind))
 }
 
-fn heredoc_body_is_semantically_inert(body: &HeredocBody) -> bool {
+fn heredoc_body_is_semantically_inert(body: &HeredocBody, source: &str) -> bool {
     body.parts
         .iter()
-        .all(|part| heredoc_body_part_is_semantically_inert(&part.kind))
+        .all(|part| heredoc_body_part_is_semantically_inert(&part.kind, part.span, source))
 }
 
 fn word_part_is_semantically_inert(part: &WordPart) -> bool {
@@ -5218,9 +5732,16 @@ fn word_part_is_semantically_inert(part: &WordPart) -> bool {
     }
 }
 
-fn heredoc_body_part_is_semantically_inert(part: &HeredocBodyPart) -> bool {
+fn heredoc_body_part_is_semantically_inert(
+    part: &HeredocBodyPart,
+    span: Span,
+    source: &str,
+) -> bool {
     match part {
-        HeredocBodyPart::Literal(_) => true,
+        HeredocBodyPart::Literal(text) => {
+            !text.is_source_backed()
+                || !escaped_braced_literal_may_contain_reference(text.syntax_str(source, span))
+        }
         HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => expression_ast.is_none(),
         HeredocBodyPart::Variable(_)
         | HeredocBodyPart::CommandSubstitution { .. }
@@ -5347,6 +5868,157 @@ fn recorded_list_operator(op: BinaryOp) -> RecordedListOperator {
     }
 }
 
+fn source_line_start_offsets(source: &str) -> Vec<usize> {
+    let mut starts = vec![0];
+    for (offset, ch) in source.char_indices() {
+        if ch == '\n' {
+            starts.push(offset + ch.len_utf8());
+        }
+    }
+    starts
+}
+
+fn source_position_at_offset(
+    source: &str,
+    line_start_offsets: &[usize],
+    offset: usize,
+) -> Option<Position> {
+    if offset > source.len() || !source.is_char_boundary(offset) {
+        return None;
+    }
+
+    let line_index = line_start_offsets
+        .partition_point(|line_start| *line_start <= offset)
+        .checked_sub(1)?;
+    let line_start = *line_start_offsets.get(line_index)?;
+    let column = source.get(line_start..offset)?.chars().count() + 1;
+    Some(Position {
+        line: line_index + 1,
+        column,
+        offset,
+    })
+}
+
+fn reference_kind_uses_braced_parameter_syntax(kind: ReferenceKind) -> bool {
+    matches!(
+        kind,
+        ReferenceKind::Expansion
+            | ReferenceKind::ParameterExpansion
+            | ReferenceKind::Length
+            | ReferenceKind::ArrayAccess
+            | ReferenceKind::IndirectExpansion
+            | ReferenceKind::RequiredRead
+    )
+}
+
+fn unbraced_parameter_reference_matches(text: &str, name: &str) -> bool {
+    let Some(rest) = text.strip_prefix('$') else {
+        return false;
+    };
+    if rest.starts_with('{') || !rest.starts_with(name) {
+        return false;
+    }
+
+    rest.get(name.len()..)
+        .and_then(|suffix| suffix.chars().next())
+        .is_none_or(|ch| !ch.is_ascii_alphanumeric() && ch != '_')
+}
+
+fn unbraced_parameter_start_matches(source: &str, start_offset: usize, name: &str) -> bool {
+    let Some(candidate) = source.get(start_offset..) else {
+        return false;
+    };
+
+    unbraced_parameter_reference_matches(candidate, name)
+}
+
+fn braced_parameter_start_matches(source: &str, start_offset: usize, name: &str) -> bool {
+    let Some(after_name) = start_offset
+        .checked_add("${".len())
+        .and_then(|offset| offset.checked_add(name.len()))
+    else {
+        return false;
+    };
+    if after_name > source.len() || !source.is_char_boundary(after_name) {
+        return false;
+    }
+
+    source
+        .get(after_name..)
+        .and_then(|suffix| suffix.chars().next())
+        .is_some_and(|ch| !ch.is_ascii_alphanumeric() && ch != '_')
+}
+
+fn braced_parameter_end_offset(
+    source: &str,
+    start_offset: usize,
+    search_end: usize,
+) -> Option<usize> {
+    if start_offset >= search_end
+        || search_end > source.len()
+        || !source.is_char_boundary(start_offset)
+        || !source.is_char_boundary(search_end)
+        || source
+            .as_bytes()
+            .get(start_offset..start_offset + "${".len())?
+            != b"${"
+    {
+        return None;
+    }
+
+    let mut depth = 1usize;
+    let mut offset = start_offset + "${".len();
+    while offset < search_end {
+        let ch = source.get(offset..search_end)?.chars().next()?;
+        let next_offset = offset + ch.len_utf8();
+        if ch == '\\' {
+            offset = source
+                .get(next_offset..search_end)
+                .and_then(|suffix| suffix.chars().next())
+                .map(|escaped| next_offset + escaped.len_utf8())
+                .unwrap_or(next_offset);
+            continue;
+        }
+        if ch == '$' && source.as_bytes().get(next_offset) == Some(&b'{') {
+            depth += 1;
+            offset = next_offset + '{'.len_utf8();
+            continue;
+        }
+        if ch == '}' {
+            depth -= 1;
+            if depth == 0 {
+                return Some(next_offset);
+            }
+        }
+        offset = next_offset;
+    }
+
+    None
+}
+
+fn source_line(source: &str, target_line: usize) -> Option<(usize, &str)> {
+    if target_line == 0 {
+        return None;
+    }
+
+    let mut line_start = 0;
+    for (index, line) in source.split_inclusive('\n').enumerate() {
+        let line_number = index + 1;
+        if line_number == target_line {
+            let line = line.strip_suffix('\n').unwrap_or(line);
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            return Some((line_start, line));
+        }
+        line_start += line.len();
+    }
+
+    if target_line == source.split_inclusive('\n').count() + 1 && line_start == source.len() {
+        return Some((line_start, ""));
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5373,6 +6045,47 @@ mod tests {
                 .collect(),
             span,
         }
+    }
+
+    #[test]
+    fn source_position_lookup_uses_precomputed_line_starts() {
+        let source = "alpha\nb\u{e9}ta\n";
+        let line_starts = source_line_start_offsets(source);
+
+        assert_eq!(
+            source_position_at_offset(source, &line_starts, 0),
+            Some(Position {
+                line: 1,
+                column: 1,
+                offset: 0
+            })
+        );
+        let beta_offset = source.find('b').expect("expected second line");
+        assert_eq!(
+            source_position_at_offset(source, &line_starts, beta_offset),
+            Some(Position {
+                line: 2,
+                column: 1,
+                offset: beta_offset
+            })
+        );
+        let after_e_acute = beta_offset + "b\u{e9}".len();
+        assert_eq!(
+            source_position_at_offset(source, &line_starts, after_e_acute),
+            Some(Position {
+                line: 2,
+                column: 3,
+                offset: after_e_acute
+            })
+        );
+        assert_eq!(
+            source_position_at_offset(source, &line_starts, source.len()),
+            Some(Position {
+                line: 3,
+                column: 1,
+                offset: source.len()
+            })
+        );
     }
 
     #[test]

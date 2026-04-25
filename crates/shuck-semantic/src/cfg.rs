@@ -1662,7 +1662,10 @@ impl<'a> GraphBuilder<'a> {
         force_command_header: bool,
     ) -> SequenceResult {
         let command = self.program.command(command_id);
-        if command.nested_regions.is_empty() && !force_command_header {
+        let key = SpanKey::new(command.span);
+        let has_direct_command_facts =
+            self.command_bindings.contains_key(&key) || self.command_references.contains_key(&key);
+        if command.nested_regions.is_empty() && !force_command_header && !has_direct_command_facts {
             return sequence;
         }
 

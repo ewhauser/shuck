@@ -300,6 +300,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) replacement_expansions: Vec<ReplacementExpansionFragmentFact>,
     pub(super) positional_parameter_trims: Vec<PositionalParameterTrimFragmentFact>,
     pub(super) suppressed_subscript_spans: Vec<Span>,
+    pub(super) subscript_later_suppression_spans: Vec<Span>,
     pub(super) arithmetic_only_suppressed_subscript_spans: Vec<Span>,
 }
 
@@ -310,6 +311,7 @@ pub(super) struct SurfaceScanContext<'a> {
     nested_word_command: bool,
     variable_set_operand: bool,
     guarded_parameter_operand: bool,
+    subscript_suppresses_later_references: bool,
     collect_open_double_quotes: bool,
     collect_pattern_charclasses: bool,
 }
@@ -319,6 +321,7 @@ impl<'a> SurfaceScanContext<'a> {
         Self {
             command_name,
             nested_word_command,
+            subscript_suppresses_later_references: true,
             collect_open_double_quotes: true,
             collect_pattern_charclasses: false,
             ..Self::default()
@@ -782,7 +785,10 @@ impl<'a> SurfaceFragmentSink<'a> {
                     if reference_is_positional_parameter_trim(reference, operator) {
                         self.record_positional_parameter_trim(part.span);
                     }
-                    self.record_var_ref_subscript(reference);
+                    self.record_var_ref_subscript(
+                        reference,
+                        context.subscript_suppresses_later_references,
+                    );
                     self.collect_parameter_operator_patterns(
                         operator,
                         operand.as_ref(),
@@ -793,7 +799,10 @@ impl<'a> SurfaceFragmentSink<'a> {
                 WordPart::Length(reference)
                 | WordPart::ArrayLength(reference)
                 | WordPart::Transformation { reference, .. } => {
-                    self.record_var_ref_subscript(reference);
+                    self.record_var_ref_subscript(
+                        reference,
+                        context.subscript_suppresses_later_references,
+                    );
                 }
                 WordPart::ArrayAccess(reference) => {
                     if reference_has_array_subscript(reference) {
@@ -809,10 +818,16 @@ impl<'a> SurfaceFragmentSink<'a> {
                             .map_or(part.span, |next_part| part.span.merge(next_part.span));
                         self.record_case_modification(case_modification_span);
                     }
-                    self.record_var_ref_subscript(reference);
+                    self.record_var_ref_subscript(
+                        reference,
+                        context.subscript_suppresses_later_references,
+                    );
                 }
                 WordPart::ArrayIndices(reference) => {
-                    self.record_var_ref_subscript(reference);
+                    self.record_var_ref_subscript(
+                        reference,
+                        context.subscript_suppresses_later_references,
+                    );
                     self.facts
                         .indirect_expansions
                         .push(IndirectExpansionFragmentFact {
@@ -822,10 +837,16 @@ impl<'a> SurfaceFragmentSink<'a> {
                 }
                 WordPart::Substring { reference, .. } => {
                     self.record_substring_expansion(part.span);
-                    self.record_var_ref_subscript(reference);
+                    self.record_var_ref_subscript(
+                        reference,
+                        context.subscript_suppresses_later_references,
+                    );
                 }
                 WordPart::ArraySlice { reference, .. } => {
-                    self.record_var_ref_subscript(reference);
+                    self.record_var_ref_subscript(
+                        reference,
+                        context.subscript_suppresses_later_references,
+                    );
                 }
                 WordPart::IndirectExpansion {
                     reference,
@@ -834,7 +855,10 @@ impl<'a> SurfaceFragmentSink<'a> {
                     operand_word_ast,
                     ..
                 } => {
-                    self.record_var_ref_subscript(reference);
+                    self.record_var_ref_subscript(
+                        reference,
+                        context.subscript_suppresses_later_references,
+                    );
                     self.facts
                         .indirect_expansions
                         .push(IndirectExpansionFragmentFact {
@@ -853,7 +877,10 @@ impl<'a> SurfaceFragmentSink<'a> {
                     operator: None,
                     ..
                 } => {
-                    self.record_var_ref_subscript(reference);
+                    self.record_var_ref_subscript(
+                        reference,
+                        context.subscript_suppresses_later_references,
+                    );
                     self.facts
                         .indirect_expansions
                         .push(IndirectExpansionFragmentFact {
@@ -1245,13 +1272,13 @@ impl<'a> SurfaceFragmentSink<'a> {
                 | BourneParameterExpansion::Slice { reference, .. }
                 | BourneParameterExpansion::Operation { reference, .. }
                 | BourneParameterExpansion::Transformation { reference, .. } => {
-                    self.record_var_ref_subscript(reference);
+                    self.record_var_ref_subscript(reference, true);
                 }
                 BourneParameterExpansion::PrefixMatch { .. } => {}
             },
             ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
                 ZshExpansionTarget::Reference(reference) => {
-                    self.record_var_ref_subscript(reference)
+                    self.record_var_ref_subscript(reference, true)
                 }
                 ZshExpansionTarget::Nested(parameter) => {
                     self.record_parameter_subscripts(parameter)
@@ -1261,14 +1288,22 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
     }
 
-    pub(super) fn record_var_ref_subscript(&mut self, reference: &VarRef) {
+    pub(super) fn record_var_ref_subscript(
+        &mut self,
+        reference: &VarRef,
+        suppresses_later_references: bool,
+    ) {
         let Some(subscript) = reference.subscript.as_deref() else {
             return;
         };
         if subscript.selector().is_some() {
             return;
         }
-        self.facts.suppressed_subscript_spans.push(subscript.span());
+        let span = subscript.span();
+        self.facts.suppressed_subscript_spans.push(span);
+        if suppresses_later_references {
+            self.facts.subscript_later_suppression_spans.push(span);
+        }
     }
 
     pub(super) fn record_arithmetic_only_suppressed_subscript(
@@ -2249,6 +2284,17 @@ pub(super) fn build_suppressed_subscript_reference_spans(
         |reference| matches!(reference.kind, ReferenceKind::ArithmeticRead),
     ));
     spans
+}
+
+pub(super) fn build_subscript_later_suppression_reference_spans(
+    semantic: &SemanticModel,
+    subscript_later_suppression_spans: &[Span],
+) -> FxHashSet<FactSpan> {
+    build_subscript_reference_spans_with_filter(
+        semantic.references(),
+        subscript_later_suppression_spans,
+        |_| true,
+    )
 }
 
 fn build_subscript_reference_spans_with_filter(

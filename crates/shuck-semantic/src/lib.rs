@@ -445,6 +445,7 @@ pub struct SemanticModel {
     guarded_parameter_refs: FxHashSet<ReferenceId>,
     parameter_guard_flow_refs: FxHashSet<ReferenceId>,
     defaulting_parameter_operand_refs: FxHashSet<ReferenceId>,
+    self_referential_assignment_refs: FxHashSet<ReferenceId>,
     binding_index: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     resolved: FxHashMap<ReferenceId, BindingId>,
     unresolved: Vec<ReferenceId>,
@@ -562,6 +563,7 @@ impl SemanticModel {
             guarded_parameter_refs: built.guarded_parameter_refs,
             parameter_guard_flow_refs: built.parameter_guard_flow_refs,
             defaulting_parameter_operand_refs: built.defaulting_parameter_operand_refs,
+            self_referential_assignment_refs: built.self_referential_assignment_refs,
             binding_index: built.binding_index,
             resolved: built.resolved,
             unresolved: built.unresolved,
@@ -1244,6 +1246,7 @@ impl SemanticModel {
             predefined_runtime_refs: &self.predefined_runtime_refs,
             guarded_parameter_refs: &self.guarded_parameter_refs,
             parameter_guard_flow_refs: &self.parameter_guard_flow_refs,
+            self_referential_assignment_refs: &self.self_referential_assignment_refs,
             resolved: &self.resolved,
             call_sites: &self.call_sites,
             indirect_targets_by_reference: &self.indirect_targets_by_reference,
@@ -3937,17 +3940,28 @@ printf '%s\\n' \"$scoped\"
 
     #[test]
     fn zsh_parameter_modifiers_still_register_references() {
-        let model = model_with_dialect("print ${(m)foo}\n", ShellDialect::Zsh);
+        let model =
+            model_with_profile("print ${(m)foo}\n", ShellProfile::native(ShellDialect::Zsh));
         let unresolved = unresolved_names(&model);
 
         assert_names_present(&["foo"], &unresolved);
     }
 
     #[test]
+    fn bash_profile_ignores_zsh_parameter_modifier_references() {
+        let model =
+            model_with_dialect("printf '%s\\n' ${=zsh_only} ${plain}\n", ShellDialect::Bash);
+        let unresolved = unresolved_names(&model);
+
+        assert_names_present(&["plain"], &unresolved);
+        assert_names_absent(&["zsh_only"], &unresolved);
+    }
+
+    #[test]
     fn zsh_parameter_operations_walk_operand_references_conservatively() {
-        let model = model_with_dialect(
+        let model = model_with_profile(
             "print ${(m)foo#${needle}} ${(S)foo/$pattern/$replacement} ${(m)foo:$offset:${length}}\n",
-            ShellDialect::Zsh,
+            ShellProfile::native(ShellDialect::Zsh),
         );
         let unresolved = unresolved_names(&model);
 
@@ -4512,7 +4526,14 @@ spinner() {
 }
 ";
         let model = model(source);
-        assert_arithmetic_usage(&model, "spin_i", 1, 1);
+        assert!(model.references().iter().any(|reference| {
+            reference.kind == ReferenceKind::ParameterSliceArithmetic && reference.name == "spin_i"
+        }));
+        assert_eq!(
+            arithmetic_write_count(&model, "spin_i"),
+            1,
+            "unexpected arithmetic write count for spin_i"
+        );
 
         let unused = model
             .analysis()
@@ -7664,6 +7685,49 @@ unused=1
     }
 
     #[test]
+    fn escaped_ps4_prompt_references_are_read_at_the_assignment_site() {
+        let source = "\
+#!/bin/bash
+export PS4=\"+ \\${BASH_SOURCE##\\${rvm_path:-}} > \"
+p=\"$rvm_path\"
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let prompt_reference = analysis
+            .uninitialized_references()
+            .iter()
+            .map(|uninitialized| model.reference(uninitialized.reference))
+            .find(|reference| {
+                reference.name == "rvm_path" && reference.span.slice(source) == "PS4"
+            });
+
+        assert!(prompt_reference.is_some());
+    }
+
+    #[test]
+    fn trap_action_references_are_read_at_the_action_word() {
+        let source = "\
+#!/bin/sh
+tmpdir=/tmp/example
+trap 'ret=$?; rmdir \"$tmpdir/d\" \"$tmpdir\" 2>/dev/null; exit $ret' 0
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let trap_reference = analysis
+            .uninitialized_references()
+            .iter()
+            .map(|uninitialized| model.reference(uninitialized.reference))
+            .find(|reference| {
+                reference.name == "ret"
+                    && reference.kind == ReferenceKind::TrapAction
+                    && reference.span.slice(source)
+                        == "'ret=$?; rmdir \"$tmpdir/d\" \"$tmpdir\" 2>/dev/null; exit $ret'"
+            });
+
+        assert!(trap_reference.is_some());
+    }
+
+    #[test]
     fn bash_completion_runtime_vars_are_treated_as_live() {
         let source = "\
 #!/bin/bash
@@ -7908,6 +7972,134 @@ printf '%s\\n' \
     }
 
     #[test]
+    fn unquoted_guarded_parameter_expansions_are_not_marked_uninitialized() {
+        let source = "\
+eval start-stop-daemon --start \\
+  ${directory:+--chdir} $directory
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["directory"], &uninitialized);
+    }
+
+    #[test]
+    fn self_referential_assignments_are_not_marked_uninitialized() {
+        let source = "\
+foo=\"$foo\"
+for flag in a b; do
+  valid_flags=\"${valid_flags} $flag\"
+done
+foo[$foo]=x
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["foo", "valid_flags"], &uninitialized);
+    }
+
+    #[test]
+    fn escaped_declaration_builtins_initialize_dynamic_assignment_operands() {
+        let source = "\
+\\typeset ret=$?
+printf '%s\\n' \"$ret\"
+";
+        let model = model_with_dialect(source, ShellDialect::Bash);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["ret"], &uninitialized);
+    }
+
+    #[test]
+    fn arithmetic_conditional_literal_operands_are_uninitialized_reads() {
+        let source = "\
+version=1
+if [[ $version -eq \"latest\" ]]; then
+  :
+fi
+if [[ 1 -ne bare ]]; then
+  :
+fi
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_present(&["latest", "bare"], &uninitialized);
+    }
+
+    #[test]
+    fn let_arithmetic_assignments_initialize_targets() {
+        let source = "\
+#!/bin/bash
+let line=\"$number\"+1
+printf '%s\\n' \"$line\"
+";
+        let model = model_with_dialect(source, ShellDialect::Bash);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["line"], &uninitialized);
+        assert_names_present(&["number"], &uninitialized);
+    }
+
+    #[test]
+    fn assignment_values_continue_after_escaped_newlines() {
+        let source = "\
+#!/bin/sh
+easyrsa_ksh=\\
+'value'
+[ \"${KSH_VERSION}\" = \"${easyrsa_ksh}\" ] && echo ok
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["easyrsa_ksh"], &uninitialized);
+    }
+
+    #[test]
+    fn special_zero_prefix_removal_inside_escaped_quotes_does_not_synthesize_empty_references() {
+        let source = "\
+#!/bin/bash
+usage=\"
+Terraform:
+
+    data \\\"external\\\" \\\"github_repos\\\" {
+        program = [\\\"/path/to/${0##*/}\\\", \\\"github_repository\\\"]
+    }
+\"
+";
+        let model = model_with_dialect(source, ShellDialect::Bash);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&[""], &uninitialized);
+    }
+
+    #[test]
+    fn unparsed_indexed_subscript_prefixes_are_uninitialized_reads() {
+        let source = "\
+arr+=([docker:dind]=x [nats-streaming:nanoserver]=y)
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_present(&["docker", "nats", "streaming"], &uninitialized);
+        assert_names_absent(&["dind", "nanoserver"], &uninitialized);
+    }
+
+    #[test]
+    fn escaped_heredoc_parameter_literals_still_expand_nested_references() {
+        let source = "\
+cat <<EOF
+\\${OUTER:-$inner}
+EOF
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_present(&["inner"], &uninitialized);
+        assert_names_absent(&["OUTER"], &uninitialized);
+    }
+
+    #[test]
     fn assign_default_and_error_operands_are_marked_uninitialized() {
         let source = "\
 printf '%s\\n' \
@@ -7931,6 +8123,24 @@ printf '%s\\n' \
         );
         assert_names_absent(&["fallback_name", "replacement_name"], &uninitialized);
         assert_names_present(&["seed_name", "hint_name"], &uninitialized);
+    }
+
+    #[test]
+    fn parameter_slice_arithmetic_operands_are_not_uninitialized() {
+        let source = "\
+value=abcdef
+printf '%s\\n' \"${value:offset}\" \"${value:1:$length}\"
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["offset", "length"], &uninitialized);
+        assert!(model.references().iter().any(|reference| {
+            reference.kind == ReferenceKind::ParameterSliceArithmetic && reference.name == "offset"
+        }));
+        assert!(model.references().iter().any(|reference| {
+            reference.kind == ReferenceKind::ParameterSliceArithmetic && reference.name == "length"
+        }));
     }
 
     #[test]
@@ -8112,6 +8322,90 @@ rvm_info=\"
         assert_eq!(reference.span.start.line, 3);
         assert_eq!(reference.span.start.column, 12);
         assert_eq!(reference.span.slice(source), "${_system_info}");
+    }
+
+    #[test]
+    fn parameter_reference_spans_recover_after_escaped_quotes_and_tabs_in_assignments() {
+        let source = "\
+#!/bin/bash
+physmemtotal=\"${physmemtotal//,/.}\"
+payload=\"{
+\t\\\"client_id\\\": \\\"${uuidinstance}\\\",
+\t\\\"events\\\": [
+\t\t{
+\t\t\\\"name\\\": \\\"LinuxGSM\\\",
+\t\t\\\"params\\\": {
+\t\t\t\\\"cpuusedmhzroundup\\\": \\\"${cpuusedmhzroundup}\\\",
+\t\t\t\\\"diskused\\\": \\\"${serverfilesdu}\\\",
+\t\t\t}
+\t\t}
+\t]
+}\"
+";
+        let model = model(source);
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "serverfilesdu")
+            .unwrap();
+
+        assert_eq!(reference.span.start.line, 10);
+        assert_eq!(reference.span.start.column, 20);
+        assert_eq!(reference.span.slice(source), "${serverfilesdu}");
+    }
+
+    #[test]
+    fn unbraced_parameter_reference_spans_recover_after_escaped_quotes() {
+        let source = "\
+#!/bin/bash
+rvm_info=\"
+  path:         \\\"$rvm_path\\\"
+\"
+addtimestamp=\"gawk '{ print strftime(\\\\\\\"[$logtimestampformat]\\\\\\\"), \\\\\\$0 }'\"
+";
+        let model = model(source);
+        let rvm_path = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "rvm_path")
+            .unwrap();
+        let logtimestampformat = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "logtimestampformat")
+            .unwrap();
+
+        assert_eq!(rvm_path.span.slice(source), "$rvm_path");
+        assert_eq!(logtimestampformat.span.slice(source), "$logtimestampformat");
+    }
+
+    #[test]
+    fn parameter_reference_spans_include_nested_parameter_operator_suffixes() {
+        let source = "\
+rvm_ruby_gem_home=\"${rvm_ruby_gem_home%%${rvm_gemset_separator:-\"@\"}*}\"
+if [ \"${skiprdeps/${_lf}/}\" != \"${skiprdeps}\" ]; then
+  :
+fi
+";
+        let model = model(source);
+        let rvm_gem_home = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "rvm_ruby_gem_home")
+            .unwrap();
+        let skiprdeps = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "skiprdeps")
+            .unwrap();
+
+        assert_eq!(
+            rvm_gem_home.span.slice(source),
+            "${rvm_ruby_gem_home%%${rvm_gemset_separator:-\"@\"}*}"
+        );
+        assert_eq!(rvm_gem_home.span.end.column, 71);
+        assert_eq!(skiprdeps.span.slice(source), "${skiprdeps/${_lf}/}");
+        assert_eq!(skiprdeps.span.end.column, 27);
     }
 
     #[test]
@@ -10816,6 +11110,78 @@ echo \"${d//\\$ORIGIN/$origin}\"
             unresolved.is_empty(),
             "unexpected unresolved refs: {unresolved:?}"
         );
+    }
+
+    #[test]
+    fn parameter_replacement_pattern_reads_do_not_count_as_uninitialized() {
+        let source = "\
+#!/bin/bash
+dir=all/retroarch.cfg
+echo \"${dir//$configdir\\/}\"
+echo \"${dir##$trim_prefix}\"
+find \"$configdir\"
+";
+        let model = model(source);
+        assert!(model.references().iter().any(|reference| {
+            reference.name == "configdir"
+                && reference.kind == ReferenceKind::ParameterPattern
+                && reference.span.slice(source) == "$configdir"
+        }));
+        assert!(model.references().iter().any(|reference| {
+            reference.name == "trim_prefix"
+                && reference.kind == ReferenceKind::ParameterPattern
+                && reference.span.slice(source) == "$trim_prefix"
+        }));
+
+        let analysis = model.analysis();
+        let uninitialized = analysis.uninitialized_references();
+        assert!(uninitialized.iter().any(|uninitialized| {
+            let reference = model.reference(uninitialized.reference);
+            reference.name == "configdir" && reference.span.slice(source) == "$configdir"
+        }));
+        assert!(!uninitialized.iter().any(|uninitialized| {
+            let reference = model.reference(uninitialized.reference);
+            reference.name == "configdir" && reference.kind == ReferenceKind::ParameterPattern
+        }));
+        assert!(!uninitialized.iter().any(|uninitialized| {
+            let reference = model.reference(uninitialized.reference);
+            reference.name == "trim_prefix" && reference.kind == ReferenceKind::ParameterPattern
+        }));
+    }
+
+    #[test]
+    fn redirect_target_references_are_uninitialized_reads() {
+        let source = "\
+#!/bin/bash
+{ echo value; } >> \"${missing_target}/out\"
+echo \"${ordinary_missing}/out\"
+";
+        let model = model(source);
+        let redirect_reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "missing_target")
+            .expect("redirect target reference should be recorded");
+        block_with_reference(model.analysis().cfg(), redirect_reference.id);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_present(&["missing_target", "ordinary_missing"], &uninitialized);
+    }
+
+    #[test]
+    fn unreachable_references_are_still_uninitialized_reads() {
+        let source = "\
+#!/bin/bash
+load_value() {
+  return 1
+  printf '%s\\n' \"$after_return\"
+}
+load_value
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_present(&["after_return"], &uninitialized);
     }
 
     #[test]

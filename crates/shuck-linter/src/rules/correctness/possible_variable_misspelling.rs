@@ -100,6 +100,9 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
             if has_same_name_defining_bindings(checker, &reference.name) {
                 return None;
             }
+            if is_presence_tested_reference_name(checker, reference.name.as_str(), reference.span) {
+                return None;
+            }
             if is_assignment_target_variant_reference(
                 checker,
                 reference.name.as_str(),

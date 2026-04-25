@@ -5,7 +5,6 @@ use crate::{Checker, Rule, Violation};
 
 use super::variable_reference_common::{
     VariableReferenceFilter, has_same_name_defining_bindings, is_reportable_variable_reference,
-    is_sc2154_defining_binding,
 };
 
 pub struct UndefinedVariable {
@@ -57,6 +56,12 @@ pub fn undefined_variable(checker: &mut Checker) {
         {
             continue;
         }
+        if checker
+            .facts()
+            .is_backtick_double_escaped_parameter_reference(reference.span)
+        {
+            continue;
+        }
         if !is_reportable_variable_reference(
             checker,
             reference,
@@ -66,21 +71,7 @@ pub fn undefined_variable(checker: &mut Checker) {
         ) {
             continue;
         }
-        if has_same_name_defining_bindings(checker, &reference.name)
-            && !checker
-                .semantic()
-                .bindings_for(&reference.name)
-                .iter()
-                .copied()
-                .filter(|binding_id| {
-                    is_sc2154_defining_binding(checker.semantic().binding(*binding_id).kind)
-                })
-                .all(|binding_id| {
-                    let binding = checker.semantic().binding(binding_id);
-                    binding.span.start.line == reference.span.start.line
-                        && binding.span.start.offset < reference.span.start.offset
-                })
-        {
+        if has_same_name_defining_bindings(checker, &reference.name) {
             suppressed_names.insert(reference.name.clone());
             continue;
         }
@@ -104,11 +95,11 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn ignores_defaulting_parameter_operands_until_later_plain_uses() {
+    fn prior_defaulting_parameter_operands_suppress_later_plain_uses() {
         let source = "\
 #!/bin/sh
 printf '%s\\n' \"${missing_assign:=$seed_name}\" \"${missing_error:?$hint_name}\"
-printf '%s\\n' \"$seed_name\" \"$hint_name\"
+printf '%s\\n' \"$seed_name\" \"$hint_name\" \"$plain_missing\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
 
@@ -117,12 +108,7 @@ printf '%s\\n' \"$seed_name\" \"$hint_name\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$seed_name", "$hint_name"]
-        );
-        assert!(
-            diagnostics
-                .iter()
-                .all(|diagnostic| diagnostic.span.start.line == 3)
+            vec!["$plain_missing"]
         );
     }
 
@@ -135,6 +121,8 @@ printf '%s\\n' \"${assigned:=fallback}\" \"$assigned\"
 printf '%s\\n' \"${required:?missing}\" \"$required\"
 printf '%s\\n' \"${replacement:+alt}\" \"$replacement\"
 printf '%s\\n' \"$before_default\" \"${before_default:-fallback}\" \"$plain_missing\"
+guard_function() { printf '%s\\n' \"${cross_scope:?missing}\"; }
+read_function() { printf '%s\\n' \"$cross_scope\"; }
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
 
@@ -152,7 +140,7 @@ printf '%s\\n' \"$before_default\" \"${before_default:-fallback}\" \"$plain_miss
         let source = "\
 #!/bin/sh
 printf '%s\\n' \"${outer:+${nested_default:-fallback}}\" \"$outer\" \"$nested_default\"
-printf '%s\\n' \"${other:+${nested_replacement:+alt}}\" \"$other\" \"$nested_replacement\"
+printf '%s\\n' \"${other:+${nested_replacement:+alt}}\" \"$other\" \"$nested_replacement\" \"$plain_missing\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
 
@@ -161,7 +149,73 @@ printf '%s\\n' \"${other:+${nested_replacement:+alt}}\" \"$other\" \"$nested_rep
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$nested_default", "$nested_replacement"]
+            vec!["$plain_missing"]
+        );
+    }
+
+    #[test]
+    fn later_parameter_guards_do_not_suppress_earlier_reads() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' \"$before_default\" \"$before_error\"
+printf '%s\\n' \"${before_default:-fallback}\" \"${before_error:?missing}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$before_default", "$before_error"]
+        );
+    }
+
+    #[test]
+    fn nested_presence_tests_suppress_same_name_c006_reports() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"$late_guarded\"
+options=(
+  no_ask \"$( [[ -n \"$no_ask\" ]] && printf true || printf false)\"
+  truthy \"$( [ \"$truthy\" ] && printf true || printf false)\"
+)
+printf '%s\\n' \"$( [[ -n \"$late_guarded\" ]] && printf true)\"
+printf '%s\\n' \"$no_ask\" \"$truthy\"
+printf '%s\\n' \"$(test -n \"$plain_test\" && printf true)\"
+printf '%s\\n' \"$( [[ -s \"$file_test\" ]] && printf true)\"
+printf '%s\\n' \"$plain_test\" \"$file_test\" \"$still_missing\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$plain_test", "$file_test", "$still_missing"]
+        );
+    }
+
+    #[test]
+    fn nested_presence_tests_suppress_same_name_c006_reports_across_functions() {
+        let source = "\
+#!/bin/bash
+guarded_flag() {
+  printf '%s\\n' \"$( [[ -n \"$shared_flag\" ]] && printf true || printf false)\"
+}
+read_flag() {
+  printf '%s\\n' \"$shared_flag\" \"$unrelated_flag\"
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$unrelated_flag"]
         );
     }
 
@@ -209,7 +263,7 @@ map+=([assoc_bare_key]=value)
     }
 
     #[test]
-    fn subscript_suppression_does_not_hide_later_plain_uses() {
+    fn subscript_suppression_hides_later_same_name_uses() {
         let source = "\
 #!/bin/bash
 printf '%s\\n' \"${arr[$read_idx]}\"
@@ -224,7 +278,7 @@ printf '%s\\n' \"$read_idx\" \"$bare_check\" \"$unset_idx\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$read_idx", "$bare_check", "$unset_idx"]
+            vec!["$bare_check", "$unset_idx"]
         );
     }
 

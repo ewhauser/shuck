@@ -28,7 +28,7 @@ pub(super) fn is_reportable_variable_reference(
     }
     if checker
         .facts()
-        .is_presence_tested_name(&reference.name, reference.span)
+        .is_c006_presence_tested_name(&reference.name, reference.span)
     {
         return false;
     }
@@ -44,6 +44,9 @@ pub(super) fn is_reportable_variable_reference(
         || checker
             .semantic()
             .is_defaulting_parameter_operand_reference(reference.id)
+        || checker
+            .facts()
+            .has_prior_c006_suppressing_reference(&reference.name, reference.span)
     {
         return false;
     }

@@ -535,6 +535,7 @@ impl<'a> LinterFactsBuilder<'a> {
             replacement_expansions,
             positional_parameter_trims,
             suppressed_subscript_spans,
+            subscript_later_suppression_spans,
             arithmetic_only_suppressed_subscript_spans,
         } = surface_fragments.finish();
         let function_positional_parameter_facts = build_function_positional_parameter_facts(
@@ -548,6 +549,11 @@ impl<'a> LinterFactsBuilder<'a> {
             &suppressed_subscript_spans,
             &arithmetic_only_suppressed_subscript_spans,
         );
+        let subscript_later_suppression_reference_spans =
+            build_subscript_later_suppression_reference_spans(
+                self.semantic,
+                &subscript_later_suppression_spans,
+            );
         pattern_exactly_one_extglob_spans.extend(surface_pattern_exactly_one_extglob_spans);
         pattern_charclass_spans.extend(surface_pattern_charclass_spans);
         let escape_scan_matches = build_escape_scan_matches(
@@ -695,6 +701,13 @@ impl<'a> LinterFactsBuilder<'a> {
         );
         let command_parent_ids = build_command_parent_ids(&commands);
         let command_dominance_barrier_flags = build_command_dominance_barrier_flags(&commands);
+        let c006_suppressing_reference_offsets_by_name =
+            build_c006_suppressing_reference_offsets_by_name(
+                self.semantic,
+                &commands,
+                &innermost_command_ids_by_offset,
+                &subscript_later_suppression_reference_spans,
+            );
 
         let mut backtick_substitution_spans = word_spans::backtick_substitution_spans(source);
         backtick_substitution_spans.retain(|span| {
@@ -705,6 +718,11 @@ impl<'a> LinterFactsBuilder<'a> {
         });
         let backtick_escaped_parameters =
             word_spans::backtick_escaped_parameters(source, &backtick_substitution_spans);
+        let backtick_double_escaped_parameter_spans =
+            word_spans::backtick_double_escaped_parameter_spans(
+                source,
+                &backtick_substitution_spans,
+            );
 
         LinterFacts {
             source,
@@ -724,9 +742,14 @@ impl<'a> LinterFactsBuilder<'a> {
             env_prefix_expansion_scope_spans,
             presence_tested_names: presence_tested_names.global_names,
             nested_presence_test_spans: presence_tested_names.nested_command_spans_by_name,
+            c006_presence_tested_names: presence_tested_names.c006_global_names,
+            c006_nested_presence_test_spans: presence_tested_names
+                .c006_nested_command_spans_by_name,
+            c006_suppressing_reference_offsets_by_name,
             presence_test_references_by_name: presence_tested_names.references_by_name,
             presence_test_names_by_name: presence_tested_names.names_by_name,
             suppressed_subscript_reference_spans,
+            subscript_later_suppression_reference_spans,
             compound_assignment_value_word_spans,
             word_nodes,
             word_occurrences,
@@ -776,6 +799,7 @@ impl<'a> LinterFactsBuilder<'a> {
             command_substitution_command_spans,
             backtick_substitution_spans,
             backtick_escaped_parameters,
+            backtick_double_escaped_parameter_spans,
             backtick_command_name_spans,
             dollar_question_after_command_spans,
             assignment_like_command_name_spans,
@@ -830,6 +854,73 @@ impl<'a> LinterFactsBuilder<'a> {
             conditional_portability,
         }
     }
+}
+
+fn build_c006_suppressing_reference_offsets_by_name(
+    semantic: &SemanticModel,
+    commands: &[CommandFact<'_>],
+    innermost_command_ids_by_offset: &FxHashMap<usize, Option<CommandId>>,
+    subscript_later_suppression_reference_spans: &FxHashSet<FactSpan>,
+) -> FxHashMap<Name, Vec<usize>> {
+    let mut offsets_by_name = FxHashMap::<Name, Vec<usize>>::default();
+
+    for reference in semantic.references() {
+        if c006_reference_suppresses_later_references(
+            semantic,
+            commands,
+            innermost_command_ids_by_offset,
+            subscript_later_suppression_reference_spans,
+            reference,
+        ) {
+            offsets_by_name
+                .entry(reference.name.clone())
+                .or_default()
+                .push(reference.span.start.offset);
+        }
+    }
+
+    for offsets in offsets_by_name.values_mut() {
+        offsets.sort_unstable();
+        offsets.dedup();
+    }
+
+    offsets_by_name
+}
+
+fn c006_reference_suppresses_later_references(
+    semantic: &SemanticModel,
+    commands: &[CommandFact<'_>],
+    innermost_command_ids_by_offset: &FxHashMap<usize, Option<CommandId>>,
+    subscript_later_suppression_reference_spans: &FxHashSet<FactSpan>,
+    reference: &Reference,
+) -> bool {
+    semantic.is_guarded_parameter_reference(reference.id)
+        || semantic.is_defaulting_parameter_operand_reference(reference.id)
+        || c006_subscript_reference_suppresses_later_references(
+            commands,
+            innermost_command_ids_by_offset,
+            subscript_later_suppression_reference_spans,
+            reference,
+        )
+}
+
+fn c006_subscript_reference_suppresses_later_references(
+    commands: &[CommandFact<'_>],
+    innermost_command_ids_by_offset: &FxHashMap<usize, Option<CommandId>>,
+    subscript_later_suppression_reference_spans: &FxHashSet<FactSpan>,
+    reference: &Reference,
+) -> bool {
+    if !subscript_later_suppression_reference_spans.contains(&FactSpan::new(reference.span)) {
+        return false;
+    }
+
+    precomputed_command_id_for_offset(
+        innermost_command_ids_by_offset,
+        reference.span.start.offset,
+    )
+    .and_then(|id| commands.get(id.index()))
+    .and_then(CommandFact::static_utility_name)
+    .is_none_or(|name| !matches!(name, "unset" | "[" | "[[" | "test"))
 }
 
 fn stmt_seq_contains_nested_control_flow(body: &StmtSeq) -> bool {

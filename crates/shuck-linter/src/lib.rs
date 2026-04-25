@@ -1866,6 +1866,87 @@ echo $bar
     }
 
     #[test]
+    fn shellcheck_disable_inside_function_suppresses_heredoc_body_diagnostics() {
+        let source = "\
+#!/bin/bash
+echo ready
+emit_file() {
+  # shellcheck disable=SC2154
+  cat \"$path\" <<EOF
+value=$body_value
+other=${other_value}
+EOF
+  echo \"$later\"
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            &output.file,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+            Some(&suppressions),
+            None,
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$later"]
+        );
+    }
+
+    #[test]
+    fn undefined_variable_reports_escaped_ps4_prompt_reference_at_assignment() {
+        let source = "\
+#!/bin/bash
+export PS4=\"+ \\${BASH_SOURCE##\\${rvm_path:-}} > \"
+p=\"$rvm_path\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["PS4"]
+        );
+    }
+
+    #[test]
+    fn undefined_variable_reports_trap_action_references_at_action_word() {
+        let source = "\
+#!/bin/sh
+tmpdir=/tmp/example
+trap 'ret=$?; rmdir \"$tmpdir/d\" \"$tmpdir\" 2>/dev/null; exit $ret' 0
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["'ret=$?; rmdir \"$tmpdir/d\" \"$tmpdir\" 2>/dev/null; exit $ret'"]
+        );
+    }
+
+    #[test]
     fn unused_assignment_flags_unread_variable() {
         let source = "#!/bin/sh\nfoo=1\n";
         let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
@@ -3070,6 +3151,25 @@ printf '%s\\n' \"${##*/}\"
     }
 
     #[test]
+    fn special_zero_prefix_removal_inside_escaped_quotes_is_not_reported() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/bash
+usage=\"
+Terraform:
+
+    data \\\"external\\\" \\\"github_repos\\\" {
+        program = [\\\"/path/to/${0##*/}\\\", \\\"github_repository\\\"]
+    }
+\"
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn undefined_variable_anchors_parameter_operator_reports_to_carrier_name() {
         let source = "\
 #!/bin/bash
@@ -3103,18 +3203,232 @@ rvm_info=\"
     }
 
     #[test]
-    fn undefined_variable_reports_self_referential_assignments() {
+    fn undefined_variable_anchors_multiline_escaped_quote_parameter_expansions_to_the_parameter() {
+        let source = "\
+#!/bin/bash
+payload=\"{
+\t\\\"client_id\\\": \\\"${uuidinstance}\\\",
+\t\\\"events\\\": [
+\t\t{
+\t\t\\\"name\\\": \\\"LinuxGSM\\\",
+\t\t\\\"params\\\": {
+\t\t\t\\\"cpuusedmhzroundup\\\": \\\"${cpuusedmhzroundup}\\\",
+\t\t\t\\\"diskused\\\": \\\"${serverfilesdu}\\\",
+\t\t\t}
+\t\t}
+\t]
+}\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.message.contains("serverfilesdu"))
+            .unwrap();
+
+        assert_eq!(diagnostic.span.start.line, 9);
+        assert_eq!(diagnostic.span.start.column, 20);
+        assert_eq!(diagnostic.span.slice(source), "${serverfilesdu}");
+    }
+
+    #[test]
+    fn undefined_variable_anchors_unbraced_references_after_escaped_quotes() {
+        let source = "\
+#!/bin/bash
+rvm_info=\"
+  path:         \\\"$rvm_path\\\"
+\"
+addtimestamp=\"gawk '{ print strftime(\\\\\\\"[$logtimestampformat]\\\\\\\"), \\\\\\$0 }'\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        let spans = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.span.slice(source))
+            .collect::<Vec<_>>();
+        assert_eq!(spans, vec!["$rvm_path", "$logtimestampformat"]);
+    }
+
+    #[test]
+    fn undefined_variable_ignores_self_referential_assignments() {
         let diagnostics = lint_for_rule(
             "\
 #!/bin/sh
 foo=\"$foo\"
+for flag in a b; do
+  valid_flags=\"${valid_flags} $flag\"
+done
 ",
             Rule::UndefinedVariable,
         );
 
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn undefined_variable_ignores_escaped_declaration_dynamic_assignments() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/bash
+\\typeset ret=$?
+echo \"$ret\"
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn undefined_variable_reports_arithmetic_conditional_literal_operands() {
+        let source = "\
+#!/bin/bash
+version=1
+if [[ $version -eq \"latest\" ]]; then
+  :
+fi
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
-        assert!(diagnostics[0].message.contains("foo"));
+        assert!(diagnostics[0].message.contains("latest"));
+        assert_eq!(diagnostics[0].span.slice(source), "\"latest\"");
+    }
+
+    #[test]
+    fn undefined_variable_ignores_let_arithmetic_assignment_targets() {
+        let source = "\
+#!/bin/bash
+let line=\"$number\"+1
+printf '%s\\n' \"$line\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert_eq!(diagnostics[0].span.slice(source), "$number");
+    }
+
+    #[test]
+    fn undefined_variable_ignores_assignment_values_after_escaped_newlines() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/sh
+easyrsa_ksh=\\
+'value'
+[ \"${KSH_VERSION}\" = \"${easyrsa_ksh}\" ] && echo ok
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn undefined_variable_ignores_backtick_double_escaped_echo_templates() {
+        let source = "\
+#!/bin/bash
+XDGPATH=`echo \"foreach dir [split [::tcl::tm::path list]] {puts \\\\$dir}\" | tclsh | tail -n1`
+printf '%s\\n' \"$missing\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "$missing");
+    }
+
+    #[test]
+    fn undefined_variable_reports_unparsed_indexed_subscript_prefixes() {
+        let source = "\
+#!/bin/bash
+arr+=([docker:dind]=x [nats-streaming:nanoserver]=y)
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["docker", "nats", "streaming"]
+        );
+    }
+
+    #[test]
+    fn undefined_variable_skips_parameter_replacement_pattern_reads() {
+        let source = "\
+#!/bin/bash
+dir=all/retroarch.cfg
+echo \"${dir//$configdir\\/}\"
+find \"$configdir\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$configdir"]
+        );
+    }
+
+    #[test]
+    fn undefined_variable_reports_plain_reads_before_parameter_patterns() {
+        let source = "\
+#!/bin/bash
+dir=all/retroarch.cfg
+find \"$configdir\"
+echo \"${dir//$configdir\\/}\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$configdir"]
+        );
+    }
+
+    #[test]
+    fn undefined_variable_reports_redirect_target_references() {
+        let source = "\
+#!/bin/bash
+{ echo value; } >> \"${missing_target}/out\"
+echo \"${ordinary_missing}/out\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${missing_target}", "${ordinary_missing}"]
+        );
+    }
+
+    #[test]
+    fn undefined_variable_reports_unreachable_references() {
+        let source = "\
+#!/bin/bash
+load_value() {
+  return 1
+  printf '%s\\n' \"$after_return\"
+}
+load_value
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$after_return"]
+        );
     }
 
     #[test]
@@ -3164,6 +3478,52 @@ EOF
     }
 
     #[test]
+    fn escaped_heredoc_parameter_literals_report_nested_references() {
+        let source = "\
+#!/bin/bash
+cat <<EOF
+\\${OUTER:-$inner}
+EOF
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[0].message.contains("inner"));
+        assert_eq!(diagnostics[0].span.slice(source), "$inner");
+    }
+
+    #[test]
+    fn undefined_variable_reports_bash_fallback_after_zsh_split_branch() {
+        let source = "\
+#!/bin/bash
+if [[ -n \"${ZSH_VERSION:-}\" ]]; then
+  rvm_configure_flags=( ${=db_configure_flags} \"${rvm_configure_flags[@]}\" )
+else
+  rvm_configure_flags=( ${db_configure_flags} \"${rvm_configure_flags[@]}\" )
+fi
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert_eq!(diagnostics[0].span.start.line, 5);
+        assert_eq!(diagnostics[0].span.slice(source), "${db_configure_flags}");
+    }
+
+    #[test]
+    fn undefined_variable_ignores_parameter_slice_arithmetic_operands() {
+        let source = "\
+#!/bin/bash
+value=abcdef
+printf '%s\\n' \"${value:offset}\" \"${value:1:$length}\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn undefined_variable_ignores_names_bound_anywhere_in_the_file() {
         let source = "\
 #!/bin/bash
@@ -3193,6 +3553,23 @@ helper
                 .message
                 .contains("referenced before assignment")
         );
+    }
+
+    #[test]
+    fn undefined_variable_ignores_same_declaration_command_bindings() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/bash
+f() {
+  local first=1 second=\"$first\"
+  local later=\"$after\" after=1
+}
+f
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
@@ -3348,24 +3725,12 @@ printf '%s\\n' \"$fallback_name\" \"$seed_name\" \"$replacement_name\" \"$hint_n
 ";
         let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
-        assert_eq!(diagnostics.len(), 5);
+        assert_eq!(diagnostics.len(), 1);
         assert!(
             diagnostics
                 .iter()
                 .all(|d| d.rule == Rule::UndefinedVariable)
         );
-        assert!(
-            diagnostics
-                .iter()
-                .any(|d| d.message.contains("fallback_name"))
-        );
-        assert!(diagnostics.iter().any(|d| d.message.contains("seed_name")));
-        assert!(
-            diagnostics
-                .iter()
-                .any(|d| d.message.contains("replacement_name"))
-        );
-        assert!(diagnostics.iter().any(|d| d.message.contains("hint_name")));
         assert!(
             diagnostics
                 .iter()
@@ -3387,7 +3752,7 @@ printf '%s %s\\n' \"${map[swift-cmark]}\" \"${map[$dynamic_key]}\"
     }
 
     #[test]
-    fn undefined_variable_reports_later_subscript_writes_after_read_subscripts() {
+    fn undefined_variable_suppresses_later_subscript_uses_after_read_subscripts() {
         let source = "\
 #!/bin/bash
 declare -a args
@@ -3397,6 +3762,7 @@ args[$__array_start]=ok
 unset args[$unset_index]
 printf '%s\\n' \"${tools[$target]}\"
 tools[$target]=ok
+printf '%s\\n' \"$__array_start\" \"$target\"
 ";
         let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
@@ -3405,18 +3771,18 @@ tools[$target]=ok
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$__array_start", "$target"]
+            Vec::<&str>::new()
         );
     }
 
     #[test]
-    fn undefined_variable_reports_later_plain_uses_after_subscript_only_uses() {
+    fn undefined_variable_reports_unseen_plain_uses_after_subscript_only_uses() {
         let source = "\
 #!/bin/bash
 declare -a args
 declare -A tools
 printf '%s %s\\n' \"${args[$idx]}\" \"${tools[$target]}\"
-printf '%s %s\\n' \"$idx\" \"$target\"
+printf '%s %s %s\\n' \"$idx\" \"$target\" \"$unseen\"
 ";
         let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
@@ -3425,7 +3791,7 @@ printf '%s %s\\n' \"$idx\" \"$target\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$idx", "$target"]
+            vec!["$unseen"]
         );
     }
 
@@ -3479,7 +3845,7 @@ echo \"$guarded\" \"$truthy\" \"$simple_v\" \"$test_v\" \"$chain_left\" \"$chain
         assert!(
             diagnostics
                 .iter()
-                .all(|diagnostic| !diagnostic.message.contains("test_v"))
+                .any(|diagnostic| diagnostic.message.contains("test_v"))
         );
         assert!(
             diagnostics
@@ -3549,6 +3915,28 @@ echo \"$guarded\" \"$truthy\" \"$simple_v\" \"$test_v\" \"$chain_left\" \"$chain
     }
 
     #[test]
+    fn undefined_variable_reports_plain_test_command_presence_reads() {
+        let source = "\
+#!/bin/bash
+test -n \"$plain_test\" && echo present
+[ -n \"$bracket_test\" ] && echo present
+if [[ -n \"$conditional_test\" ]]; then
+  echo present
+fi
+echo \"$plain_test\" \"$bracket_test\" \"$conditional_test\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$plain_test"]
+        );
+    }
+
+    #[test]
     fn undefined_variable_nested_word_guards_do_not_suppress_plain_uses() {
         let source = "\
 #!/bin/bash
@@ -3557,12 +3945,7 @@ printf '%s\\n' \"$missing\"
 ";
         let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
-        assert!(
-            diagnostics.iter().any(|diagnostic| {
-                diagnostic.message.contains("missing") && diagnostic.span.start.line == 3
-            }),
-            "diagnostics: {diagnostics:?}"
-        );
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]

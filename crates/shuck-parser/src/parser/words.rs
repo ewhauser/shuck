@@ -5504,7 +5504,8 @@ impl<'a> Parser<'a> {
         let mut in_double = false;
         let mut double_quote_depth = 0usize;
         let mut escaped = false;
-        let mut operand = (!source_backed).then(String::new);
+        let use_source = source_backed && self.brace_operand_starts_at_source(chars, *cursor);
+        let mut operand = (!use_source).then(String::new);
 
         while let Some(&c) = chars.peek() {
             if escaped {
@@ -5517,6 +5518,13 @@ impl<'a> Parser<'a> {
             }
 
             if c == '\x00' {
+                if operand.is_none() {
+                    operand = Some(
+                        Span::from_positions(start, *cursor)
+                            .slice(self.input)
+                            .into(),
+                    );
+                }
                 Self::next_word_char_unwrap(chars, cursor);
                 if chars.peek().is_some() {
                     let ch = Self::next_word_char_unwrap(chars, cursor);
@@ -5587,10 +5595,10 @@ impl<'a> Parser<'a> {
                     if depth == 1 {
                         let end = *cursor;
                         Self::next_word_char_unwrap(chars, cursor);
-                        return if source_backed {
-                            SourceText::source(Span::from_positions(start, end))
+                        return if let Some(operand) = operand {
+                            self.source_text(operand, start, end)
                         } else {
-                            self.source_text(operand.unwrap_or_default(), start, end)
+                            SourceText::source(Span::from_positions(start, end))
                         };
                     }
                     depth -= 1;
@@ -5607,11 +5615,26 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        if source_backed {
-            SourceText::source(Span::from_positions(start, *cursor))
+        if let Some(operand) = operand {
+            self.source_text(operand, start, *cursor)
         } else {
-            self.source_text(operand.unwrap_or_default(), start, *cursor)
+            SourceText::source(Span::from_positions(start, *cursor))
         }
+    }
+
+    fn brace_operand_starts_at_source(
+        &self,
+        chars: &std::iter::Peekable<std::str::Chars<'_>>,
+        cursor: Position,
+    ) -> bool {
+        let mut probe = chars.clone();
+        let Some(first) = probe.next() else {
+            return true;
+        };
+        let Some(source_suffix) = self.input.get(cursor.offset..) else {
+            return false;
+        };
+        source_suffix.starts_with(first)
     }
 
     fn brace_operand_has_later_top_level_closer(

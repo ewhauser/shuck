@@ -1883,6 +1883,74 @@ pub(crate) fn backtick_escaped_parameters(
     spans
 }
 
+pub(crate) fn backtick_double_escaped_parameter_spans(
+    source: &str,
+    backtick_spans: &[Span],
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    for backtick_span in backtick_spans {
+        let mut index = backtick_span.start.offset.saturating_add('`'.len_utf8());
+        let end = backtick_span.end.offset.saturating_sub('`'.len_utf8());
+        let mut in_single_quote = false;
+        let mut in_double_quote = false;
+
+        while index < end {
+            let ch = source[index..]
+                .chars()
+                .next()
+                .expect("index should remain on UTF-8 boundaries");
+            let ch_len = ch.len_utf8();
+
+            match ch {
+                '\'' if !in_double_quote => {
+                    in_single_quote = !in_single_quote;
+                    index += ch_len;
+                }
+                '"' if !in_single_quote => {
+                    in_double_quote = !in_double_quote;
+                    index += ch_len;
+                }
+                '\\' if !in_single_quote => {
+                    let slash_start = index;
+                    while index < end && source.as_bytes().get(index) == Some(&b'\\') {
+                        index += '\\'.len_utf8();
+                    }
+                    let slash_count = index.saturating_sub(slash_start);
+                    if in_double_quote
+                        && slash_count == 2
+                        && source.as_bytes().get(index) == Some(&b'$')
+                        && let Some(parameter) =
+                            escaped_backtick_parameter_syntax(source, index, end)
+                    {
+                        let expansion_len = parameter.expansion_len();
+                        if let Some(start) = position_at_offset(source, index)
+                            && let Some(end_position) =
+                                position_at_offset(source, index + expansion_len)
+                        {
+                            spans.push(Span::from_positions(start, end_position));
+                        }
+                        index += expansion_len;
+                    } else if slash_count % 2 == 1 && index < end {
+                        let escaped = source[index..]
+                            .chars()
+                            .next()
+                            .expect("index should remain on UTF-8 boundaries");
+                        index += escaped.len_utf8();
+                    }
+                }
+                _ => {
+                    index += ch_len;
+                }
+            }
+        }
+    }
+
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.dedup();
+    spans
+}
+
 fn escaped_backtick_parameter_is_standalone_command_name(
     source: &str,
     backtick_span: Span,
@@ -4830,9 +4898,10 @@ mod tests {
 
     use super::{
         all_elements_array_expansion_part_spans, array_expansion_part_spans,
-        backtick_escaped_parameters, backtick_substitution_spans, command_substitution_part_spans,
-        find_extglob_bounds, line_has_escaped_newline_continuation, position_at_offset,
-        scalar_expansion_part_spans, shellcheck_collapsed_backtick_part_span_in_source,
+        backtick_double_escaped_parameter_spans, backtick_escaped_parameters,
+        backtick_substitution_spans, command_substitution_part_spans, find_extglob_bounds,
+        line_has_escaped_newline_continuation, position_at_offset, scalar_expansion_part_spans,
+        shellcheck_collapsed_backtick_part_span_in_source,
         unquoted_all_elements_array_expansion_part_spans,
         unquoted_command_substitution_part_spans_in_source,
         unquoted_dollar_paren_command_substitution_part_spans_in_source,
@@ -6264,6 +6333,22 @@ printf '%s\\n' \"${arr[@]}\" \"x${arr[@]}\" \"x${!arr[@]}\" \"x${arr[@]:1}\" \"x
             position_at_offset(source, start_offset).expect("expected start position"),
             position_at_offset(source, end_offset).expect("expected end position"),
         )
+    }
+
+    #[test]
+    fn backtick_double_escaped_parameter_spans_track_quoted_templates() {
+        let source =
+            r#"`echo "foreach dir {puts \\$dir} literal \\\\$literal"` `echo "plain $missing"`"#;
+        let backtick_spans = backtick_substitution_spans(source);
+        let escaped = backtick_double_escaped_parameter_spans(source, &backtick_spans);
+
+        assert_eq!(
+            escaped
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$dir"]
+        );
     }
 
     #[test]
