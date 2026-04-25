@@ -244,11 +244,8 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let mut file = File {
-            body: Self::stmt_seq_with_span(file_span, stmts),
-            span: file_span,
-        };
-        self.attach_comments_to_file(&mut file);
+        let mut body = Self::stmt_seq_with_span(file_span, stmts);
+        self.attach_comments_to_body(&mut body);
 
         let status = if terminal_error.is_some() {
             ParseStatus::Fatal
@@ -258,7 +255,7 @@ impl<'a> Parser<'a> {
             ParseStatus::Recovered
         };
 
-        let arena_file = ArenaFile::from_body(file.body, file_span);
+        let arena_file = ArenaFile::from_body(body, file_span);
         let file = arena_file.to_file();
 
         ParseResult {

@@ -7415,10 +7415,10 @@ impl<'a> Parser<'a> {
         taken
     }
 
-    fn attach_comments_to_file(&self, file: &mut File) {
+    fn attach_comments_to_body(&self, body: &mut StmtSeq) {
         let mut comments = self.comments.iter().copied().collect::<VecDeque<_>>();
-        Self::attach_comments_to_stmt_seq_with_source(self.input, &mut file.body, &mut comments);
-        file.body.trailing_comments.extend(comments);
+        Self::attach_comments_to_stmt_seq_with_source(self.input, body, &mut comments);
+        body.trailing_comments.extend(comments);
     }
 
     fn attach_comments_to_stmt_seq_with_source(
