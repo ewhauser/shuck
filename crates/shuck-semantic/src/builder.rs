@@ -2645,6 +2645,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             "let" => self.record_let_arithmetic_assignment_targets(args),
             "eval" => self.record_eval_argument_references(args),
+            "trap" => self.record_trap_action_references(args),
             "source" | "." => {
                 if normalized.wrappers.is_empty()
                     && let Some(argument) = args.first().copied()
@@ -2673,6 +2674,19 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.visit_command_defined_variable(args);
             }
             _ => {}
+        }
+    }
+
+    fn record_trap_action_references(&mut self, args: &[&'a Word]) {
+        let Some(argument) = trap_action_argument(args, self.source) else {
+            return;
+        };
+
+        let mut seen = FxHashSet::default();
+        for name in trap_action_reference_names(argument, self.source) {
+            if seen.insert(name.clone()) {
+                self.add_reference(&name, ReferenceKind::TrapAction, argument.span);
+            }
         }
     }
 
@@ -4491,6 +4505,37 @@ fn eval_argument_reference_names(word: &Word, source: &str) -> Vec<(Name, Span)>
     )
 }
 
+fn trap_action_argument<'a>(args: &[&'a Word], source: &str) -> Option<&'a Word> {
+    let argument = *args.first()?;
+    let text = static_word_text(argument, source)?;
+
+    if text == "--" {
+        return args.get(1).copied();
+    }
+    if is_trap_inspection_option(&text) {
+        return None;
+    }
+
+    Some(argument)
+}
+
+fn is_trap_inspection_option(text: &str) -> bool {
+    text.len() > 1
+        && text.starts_with('-')
+        && text[1..].chars().all(|flag| matches!(flag, 'l' | 'p'))
+}
+
+fn trap_action_reference_names(word: &Word, source: &str) -> Vec<Name> {
+    let Some(text) = static_word_text(word, source) else {
+        return Vec::new();
+    };
+
+    scan_parameter_reference_name_ranges(&text)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect()
+}
+
 fn prompt_assignment_reference_names(word: &Word, source: &str) -> Vec<(Name, Span)> {
     let Some(text) = static_word_text(word, source) else {
         return Vec::new();
@@ -4614,6 +4659,24 @@ fn scan_parameter_reference_names(
     source_offsets: &[usize],
     span: Span,
 ) -> Vec<(Name, Span)> {
+    scan_parameter_reference_name_ranges(text)
+        .into_iter()
+        .map(|(name, (name_start, _name_end))| {
+            let source_name_start = source_offsets[name_start];
+            let source_name_end = source_name_start + name.as_str().len();
+            let start = span.start.advanced_by(&source_text[..source_name_start]);
+            (
+                name,
+                Span::from_positions(
+                    start,
+                    start.advanced_by(&source_text[source_name_start..source_name_end]),
+                ),
+            )
+        })
+        .collect()
+}
+
+fn scan_parameter_reference_name_ranges(text: &str) -> Vec<(Name, (usize, usize))> {
     let mut references = Vec::new();
     let mut in_single_quotes = false;
     let mut in_double_quotes = false;
@@ -4679,16 +4742,7 @@ fn scan_parameter_reference_names(
             continue;
         };
         let name = &text[name_start..name_end];
-        let source_name_start = source_offsets[name_start];
-        let source_name_end = source_name_start + name.len();
-        let start = span.start.advanced_by(&source_text[..source_name_start]);
-        references.push((
-            Name::from(name),
-            Span::from_positions(
-                start,
-                start.advanced_by(&source_text[source_name_start..source_name_end]),
-            ),
-        ));
+        references.push((Name::from(name), (name_start, name_end)));
     }
     references
 }

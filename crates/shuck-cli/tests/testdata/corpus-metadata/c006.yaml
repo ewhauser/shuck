@@ -105,13 +105,6 @@ reviewed_divergences:
     end_column: 42
     reason: "This generated dependency helper uses build-time placeholders such as `object` and `source` to rewrite depfiles, so the ShellCheck-only hits are expected template plumbing here."
   - side: shellcheck-only
-    path_suffix: "moovweb__gvm__examples__native__install-sh"
-    line: 349
-    end_line: 349
-    column: 11
-    end_column: 71
-    reason: "This generated install helper carries a trap around its temporary-directory probe, and the remaining ShellCheck-only read is part of that cleanup path."
-  - side: shellcheck-only
     path_suffix: "openrc__openrc__sh__s6.sh"
     line: 57
     end_line: 57

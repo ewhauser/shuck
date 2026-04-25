@@ -6836,6 +6836,29 @@ p=\"$rvm_path\"
     }
 
     #[test]
+    fn trap_action_references_are_read_at_the_action_word() {
+        let source = "\
+#!/bin/sh
+tmpdir=/tmp/example
+trap 'ret=$?; rmdir \"$tmpdir/d\" \"$tmpdir\" 2>/dev/null; exit $ret' 0
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let trap_reference = analysis
+            .uninitialized_references()
+            .iter()
+            .map(|uninitialized| model.reference(uninitialized.reference))
+            .find(|reference| {
+                reference.name == "ret"
+                    && reference.kind == ReferenceKind::TrapAction
+                    && reference.span.slice(source)
+                        == "'ret=$?; rmdir \"$tmpdir/d\" \"$tmpdir\" 2>/dev/null; exit $ret'"
+            });
+
+        assert!(trap_reference.is_some());
+    }
+
+    #[test]
     fn bash_completion_runtime_vars_are_treated_as_live() {
         let source = "\
 #!/bin/bash

@@ -1929,6 +1929,24 @@ p=\"$rvm_path\"
     }
 
     #[test]
+    fn undefined_variable_reports_trap_action_references_at_action_word() {
+        let source = "\
+#!/bin/sh
+tmpdir=/tmp/example
+trap 'ret=$?; rmdir \"$tmpdir/d\" \"$tmpdir\" 2>/dev/null; exit $ret' 0
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["'ret=$?; rmdir \"$tmpdir/d\" \"$tmpdir\" 2>/dev/null; exit $ret'"]
+        );
+    }
+
+    #[test]
     fn unused_assignment_flags_unread_variable() {
         let source = "#!/bin/sh\nfoo=1\n";
         let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
