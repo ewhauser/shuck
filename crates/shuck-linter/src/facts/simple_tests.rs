@@ -1218,52 +1218,52 @@ fn mixed_short_circuit_operator_span(operators: &[ListOperatorFact]) -> Option<S
 
 fn word_contains_find_substitution<'a>(
     word: &'a Word,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     word.parts
         .iter()
-        .any(|part| part_contains_find_substitution(&part.kind, parent_id, command_relationships))
+        .any(|part| part_contains_find_substitution(&part.kind, commands, command_ids_by_span))
 }
 
 fn word_contains_line_oriented_substitution<'a>(
     word: &'a Word,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     word.parts.iter().any(|part| {
-        part_contains_line_oriented_substitution(&part.kind, parent_id, command_relationships)
+        part_contains_line_oriented_substitution(&part.kind, commands, command_ids_by_span)
     })
 }
 
 fn word_contains_command_substitution_named<'a>(
     word: &'a Word,
     name: &str,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     word.parts.iter().any(|part| {
-        part_contains_command_substitution_named(&part.kind, name, parent_id, command_relationships)
+        part_contains_command_substitution_named(&part.kind, name, commands, command_ids_by_span)
     })
 }
 
 fn part_contains_command_substitution_named<'a>(
     part: &WordPart,
     name: &str,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     match part {
         WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| {
             part_contains_command_substitution_named(
                 &part.kind,
                 name,
-                parent_id,
-                command_relationships,
+                commands,
+                command_ids_by_span,
             )
         }),
         WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
-            substitution_body_is_simple_command_named(body, name, parent_id, command_relationships)
+            substitution_body_is_simple_command_named(body, name, commands, command_ids_by_span)
         }
         _ => false,
     }
@@ -1271,19 +1271,19 @@ fn part_contains_command_substitution_named<'a>(
 
 fn part_contains_line_oriented_substitution<'a>(
     part: &WordPart,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     match part {
         WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| {
             part_contains_line_oriented_substitution(
                 &part.kind,
-                parent_id,
-                command_relationships,
+                commands,
+                command_ids_by_span,
             )
         }),
         WordPart::CommandSubstitution { body, .. } => {
-            substitution_body_is_line_oriented(body, parent_id, command_relationships)
+            substitution_body_is_line_oriented(body, commands, command_ids_by_span)
         }
         _ => false,
     }
@@ -1291,15 +1291,15 @@ fn part_contains_line_oriented_substitution<'a>(
 
 fn part_contains_find_substitution<'a>(
     part: &WordPart,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     match part {
-        WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| {
-            part_contains_find_substitution(&part.kind, parent_id, command_relationships)
-        }),
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| part_contains_find_substitution(&part.kind, commands, command_ids_by_span)),
         WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
-            substitution_body_is_find(body, parent_id, command_relationships)
+            substitution_body_is_find(body, commands, command_ids_by_span)
         }
         _ => false,
     }
@@ -1307,93 +1307,75 @@ fn part_contains_find_substitution<'a>(
 
 fn substitution_body_is_find<'a>(
     body: &'a StmtSeq,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    matches!(body.as_slice(), [stmt] if stmt_invokes_find(stmt, parent_id, command_relationships))
+    matches!(body.as_slice(), [stmt] if stmt_invokes_find(stmt, commands, command_ids_by_span))
 }
 
 fn substitution_body_is_line_oriented<'a>(
     body: &'a StmtSeq,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     matches!(
         body.as_slice(),
-        [stmt] if stmt_is_line_oriented_substitution_body(stmt, parent_id, command_relationships)
+        [stmt] if command_is_line_oriented_substitution_body(&stmt.command, commands, command_ids_by_span)
     )
 }
 
 fn substitution_body_is_pgrep_lookup<'a>(
     body: &'a StmtSeq,
     commands: CommandFacts<'_, 'a>,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     matches!(
         body.as_slice(),
         [stmt]
-            if stmt_effective_or_literal_basename_is_ref(
-                stmt,
-                "pgrep",
-                commands,
-                parent_id,
-                command_relationships,
-            )
+            if stmt_effective_or_literal_basename_is_ref(stmt, "pgrep", commands, command_ids_by_span)
     )
 }
 
 fn substitution_body_is_seq_utility<'a>(
     body: &'a StmtSeq,
     commands: CommandFacts<'_, 'a>,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     matches!(
         body.as_slice(),
-        [stmt] if stmt_effective_or_literal_basename_is_ref(
-            stmt,
-            "seq",
-            commands,
-            parent_id,
-            command_relationships,
-        )
+        [stmt] if stmt_effective_or_literal_basename_is_ref(stmt, "seq", commands, command_ids_by_span)
     )
 }
 
 fn substitution_body_is_simple_command_named<'a>(
     body: &'a StmtSeq,
     name: &str,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    matches!(body.as_slice(), [stmt] if stmt_literal_name_is(stmt, name, parent_id, command_relationships))
+    matches!(body.as_slice(), [stmt] if stmt_literal_name_is(stmt, name, commands, command_ids_by_span))
 }
 
 fn command_is_line_oriented_substitution_body<'a>(
     command: &'a Command,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     match command {
         Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {
-            command_relationships
-                .fact_for_command_lookup_with_parent(Some(parent_id), command)
+            command_fact_for_command(command, commands, command_ids_by_span)
                 .is_some_and(command_fact_is_line_oriented_utility)
         }
         Command::Binary(binary) => match binary.op {
             BinaryOp::Pipe | BinaryOp::PipeAll => {
-                let child_parent_id = command_relationships
-                    .fact_for_command_lookup_with_parent(Some(parent_id), command)
-                    .map_or(parent_id, CommandFact::id);
                 command_is_line_oriented_substitution_body(
                     &binary.left.command,
-                    child_parent_id,
-                    command_relationships,
+                    commands,
+                    command_ids_by_span,
                 ) && command_is_line_oriented_substitution_body(
                     &binary.right.command,
-                    child_parent_id,
-                    command_relationships,
+                    commands,
+                    command_ids_by_span,
                 )
             }
             BinaryOp::And | BinaryOp::Or => false,
@@ -1402,7 +1384,11 @@ fn command_is_line_oriented_substitution_body<'a>(
             .command
             .as_deref()
             .is_some_and(|stmt| {
-                stmt_is_line_oriented_substitution_body(stmt, parent_id, command_relationships)
+                command_is_line_oriented_substitution_body(
+                    &stmt.command,
+                    commands,
+                    command_ids_by_span,
+                )
             }),
         Command::Compound(
             CompoundCommand::If(_)
@@ -1425,21 +1411,6 @@ fn command_is_line_oriented_substitution_body<'a>(
     }
 }
 
-fn stmt_is_line_oriented_substitution_body<'a>(
-    stmt: &'a Stmt,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
-) -> bool {
-    let child_parent_id = command_relationships
-        .fact_for_stmt_lookup_with_parent(Some(parent_id), stmt)
-        .map_or(parent_id, CommandFact::id);
-    command_is_line_oriented_substitution_body(
-        &stmt.command,
-        child_parent_id,
-        command_relationships,
-    )
-}
-
 fn command_fact_is_line_oriented_utility(fact: &CommandFact<'_>) -> bool {
     if command_fact_invokes_find(fact) {
         return false;
@@ -1455,11 +1426,10 @@ fn command_fact_is_line_oriented_utility(fact: &CommandFact<'_>) -> bool {
 
 fn stmt_invokes_find<'a>(
     stmt: &'a Stmt,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    command_relationships
-        .fact_for_stmt_lookup_with_parent(Some(parent_id), stmt)
+    command_fact_for_stmt(stmt, commands, command_ids_by_span)
         .is_some_and(command_fact_invokes_find)
 }
 
@@ -1477,12 +1447,10 @@ fn command_name_matches_basename(name: Option<&str>, expected: &str) -> bool {
 fn stmt_literal_name_is<'a>(
     stmt: &'a Stmt,
     name: &str,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    command_relationships
-        .fact_for_stmt_lookup_with_parent(Some(parent_id), stmt)
-        .and_then(CommandFact::literal_name)
+    command_fact_for_stmt(stmt, commands, command_ids_by_span).and_then(CommandFact::literal_name)
         == Some(name)
 }
 
@@ -1490,12 +1458,9 @@ fn stmt_effective_or_literal_basename_is_ref<'a>(
     stmt: &'a Stmt,
     name: &str,
     commands: CommandFacts<'_, 'a>,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
+    command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    command_relationships
-        .fact_for_stmt_lookup_with_parent(Some(parent_id), stmt)
-        .map(|fact| command_fact_ref(commands, fact.id()))
+    command_fact_ref_for_stmt(stmt, commands, command_ids_by_span)
         .and_then(CommandFactRef::effective_or_literal_name)
         .is_some_and(|command_name| {
             command_name == name || command_name.rsplit('/').next() == Some(name)
