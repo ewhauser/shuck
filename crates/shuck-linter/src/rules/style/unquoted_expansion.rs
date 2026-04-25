@@ -2371,6 +2371,29 @@ printf '%s\\n' $(ps -o comm= -p $PPID) $UID $EUID $RANDOM $OPTIND $SECONDS $LINE
     }
 
     #[test]
+    fn skips_numeric_shell_variables_after_default_assignment() {
+        let source = "\
+#!/bin/bash
+: \"${UID:=1000}\"
+usermod -u $UID minecraft
+UID='a b'
+usermod -u $UID minecraft
+unset COLUMNS
+: \"${COLUMNS:=$1}\"
+printf '%s\\n' $COLUMNS
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$UID", "$COLUMNS"]
+        );
+    }
+
+    #[test]
     fn reports_unknown_values_in_uncalled_function_bodies() {
         let source = "\
 #!/bin/sh

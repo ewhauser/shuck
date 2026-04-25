@@ -1229,7 +1229,8 @@ impl<'a> SafeValueIndex<'a> {
         prior_bindings.dedup();
 
         if prior_bindings.is_empty() {
-            return false;
+            return safe_numeric_shell_variable(&name)
+                && !self.unset_command_covers_reference(&name, binding_span);
         }
         if query.is_field_context() {
             if self.bindings_are_all_plain_empty_static_literals(&prior_bindings) {

@@ -721,13 +721,6 @@ reviewed_divergences:
     end_column: 47
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "itzg__docker-minecraft-server__scripts__start"
-    line: 24
-    end_line: 24
-    column: 20
-    end_column: 24
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "juewuy__ShellCrash__scripts__menus__2_settings.sh"
     line: 360
     end_line: 360
