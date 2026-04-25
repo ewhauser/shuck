@@ -27,13 +27,6 @@ reviewed_divergences:
     column: 15
     end_column: 25
     reason: "This LinuxGSM fixture runs inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations, so the remaining C006 hits are reviewed module contracts with that runtime rather than missing local assignments."
-  - side: shuck-only
-    path_suffix: "HariSekhon__DevOps-Bash-tools__terraform__terraform_resources.sh"
-    line: 40
-    end_line: 40
-    column: 35
-    end_column: 37
-    reason: "This Bash-tools fixture reads library-managed region, timestamp, or template state populated by sourced wrappers and sibling helpers, so the remaining C006 hits are reviewed library contracts rather than isolated undefined locals."
   - side: shellcheck-only
     path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__configedit.sh"
     line: 371

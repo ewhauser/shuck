@@ -3070,6 +3070,25 @@ printf '%s\\n' \"${##*/}\"
     }
 
     #[test]
+    fn special_zero_prefix_removal_inside_escaped_quotes_is_not_reported() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/bash
+usage=\"
+Terraform:
+
+    data \\\"external\\\" \\\"github_repos\\\" {
+        program = [\\\"/path/to/${0##*/}\\\", \\\"github_repository\\\"]
+    }
+\"
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn undefined_variable_anchors_parameter_operator_reports_to_carrier_name() {
         let source = "\
 #!/bin/bash

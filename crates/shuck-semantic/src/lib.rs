@@ -7144,6 +7144,24 @@ easyrsa_ksh=\\
     }
 
     #[test]
+    fn special_zero_prefix_removal_inside_escaped_quotes_does_not_synthesize_empty_references() {
+        let source = "\
+#!/bin/bash
+usage=\"
+Terraform:
+
+    data \\\"external\\\" \\\"github_repos\\\" {
+        program = [\\\"/path/to/${0##*/}\\\", \\\"github_repository\\\"]
+    }
+\"
+";
+        let model = model_with_dialect(source, ShellDialect::Bash);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&[""], &uninitialized);
+    }
+
+    #[test]
     fn unparsed_indexed_subscript_prefixes_are_uninitialized_reads() {
         let source = "\
 arr+=([docker:dind]=x [nats-streaming:nanoserver]=y)

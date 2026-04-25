@@ -5495,7 +5495,7 @@ impl<'a> Parser<'a> {
         &self,
         chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
         cursor: &mut Position,
-        source_backed: bool,
+        _source_backed: bool,
     ) -> SourceText {
         let start = *cursor;
         let mut depth = 1;
@@ -5504,14 +5504,12 @@ impl<'a> Parser<'a> {
         let mut in_double = false;
         let mut double_quote_depth = 0usize;
         let mut escaped = false;
-        let mut operand = (!source_backed).then(String::new);
+        let mut operand = String::new();
 
         while let Some(&c) = chars.peek() {
             if escaped {
                 let ch = Self::next_word_char_unwrap(chars, cursor);
-                if let Some(operand) = operand.as_mut() {
-                    operand.push(ch);
-                }
+                operand.push(ch);
                 escaped = false;
                 continue;
             }
@@ -5520,9 +5518,7 @@ impl<'a> Parser<'a> {
                 Self::next_word_char_unwrap(chars, cursor);
                 if chars.peek().is_some() {
                     let ch = Self::next_word_char_unwrap(chars, cursor);
-                    if let Some(operand) = operand.as_mut() {
-                        operand.push(ch);
-                    }
+                    operand.push(ch);
                 }
                 continue;
             }
@@ -5531,44 +5527,32 @@ impl<'a> Parser<'a> {
                 '\\' if !in_single => {
                     escaped = true;
                     let ch = Self::next_word_char_unwrap(chars, cursor);
-                    if let Some(operand) = operand.as_mut() {
-                        operand.push(ch);
-                    }
+                    operand.push(ch);
                 }
                 '\'' if !in_double => {
                     in_single = !in_single;
                     let ch = Self::next_word_char_unwrap(chars, cursor);
-                    if let Some(operand) = operand.as_mut() {
-                        operand.push(ch);
-                    }
+                    operand.push(ch);
                 }
                 '"' if !in_single => {
                     in_double = !in_double;
                     double_quote_depth = if in_double { depth } else { 0 };
                     let ch = Self::next_word_char_unwrap(chars, cursor);
-                    if let Some(operand) = operand.as_mut() {
-                        operand.push(ch);
-                    }
+                    operand.push(ch);
                 }
                 '$' if !in_single => {
                     let ch = Self::next_word_char_unwrap(chars, cursor);
-                    if let Some(operand) = operand.as_mut() {
-                        operand.push(ch);
-                    }
+                    operand.push(ch);
                     if chars.peek() == Some(&'{') {
                         depth += 1;
                         let brace = Self::next_word_char_unwrap(chars, cursor);
-                        if let Some(operand) = operand.as_mut() {
-                            operand.push(brace);
-                        }
+                        operand.push(brace);
                     }
                 }
                 '{' if !in_single && !in_double => {
                     literal_brace_depth += 1;
                     let ch = Self::next_word_char_unwrap(chars, cursor);
-                    if let Some(operand) = operand.as_mut() {
-                        operand.push(ch);
-                    }
+                    operand.push(ch);
                 }
                 '}' if !in_single && (!in_double || depth > double_quote_depth) => {
                     if depth == 1 && literal_brace_depth > 0 {
@@ -5577,9 +5561,7 @@ impl<'a> Parser<'a> {
                         if Self::brace_operand_has_later_top_level_closer(remaining, depth) {
                             literal_brace_depth -= 1;
                             let ch = Self::next_word_char_unwrap(chars, cursor);
-                            if let Some(operand) = operand.as_mut() {
-                                operand.push(ch);
-                            }
+                            operand.push(ch);
                             continue;
                         }
                     }
@@ -5587,31 +5569,19 @@ impl<'a> Parser<'a> {
                     if depth == 1 {
                         let end = *cursor;
                         Self::next_word_char_unwrap(chars, cursor);
-                        return if source_backed {
-                            SourceText::source(Span::from_positions(start, end))
-                        } else {
-                            self.source_text(operand.unwrap_or_default(), start, end)
-                        };
+                        return self.source_text(operand, start, end);
                     }
                     depth -= 1;
                     let ch = Self::next_word_char_unwrap(chars, cursor);
-                    if let Some(operand) = operand.as_mut() {
-                        operand.push(ch);
-                    }
+                    operand.push(ch);
                 }
                 _ => {
                     let ch = Self::next_word_char_unwrap(chars, cursor);
-                    if let Some(operand) = operand.as_mut() {
-                        operand.push(ch);
-                    }
+                    operand.push(ch);
                 }
             }
         }
-        if source_backed {
-            SourceText::source(Span::from_positions(start, *cursor))
-        } else {
-            self.source_text(operand.unwrap_or_default(), start, *cursor)
-        }
+        self.source_text(operand, start, *cursor)
     }
 
     fn brace_operand_has_later_top_level_closer(

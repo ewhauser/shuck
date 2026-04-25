@@ -53,6 +53,38 @@ fn collect_bourne_parameter_names(parts: &[WordPartNode], names: &mut Vec<String
     }
 }
 
+fn collect_bourne_parameter_trim_patterns(
+    parts: &[WordPartNode],
+    source: &str,
+    patterns: &mut Vec<String>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_bourne_parameter_trim_patterns(parts, source, patterns);
+            }
+            WordPart::Parameter(parameter) => {
+                if let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+                    operator,
+                    ..
+                }) = &parameter.syntax
+                {
+                    match operator {
+                        ParameterOp::RemovePrefixShort { pattern }
+                        | ParameterOp::RemovePrefixLong { pattern }
+                        | ParameterOp::RemoveSuffixShort { pattern }
+                        | ParameterOp::RemoveSuffixLong { pattern } => {
+                            patterns.push(pattern.render(source));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 #[test]
 fn test_current_word_cache_tracks_token_changes() {
     let input = "\"$foo\" bar\n";
@@ -1180,8 +1212,11 @@ usage: ${0##*/} <resource_type>
 
     let mut names = Vec::new();
     collect_bourne_parameter_names(&word.parts, &mut names);
+    let mut patterns = Vec::new();
+    collect_bourne_parameter_trim_patterns(&word.parts, input, &mut patterns);
 
     assert_eq!(names, vec!["0", "0", "0"]);
+    assert_eq!(patterns, vec!["*/", "*/", "*/"]);
 }
 
 #[test]
