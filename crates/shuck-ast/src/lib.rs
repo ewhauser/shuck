@@ -9,6 +9,8 @@
 #[allow(missing_docs)]
 mod arena;
 #[allow(missing_docs)]
+mod arena_ast;
+#[allow(missing_docs)]
 mod ast;
 #[allow(missing_docs)]
 mod command_resolution;
@@ -21,6 +23,8 @@ mod tokens;
 
 /// Compact typed arena index and list storage utilities.
 pub use arena::{IdRange, Idx, ListArena};
+/// ID-backed parsed AST storage and borrowed views.
+pub use arena_ast::*;
 /// Parsed shell AST nodes and related syntax tree types.
 pub use ast::*;
 /// Static command-resolution helpers shared by semantic analysis and lint facts.

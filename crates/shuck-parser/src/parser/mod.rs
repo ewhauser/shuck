@@ -25,13 +25,13 @@ use memchr::{memchr, memchr2, memchr3};
 use smallvec::SmallVec;
 
 use shuck_ast::{
-    AlwaysCommand, AnonymousFunctionCommand, AnonymousFunctionSurface, ArithmeticCommand,
-    ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticForCommand,
-    ArithmeticLvalue, ArrayElem, ArrayExpr, ArrayKind, Assignment, AssignmentValue,
-    BackgroundOperator, BinaryCommand, BinaryOp, BourneParameterExpansion, BraceExpansionKind,
-    BraceQuoteContext, BraceSyntax, BraceSyntaxKind, BreakCommand as AstBreakCommand,
-    BuiltinCommand as AstBuiltinCommand, CaseCommand, CaseItem, CaseTerminator,
-    Command as AstCommand, CommandSubstitutionSyntax, Comment, CompoundCommand,
+    AlwaysCommand, AnonymousFunctionCommand, AnonymousFunctionSurface, ArenaFile,
+    ArithmeticCommand, ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode,
+    ArithmeticForCommand, ArithmeticLvalue, ArrayElem, ArrayExpr, ArrayKind, Assignment,
+    AssignmentValue, BackgroundOperator, BinaryCommand, BinaryOp, BourneParameterExpansion,
+    BraceExpansionKind, BraceQuoteContext, BraceSyntax, BraceSyntaxKind,
+    BreakCommand as AstBreakCommand, BuiltinCommand as AstBuiltinCommand, CaseCommand, CaseItem,
+    CaseTerminator, Command as AstCommand, CommandSubstitutionSyntax, Comment, CompoundCommand,
     ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
     ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp,
     ContinueCommand as AstContinueCommand, CoprocCommand, DeclClause as AstDeclClause, DeclOperand,
@@ -108,6 +108,8 @@ pub struct SyntaxFacts {
 pub struct ParseResult {
     /// Parsed syntax tree for the file.
     pub file: File,
+    /// ID-backed parsed syntax tree for the file.
+    pub arena_file: ArenaFile,
     /// Recovery diagnostics emitted while producing the AST.
     pub diagnostics: Vec<ParseDiagnostic>,
     /// High-level parse status.

@@ -514,6 +514,11 @@ impl SemanticModel {
         Self::build_with_options(file, source, indexer, SemanticBuildOptions::default())
     }
 
+    pub fn build_arena(ast: &shuck_ast::ArenaFile, source: &str, indexer: &Indexer) -> Self {
+        let file = ast.to_file();
+        Self::build(&file, source, indexer)
+    }
+
     pub fn build_with_options(
         file: &File,
         source: &str,

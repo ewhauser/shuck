@@ -1552,7 +1552,7 @@ fn collect_lint_diagnostics(
     shellcheck_map: &ShellCheckCodeMap,
     source_path: &Path,
 ) -> Vec<shuck_linter::Diagnostic> {
-    let indexer = Indexer::new(source, parse_result);
+    let indexer = Indexer::new_arena(source, &parse_result.arena_file, &parse_result.syntax_facts);
     let directives = parse_directives(
         source,
         &parse_result.file,
@@ -1566,7 +1566,7 @@ fn collect_lint_diagnostics(
             first_statement_line(&parse_result.file).unwrap_or(u32::MAX),
         )
     });
-    shuck_linter::lint_file(
+    shuck_linter::lint_arena_file(
         parse_result,
         source,
         &indexer,

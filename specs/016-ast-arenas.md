@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Partially Implemented
 
 ## Summary
 
@@ -17,6 +17,17 @@ The current `shuck_ast::File` is direct and pleasant to pattern-match, but it al
 - Derived stores such as linter facts can be compact, but still need to point back to borrowed AST nodes until the AST itself has stable identity.
 
 The goal is not to make every AST consumer switch in one patch. The goal is to introduce the store and IDs in a way that lets parser, indexer, semantic analysis, lint facts, and formatter move independently without changing observable diagnostics or formatted output.
+
+## Implementation Status
+
+The first implementation pass adds an `ArenaFile` sidecar to `ParseResult`, backed by `AstStore` and borrowed view types in `shuck-ast`. The parser lowers the existing recursive tree into the store after parsing, and `shuck check` now builds its index and lint diagnostics through arena-aware entry points. The indexer, semantic model, and linter have arena entry points that materialize the current recursive compatibility shape internally while downstream logic migrates.
+
+Still remaining:
+
+- direct parser construction into `AstStore`
+- replacing linter fact references with stable AST IDs
+- native arena traversal in semantic analysis instead of compatibility materialization
+- formatter-native arena support, intentionally deferred while the formatter is being reworked
 
 ## Design
 

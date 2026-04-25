@@ -18,8 +18,8 @@ pub use line_index::LineIndex;
 /// Structural region indexes over parsed shell source.
 pub use region_index::{RegionIndex, RegionKind};
 
-use shuck_ast::TextSize;
-use shuck_parser::parser::ParseResult;
+use shuck_ast::{ArenaFile, TextSize};
+use shuck_parser::parser::{ParseResult, SyntaxFacts};
 
 /// Pre-computed positional and structural index over a parsed shell script.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +36,22 @@ impl Indexer {
         let line_index = LineIndex::new(source);
         let comment_index = CommentIndex::new(source, &line_index, &output.file);
         let region_index = RegionIndex::new(source, &output.file);
+        let continuation_lines = collect_continuation_lines(source, &comment_index, &region_index);
+
+        Self {
+            line_index,
+            comment_index,
+            region_index,
+            continuation_lines,
+        }
+    }
+
+    /// Build an index from an arena-backed parsed shell script.
+    pub fn new_arena(source: &str, ast: &ArenaFile, _syntax_facts: &SyntaxFacts) -> Self {
+        let file = ast.to_file();
+        let line_index = LineIndex::new(source);
+        let comment_index = CommentIndex::new(source, &line_index, &file);
+        let region_index = RegionIndex::new(source, &file);
         let continuation_lines = collect_continuation_lines(source, &comment_index, &region_index);
 
         Self {
@@ -118,6 +134,11 @@ mod tests {
         Indexer::new(source, &output)
     }
 
+    fn arena_index(source: &str) -> Indexer {
+        let output = Parser::new(source).parse().unwrap();
+        Indexer::new_arena(source, &output.arena_file, &output.syntax_facts)
+    }
+
     #[test]
     fn detects_continuation_lines_without_allocating_source_copies() {
         let source = "echo foo \\\n  bar\necho \"foo\\\nbar\"\n";
@@ -153,6 +174,38 @@ EOF
         assert_eq!(
             indexer.region_index().region_at(name_offset),
             Some(RegionKind::DoubleQuoted)
+        );
+    }
+
+    #[test]
+    fn arena_index_matches_recursive_index() {
+        let source = "\
+#!/bin/bash
+echo \"$(printf '%s' \"$name\")\" # inline
+cat <<'EOF'
+literal $body
+EOF
+";
+        let recursive = index(source);
+        let arena = arena_index(source);
+
+        assert_eq!(
+            arena.line_index().line_count(),
+            recursive.line_index().line_count()
+        );
+        assert_eq!(
+            arena.comment_index().comments(),
+            recursive.comment_index().comments()
+        );
+        assert_eq!(
+            arena.continuation_line_starts(),
+            recursive.continuation_line_starts()
+        );
+
+        let heredoc_offset = TextSize::new(source.find("literal $body").unwrap() as u32);
+        assert_eq!(
+            arena.region_index().region_at(heredoc_offset),
+            recursive.region_index().region_at(heredoc_offset)
         );
     }
 }
