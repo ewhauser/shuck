@@ -347,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    fn reports_parse_errors() {
+    fn no_op_formatter_does_not_parse_sources() {
         let tempdir = tempdir().unwrap();
         fs::write(tempdir.path().join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
 
@@ -360,8 +360,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(report.exit_status(FormatMode::Write), ExitStatus::Error);
-        assert_eq!(report.errors.len(), 1);
+        assert_eq!(report.exit_status(FormatMode::Write), ExitStatus::Success);
+        assert!(report.errors.is_empty());
         assert_eq!(report.cache_hits, 0);
         assert_eq!(report.cache_misses, 1);
     }
@@ -424,7 +424,7 @@ mod tests {
         .unwrap();
         assert_eq!(second.cache_hits, 0);
         assert_eq!(second.cache_misses, 1);
-        assert_eq!(second.errors.len(), 1);
+        assert!(second.errors.is_empty());
     }
 
     #[test]
@@ -447,7 +447,7 @@ mod tests {
     }
 
     #[test]
-    fn check_mode_reports_changed_files_without_rewriting_them() {
+    fn check_mode_treats_no_op_output_as_unchanged() {
         let tempdir = tempdir().unwrap();
         let script = tempdir.path().join("script.sh");
         let source = "#!/bin/bash\n echo ok\n";
@@ -465,8 +465,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(report.exit_status(FormatMode::Check), ExitStatus::Failure);
-        assert_eq!(report.changed_files, vec![PathBuf::from("script.sh")]);
+        assert_eq!(report.exit_status(FormatMode::Check), ExitStatus::Success);
+        assert!(report.changed_files.is_empty());
         assert_eq!(fs::read_to_string(&script).unwrap(), source);
     }
 

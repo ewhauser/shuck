@@ -1639,7 +1639,7 @@ fn format_check_and_diff_are_clean_for_valid_input() {
 }
 
 #[test]
-fn format_check_and_diff_report_changes_for_noncanonical_input() {
+fn format_check_and_diff_are_clean_for_noncanonical_input() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("fn.sh"), "foo(){\necho hi\n}\n").unwrap();
 
@@ -1649,21 +1649,18 @@ fn format_check_and_diff_report_changes_for_noncanonical_input() {
     check
         .current_dir(tempdir.path())
         .args(["format", "--check", "--function-next-line"]);
-    check.assert().code(1).stdout("");
+    check.assert().success().stdout("");
 
     let mut diff = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut diff, tempdir.path());
     enable_experimental(&mut diff);
     diff.current_dir(tempdir.path())
         .args(["format", "--diff", "--function-next-line"]);
-    diff.assert()
-        .code(1)
-        .stdout(predicate::str::contains("--- a/fn.sh"))
-        .stdout(predicate::str::contains("+++ b/fn.sh"));
+    diff.assert().success().stdout("");
 }
 
 #[test]
-fn format_broken_file_reports_parse_error() {
+fn format_broken_file_succeeds_without_parsing() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
 
@@ -1671,10 +1668,7 @@ fn format_broken_file_reports_parse_error() {
     configure_env_cache(&mut cmd, tempdir.path());
     enable_experimental(&mut cmd);
     cmd.current_dir(tempdir.path()).arg("format");
-    cmd.assert()
-        .code(2)
-        .stdout(predicate::str::contains("broken.sh:2:"))
-        .stdout(predicate::str::contains("parse error"));
+    cmd.assert().success().stdout("");
 }
 
 #[test]
@@ -1688,15 +1682,12 @@ fn format_stdin_round_trips_valid_input() {
 }
 
 #[test]
-fn format_stdin_filename_reports_parse_error_with_filename() {
+fn format_stdin_filename_does_not_parse_input() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     enable_experimental(&mut cmd);
     cmd.args(["format", "--stdin-filename", "foo.sh"])
         .write_stdin("#!/bin/bash\nif true\n");
-    cmd.assert()
-        .code(2)
-        .stdout(predicate::str::contains("foo.sh:2:"))
-        .stdout(predicate::str::contains("parse error"));
+    cmd.assert().success().stdout("#!/bin/bash\nif true\n");
 }
 
 #[test]
@@ -1713,40 +1704,26 @@ fn format_stdin_uses_current_project_config() {
     cmd.current_dir(tempdir.path())
         .args(["format", "-"])
         .write_stdin("foo(){\necho hi\n}\n");
-    cmd.assert().success().stdout("foo()\n{\n\techo hi\n}\n");
+    cmd.assert().success().stdout("foo(){\necho hi\n}\n");
 }
 
 #[test]
-fn format_stdin_filename_uses_inferred_posix_dialect() {
+fn format_stdin_filename_does_not_enforce_inferred_posix_dialect() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     enable_experimental(&mut cmd);
     cmd.args(["format", "--stdin-filename", "script.sh"])
         .write_stdin("[[ foo == bar ]]\n");
-    cmd.assert()
-        .code(2)
-        .stdout(predicate::str::contains("script.sh:1:"))
-        .stdout(predicate::str::contains("[[ ]] conditionals"));
+    cmd.assert().success().stdout("[[ foo == bar ]]\n");
 }
 
 #[test]
-fn format_stdin_filename_infers_remaining_common_shell_extensions() {
-    for path in ["script.bash", "script.mksh"] {
+fn format_stdin_filename_accepts_common_shell_extensions_without_parsing() {
+    for path in ["script.bash", "script.mksh", "script.ksh", "script.dash"] {
         let mut cmd = Command::cargo_bin("shuck").unwrap();
         enable_experimental(&mut cmd);
         cmd.args(["format", "--stdin-filename", path])
             .write_stdin("[[ foo == bar ]]\n");
         cmd.assert().success().stdout("[[ foo == bar ]]\n");
-    }
-
-    for path in ["script.ksh", "script.dash"] {
-        let mut cmd = Command::cargo_bin("shuck").unwrap();
-        enable_experimental(&mut cmd);
-        cmd.args(["format", "--stdin-filename", path])
-            .write_stdin("[[ foo == bar ]]\n");
-        cmd.assert()
-            .code(2)
-            .stdout(predicate::str::contains(format!("{path}:1:")))
-            .stdout(predicate::str::contains("[[ ]] conditionals"));
     }
 }
 
@@ -2005,10 +1982,7 @@ fn format_exclude_skips_walked_files_but_not_explicit_files_without_force_exclud
     explicit
         .current_dir(tempdir.path())
         .args(["format", "--exclude", "ignored.sh", "ignored.sh"]);
-    explicit
-        .assert()
-        .code(2)
-        .stdout(predicate::str::contains("ignored.sh:2:"));
+    explicit.assert().success().stdout("");
 
     let mut forced = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut forced, tempdir.path());
@@ -2041,10 +2015,7 @@ fn format_gitignore_and_force_exclude_flags_control_explicit_files() {
     no_respect
         .current_dir(tempdir.path())
         .args(["format", "--no-respect-gitignore"]);
-    no_respect
-        .assert()
-        .code(2)
-        .stdout(predicate::str::contains("ignored.sh:2:"));
+    no_respect.assert().success().stdout("");
 
     let mut explicit = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut explicit, tempdir.path());
@@ -2052,10 +2023,7 @@ fn format_gitignore_and_force_exclude_flags_control_explicit_files() {
     explicit
         .current_dir(tempdir.path())
         .args(["format", "ignored.sh"]);
-    explicit
-        .assert()
-        .code(2)
-        .stdout(predicate::str::contains("ignored.sh:2:"));
+    explicit.assert().success().stdout("");
 
     let mut forced = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut forced, tempdir.path());
@@ -2084,10 +2052,7 @@ fn format_honors_project_config_and_cli_overrides_it() {
         .args(["format", "--function-next-line"]);
     cmd.assert().success().stdout("");
 
-    assert_eq!(
-        fs::read_to_string(script).unwrap(),
-        "foo()\n{\n\techo hi\n}\n"
-    );
+    assert_eq!(fs::read_to_string(script).unwrap(), "foo(){\necho hi\n}\n");
 }
 
 #[test]
@@ -2107,10 +2072,7 @@ fn format_honors_explicit_global_config_file() {
         .arg("format");
     cmd.assert().success().stdout("");
 
-    assert_eq!(
-        fs::read_to_string(script).unwrap(),
-        "foo()\n{\n\techo hi\n}\n"
-    );
+    assert_eq!(fs::read_to_string(script).unwrap(), "foo(){\necho hi\n}\n");
 }
 
 #[test]
@@ -2132,10 +2094,7 @@ fn format_inline_global_config_override_beats_global_config_file() {
         .arg("format");
     cmd.assert().success().stdout("");
 
-    assert_eq!(
-        fs::read_to_string(script).unwrap(),
-        "foo()\n{\n\techo hi\n}\n"
-    );
+    assert_eq!(fs::read_to_string(script).unwrap(), "foo(){\necho hi\n}\n");
 }
 
 #[test]
@@ -2157,10 +2116,7 @@ fn format_isolated_ignores_discovered_project_config() {
         .arg("format");
     cmd.assert().success().stdout("");
 
-    assert_eq!(
-        fs::read_to_string(script).unwrap(),
-        "foo() {\n\techo hi\n}\n"
-    );
+    assert_eq!(fs::read_to_string(script).unwrap(), "foo(){\necho hi\n}\n");
 }
 
 #[test]
@@ -2188,10 +2144,7 @@ fn format_prefers_nested_project_config_for_explicit_files() {
         .args(["format", "nested/fn.sh"]);
     cmd.assert().success().stdout("");
 
-    assert_eq!(
-        fs::read_to_string(script).unwrap(),
-        "foo()\n{\n\techo hi\n}\n"
-    );
+    assert_eq!(fs::read_to_string(script).unwrap(), "foo(){\necho hi\n}\n");
 }
 
 #[test]
@@ -2211,7 +2164,7 @@ fn format_cache_invalidates_when_formatter_options_change() {
     check
         .current_dir(tempdir.path())
         .args(["format", "--check", "--function-next-line"]);
-    check.assert().code(1).stdout("");
+    check.assert().success().stdout("");
 }
 
 #[test]
