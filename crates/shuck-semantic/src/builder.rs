@@ -15,7 +15,7 @@ use shuck_ast::{
     static_word_text, try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;
-use shuck_parser::{ShellProfile, ZshEmulationMode};
+use shuck_parser::{ShellProfile, ZshEmulationMode, parser::Parser};
 use smallvec::SmallVec;
 
 use crate::binding::{
@@ -1316,7 +1316,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         if word_is_semantically_inert(word) {
             return;
         }
-        self.visit_word_part_nodes(&word.parts, kind, flow, nested_regions);
+        self.visit_word_part_nodes(&word.parts, word.span, kind, flow, nested_regions);
     }
 
     fn visit_heredoc_body_into(
@@ -1348,11 +1348,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     fn visit_word_part_nodes(
         &mut self,
         parts: &'a [WordPartNode],
+        word_span: Span,
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
         for part in parts {
+            if span_is_escaped_parameter_template_name(word_span, part.span, self.source) {
+                continue;
+            }
             self.visit_word_part(&part.kind, part.span, kind, flow, nested_regions);
         }
     }
@@ -1483,7 +1487,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 {
                     return;
                 }
-                self.visit_word_part_nodes(parts, kind, flow, nested_regions);
+                self.visit_word_part_nodes(parts, span, kind, flow, nested_regions);
             }
             WordPart::Variable(name) => {
                 self.add_reference(
@@ -4389,6 +4393,140 @@ fn escaped_braced_literal_reference_names(text: &str, span: Span) -> Vec<(Name, 
     references
 }
 
+fn span_is_escaped_parameter_template_name(word_span: Span, span: Span, source: &str) -> bool {
+    if span.start.offset < word_span.start.offset || span.start.offset >= word_span.end.offset {
+        return false;
+    }
+
+    let text = word_span.slice(source);
+    let relative_offset = span.start.offset - word_span.start.offset;
+    let mut index = 0usize;
+
+    while index < text.len() {
+        if text[index..].starts_with("\\${") {
+            let dollar_offset = index + '\\'.len_utf8();
+            if offset_is_backslash_escaped(word_span.start.offset + dollar_offset, source)
+                && let Some(end_offset) = escaped_parameter_template_end(text, dollar_offset)
+            {
+                let body_start = dollar_offset + "${".len();
+                let body_end = end_offset.saturating_sub('}'.len_utf8());
+                if relative_offset == body_start
+                    && relative_offset < body_end
+                    && text[relative_offset..]
+                        .chars()
+                        .next()
+                        .is_some_and(is_name_start_character)
+                {
+                    return true;
+                }
+                index = end_offset;
+                continue;
+            }
+        }
+
+        let Some(ch) = text[index..].chars().next() else {
+            break;
+        };
+        index += ch.len_utf8();
+    }
+
+    false
+}
+
+fn escaped_parameter_template_end(text: &str, dollar_offset: usize) -> Option<usize> {
+    if dollar_offset >= text.len() || !text[dollar_offset..].starts_with("${") {
+        return None;
+    }
+
+    let bytes = text.as_bytes();
+    let mut index = dollar_offset + "${".len();
+    let mut depth = 1usize;
+    let mut quote_state = EscapedTemplateQuote::None;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        match quote_state {
+            EscapedTemplateQuote::Single => {
+                if byte == b'\'' {
+                    quote_state = EscapedTemplateQuote::None;
+                }
+                index += 1;
+                continue;
+            }
+            EscapedTemplateQuote::Double => {
+                if byte == b'\\' {
+                    index += usize::from(index + 1 < bytes.len()) + 1;
+                    continue;
+                }
+                if byte == b'"' {
+                    quote_state = EscapedTemplateQuote::None;
+                }
+                index += 1;
+                continue;
+            }
+            EscapedTemplateQuote::None => {}
+        }
+
+        match byte {
+            b'\\' => {
+                index += usize::from(index + 1 < bytes.len()) + 1;
+            }
+            b'\'' => {
+                quote_state = EscapedTemplateQuote::Single;
+                index += 1;
+            }
+            b'"' => {
+                quote_state = EscapedTemplateQuote::Double;
+                index += 1;
+            }
+            b'$' if bytes.get(index + 1) == Some(&b'{') => {
+                depth += 1;
+                index += "${".len();
+            }
+            b'}' => {
+                depth -= 1;
+                index += '}'.len_utf8();
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => index = advance_text_char(text, index),
+        }
+    }
+
+    None
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EscapedTemplateQuote {
+    None,
+    Single,
+    Double,
+}
+
+fn offset_is_backslash_escaped(offset: usize, source: &str) -> bool {
+    if offset == 0 {
+        return false;
+    }
+
+    let bytes = source.as_bytes();
+    let mut index = offset;
+    let mut backslash_count = 0usize;
+    while index > 0 && bytes[index - 1] == b'\\' {
+        backslash_count += 1;
+        index -= 1;
+    }
+
+    backslash_count % 2 == 1
+}
+
+fn advance_text_char(text: &str, index: usize) -> usize {
+    text[index..]
+        .chars()
+        .next()
+        .map_or(index + 1, |ch| index + ch.len_utf8())
+}
+
 fn escaped_braced_literal_may_contain_reference(text: &str) -> bool {
     text.contains("\\${")
 }
@@ -4841,10 +4979,12 @@ fn parse_simple_declaration_assignment(
     let target_span =
         word_text_offset_span(word.span, source, 0, if append { index - 1 } else { index });
     let value_span = word_text_offset_span(word.span, source, value_start, text.len());
-    let value_origin = if text[value_start..].trim_start().starts_with('(') {
+    let value_text = &text[value_start..];
+    let value_origin = if value_text.trim_start().starts_with('(') {
         AssignmentValueOrigin::ArrayOrCompound
     } else {
-        AssignmentValueOrigin::Unknown
+        let word = Parser::parse_word_string(value_text);
+        assignment_value_origin_for_word(&word)
     };
 
     Some(SimpleDeclarationAssignment {

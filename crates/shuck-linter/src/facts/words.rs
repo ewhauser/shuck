@@ -2382,7 +2382,7 @@ fn sc2001_like_pipeline_span<'a>(
     }
 
     if command_is_inside_backtick_fragment(right, backticks)
-        && word_occurrence_is_backtick_escaped_double_quoted_dynamic(
+        && word_occurrence_is_escaped_double_quoted_dynamic(
             lookup.nodes,
             word_fact,
             lookup.fact_store,
@@ -2390,6 +2390,15 @@ fn sc2001_like_pipeline_span<'a>(
         )
     {
         return sc2001_like_backtick_pipeline_span(commands, pipeline, right, lookup.source);
+    }
+
+    if word_occurrence_is_escaped_double_quoted_dynamic(
+        lookup.nodes,
+        word_fact,
+        lookup.fact_store,
+        lookup.source,
+    ) {
+        return None;
     }
 
     Some(pipeline_span_with_shellcheck_tail(
@@ -2635,7 +2644,7 @@ fn word_occurrence_is_pure_quoted_dynamic(
         || word_occurrence_is_double_quoted_command_substitution_only(
             nodes, fact, fact_store, source,
         )
-        || word_occurrence_is_backtick_escaped_double_quoted_dynamic(
+        || word_occurrence_is_escaped_double_quoted_dynamic(
             nodes, fact, fact_store, source,
         )
 }
@@ -3299,7 +3308,7 @@ fn word_occurrence_is_double_quoted_command_substitution_only(
         && &word_text[1..word_text.len() - 1] == command_substitution.slice(source)
 }
 
-fn word_occurrence_is_backtick_escaped_double_quoted_dynamic(
+fn word_occurrence_is_escaped_double_quoted_dynamic(
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
     fact_store: &FactStore<'_>,

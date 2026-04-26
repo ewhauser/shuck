@@ -74,6 +74,7 @@ pub struct LinterFacts<'a> {
     command_substitution_command_spans: Vec<Span>,
     backtick_substitution_spans: Vec<Span>,
     backtick_escaped_parameters: Vec<BacktickEscapedParameter>,
+    backtick_escaped_parameter_reference_spans: Vec<Span>,
     backtick_double_escaped_parameter_spans: Vec<Span>,
     backtick_command_name_spans: Vec<Span>,
     dollar_question_after_command_spans: Vec<Span>,
@@ -654,6 +655,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn backtick_escaped_parameters(&self) -> &[BacktickEscapedParameter] {
         &self.backtick_escaped_parameters
+    }
+
+    pub fn backtick_escaped_parameter_reference_spans(&self) -> &[Span] {
+        &self.backtick_escaped_parameter_reference_spans
     }
 
     pub fn is_backtick_double_escaped_parameter_reference(&self, span: Span) -> bool {

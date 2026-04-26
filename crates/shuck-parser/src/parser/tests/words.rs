@@ -81,6 +81,14 @@ fn collect_bourne_parameter_trim_patterns(
     }
 }
 
+fn first_command_substitution_body(parts: &[WordPartNode]) -> Option<&StmtSeq> {
+    parts.iter().find_map(|part| match &part.kind {
+        WordPart::CommandSubstitution { body, .. } => Some(body),
+        WordPart::DoubleQuoted { parts, .. } => first_command_substitution_body(parts),
+        _ => None,
+    })
+}
+
 #[test]
 fn test_current_word_cache_tracks_token_changes() {
     let input = "\"$foo\" bar\n";
@@ -266,24 +274,29 @@ fn test_parse_escaped_dollar_expansions_stay_literal_in_script_words() {
 }
 
 #[test]
-fn test_parse_escaped_braced_parameter_with_nested_default_stays_literal() {
-    let input = r#"echo \${x:-$HOME}"#;
+fn test_parse_escaped_braced_parameter_keeps_inner_expansions_live() {
+    let input = r#"echo \${x:-$HOME} \${${1}}"#;
     let script = Parser::new(input).parse().unwrap().file;
 
     let AstCommand::Simple(command) = &script.body[0].command else {
         panic!("expected simple command");
     };
-    let word = &command.args[0];
+    assert_eq!(command.args.len(), 2);
 
-    assert_eq!(word.render(input), "${x:-$HOME}");
-    assert_eq!(word.render_syntax(input), r#"\${x:-$HOME}"#);
-    assert!(matches!(
-        word.parts.as_slice(),
-        [WordPartNode {
-            kind: WordPart::Literal(text),
-            ..
-        }] if text.is_source_backed() && text.as_str(input, word.parts[0].span) == "${x:-$HOME}"
+    let default_template = &command.args[0];
+    assert_eq!(default_template.render(input), "${x:-$HOME}");
+    assert_eq!(default_template.render_syntax(input), r#"\${x:-$HOME}"#);
+    assert!(word_part_tree_contains_variable(
+        &default_template.parts,
+        "HOME"
     ));
+
+    let indirect_template = &command.args[1];
+    assert_eq!(indirect_template.render(input), "${${1}}");
+    assert_eq!(indirect_template.render_syntax(input), r#"\${${1}}"#);
+    let mut names = Vec::new();
+    collect_bourne_parameter_names(&indirect_template.parts, &mut names);
+    assert_eq!(names, vec!["1"]);
 }
 
 #[test]
@@ -490,6 +503,30 @@ fn test_parse_escaped_quotes_before_command_substitution_keep_nested_pipeline_li
     assert_eq!(second.name.render(input), "tr");
     assert_eq!(second.args[0].render(input), "A-Z");
     assert_eq!(second.args[1].render(input), "a-z");
+}
+
+#[test]
+fn test_parse_escaped_quotes_after_default_expansion_keep_command_substitution_live() {
+    let input = "label=\",label=\\\"${fallback:=value}$(render value $line)\\\"\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted assignment value");
+    };
+    let WordPart::CommandSubstitution { body, .. } = &parts[2].kind else {
+        panic!("expected command substitution after default expansion");
+    };
+
+    let inner = expect_simple(&body[0]);
+    assert_eq!(inner.name.render(input), "render");
+    assert_eq!(inner.args[1].render(input), "$line");
 }
 
 #[test]
@@ -1843,6 +1880,31 @@ fn test_dollar_paren_command_substitution_inside_quoted_prefix_with_pipeline_kee
     assert_eq!(right.name.span.slice(input), "tr");
     assert_eq!(right.args[0].render(input), "A-Z");
     assert_eq!(right.args[1].render(input), "a-z");
+}
+
+#[test]
+fn test_dollar_paren_command_substitution_after_multiline_escaped_quote_keeps_nested_spans_absolute()
+ {
+    let input = "\
+echo \"script
+  LEFT=\"$left\":\\$base \\
+    CHILD=\\$base/$(basename $child) \\
+    PATH=$path
+    run\" > out
+";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let body = first_command_substitution_body(&command.args[0].parts)
+        .expect("expected nested command substitution");
+    let inner = expect_simple(&body[0]);
+
+    assert_eq!(inner.name.span.slice(input), "basename");
+    assert_eq!(inner.args[0].span.slice(input), "$child");
+    assert_eq!(inner.args[0].span.start.line, 3);
+    assert_eq!(inner.args[0].span.start.column, 29);
 }
 
 #[test]

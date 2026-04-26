@@ -2622,6 +2622,14 @@ fn collect_binding_values<'a>(
         }
     }
 
+    for (name, name_span, word) in simple_declaration_assignment_value_words(command, source) {
+        if let Some(binding_id) =
+            binding_value_definition_id_for_name(semantic, &name, name_span)
+        {
+            binding_values.insert(binding_id, BindingValueFact::scalar(word));
+        }
+    }
+
     match command {
         Command::Compound(CompoundCommand::For(command)) => {
             let Some(words) = &command.words else {
@@ -2670,6 +2678,56 @@ fn collect_binding_values<'a>(
         }
         _ => {}
     }
+}
+
+fn simple_declaration_assignment_value_words<'a>(
+    command: &'a Command,
+    source: &str,
+) -> Vec<(Name, Span, &'a Word)> {
+    let Command::Simple(command) = command else {
+        return Vec::new();
+    };
+    let Some(command_name) = static_command_name_text(&command.name, source) else {
+        return Vec::new();
+    };
+    let command_name = command_name
+        .as_ref()
+        .strip_prefix('\\')
+        .unwrap_or(command_name.as_ref());
+    if simple_command_declaration_kind(Some(command_name)).is_none() {
+        return Vec::new();
+    }
+
+    let mut values = Vec::new();
+    let mut parsing_options = true;
+    for word in &command.args {
+        let Some(text) = static_word_text(word, source) else {
+            parsing_options = false;
+            continue;
+        };
+
+        if parsing_options {
+            if text == "--" {
+                parsing_options = false;
+                continue;
+            }
+            if simple_command_declaration_option_word(&text) {
+                continue;
+            }
+            parsing_options = false;
+        }
+
+        let Some(parsed) = parse_assignment_word(&text) else {
+            continue;
+        };
+        let name_span = Span::from_positions(
+            word.span.start,
+            word.span.start.advanced_by(parsed.name),
+        );
+        values.push((Name::from(parsed.name), name_span, word));
+    }
+
+    values
 }
 
 fn binding_value_definition_id_for_name(

@@ -2,8 +2,8 @@ use rustc_hash::FxHashSet;
 use shuck_ast::Span;
 
 use crate::{
-    Checker, ExpansionContext, FactSpan, Rule, SafeValueIndex, SafeValueQuery, ShellDialect,
-    Violation, WordOccurrenceRef,
+    Checker, ExpansionContext, FactSpan, Rule, S001QuoteExposure, SafeValueIndex, SafeValueQuery,
+    ShellDialect, Violation, WordOccurrenceRef,
 };
 
 pub struct UnquotedExpansion;
@@ -35,18 +35,21 @@ pub fn unquoted_expansion(checker: &mut Checker) {
     );
     let array_assignment_split_spans = collect_array_assignment_split_candidate_spans(checker);
     let numeric_test_operand_spans = collect_numeric_test_operand_spans(checker, source);
+    let plain_run_first_arg_spans = collect_plain_run_first_arg_spans(checker);
+    let backtick_escaped_parameter_spans =
+        checker.facts().backtick_escaped_parameter_reference_spans();
 
     let mut spans = Vec::new();
+    let report_context = ReportContext {
+        source,
+        shell: checker.shell(),
+        colon_command_ids: &colon_command_ids,
+        numeric_test_operand_spans: &numeric_test_operand_spans,
+        plain_run_first_arg_spans: &plain_run_first_arg_spans,
+        backtick_escaped_parameter_spans,
+    };
     for fact in checker.facts().word_facts() {
-        collect_word_fact_reports(
-            checker,
-            &colon_command_ids,
-            &mut safe_values,
-            &mut spans,
-            source,
-            fact,
-            &numeric_test_operand_spans,
-        );
+        collect_word_fact_reports(&report_context, &mut safe_values, &mut spans, fact);
         collect_array_assignment_split_reports(
             &mut safe_values,
             &mut spans,
@@ -59,11 +62,9 @@ pub fn unquoted_expansion(checker: &mut Checker) {
         checker.facts().arithmetic_command_substitution_spans();
     for fact in checker.facts().arithmetic_command_word_facts() {
         collect_arithmetic_word_fact_reports(
-            checker,
-            &colon_command_ids,
+            &report_context,
             &mut safe_values,
             &mut spans,
-            source,
             fact,
             arithmetic_command_substitution_spans,
         );
@@ -83,68 +84,77 @@ pub fn unquoted_expansion(checker: &mut Checker) {
     }
 }
 
+struct ReportContext<'a> {
+    source: &'a str,
+    shell: ShellDialect,
+    colon_command_ids: &'a FxHashSet<crate::facts::core::CommandId>,
+    numeric_test_operand_spans: &'a [Span],
+    plain_run_first_arg_spans: &'a FxHashSet<FactSpan>,
+    backtick_escaped_parameter_spans: &'a [Span],
+}
+
 fn collect_word_fact_reports(
-    checker: &Checker,
-    colon_command_ids: &FxHashSet<crate::facts::core::CommandId>,
+    context: &ReportContext<'_>,
     safe_values: &mut SafeValueIndex<'_>,
     spans: &mut Vec<shuck_ast::Span>,
-    source: &str,
     fact: WordOccurrenceRef<'_, '_>,
-    numeric_test_operand_spans: &[Span],
 ) {
-    let Some(context) = fact.host_expansion_context() else {
+    let Some(expansion_context) = fact.host_expansion_context() else {
         return;
     };
-    if !should_check_context(context, checker.shell()) {
+    if !should_check_context(expansion_context, context.shell) {
         return;
     }
     report_word_expansions(
         spans,
         safe_values,
-        source,
+        context.source,
         fact,
         WordReportOptions {
-            context,
-            in_colon_command: colon_command_ids.contains(&fact.command_id()),
-            numeric_test_operand_spans,
+            context: expansion_context,
+            in_colon_command: context.colon_command_ids.contains(&fact.command_id()),
+            numeric_test_operand_spans: context.numeric_test_operand_spans,
+            plain_run_first_arg_spans: context.plain_run_first_arg_spans,
+            backtick_escaped_parameter_spans: context.backtick_escaped_parameter_spans,
             part_filter: |_| true,
         },
     );
 }
 
 fn collect_arithmetic_word_fact_reports(
-    checker: &Checker,
-    colon_command_ids: &FxHashSet<crate::facts::core::CommandId>,
+    context: &ReportContext<'_>,
     safe_values: &mut SafeValueIndex<'_>,
     spans: &mut Vec<shuck_ast::Span>,
-    source: &str,
     fact: WordOccurrenceRef<'_, '_>,
     arithmetic_command_substitution_spans: &[Span],
 ) {
-    let Some(context) = fact.host_expansion_context() else {
+    let Some(expansion_context) = fact.host_expansion_context() else {
         return;
     };
-    if !should_check_context(context, checker.shell()) {
+    if !should_check_context(expansion_context, context.shell) {
         return;
     }
     let fact_command_substitution_spans = fact.command_substitution_spans();
+    let plain_run_first_arg_spans = FxHashSet::default();
     report_word_expansions(
         spans,
         safe_values,
-        source,
+        context.source,
         fact,
         WordReportOptions {
-            context,
-            in_colon_command: colon_command_ids.contains(&fact.command_id()),
+            context: expansion_context,
+            in_colon_command: context.colon_command_ids.contains(&fact.command_id()),
             numeric_test_operand_spans: &[],
+            plain_run_first_arg_spans: &plain_run_first_arg_spans,
+            backtick_escaped_parameter_spans: context.backtick_escaped_parameter_spans,
             part_filter: |part_span| {
                 arithmetic_word_follows_command_substitution(
                     part_span,
-                    source,
+                    context.source,
                     fact_command_substitution_spans,
                 ) || arithmetic_word_follows_command_substitution(
                     part_span,
-                    source,
+                    context.source,
                     arithmetic_command_substitution_spans,
                 )
             },
@@ -168,6 +178,20 @@ fn collect_numeric_test_operand_spans(checker: &Checker, source: &str) -> Vec<Sp
     spans.sort_by_key(|span| (span.start.offset, span.end.offset));
     spans.dedup_by_key(|span| FactSpan::new(*span));
     spans
+}
+
+fn collect_plain_run_first_arg_spans(checker: &Checker) -> FxHashSet<FactSpan> {
+    checker
+        .facts()
+        .commands()
+        .iter()
+        .filter(|fact| fact.effective_name_is("run") && fact.wrappers().is_empty())
+        .filter_map(|fact| {
+            fact.body_args()
+                .first()
+                .map(|word| FactSpan::new(word.span))
+        })
+        .collect()
 }
 
 fn collect_array_assignment_split_candidate_spans(checker: &Checker) -> Vec<Span> {
@@ -276,6 +300,8 @@ struct WordReportOptions<'a, F> {
     context: ExpansionContext,
     in_colon_command: bool,
     numeric_test_operand_spans: &'a [Span],
+    plain_run_first_arg_spans: &'a FxHashSet<FactSpan>,
+    backtick_escaped_parameter_spans: &'a [Span],
     part_filter: F,
 }
 
@@ -292,6 +318,8 @@ fn report_word_expansions<F>(
         context,
         in_colon_command,
         numeric_test_operand_spans,
+        plain_run_first_arg_spans,
+        backtick_escaped_parameter_spans,
         part_filter,
     } = options;
 
@@ -316,10 +344,14 @@ fn report_word_expansions<F>(
     {
         return;
     }
+    if context == ExpansionContext::CommandArgument
+        && plain_run_first_arg_spans.contains(&FactSpan::new(fact.span()))
+    {
+        return;
+    }
     let Some(query) = SafeValueQuery::from_context(context) else {
         return;
     };
-
     for (part, part_span) in fact.parts_with_spans() {
         let report_unquoted_star = star_spans.contains(&part_span);
         if !scalar_spans.contains(&part_span) && !report_unquoted_star {
@@ -337,17 +369,46 @@ fn report_word_expansions<F>(
         if fact.part_is_inside_backtick_escaped_double_quotes(part_span, source) {
             continue;
         }
+        if backtick_escaped_parameter_spans
+            .iter()
+            .copied()
+            .any(|span| span_contains(span, part_span))
+        {
+            continue;
+        }
         if safe_values
             .part_is_safe_initializer_command_substitution_self_reference(part, part_span, query)
         {
             continue;
         }
-        if part_is_in_numeric_test_operand(part_span, numeric_test_operand_spans)
-            && safe_values.part_is_safe(part, part_span, SafeValueQuery::NumericTestOperand)
+        if safe_values.part_is_safe_initializer_command_substitution_static_setup_reference(
+            part, part_span, query,
+        ) {
+            continue;
+        }
+        let in_numeric_test_operand =
+            part_is_in_numeric_test_operand(part_span, numeric_test_operand_spans);
+        if in_numeric_test_operand {
+            if safe_values.part_is_safe(part, part_span, SafeValueQuery::NumericTestOperand) {
+                continue;
+            }
+            if safe_values.part_has_s001_arithmetic_numeric_operand_exposure(part, part_span) {
+                continue;
+            }
+        } else if context == ExpansionContext::CommandArgument
+            && !fact.has_literal_affixes()
+            && fact.parts_len() == 1
+            && safe_values.part_has_s001_standalone_numeric_argv_exposure(part, part_span)
         {
             continue;
         }
-        if safe_values.part_is_safe(part, part_span, query) {
+        let exposure = safe_values.part_s001_quote_exposure(part, part_span, query);
+        if matches!(exposure, S001QuoteExposure::QuoteInertNonEmpty) {
+            continue;
+        }
+        if !safe_values.span_has_s001_function_unset_exposure(part_span, query)
+            && safe_values.part_is_safe(part, part_span, query)
+        {
             continue;
         }
 
@@ -1231,7 +1292,7 @@ exit $?
         let source = "\
 #!/bin/sh
 start() {
-  local n=0
+  local n=\"$name\"
   echo $n
 }
 
@@ -1256,7 +1317,7 @@ exit $?
         let source = "\
 #!/bin/sh
 start() {
-  local n=0
+  local n=\"$name\"
   echo $n
 }
 
@@ -1281,7 +1342,7 @@ exit 0
         let source = "\
 #!/bin/sh
 foo() {
-  local n=0
+  local n=\"$name\"
   echo $n
 }
 
@@ -1310,7 +1371,7 @@ exit $?
         let source = "\
 #!/bin/sh
 foo() {
-  local n=0
+  local n=\"$name\"
   echo $n
 }
 
@@ -1358,7 +1419,7 @@ esac
         let source = "\
 #!/bin/sh
 start() {
-  local n=0
+  local n=\"$name\"
   echo $n
 }
 exit 0
@@ -1734,6 +1795,63 @@ value=$(echo $value | sed 's/^ //')
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$value"]
+        );
+    }
+
+    #[test]
+    fn skips_static_setup_references_inside_command_substitution_initializers() {
+        let source = "\
+#!/bin/bash
+scope_menu() {
+  case $scope in
+    global) WAFSCOPE=CLOUDFRONT ;;
+    regional) WAFSCOPE=REGIONAL ;;
+    *) exit 1 ;;
+  esac
+}
+get_set() {
+  result=$(aws waf get --scope $WAFSCOPE --profile $profile 2>&1)
+}
+update_set() {
+  get_set
+}
+unused_export() {
+  get_set
+}
+main() {
+  update_set
+}
+scope_menu
+main
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$profile"]
+        );
+    }
+
+    #[test]
+    fn reports_static_setup_references_without_path_coverage() {
+        let source = "\
+#!/bin/bash
+if [ \"$scope\" = global ]; then
+  WAFSCOPE=CLOUDFRONT
+fi
+result=$(aws waf get --scope $WAFSCOPE)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$WAFSCOPE"]
         );
     }
 
@@ -2233,6 +2351,69 @@ json=\"$(echo \\\"${items[*]}\\\")\"
     }
 
     #[test]
+    fn reports_inner_parameter_inside_escaped_indirect_template() {
+        let source = "\
+#!/bin/sh
+tool=pack
+archive=out
+$tool archive \"${archive}\" \"Test $1\" echo \\\"\\${${1}}\\\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${1}"]
+        );
+    }
+
+    #[test]
+    fn reports_nested_substitution_arguments_after_escaped_quote_default_segments() {
+        let source = "\
+#!/bin/sh
+label=\",label=\\\"${fallback:=value}$(render value $line)\\\"\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$line"]
+        );
+    }
+
+    #[test]
+    fn anchors_nested_substitution_arguments_to_physical_lines_after_escaped_continuations() {
+        let source = "\
+#!/bin/bash
+echo \"script
+  LEFT=\"$left\":\\$base \\
+    CHILD=\\$base/$(basename $child) \\
+    PATH=$path
+    run\" > out
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| (
+                    diagnostic.span.start.line,
+                    diagnostic.span.start.column,
+                    diagnostic.span.end.line,
+                    diagnostic.span.end.column,
+                    diagnostic.span.slice(source),
+                ))
+                .collect::<Vec<_>>(),
+            vec![(3, 9, 3, 14, "$left"), (4, 29, 4, 35, "$child")]
+        );
+    }
+
+    #[test]
     fn reports_decl_assignment_values_in_sh_mode() {
         let source = "\
 local _patch=$TERMUX_PKG_BUILDER_DIR/file.diff
@@ -2311,6 +2492,7 @@ printf '%s\\n' 'prefix:'$name':suffix'
         let source = "\
 #!/bin/bash
 printf '%s\\n' $? $# $$ $! $- $0 $1 $* $@
+run || return $?
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
@@ -2344,6 +2526,89 @@ printf '%s\\n' $n $s $glob $split $copy $alias
                 .collect::<Vec<_>>(),
             vec!["$glob", "$split"]
         );
+    }
+
+    #[test]
+    fn reports_function_body_values_when_function_is_unset_before_first_call() {
+        let source = "\
+#!/bin/sh
+cleanup() { unset -f fetch; }
+version=v1
+URL=\"https://example.invalid/$version\"
+fetch() { echo $URL; }
+cleanup
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$URL"]
+        );
+    }
+
+    #[test]
+    fn keeps_function_body_values_safe_when_function_is_called_before_later_unset() {
+        let source = "\
+#!/bin/sh
+cleanup() { unset -f fetch; }
+version=v1
+URL=\"https://example.invalid/$version\"
+fetch() { echo $URL; }
+fetch
+cleanup
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_function_body_values_when_indirect_unset_precedes_indirect_call() {
+        let source = "\
+#!/bin/sh
+cleanup() { unset -f fetch; }
+version=v1
+URL=\"https://example.invalid/$version\"
+fetch() { echo $URL; }
+wrapper() { fetch; }
+runner() {
+  cleanup
+  wrapper
+}
+runner
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$URL"]
+        );
+    }
+
+    #[test]
+    fn keeps_function_body_values_safe_when_indirect_call_precedes_indirect_unset() {
+        let source = "\
+#!/bin/sh
+cleanup() { unset -f fetch; }
+version=v1
+URL=\"https://example.invalid/$version\"
+fetch() { echo $URL; }
+wrapper() { fetch; }
+runner() {
+  wrapper
+  cleanup
+}
+runner
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]
@@ -2583,6 +2848,216 @@ FILE=$(basename $URL)
     }
 
     #[test]
+    fn skips_local_literal_arguments_when_called_helper_reuses_name() {
+        let source = "\
+#!/bin/bash
+build_payload() {
+  service=$1
+  version=$2
+}
+send_request() {
+  action=$1
+  service=alpha
+  version=2024-01
+  token=$(build_payload $service $version \"$action\")
+}
+send_request \"$1\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_dynamic_arguments_when_called_helper_reuses_name() {
+        let source = "\
+#!/bin/bash
+build_payload() {
+  service=$1
+}
+send_request() {
+  service=$1
+  token=$(build_payload $service)
+}
+send_request \"$1\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$service"]
+        );
+    }
+
+    #[test]
+    fn skips_local_literal_command_arguments_when_helper_reuses_name() {
+        let source = "\
+#!/bin/bash
+config() {
+  NEW=\"$1\"
+  OLD=\"$(dirname $NEW)/$(basename $NEW .new)\"
+}
+config_blacklist() {
+  NEW=etc/app/blacklist
+  OLD=etc/app/package_blacklist
+  cp $OLD $NEW
+}
+config \"$1\"
+config_blacklist
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$NEW", "$NEW"]
+        );
+    }
+
+    #[test]
+    fn reports_dynamic_command_arguments_when_helper_reuses_name() {
+        let source = "\
+#!/bin/bash
+config() {
+  NEW=etc/app/default
+}
+config_blacklist() {
+  NEW=\"$1\"
+  OLD=etc/app/package_blacklist
+  cp $OLD $NEW
+}
+config
+config_blacklist \"$1\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$NEW"]
+        );
+    }
+
+    #[test]
+    fn skips_transitive_helper_composite_quote_inert_values() {
+        let source = "\
+#!/bin/bash
+exit_script() { exit 1; }
+default_settings() {
+  FORMAT=\",efitype=4m\"
+  DISK_CACHE=\"\"
+}
+advanced_settings() {
+  if MACH=$(choose); then
+    if [ \"$MACH\" = q35 ]; then
+      FORMAT=\"\"
+    else
+      FORMAT=\",efitype=4m\"
+    fi
+  else
+    exit_script
+  fi
+  if DISK_CACHE=$(choose); then
+    if [ \"$DISK_CACHE\" = \"1\" ]; then
+      DISK_CACHE=\"cache=writethrough,\"
+    else
+      DISK_CACHE=\"\"
+    fi
+  else
+    exit_script
+  fi
+}
+start_script() {
+  if choose; then
+    default_settings
+  else
+    advanced_settings
+  fi
+}
+start_script
+VMID=100
+STORAGE=local
+THIN=\"discard=on,ssd=1,\"
+case \"$STORAGE\" in
+  btrfs)
+    FORMAT=\",efitype=4m\"
+    ;;
+esac
+DISK0_REF=${STORAGE}:vm-${VMID}-disk-0
+DISK1_REF=${STORAGE}:vm-${VMID}-disk-1
+qm set $VMID \\
+  -efidisk0 ${DISK0_REF}${FORMAT} \\
+  -scsi0 ${DISK1_REF},${DISK_CACHE}${THIN}size=12G
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_transitive_helper_dynamic_composite_values() {
+        let source = "\
+#!/bin/bash
+default_settings() {
+  DISK_CACHE=$1
+}
+advanced_settings() {
+  DISK_CACHE=\"cache=writethrough,\"
+}
+start_script() {
+  if choose; then
+    default_settings \"$1\"
+  else
+    advanced_settings
+  fi
+}
+start_script \"$1\"
+DISK1_REF=local:vm-100-disk-1
+qm set 100 -scsi0 ${DISK1_REF},${DISK_CACHE}size=12G
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${DISK_CACHE}"]
+        );
+    }
+
+    #[test]
+    fn reports_top_level_branch_literal_without_dispatch_fallback() {
+        let source = "\
+#!/bin/bash
+STORAGE=local
+case \"$STORAGE\" in
+  btrfs)
+    FORMAT=\",efitype=4m\"
+    ;;
+esac
+DISK0_REF=${STORAGE}:vm-100-disk-0
+qm set 100 -efidisk0 ${DISK0_REF}${FORMAT}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${FORMAT}"]
+        );
+    }
+
+    #[test]
     fn skips_safe_numeric_shell_variables() {
         let source = "\
 #!/bin/bash
@@ -2613,6 +3088,203 @@ printf '%s\\n' $COLUMNS
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$UID", "$COLUMNS"]
+        );
+    }
+
+    #[test]
+    fn skips_loop_carried_numeric_default_operands() {
+        let source = "\
+#!/bin/sh
+encode() {
+  local text=\"$1\"
+  local pos char
+  while [ ${pos:-0} -lt ${#text} ]; do
+    pos=$(( pos + 1 ))
+    char=$(printf '%s' \"$text\" | cut -b $pos)
+    printf '%s' \"$char\"
+  done
+}
+scan() {
+  local count=0 overall file_list
+  file_list=$(printf '%s\\n' item)
+  while [ -n \"$file_list\" -a $count -le ${overall:-$count} ]; do
+    for item in $file_list; do count=$(( count + 1 )); done
+    overall=$count
+  done
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_file_scope_integer_bindings_in_indirectly_called_numeric_tests() {
+        let source = "\
+#!/usr/bin/env bash
+scan() { regular_grep \"$@\"; }
+regular_grep() {
+  [ ${RECURSIVE} -eq 1 ] && action=recurse
+}
+run_named() {
+  local scan_fn=\"$1\"
+  shift
+  $scan_fn \"$@\"
+}
+declare COMMAND=\"$1\" RECURSIVE=0
+while [ \"$#\" -gt 0 ]; do
+  case \"$1\" in
+    -r) RECURSIVE=1 ;;
+  esac
+  shift
+done
+case \"$COMMAND\" in
+  --scan) run_named scan \"$@\" ;;
+esac
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_file_scope_integer_bindings_after_function_calls() {
+        let source = "\
+#!/bin/bash
+check_count() {
+  [ $count -eq 0 ] && :
+}
+check_count
+count=0
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$count"]
+        );
+    }
+
+    #[test]
+    fn skips_file_scope_integer_bindings_before_function_calls() {
+        let source = "\
+#!/bin/bash
+count=0
+check_count() {
+  [ $count -eq 0 ] && :
+}
+check_count
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_counter_arguments_with_only_numeric_assignments() {
+        let source = "\
+#!/usr/bin/env bash
+update_count_column_width() {
+  count_column_width=$((${#count} * 2 + 2))
+  update_count_column_left
+}
+update_screen_width() {
+  screen_width=\"$(tput cols)\"
+  update_count_column_left
+}
+update_count_column_left() {
+  count_column_left=$((screen_width - count_column_width))
+}
+count=0
+screen_width=80
+update_count_column_width
+begin() {
+  line_backoff_count=0
+  update_count_column_width
+  go_to_column $count_column_left
+}
+finish_test() {
+  move_up $line_backoff_count
+}
+line_backoff_count=0
+bats_tap_stream_comment() {
+  ((++line_backoff_count))
+  ((line_backoff_count += ${#1} / screen_width))
+}
+dynamic_test() {
+  quiet=${1:-0}
+  if [ ${quiet} -eq 0 ]; then :; fi
+}
+static_status() {
+  ret=0
+  command && ret=1 || ret=0
+  tend ${ret}
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${quiet}"]
+        );
+    }
+
+    #[test]
+    fn skips_arithmetic_numeric_test_operands_without_static_flag_broadening() {
+        let source = "\
+#!/bin/sh
+filetime=$(date +%s -r \"$file\")
+fileage=$(( unixtime - filetime ))
+[ $fileage -lt 86400 ] && :
+quiet=${1:-0}
+[ ${quiet} -eq 0 ] && :
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${quiet}"]
+        );
+    }
+
+    #[test]
+    fn reports_numeric_defaults_without_loop_carried_updates() {
+        let source = "\
+#!/bin/sh
+plain() {
+  local pos
+  [ ${pos:-0} -lt 3 ] && :
+}
+dynamic_update() {
+  local pos
+  while [ ${pos:-0} -lt 3 ]; do
+    pos=$1
+  done
+}
+dynamic_default() {
+  local pos fallback
+  while [ ${pos:-$fallback} -lt 3 ]; do
+    pos=$(( pos + 1 ))
+  done
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${pos:-0}", "${pos:-0}", "${pos:-$fallback}"]
         );
     }
 
@@ -2700,6 +3372,42 @@ request() {
     }
 
     #[test]
+    fn skips_local_conditional_literal_option_letters() {
+        let source = "\
+#!/bin/bash
+read_char() {
+  local read_flag anykey
+  [[ -n ${ZSH_VERSION:-} ]] && read_flag=k || read_flag=n
+  builtin read -${read_flag} 1 -s -r anykey
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_local_conditional_dynamic_option_letters() {
+        let source = "\
+#!/bin/bash
+read_char() {
+  local read_flag anykey
+  [[ -n ${ZSH_VERSION:-} ]] && read_flag=$1 || read_flag=n
+  builtin read -${read_flag} 1 -s -r anykey
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${read_flag}"]
+        );
+    }
+
+    #[test]
     fn skips_status_capture_declarations_with_initializers() {
         let source = "\
 #!/bin/bash
@@ -2709,6 +3417,54 @@ cleanup() {
     return $ret
   }
 }
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_escaped_declaration_literal_return_operands() {
+        let source = "\
+#!/bin/bash
+cleanup() {
+  \\typeset __result=0
+  run_task \"$@\" || __result=$?
+  return ${__result}
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_escaped_declaration_dynamic_return_operands() {
+        let source = "\
+#!/bin/bash
+cleanup() {
+  \\typeset __result=$1
+  return ${__result}
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${__result}"]
+        );
+    }
+
+    #[test]
+    fn skips_pid_capture_bindings() {
+        let source = "\
+#!/bin/bash
+long_running_task &
+tarpid=$!
+counter=$(ps -A | grep $tarpid | wc -l)
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
@@ -3350,6 +4106,89 @@ if [ $foo -eq 1 ]; then :; fi
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$foo"]
+        );
+    }
+
+    #[test]
+    fn skips_status_capture_numeric_test_operands() {
+        let source = "\
+#!/bin/bash
+f() {
+  local status
+  run_task && status=0 || status=$?
+  if [ $status -eq 0 ]; then :; fi
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_declared_integer_default_numeric_test_operands() {
+        let source = "\
+#!/bin/bash
+declare -i expected_status
+expected_status=${expected_status:-0}
+actual_status=$1
+if [ ${actual_status} -ne ${expected_status} ]; then :; fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${actual_status}"]
+        );
+    }
+
+    #[test]
+    fn skips_plain_run_first_argument() {
+        let source = "\
+#!/bin/bash
+target=$1
+run $target
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_plain_run_later_arguments() {
+        let source = "\
+#!/bin/bash
+target=$1
+run echo $target
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$target"]
+        );
+    }
+
+    #[test]
+    fn reports_wrapped_run_first_arguments() {
+        let source = "\
+#!/bin/bash
+target=$1
+command run $target
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$target"]
         );
     }
 

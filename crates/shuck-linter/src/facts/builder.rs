@@ -790,6 +790,19 @@ impl<'a> LinterFactsBuilder<'a> {
         });
         let backtick_escaped_parameters =
             word_spans::backtick_escaped_parameters(source, &backtick_substitution_spans);
+        let mut backtick_escaped_parameter_reference_spans =
+            word_spans::backtick_escaped_parameter_reference_spans(
+                source,
+                &backtick_substitution_spans,
+            );
+        backtick_escaped_parameter_reference_spans.extend(
+            backtick_escaped_parameters
+                .iter()
+                .map(|escaped| escaped.reference_span),
+        );
+        backtick_escaped_parameter_reference_spans
+            .sort_by_key(|span| (span.start.offset, span.end.offset));
+        backtick_escaped_parameter_reference_spans.dedup();
         let backtick_double_escaped_parameter_spans =
             word_spans::backtick_double_escaped_parameter_spans(
                 source,
@@ -874,6 +887,7 @@ impl<'a> LinterFactsBuilder<'a> {
             command_substitution_command_spans,
             backtick_substitution_spans,
             backtick_escaped_parameters,
+            backtick_escaped_parameter_reference_spans,
             backtick_double_escaped_parameter_spans,
             backtick_command_name_spans,
             dollar_question_after_command_spans,

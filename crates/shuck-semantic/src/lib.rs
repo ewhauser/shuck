@@ -9796,13 +9796,16 @@ printf '%s\\n' \"\\$workdir\"
     }
 
     #[test]
-    fn escaped_parameter_expansion_with_nested_default_stays_inert() {
+    fn escaped_parameter_expansion_keeps_nested_default_reads() {
         let source = "\
 #!/bin/sh
-printf '%s\\n' \\${workdir:-$fallback}
+printf '%s\\n' \\${workdir:-$fallback} \\${other:-${inner}}
 ";
         let model = model(source);
-        assert!(model.analysis().uninitialized_references().is_empty());
+        let unresolved = unresolved_names(&model);
+
+        assert_names_absent(&["workdir", "other"], &unresolved);
+        assert_names_present(&["fallback", "inner"], &unresolved);
     }
 
     #[test]

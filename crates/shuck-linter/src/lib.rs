@@ -89,7 +89,7 @@ pub use rule_selector::{RuleSelector, SelectorParseError};
 /// Sets of enabled or disabled rules.
 pub use rule_set::RuleSet;
 #[allow(unused_imports)]
-pub(crate) use rules::common::safe_value::{SafeValueIndex, SafeValueQuery};
+pub(crate) use rules::common::safe_value::{S001QuoteExposure, SafeValueIndex, SafeValueQuery};
 #[allow(unused_imports)]
 pub(crate) use rules::common::word::conditional_binary_op_is_string_match;
 /// Linter configuration and per-file ignore types.
