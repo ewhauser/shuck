@@ -2108,27 +2108,9 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn binding_value_is_standalone_status_capture(&self, binding_id: BindingId) -> bool {
-        if self
-            .facts
+        self.facts
             .binding_value(binding_id)
-            .filter(|value| !value.conditional_assignment_shortcut())
-            .and_then(|value| value.scalar_word())
-            .is_some_and(word_is_standalone_status_or_pid_capture)
-        {
-            return true;
-        }
-
-        let binding = self.semantic.binding(binding_id);
-        let definition_span = match &binding.origin {
-            BindingOrigin::Assignment {
-                definition_span,
-                value: AssignmentValueOrigin::PlainScalarAccess | AssignmentValueOrigin::Unknown,
-            }
-            | BindingOrigin::Declaration { definition_span } => *definition_span,
-            _ => return false,
-        };
-        assignment_value_after_definition(self.source, definition_span)
-            .is_some_and(assignment_value_text_is_standalone_status_capture)
+            .is_some_and(|value| value.standalone_status_or_pid_capture())
     }
 
     fn status_capture_declaration_probe_covers_reference(
@@ -4430,44 +4412,6 @@ fn part_is_safe_special_parameter_access(part: &WordPart) -> bool {
     }
 }
 
-fn assignment_value_after_definition(source: &str, definition_span: Span) -> Option<&str> {
-    let rest = source.get(definition_span.end.offset..)?;
-    let rest = rest.strip_prefix('=')?;
-    let value_len = rest
-        .find(|char: char| char.is_ascii_whitespace() || matches!(char, ';' | '&' | '|'))
-        .unwrap_or(rest.len());
-    rest.get(..value_len)
-}
-
-fn assignment_value_text_is_standalone_status_capture(text: &str) -> bool {
-    matches!(
-        text,
-        "$?" | "${?}" | "\"$?\"" | "\"${?}\"" | "$!" | "${!}" | "\"$!\"" | "\"${!}\""
-    )
-}
-
-fn word_is_standalone_status_or_pid_capture(word: &Word) -> bool {
-    matches!(word.parts.as_slice(), [part] if part_is_standalone_status_or_pid_capture(&part.kind))
-}
-
-fn part_is_standalone_status_or_pid_capture(part: &WordPart) -> bool {
-    match part {
-        WordPart::Variable(name) => matches!(name.as_str(), "?" | "!"),
-        WordPart::DoubleQuoted { parts, .. } => {
-            matches!(
-                parts.as_slice(),
-                [part] if part_is_standalone_status_or_pid_capture(&part.kind)
-            )
-        }
-        WordPart::Parameter(parameter) => matches!(
-            parameter.bourne(),
-            Some(BourneParameterExpansion::Access { reference })
-                if matches!(reference.name.as_str(), "?" | "!") && reference.subscript.is_none()
-        ),
-        _ => false,
-    }
-}
-
 fn safe_numeric_shell_variable(name: &Name) -> bool {
     matches!(
         name.as_str(),
@@ -6482,6 +6426,38 @@ move_up $count
             .expect("expected count expansion part");
 
         assert!(!safe_values.part_has_s001_standalone_numeric_argv_exposure(part, part_span));
+    }
+
+    #[test]
+    fn escaped_declaration_status_capture_return_stays_safe() {
+        let source = "\
+#!/bin/bash
+run() {
+  make install ||
+  {
+    \\typeset ret=$?
+    warn failed
+    return $ret
+  }
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$ret"
+            })
+            .expect("expected return status argument fact");
+
+        assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]
