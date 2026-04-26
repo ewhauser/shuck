@@ -291,10 +291,14 @@ fn analyze_uninitialized_references_exact(
     let initialized_name_states = exact.c006_initialized_name_states(context);
     let maybe_defined = &initialized_name_states.maybe_in;
     let definitely_defined = &initialized_name_states.definite_in;
-    let guarded_parameter_ref_keys = guarded_parameter_reference_keys(context);
+    let guarded_parameter_ref_keys = guarded_parameter_reference_keys(context, exact);
+    let parameter_guard_flow_index = ParameterGuardFlowIndex::new(context, exact);
 
     let mut uninitialized_references = Vec::new();
     for reference in context.references {
+        let Some(name_id) = exact.names.get(&reference.name) else {
+            continue;
+        };
         if matches!(
             reference.kind,
             ReferenceKind::ImplicitRead
@@ -306,8 +310,7 @@ fn analyze_uninitialized_references_exact(
             || context
                 .self_referential_assignment_refs
                 .contains(&reference.id)
-            || guarded_parameter_ref_keys
-                .contains(&(reference.name.clone(), SpanKey::new(reference.span)))
+            || guarded_parameter_ref_keys.contains(&(name_id, SpanKey::new(reference.span)))
         {
             continue;
         }
@@ -333,12 +336,8 @@ fn analyze_uninitialized_references_exact(
             });
             continue;
         }
-        let Some(name_id) = exact.names.get(&reference.name) else {
-            continue;
-        };
-        let same_block_guard = parameter_guard_flow_precedes_reference_in_same_block(
-            context, exact, reference, block_id,
-        );
+        let same_block_guard =
+            parameter_guard_flow_index.precedes_reference(reference, block_id, name_id);
         let maybe = maybe_defined[block_id.index()].contains(name_id.index()) || same_block_guard;
         let definite =
             definitely_defined[block_id.index()].contains(name_id.index()) || same_block_guard;
@@ -359,37 +358,58 @@ fn analyze_uninitialized_references_exact(
     uninitialized_references
 }
 
-fn guarded_parameter_reference_keys(context: &DataflowContext<'_>) -> FxHashSet<(Name, SpanKey)> {
+fn guarded_parameter_reference_keys(
+    context: &DataflowContext<'_>,
+    exact: &ExactVariableDataflow,
+) -> FxHashSet<(NameId, SpanKey)> {
     context
         .guarded_parameter_refs
         .iter()
         .copied()
-        .map(|guard_id| {
+        .filter_map(|guard_id| {
             let guard = &context.references[guard_id.index()];
-            (guard.name.clone(), SpanKey::new(guard.span))
+            let name = exact.names.get(&guard.name)?;
+            Some((name, SpanKey::new(guard.span)))
         })
         .collect()
 }
 
-fn parameter_guard_flow_precedes_reference_in_same_block(
-    context: &DataflowContext<'_>,
-    exact: &ExactVariableDataflow,
-    reference: &Reference,
-    block_id: BlockId,
-) -> bool {
-    context
-        .parameter_guard_flow_refs
-        .iter()
-        .copied()
-        .any(|guard_id| {
-            guard_id != reference.id
-                && exact.reference_blocks[guard_id.index()] == Some(block_id)
-                && {
-                    let guard = &context.references[guard_id.index()];
-                    guard.name == reference.name
-                        && guard.span.start.offset < reference.span.start.offset
-                }
-        })
+#[derive(Debug, Default)]
+struct ParameterGuardFlowIndex {
+    offsets_by_block_name: FxHashMap<(BlockId, NameId), Vec<usize>>,
+}
+
+impl ParameterGuardFlowIndex {
+    fn new(context: &DataflowContext<'_>, exact: &ExactVariableDataflow) -> Self {
+        let mut offsets_by_block_name = FxHashMap::<(BlockId, NameId), Vec<usize>>::default();
+        for guard_id in context.parameter_guard_flow_refs.iter().copied() {
+            let guard = &context.references[guard_id.index()];
+            let Some(block) = exact.reference_blocks[guard_id.index()] else {
+                continue;
+            };
+            let Some(name) = exact.names.get(&guard.name) else {
+                continue;
+            };
+            offsets_by_block_name
+                .entry((block, name))
+                .or_default()
+                .push(guard.span.start.offset);
+        }
+        for offsets in offsets_by_block_name.values_mut() {
+            offsets.sort_unstable();
+        }
+        Self {
+            offsets_by_block_name,
+        }
+    }
+
+    fn precedes_reference(&self, reference: &Reference, block: BlockId, name: NameId) -> bool {
+        self.offsets_by_block_name
+            .get(&(block, name))
+            .is_some_and(|offsets| {
+                offsets.partition_point(|offset| *offset < reference.span.start.offset) > 0
+            })
+    }
 }
 
 fn reference_resolves_to_file_entry_contract_variable(
