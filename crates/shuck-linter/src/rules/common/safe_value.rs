@@ -3641,7 +3641,7 @@ mod tests {
         let source = "#!/bin/bash\nprintf '%s\\n' \"${!HOME@}\" ${!HOME@}\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -3662,7 +3662,7 @@ mod tests {
             .parse()
             .unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Zsh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -3683,7 +3683,7 @@ mod tests {
             .parse()
             .unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Zsh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -3717,7 +3717,7 @@ if [ \"$foo\" = \"\" ]; then foo=0; fi
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -3741,7 +3741,7 @@ fi
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -3763,7 +3763,7 @@ printf '%s\\n' $PPID
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -3788,7 +3788,7 @@ f() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -3816,7 +3816,7 @@ f() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -3848,7 +3848,7 @@ printf '%s\\n' $copy $mixed $lower $trimmed $count
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -3879,7 +3879,7 @@ done
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -3931,7 +3931,7 @@ iptables $flag -t nat -N chain
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -3973,7 +3973,7 @@ done
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4011,7 +4011,7 @@ f() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4044,7 +4044,7 @@ done
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4080,7 +4080,7 @@ fi
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4116,7 +4116,7 @@ f() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4158,7 +4158,7 @@ f() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4214,7 +4214,7 @@ printf '%s\\n' vm-${disk_ext_with_default:-}
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4251,7 +4251,7 @@ foo=0
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4278,7 +4278,7 @@ esac
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4309,7 +4309,7 @@ free ${humanreadable}
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4335,7 +4335,7 @@ value=\"$(free ${humanreadable} | awk '{print $2}')\"
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4363,7 +4363,7 @@ done
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4414,7 +4414,7 @@ echo \"MD5SUM=\\\"$( md5sum $PRGNAM-$VERSION.tar.xz | cut -d' ' -f1 )\\\"\"
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4449,7 +4449,7 @@ config() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4506,7 +4506,7 @@ printf '%s\\n' $opt hi
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4570,7 +4570,7 @@ GetAMI
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4609,7 +4609,7 @@ GetAMI
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4667,7 +4667,7 @@ fn_backup_compression
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4705,7 +4705,7 @@ exit $?
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4751,7 +4751,7 @@ esac
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4794,7 +4794,7 @@ exit $?
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4852,7 +4852,7 @@ exit $?
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4886,7 +4886,7 @@ exit 0
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4924,7 +4924,7 @@ exit $?
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4960,7 +4960,7 @@ exit $?
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -4997,7 +4997,7 @@ exit $?
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5037,7 +5037,7 @@ exit 0
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5068,7 +5068,7 @@ outer() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5107,7 +5107,7 @@ fi
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5142,7 +5142,7 @@ exit $?
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5186,7 +5186,7 @@ unsafe_path
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5229,7 +5229,7 @@ done
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5267,7 +5267,7 @@ do_start
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5310,7 +5310,7 @@ run_make
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5345,7 +5345,7 @@ render() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5394,7 +5394,7 @@ safe_path_b
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5420,8 +5420,8 @@ printf '%s\\n' $pkgname
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build_with_options(
-            &output.file,
+        let semantic = SemanticModel::build_arena_with_options(
+            &output.arena_file,
             source,
             &indexer,
             SemanticBuildOptions {
@@ -5463,7 +5463,7 @@ bash ${debug:+\"-x\"} script
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5489,7 +5489,7 @@ printf '%s\\n' ${debug:+\"a b\"}
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5518,7 +5518,7 @@ echo /tmp/$SAFE
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5556,7 +5556,7 @@ fi
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5603,7 +5603,7 @@ echo x >> ${OPENBSD_CONTENTS}
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5658,7 +5658,7 @@ helper() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
@@ -5686,7 +5686,7 @@ helper() (
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
         let helper_header = facts
@@ -5713,7 +5713,7 @@ helper() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
         let helper_header = facts
@@ -5739,7 +5739,7 @@ helper() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
         let helper_header = facts
@@ -5765,7 +5765,7 @@ helper() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
         let helper_header = facts
@@ -5791,7 +5791,7 @@ helper() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
         let helper_header = facts
@@ -5821,7 +5821,7 @@ helper() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
         let helper_header = facts
@@ -5850,7 +5850,7 @@ helper() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
         let helper_header = facts
@@ -5879,7 +5879,7 @@ helper() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
         let helper_header = facts
@@ -5906,7 +5906,7 @@ helper() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
         let helper_header = facts
@@ -5937,7 +5937,7 @@ helper() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
         let helper_header = facts
@@ -5966,7 +5966,7 @@ Exit() { exit 0; }
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let analysis = semantic.analysis();
         let file_context = classify_file_context(source, None, ShellDialect::Sh);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);

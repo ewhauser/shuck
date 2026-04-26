@@ -3,11 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{
-    ArithmeticExpr, ArithmeticExprNode, BourneParameterExpansion, Command, File, Name,
-    ParameterExpansion, ParameterExpansionSyntax, Span, StmtSeq, VarRef, Word, WordPart,
-    WordPartNode, static_word_text,
-};
+use shuck_ast::{Name, Span};
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
 use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile, ZshOptionState};
@@ -16,7 +12,7 @@ use crate::{
     Binding, BindingId, BindingKind, ContractCertainty, FileContract, FunctionContract,
     FunctionScopeKind, ProvidedBinding, ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel,
     SourcePathResolver, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution, SpanKey,
-    SyntheticRead, build_semantic_model_base, infer_explicit_parse_dialect_from_source,
+    SyntheticRead, build_semantic_model_base_arena, infer_explicit_parse_dialect_from_source,
 };
 
 #[derive(Debug, Clone)]
@@ -93,22 +89,6 @@ struct ImportedFunctionContractSite {
     certainty: ContractCertainty,
     trust_provided_bindings: bool,
     contract: FunctionContract,
-}
-
-pub(crate) fn collect_source_closure_contracts(
-    model: &SemanticModel,
-    _file: &File,
-    _source: &str,
-    source_path: &Path,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-    analyzed_paths: Option<&FxHashSet<PathBuf>>,
-) -> SourceClosureContractResult {
-    collect_source_closure_contracts_from_model(
-        model,
-        source_path,
-        source_path_resolver,
-        analyzed_paths,
-    )
 }
 
 pub(crate) fn collect_source_closure_contracts_from_model(
@@ -686,281 +666,6 @@ fn source_template_uses_positional_args(template: &SourcePathTemplate) -> bool {
     }
 }
 
-pub(crate) fn source_path_template(
-    word: &Word,
-    source: &str,
-    bash_runtime_vars_enabled: bool,
-) -> Option<SourcePathTemplate> {
-    if static_word_text(word, source).is_some() {
-        return None;
-    }
-
-    let mut parts = Vec::new();
-    let mut ignored_root = false;
-    let mut saw_dynamic = false;
-
-    if !collect_source_template_parts(
-        &word.parts,
-        source,
-        bash_runtime_vars_enabled,
-        &mut parts,
-        &mut ignored_root,
-        &mut saw_dynamic,
-    ) {
-        return None;
-    }
-
-    (saw_dynamic && !parts.is_empty()).then_some(SourcePathTemplate::Interpolated(parts))
-}
-
-fn collect_source_template_parts(
-    word_parts: &[WordPartNode],
-    source: &str,
-    bash_runtime_vars_enabled: bool,
-    parts: &mut Vec<TemplatePart>,
-    ignored_root: &mut bool,
-    saw_dynamic: &mut bool,
-) -> bool {
-    for part in word_parts {
-        match &part.kind {
-            WordPart::Literal(text) => {
-                let text = text.as_str(source, part.span);
-                if !text.is_empty() {
-                    push_literal(parts, text.to_owned());
-                }
-            }
-            WordPart::SingleQuoted { value, .. } => {
-                let text = value.slice(source);
-                if !text.is_empty() {
-                    push_literal(parts, text.to_owned());
-                }
-            }
-            WordPart::DoubleQuoted { parts: inner, .. } => {
-                if !collect_source_template_parts(
-                    inner,
-                    source,
-                    bash_runtime_vars_enabled,
-                    parts,
-                    ignored_root,
-                    saw_dynamic,
-                ) {
-                    return false;
-                }
-            }
-            WordPart::Variable(name) => {
-                if let Some(index) = positional_index(name) {
-                    *saw_dynamic = true;
-                    parts.push(TemplatePart::Arg(index));
-                } else if bash_runtime_vars_enabled && is_bash_source_var(name) {
-                    *saw_dynamic = true;
-                    parts.push(TemplatePart::SourceFile);
-                } else if !*ignored_root && parts.is_empty() {
-                    *ignored_root = true;
-                    *saw_dynamic = true;
-                } else {
-                    return false;
-                }
-            }
-            WordPart::Parameter(parameter)
-                if bash_runtime_vars_enabled
-                    && parameter_is_current_source_file(parameter, source) =>
-            {
-                *saw_dynamic = true;
-                parts.push(TemplatePart::SourceFile);
-            }
-            WordPart::ArrayAccess(reference)
-                if bash_runtime_vars_enabled && is_bash_source_index_ref(reference, source) =>
-            {
-                *saw_dynamic = true;
-                parts.push(TemplatePart::SourceFile);
-            }
-            WordPart::CommandSubstitution { body, .. } => {
-                if bash_runtime_vars_enabled
-                    && let Some(template_part) = dirname_source_template_part(body, source)
-                {
-                    *saw_dynamic = true;
-                    parts.push(template_part);
-                } else {
-                    return false;
-                }
-            }
-            _ => return false,
-        }
-    }
-
-    true
-}
-
-fn push_literal(parts: &mut Vec<TemplatePart>, text: String) {
-    if let Some(TemplatePart::Literal(existing)) = parts.last_mut() {
-        existing.push_str(&text);
-    } else {
-        parts.push(TemplatePart::Literal(text));
-    }
-}
-
-fn positional_index(name: &Name) -> Option<usize> {
-    name.as_str().parse().ok()
-}
-
-fn is_bash_source_var(name: &Name) -> bool {
-    name.as_str() == "BASH_SOURCE"
-}
-
-fn parameter_is_current_source_file(parameter: &ParameterExpansion, source: &str) -> bool {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
-            is_current_source_reference(reference, source)
-        }
-        ParameterExpansionSyntax::Bourne(
-            BourneParameterExpansion::Length { .. }
-            | BourneParameterExpansion::Indices { .. }
-            | BourneParameterExpansion::Indirect { .. }
-            | BourneParameterExpansion::PrefixMatch { .. }
-            | BourneParameterExpansion::Slice { .. }
-            | BourneParameterExpansion::Operation { .. }
-            | BourneParameterExpansion::Transformation { .. },
-        )
-        | ParameterExpansionSyntax::Zsh(_) => false,
-    }
-}
-
-fn is_current_source_reference(reference: &VarRef, source: &str) -> bool {
-    is_bash_source_var(&reference.name)
-        && reference
-            .subscript
-            .as_ref()
-            .is_none_or(|subscript| subscript_is_semantic_zero(subscript, source))
-}
-
-fn is_bash_source_index_ref(reference: &VarRef, source: &str) -> bool {
-    is_bash_source_var(&reference.name)
-        && reference
-            .subscript
-            .as_ref()
-            .is_some_and(|subscript| subscript_is_semantic_zero(subscript, source))
-}
-
-fn subscript_is_semantic_zero(subscript: &shuck_ast::Subscript, source: &str) -> bool {
-    subscript
-        .arithmetic_ast
-        .as_ref()
-        .is_some_and(|expr| arithmetic_expr_is_semantic_zero(expr, source))
-}
-
-fn arithmetic_expr_is_semantic_zero(expr: &ArithmeticExprNode, source: &str) -> bool {
-    match &expr.kind {
-        ArithmeticExpr::Number(text) => shell_zero_literal(text.slice(source)),
-        ArithmeticExpr::ShellWord(word) => word_is_semantic_zero(word, source),
-        ArithmeticExpr::Parenthesized { expression } => {
-            arithmetic_expr_is_semantic_zero(expression, source)
-        }
-        ArithmeticExpr::Unary { expr, .. } => arithmetic_expr_is_semantic_zero(expr, source),
-        _ => false,
-    }
-}
-
-fn word_is_semantic_zero(word: &Word, source: &str) -> bool {
-    matches!(
-        word.parts.as_slice(),
-        [part] if match &part.kind {
-            WordPart::Literal(text) => shell_zero_literal(text.as_str(source, part.span)),
-            WordPart::SingleQuoted { value, .. } => shell_zero_literal(value.slice(source)),
-            WordPart::DoubleQuoted { parts, .. } => matches!(
-                parts.as_slice(),
-                [part] if word_part_is_semantic_zero(&part.kind, part.span, source)
-            ),
-            WordPart::ArithmeticExpansion {
-                expression_ast: Some(expr),
-                ..
-            } => arithmetic_expr_is_semantic_zero(expr, source),
-            _ => false,
-        }
-    )
-}
-
-fn word_part_is_semantic_zero(part: &WordPart, span: Span, source: &str) -> bool {
-    match part {
-        WordPart::Literal(text) => shell_zero_literal(text.as_str(source, span)),
-        WordPart::SingleQuoted { value, .. } => shell_zero_literal(value.slice(source)),
-        WordPart::DoubleQuoted { parts, .. } => matches!(
-            parts.as_slice(),
-            [part] if word_part_is_semantic_zero(&part.kind, part.span, source)
-        ),
-        WordPart::ArithmeticExpansion {
-            expression_ast: Some(expr),
-            ..
-        } => arithmetic_expr_is_semantic_zero(expr, source),
-        _ => false,
-    }
-}
-
-fn shell_zero_literal(text: &str) -> bool {
-    let text = text.trim();
-    if text.is_empty() {
-        return false;
-    }
-
-    let digits = text
-        .strip_prefix('+')
-        .or_else(|| text.strip_prefix('-'))
-        .unwrap_or(text);
-    if digits.is_empty() {
-        return false;
-    }
-
-    if let Some((base, value)) = digits.split_once('#') {
-        return base.parse::<u32>().is_ok_and(|base| {
-            (2..=64).contains(&base) && !value.is_empty() && value.chars().all(|ch| ch == '0')
-        });
-    }
-
-    let digits = digits
-        .strip_prefix("0x")
-        .or_else(|| digits.strip_prefix("0X"))
-        .unwrap_or(digits);
-    !digits.is_empty() && digits.chars().all(|ch| ch == '0')
-}
-
-fn dirname_source_template_part(commands: &StmtSeq, source: &str) -> Option<TemplatePart> {
-    let [stmt] = commands.as_slice() else {
-        return None;
-    };
-    let Command::Simple(command) = &stmt.command else {
-        return None;
-    };
-    if stmt.negated
-        || !stmt.redirects.is_empty()
-        || !command.assignments.is_empty()
-        || command.args.len() != 1
-    {
-        return None;
-    }
-    if static_word_text(&command.name, source).as_deref() != Some("dirname") {
-        return None;
-    }
-    current_source_file_word(&command.args[0], source).then_some(TemplatePart::SourceDir)
-}
-
-fn current_source_file_word(word: &Word, source: &str) -> bool {
-    matches!(
-        word.parts.as_slice(),
-        [part] if is_current_source_part(&part.kind, source)
-    )
-}
-
-fn is_current_source_part(part: &WordPart, source: &str) -> bool {
-    match part {
-        WordPart::Variable(name) => is_bash_source_var(name),
-        WordPart::Parameter(parameter) => parameter_is_current_source_file(parameter, source),
-        WordPart::ArrayAccess(reference) => is_bash_source_index_ref(reference, source),
-        WordPart::DoubleQuoted { parts, .. } => {
-            matches!(parts.as_slice(), [part] if is_current_source_part(&part.kind, source))
-        }
-        _ => false,
-    }
-}
-
 fn source_candidates(
     kind: &SourceRefKind,
     template: Option<&SourcePathTemplate>,
@@ -1291,8 +996,8 @@ fn summarize_helper_uncached(
     }
     let indexer = Indexer::new(source, &output);
     let mut observer = crate::NoopTraversalObserver;
-    let mut semantic = build_semantic_model_base(
-        &output.file,
+    let mut semantic = build_semantic_model_base_arena(
+        &output.arena_file,
         source,
         &indexer,
         &mut observer,
@@ -1474,7 +1179,7 @@ mod tests {
             .parse()
             .unwrap();
         let indexer = Indexer::new(source, &output);
-        let model = SemanticModel::build(&output.file, source, &indexer);
+        let model = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let facts = collect_ast_facts(&model);
         let call_names = facts
             .calls
@@ -1498,7 +1203,7 @@ coproc loader { . \"$2\"; }
             .parse()
             .unwrap();
         let indexer = Indexer::new(source, &output);
-        let model = SemanticModel::build(&output.file, source, &indexer);
+        let model = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let facts = collect_ast_facts(&model);
         let source_call_count = facts
             .calls

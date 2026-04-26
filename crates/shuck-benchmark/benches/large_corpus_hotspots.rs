@@ -242,8 +242,8 @@ fn prepare_word_facts_input(
 ) -> PreparedWordFactsInput {
     let parse_result = parse_large_corpus_fixture(fixture);
     let indexer = Indexer::new(&fixture.source, &parse_result);
-    let semantic = SemanticModel::build_with_options(
-        &parse_result.file,
+    let semantic = SemanticModel::build_arena_with_options(
+        &parse_result.arena_file,
         &fixture.source,
         &indexer,
         SemanticBuildOptions {

@@ -65,7 +65,7 @@ pub use shuck_parser::{OptionValue, ShellProfile, ZshEmulationMode, ZshOptionSta
 pub use source_ref::{SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution};
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{ArenaFile, Command, File, Name, Span};
+use shuck_ast::{ArenaFile, Name, Span};
 use shuck_indexer::Indexer;
 use smallvec::{Array, SmallVec};
 use std::path::{Path, PathBuf};
@@ -160,10 +160,6 @@ impl SyntheticRead {
 
 #[doc(hidden)]
 pub trait TraversalObserver {
-    fn enter_command(&mut self, _command: &Command, _scope: ScopeId, _flow: FlowContext) {}
-
-    fn exit_command(&mut self, _command: &Command, _scope: ScopeId) {}
-
     fn record_binding(&mut self, _binding: &Binding) {}
 
     fn record_reference(&mut self, _reference: &Reference, _resolved: Option<&Binding>) {}
@@ -510,10 +506,6 @@ struct FunctionReachWindow<'a> {
 
 #[allow(missing_docs)]
 impl SemanticModel {
-    pub fn build(file: &File, source: &str, indexer: &Indexer) -> Self {
-        Self::build_with_options(file, source, indexer, SemanticBuildOptions::default())
-    }
-
     pub fn build_arena(ast: &shuck_ast::ArenaFile, source: &str, indexer: &Indexer) -> Self {
         Self::build_arena_with_options(ast, source, indexer, SemanticBuildOptions::default())
     }
@@ -526,16 +518,6 @@ impl SemanticModel {
     ) -> Self {
         let mut observer = NoopTraversalObserver;
         build_with_observer_arena_with_options(ast, source, indexer, &mut observer, options)
-    }
-
-    pub fn build_with_options(
-        file: &File,
-        source: &str,
-        indexer: &Indexer,
-        options: SemanticBuildOptions<'_>,
-    ) -> Self {
-        let mut observer = NoopTraversalObserver;
-        build_with_observer_with_options(file, source, indexer, &mut observer, options)
     }
 
     fn from_build_output(built: builder::BuildOutput) -> Self {
@@ -1022,10 +1004,6 @@ impl SemanticModel {
         id
     }
 
-    pub(crate) fn apply_file_entry_contract(&mut self, contract: FileContract, file: &File) {
-        self.apply_file_entry_contract_at_span(contract, file.span);
-    }
-
     pub(crate) fn apply_file_entry_contract_at_span(
         &mut self,
         contract: FileContract,
@@ -1131,6 +1109,7 @@ impl SemanticModel {
         let mut merged_reads = self.synthetic_reads.clone();
         merged_reads.extend(synthetic_reads);
         self.set_synthetic_reads(dedup_synthetic_reads(merged_reads));
+        self.mark_synthetic_read_bindings_consumed();
 
         if !source_ref_resolutions.is_empty() {
             debug_assert_eq!(source_ref_resolutions.len(), self.source_refs.len());
@@ -1175,6 +1154,27 @@ impl SemanticModel {
             &self.functions,
             &self.call_sites,
         );
+    }
+
+    fn mark_synthetic_read_bindings_consumed(&mut self) {
+        if self.synthetic_reads.is_empty() {
+            return;
+        }
+        let names = self
+            .synthetic_reads
+            .iter()
+            .map(|read| read.name.clone())
+            .collect::<FxHashSet<_>>();
+        for binding in &mut self.bindings {
+            if names.contains(&binding.name) {
+                binding.attributes |= BindingAttributes::EXTERNALLY_CONSUMED;
+            }
+        }
+        self.heuristic_unused_assignments.retain(|binding_id| {
+            !self.bindings[binding_id.index()]
+                .attributes
+                .contains(BindingAttributes::EXTERNALLY_CONSUMED)
+        });
     }
 
     fn resolve_unresolved_references(&mut self) {
@@ -2838,33 +2838,6 @@ impl<'model> SemanticAnalysis<'model> {
 }
 
 #[doc(hidden)]
-pub fn build_with_observer(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    observer: &mut dyn TraversalObserver,
-) -> SemanticModel {
-    build_with_observer_with_options(
-        file,
-        source,
-        indexer,
-        observer,
-        SemanticBuildOptions::default(),
-    )
-}
-
-#[doc(hidden)]
-pub fn build_with_observer_with_options(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    observer: &mut dyn TraversalObserver,
-    options: SemanticBuildOptions<'_>,
-) -> SemanticModel {
-    build_semantic_model(file, source, indexer, observer, options)
-}
-
-#[doc(hidden)]
 pub fn build_with_observer_arena_with_options(
     ast: &ArenaFile,
     source: &str,
@@ -2873,42 +2846,6 @@ pub fn build_with_observer_arena_with_options(
     options: SemanticBuildOptions<'_>,
 ) -> SemanticModel {
     build_semantic_model_arena(ast, source, indexer, observer, options)
-}
-
-#[doc(hidden)]
-pub fn build_with_observer_at_path(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    observer: &mut dyn TraversalObserver,
-    source_path: Option<&Path>,
-) -> SemanticModel {
-    build_with_observer_at_path_with_resolver(file, source, indexer, observer, source_path, None)
-}
-
-#[doc(hidden)]
-pub fn build_with_observer_at_path_with_resolver(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    observer: &mut dyn TraversalObserver,
-    source_path: Option<&Path>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-) -> SemanticModel {
-    build_semantic_model(
-        file,
-        source,
-        indexer,
-        observer,
-        SemanticBuildOptions {
-            source_path,
-            source_path_resolver,
-            file_entry_contract: None,
-            analyzed_paths: None,
-            shell_profile: None,
-            resolve_source_closure: true,
-        },
-    )
 }
 
 #[doc(hidden)]
@@ -2993,87 +2930,6 @@ fn build_semantic_model_arena(
         );
     }
     model
-}
-
-fn build_semantic_model(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    observer: &mut dyn TraversalObserver,
-    options: SemanticBuildOptions<'_>,
-) -> SemanticModel {
-    let mut model = build_semantic_model_base(
-        file,
-        source,
-        indexer,
-        observer,
-        options.source_path,
-        options.shell_profile.clone(),
-    );
-    if let Some(contract) = options.file_entry_contract {
-        model.apply_file_entry_contract(contract, file);
-    }
-    if let Some(source_path) = options.source_path {
-        let (
-            synthetic_reads,
-            imported_bindings,
-            source_ref_resolutions,
-            source_ref_explicitness,
-            source_ref_diagnostic_classes,
-        ) = if options.resolve_source_closure {
-            source_closure::collect_source_closure_contracts(
-                &model,
-                file,
-                source,
-                source_path,
-                options.source_path_resolver,
-                options.analyzed_paths,
-            )
-        } else {
-            let (source_ref_resolutions, source_ref_explicitness, source_ref_diagnostic_classes) =
-                source_closure::collect_source_ref_metadata(
-                    &model,
-                    source_path,
-                    options.source_path_resolver,
-                    options.analyzed_paths,
-                );
-            (
-                Vec::new(),
-                Vec::new(),
-                source_ref_resolutions,
-                source_ref_explicitness,
-                source_ref_diagnostic_classes,
-            )
-        };
-        model.apply_source_contracts(
-            synthetic_reads,
-            imported_bindings,
-            source_ref_resolutions,
-            source_ref_explicitness,
-            source_ref_diagnostic_classes,
-        );
-    }
-    model
-}
-
-pub(crate) fn build_semantic_model_base(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    observer: &mut dyn TraversalObserver,
-    source_path: Option<&Path>,
-    shell_profile: Option<ShellProfile>,
-) -> SemanticModel {
-    let shell_profile = shell_profile.unwrap_or_else(|| infer_shell_profile(source, source_path));
-    let built = SemanticModelBuilder::build(
-        file,
-        source,
-        indexer,
-        observer,
-        bash_runtime_vars_enabled(source, source_path),
-        shell_profile,
-    );
-    SemanticModel::from_build_output(built)
 }
 
 pub(crate) fn build_semantic_model_base_arena(
@@ -3605,7 +3461,7 @@ fn indirect_target_matches(hint: &IndirectTargetHint, binding: &Binding) -> bool
 mod tests {
     use super::*;
     use crate::cfg::{RecordedCommandKind, build_control_flow_graph};
-    use shuck_ast::{Command, CompoundCommand};
+    use shuck_ast::{BuiltinCommandNodeKind, CompoundCommandNode};
     use shuck_indexer::Indexer;
     use shuck_parser::parser::{Parser, ShellDialect};
     use std::fs;
@@ -3665,8 +3521,8 @@ mod tests {
         let output = Parser::new(&source).parse().unwrap();
         let indexer = Indexer::new(&source, &output);
         let mut observer = NoopTraversalObserver;
-        build_with_observer_at_path_with_resolver(
-            &output.file,
+        build_with_observer_arena_at_path_with_resolver(
+            &output.arena_file,
             &source,
             &indexer,
             &mut observer,
@@ -4314,8 +4170,8 @@ printf '%s\\n' \"$pkgname\"
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let model = SemanticModel::build_with_options(
-            &output.file,
+        let model = SemanticModel::build_arena_with_options(
+            &output.arena_file,
             source,
             &indexer,
             SemanticBuildOptions {
@@ -5618,27 +5474,52 @@ done
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let model = SemanticModel::build(&output.file, source, &indexer);
+        let model = SemanticModel::build_arena(&output.arena_file, source, &indexer);
 
-        let Command::Compound(CompoundCommand::If(if_command)) = &output.file.body[0].command
-        else {
+        let mut top_level = output.arena_file.view().body().stmts();
+        let if_stmt = top_level.next().expect("expected if statement");
+        let for_stmt = top_level.next().expect("expected for statement");
+
+        let Some(if_command) = if_stmt.command().compound() else {
             panic!("expected if command");
         };
-        let condition_span = match &if_command.condition[0].command {
-            Command::Simple(command) => command.span,
-            other => panic!("unexpected condition command: {other:?}"),
+        let CompoundCommandNode::If { condition, .. } = if_command.node() else {
+            panic!("expected if command");
         };
+        let condition_span = output
+            .arena_file
+            .store
+            .stmt_seq(*condition)
+            .stmts()
+            .next()
+            .and_then(|stmt| {
+                let command = stmt.command();
+                command.simple().map(|_| command.span())
+            })
+            .expect("expected simple condition command");
         let condition_context = model.flow_context_at(&condition_span).unwrap();
         assert!(condition_context.exit_status_checked);
 
-        let Command::Compound(CompoundCommand::For(for_command)) = &output.file.body[1].command
-        else {
+        let Some(for_command) = for_stmt.command().compound() else {
             panic!("expected for command");
         };
-        let break_span = match &for_command.body[0].command {
-            Command::Builtin(shuck_ast::BuiltinCommand::Break(command)) => command.span,
-            other => panic!("unexpected loop body command: {other:?}"),
+        let CompoundCommandNode::For { body, .. } = for_command.node() else {
+            panic!("expected for command");
         };
+        let break_span = output
+            .arena_file
+            .store
+            .stmt_seq(*body)
+            .stmts()
+            .next()
+            .and_then(|stmt| {
+                let command = stmt.command();
+                command
+                    .builtin()
+                    .filter(|builtin| builtin.kind() == BuiltinCommandNodeKind::Break)
+                    .map(|_| command.span())
+            })
+            .expect("expected break command");
         let break_context = model.flow_context_at(&break_span).unwrap();
         assert_eq!(break_context.loop_depth, 1);
     }
@@ -6017,8 +5898,8 @@ echo $value
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let model = SemanticModel::build_with_options(
-            &output.file,
+        let model = SemanticModel::build_arena_with_options(
+            &output.arena_file,
             source,
             &indexer,
             SemanticBuildOptions {
@@ -10593,8 +10474,8 @@ printf '%s\\n' \"$flag\"
         let source = "printf '%s\\n' \"$pkgname\" \"$pkgver\" \"$wrksrc\"\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let model = SemanticModel::build_with_options(
-            &output.file,
+        let model = SemanticModel::build_arena_with_options(
+            &output.arena_file,
             source,
             &indexer,
             SemanticBuildOptions {
@@ -10658,8 +10539,8 @@ build() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let model = SemanticModel::build_with_options(
-            &output.file,
+        let model = SemanticModel::build_arena_with_options(
+            &output.arena_file,
             source,
             &indexer,
             SemanticBuildOptions {
@@ -10731,8 +10612,8 @@ hook() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let model = SemanticModel::build_with_options(
-            &output.file,
+        let model = SemanticModel::build_arena_with_options(
+            &output.arena_file,
             source,
             &indexer,
             SemanticBuildOptions {
@@ -10804,8 +10685,8 @@ hook() {
         let source = "printf '%s\\n' \"$theme_color\"\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let model = SemanticModel::build_with_options(
-            &output.file,
+        let model = SemanticModel::build_arena_with_options(
+            &output.arena_file,
             source,
             &indexer,
             SemanticBuildOptions {
@@ -10842,8 +10723,8 @@ hook() {
         let source = "published=1\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let model = SemanticModel::build_with_options(
-            &output.file,
+        let model = SemanticModel::build_arena_with_options(
+            &output.arena_file,
             source,
             &indexer,
             SemanticBuildOptions {
@@ -11335,7 +11216,7 @@ echo done
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let model = SemanticModel::build(&output.file, source, &indexer);
+        let model = SemanticModel::build_arena(&output.arena_file, source, &indexer);
 
         let file_commands = model
             .recorded_program
@@ -11380,7 +11261,7 @@ echo done
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let model = SemanticModel::build(&output.file, source, &indexer);
+        let model = SemanticModel::build_arena(&output.arena_file, source, &indexer);
 
         let file_commands = model
             .recorded_program

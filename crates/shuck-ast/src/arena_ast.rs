@@ -157,6 +157,11 @@ impl AstStore {
         self.array_elem_lists.get(range)
     }
 
+    /// Returns for-loop target nodes from a list range.
+    pub fn for_targets(&self, range: IdRange<ForTargetNode>) -> &[ForTargetNode] {
+        self.for_target_lists.get(range)
+    }
+
     /// Returns heredoc body part nodes from a list range.
     pub fn heredoc_body_parts(
         &self,
@@ -188,6 +193,11 @@ impl AstStore {
     /// Returns zsh glob segment nodes from a list range.
     pub fn zsh_glob_segments(&self, range: IdRange<ZshGlobSegmentNode>) -> &[ZshGlobSegmentNode] {
         self.zsh_glob_segment_lists.get(range)
+    }
+
+    /// Returns zsh modifier nodes from a list range.
+    pub fn zsh_modifiers(&self, range: IdRange<ZshModifierNode>) -> &[ZshModifierNode] {
+        self.zsh_modifier_lists.get(range)
     }
 
     /// Returns word part nodes from a list range.
@@ -2413,6 +2423,11 @@ impl<'a> StmtView<'a> {
         self.node().terminator
     }
 
+    /// Returns this statement's terminator span.
+    pub fn terminator_span(self) -> Option<Span> {
+        self.node().terminator_span
+    }
+
     /// Returns this statement's inline comment.
     pub fn inline_comment(self) -> Option<Comment> {
         self.node().inline_comment
@@ -2421,11 +2436,6 @@ impl<'a> StmtView<'a> {
     /// Returns this statement's source span.
     pub fn span(self) -> Span {
         self.node().span
-    }
-
-    /// Materializes this statement into the recursive AST representation.
-    pub fn to_stmt(self) -> Stmt {
-        self.store.materialize_stmt(self.id)
     }
 
     fn node(self) -> &'a StmtNode {
@@ -2938,6 +2948,11 @@ impl<'a> WordView<'a> {
     /// Returns this node's ID.
     pub fn id(self) -> WordId {
         self.id
+    }
+
+    /// Returns the arena store that owns this word.
+    pub fn store(self) -> &'a AstStore {
+        self.store
     }
 
     /// Returns this word's parts.

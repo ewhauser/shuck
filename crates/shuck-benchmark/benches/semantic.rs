@@ -14,7 +14,7 @@ struct PreparedScopeLookupInput {
 fn build_semantic(source: &str) -> usize {
     let output = parse_fixture(source);
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
 
     black_box(semantic.bindings().len() + semantic.references().len() + semantic.scopes().len())
 }
@@ -22,7 +22,7 @@ fn build_semantic(source: &str) -> usize {
 fn prepare_scope_lookup_input(source: &'static str) -> PreparedScopeLookupInput {
     let output = parse_fixture(source);
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let mut seen = HashSet::new();
     let mut offsets = Vec::new();
 

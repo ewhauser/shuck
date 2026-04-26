@@ -186,7 +186,7 @@ struct CaseReport {
 fn build_semantic(source: &str) -> (SemanticModel, usize, usize, bool) {
     let output = parse_fixture(source);
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let semantic_count =
         semantic.bindings().len() + semantic.references().len() + semantic.scopes().len();
     (

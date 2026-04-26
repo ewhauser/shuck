@@ -121,7 +121,7 @@ use shuck_indexer::{Indexer, LineIndex};
 use shuck_parser::parser::{ParseResult, Parser};
 use shuck_semantic::{
     SemanticBuildOptions, SemanticModel, SourcePathResolver, TraversalObserver,
-    build_with_observer_arena_with_options, build_with_observer_with_options,
+    build_with_observer_arena_with_options,
 };
 use std::path::Path;
 
@@ -286,6 +286,7 @@ fn analyze_file_at_path_with_resolver_and_shell(
     shell: ShellDialect,
     first_parse_error: Option<(usize, usize)>,
 ) -> AnalysisResult {
+    let ast = ArenaFile::from_file(file);
     let file_context = classify_file_context(source, source_path, shell);
     let file_entry_contract =
         ambient_contracts::file_entry_contract(source, source_path, shell, &file_context);
@@ -298,8 +299,8 @@ fn analyze_file_at_path_with_resolver_and_shell(
 
     let mut observer = LintTraversalObserver::default();
     let shell_profile = shell.shell_profile();
-    let semantic = build_with_observer_with_options(
-        file,
+    let semantic = build_with_observer_arena_with_options(
+        &ast,
         source,
         indexer,
         &mut observer,

@@ -2498,8 +2498,8 @@ fn extract_large_corpus_zsh_option_state(
     shell_profile: shuck_parser::ShellProfile,
 ) -> Result<(), String> {
     let indexer = shuck_indexer::Indexer::new(source, output);
-    let semantic = shuck_semantic::SemanticModel::build_with_options(
-        &output.file,
+    let semantic = shuck_semantic::SemanticModel::build_arena_with_options(
+        &output.arena_file,
         source,
         &indexer,
         shuck_semantic::SemanticBuildOptions {

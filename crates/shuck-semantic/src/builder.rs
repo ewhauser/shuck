@@ -2,17 +2,23 @@ use std::{borrow::Cow, collections::BTreeMap};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    AnonymousFunctionCommand, ArenaFile, ArithmeticAssignOp, ArithmeticExpr, ArithmeticExprNode,
-    ArithmeticLvalue, ArithmeticUnaryOp, ArrayElem, ArrayExpr, ArrayKind, Assignment,
-    AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command,
-    CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclOperand, File,
-    FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, LiteralText, Name,
-    NormalizedCommand, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
-    PatternGroupKind, PatternPart, PatternPartNode, Position, SourceText, Span,
-    StaticCommandWrapperTarget, Stmt, StmtSeq, StmtSeqView, Subscript, VarRef, Word, WordPart,
-    WordPartNode, WrapperKind, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
-    normalize_command_words, static_command_name_text, static_command_wrapper_target_index,
-    static_word_text, try_static_word_parts_text,
+    AnonymousFunctionCommand, ArenaFile, ArenaFileCommandKind, ArenaHeredocBodyPart,
+    ArithmeticAssignOp, ArithmeticExpr, ArithmeticExprArena, ArithmeticExprArenaNode,
+    ArithmeticExprNode, ArithmeticLvalue, ArithmeticLvalueArena, ArithmeticUnaryOp, ArrayElem,
+    ArrayExpr, ArrayKind, Assignment, AssignmentNode, AssignmentValue, AssignmentValueNode,
+    AstStore, BinaryCommand, BinaryOp, BourneParameterExpansion, BourneParameterExpansionNode,
+    BuiltinCommand, BuiltinCommandNodeKind, Command, CommandView, CompoundCommand,
+    CompoundCommandNode, ConditionalBinaryOp, ConditionalExpr, ConditionalExprArena,
+    ConditionalUnaryOp, DeclOperand, DeclOperandNode, FunctionDef, HeredocBody, HeredocBodyPart,
+    HeredocBodyPartNode, LiteralText, Name, NormalizedCommand, ParameterExpansion,
+    ParameterExpansionNode, ParameterExpansionSyntax, ParameterExpansionSyntaxNode, ParameterOp,
+    Pattern, PatternGroupKind, PatternNode, PatternPart, PatternPartArena, PatternPartNode,
+    Position, RedirectNode, RedirectTargetNode, SourceText, Span, StaticCommandWrapperTarget, Stmt,
+    StmtSeq, StmtSeqId, StmtSeqView, StmtView, Subscript, SubscriptNode, VarRef, VarRefNode, Word,
+    WordId, WordPart, WordPartArena, WordPartArenaNode, WordPartNode, WrapperKind,
+    ZshExpansionOperation, ZshExpansionOperationNode, ZshExpansionTarget, ZshExpansionTargetNode,
+    ZshGlobSegment, normalize_command_words, static_command_name_text,
+    static_command_wrapper_target_index, static_word_text, try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::{ShellProfile, ZshEmulationMode};
@@ -32,7 +38,7 @@ use crate::cfg::{
 use crate::declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 use crate::reference::{Reference, ReferenceKind};
 use crate::runtime::RuntimePrelude;
-use crate::source_closure::source_path_template;
+use crate::source_closure::{SourcePathTemplate, TemplatePart};
 use crate::source_ref::{
     SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution,
     default_diagnostic_class,
@@ -72,8 +78,9 @@ pub(crate) struct BuildOutput {
     pub(crate) heuristic_unused_assignments: Vec<BindingId>,
 }
 
-pub(crate) struct SemanticModelBuilder<'a, 'observer> {
-    source: &'a str,
+pub(crate) struct SemanticModelBuilder<'src, 'ast, 'observer> {
+    source: &'src str,
+    arena_store: Option<&'ast AstStore>,
     line_start_offsets: Vec<usize>,
     shell_profile: ShellProfile,
     observer: &'observer mut dyn TraversalObserver,
@@ -128,6 +135,21 @@ fn semantic_statement_span(stmt: &Stmt) -> Span {
     Span::from_positions(stmt.span.start, end)
 }
 
+fn semantic_statement_span_arena(stmt: StmtView<'_>) -> Span {
+    let mut end = stmt
+        .terminator_span()
+        .filter(|terminator| terminator.end.offset == stmt.span().end.offset)
+        .map_or(stmt.span().end, |terminator| terminator.start);
+
+    for redirect in stmt.redirects() {
+        if redirect.span.end.offset > end.offset {
+            end = redirect.span.end;
+        }
+    }
+
+    Span::from_positions(stmt.span().start, end)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 struct FlowState {
     in_function: bool,
@@ -155,116 +177,48 @@ enum WordVisitKind {
 }
 
 #[derive(Debug, Clone)]
+struct ArenaNormalizedCommand<'a> {
+    literal_name: Option<Cow<'a, str>>,
+    effective_name: Option<Cow<'a, str>>,
+    wrappers: Vec<WrapperKind>,
+    body_word_span: Option<Span>,
+    body_words: Vec<WordId>,
+    command_span: Span,
+}
+
+impl ArenaNormalizedCommand<'_> {
+    fn body_word_span(&self) -> Option<Span> {
+        self.body_word_span
+    }
+
+    fn body_args(&self) -> &[WordId] {
+        self.body_words.split_first().map_or(&[], |(_, rest)| rest)
+    }
+}
+
+#[derive(Debug, Clone)]
 struct DeferredFunction {
-    function: FunctionDef,
+    body: DeferredFunctionBody,
     scope: ScopeId,
     flow: FlowState,
 }
 
-impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
-    pub(crate) fn build(
-        file: &File,
-        source: &'a str,
-        indexer: &Indexer,
-        observer: &'observer mut dyn TraversalObserver,
-        bash_runtime_vars_enabled: bool,
-        shell_profile: ShellProfile,
-    ) -> BuildOutput {
-        let file_scope = Scope {
-            id: ScopeId(0),
-            kind: ScopeKind::File,
-            parent: None,
-            span: file.span,
-            bindings: FxHashMap::default(),
-        };
-        let runtime = RuntimePrelude::new(bash_runtime_vars_enabled);
-        let mut builder = Self {
-            source,
-            line_start_offsets: source_line_start_offsets(source),
-            shell_profile: shell_profile.clone(),
-            observer,
-            scopes: vec![file_scope],
-            bindings: Vec::new(),
-            references: Vec::new(),
-            reference_index: FxHashMap::default(),
-            predefined_runtime_refs: FxHashSet::default(),
-            guarded_parameter_refs: FxHashSet::default(),
-            parameter_guard_flow_refs: FxHashSet::default(),
-            defaulting_parameter_operand_refs: FxHashSet::default(),
-            self_referential_assignment_refs: FxHashSet::default(),
-            binding_index: FxHashMap::default(),
-            resolved: FxHashMap::default(),
-            unresolved: Vec::new(),
-            functions: FxHashMap::default(),
-            call_sites: FxHashMap::default(),
-            source_refs: Vec::new(),
-            declarations: Vec::new(),
-            indirect_target_hints: FxHashMap::default(),
-            indirect_expansion_refs: FxHashSet::default(),
-            flow_contexts: Vec::new(),
-            recorded_program: RecordedProgram::default(),
-            command_bindings: FxHashMap::default(),
-            command_references: FxHashMap::default(),
-            source_directives: parse_source_directives(source, indexer),
-            cleared_variables: FxHashMap::default(),
-            runtime,
-            completed_scopes: FxHashSet::default(),
-            deferred_functions: Vec::new(),
-            scope_stack: vec![ScopeId(0)],
-            command_stack: Vec::new(),
-            guarded_parameter_operand_depth: 0,
-            defaulting_parameter_operand_depth: 0,
-            short_circuit_condition_depth: 0,
-            arithmetic_reference_kind: ReferenceKind::ArithmeticRead,
-            word_reference_kind_override: None,
-        };
-        let file_commands = builder.visit_stmt_seq(&file.body, FlowState::default());
-        builder.recorded_program.set_file_commands(file_commands);
-        builder.mark_scope_completed(ScopeId(0));
-        builder.drain_deferred_functions();
+#[derive(Debug, Clone)]
+enum DeferredFunctionBody {
+    Recursive(FunctionDef),
+    Arena(StmtSeqId),
+}
 
-        let call_graph = builder.build_call_graph();
-        let heuristic_unused_assignments = builder.compute_heuristic_unused_assignments();
-
-        BuildOutput {
-            shell_profile,
-            scopes: builder.scopes,
-            bindings: builder.bindings,
-            references: builder.references,
-            reference_index: builder.reference_index,
-            predefined_runtime_refs: builder.predefined_runtime_refs,
-            guarded_parameter_refs: builder.guarded_parameter_refs,
-            parameter_guard_flow_refs: builder.parameter_guard_flow_refs,
-            defaulting_parameter_operand_refs: builder.defaulting_parameter_operand_refs,
-            self_referential_assignment_refs: builder.self_referential_assignment_refs,
-            binding_index: builder.binding_index,
-            resolved: builder.resolved,
-            unresolved: builder.unresolved,
-            functions: builder.functions,
-            call_sites: builder.call_sites,
-            call_graph,
-            source_refs: builder.source_refs,
-            runtime: builder.runtime,
-            declarations: builder.declarations,
-            indirect_target_hints: builder.indirect_target_hints,
-            indirect_expansion_refs: builder.indirect_expansion_refs,
-            flow_contexts: builder.flow_contexts,
-            recorded_program: builder.recorded_program,
-            command_bindings: builder.command_bindings,
-            command_references: builder.command_references,
-            cleared_variables: builder.cleared_variables,
-            heuristic_unused_assignments,
-        }
-    }
-
+impl<'src, 'ast, 'observer> SemanticModelBuilder<'src, 'ast, 'observer> {
     pub(crate) fn build_arena(
-        file: &'a ArenaFile,
-        source: &'a str,
+        file: &'ast ArenaFile,
+        source: &'src str,
         indexer: &Indexer,
         observer: &'observer mut dyn TraversalObserver,
         bash_runtime_vars_enabled: bool,
         shell_profile: ShellProfile,
     ) -> BuildOutput {
+        let arena_store = &file.store;
         let file = file.view();
         let file_scope = Scope {
             id: ScopeId(0),
@@ -276,6 +230,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let runtime = RuntimePrelude::new(bash_runtime_vars_enabled);
         let mut builder = Self {
             source,
+            arena_store: Some(arena_store),
             line_start_offsets: source_line_start_offsets(source),
             shell_profile: shell_profile.clone(),
             observer,
@@ -320,6 +275,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         builder.drain_deferred_functions();
 
         let call_graph = builder.build_call_graph();
+        builder.mark_local_declarations_visible_to_later_calls();
         let heuristic_unused_assignments = builder.compute_heuristic_unused_assignments();
 
         BuildOutput {
@@ -363,6 +319,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn arena_store(&self) -> &'ast AstStore {
+        self.arena_store
+            .expect("arena visitor requires arena storage")
+    }
+
+    fn arena_stmt_seq(&self, id: StmtSeqId) -> StmtSeqView<'ast> {
+        self.arena_store().stmt_seq(id)
+    }
+
     fn record_command(
         &mut self,
         span: Span,
@@ -401,11 +366,20 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
     ) -> RecordedCommandRange {
         let mut recorded = Vec::with_capacity(commands.stmt_ids().len());
-        for stmt in commands.stmts() {
-            let stmt = stmt.to_stmt();
-            recorded.push(self.visit_stmt(&stmt, flow));
-        }
+        self.visit_stmt_seq_arena_into(commands, flow, &mut recorded);
         self.recorded_program.push_command_ids(recorded)
+    }
+
+    fn visit_stmt_seq_arena_into(
+        &mut self,
+        commands: StmtSeqView<'_>,
+        flow: FlowState,
+        recorded: &mut Vec<RecordedCommandId>,
+    ) {
+        recorded.reserve(commands.stmt_ids().len());
+        for stmt in commands.stmts() {
+            recorded.push(self.visit_stmt_arena(stmt, flow));
+        }
     }
 
     fn visit_stmt_seq_into(
@@ -422,10 +396,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_stmt(&mut self, stmt: &Stmt, flow: FlowState) -> RecordedCommandId {
         let span = semantic_statement_span(stmt);
-        let scope = self.current_scope();
         let context = Self::flow_context(flow);
-        self.flow_contexts.push((span, context.clone()));
-        self.observer.enter_command(&stmt.command, scope, context);
+        self.flow_contexts.push((span, context));
         self.command_stack.push(span);
 
         let recorded = self.visit_command(&stmt.command, flow);
@@ -440,7 +412,29 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         );
 
         self.command_stack.pop();
-        self.observer.exit_command(&stmt.command, scope);
+        recorded
+    }
+
+    fn visit_stmt_arena(&mut self, stmt: StmtView<'_>, flow: FlowState) -> RecordedCommandId {
+        let span = semantic_statement_span_arena(stmt);
+        let scope = self.current_scope();
+        let context = Self::flow_context(flow);
+        self.flow_contexts.push((span, context));
+        self.command_stack.push(span);
+
+        let recorded = self.visit_command_arena(stmt.command(), flow);
+        let redirects = self.visit_redirects_arena(stmt.redirects(), flow);
+        if !redirects.is_empty() {
+            self.prepend_nested_regions(recorded, redirects);
+        }
+        self.recorded_program.command_mut(recorded).span = span;
+        self.recorded_program.command_infos.insert(
+            SpanKey::new(span),
+            recorded_command_info_arena(stmt.command(), self.source, self.runtime.bash_enabled()),
+        );
+
+        self.command_stack.pop();
+        let _ = scope;
         recorded
     }
 
@@ -453,6 +447,24 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             Command::Compound(command) => self.visit_compound(command, flow),
             Command::Function(command) => self.visit_function(command, flow),
             Command::AnonymousFunction(command) => self.visit_anonymous_function(command, flow),
+        }
+    }
+
+    fn visit_command_arena(
+        &mut self,
+        command: CommandView<'_>,
+        flow: FlowState,
+    ) -> RecordedCommandId {
+        match command.kind() {
+            ArenaFileCommandKind::Simple => self.visit_simple_command_arena(command, flow),
+            ArenaFileCommandKind::Builtin => self.visit_builtin_arena(command, flow),
+            ArenaFileCommandKind::Decl => self.visit_decl_arena(command, flow),
+            ArenaFileCommandKind::Binary => self.visit_binary_arena(command, flow),
+            ArenaFileCommandKind::Compound => self.visit_compound_arena(command, flow),
+            ArenaFileCommandKind::Function => self.visit_function_arena(command, flow),
+            ArenaFileCommandKind::AnonymousFunction => {
+                self.visit_anonymous_function_arena(command, flow)
+            }
         }
     }
 
@@ -530,6 +542,92 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.record_command(command.span, nested_regions, RecordedCommandKind::Linear)
     }
 
+    fn visit_simple_command_arena(
+        &mut self,
+        command: CommandView<'_>,
+        flow: FlowState,
+    ) -> RecordedCommandId {
+        let command_span = command.span();
+        let command = command
+            .simple()
+            .expect("simple command kind should expose simple payload");
+        let mut nested_regions = Vec::new();
+        let command_has_name = !matches!(
+            static_word_text_arena(command.name(), self.source).as_deref(),
+            Some("")
+        );
+        for assignment in command.assignments() {
+            if command_has_name {
+                self.visit_assignment_value_arena_into(assignment, flow, &mut nested_regions);
+            } else {
+                self.visit_assignment_arena_into(
+                    assignment,
+                    None,
+                    BindingAttributes::empty(),
+                    flow,
+                    &mut nested_regions,
+                );
+            }
+        }
+
+        self.visit_word_arena_into(
+            command.name(),
+            WordVisitKind::Expansion,
+            flow,
+            &mut nested_regions,
+        );
+        for arg in command.args() {
+            self.visit_word_arena_into(arg, WordVisitKind::Expansion, flow, &mut nested_regions);
+        }
+
+        let words = std::iter::once(command.name_id())
+            .chain(command.arg_ids().iter().copied())
+            .collect::<Vec<_>>();
+        let normalized =
+            normalize_command_words_arena(self.arena_store(), &words, command_span, self.source)
+                .expect("simple commands always have a name");
+
+        if let Some(name) = normalized.literal_name.as_deref()
+            && !name.is_empty()
+        {
+            let callee = Name::from(name);
+            let scope = self.current_scope();
+            let call_site = CallSite {
+                callee: callee.clone(),
+                span: normalized.command_span,
+                name_span: command.name().span(),
+                scope,
+                arg_count: command.arg_ids().len(),
+            };
+            self.call_sites
+                .entry(callee.clone())
+                .or_default()
+                .push(call_site);
+            self.recorded_program.call_command_spans.insert(
+                SpanKey::new(normalized.command_span),
+                self.command_stack
+                    .last()
+                    .copied()
+                    .unwrap_or(normalized.command_span),
+            );
+        }
+
+        if let Some(name) = normalized.effective_name.as_deref()
+            && !name.is_empty()
+        {
+            let callee = Name::from(name);
+            if resolved_command_can_affect_current_shell_arena(&normalized) {
+                self.classify_special_simple_command_arena(&callee, &normalized, flow);
+            }
+        }
+
+        self.record_command(
+            normalized.command_span,
+            nested_regions,
+            RecordedCommandKind::Linear,
+        )
+    }
+
     fn visit_builtin(&mut self, command: &BuiltinCommand, flow: FlowState) -> RecordedCommandId {
         match command {
             BuiltinCommand::Break(command) => {
@@ -581,6 +679,52 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.record_command(command.span, nested_regions, RecordedCommandKind::Exit)
             }
         }
+    }
+
+    fn visit_builtin_arena(
+        &mut self,
+        command: CommandView<'_>,
+        flow: FlowState,
+    ) -> RecordedCommandId {
+        let span = command.span();
+        let command = command
+            .builtin()
+            .expect("builtin command kind should expose builtin payload");
+        let mut nested_regions = Vec::new();
+        for assignment in command.assignments() {
+            self.visit_assignment_value_arena_into(assignment, flow, &mut nested_regions);
+        }
+        if let Some(primary) = command.primary() {
+            self.visit_word_arena_into(
+                primary,
+                WordVisitKind::Expansion,
+                flow,
+                &mut nested_regions,
+            );
+        }
+        for arg in command.extra_args() {
+            self.visit_word_arena_into(arg, WordVisitKind::Expansion, flow, &mut nested_regions);
+        }
+
+        let kind = match command.kind() {
+            BuiltinCommandNodeKind::Break => RecordedCommandKind::Break {
+                depth: depth_from_static_text(
+                    command
+                        .primary()
+                        .and_then(|word| static_word_text_arena(word, self.source)),
+                ),
+            },
+            BuiltinCommandNodeKind::Continue => RecordedCommandKind::Continue {
+                depth: depth_from_static_text(
+                    command
+                        .primary()
+                        .and_then(|word| static_word_text_arena(word, self.source)),
+                ),
+            },
+            BuiltinCommandNodeKind::Return => RecordedCommandKind::Return,
+            BuiltinCommandNodeKind::Exit => RecordedCommandKind::Exit,
+        };
+        self.record_command(span, nested_regions, kind)
     }
 
     fn visit_builtin_parts(
@@ -684,10 +828,174 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.record_command(command.span, nested_regions, RecordedCommandKind::Linear)
     }
 
+    fn visit_decl_arena(&mut self, command: CommandView<'_>, flow: FlowState) -> RecordedCommandId {
+        let span = command.span();
+        let command = command
+            .decl()
+            .expect("decl command kind should expose declaration payload");
+        let mut nested_regions = Vec::new();
+        for assignment in command.assignments() {
+            self.visit_assignment_value_arena_into(assignment, flow, &mut nested_regions);
+        }
+
+        let builtin = declaration_builtin(command.variant());
+        let flags = declaration_flags_arena(command.operands(), self.arena_store(), self.source);
+        let global_flag_enabled = declaration_flag_is_enabled_arena(
+            command.operands(),
+            self.arena_store(),
+            self.source,
+            'g',
+        )
+        .unwrap_or(false);
+        self.declarations.push(Declaration {
+            builtin,
+            span,
+            operands: declaration_operands_arena(
+                command.operands(),
+                self.arena_store(),
+                self.source,
+            ),
+        });
+
+        let mut name_operands_are_function_names = false;
+        for operand in command.operands() {
+            match operand {
+                DeclOperandNode::Flag(word) => {
+                    update_declaration_function_name_mode_arena(
+                        self.arena_store().word(*word),
+                        self.source,
+                        &mut name_operands_are_function_names,
+                    );
+                    self.visit_word_arena_into(
+                        self.arena_store().word(*word),
+                        WordVisitKind::Expansion,
+                        flow,
+                        &mut nested_regions,
+                    );
+                }
+                DeclOperandNode::Dynamic(word) => {
+                    self.visit_word_arena_into(
+                        self.arena_store().word(*word),
+                        WordVisitKind::Expansion,
+                        flow,
+                        &mut nested_regions,
+                    );
+                }
+                DeclOperandNode::Name(name) => {
+                    self.visit_var_ref_subscript_words_arena(
+                        Some(&name.name),
+                        name.subscript.as_deref(),
+                        WordVisitKind::Expansion,
+                        flow,
+                        &mut nested_regions,
+                    );
+                    if !name_operands_are_function_names {
+                        self.visit_name_only_declaration_operand(
+                            builtin,
+                            &flags,
+                            global_flag_enabled,
+                            &name.name,
+                            name.span,
+                        );
+                    }
+                }
+                DeclOperandNode::Assignment(assignment) => {
+                    let (scope, mut attributes) =
+                        self.declaration_scope_and_attributes(builtin, &flags, global_flag_enabled);
+                    attributes |= BindingAttributes::DECLARATION_INITIALIZED;
+                    if flags.contains(&'p') {
+                        attributes |= BindingAttributes::EXTERNALLY_CONSUMED;
+                    }
+                    let kind = if attributes.contains(BindingAttributes::NAMEREF) {
+                        BindingKind::Nameref
+                    } else {
+                        BindingKind::Declaration(builtin)
+                    };
+                    self.visit_assignment_arena_into(
+                        assignment,
+                        Some((kind, scope)),
+                        attributes,
+                        flow,
+                        &mut nested_regions,
+                    );
+                }
+            }
+        }
+
+        self.record_command(span, nested_regions, RecordedCommandKind::Linear)
+    }
+
     fn visit_binary(&mut self, command: &BinaryCommand, flow: FlowState) -> RecordedCommandId {
         match command.op {
             BinaryOp::And | BinaryOp::Or => self.visit_logical_binary(command, flow),
             BinaryOp::Pipe | BinaryOp::PipeAll => self.visit_pipeline_binary(command, flow),
+        }
+    }
+
+    fn visit_binary_arena(
+        &mut self,
+        command: CommandView<'_>,
+        flow: FlowState,
+    ) -> RecordedCommandId {
+        let span = command.span();
+        let command = command
+            .binary()
+            .expect("binary command kind should expose binary payload");
+        match command.op() {
+            BinaryOp::And | BinaryOp::Or => {
+                let mut operators = SmallVec::<[RecordedListOperator; 4]>::new();
+                let mut commands = SmallVec::<[StmtView<'_>; 4]>::new();
+                collect_logical_segments_arena(command.left(), &mut commands, &mut operators);
+                operators.push(recorded_list_operator(command.op()));
+                collect_logical_segments_arena(command.right(), &mut commands, &mut operators);
+
+                let mut recorded =
+                    SmallVec::<[RecordedCommandId; 4]>::with_capacity(commands.len());
+                for (index, stmt) in commands.into_iter().enumerate() {
+                    let mut nested = flow;
+                    nested.exit_status_checked =
+                        operators.get(index).is_some() || flow.exit_status_checked;
+                    if index > 0 {
+                        nested.conditionally_executed = true;
+                    }
+                    recorded.push(self.visit_stmt_arena(stmt, nested));
+                }
+
+                let mut recorded = recorded.into_iter();
+                let Some(first) = recorded.next() else {
+                    unreachable!("logical lists have at least one command");
+                };
+                let rest = self.recorded_program.push_list_items(
+                    operators
+                        .into_iter()
+                        .zip(recorded)
+                        .map(|(operator, command)| RecordedListItem { operator, command })
+                        .collect(),
+                );
+                self.record_command(span, Vec::new(), RecordedCommandKind::List { first, rest })
+            }
+            BinaryOp::Pipe | BinaryOp::PipeAll => {
+                let mut flow = flow;
+                flow.in_subshell = true;
+                let mut commands = SmallVec::<[StmtView<'_>; 4]>::new();
+                collect_pipeline_segments_arena(command.left(), &mut commands);
+                collect_pipeline_segments_arena(command.right(), &mut commands);
+
+                let mut segments = Vec::with_capacity(commands.len());
+                for stmt in commands {
+                    let scope =
+                        self.push_scope(ScopeKind::Pipeline, self.current_scope(), stmt.span());
+                    let recorded = self.visit_stmt_arena(stmt, flow);
+                    self.pop_scope(scope);
+                    self.mark_scope_completed(scope);
+                    segments.push(RecordedPipelineSegment {
+                        scope,
+                        command: recorded,
+                    });
+                }
+                let segments = self.recorded_program.push_pipeline_segments(segments);
+                self.record_command(span, Vec::new(), RecordedCommandKind::Pipeline { segments })
+            }
         }
     }
 
@@ -1102,6 +1410,383 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn visit_compound_arena(
+        &mut self,
+        command: CommandView<'_>,
+        flow: FlowState,
+    ) -> RecordedCommandId {
+        let span = command.span();
+        let node = command
+            .compound()
+            .expect("compound command kind should expose compound payload")
+            .node();
+        match node {
+            CompoundCommandNode::If {
+                condition,
+                then_branch,
+                elif_branches,
+                else_branch,
+                ..
+            } => {
+                let condition = self.visit_stmt_seq_arena(
+                    self.arena_stmt_seq(*condition),
+                    FlowState {
+                        exit_status_checked: true,
+                        ..flow
+                    },
+                );
+                let then_branch = self
+                    .visit_stmt_seq_arena(self.arena_stmt_seq(*then_branch), flow.conditional());
+                let branches = self.arena_store().elif_branches(*elif_branches).to_vec();
+                let elif_branches = branches
+                    .into_iter()
+                    .map(|branch| RecordedElifBranch {
+                        condition: self.visit_stmt_seq_arena(
+                            self.arena_stmt_seq(branch.condition),
+                            FlowState {
+                                exit_status_checked: true,
+                                ..flow.conditional()
+                            },
+                        ),
+                        body: self.visit_stmt_seq_arena(
+                            self.arena_stmt_seq(branch.body),
+                            flow.conditional(),
+                        ),
+                    })
+                    .collect();
+                let elif_branches = self.recorded_program.push_elif_branches(elif_branches);
+                let else_branch = else_branch
+                    .map(|body| {
+                        self.visit_stmt_seq_arena(self.arena_stmt_seq(body), flow.conditional())
+                    })
+                    .unwrap_or_default();
+                self.record_command(
+                    span,
+                    Vec::new(),
+                    RecordedCommandKind::If {
+                        condition,
+                        then_branch,
+                        elif_branches,
+                        else_branch,
+                    },
+                )
+            }
+            CompoundCommandNode::While { condition, body } => {
+                let condition = self.visit_stmt_seq_arena(
+                    self.arena_stmt_seq(*condition),
+                    FlowState {
+                        exit_status_checked: true,
+                        ..flow
+                    },
+                );
+                let body = self.visit_stmt_seq_arena(
+                    self.arena_stmt_seq(*body),
+                    FlowState {
+                        loop_depth: flow.loop_depth + 1,
+                        ..flow.conditional()
+                    },
+                );
+                self.record_command(
+                    span,
+                    Vec::new(),
+                    RecordedCommandKind::While { condition, body },
+                )
+            }
+            CompoundCommandNode::Until { condition, body } => {
+                let condition = self.visit_stmt_seq_arena(
+                    self.arena_stmt_seq(*condition),
+                    FlowState {
+                        exit_status_checked: true,
+                        ..flow
+                    },
+                );
+                let body = self.visit_stmt_seq_arena(
+                    self.arena_stmt_seq(*body),
+                    FlowState {
+                        loop_depth: flow.loop_depth + 1,
+                        ..flow.conditional()
+                    },
+                );
+                self.record_command(
+                    span,
+                    Vec::new(),
+                    RecordedCommandKind::Until { condition, body },
+                )
+            }
+            CompoundCommandNode::For {
+                targets,
+                words,
+                body,
+                ..
+            } => {
+                let word_ids = words
+                    .map(|range| self.arena_store().word_ids(range))
+                    .unwrap_or(&[]);
+                let mut nested_regions = Vec::new();
+                for word in word_ids {
+                    self.visit_word_arena_into(
+                        self.arena_store().word(*word),
+                        WordVisitKind::Expansion,
+                        flow,
+                        &mut nested_regions,
+                    );
+                }
+                let items = if words.is_some() {
+                    loop_binding_origin_for_static_texts(word_ids.iter().map(|word| {
+                        static_word_text_arena(self.arena_store().word(*word), self.source)
+                    }))
+                } else {
+                    LoopValueOrigin::ImplicitArgv
+                };
+                for target in self.arena_store().for_targets(*targets).to_vec() {
+                    if let Some(name) = &target.name {
+                        self.add_binding(
+                            name,
+                            BindingKind::LoopVariable,
+                            self.current_scope(),
+                            target.span,
+                            BindingOrigin::LoopVariable {
+                                definition_span: target.span,
+                                items,
+                            },
+                            BindingAttributes::empty(),
+                        );
+                    }
+                }
+                let body = self.visit_stmt_seq_arena(
+                    self.arena_stmt_seq(*body),
+                    FlowState {
+                        loop_depth: flow.loop_depth + 1,
+                        ..flow.conditional()
+                    },
+                );
+                self.record_command(span, nested_regions, RecordedCommandKind::For { body })
+            }
+            CompoundCommandNode::Subshell(body) => {
+                let scope = self.push_scope(ScopeKind::Subshell, self.current_scope(), span);
+                let body = self.visit_stmt_seq_arena(
+                    self.arena_stmt_seq(*body),
+                    FlowState {
+                        in_subshell: true,
+                        ..flow
+                    },
+                );
+                self.pop_scope(scope);
+                self.mark_scope_completed(scope);
+                self.record_command(span, Vec::new(), RecordedCommandKind::Subshell { body })
+            }
+            CompoundCommandNode::BraceGroup(body) => {
+                let body = self.visit_stmt_seq_arena(
+                    self.arena_stmt_seq(*body),
+                    FlowState {
+                        in_block: true,
+                        ..flow
+                    },
+                );
+                self.record_command(span, Vec::new(), RecordedCommandKind::BraceGroup { body })
+            }
+            CompoundCommandNode::Always { body, always_body } => {
+                let block_flow = FlowState {
+                    in_block: true,
+                    ..flow
+                };
+                let mut body_commands = Vec::new();
+                self.visit_stmt_seq_arena_into(
+                    self.arena_stmt_seq(*body),
+                    block_flow,
+                    &mut body_commands,
+                );
+                self.visit_stmt_seq_arena_into(
+                    self.arena_stmt_seq(*always_body),
+                    block_flow,
+                    &mut body_commands,
+                );
+                let body = self.recorded_program.push_command_ids(body_commands);
+                self.record_command(span, Vec::new(), RecordedCommandKind::BraceGroup { body })
+            }
+            CompoundCommandNode::Repeat { count, body, .. } => {
+                let mut nested_regions = Vec::new();
+                self.visit_word_arena_into(
+                    self.arena_store().word(*count),
+                    WordVisitKind::Expansion,
+                    flow,
+                    &mut nested_regions,
+                );
+                let body = self.visit_stmt_seq_arena(
+                    self.arena_stmt_seq(*body),
+                    FlowState {
+                        loop_depth: flow.loop_depth + 1,
+                        ..flow.conditional()
+                    },
+                );
+                self.record_command(span, nested_regions, RecordedCommandKind::For { body })
+            }
+            CompoundCommandNode::Foreach {
+                variable,
+                variable_span,
+                words,
+                body,
+                ..
+            }
+            | CompoundCommandNode::Select {
+                variable,
+                variable_span,
+                words,
+                body,
+            } => {
+                let word_ids = self.arena_store().word_ids(*words).to_vec();
+                let mut nested_regions = Vec::new();
+                for word in &word_ids {
+                    self.visit_word_arena_into(
+                        self.arena_store().word(*word),
+                        WordVisitKind::Expansion,
+                        flow,
+                        &mut nested_regions,
+                    );
+                }
+                let items = loop_binding_origin_for_static_texts(word_ids.iter().map(|word| {
+                    static_word_text_arena(self.arena_store().word(*word), self.source)
+                }));
+                self.add_binding(
+                    variable,
+                    BindingKind::LoopVariable,
+                    self.current_scope(),
+                    *variable_span,
+                    BindingOrigin::LoopVariable {
+                        definition_span: *variable_span,
+                        items,
+                    },
+                    BindingAttributes::empty(),
+                );
+                let body = self.visit_stmt_seq_arena(
+                    self.arena_stmt_seq(*body),
+                    FlowState {
+                        loop_depth: flow.loop_depth + 1,
+                        ..flow.conditional()
+                    },
+                );
+                let kind = if matches!(node, CompoundCommandNode::Select { .. }) {
+                    RecordedCommandKind::Select { body }
+                } else {
+                    RecordedCommandKind::For { body }
+                };
+                self.record_command(span, nested_regions, kind)
+            }
+            CompoundCommandNode::Time { command, .. } => {
+                let mut nested_regions = Vec::new();
+                if let Some(command) = command {
+                    let commands = self.visit_stmt_seq_arena(self.arena_stmt_seq(*command), flow);
+                    let ids = self.recorded_program.commands_in(commands).to_vec();
+                    for command_id in ids {
+                        nested_regions.extend(self.flatten_recorded_regions(command_id));
+                    }
+                }
+                self.record_command(span, nested_regions, RecordedCommandKind::Linear)
+            }
+            CompoundCommandNode::Coproc { body, .. } => {
+                let commands = self.visit_stmt_seq_arena(
+                    self.arena_stmt_seq(*body),
+                    FlowState {
+                        in_subshell: true,
+                        ..flow
+                    },
+                );
+                let ids = self.recorded_program.commands_in(commands).to_vec();
+                let mut nested_regions = Vec::new();
+                for command_id in ids {
+                    nested_regions.extend(self.flatten_recorded_regions(command_id));
+                }
+                self.record_command(span, nested_regions, RecordedCommandKind::Linear)
+            }
+            CompoundCommandNode::ArithmeticFor(command) => {
+                let mut nested_regions = Vec::new();
+                self.visit_optional_arithmetic_expr_arena_into(
+                    command.init_ast.as_ref(),
+                    flow,
+                    &mut nested_regions,
+                );
+                self.visit_optional_arithmetic_expr_arena_into(
+                    command.condition_ast.as_ref(),
+                    flow,
+                    &mut nested_regions,
+                );
+                self.visit_optional_arithmetic_expr_arena_into(
+                    command.step_ast.as_ref(),
+                    flow,
+                    &mut nested_regions,
+                );
+                let body = self.visit_stmt_seq_arena(
+                    self.arena_stmt_seq(command.body),
+                    FlowState {
+                        loop_depth: flow.loop_depth + 1,
+                        ..flow.conditional()
+                    },
+                );
+                self.record_command(
+                    span,
+                    nested_regions,
+                    RecordedCommandKind::ArithmeticFor { body },
+                )
+            }
+            CompoundCommandNode::Arithmetic(command) => {
+                let nested_regions =
+                    self.visit_optional_arithmetic_expr_arena(command.expr_ast.as_ref(), flow);
+                self.record_command(span, nested_regions, RecordedCommandKind::Linear)
+            }
+            CompoundCommandNode::Conditional(command) => {
+                let nested_regions = self.visit_conditional_expr_arena(&command.expression, flow);
+                self.record_command(span, nested_regions, RecordedCommandKind::Linear)
+            }
+            CompoundCommandNode::Case { word, cases } => {
+                let mut nested_regions = Vec::new();
+                self.visit_word_arena_into(
+                    self.arena_store().word(*word),
+                    WordVisitKind::Expansion,
+                    flow,
+                    &mut nested_regions,
+                );
+                let cases = self.arena_store().case_items(*cases).to_vec();
+                let arms = cases
+                    .into_iter()
+                    .map(|case| {
+                        let pattern_regions = self.visit_patterns_arena(
+                            self.arena_store().patterns(case.patterns),
+                            WordVisitKind::Conditional,
+                            flow,
+                        );
+                        let mut commands = Vec::new();
+                        self.visit_stmt_seq_arena_into(
+                            self.arena_stmt_seq(case.body),
+                            flow.conditional(),
+                            &mut commands,
+                        );
+                        if !pattern_regions.is_empty() {
+                            if let Some(&first) = commands.first() {
+                                self.prepend_nested_regions(first, pattern_regions);
+                            } else {
+                                commands.push(self.record_command(
+                                    span,
+                                    pattern_regions,
+                                    RecordedCommandKind::Linear,
+                                ));
+                            }
+                        }
+                        RecordedCaseArm {
+                            terminator: case.terminator,
+                            matches_anything: case_arm_matches_anything_arena(
+                                self.arena_store().patterns(case.patterns),
+                                self.arena_store(),
+                            ),
+                            commands: self.recorded_program.push_command_ids(commands),
+                        }
+                    })
+                    .collect();
+                let arms = self.recorded_program.push_case_arms(arms);
+                self.record_command(span, nested_regions, RecordedCommandKind::Case { arms })
+            }
+        }
+    }
+
     fn visit_function(&mut self, function: &FunctionDef, flow: FlowState) -> RecordedCommandId {
         let mut nested_regions = Vec::new();
         for entry in &function.header.entries {
@@ -1135,13 +1820,75 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 .insert(binding_id, scope);
         }
         self.deferred_functions.push(DeferredFunction {
-            function: function.clone(),
+            body: DeferredFunctionBody::Recursive(function.clone()),
             scope,
             flow,
         });
         self.pop_scope(scope);
 
         self.record_command(function.span, nested_regions, RecordedCommandKind::Linear)
+    }
+
+    fn visit_function_arena(
+        &mut self,
+        command: CommandView<'_>,
+        flow: FlowState,
+    ) -> RecordedCommandId {
+        let span = command.span();
+        let function = command
+            .function()
+            .expect("function command kind should expose function payload");
+        let mut nested_regions = Vec::new();
+        for entry in function.entries() {
+            self.visit_word_arena_into(
+                self.arena_store().word(entry.word),
+                WordVisitKind::Expansion,
+                flow,
+                &mut nested_regions,
+            );
+        }
+
+        let parent_scope = self.current_scope();
+        let names = function
+            .entries()
+            .iter()
+            .filter_map(|entry| entry.static_name.clone())
+            .collect::<Vec<_>>();
+        let scope = self.push_scope(
+            ScopeKind::Function(if names.is_empty() {
+                FunctionScopeKind::Dynamic
+            } else {
+                FunctionScopeKind::Named(names)
+            }),
+            parent_scope,
+            function.body().span(),
+        );
+        for entry in function.entries() {
+            let Some(name) = &entry.static_name else {
+                continue;
+            };
+            let binding_id = self.add_binding(
+                name,
+                BindingKind::FunctionDefinition,
+                parent_scope,
+                self.arena_store().word(entry.word).span(),
+                BindingOrigin::FunctionDefinition {
+                    definition_span: span,
+                },
+                BindingAttributes::empty(),
+            );
+            self.recorded_program
+                .function_body_scopes
+                .insert(binding_id, scope);
+        }
+        self.deferred_functions.push(DeferredFunction {
+            body: DeferredFunctionBody::Arena(function.body_id()),
+            scope,
+            flow,
+        });
+        self.pop_scope(scope);
+
+        self.record_command(span, nested_regions, RecordedCommandKind::Linear)
     }
 
     fn visit_anonymous_function(
@@ -1161,6 +1908,35 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
         self.record_command(
             function.span,
+            nested_regions,
+            RecordedCommandKind::BraceGroup { body },
+        )
+    }
+
+    fn visit_anonymous_function_arena(
+        &mut self,
+        command: CommandView<'_>,
+        flow: FlowState,
+    ) -> RecordedCommandId {
+        let span = command.span();
+        let function = command
+            .anonymous_function()
+            .expect("anonymous function kind should expose function payload");
+        let mut nested_regions = Vec::new();
+        for arg in function.args() {
+            self.visit_word_arena_into(arg, WordVisitKind::Expansion, flow, &mut nested_regions);
+        }
+        let scope = self.push_scope(
+            ScopeKind::Function(FunctionScopeKind::Anonymous),
+            self.current_scope(),
+            function.body().span(),
+        );
+        let body = self.visit_function_like_body_arena(function.body_id(), flow);
+        self.pop_scope(scope);
+        self.mark_scope_completed(scope);
+
+        self.record_command(
+            span,
             nested_regions,
             RecordedCommandKind::BraceGroup { body },
         )
@@ -1238,6 +2014,79 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn visit_assignment_arena_into(
+        &mut self,
+        assignment: &AssignmentNode,
+        declaration_kind: Option<(BindingKind, ScopeId)>,
+        mut attributes: BindingAttributes,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        let reference_start = self.references.len();
+        self.visit_var_ref_subscript_words_arena(
+            Some(&assignment.target.name),
+            assignment.target.subscript.as_deref(),
+            WordVisitKind::Expansion,
+            flow,
+            nested_regions,
+        );
+        self.visit_assignment_value_arena_into(assignment, flow, nested_regions);
+        let (kind, scope) = declaration_kind.unwrap_or_else(|| {
+            let kind = if assignment.append {
+                BindingKind::AppendAssignment
+            } else if matches!(assignment.value, AssignmentValueNode::Compound(_))
+                || assignment.target.subscript.is_some()
+            {
+                BindingKind::ArrayAssignment
+            } else {
+                BindingKind::Assignment
+            };
+            (kind, self.current_scope())
+        });
+        attributes |= assignment_binding_attributes_arena(assignment);
+        if assignment_has_empty_initializer_arena(assignment, self.arena_store(), self.source) {
+            attributes |= BindingAttributes::EMPTY_INITIALIZER;
+        }
+        let self_referential_refs =
+            self.newly_added_reference_ids_reading_name(&assignment.target.name, reference_start);
+        if !self_referential_refs.is_empty() {
+            attributes |= BindingAttributes::SELF_REFERENTIAL_READ;
+            self.self_referential_assignment_refs
+                .extend(self_referential_refs);
+        }
+        if assignment.target.subscript.is_some()
+            && !attributes.contains(BindingAttributes::ASSOC)
+            && self
+                .resolve_reference(
+                    &assignment.target.name,
+                    self.current_scope(),
+                    assignment.target.name_span.start.offset,
+                )
+                .map(|binding_id| {
+                    self.bindings[binding_id.index()]
+                        .attributes
+                        .contains(BindingAttributes::ASSOC)
+                })
+                .unwrap_or(false)
+        {
+            attributes |= BindingAttributes::ARRAY | BindingAttributes::ASSOC;
+        }
+
+        let binding = self.add_binding(
+            &assignment.target.name,
+            kind,
+            scope,
+            assignment.target.name_span,
+            binding_origin_for_assignment_arena(assignment, self.arena_store(), self.source),
+            attributes,
+        );
+        self.record_prompt_assignment_references_arena(assignment);
+        if let Some(hint) = indirect_target_hint_arena(assignment, self.arena_store(), self.source)
+        {
+            self.indirect_target_hints.insert(binding, hint);
+        }
+    }
+
     fn record_prompt_assignment_references(&mut self, assignment: &Assignment) {
         let AssignmentValue::Scalar(word) = &assignment.value else {
             return;
@@ -1262,6 +2111,31 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn record_prompt_assignment_references_arena(&mut self, assignment: &AssignmentNode) {
+        let AssignmentValueNode::Scalar(word) = &assignment.value else {
+            return;
+        };
+        let word = self.arena_store().word(*word);
+
+        match assignment.target.name.as_str() {
+            "PS1" => {
+                for (name, span) in prompt_assignment_reference_names_arena(word, self.source) {
+                    self.add_reference(&name, ReferenceKind::ImplicitRead, span);
+                }
+            }
+            "PS4" => {
+                for name in escaped_prompt_assignment_reference_names_arena(word, self.source) {
+                    self.add_reference(
+                        &name,
+                        ReferenceKind::PromptExpansion,
+                        assignment.target.name_span,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn visit_assignment_value_into(
         &mut self,
         assignment: &Assignment,
@@ -1274,6 +2148,52 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             AssignmentValue::Compound(array) => {
                 self.visit_array_expr_into(array, WordVisitKind::Expansion, flow, nested_regions);
+            }
+        }
+    }
+
+    fn visit_assignment_value_arena_into(
+        &mut self,
+        assignment: &AssignmentNode,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match &assignment.value {
+            AssignmentValueNode::Scalar(word) => {
+                self.visit_word_arena_into(
+                    self.arena_store().word(*word),
+                    WordVisitKind::Expansion,
+                    flow,
+                    nested_regions,
+                );
+            }
+            AssignmentValueNode::Compound(array) => {
+                for element in self.arena_store().array_elems(array.elements).to_vec() {
+                    match element {
+                        shuck_ast::ArrayElemNode::Sequential(value) => self.visit_word_arena_into(
+                            self.arena_store().word(value.word),
+                            WordVisitKind::Expansion,
+                            flow,
+                            nested_regions,
+                        ),
+                        shuck_ast::ArrayElemNode::Keyed { key, value }
+                        | shuck_ast::ArrayElemNode::KeyedAppend { key, value } => {
+                            self.visit_var_ref_subscript_words_arena(
+                                None,
+                                Some(&key),
+                                WordVisitKind::Expansion,
+                                flow,
+                                nested_regions,
+                            );
+                            self.visit_word_arena_into(
+                                self.arena_store().word(value.word),
+                                WordVisitKind::Expansion,
+                                flow,
+                                nested_regions,
+                            );
+                        }
+                    }
+                }
             }
         }
     }
@@ -1384,7 +2304,56 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn visit_redirects_arena(
+        &mut self,
+        redirects: &[RedirectNode],
+        flow: FlowState,
+    ) -> Vec<IsolatedRegion> {
+        let mut nested_regions = Vec::new();
+        for redirect in redirects {
+            match &redirect.target {
+                RedirectTargetNode::Word(word) => {
+                    self.visit_word_arena_into(
+                        self.arena_store().word(*word),
+                        WordVisitKind::Expansion,
+                        flow,
+                        &mut nested_regions,
+                    );
+                    self.add_redirect_fd_var_binding_arena(redirect);
+                }
+                RedirectTargetNode::Heredoc(heredoc) => {
+                    self.add_redirect_fd_var_binding_arena(redirect);
+                    if heredoc.delimiter.expands_body {
+                        self.visit_heredoc_body_arena_into(
+                            &heredoc.body,
+                            WordVisitKind::Expansion,
+                            flow,
+                            &mut nested_regions,
+                        );
+                    }
+                }
+            }
+        }
+        nested_regions
+    }
+
     fn add_redirect_fd_var_binding(&mut self, redirect: &shuck_ast::Redirect) {
+        if let (Some(name), Some(span)) = (&redirect.fd_var, redirect.fd_var_span) {
+            self.add_binding(
+                name,
+                BindingKind::Assignment,
+                self.current_scope(),
+                span,
+                BindingOrigin::Assignment {
+                    definition_span: span,
+                    value: AssignmentValueOrigin::StaticLiteral,
+                },
+                BindingAttributes::INTEGER,
+            );
+        }
+    }
+
+    fn add_redirect_fd_var_binding_arena(&mut self, redirect: &RedirectNode) {
         if let (Some(name), Some(span)) = (&redirect.fd_var, redirect.fd_var_span) {
             self.add_binding(
                 name,
@@ -1424,6 +2393,21 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.visit_word_part_nodes(&word.parts, kind, flow, nested_regions);
     }
 
+    fn visit_word_arena_into(
+        &mut self,
+        word: shuck_ast::WordView<'_>,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        if word_is_semantically_inert_arena(word, self.arena_store()) {
+            return;
+        }
+        for part in word.parts() {
+            self.visit_word_part_arena(&part.kind, part.span, kind, flow, nested_regions);
+        }
+    }
+
     fn visit_heredoc_body_into(
         &mut self,
         body: &HeredocBody,
@@ -1437,6 +2421,21 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.visit_heredoc_body_part_nodes(&body.parts, kind, flow, nested_regions);
     }
 
+    fn visit_heredoc_body_arena_into(
+        &mut self,
+        body: &shuck_ast::HeredocBodyNode,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        if !body.mode.expands() {
+            return;
+        }
+        for part in self.arena_store().heredoc_body_parts(body.parts).to_vec() {
+            self.visit_heredoc_body_part_arena(&part.kind, part.span, kind, flow, nested_regions);
+        }
+    }
+
     fn visit_pattern_into(
         &mut self,
         pattern: &Pattern,
@@ -1448,6 +2447,34 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             return;
         }
         self.visit_pattern_part_nodes(&pattern.parts, kind, flow, nested_regions);
+    }
+
+    fn visit_patterns_arena(
+        &mut self,
+        patterns: &[PatternNode],
+        kind: WordVisitKind,
+        flow: FlowState,
+    ) -> Vec<IsolatedRegion> {
+        let mut nested_regions = Vec::new();
+        for pattern in patterns {
+            self.visit_pattern_arena_into(pattern, kind, flow, &mut nested_regions);
+        }
+        nested_regions
+    }
+
+    fn visit_pattern_arena_into(
+        &mut self,
+        pattern: &PatternNode,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        if pattern_is_semantically_inert_arena(pattern, self.arena_store()) {
+            return;
+        }
+        for part in self.arena_store().pattern_parts(pattern.parts).to_vec() {
+            self.visit_pattern_part_arena(&part.kind, kind, flow, nested_regions);
+        }
     }
 
     fn visit_word_part_nodes(
@@ -1506,6 +2533,26 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         id
     }
 
+    fn visit_var_ref_reference_arena(
+        &mut self,
+        reference: &VarRefNode,
+        reference_kind: ReferenceKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+        span: Span,
+    ) -> ReferenceId {
+        let reference_kind = self.word_reference_kind_override.unwrap_or(reference_kind);
+        let id = self.add_reference(&reference.name, reference_kind, span);
+        self.visit_var_ref_subscript_words_arena(
+            Some(&reference.name),
+            reference.subscript.as_deref(),
+            word_visit_kind_for_reference_kind(reference_kind),
+            flow,
+            nested_regions,
+        );
+        id
+    }
+
     fn visit_var_ref_subscript_words(
         &mut self,
         owner_name: Option<&Name>,
@@ -1550,6 +2597,57 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             flow,
             nested_regions,
         );
+    }
+
+    fn visit_var_ref_subscript_words_arena(
+        &mut self,
+        owner_name: Option<&Name>,
+        subscript: Option<&SubscriptNode>,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        let Some(subscript) = subscript else {
+            return;
+        };
+        if subscript_selector_arena(subscript).is_some() {
+            return;
+        }
+        let uses_associative_word_semantics = matches!(
+            subscript.interpretation,
+            shuck_ast::SubscriptInterpretation::Associative
+        ) || owner_name.is_some_and(|name| {
+            self.resolve_reference(
+                name,
+                self.current_scope(),
+                subscript_span_arena(subscript).start.offset,
+            )
+            .map(|binding_id| {
+                self.bindings[binding_id.index()]
+                    .attributes
+                    .contains(BindingAttributes::ASSOC)
+            })
+            .unwrap_or(false)
+        });
+        if !uses_associative_word_semantics
+            && let Some(expression) = subscript.arithmetic_ast.as_ref()
+        {
+            self.visit_optional_arithmetic_expr_arena_into(Some(expression), flow, nested_regions);
+            return;
+        }
+
+        if !uses_associative_word_semantics {
+            for (name, span) in unparsed_arithmetic_subscript_reference_names(
+                subscript_syntax_source_text_arena(subscript),
+                self.source,
+            ) {
+                self.add_reference(&name, ReferenceKind::ArithmeticRead, span);
+            }
+        }
+
+        if let Some(word) = subscript.word_ast {
+            self.visit_word_arena_into(self.arena_store().word(word), kind, flow, nested_regions);
+        }
     }
 
     fn visit_unparsed_arithmetic_subscript_references(&mut self, subscript: &Subscript) {
@@ -1764,6 +2862,196 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn visit_word_part_arena(
+        &mut self,
+        part: &WordPartArena,
+        span: Span,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match part {
+            WordPartArena::ZshQualifiedGlob(glob) => {
+                for segment in self.arena_store().zsh_glob_segments(glob.segments).to_vec() {
+                    if let shuck_ast::ZshGlobSegmentNode::Pattern(pattern) = segment {
+                        self.visit_pattern_arena_into(&pattern, kind, flow, nested_regions);
+                    }
+                }
+            }
+            WordPartArena::Literal(_) | WordPartArena::SingleQuoted { .. } => {}
+            WordPartArena::DoubleQuoted { parts, .. } => {
+                for part in self.arena_store().word_parts(*parts).to_vec() {
+                    self.visit_word_part_arena(&part.kind, part.span, kind, flow, nested_regions);
+                }
+            }
+            WordPartArena::Variable(name) => {
+                self.add_reference(
+                    name,
+                    self.word_reference_kind_override
+                        .unwrap_or(reference_kind_for_word_visit(
+                            kind,
+                            ReferenceKind::Expansion,
+                        )),
+                    span,
+                );
+            }
+            WordPartArena::CommandSubstitution { body, .. }
+            | WordPartArena::ProcessSubstitution { body, .. } => {
+                let scope =
+                    self.push_scope(ScopeKind::CommandSubstitution, self.current_scope(), span);
+                let mut commands = Vec::new();
+                self.visit_stmt_seq_arena_into(
+                    self.arena_stmt_seq(*body),
+                    FlowState {
+                        in_subshell: true,
+                        ..flow
+                    },
+                    &mut commands,
+                );
+                self.pop_scope(scope);
+                self.mark_scope_completed(scope);
+                nested_regions.push(IsolatedRegion {
+                    scope,
+                    commands: self.recorded_program.push_command_ids(commands),
+                });
+            }
+            WordPartArena::ArithmeticExpansion { expression_ast, .. } => {
+                self.visit_optional_arithmetic_expr_arena_into(
+                    expression_ast.as_ref(),
+                    flow,
+                    nested_regions,
+                );
+            }
+            WordPartArena::Parameter(parameter) => {
+                self.visit_parameter_expansion_arena(
+                    parameter,
+                    kind,
+                    flow,
+                    nested_regions,
+                    parameter.span,
+                );
+            }
+            WordPartArena::ParameterExpansion {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                let reference_id = self.visit_var_ref_reference_arena(
+                    reference,
+                    parameter_operation_reference_kind(kind, operator),
+                    flow,
+                    nested_regions,
+                    reference.span,
+                );
+                if parameter_operator_guards_unset_reference(operator) {
+                    self.record_guarded_parameter_reference(reference_id);
+                }
+                if matches!(operator, ParameterOp::AssignDefault) {
+                    self.add_parameter_default_binding_arena(reference);
+                }
+                self.visit_parameter_operator_operand_arena(
+                    operator,
+                    *operand_word_ast,
+                    kind,
+                    flow,
+                    nested_regions,
+                );
+            }
+            WordPartArena::Length(reference) | WordPartArena::ArrayLength(reference) => {
+                self.visit_var_ref_reference_arena(
+                    reference,
+                    reference_kind_for_word_visit(kind, ReferenceKind::Length),
+                    flow,
+                    nested_regions,
+                    reference.span,
+                );
+            }
+            WordPartArena::ArrayAccess(reference) => {
+                self.visit_var_ref_reference_arena(
+                    reference,
+                    reference_kind_for_word_visit(kind, ReferenceKind::ArrayAccess),
+                    flow,
+                    nested_regions,
+                    reference.span,
+                );
+            }
+            WordPartArena::ArrayIndices(reference) => {
+                self.visit_var_ref_reference_arena(
+                    reference,
+                    reference_kind_for_word_visit(kind, ReferenceKind::IndirectExpansion),
+                    flow,
+                    nested_regions,
+                    reference.span,
+                );
+            }
+            WordPartArena::PrefixMatch { .. } => {}
+            WordPartArena::IndirectExpansion {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                let id = self.visit_var_ref_reference_arena(
+                    reference,
+                    reference_kind_for_word_visit(kind, ReferenceKind::IndirectExpansion),
+                    flow,
+                    nested_regions,
+                    reference.span,
+                );
+                self.indirect_expansion_refs.insert(id);
+                if let Some(operator) = operator {
+                    self.visit_parameter_operator_operand_arena(
+                        operator,
+                        *operand_word_ast,
+                        kind,
+                        flow,
+                        nested_regions,
+                    );
+                }
+            }
+            WordPartArena::Substring {
+                reference,
+                offset_ast,
+                length_ast,
+                ..
+            }
+            | WordPartArena::ArraySlice {
+                reference,
+                offset_ast,
+                length_ast,
+                ..
+            } => {
+                self.visit_var_ref_reference_arena(
+                    reference,
+                    reference_kind_for_word_visit(kind, ReferenceKind::ParameterExpansion),
+                    flow,
+                    nested_regions,
+                    reference.span,
+                );
+                self.visit_optional_arithmetic_expr_arena_into(
+                    offset_ast.as_ref(),
+                    flow,
+                    nested_regions,
+                );
+                self.visit_optional_arithmetic_expr_arena_into(
+                    length_ast.as_ref(),
+                    flow,
+                    nested_regions,
+                );
+            }
+            WordPartArena::Transformation { reference, .. } => {
+                self.visit_var_ref_reference_arena(
+                    reference,
+                    reference_kind_for_word_visit(kind, ReferenceKind::ParameterExpansion),
+                    flow,
+                    nested_regions,
+                    reference.span,
+                );
+            }
+        }
+    }
+
     fn visit_heredoc_body_part(
         &mut self,
         part: &HeredocBodyPart,
@@ -1811,6 +3099,57 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             HeredocBodyPart::Parameter(parameter) => {
                 self.visit_parameter_expansion(parameter, kind, flow, nested_regions, span);
+            }
+        }
+    }
+
+    fn visit_heredoc_body_part_arena(
+        &mut self,
+        part: &ArenaHeredocBodyPart,
+        span: Span,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match part {
+            ArenaHeredocBodyPart::Literal(text) => {
+                self.visit_escaped_braced_literal_references(text, span, kind);
+            }
+            ArenaHeredocBodyPart::Variable(name) => {
+                self.add_reference(
+                    name,
+                    reference_kind_for_word_visit(kind, ReferenceKind::Expansion),
+                    span,
+                );
+            }
+            ArenaHeredocBodyPart::CommandSubstitution { body, .. } => {
+                let scope =
+                    self.push_scope(ScopeKind::CommandSubstitution, self.current_scope(), span);
+                let mut commands = Vec::new();
+                self.visit_stmt_seq_arena_into(
+                    self.arena_stmt_seq(*body),
+                    FlowState {
+                        in_subshell: true,
+                        ..flow
+                    },
+                    &mut commands,
+                );
+                self.pop_scope(scope);
+                self.mark_scope_completed(scope);
+                nested_regions.push(IsolatedRegion {
+                    scope,
+                    commands: self.recorded_program.push_command_ids(commands),
+                });
+            }
+            ArenaHeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => {
+                self.visit_optional_arithmetic_expr_arena_into(
+                    expression_ast.as_ref(),
+                    flow,
+                    nested_regions,
+                );
+            }
+            ArenaHeredocBodyPart::Parameter(parameter) => {
+                self.visit_parameter_expansion_arena(parameter, kind, flow, nested_regions, span);
             }
         }
     }
@@ -2071,6 +3410,181 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn visit_parameter_expansion_arena(
+        &mut self,
+        parameter: &ParameterExpansionNode,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+        span: Span,
+    ) {
+        match &parameter.syntax {
+            ParameterExpansionSyntaxNode::Bourne(syntax) => match syntax {
+                BourneParameterExpansionNode::Access { reference } => {
+                    self.visit_var_ref_reference_arena(
+                        reference,
+                        reference_kind_for_word_visit(kind, ReferenceKind::ArrayAccess),
+                        flow,
+                        nested_regions,
+                        span,
+                    );
+                }
+                BourneParameterExpansionNode::Length { reference } => {
+                    self.visit_var_ref_reference_arena(
+                        reference,
+                        reference_kind_for_word_visit(kind, ReferenceKind::Length),
+                        flow,
+                        nested_regions,
+                        span,
+                    );
+                }
+                BourneParameterExpansionNode::Indices { reference } => {
+                    self.visit_var_ref_reference_arena(
+                        reference,
+                        reference_kind_for_word_visit(kind, ReferenceKind::IndirectExpansion),
+                        flow,
+                        nested_regions,
+                        span,
+                    );
+                }
+                BourneParameterExpansionNode::Indirect {
+                    reference,
+                    operator,
+                    operand_word_ast,
+                    ..
+                } => {
+                    let id = self.visit_var_ref_reference_arena(
+                        reference,
+                        reference_kind_for_word_visit(kind, ReferenceKind::IndirectExpansion),
+                        flow,
+                        nested_regions,
+                        span,
+                    );
+                    self.indirect_expansion_refs.insert(id);
+                    if let Some(operator) = operator {
+                        self.visit_parameter_operator_operand_arena(
+                            operator,
+                            *operand_word_ast,
+                            kind,
+                            flow,
+                            nested_regions,
+                        );
+                    }
+                }
+                BourneParameterExpansionNode::PrefixMatch { .. } => {}
+                BourneParameterExpansionNode::Slice {
+                    reference,
+                    offset_ast,
+                    length_ast,
+                    ..
+                } => {
+                    self.visit_var_ref_reference_arena(
+                        reference,
+                        reference_kind_for_word_visit(kind, ReferenceKind::ParameterExpansion),
+                        flow,
+                        nested_regions,
+                        span,
+                    );
+                    self.visit_parameter_slice_arithmetic_expr_arena_into(
+                        offset_ast.as_ref(),
+                        flow,
+                        nested_regions,
+                    );
+                    self.visit_parameter_slice_arithmetic_expr_arena_into(
+                        length_ast.as_ref(),
+                        flow,
+                        nested_regions,
+                    );
+                }
+                BourneParameterExpansionNode::Operation {
+                    reference,
+                    operator,
+                    operand_word_ast,
+                    ..
+                } => {
+                    let reference_id = self.visit_var_ref_reference_arena(
+                        reference,
+                        parameter_operation_reference_kind(kind, operator),
+                        flow,
+                        nested_regions,
+                        span,
+                    );
+                    if parameter_operator_guards_unset_reference(operator) {
+                        self.record_guarded_parameter_reference(reference_id);
+                    }
+                    if matches!(operator, ParameterOp::AssignDefault) {
+                        self.add_parameter_default_binding_arena(reference);
+                    }
+                    self.visit_parameter_operator_operand_arena(
+                        operator,
+                        *operand_word_ast,
+                        kind,
+                        flow,
+                        nested_regions,
+                    );
+                }
+                BourneParameterExpansionNode::Transformation { reference, .. } => {
+                    self.visit_var_ref_reference_arena(
+                        reference,
+                        reference_kind_for_word_visit(kind, ReferenceKind::ParameterExpansion),
+                        flow,
+                        nested_regions,
+                        span,
+                    );
+                }
+            },
+            ParameterExpansionSyntaxNode::Zsh(syntax) => {
+                match &syntax.target {
+                    ZshExpansionTargetNode::Reference(reference) => {
+                        if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh {
+                            self.visit_var_ref_reference_arena(
+                                reference,
+                                reference_kind_for_word_visit(
+                                    kind,
+                                    ReferenceKind::ParameterExpansion,
+                                ),
+                                flow,
+                                nested_regions,
+                                span,
+                            );
+                        }
+                    }
+                    ZshExpansionTargetNode::Word(word) => {
+                        self.visit_word_arena_into(
+                            self.arena_store().word(*word),
+                            kind,
+                            flow,
+                            nested_regions,
+                        );
+                    }
+                    ZshExpansionTargetNode::Nested(parameter) => {
+                        self.visit_parameter_expansion_arena(
+                            parameter,
+                            kind,
+                            flow,
+                            nested_regions,
+                            span,
+                        );
+                    }
+                    ZshExpansionTargetNode::Empty => {}
+                }
+                for modifier in self.arena_store().zsh_modifiers(syntax.modifiers).to_vec() {
+                    if let Some(word) = modifier.argument_word_ast {
+                        self.visit_word_arena_into(
+                            self.arena_store().word(word),
+                            kind,
+                            flow,
+                            nested_regions,
+                        );
+                    }
+                }
+                if let Some(operation) = &syntax.operation {
+                    self.visit_zsh_operation_arena(operation, kind, flow, nested_regions);
+                }
+            }
+        }
+    }
+
     fn visit_fragment_word(
         &mut self,
         word: Option<&Word>,
@@ -2153,6 +3667,159 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn visit_parameter_operator_operand_arena(
+        &mut self,
+        operator: &ParameterOp,
+        operand_word_ast: Option<WordId>,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match operator {
+            ParameterOp::RemovePrefixShort { pattern }
+            | ParameterOp::RemovePrefixLong { pattern }
+            | ParameterOp::RemoveSuffixShort { pattern }
+            | ParameterOp::RemoveSuffixLong { pattern } => {
+                self.visit_pattern_into(
+                    pattern,
+                    WordVisitKind::ParameterPattern,
+                    flow,
+                    nested_regions,
+                );
+            }
+            ParameterOp::ReplaceFirst { pattern, .. } | ParameterOp::ReplaceAll { pattern, .. } => {
+                self.visit_pattern_into(
+                    pattern,
+                    WordVisitKind::ParameterPattern,
+                    flow,
+                    nested_regions,
+                );
+                if let Some(word) = operator.replacement_word_ast() {
+                    self.visit_word_into(word, kind, flow, nested_regions);
+                } else if let Some(word) = operand_word_ast {
+                    self.visit_word_arena_into(
+                        self.arena_store().word(word),
+                        kind,
+                        flow,
+                        nested_regions,
+                    );
+                }
+            }
+            ParameterOp::UseDefault | ParameterOp::UseReplacement => {
+                self.guarded_parameter_operand_depth += 1;
+                self.defaulting_parameter_operand_depth += 1;
+                if let Some(word) = operand_word_ast {
+                    self.visit_word_arena_into(
+                        self.arena_store().word(word),
+                        kind,
+                        flow,
+                        nested_regions,
+                    );
+                }
+                self.guarded_parameter_operand_depth -= 1;
+                self.defaulting_parameter_operand_depth -= 1;
+            }
+            ParameterOp::AssignDefault | ParameterOp::Error => {
+                self.defaulting_parameter_operand_depth += 1;
+                if let Some(word) = operand_word_ast {
+                    self.visit_word_arena_into(
+                        self.arena_store().word(word),
+                        kind,
+                        flow,
+                        nested_regions,
+                    );
+                }
+                self.defaulting_parameter_operand_depth -= 1;
+            }
+            ParameterOp::UpperFirst
+            | ParameterOp::UpperAll
+            | ParameterOp::LowerFirst
+            | ParameterOp::LowerAll => {}
+        }
+    }
+
+    fn visit_zsh_operation_arena(
+        &mut self,
+        operation: &ZshExpansionOperationNode,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match operation {
+            ZshExpansionOperationNode::PatternOperation {
+                operand_word_ast, ..
+            }
+            | ZshExpansionOperationNode::TrimOperation {
+                operand_word_ast, ..
+            }
+            | ZshExpansionOperationNode::Unknown {
+                word_ast: operand_word_ast,
+                ..
+            } => {
+                self.visit_word_arena_into(
+                    self.arena_store().word(*operand_word_ast),
+                    kind,
+                    flow,
+                    nested_regions,
+                );
+            }
+            ZshExpansionOperationNode::Defaulting {
+                operand_word_ast, ..
+            } => {
+                self.guarded_parameter_operand_depth += 1;
+                self.defaulting_parameter_operand_depth += 1;
+                self.visit_word_arena_into(
+                    self.arena_store().word(*operand_word_ast),
+                    kind,
+                    flow,
+                    nested_regions,
+                );
+                self.guarded_parameter_operand_depth -= 1;
+                self.defaulting_parameter_operand_depth -= 1;
+            }
+            ZshExpansionOperationNode::ReplacementOperation {
+                pattern_word_ast,
+                replacement_word_ast,
+                ..
+            } => {
+                self.visit_word_arena_into(
+                    self.arena_store().word(*pattern_word_ast),
+                    WordVisitKind::ParameterPattern,
+                    flow,
+                    nested_regions,
+                );
+                if let Some(word) = replacement_word_ast {
+                    self.visit_word_arena_into(
+                        self.arena_store().word(*word),
+                        kind,
+                        flow,
+                        nested_regions,
+                    );
+                }
+            }
+            ZshExpansionOperationNode::Slice {
+                offset_word_ast,
+                length_word_ast,
+                ..
+            } => {
+                self.visit_word_arena_into(
+                    self.arena_store().word(*offset_word_ast),
+                    kind,
+                    flow,
+                    nested_regions,
+                );
+                if let Some(word) = length_word_ast {
+                    self.visit_word_arena_into(
+                        self.arena_store().word(*word),
+                        kind,
+                        flow,
+                        nested_regions,
+                    );
+                }
+            }
+        }
+    }
+
     fn record_guarded_parameter_reference(&mut self, reference_id: ReferenceId) {
         self.guarded_parameter_refs.insert(reference_id);
         if self.defaulting_parameter_operand_depth == 0 && self.short_circuit_condition_depth == 0 {
@@ -2183,6 +3850,34 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn visit_pattern_part_arena(
+        &mut self,
+        part: &PatternPartArena,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match part {
+            PatternPartArena::Group { patterns, .. } => {
+                for pattern in self.arena_store().patterns(*patterns).to_vec() {
+                    self.visit_pattern_arena_into(&pattern, kind, flow, nested_regions);
+                }
+            }
+            PatternPartArena::Word(word) => {
+                self.visit_word_arena_into(
+                    self.arena_store().word(*word),
+                    kind,
+                    flow,
+                    nested_regions,
+                );
+            }
+            PatternPartArena::Literal(_)
+            | PatternPartArena::AnyString
+            | PatternPartArena::AnyChar
+            | PatternPartArena::CharClass(_) => {}
+        }
+    }
+
     fn visit_conditional_expr(
         &mut self,
         expression: &ConditionalExpr,
@@ -2190,6 +3885,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
         self.visit_conditional_expr_into(expression, flow, &mut nested_regions);
+        nested_regions
+    }
+
+    fn visit_conditional_expr_arena(
+        &mut self,
+        expression: &ConditionalExprArena,
+        flow: FlowState,
+    ) -> Vec<IsolatedRegion> {
+        let mut nested_regions = Vec::new();
+        self.visit_conditional_expr_arena_into(expression, flow, &mut nested_regions);
         nested_regions
     }
 
@@ -2266,6 +3971,93 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.visit_conditional_expr_into(expression, flow, nested_regions);
     }
 
+    fn visit_conditional_expr_arena_into(
+        &mut self,
+        expression: &ConditionalExprArena,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match expression {
+            ConditionalExprArena::Binary {
+                left, op, right, ..
+            } => {
+                if conditional_binary_op_uses_arithmetic_operands(*op) {
+                    self.visit_conditional_arithmetic_operand_arena_into(
+                        left,
+                        flow,
+                        nested_regions,
+                    );
+                    self.visit_conditional_arithmetic_operand_arena_into(
+                        right,
+                        flow,
+                        nested_regions,
+                    );
+                } else if matches!(op, ConditionalBinaryOp::And | ConditionalBinaryOp::Or) {
+                    self.visit_conditional_expr_arena_into(left, flow, nested_regions);
+                    self.short_circuit_condition_depth += 1;
+                    self.visit_conditional_expr_arena_into(right, flow, nested_regions);
+                    self.short_circuit_condition_depth -= 1;
+                } else {
+                    self.visit_conditional_expr_arena_into(left, flow, nested_regions);
+                    self.visit_conditional_expr_arena_into(right, flow, nested_regions);
+                }
+            }
+            ConditionalExprArena::Unary { op, expr, .. } => {
+                if *op == ConditionalUnaryOp::VariableSet
+                    && let Some((name, span)) =
+                        variable_set_test_operand_name_arena(expr, self.arena_store(), self.source)
+                {
+                    self.add_reference_if_bound(&name, ReferenceKind::ConditionalOperand, span);
+                }
+                self.visit_conditional_expr_arena_into(expr, flow, nested_regions);
+            }
+            ConditionalExprArena::Parenthesized { expr, .. } => {
+                self.visit_conditional_expr_arena_into(expr, flow, nested_regions);
+            }
+            ConditionalExprArena::Word(word) | ConditionalExprArena::Regex(word) => {
+                self.visit_word_arena_into(
+                    self.arena_store().word(*word),
+                    WordVisitKind::Conditional,
+                    flow,
+                    nested_regions,
+                );
+            }
+            ConditionalExprArena::Pattern(pattern) => {
+                self.visit_pattern_arena_into(
+                    pattern,
+                    WordVisitKind::Conditional,
+                    flow,
+                    nested_regions,
+                );
+            }
+            ConditionalExprArena::VarRef(var_ref) => {
+                self.visit_var_ref_reference_arena(
+                    var_ref,
+                    ReferenceKind::ConditionalOperand,
+                    flow,
+                    nested_regions,
+                    var_ref.name_span,
+                );
+            }
+        }
+    }
+
+    fn visit_conditional_arithmetic_operand_arena_into(
+        &mut self,
+        expression: &ConditionalExprArena,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        if let Some((name, span)) =
+            conditional_arithmetic_operand_name_arena(expression, self.arena_store(), self.source)
+        {
+            self.add_reference(&name, ReferenceKind::ArithmeticRead, span);
+            return;
+        }
+
+        self.visit_conditional_expr_arena_into(expression, flow, nested_regions);
+    }
+
     fn visit_optional_arithmetic_expr(
         &mut self,
         expr: Option<&ArithmeticExprNode>,
@@ -2297,6 +4089,135 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.arithmetic_reference_kind = ReferenceKind::ParameterSliceArithmetic;
         self.visit_optional_arithmetic_expr_into(expr, flow, nested_regions);
         self.arithmetic_reference_kind = previous_kind;
+    }
+
+    fn visit_optional_arithmetic_expr_arena(
+        &mut self,
+        expr: Option<&ArithmeticExprArenaNode>,
+        flow: FlowState,
+    ) -> Vec<IsolatedRegion> {
+        let mut nested_regions = Vec::new();
+        self.visit_optional_arithmetic_expr_arena_into(expr, flow, &mut nested_regions);
+        nested_regions
+    }
+
+    fn visit_optional_arithmetic_expr_arena_into(
+        &mut self,
+        expr: Option<&ArithmeticExprArenaNode>,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        if let Some(expr) = expr {
+            self.visit_arithmetic_expr_arena_into(expr, flow, nested_regions);
+        }
+    }
+
+    fn visit_parameter_slice_arithmetic_expr_arena_into(
+        &mut self,
+        expr: Option<&ArithmeticExprArenaNode>,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        let previous_kind = self.arithmetic_reference_kind;
+        self.arithmetic_reference_kind = ReferenceKind::ParameterSliceArithmetic;
+        self.visit_optional_arithmetic_expr_arena_into(expr, flow, nested_regions);
+        self.arithmetic_reference_kind = previous_kind;
+    }
+
+    fn visit_arithmetic_expr_arena_into(
+        &mut self,
+        expr: &ArithmeticExprArenaNode,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match &expr.kind {
+            ArithmeticExprArena::Number(_) => {}
+            ArithmeticExprArena::Variable(name) => {
+                self.add_reference(name, self.arithmetic_reference_kind, expr.span);
+            }
+            ArithmeticExprArena::Indexed { name, index } => {
+                self.add_reference(
+                    name,
+                    self.arithmetic_reference_kind,
+                    arithmetic_name_span(expr.span, name),
+                );
+                self.visit_arithmetic_index_arena_into(name, index, flow, nested_regions);
+            }
+            ArithmeticExprArena::ShellWord(word) => {
+                let previous_kind =
+                    if self.arithmetic_reference_kind == ReferenceKind::ParameterSliceArithmetic {
+                        self.word_reference_kind_override
+                            .replace(ReferenceKind::ParameterSliceArithmetic)
+                    } else {
+                        None
+                    };
+                self.visit_word_arena_into(
+                    self.arena_store().word(*word),
+                    WordVisitKind::Expansion,
+                    flow,
+                    nested_regions,
+                );
+                if self.arithmetic_reference_kind == ReferenceKind::ParameterSliceArithmetic {
+                    self.word_reference_kind_override = previous_kind;
+                }
+            }
+            ArithmeticExprArena::Parenthesized { expression } => {
+                self.visit_arithmetic_expr_arena_into(expression, flow, nested_regions);
+            }
+            ArithmeticExprArena::Unary { op, expr: inner } => {
+                if matches!(
+                    op,
+                    ArithmeticUnaryOp::PreIncrement | ArithmeticUnaryOp::PreDecrement
+                ) {
+                    self.visit_arithmetic_update_arena_into(inner, flow, nested_regions);
+                } else {
+                    self.visit_arithmetic_expr_arena_into(inner, flow, nested_regions);
+                }
+            }
+            ArithmeticExprArena::Postfix { expr: inner, .. } => {
+                self.visit_arithmetic_update_arena_into(inner, flow, nested_regions);
+            }
+            ArithmeticExprArena::Binary { left, right, .. } => {
+                self.visit_arithmetic_expr_arena_into(left, flow, nested_regions);
+                self.visit_arithmetic_expr_arena_into(right, flow, nested_regions);
+            }
+            ArithmeticExprArena::Conditional {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                self.visit_arithmetic_expr_arena_into(condition, flow, nested_regions);
+                self.visit_arithmetic_expr_arena_into(then_expr, flow, nested_regions);
+                self.visit_arithmetic_expr_arena_into(else_expr, flow, nested_regions);
+            }
+            ArithmeticExprArena::Assignment { target, op, value } => {
+                self.visit_arithmetic_assignment_arena_into(
+                    target,
+                    expr.span,
+                    *op,
+                    value,
+                    flow,
+                    nested_regions,
+                );
+            }
+        }
+    }
+
+    fn visit_arithmetic_index_arena_into(
+        &mut self,
+        owner_name: &Name,
+        index: &ArithmeticExprArenaNode,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        if self
+            .arithmetic_index_uses_associative_word_semantics(owner_name, index.span.start.offset)
+        {
+            self.visit_associative_arithmetic_key_arena_into(index, flow, nested_regions);
+            return;
+        }
+
+        self.visit_arithmetic_expr_arena_into(index, flow, nested_regions);
     }
 
     fn visit_arithmetic_expr_into(
@@ -2597,6 +4518,201 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn arithmetic_binding_attributes_arena(
+        &self,
+        target: &ArithmeticLvalueArena,
+        target_offset: usize,
+    ) -> BindingAttributes {
+        let mut attributes = match target {
+            ArithmeticLvalueArena::Variable(_) => BindingAttributes::empty(),
+            ArithmeticLvalueArena::Indexed { .. } => BindingAttributes::ARRAY,
+        };
+
+        if let ArithmeticLvalueArena::Indexed { name, .. } = target
+            && self.visible_binding_is_assoc(name, target_offset)
+        {
+            attributes |= BindingAttributes::ASSOC;
+        }
+
+        attributes
+    }
+
+    fn visit_associative_arithmetic_key_arena_into(
+        &mut self,
+        expr: &ArithmeticExprArenaNode,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match &expr.kind {
+            ArithmeticExprArena::Number(_) | ArithmeticExprArena::Variable(_) => {}
+            ArithmeticExprArena::Indexed { index, .. } => {
+                self.visit_associative_arithmetic_key_arena_into(index, flow, nested_regions);
+            }
+            ArithmeticExprArena::ShellWord(word) => {
+                self.visit_word_arena_into(
+                    self.arena_store().word(*word),
+                    WordVisitKind::Expansion,
+                    flow,
+                    nested_regions,
+                );
+            }
+            ArithmeticExprArena::Parenthesized { expression } => {
+                self.visit_associative_arithmetic_key_arena_into(expression, flow, nested_regions);
+            }
+            ArithmeticExprArena::Unary { expr: inner, .. }
+            | ArithmeticExprArena::Postfix { expr: inner, .. } => {
+                self.visit_associative_arithmetic_key_arena_into(inner, flow, nested_regions);
+            }
+            ArithmeticExprArena::Binary { left, right, .. } => {
+                self.visit_associative_arithmetic_key_arena_into(left, flow, nested_regions);
+                self.visit_associative_arithmetic_key_arena_into(right, flow, nested_regions);
+            }
+            ArithmeticExprArena::Conditional {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                self.visit_associative_arithmetic_key_arena_into(condition, flow, nested_regions);
+                self.visit_associative_arithmetic_key_arena_into(then_expr, flow, nested_regions);
+                self.visit_associative_arithmetic_key_arena_into(else_expr, flow, nested_regions);
+            }
+            ArithmeticExprArena::Assignment { target, value, .. } => {
+                self.visit_associative_arithmetic_lvalue_arena_into(target, flow, nested_regions);
+                self.visit_associative_arithmetic_key_arena_into(value, flow, nested_regions);
+            }
+        }
+    }
+
+    fn visit_associative_arithmetic_lvalue_arena_into(
+        &mut self,
+        target: &ArithmeticLvalueArena,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match target {
+            ArithmeticLvalueArena::Variable(_) => {}
+            ArithmeticLvalueArena::Indexed { index, .. } => {
+                self.visit_associative_arithmetic_key_arena_into(index, flow, nested_regions);
+            }
+        }
+    }
+
+    fn visit_arithmetic_update_arena_into(
+        &mut self,
+        expr: &ArithmeticExprArenaNode,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match &expr.kind {
+            ArithmeticExprArena::Variable(name) => {
+                let reference_id =
+                    self.add_reference(name, self.arithmetic_reference_kind, expr.span);
+                self.self_referential_assignment_refs.insert(reference_id);
+                self.add_binding(
+                    name,
+                    BindingKind::ArithmeticAssignment,
+                    self.current_scope(),
+                    expr.span,
+                    BindingOrigin::ArithmeticAssignment {
+                        definition_span: expr.span,
+                        target_span: arithmetic_lvalue_span_arena(
+                            &ArithmeticLvalueArena::Variable(name.clone()),
+                            expr.span,
+                        ),
+                    },
+                    BindingAttributes::SELF_REFERENTIAL_READ,
+                );
+            }
+            ArithmeticExprArena::Indexed { name, index } => {
+                self.visit_arithmetic_index_arena_into(name, index, flow, nested_regions);
+                let span = arithmetic_name_span(expr.span, name);
+                let reference_id = self.add_reference(name, self.arithmetic_reference_kind, span);
+                self.self_referential_assignment_refs.insert(reference_id);
+                self.add_binding(
+                    name,
+                    BindingKind::ArithmeticAssignment,
+                    self.current_scope(),
+                    span,
+                    BindingOrigin::ArithmeticAssignment {
+                        definition_span: span,
+                        target_span: arithmetic_lvalue_span_arena(
+                            &ArithmeticLvalueArena::Indexed {
+                                name: name.clone(),
+                                index: index.clone(),
+                            },
+                            expr.span,
+                        ),
+                    },
+                    self.arithmetic_binding_attributes_arena(
+                        &ArithmeticLvalueArena::Indexed {
+                            name: name.clone(),
+                            index: index.clone(),
+                        },
+                        span.start.offset,
+                    ) | BindingAttributes::SELF_REFERENTIAL_READ,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    fn visit_arithmetic_assignment_arena_into(
+        &mut self,
+        target: &ArithmeticLvalueArena,
+        target_span: Span,
+        op: ArithmeticAssignOp,
+        value: &ArithmeticExprArenaNode,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        let name = match target {
+            ArithmeticLvalueArena::Variable(name) | ArithmeticLvalueArena::Indexed { name, .. } => {
+                name
+            }
+        };
+        let name_span = arithmetic_name_span(target_span, name);
+        let reference_start = self.references.len();
+        self.visit_arithmetic_lvalue_indices_arena_into(target, flow, nested_regions);
+        let mut attributes =
+            self.arithmetic_binding_attributes_arena(target, target_span.start.offset);
+        if !matches!(op, ArithmeticAssignOp::Assign) {
+            self.add_reference(name, self.arithmetic_reference_kind, name_span);
+        }
+        self.visit_arithmetic_expr_arena_into(value, flow, nested_regions);
+        let self_referential_refs =
+            self.newly_added_reference_ids_reading_name(name, reference_start);
+        if !self_referential_refs.is_empty() {
+            attributes |= BindingAttributes::SELF_REFERENTIAL_READ;
+            self.self_referential_assignment_refs
+                .extend(self_referential_refs);
+        }
+        self.add_binding(
+            name,
+            BindingKind::ArithmeticAssignment,
+            self.current_scope(),
+            name_span,
+            BindingOrigin::ArithmeticAssignment {
+                definition_span: name_span,
+                target_span: arithmetic_lvalue_span_arena(target, target_span),
+            },
+            attributes,
+        );
+    }
+
+    fn visit_arithmetic_lvalue_indices_arena_into(
+        &mut self,
+        target: &ArithmeticLvalueArena,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match target {
+            ArithmeticLvalueArena::Variable(_) => {}
+            ArithmeticLvalueArena::Indexed { name, index } => {
+                self.visit_arithmetic_index_arena_into(name, index, flow, nested_regions);
+            }
+        }
+    }
+
     fn classify_special_simple_command(
         &mut self,
         name: &Name,
@@ -2629,10 +4745,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         target_attributes,
                     );
                 }
-                for implicit_read in
-                    self.runtime
-                        .implicit_reads_for_simple_command(name, args, self.source)
-                {
+                for implicit_read in self.runtime.implicit_reads_for_simple_command(name) {
                     let implicit_name = Name::from(*implicit_read);
                     self.add_reference_if_bound(
                         &implicit_name,
@@ -2734,6 +4847,154 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn classify_special_simple_command_arena(
+        &mut self,
+        name: &Name,
+        normalized: &ArenaNormalizedCommand<'_>,
+        flow: FlowState,
+    ) {
+        let args = normalized.body_args();
+        let command_span = normalized.command_span;
+        let name_span = normalized.body_word_span().unwrap_or(command_span);
+        match name.as_str() {
+            "read" => {
+                let read_assigns_array =
+                    read_assigns_array_arena(args, self.arena_store(), self.source);
+                for (target_index, (argument, span)) in
+                    iter_read_targets_arena(args, self.arena_store(), self.source)
+                        .into_iter()
+                        .enumerate()
+                {
+                    let target_attributes = if read_assigns_array && target_index == 0 {
+                        BindingAttributes::ARRAY
+                    } else {
+                        BindingAttributes::empty()
+                    };
+                    self.add_binding(
+                        &argument,
+                        BindingKind::ReadTarget,
+                        self.current_scope(),
+                        span,
+                        BindingOrigin::BuiltinTarget {
+                            definition_span: span,
+                            kind: BuiltinBindingTargetKind::Read,
+                        },
+                        target_attributes,
+                    );
+                }
+                let implicit_name = Name::from("IFS");
+                self.add_reference_if_bound(
+                    &implicit_name,
+                    ReferenceKind::ImplicitRead,
+                    command_span,
+                );
+            }
+            "mapfile" | "readarray" => {
+                match mapfile_target_arena(args, self.arena_store(), self.source) {
+                    Some(MapfileTarget::Explicit(argument, span)) => {
+                        self.add_binding(
+                            &argument,
+                            BindingKind::MapfileTarget,
+                            self.current_scope(),
+                            span,
+                            BindingOrigin::BuiltinTarget {
+                                definition_span: span,
+                                kind: BuiltinBindingTargetKind::Mapfile,
+                            },
+                            BindingAttributes::ARRAY,
+                        );
+                    }
+                    Some(MapfileTarget::Implicit) => {
+                        self.add_binding(
+                            &Name::from("MAPFILE"),
+                            BindingKind::MapfileTarget,
+                            self.current_scope(),
+                            name_span,
+                            BindingOrigin::BuiltinTarget {
+                                definition_span: name_span,
+                                kind: BuiltinBindingTargetKind::Mapfile,
+                            },
+                            BindingAttributes::ARRAY,
+                        );
+                    }
+                    None => {}
+                }
+            }
+            "printf" => {
+                if let Some((argument, span)) =
+                    printf_v_target_arena(args, self.arena_store(), self.source)
+                {
+                    self.add_binding(
+                        &argument,
+                        BindingKind::PrintfTarget,
+                        self.current_scope(),
+                        span,
+                        BindingOrigin::BuiltinTarget {
+                            definition_span: span,
+                            kind: BuiltinBindingTargetKind::Printf,
+                        },
+                        BindingAttributes::empty(),
+                    );
+                }
+            }
+            "getopts" => {
+                if let Some((argument, span)) =
+                    getopts_target_arena(args, self.arena_store(), self.source)
+                {
+                    self.add_binding(
+                        &argument,
+                        BindingKind::GetoptsTarget,
+                        self.current_scope(),
+                        span,
+                        BindingOrigin::BuiltinTarget {
+                            definition_span: span,
+                            kind: BuiltinBindingTargetKind::Getopts,
+                        },
+                        BindingAttributes::empty(),
+                    );
+                }
+            }
+            "let" => self.record_let_arithmetic_assignment_targets_arena(args),
+            "eval" => self.record_eval_argument_references_arena(args),
+            "trap" => self.record_trap_action_references_arena(args),
+            "source" | "." => {
+                if normalized.wrappers.is_empty()
+                    && let Some(argument) = args.first().copied()
+                {
+                    let word = self.arena_store().word(argument);
+                    let source_span = self.command_stack.last().copied().unwrap_or(command_span);
+                    let kind = self.classify_source_ref_arena(command_span.line(), word);
+                    self.source_refs.push(SourceRef {
+                        diagnostic_class: classify_source_ref_diagnostic_class_arena(
+                            word,
+                            self.source,
+                            &kind,
+                        ),
+                        kind,
+                        span: source_span,
+                        path_span: word.span(),
+                        resolution: SourceRefResolution::Unchecked,
+                        explicitly_provided: false,
+                    });
+                }
+            }
+            "unset" => self.record_unset_variable_targets_arena(args, flow),
+            "export" | "local" | "declare" | "typeset" | "readonly" => {
+                self.visit_simple_declaration_command_arena(
+                    name.as_str(),
+                    args,
+                    command_span,
+                    flow,
+                );
+            }
+            _ if name.as_str().starts_with("DEFINE_") => {
+                self.visit_command_defined_variable_arena(args);
+            }
+            _ => {}
+        }
+        let _ = name_span;
+    }
+
     fn record_trap_action_references(&mut self, args: &[&Word]) {
         let Some(argument) = trap_action_argument(args, self.source) else {
             return;
@@ -2747,9 +5008,45 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn record_trap_action_references_arena(&mut self, args: &[WordId]) {
+        let Some(argument) = trap_action_argument_arena(args, self.arena_store(), self.source)
+        else {
+            return;
+        };
+        let argument = self.arena_store().word(argument);
+
+        let mut seen = FxHashSet::default();
+        for name in trap_action_reference_names_arena(argument, self.source) {
+            if seen.insert(name.clone()) {
+                self.add_reference(&name, ReferenceKind::TrapAction, argument.span());
+            }
+        }
+    }
+
     fn record_let_arithmetic_assignment_targets(&mut self, args: &[&Word]) {
         for argument in args {
             let Some((name, span)) = let_arithmetic_assignment_target(argument, self.source) else {
+                continue;
+            };
+            self.add_binding(
+                &name,
+                BindingKind::ArithmeticAssignment,
+                self.current_scope(),
+                span,
+                BindingOrigin::ArithmeticAssignment {
+                    definition_span: span,
+                    target_span: span,
+                },
+                BindingAttributes::empty(),
+            );
+        }
+    }
+
+    fn record_let_arithmetic_assignment_targets_arena(&mut self, args: &[WordId]) {
+        for argument in args {
+            let word = self.arena_store().word(*argument);
+            let Some((name, span)) = let_arithmetic_assignment_target_arena(word, self.source)
+            else {
                 continue;
             };
             self.add_binding(
@@ -2887,6 +5184,125 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         });
     }
 
+    fn visit_simple_declaration_command_arena(
+        &mut self,
+        command_name: &str,
+        args: &[WordId],
+        command_span: Span,
+        flow: FlowState,
+    ) {
+        let Some(builtin) = declaration_builtin_name(command_name) else {
+            return;
+        };
+
+        let mut flags = FxHashSet::default();
+        let mut global_flag_enabled = false;
+        let mut name_operands_are_function_names = false;
+        let mut parsing_options = true;
+        let mut operands = Vec::new();
+
+        for argument_id in args.iter().copied() {
+            let argument = self.arena_store().word(argument_id);
+            if parsing_options {
+                if let Some(text) = static_word_text_arena(argument, self.source) {
+                    if text == "--" {
+                        parsing_options = false;
+                        continue;
+                    }
+
+                    if simple_declaration_option_word(&text) {
+                        update_simple_declaration_flags(
+                            &text,
+                            &mut flags,
+                            &mut global_flag_enabled,
+                            &mut name_operands_are_function_names,
+                        );
+                        operands.push(simple_declaration_flag_operand_arena(
+                            argument,
+                            text.as_ref(),
+                        ));
+                        continue;
+                    }
+                }
+
+                parsing_options = false;
+            }
+
+            if name_operands_are_function_names {
+                operands.push(DeclarationOperand::DynamicWord {
+                    span: argument.span(),
+                });
+                continue;
+            }
+
+            let text = static_word_text_arena(argument, self.source)
+                .unwrap_or_else(|| Cow::Borrowed(argument.span().slice(self.source)));
+
+            if let Some(parsed) =
+                parse_simple_declaration_assignment_from_text(argument.span(), &text, self.source)
+            {
+                let (scope, mut attributes) = self.simple_declaration_scope_and_attributes(
+                    builtin,
+                    &flags,
+                    global_flag_enabled,
+                    flow,
+                );
+                attributes |= BindingAttributes::DECLARATION_INITIALIZED;
+                if parsed.array_like {
+                    attributes |= BindingAttributes::ARRAY;
+                }
+                if flags.contains(&'p') {
+                    attributes |= BindingAttributes::EXTERNALLY_CONSUMED;
+                }
+                let kind = if attributes.contains(BindingAttributes::NAMEREF) {
+                    BindingKind::Nameref
+                } else {
+                    BindingKind::Declaration(builtin)
+                };
+                self.add_binding(
+                    &parsed.name,
+                    kind,
+                    scope,
+                    parsed.name_span,
+                    BindingOrigin::Assignment {
+                        definition_span: parsed.target_span,
+                        value: parsed.value_origin,
+                    },
+                    attributes,
+                );
+                operands.push(DeclarationOperand::Assignment {
+                    name: parsed.name,
+                    name_span: parsed.name_span,
+                    value_span: parsed.value_span,
+                    append: parsed.append,
+                });
+                continue;
+            }
+
+            if let Some((name, span)) = named_target_word_arena(argument, self.source) {
+                self.visit_simple_name_only_declaration_operand(
+                    builtin,
+                    &flags,
+                    global_flag_enabled,
+                    flow,
+                    &name,
+                    span,
+                );
+                operands.push(DeclarationOperand::Name { name, span });
+            } else {
+                operands.push(DeclarationOperand::DynamicWord {
+                    span: argument.span(),
+                });
+            }
+        }
+
+        self.declarations.push(Declaration {
+            builtin,
+            span: command_span,
+            operands,
+        });
+    }
+
     fn visit_command_defined_variable(&mut self, args: &[&Word]) {
         let Some((flag_name, span)) = args
             .first()
@@ -2908,9 +5324,40 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         );
     }
 
+    fn visit_command_defined_variable_arena(&mut self, args: &[WordId]) {
+        let Some((flag_name, span)) = args
+            .first()
+            .copied()
+            .and_then(|word| named_target_word_arena(self.arena_store().word(word), self.source))
+        else {
+            return;
+        };
+        let generated = Name::from(format!("FLAGS_{}", flag_name.as_str()));
+        self.add_binding(
+            &generated,
+            BindingKind::Declaration(DeclarationBuiltin::Declare),
+            self.current_scope(),
+            span,
+            BindingOrigin::Declaration {
+                definition_span: span,
+            },
+            BindingAttributes::empty(),
+        );
+    }
+
     fn record_eval_argument_references(&mut self, args: &[&Word]) {
         for argument in args.iter().copied() {
             for (name, span) in eval_argument_reference_names(argument, self.source) {
+                self.add_reference_if_bound(&name, ReferenceKind::ImplicitRead, span);
+            }
+        }
+    }
+
+    fn record_eval_argument_references_arena(&mut self, args: &[WordId]) {
+        for argument in args.iter().copied() {
+            for (name, span) in
+                eval_argument_reference_names_arena(self.arena_store().word(argument), self.source)
+            {
                 self.add_reference_if_bound(&name, ReferenceKind::ImplicitRead, span);
             }
         }
@@ -2998,6 +5445,91 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn record_unset_variable_targets_arena(&mut self, args: &[WordId], flow: FlowState) {
+        if flow.conditionally_executed {
+            return;
+        }
+
+        let mut function_flag_seen = false;
+        let mut variable_flag_seen = false;
+        let mut nameref_mode = false;
+        let mut parsing_options = true;
+
+        for argument_id in args.iter().copied() {
+            let argument = self.arena_store().word(argument_id);
+            let Some(text) = static_word_text_arena(argument, self.source) else {
+                if parsing_options {
+                    return;
+                }
+                parsing_options = false;
+                continue;
+            };
+
+            if parsing_options {
+                if text == "--" {
+                    parsing_options = false;
+                    continue;
+                }
+
+                if text.starts_with('-') && text != "-" {
+                    let flags = text.trim_start_matches('-');
+                    if !unset_flags_are_valid(flags) {
+                        return;
+                    }
+                    for flag in flags.chars() {
+                        match flag {
+                            'f' => {
+                                if variable_flag_seen {
+                                    return;
+                                }
+                                function_flag_seen = true;
+                            }
+                            'v' => {
+                                if function_flag_seen {
+                                    return;
+                                }
+                                variable_flag_seen = true;
+                            }
+                            'n' => {
+                                nameref_mode = true;
+                            }
+                            _ => unreachable!("invalid unset flag already filtered"),
+                        }
+                    }
+                    continue;
+                }
+
+                parsing_options = false;
+            }
+
+            if function_flag_seen || !is_name(&text) {
+                continue;
+            }
+
+            if nameref_mode {
+                let name = Name::from(text.as_ref());
+                let Some(binding_id) = self.resolve_reference(
+                    &name,
+                    self.current_scope(),
+                    argument.span().start.offset,
+                ) else {
+                    continue;
+                };
+                let binding = &self.bindings[binding_id.index()];
+                if !binding.attributes.contains(BindingAttributes::NAMEREF)
+                    && !matches!(binding.kind, BindingKind::Nameref)
+                {
+                    continue;
+                }
+            }
+
+            self.cleared_variables
+                .entry((self.current_scope(), Name::from(text.as_ref())))
+                .or_default()
+                .push(argument.span().start.offset);
+        }
+    }
+
     fn classify_source_ref(&self, line: usize, word: &Word) -> SourceRefKind {
         if let Some(directive) = self.source_directive_for_line(line) {
             return directive;
@@ -3008,6 +5540,22 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
 
         classify_dynamic_source_word(word, self.source)
+    }
+
+    fn classify_source_ref_arena(
+        &self,
+        line: usize,
+        word: shuck_ast::WordView<'_>,
+    ) -> SourceRefKind {
+        if let Some(directive) = self.source_directive_for_line(line) {
+            return directive;
+        }
+
+        if let Some(text) = static_word_text_arena(word, self.source) {
+            return SourceRefKind::Literal(text.into_owned());
+        }
+
+        classify_dynamic_source_word_arena(word, self.source)
     }
 
     fn source_directive_for_line(&self, line: usize) -> Option<SourceRefKind> {
@@ -3560,6 +6108,42 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         );
     }
 
+    fn add_parameter_default_binding_arena(&mut self, reference: &VarRefNode) {
+        let mut attributes = binding_attributes_for_var_ref_arena(reference);
+        if reference.subscript.is_some()
+            && !attributes.contains(BindingAttributes::ASSOC)
+            && self
+                .resolve_reference(
+                    &reference.name,
+                    self.current_scope(),
+                    reference.name_span.start.offset,
+                )
+                .map(|binding_id| {
+                    let binding = &self.bindings[binding_id.index()];
+                    binding.attributes.contains(BindingAttributes::ASSOC)
+                        && !self.binding_was_cleared_before_lookup(
+                            binding,
+                            self.current_scope(),
+                            reference.name_span.start.offset,
+                        )
+                })
+                .unwrap_or(false)
+        {
+            attributes |= BindingAttributes::ARRAY | BindingAttributes::ASSOC;
+        }
+
+        self.add_binding(
+            &reference.name,
+            BindingKind::ParameterDefaultAssignment,
+            self.current_scope(),
+            reference.span,
+            BindingOrigin::ParameterDefaultAssignment {
+                definition_span: reference.span,
+            },
+            attributes,
+        );
+    }
+
     fn add_reference_if_bound(&mut self, name: &Name, kind: ReferenceKind, span: Span) {
         if self
             .resolve_reference(name, self.current_scope(), span.start.offset)
@@ -3662,6 +6246,31 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn mark_local_declarations_visible_to_later_calls(&mut self) {
+        let later_call_scopes = self
+            .call_sites
+            .iter()
+            .filter(|(callee, _)| self.functions.contains_key(callee.as_str()))
+            .flat_map(|(_, sites)| sites.iter())
+            .map(|site| (site.scope, site.span.start.offset))
+            .collect::<Vec<_>>();
+
+        for binding in &mut self.bindings {
+            if !matches!(binding.kind, BindingKind::Declaration(_))
+                || !binding.attributes.contains(BindingAttributes::LOCAL)
+                || !binding.references.is_empty()
+            {
+                continue;
+            }
+            if later_call_scopes
+                .iter()
+                .any(|(scope, offset)| *scope == binding.scope && *offset > binding.span.end.offset)
+            {
+                binding.attributes |= BindingAttributes::EXTERNALLY_CONSUMED;
+            }
+        }
+    }
+
     fn compute_heuristic_unused_assignments(&self) -> Vec<BindingId> {
         self.bindings
             .iter()
@@ -3705,8 +6314,14 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             let deferred_functions = std::mem::take(&mut self.deferred_functions);
             for deferred in deferred_functions {
                 self.rebuild_scope_stack(deferred.scope);
-                let commands =
-                    self.visit_function_like_body(&deferred.function.body, deferred.flow);
+                let commands = match deferred.body {
+                    DeferredFunctionBody::Recursive(function) => {
+                        self.visit_function_like_body(&function.body, deferred.flow)
+                    }
+                    DeferredFunctionBody::Arena(body) => {
+                        self.visit_function_like_body_arena(body, deferred.flow)
+                    }
+                };
                 self.recorded_program
                     .set_function_body(deferred.scope, commands);
                 self.mark_scope_completed(deferred.scope);
@@ -3731,6 +6346,27 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.recorded_program.push_command_ids(vec![command])
             }
         }
+    }
+
+    fn visit_function_like_body_arena(
+        &mut self,
+        body: StmtSeqId,
+        flow: FlowState,
+    ) -> RecordedCommandRange {
+        let flow = FlowState {
+            in_function: true,
+            ..flow
+        };
+        let body = self.arena_stmt_seq(body);
+        if body.stmt_ids().len() == 1 {
+            let stmt = body.stmts().next().expect("single body statement");
+            if let Some(compound) = stmt.command().compound()
+                && let CompoundCommandNode::BraceGroup(inner) = compound.node()
+            {
+                return self.visit_stmt_seq_arena(self.arena_stmt_seq(*inner), flow);
+            }
+        }
+        self.visit_stmt_seq_arena(body, flow)
     }
 
     fn rebuild_scope_stack(&mut self, scope: ScopeId) {
@@ -3916,6 +6552,24 @@ fn declaration_flags(operands: &[DeclOperand], source: &str) -> FxHashSet<char> 
     flags
 }
 
+fn declaration_flags_arena(
+    operands: &[DeclOperandNode],
+    store: &AstStore,
+    source: &str,
+) -> FxHashSet<char> {
+    let mut flags = FxHashSet::default();
+    for operand in operands {
+        if let DeclOperandNode::Flag(word) = operand
+            && let Some(text) = static_word_text_arena(store.word(*word), source)
+        {
+            for flag in text.chars().skip(1) {
+                flags.insert(flag);
+            }
+        }
+    }
+    flags
+}
+
 fn simple_declaration_option_word(text: &str) -> bool {
     let mut chars = text.chars();
     let Some(polarity) = chars.next() else {
@@ -3958,6 +6612,17 @@ fn simple_declaration_flag_operand(word: &Word, text: &str) -> DeclarationOperan
     }
 }
 
+fn simple_declaration_flag_operand_arena(
+    word: shuck_ast::WordView<'_>,
+    text: &str,
+) -> DeclarationOperand {
+    DeclarationOperand::Flag {
+        flag: text.chars().nth(1).unwrap_or('-'),
+        flags: text.to_owned(),
+        span: word.span(),
+    }
+}
+
 fn declaration_flag_is_enabled(
     operands: &[DeclOperand],
     source: &str,
@@ -3987,8 +6652,62 @@ fn declaration_flag_is_enabled(
     enabled
 }
 
+fn declaration_flag_is_enabled_arena(
+    operands: &[DeclOperandNode],
+    store: &AstStore,
+    source: &str,
+    target: char,
+) -> Option<bool> {
+    let mut enabled = None;
+    for operand in operands {
+        if let DeclOperandNode::Flag(word) = operand
+            && let Some(text) = static_word_text_arena(store.word(*word), source)
+        {
+            let mut chars = text.chars();
+            let Some(polarity) = chars.next() else {
+                continue;
+            };
+            let enabled_for_operand = match polarity {
+                '-' => true,
+                '+' => false,
+                _ => continue,
+            };
+            for flag in chars {
+                if flag == target {
+                    enabled = Some(enabled_for_operand);
+                }
+            }
+        }
+    }
+    enabled
+}
+
 fn update_declaration_function_name_mode(word: &Word, source: &str, function_name_mode: &mut bool) {
     let Some(text) = static_word_text(word, source) else {
+        return;
+    };
+    let mut chars = text.chars();
+    let Some(polarity) = chars.next() else {
+        return;
+    };
+    let enabled_for_operand = match polarity {
+        '-' => true,
+        '+' => false,
+        _ => return,
+    };
+    for flag in chars {
+        if matches!(flag, 'f' | 'F') {
+            *function_name_mode = enabled_for_operand;
+        }
+    }
+}
+
+fn update_declaration_function_name_mode_arena(
+    word: shuck_ast::WordView<'_>,
+    source: &str,
+    function_name_mode: &mut bool,
+) {
+    let Some(text) = static_word_text_arena(word, source) else {
         return;
     };
     let mut chars = text.chars();
@@ -4035,7 +6754,56 @@ fn declaration_operands(operands: &[DeclOperand], source: &str) -> Vec<Declarati
         .collect()
 }
 
+fn declaration_operands_arena(
+    operands: &[DeclOperandNode],
+    store: &AstStore,
+    source: &str,
+) -> Vec<DeclarationOperand> {
+    operands
+        .iter()
+        .map(|operand| match operand {
+            DeclOperandNode::Flag(word) => {
+                let word = store.word(*word);
+                let text = static_word_text_arena(word, source).unwrap_or_default();
+                let flag = text.chars().nth(1).unwrap_or('-');
+                DeclarationOperand::Flag {
+                    flag,
+                    flags: text.into_owned(),
+                    span: word.span(),
+                }
+            }
+            DeclOperandNode::Name(name) => DeclarationOperand::Name {
+                name: name.name.clone(),
+                span: name.span,
+            },
+            DeclOperandNode::Assignment(assignment) => DeclarationOperand::Assignment {
+                name: assignment.target.name.clone(),
+                name_span: assignment.target.name_span,
+                value_span: assignment_value_span_arena(assignment, store),
+                append: assignment.append,
+            },
+            DeclOperandNode::Dynamic(word) => DeclarationOperand::DynamicWord {
+                span: store.word(*word).span(),
+            },
+        })
+        .collect()
+}
+
 fn binding_attributes_for_var_ref(reference: &VarRef) -> BindingAttributes {
+    match reference
+        .subscript
+        .as_ref()
+        .map(|subscript| subscript.interpretation)
+    {
+        Some(shuck_ast::SubscriptInterpretation::Associative) => {
+            BindingAttributes::ARRAY | BindingAttributes::ASSOC
+        }
+        Some(_) => BindingAttributes::ARRAY,
+        None => BindingAttributes::empty(),
+    }
+}
+
+fn binding_attributes_for_var_ref_arena(reference: &VarRefNode) -> BindingAttributes {
     match reference
         .subscript
         .as_ref()
@@ -4064,10 +6832,28 @@ fn assignment_binding_attributes(assignment: &Assignment) -> BindingAttributes {
     attributes
 }
 
+fn assignment_binding_attributes_arena(assignment: &AssignmentNode) -> BindingAttributes {
+    let mut attributes = binding_attributes_for_var_ref_arena(&assignment.target);
+    if let AssignmentValueNode::Compound(array) = &assignment.value {
+        attributes |= match array.kind {
+            ArrayKind::Associative => BindingAttributes::ARRAY | BindingAttributes::ASSOC,
+            ArrayKind::Indexed | ArrayKind::Contextual => BindingAttributes::ARRAY,
+        };
+    }
+    attributes
+}
+
 fn assignment_value_span(assignment: &Assignment) -> Span {
     match &assignment.value {
         AssignmentValue::Scalar(word) => word.span,
         AssignmentValue::Compound(array) => array.span,
+    }
+}
+
+fn assignment_value_span_arena(assignment: &AssignmentNode, store: &AstStore) -> Span {
+    match &assignment.value {
+        AssignmentValueNode::Scalar(word) => store.word(*word).span(),
+        AssignmentValueNode::Compound(array) => array.span,
     }
 }
 
@@ -4078,11 +6864,35 @@ fn assignment_has_empty_initializer(assignment: &Assignment, source: &str) -> bo
     }
 }
 
+fn assignment_has_empty_initializer_arena(
+    assignment: &AssignmentNode,
+    store: &AstStore,
+    source: &str,
+) -> bool {
+    match &assignment.value {
+        AssignmentValueNode::Scalar(word) => {
+            static_word_text_arena(store.word(*word), source).as_deref() == Some("")
+        }
+        AssignmentValueNode::Compound(array) => store.array_elems(array.elements).is_empty(),
+    }
+}
+
 fn indirect_target_hint(assignment: &Assignment, source: &str) -> Option<IndirectTargetHint> {
     let AssignmentValue::Scalar(word) = &assignment.value else {
         return None;
     };
     indirect_target_hint_from_word(word, source)
+}
+
+fn indirect_target_hint_arena(
+    assignment: &AssignmentNode,
+    store: &AstStore,
+    source: &str,
+) -> Option<IndirectTargetHint> {
+    let AssignmentValueNode::Scalar(word) = &assignment.value else {
+        return None;
+    };
+    indirect_target_hint_from_word_arena(store.word(*word), store, source)
 }
 
 fn indirect_target_hint_from_word(word: &Word, source: &str) -> Option<IndirectTargetHint> {
@@ -4099,6 +6909,52 @@ fn indirect_target_hint_from_word(word: &Word, source: &str) -> Option<IndirectT
     let mut saw_variable = false;
     if !collect_indirect_pattern_parts(
         &word.parts,
+        source,
+        &mut prefix,
+        &mut suffix,
+        &mut saw_variable,
+    ) {
+        return None;
+    }
+
+    if !saw_variable {
+        return None;
+    }
+
+    let (suffix, array_like) = strip_array_like_suffix(suffix.as_str());
+    if (!prefix.is_empty() && !is_name_fragment(&prefix)) || !is_name_fragment(suffix) {
+        return None;
+    }
+    if prefix.is_empty() && suffix.is_empty() {
+        return None;
+    }
+
+    Some(IndirectTargetHint::Pattern {
+        prefix,
+        suffix: suffix.to_string(),
+        array_like,
+    })
+}
+
+fn indirect_target_hint_from_word_arena(
+    word: shuck_ast::WordView<'_>,
+    store: &AstStore,
+    source: &str,
+) -> Option<IndirectTargetHint> {
+    if let Some(text) = static_word_text_arena(word, source) {
+        let (name, array_like) = parse_indirect_target_name(&text)?;
+        return Some(IndirectTargetHint::Exact {
+            name: Name::from(name),
+            array_like,
+        });
+    }
+
+    let mut prefix = String::new();
+    let mut suffix = String::new();
+    let mut saw_variable = false;
+    if !collect_indirect_pattern_parts_arena(
+        word.parts(),
+        store,
         source,
         &mut prefix,
         &mut suffix,
@@ -4167,10 +7023,67 @@ fn collect_indirect_pattern_parts(
     true
 }
 
+fn collect_indirect_pattern_parts_arena(
+    parts: &[WordPartArenaNode],
+    store: &AstStore,
+    source: &str,
+    prefix: &mut String,
+    suffix: &mut String,
+    saw_variable: &mut bool,
+) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPartArena::Literal(text) => {
+                if *saw_variable {
+                    suffix.push_str(text.as_str(source, part.span));
+                } else {
+                    prefix.push_str(text.as_str(source, part.span));
+                }
+            }
+            WordPartArena::SingleQuoted { value, .. } => {
+                if *saw_variable {
+                    suffix.push_str(value.slice(source));
+                } else {
+                    prefix.push_str(value.slice(source));
+                }
+            }
+            WordPartArena::DoubleQuoted { parts, .. } => {
+                if !collect_indirect_pattern_parts_arena(
+                    store.word_parts(*parts),
+                    store,
+                    source,
+                    prefix,
+                    suffix,
+                    saw_variable,
+                ) {
+                    return false;
+                }
+            }
+            WordPartArena::Variable(_) if !*saw_variable => *saw_variable = true,
+            WordPartArena::Parameter(parameter)
+                if !*saw_variable && parameter_is_indirect_pattern_variable_arena(parameter) =>
+            {
+                *saw_variable = true;
+            }
+            _ => return false,
+        }
+    }
+
+    true
+}
+
 fn parameter_is_indirect_pattern_variable(parameter: &ParameterExpansion) -> bool {
     matches!(
         &parameter.syntax,
         ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.subscript.is_none()
+    )
+}
+
+fn parameter_is_indirect_pattern_variable_arena(parameter: &ParameterExpansionNode) -> bool {
+    matches!(
+        &parameter.syntax,
+        ParameterExpansionSyntaxNode::Bourne(BourneParameterExpansionNode::Access { reference })
             if reference.subscript.is_none()
     )
 }
@@ -4220,6 +7133,30 @@ fn read_assigns_array(args: &[&Word], source: &str) -> bool {
     parse_read_options(args, source).assigns_array
 }
 
+fn iter_read_targets_arena(args: &[WordId], store: &AstStore, source: &str) -> Vec<(Name, Span)> {
+    let options = parse_read_options_arena(args, store, source);
+    let mut targets = Vec::new();
+
+    if let Some(array_target) = options.array_target {
+        targets.push(array_target);
+    }
+
+    if options.assigns_array {
+        return targets;
+    }
+
+    targets.extend(
+        args[options.target_start_index..]
+            .iter()
+            .filter_map(|word| named_target_word_arena(store.word(*word), source)),
+    );
+    targets
+}
+
+fn read_assigns_array_arena(args: &[WordId], store: &AstStore, source: &str) -> bool {
+    parse_read_options_arena(args, store, source).assigns_array
+}
+
 #[derive(Debug, Clone)]
 struct ParsedReadOptions {
     assigns_array: bool,
@@ -4257,6 +7194,64 @@ fn parse_read_options(args: &[&Word], source: &str) -> ParsedReadOptions {
                 } else if let Some(target) = args
                     .get(index + 1)
                     .and_then(|word| named_target_word(word, source))
+                {
+                    array_target = Some(target);
+                    index += 1;
+                }
+                stop_after_array_target = true;
+                break;
+            }
+            if read_flag_takes_value(flag) {
+                if offset + flag.len_utf8() == flags.len() {
+                    index += 1;
+                }
+                break;
+            }
+        }
+        index += 1;
+        if stop_after_array_target {
+            break;
+        }
+    }
+
+    ParsedReadOptions {
+        assigns_array,
+        target_start_index: index.min(args.len()),
+        array_target,
+    }
+}
+
+fn parse_read_options_arena(args: &[WordId], store: &AstStore, source: &str) -> ParsedReadOptions {
+    let mut assigns_array = false;
+    let mut array_target = None;
+    let mut index = 0;
+    while let Some(word_id) = args.get(index) {
+        let word = store.word(*word_id);
+        let Some(text) = static_word_text_arena(word, source) else {
+            break;
+        };
+        if text == "--" {
+            index += 1;
+            break;
+        }
+        let Some(flags) = text.strip_prefix('-') else {
+            break;
+        };
+        if flags.is_empty() || flags.starts_with('-') {
+            break;
+        }
+
+        let mut stop_after_array_target = false;
+        for (offset, flag) in flags.char_indices() {
+            if flag == 'a' {
+                assigns_array = true;
+                let attached_offset = offset + flag.len_utf8();
+                if attached_offset < flags.len() {
+                    array_target =
+                        read_attached_array_target_arena(word, source, &flags[attached_offset..]);
+                } else if let Some(target) = args
+                    .get(index + 1)
+                    .and_then(|word| named_target_word_arena(store.word(*word), source))
                 {
                     array_target = Some(target);
                     index += 1;
@@ -4331,6 +7326,44 @@ fn mapfile_target(args: &[&Word], source: &str) -> Option<MapfileTarget> {
     args.get(index).is_none().then_some(MapfileTarget::Implicit)
 }
 
+fn mapfile_target_arena(args: &[WordId], store: &AstStore, source: &str) -> Option<MapfileTarget> {
+    let mut index = 0;
+    while let Some(word_id) = args.get(index) {
+        let word = store.word(*word_id);
+        let Some(text) = static_word_text_arena(word, source) else {
+            break;
+        };
+        if text == "--" {
+            index += 1;
+            break;
+        }
+        let Some(flags) = text.strip_prefix('-') else {
+            break;
+        };
+        if flags.is_empty() || flags.starts_with('-') {
+            break;
+        }
+        for (offset, flag) in flags.char_indices() {
+            if mapfile_flag_takes_value(flag) {
+                if offset + flag.len_utf8() == flags.len() {
+                    index += 1;
+                }
+                break;
+            }
+        }
+        index += 1;
+    }
+
+    if let Some((name, span)) = args[index..]
+        .iter()
+        .find_map(|word| named_target_word_arena(store.word(*word), source))
+    {
+        return Some(MapfileTarget::Explicit(name, span));
+    }
+
+    args.get(index).is_none().then_some(MapfileTarget::Implicit)
+}
+
 fn mapfile_flag_takes_value(flag: char) -> bool {
     matches!(flag, 'C' | 'c' | 'd' | 'n' | 'O' | 's' | 'u')
 }
@@ -4343,8 +7376,21 @@ fn printf_v_target(args: &[&Word], source: &str) -> Option<(Name, Span)> {
     })
 }
 
+fn printf_v_target_arena(args: &[WordId], store: &AstStore, source: &str) -> Option<(Name, Span)> {
+    args.windows(2).find_map(|window| {
+        (static_word_text_arena(store.word(window[0]), source).as_deref() == Some("-v"))
+            .then_some(window[1])
+            .and_then(|word| named_target_word_arena(store.word(word), source))
+    })
+}
+
 fn getopts_target(args: &[&Word], source: &str) -> Option<(Name, Span)> {
     args.get(1).and_then(|word| named_target_word(word, source))
+}
+
+fn getopts_target_arena(args: &[WordId], store: &AstStore, source: &str) -> Option<(Name, Span)> {
+    args.get(1)
+        .and_then(|word| named_target_word_arena(store.word(*word), source))
 }
 
 fn variable_set_test_operand_name(
@@ -4515,12 +7561,67 @@ fn conditional_arithmetic_operand_name(
     }
 }
 
+fn conditional_arithmetic_operand_name_arena(
+    expression: &ConditionalExprArena,
+    store: &AstStore,
+    source: &str,
+) -> Option<(Name, Span)> {
+    match strip_parenthesized_conditional_arena(expression) {
+        ConditionalExprArena::Word(word) | ConditionalExprArena::Regex(word) => {
+            let word = store.word(*word);
+            conditional_static_word_text_arena(word, source).and_then(|text| {
+                is_name(text.as_ref()).then(|| (Name::from(text.as_ref()), word.span()))
+            })
+        }
+        ConditionalExprArena::Pattern(pattern) => {
+            let text = pattern.span.slice(source).trim();
+            is_name(text).then(|| (Name::from(text), pattern.span))
+        }
+        ConditionalExprArena::VarRef(_)
+        | ConditionalExprArena::Unary { .. }
+        | ConditionalExprArena::Binary { .. }
+        | ConditionalExprArena::Parenthesized { .. } => None,
+    }
+}
+
 fn strip_parenthesized_conditional(expression: &ConditionalExpr) -> &ConditionalExpr {
     let mut current = expression;
     while let ConditionalExpr::Parenthesized(paren) = current {
         current = &paren.expr;
     }
     current
+}
+
+fn strip_parenthesized_conditional_arena(
+    expression: &ConditionalExprArena,
+) -> &ConditionalExprArena {
+    let mut current = expression;
+    while let ConditionalExprArena::Parenthesized { expr, .. } = current {
+        current = expr;
+    }
+    current
+}
+
+fn variable_set_test_operand_name_arena(
+    expression: &ConditionalExprArena,
+    store: &AstStore,
+    source: &str,
+) -> Option<(Name, Span)> {
+    match strip_parenthesized_conditional_arena(expression) {
+        ConditionalExprArena::Word(word) | ConditionalExprArena::Regex(word) => {
+            let word = store.word(*word);
+            variable_name_operand_from_source(word.span().slice(source), word.span())
+        }
+        ConditionalExprArena::Pattern(pattern) => {
+            variable_name_operand_from_source(pattern.span.slice(source), pattern.span)
+        }
+        ConditionalExprArena::VarRef(reference) => {
+            Some((reference.name.clone(), reference.name_span))
+        }
+        ConditionalExprArena::Unary { .. }
+        | ConditionalExprArena::Binary { .. }
+        | ConditionalExprArena::Parenthesized { .. } => None,
+    }
 }
 
 fn variable_name_operand_from_source(text: &str, span: Span) -> Option<(Name, Span)> {
@@ -4592,9 +7693,33 @@ fn eval_argument_reference_names(word: &Word, source: &str) -> Vec<(Name, Span)>
     )
 }
 
+fn eval_argument_reference_names_arena(
+    word: shuck_ast::WordView<'_>,
+    source: &str,
+) -> Vec<(Name, Span)> {
+    let span = word.span();
+    let source_text = span.slice(source);
+    let decoded = decode_eval_word_text(source_text);
+    scan_parameter_reference_names(&decoded.text, source_text, &decoded.source_offsets, span)
+}
+
 fn trap_action_argument<'a>(args: &[&'a Word], source: &str) -> Option<&'a Word> {
     let argument = *args.first()?;
     let text = static_word_text(argument, source)?;
+
+    if text == "--" {
+        return args.get(1).copied();
+    }
+    if is_trap_inspection_option(&text) {
+        return None;
+    }
+
+    Some(argument)
+}
+
+fn trap_action_argument_arena(args: &[WordId], store: &AstStore, source: &str) -> Option<WordId> {
+    let argument = *args.first()?;
+    let text = static_word_text_arena(store.word(argument), source)?;
 
     if text == "--" {
         return args.get(1).copied();
@@ -4623,11 +7748,32 @@ fn trap_action_reference_names(word: &Word, source: &str) -> Vec<Name> {
         .collect()
 }
 
+fn trap_action_reference_names_arena(word: shuck_ast::WordView<'_>, source: &str) -> Vec<Name> {
+    let Some(text) = static_word_text_arena(word, source) else {
+        return Vec::new();
+    };
+
+    scan_parameter_reference_name_ranges(&text)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect()
+}
+
 fn prompt_assignment_reference_names(word: &Word, source: &str) -> Vec<(Name, Span)> {
     let Some(text) = static_word_text(word, source) else {
         return Vec::new();
     };
     scan_prompt_parameter_reference_names(text.as_ref(), word.span)
+}
+
+fn prompt_assignment_reference_names_arena(
+    word: shuck_ast::WordView<'_>,
+    source: &str,
+) -> Vec<(Name, Span)> {
+    let Some(text) = static_word_text_arena(word, source) else {
+        return Vec::new();
+    };
+    scan_prompt_parameter_reference_names(text.as_ref(), word.span())
 }
 
 fn escaped_prompt_assignment_reference_names(word: &Word, source: &str) -> Vec<Name> {
@@ -4651,6 +7797,28 @@ fn escaped_prompt_assignment_reference_names(word: &Word, source: &str) -> Vec<N
         }
     }
 
+    names
+}
+
+fn escaped_prompt_assignment_reference_names_arena(
+    word: shuck_ast::WordView<'_>,
+    source: &str,
+) -> Vec<Name> {
+    let text = word.span().slice(source);
+    let mut names = Vec::new();
+    let mut search_start = 0;
+
+    while let Some(start_rel) = text[search_start..].find("\\${") {
+        let start = search_start + start_rel;
+        let after_dollar = start + "\\$".len();
+        if let Some((name_start, name_end)) = parameter_name_bounds_after_dollar(text, after_dollar)
+        {
+            names.push(Name::from(&text[name_start..name_end]));
+            search_start = name_end;
+        } else {
+            search_start = start + "\\${".len();
+        }
+    }
     names
 }
 
@@ -4890,9 +8058,190 @@ fn resolved_command_can_affect_current_shell(command: &NormalizedCommand<'_>) ->
     })
 }
 
+fn normalize_command_words_arena<'a>(
+    store: &'a AstStore,
+    words: &[WordId],
+    command_span: Span,
+    source: &'a str,
+) -> Option<ArenaNormalizedCommand<'a>> {
+    let first_id = words.first().copied()?;
+    let first_word = store.word(first_id);
+    let literal_name = static_command_name_text_arena(first_word, source);
+    let mut effective_name = literal_name.clone();
+    let mut wrappers = Vec::new();
+    let mut body_word_span = Some(first_word.span());
+    let mut body_start = literal_name.as_ref().map(|_| 0usize);
+    let mut current_index = 0usize;
+
+    while let Some(current_name) = effective_name.as_deref() {
+        match static_command_wrapper_target_index(
+            words.len(),
+            current_index,
+            current_name,
+            |word_index| static_word_text_arena(store.word(words[word_index]), source),
+        ) {
+            StaticCommandWrapperTarget::NotWrapper => break,
+            StaticCommandWrapperTarget::Wrapper { target_index } => {
+                let kind = match current_name {
+                    "noglob" => WrapperKind::Noglob,
+                    "command" => WrapperKind::Command,
+                    "builtin" => WrapperKind::Builtin,
+                    "exec" => WrapperKind::Exec,
+                    _ => WrapperKind::Command,
+                };
+                wrappers.push(kind);
+                let Some(target_index) = target_index else {
+                    effective_name = None;
+                    body_word_span = None;
+                    body_start = None;
+                    break;
+                };
+                let target = store.word(words[target_index]);
+                body_word_span = Some(target.span());
+                effective_name = static_command_name_text_arena(target, source);
+                body_start = effective_name.as_ref().map(|_| target_index);
+                current_index = target_index;
+                if effective_name.is_none() {
+                    break;
+                }
+            }
+        }
+    }
+
+    Some(ArenaNormalizedCommand {
+        literal_name,
+        effective_name,
+        wrappers,
+        body_word_span,
+        body_words: body_start.map_or_else(Vec::new, |start| words[start..].to_vec()),
+        command_span,
+    })
+}
+
+fn static_word_text_arena<'a>(
+    word: shuck_ast::WordView<'_>,
+    source: &'a str,
+) -> Option<Cow<'a, str>> {
+    try_static_word_parts_text_arena(word.parts(), word.store(), source)
+}
+
+fn conditional_static_word_text_arena<'a>(
+    word: shuck_ast::WordView<'_>,
+    source: &'a str,
+) -> Option<Cow<'a, str>> {
+    static_word_text_arena(word, source).or_else(|| {
+        let text = word.span().slice(source);
+        (text.len() >= 2 && text.starts_with('"') && text.ends_with('"'))
+            .then(|| Cow::Owned(text[1..text.len() - 1].to_owned()))
+    })
+}
+
+fn static_command_name_text_arena<'a>(
+    word: shuck_ast::WordView<'_>,
+    source: &'a str,
+) -> Option<Cow<'a, str>> {
+    try_static_command_name_parts_text_arena(word.parts(), source, StaticNameContext::Unquoted)
+}
+
+#[derive(Clone, Copy)]
+enum StaticNameContext {
+    Unquoted,
+}
+
+fn try_static_word_parts_text_arena<'a>(
+    parts: &[WordPartArenaNode],
+    store: &AstStore,
+    source: &'a str,
+) -> Option<Cow<'a, str>> {
+    if parts.is_empty() {
+        return Some(Cow::Borrowed(""));
+    }
+    let mut owned = None::<String>;
+    for part in parts {
+        let text = match &part.kind {
+            WordPartArena::Literal(text) => text.as_str(source, part.span),
+            WordPartArena::SingleQuoted { value, .. } => value.slice(source),
+            WordPartArena::DoubleQuoted { parts, .. } => {
+                let text =
+                    try_static_word_parts_text_arena(store.word_parts(*parts), store, source)?;
+                owned.get_or_insert_with(String::new).push_str(&text);
+                continue;
+            }
+            _ => return None,
+        };
+        owned.get_or_insert_with(String::new).push_str(text);
+    }
+    owned.map(Cow::Owned)
+}
+
+fn try_static_command_name_parts_text_arena<'a>(
+    parts: &[WordPartArenaNode],
+    source: &'a str,
+    context: StaticNameContext,
+) -> Option<Cow<'a, str>> {
+    if parts.is_empty() {
+        return Some(Cow::Borrowed(""));
+    }
+    let mut result = String::new();
+    for part in parts {
+        match &part.kind {
+            WordPartArena::Literal(text) => {
+                append_decoded_static_command_literal_arena(
+                    text.as_str(source, part.span),
+                    context,
+                    &mut result,
+                );
+            }
+            WordPartArena::SingleQuoted { value, .. } => result.push_str(value.slice(source)),
+            WordPartArena::DoubleQuoted { .. } => return None,
+            _ => return None,
+        }
+    }
+    Some(Cow::Owned(result))
+}
+
+fn append_decoded_static_command_literal_arena(
+    text: &str,
+    context: StaticNameContext,
+    out: &mut String,
+) {
+    let mut chars = text.char_indices().peekable();
+    while let Some((_, ch)) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        let Some((_, next)) = chars.next() else {
+            out.push('\\');
+            return;
+        };
+        match context {
+            StaticNameContext::Unquoted => {
+                if next != '\n' {
+                    out.push(next);
+                }
+            }
+        }
+    }
+}
+
+fn resolved_command_can_affect_current_shell_arena(command: &ArenaNormalizedCommand<'_>) -> bool {
+    command.wrappers.iter().all(|wrapper| {
+        matches!(
+            wrapper,
+            WrapperKind::Command | WrapperKind::Builtin | WrapperKind::Noglob
+        )
+    })
+}
+
 fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
     let text = static_word_text(word, source)?;
     is_name(&text).then_some((Name::from(text.as_ref()), word.span))
+}
+
+fn named_target_word_arena(word: shuck_ast::WordView<'_>, source: &str) -> Option<(Name, Span)> {
+    let text = static_word_text_arena(word, source)?;
+    is_name(&text).then_some((Name::from(text.as_ref()), word.span()))
 }
 
 fn declaration_assignment_text<'a>(word: &'a Word, source: &'a str) -> Cow<'a, str> {
@@ -4912,6 +8261,22 @@ struct SimpleDeclarationAssignment {
 
 fn parse_simple_declaration_assignment(
     word: &Word,
+    text: &str,
+    source: &str,
+) -> Option<SimpleDeclarationAssignment> {
+    parse_simple_declaration_assignment_from_span(word.span, text, source)
+}
+
+fn parse_simple_declaration_assignment_from_text(
+    span: Span,
+    text: &str,
+    source: &str,
+) -> Option<SimpleDeclarationAssignment> {
+    parse_simple_declaration_assignment_from_span(span, text, source)
+}
+
+fn parse_simple_declaration_assignment_from_span(
+    span: Span,
     text: &str,
     source: &str,
 ) -> Option<SimpleDeclarationAssignment> {
@@ -4938,10 +8303,10 @@ fn parse_simple_declaration_assignment(
     }
 
     let value_start = index + 1;
-    let name_span = word_text_offset_span(word.span, source, 0, name_end);
+    let name_span = word_text_offset_span(span, source, 0, name_end);
     let target_span =
-        word_text_offset_span(word.span, source, 0, if append { index - 1 } else { index });
-    let value_span = word_text_offset_span(word.span, source, value_start, text.len());
+        word_text_offset_span(span, source, 0, if append { index - 1 } else { index });
+    let value_span = word_text_offset_span(span, source, value_start, text.len());
     let value_origin = if text[value_start..].trim_start().starts_with('(') {
         AssignmentValueOrigin::ArrayOrCompound
     } else {
@@ -4968,6 +8333,22 @@ fn let_arithmetic_assignment_target(word: &Word, source: &str) -> Option<(Name, 
     Some((
         Name::from(&text[..name_end]),
         word_text_offset_span(word.span, source, 0, name_end),
+    ))
+}
+
+fn let_arithmetic_assignment_target_arena(
+    word: shuck_ast::WordView<'_>,
+    source: &str,
+) -> Option<(Name, Span)> {
+    let span = word.span();
+    let text = span.slice(source);
+    let name_end = variable_name_end(text)?;
+    let rest = text[name_end..].trim_start();
+    arithmetic_assignment_operator(rest)?;
+
+    Some((
+        Name::from(&text[..name_end]),
+        word_text_offset_span(span, source, 0, name_end),
     ))
 }
 
@@ -5027,6 +8408,27 @@ fn read_attached_array_target(
     Some((Name::from(target_text), target_span))
 }
 
+fn read_attached_array_target_arena(
+    word: shuck_ast::WordView<'_>,
+    source: &str,
+    target_text: &str,
+) -> Option<(Name, Span)> {
+    if !is_name(target_text) {
+        return None;
+    }
+
+    let span = word.span();
+    let target_span = span
+        .slice(source)
+        .rfind(target_text)
+        .map(|start| {
+            read_option_attached_target_span(span, source, start, start + target_text.len())
+        })
+        .unwrap_or(span);
+
+    Some((Name::from(target_text), target_span))
+}
+
 fn read_option_attached_target_span(span: Span, source: &str, start: usize, end: usize) -> Span {
     let start_pos = span
         .start
@@ -5055,6 +8457,143 @@ fn recorded_command_info(
     }
 }
 
+fn recorded_command_info_arena(
+    command: CommandView<'_>,
+    source: &str,
+    bash_runtime_vars_enabled: bool,
+) -> RecordedCommandInfo {
+    let command_span = command.span();
+    let Some(command) = command.simple() else {
+        let text = command.span().slice(source);
+        let words = text
+            .split_whitespace()
+            .map(|word| Some(word.to_owned()))
+            .collect::<Vec<_>>();
+        let Some(Some(static_callee)) = words.first() else {
+            return RecordedCommandInfo::default();
+        };
+        if !matches!(
+            static_callee.as_str(),
+            "emulate" | "setopt" | "unsetopt" | "set"
+        ) {
+            return RecordedCommandInfo::default();
+        }
+        let static_args = words
+            .iter()
+            .skip(1)
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        let mut info = RecordedCommandInfo {
+            static_callee: Some(static_callee.clone()),
+            static_args,
+            source_path_template: None,
+            zsh_effects: Vec::new(),
+        };
+        let args = words.get(1..).unwrap_or(&[]);
+        match static_callee.as_str() {
+            "emulate" => info.zsh_effects = parse_emulate_effects_static(args),
+            "setopt" => {
+                info.zsh_effects = vec![RecordedZshCommandEffect::SetOptions {
+                    updates: parse_setopt_updates_static(args, true),
+                }];
+            }
+            "unsetopt" => {
+                info.zsh_effects = vec![RecordedZshCommandEffect::SetOptions {
+                    updates: parse_setopt_updates_static(args, false),
+                }];
+            }
+            _ => {}
+        }
+        info.zsh_effects.retain(|effect| match effect {
+            RecordedZshCommandEffect::Emulate { .. } => true,
+            RecordedZshCommandEffect::SetOptions { updates } => !updates.is_empty(),
+        });
+        return info;
+    };
+    let word_ids = std::iter::once(command.name().id())
+        .chain(command.args().map(|word| word.id()))
+        .collect::<Vec<_>>();
+    let normalized =
+        normalize_command_words_arena(command.name().store(), &word_ids, command_span, source);
+    let mut static_callee = normalized
+        .as_ref()
+        .and_then(|command| command.effective_name.as_ref())
+        .map(|name| name.to_string())
+        .or_else(|| {
+            static_command_name_text_arena(command.name(), source).map(|name| name.into_owned())
+        });
+    let body_words = normalized
+        .as_ref()
+        .map(|command| command.body_words.as_slice())
+        .unwrap_or(word_ids.as_slice());
+    let static_args = body_words
+        .iter()
+        .skip(1)
+        .map(|word| {
+            static_word_text_arena(command.name().store().word(*word), source)
+                .map(|text| text.into_owned())
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    let source_path_template = static_callee
+        .as_deref()
+        .filter(|name| matches!(*name, "source" | "."))
+        .and_then(|_| body_words.get(1).copied())
+        .map(|word| command.name().store().word(word))
+        .and_then(|word| source_path_template_arena(word, source, bash_runtime_vars_enabled));
+
+    if static_callee.as_deref() == Some("noglob") {
+        static_callee = command.args().next().and_then(|word| {
+            static_command_name_text_arena(word, source).map(|name| name.into_owned())
+        });
+    }
+
+    let mut info = RecordedCommandInfo {
+        static_callee,
+        static_args,
+        source_path_template,
+        zsh_effects: Vec::new(),
+    };
+
+    let static_words = std::iter::once(command.name())
+        .chain(command.args())
+        .map(|word| static_word_text_arena(word, source).map(|text| text.into_owned()))
+        .collect::<Vec<_>>();
+    let Some((effect_callee, effect_index)) =
+        normalize_recorded_zsh_effect_command_arena(&static_words)
+    else {
+        return info;
+    };
+    let args = static_words.get(effect_index + 1..).unwrap_or(&[]);
+    match effect_callee.as_str() {
+        "emulate" => info.zsh_effects = parse_emulate_effects_static(args),
+        "setopt" => {
+            info.zsh_effects = vec![RecordedZshCommandEffect::SetOptions {
+                updates: parse_setopt_updates_static(args, true),
+            }];
+        }
+        "unsetopt" => {
+            info.zsh_effects = vec![RecordedZshCommandEffect::SetOptions {
+                updates: parse_setopt_updates_static(args, false),
+            }];
+        }
+        "set" => {
+            let updates = parse_set_builtin_option_updates_static(args);
+            if !updates.is_empty() {
+                info.zsh_effects = vec![RecordedZshCommandEffect::SetOptions { updates }];
+            }
+        }
+        _ => {}
+    }
+
+    info.zsh_effects.retain(|effect| match effect {
+        RecordedZshCommandEffect::Emulate { .. } => true,
+        RecordedZshCommandEffect::SetOptions { updates } => !updates.is_empty(),
+    });
+    info
+}
+
 fn recorded_simple_command_info(
     command: &shuck_ast::SimpleCommand,
     source: &str,
@@ -5071,11 +8610,7 @@ fn recorded_simple_command_info(
         .map(|word| static_word_text(word, source).map(|text| text.into_owned()))
         .collect::<Vec<_>>()
         .into_boxed_slice();
-    let source_path_template = static_callee
-        .as_deref()
-        .filter(|name| matches!(*name, "source" | "."))
-        .and_then(|_| command.args.first())
-        .and_then(|word| source_path_template(word, source, bash_runtime_vars_enabled));
+    let _ = bash_runtime_vars_enabled;
 
     if static_callee.as_deref() == Some("noglob") {
         static_callee = words
@@ -5086,7 +8621,7 @@ fn recorded_simple_command_info(
     let mut info = RecordedCommandInfo {
         static_callee,
         static_args,
-        source_path_template,
+        source_path_template: None,
         zsh_effects: Vec::new(),
     };
     let Some((effect_callee, effect_index)) = normalize_recorded_zsh_effect_command(&words, source)
@@ -5123,6 +8658,322 @@ fn recorded_simple_command_info(
     info
 }
 
+fn source_path_template_arena(
+    word: shuck_ast::WordView<'_>,
+    source: &str,
+    bash_runtime_vars_enabled: bool,
+) -> Option<SourcePathTemplate> {
+    if static_word_text_arena(word, source).is_some() {
+        return None;
+    }
+
+    let mut parts = Vec::new();
+    let mut ignored_root = false;
+    let mut saw_dynamic = false;
+
+    collect_source_template_parts_arena(
+        word.parts(),
+        word.store(),
+        source,
+        bash_runtime_vars_enabled,
+        &mut parts,
+        &mut ignored_root,
+        &mut saw_dynamic,
+    )
+    .then_some(())?;
+
+    (saw_dynamic && !parts.is_empty()).then_some(SourcePathTemplate::Interpolated(parts))
+}
+
+fn collect_source_template_parts_arena(
+    word_parts: &[WordPartArenaNode],
+    store: &AstStore,
+    source: &str,
+    bash_runtime_vars_enabled: bool,
+    parts: &mut Vec<TemplatePart>,
+    ignored_root: &mut bool,
+    saw_dynamic: &mut bool,
+) -> bool {
+    for part in word_parts {
+        match &part.kind {
+            WordPartArena::Literal(text) => {
+                let text = text.as_str(source, part.span);
+                if !text.is_empty() {
+                    push_source_template_literal_arena(parts, text.to_owned());
+                }
+            }
+            WordPartArena::SingleQuoted { value, .. } => {
+                let text = value.slice(source);
+                if !text.is_empty() {
+                    push_source_template_literal_arena(parts, text.to_owned());
+                }
+            }
+            WordPartArena::DoubleQuoted { parts: inner, .. } => {
+                if !collect_source_template_parts_arena(
+                    store.word_parts(*inner),
+                    store,
+                    source,
+                    bash_runtime_vars_enabled,
+                    parts,
+                    ignored_root,
+                    saw_dynamic,
+                ) {
+                    return false;
+                }
+            }
+            WordPartArena::Variable(name) => {
+                if let Some(index) = source_template_positional_index_arena(name) {
+                    *saw_dynamic = true;
+                    parts.push(TemplatePart::Arg(index));
+                } else if bash_runtime_vars_enabled
+                    && source_template_is_bash_source_var_arena(name)
+                {
+                    *saw_dynamic = true;
+                    parts.push(TemplatePart::SourceFile);
+                } else if !*ignored_root && parts.is_empty() {
+                    *ignored_root = true;
+                    *saw_dynamic = true;
+                } else {
+                    return false;
+                }
+            }
+            WordPartArena::Parameter(parameter)
+                if bash_runtime_vars_enabled
+                    && source_template_parameter_is_current_source_file_arena(
+                        parameter, source,
+                    ) =>
+            {
+                *saw_dynamic = true;
+                parts.push(TemplatePart::SourceFile);
+            }
+            WordPartArena::ArrayAccess(reference)
+                if bash_runtime_vars_enabled
+                    && source_template_is_bash_source_index_ref_arena(reference, source) =>
+            {
+                *saw_dynamic = true;
+                parts.push(TemplatePart::SourceFile);
+            }
+            WordPartArena::CommandSubstitution { body, .. } => {
+                if bash_runtime_vars_enabled
+                    && let Some(template_part) =
+                        dirname_source_template_part_arena(store.stmt_seq(*body), store, source)
+                {
+                    *saw_dynamic = true;
+                    parts.push(template_part);
+                } else {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+
+    true
+}
+
+fn push_source_template_literal_arena(parts: &mut Vec<TemplatePart>, text: String) {
+    if let Some(TemplatePart::Literal(existing)) = parts.last_mut() {
+        existing.push_str(&text);
+    } else {
+        parts.push(TemplatePart::Literal(text));
+    }
+}
+
+fn source_template_positional_index_arena(name: &Name) -> Option<usize> {
+    name.as_str().parse().ok()
+}
+
+fn source_template_is_bash_source_var_arena(name: &Name) -> bool {
+    name.as_str() == "BASH_SOURCE"
+}
+
+fn source_template_parameter_is_current_source_file_arena(
+    parameter: &ParameterExpansionNode,
+    source: &str,
+) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntaxNode::Bourne(BourneParameterExpansionNode::Access {
+            reference,
+        }) => source_template_is_current_source_reference_arena(reference, source),
+        ParameterExpansionSyntaxNode::Bourne(
+            BourneParameterExpansionNode::Length { .. }
+            | BourneParameterExpansionNode::Indices { .. }
+            | BourneParameterExpansionNode::Indirect { .. }
+            | BourneParameterExpansionNode::PrefixMatch { .. }
+            | BourneParameterExpansionNode::Slice { .. }
+            | BourneParameterExpansionNode::Operation { .. }
+            | BourneParameterExpansionNode::Transformation { .. },
+        )
+        | ParameterExpansionSyntaxNode::Zsh(_) => false,
+    }
+}
+
+fn source_template_is_current_source_reference_arena(reference: &VarRefNode, source: &str) -> bool {
+    source_template_is_bash_source_var_arena(&reference.name)
+        && reference.subscript.as_ref().is_none_or(|subscript| {
+            source_template_subscript_is_semantic_zero_arena(subscript, None, source)
+        })
+}
+
+fn source_template_is_bash_source_index_ref_arena(reference: &VarRefNode, source: &str) -> bool {
+    source_template_is_bash_source_var_arena(&reference.name)
+        && reference.subscript.as_ref().is_some_and(|subscript| {
+            source_template_subscript_is_semantic_zero_arena(subscript, None, source)
+        })
+}
+
+fn source_template_subscript_is_semantic_zero_arena(
+    subscript: &SubscriptNode,
+    store: Option<&AstStore>,
+    source: &str,
+) -> bool {
+    subscript.arithmetic_ast.as_ref().is_some_and(|expr| {
+        source_template_arithmetic_expr_is_semantic_zero_arena(expr, store, source)
+    })
+}
+
+fn source_template_arithmetic_expr_is_semantic_zero_arena(
+    expr: &ArithmeticExprArenaNode,
+    store: Option<&AstStore>,
+    source: &str,
+) -> bool {
+    match &expr.kind {
+        ArithmeticExprArena::Number(text) => {
+            source_template_shell_zero_literal_arena(text.slice(source))
+        }
+        ArithmeticExprArena::ShellWord(word) => store
+            .map(|store| {
+                source_template_word_is_semantic_zero_arena(store.word(*word), store, source)
+            })
+            .unwrap_or(false),
+        ArithmeticExprArena::Parenthesized { expression } => {
+            source_template_arithmetic_expr_is_semantic_zero_arena(expression, store, source)
+        }
+        ArithmeticExprArena::Unary { expr, .. } => {
+            source_template_arithmetic_expr_is_semantic_zero_arena(expr, store, source)
+        }
+        _ => false,
+    }
+}
+
+fn source_template_word_is_semantic_zero_arena(
+    word: shuck_ast::WordView<'_>,
+    store: &AstStore,
+    source: &str,
+) -> bool {
+    matches!(
+        word.parts(),
+        [part] if source_template_word_part_is_semantic_zero_arena(part, store, source)
+    )
+}
+
+fn source_template_word_part_is_semantic_zero_arena(
+    part: &WordPartArenaNode,
+    store: &AstStore,
+    source: &str,
+) -> bool {
+    match &part.kind {
+        WordPartArena::Literal(text) => {
+            source_template_shell_zero_literal_arena(text.as_str(source, part.span))
+        }
+        WordPartArena::SingleQuoted { value, .. } => {
+            source_template_shell_zero_literal_arena(value.slice(source))
+        }
+        WordPartArena::DoubleQuoted { parts, .. } => {
+            matches!(
+                store.word_parts(*parts),
+                [part] if source_template_word_part_is_semantic_zero_arena(part, store, source)
+            )
+        }
+        WordPartArena::ArithmeticExpansion {
+            expression_ast: Some(expr),
+            ..
+        } => source_template_arithmetic_expr_is_semantic_zero_arena(expr, Some(store), source),
+        _ => false,
+    }
+}
+
+fn source_template_shell_zero_literal_arena(text: &str) -> bool {
+    let text = text.trim();
+    if text.is_empty() {
+        return false;
+    }
+
+    let digits = text
+        .strip_prefix('+')
+        .or_else(|| text.strip_prefix('-'))
+        .unwrap_or(text);
+    if digits.is_empty() {
+        return false;
+    }
+
+    if let Some((base, value)) = digits.split_once('#') {
+        return base.parse::<u32>().is_ok_and(|base| {
+            (2..=64).contains(&base) && !value.is_empty() && value.chars().all(|ch| ch == '0')
+        });
+    }
+
+    let digits = digits
+        .strip_prefix("0x")
+        .or_else(|| digits.strip_prefix("0X"))
+        .unwrap_or(digits);
+    !digits.is_empty() && digits.chars().all(|ch| ch == '0')
+}
+
+fn dirname_source_template_part_arena(
+    commands: StmtSeqView<'_>,
+    store: &AstStore,
+    source: &str,
+) -> Option<TemplatePart> {
+    let mut stmts = commands.stmts();
+    let stmt = stmts.next()?;
+    if stmts.next().is_some() {
+        return None;
+    }
+    let command = stmt.command().simple()?;
+    if stmt.negated() || !stmt.redirects().is_empty() || !command.assignments().is_empty() {
+        return None;
+    }
+    let args = command.args().collect::<Vec<_>>();
+    if args.len() != 1 {
+        return None;
+    }
+    if static_word_text_arena(command.name(), source).as_deref() != Some("dirname") {
+        return None;
+    }
+    current_source_file_word_arena(args[0], store, source).then_some(TemplatePart::SourceDir)
+}
+
+fn current_source_file_word_arena(
+    word: shuck_ast::WordView<'_>,
+    store: &AstStore,
+    source: &str,
+) -> bool {
+    matches!(
+        word.parts(),
+        [part] if is_current_source_part_arena(&part.kind, store, source)
+    )
+}
+
+fn is_current_source_part_arena(part: &WordPartArena, store: &AstStore, source: &str) -> bool {
+    match part {
+        WordPartArena::Variable(name) => source_template_is_bash_source_var_arena(name),
+        WordPartArena::Parameter(parameter) => {
+            source_template_parameter_is_current_source_file_arena(parameter, source)
+        }
+        WordPartArena::ArrayAccess(reference) => {
+            source_template_is_bash_source_index_ref_arena(reference, source)
+        }
+        WordPartArena::DoubleQuoted { parts, .. } => {
+            matches!(
+                store.word_parts(*parts),
+                [part] if is_current_source_part_arena(&part.kind, store, source)
+            )
+        }
+        _ => false,
+    }
+}
+
 fn normalize_recorded_zsh_effect_command(words: &[&Word], source: &str) -> Option<(String, usize)> {
     let mut index = 0usize;
 
@@ -5137,6 +8988,34 @@ fn normalize_recorded_zsh_effect_command(words: &[&Word], source: &str) -> Optio
             static_word_text(words[word_index], source)
         }) {
             StaticCommandWrapperTarget::NotWrapper => return Some((text.into_owned(), index)),
+            StaticCommandWrapperTarget::Wrapper {
+                target_index: Some(target_index),
+            } => {
+                index = target_index;
+                continue;
+            }
+            StaticCommandWrapperTarget::Wrapper { target_index: None } => return None,
+        }
+    }
+
+    None
+}
+
+fn normalize_recorded_zsh_effect_command_arena(
+    words: &[Option<String>],
+) -> Option<(String, usize)> {
+    let mut index = 0usize;
+
+    while let Some(text) = words.get(index).and_then(|text| text.as_deref()) {
+        if is_recorded_assignment_word(text) {
+            index += 1;
+            continue;
+        }
+
+        match static_command_wrapper_target_index(words.len(), index, text, |word_index| {
+            words[word_index].as_deref().map(Cow::Borrowed)
+        }) {
+            StaticCommandWrapperTarget::NotWrapper => return Some((text.to_owned(), index)),
             StaticCommandWrapperTarget::Wrapper {
                 target_index: Some(target_index),
             } => {
@@ -5235,6 +9114,69 @@ fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<RecordedZshCommand
     effects
 }
 
+fn parse_emulate_effects_static(args: &[Option<String>]) -> Vec<RecordedZshCommandEffect> {
+    let mut local = false;
+    let mut mode = None;
+    let mut updates = Vec::new();
+    let mut index = 0usize;
+
+    while let Some(Some(text)) = args.get(index) {
+        match text.as_str() {
+            "--" => break,
+            "-o" | "+o" => {
+                let enable = text.starts_with('-');
+                if let Some(Some(option)) = args.get(index + 1)
+                    && let Some(update) = parse_recorded_zsh_option_update(option, enable)
+                {
+                    updates.push(update);
+                }
+                index += 2;
+                continue;
+            }
+            _ => {}
+        }
+
+        if text.starts_with("-o") || text.starts_with("+o") {
+            let enable = text.starts_with('-');
+            if let Some(update) = parse_recorded_zsh_option_update(&text[2..], enable) {
+                updates.push(update);
+            }
+            index += 1;
+            continue;
+        }
+
+        if let Some(flags) = text.strip_prefix('-') {
+            for flag in flags.chars() {
+                if flag == 'L' {
+                    local = true;
+                }
+            }
+            index += 1;
+            continue;
+        }
+
+        if mode.is_none() {
+            mode = match text.to_ascii_lowercase().as_str() {
+                "zsh" => Some(ZshEmulationMode::Zsh),
+                "sh" => Some(ZshEmulationMode::Sh),
+                "ksh" => Some(ZshEmulationMode::Ksh),
+                "csh" => Some(ZshEmulationMode::Csh),
+                _ => None,
+            };
+        }
+        index += 1;
+    }
+
+    let mut effects = Vec::new();
+    if let Some(mode) = mode {
+        effects.push(RecordedZshCommandEffect::Emulate { mode, local });
+    }
+    if !updates.is_empty() {
+        effects.push(RecordedZshCommandEffect::SetOptions { updates });
+    }
+    effects
+}
+
 fn parse_setopt_updates(
     args: &[&Word],
     source: &str,
@@ -5244,6 +9186,17 @@ fn parse_setopt_updates(
         .filter_map(|word| static_word_text(word, source))
         .filter(|text| text != "--")
         .filter_map(|text| parse_recorded_zsh_option_update(&text, enable))
+        .collect()
+}
+
+fn parse_setopt_updates_static(
+    args: &[Option<String>],
+    enable: bool,
+) -> Vec<RecordedZshOptionUpdate> {
+    args.iter()
+        .filter_map(|text| text.as_deref())
+        .filter(|text| *text != "--")
+        .filter_map(|text| parse_recorded_zsh_option_update(text, enable))
         .collect()
 }
 
@@ -5264,6 +9217,37 @@ fn parse_set_builtin_option_updates(args: &[&Word], source: &str) -> Vec<Recorde
                     .get(index + 1)
                     .and_then(|word| static_word_text(word, source))
                     && let Some(update) = parse_recorded_zsh_option_update(&name, enable)
+                {
+                    updates.push(update);
+                }
+                index += 2;
+            }
+            _ if text.starts_with("-o") || text.starts_with("+o") => {
+                let enable = text.starts_with('-');
+                if let Some(update) = parse_recorded_zsh_option_update(&text[2..], enable) {
+                    updates.push(update);
+                }
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+
+    updates
+}
+
+fn parse_set_builtin_option_updates_static(
+    args: &[Option<String>],
+) -> Vec<RecordedZshOptionUpdate> {
+    let mut updates = Vec::new();
+    let mut index = 0usize;
+
+    while let Some(Some(text)) = args.get(index) {
+        match text.as_str() {
+            "-o" | "+o" => {
+                let enable = text.starts_with('-');
+                if let Some(Some(name)) = args.get(index + 1)
+                    && let Some(update) = parse_recorded_zsh_option_update(name, enable)
                 {
                     updates.push(update);
                 }
@@ -5340,6 +9324,30 @@ fn classify_dynamic_source_word(word: &Word, source: &str) -> SourceRefKind {
     SourceRefKind::Dynamic
 }
 
+fn classify_dynamic_source_word_arena(
+    word: shuck_ast::WordView<'_>,
+    source: &str,
+) -> SourceRefKind {
+    let mut variable = None;
+    let mut tail = String::new();
+
+    for part in word.parts() {
+        match &part.kind {
+            WordPartArena::Literal(text) => tail.push_str(text.as_str(source, part.span)),
+            WordPartArena::Variable(name) if variable.is_none() && tail.is_empty() => {
+                variable = Some(name.clone());
+            }
+            _ => return SourceRefKind::Dynamic,
+        }
+    }
+
+    if let Some(variable) = variable {
+        return SourceRefKind::SingleVariableStaticTail { variable, tail };
+    }
+
+    SourceRefKind::Dynamic
+}
+
 fn classify_source_ref_diagnostic_class(
     word: &Word,
     source: &str,
@@ -5352,6 +9360,24 @@ fn classify_source_ref_diagnostic_class(
             SourceRefDiagnosticClass::DynamicPath
         }
         SourceRefKind::Dynamic if dynamic_root_with_slash_tail(word, source) => {
+            SourceRefDiagnosticClass::UntrackedFile
+        }
+        _ => default_diagnostic_class(kind),
+    }
+}
+
+fn classify_source_ref_diagnostic_class_arena(
+    word: shuck_ast::WordView<'_>,
+    source: &str,
+    kind: &SourceRefKind,
+) -> SourceRefDiagnosticClass {
+    match kind {
+        SourceRefKind::Literal(path)
+            if literal_uses_current_user_home_tilde_arena(word, source, path) =>
+        {
+            SourceRefDiagnosticClass::DynamicPath
+        }
+        SourceRefKind::Dynamic if dynamic_root_with_slash_tail_arena(word, source) => {
             SourceRefDiagnosticClass::UntrackedFile
         }
         _ => default_diagnostic_class(kind),
@@ -5378,6 +9404,31 @@ fn literal_uses_current_user_home_tilde(word: &Word, source: &str, path: &str) -
     }
 }
 
+fn literal_uses_current_user_home_tilde_arena(
+    word: shuck_ast::WordView<'_>,
+    source: &str,
+    path: &str,
+) -> bool {
+    if !path.starts_with("~/") {
+        return false;
+    }
+
+    let Some((first, tail)) = word.parts().split_first() else {
+        return false;
+    };
+
+    match &first.kind {
+        WordPartArena::Literal(_) => {
+            let text = first.span.slice(source);
+            text.starts_with("~/")
+                || (text == "~"
+                    && static_parts_text_arena(tail, source)
+                        .is_some_and(|tail| tail.starts_with('/')))
+        }
+        _ => false,
+    }
+}
+
 fn dynamic_root_with_slash_tail(word: &Word, source: &str) -> bool {
     let Some((root, tail)) = word.parts.split_first() else {
         return false;
@@ -5399,6 +9450,28 @@ fn dynamic_root_with_slash_tail(word: &Word, source: &str) -> bool {
     }
 }
 
+fn dynamic_root_with_slash_tail_arena(word: shuck_ast::WordView<'_>, source: &str) -> bool {
+    let Some((root, tail)) = word.parts().split_first() else {
+        return false;
+    };
+
+    match &root.kind {
+        WordPartArena::DoubleQuoted { parts, .. } => {
+            let Some((inner_root, inner_tail)) = word.store().word_parts(*parts).split_first()
+            else {
+                return false;
+            };
+
+            root_word_part_is_dynamic_root_arena(&inner_root.kind)
+                && static_tail_text_starts_with_slash_arena(inner_tail, tail, source)
+        }
+        _ => {
+            root_word_part_is_dynamic_root_arena(&root.kind)
+                && static_tail_text_starts_with_slash_arena(tail, &[], source)
+        }
+    }
+}
+
 fn root_word_part_is_dynamic_root(part: &WordPart) -> bool {
     matches!(
         part,
@@ -5409,8 +9482,33 @@ fn root_word_part_is_dynamic_root(part: &WordPart) -> bool {
     )
 }
 
+fn root_word_part_is_dynamic_root_arena(part: &WordPartArena) -> bool {
+    matches!(
+        part,
+        WordPartArena::Variable(_)
+            | WordPartArena::ArrayAccess(_)
+            | WordPartArena::Parameter(_)
+            | WordPartArena::CommandSubstitution { .. }
+    )
+}
+
 fn static_parts_text(parts: &[WordPartNode], source: &str) -> Option<String> {
     try_static_word_parts_text(parts, source).map(|text| text.into_owned())
+}
+
+fn static_parts_text_arena(parts: &[WordPartArenaNode], source: &str) -> Option<String> {
+    // This helper is only used for tails already paired with a `WordView`; callers that
+    // need nested double-quoted tails should use `static_tail_text_starts_with_slash_arena`.
+    parts
+        .iter()
+        .map(|part| match &part.kind {
+            WordPartArena::Literal(text) => Some(text.as_str(source, part.span)),
+            WordPartArena::SingleQuoted { value, .. } => Some(value.slice(source)),
+            WordPartArena::DoubleQuoted { .. } => None,
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()
+        .map(|parts| parts.concat())
 }
 
 fn static_tail_text_starts_with_slash(
@@ -5426,6 +9524,40 @@ fn static_tail_text_starts_with_slash(
     }
 
     try_static_word_parts_text(trailing, source).is_some_and(|text| text.starts_with('/'))
+}
+
+fn static_tail_text_starts_with_slash_arena(
+    parts: &[WordPartArenaNode],
+    trailing: &[WordPartArenaNode],
+    source: &str,
+) -> bool {
+    let Some(prefix) = try_static_tail_parts_text_arena(parts, source) else {
+        return false;
+    };
+    if !prefix.is_empty() {
+        return prefix.starts_with('/');
+    }
+
+    try_static_tail_parts_text_arena(trailing, source).is_some_and(|text| text.starts_with('/'))
+}
+
+fn try_static_tail_parts_text_arena<'a>(
+    parts: &[WordPartArenaNode],
+    source: &'a str,
+) -> Option<Cow<'a, str>> {
+    if parts.is_empty() {
+        return Some(Cow::Borrowed(""));
+    }
+    let mut text = String::new();
+    for part in parts {
+        match &part.kind {
+            WordPartArena::Literal(literal) => text.push_str(literal.as_str(source, part.span)),
+            WordPartArena::SingleQuoted { value, .. } => text.push_str(value.slice(source)),
+            WordPartArena::DoubleQuoted { .. } => return None,
+            _ => return None,
+        }
+    }
+    Some(Cow::Owned(text))
 }
 
 fn unset_flags_are_valid(flags: &str) -> bool {
@@ -5494,6 +9626,15 @@ fn arithmetic_lvalue_span(target: &ArithmeticLvalue, span: Span) -> Span {
     }
 }
 
+fn arithmetic_lvalue_span_arena(target: &ArithmeticLvalueArena, span: Span) -> Span {
+    match target {
+        ArithmeticLvalueArena::Variable(name) => arithmetic_name_span(span, name),
+        ArithmeticLvalueArena::Indexed { index, .. } => {
+            Span::from_positions(span.start, index.span.end.advanced_by("]"))
+        }
+    }
+}
+
 fn is_name(value: &str) -> bool {
     let mut chars = value.chars();
     let Some(first) = chars.next() else {
@@ -5508,6 +9649,28 @@ fn depth_from_word(word: Option<&Word>) -> usize {
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|depth| *depth > 0)
         .unwrap_or(1)
+}
+
+fn depth_from_static_text(text: Option<Cow<'_, str>>) -> usize {
+    text.as_deref()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|depth| *depth > 0)
+        .unwrap_or(1)
+}
+
+fn subscript_selector_arena(subscript: &SubscriptNode) -> Option<shuck_ast::SubscriptSelector> {
+    match subscript.kind {
+        shuck_ast::SubscriptKind::Ordinary => None,
+        shuck_ast::SubscriptKind::Selector(selector) => Some(selector),
+    }
+}
+
+fn subscript_span_arena(subscript: &SubscriptNode) -> Span {
+    subscript.text.span()
+}
+
+fn subscript_syntax_source_text_arena(subscript: &SubscriptNode) -> &SourceText {
+    subscript.raw.as_ref().unwrap_or(&subscript.text)
 }
 
 fn single_literal_word(word: &Word) -> Option<&str> {
@@ -5538,12 +9701,53 @@ fn binding_origin_for_assignment(assignment: &Assignment, source: &str) -> Bindi
     }
 }
 
+fn binding_origin_for_assignment_arena(
+    assignment: &AssignmentNode,
+    store: &AstStore,
+    source: &str,
+) -> BindingOrigin {
+    let value = if assignment.target.subscript.is_some() {
+        AssignmentValueOrigin::ArrayOrCompound
+    } else {
+        match &assignment.value {
+            AssignmentValueNode::Scalar(word) => {
+                assignment_value_origin_for_word_arena(store.word(*word))
+            }
+            AssignmentValueNode::Compound(_) => AssignmentValueOrigin::ArrayOrCompound,
+        }
+    };
+
+    BindingOrigin::Assignment {
+        definition_span: assignment_target_span_arena(assignment, source),
+        value,
+    }
+}
+
 fn assignment_target_span(assignment: &Assignment, source: &str) -> Span {
     let Some(subscript) = assignment.target.subscript.as_deref() else {
         return assignment.target.name_span;
     };
 
     let subscript_end = subscript.syntax_source_text().span().end;
+    if source
+        .get(subscript_end.offset..)
+        .is_some_and(|rest| rest.starts_with(']'))
+    {
+        return Span::from_positions(
+            assignment.target.name_span.start,
+            subscript_end.advanced_by("]"),
+        );
+    }
+
+    assignment.target.name_span
+}
+
+fn assignment_target_span_arena(assignment: &AssignmentNode, source: &str) -> Span {
+    let Some(subscript) = assignment.target.subscript.as_ref() else {
+        return assignment.target.name_span;
+    };
+
+    let subscript_end = subscript_syntax_source_text_arena(subscript).span().end;
     if source
         .get(subscript_end.offset..)
         .is_some_and(|rest| rest.starts_with(']'))
@@ -5569,6 +9773,16 @@ fn loop_binding_origin_for_words(words: Option<&[Word]>) -> LoopValueOrigin {
     }
 }
 
+fn loop_binding_origin_for_static_texts<'a>(
+    words: impl IntoIterator<Item = Option<Cow<'a, str>>>,
+) -> LoopValueOrigin {
+    if words.into_iter().all(|word| word.is_some()) {
+        LoopValueOrigin::StaticWords
+    } else {
+        LoopValueOrigin::ExpandedWords
+    }
+}
+
 fn assignment_value_origin_for_word(word: &Word) -> AssignmentValueOrigin {
     if !word.brace_syntax.is_empty() {
         return AssignmentValueOrigin::MixedDynamic;
@@ -5579,6 +9793,30 @@ fn assignment_value_origin_for_word(word: &Word) -> AssignmentValueOrigin {
 
     let mut scan = AssignmentWordOriginScan::default();
     scan_assignment_word_parts(&word.parts, &mut scan);
+
+    if scan.category_count() == 0 {
+        return AssignmentValueOrigin::PlainScalarAccess;
+    }
+    if scan.mixed_dynamic || scan.category_count() > 1 {
+        return AssignmentValueOrigin::MixedDynamic;
+    }
+
+    scan.primary_origin()
+        .unwrap_or(AssignmentValueOrigin::Unknown)
+}
+
+fn assignment_value_origin_for_word_arena(word: shuck_ast::WordView<'_>) -> AssignmentValueOrigin {
+    if !word.brace_syntax().is_empty() {
+        return AssignmentValueOrigin::MixedDynamic;
+    }
+    if word_is_static_binding_literal_arena(word) {
+        return AssignmentValueOrigin::StaticLiteral;
+    }
+
+    let mut scan = AssignmentWordOriginScan::default();
+    for part in word.parts() {
+        scan_assignment_word_part_arena(&part.kind, word.store(), &mut scan);
+    }
 
     if scan.category_count() == 0 {
         return AssignmentValueOrigin::PlainScalarAccess;
@@ -5643,6 +9881,14 @@ fn word_is_static_binding_literal(word: &Word) -> bool {
             .all(|part| binding_literal_part_is_static(&part.kind))
 }
 
+fn word_is_static_binding_literal_arena(word: shuck_ast::WordView<'_>) -> bool {
+    word.brace_syntax().is_empty()
+        && word
+            .parts()
+            .iter()
+            .all(|part| binding_literal_part_is_static_arena(&part.kind, word.store()))
+}
+
 fn binding_literal_part_is_static(part: &WordPart) -> bool {
     match part {
         WordPart::Literal(_) | WordPart::SingleQuoted { .. } => true,
@@ -5668,9 +9914,95 @@ fn binding_literal_part_is_static(part: &WordPart) -> bool {
     }
 }
 
+fn binding_literal_part_is_static_arena(part: &WordPartArena, store: &AstStore) -> bool {
+    match part {
+        WordPartArena::Literal(_) | WordPartArena::SingleQuoted { .. } => true,
+        WordPartArena::DoubleQuoted { parts, .. } => store
+            .word_parts(*parts)
+            .iter()
+            .all(|part| binding_literal_part_is_static_arena(&part.kind, store)),
+        WordPartArena::ZshQualifiedGlob(_)
+        | WordPartArena::Variable(_)
+        | WordPartArena::CommandSubstitution { .. }
+        | WordPartArena::ArithmeticExpansion { .. }
+        | WordPartArena::Parameter(_)
+        | WordPartArena::ParameterExpansion { .. }
+        | WordPartArena::Length(_)
+        | WordPartArena::ArrayAccess(_)
+        | WordPartArena::ArrayLength(_)
+        | WordPartArena::ArrayIndices(_)
+        | WordPartArena::Substring { .. }
+        | WordPartArena::ArraySlice { .. }
+        | WordPartArena::IndirectExpansion { .. }
+        | WordPartArena::PrefixMatch { .. }
+        | WordPartArena::ProcessSubstitution { .. }
+        | WordPartArena::Transformation { .. } => false,
+    }
+}
+
 fn scan_assignment_word_parts(parts: &[WordPartNode], scan: &mut AssignmentWordOriginScan) {
     for part in parts {
         scan_assignment_word_part(&part.kind, scan);
+    }
+}
+
+fn scan_assignment_word_part_arena(
+    part: &WordPartArena,
+    store: &AstStore,
+    scan: &mut AssignmentWordOriginScan,
+) {
+    match part {
+        WordPartArena::Literal(_)
+        | WordPartArena::SingleQuoted { .. }
+        | WordPartArena::Variable(_)
+        | WordPartArena::ArithmeticExpansion { .. } => {}
+        WordPartArena::DoubleQuoted { parts, .. } => {
+            for part in store.word_parts(*parts) {
+                scan_assignment_word_part_arena(&part.kind, store, scan);
+            }
+        }
+        WordPartArena::ParameterExpansion { reference, .. } => {
+            if reference.subscript.is_some() {
+                scan.array_or_compound = true;
+            } else {
+                scan.parameter_operator = true;
+            }
+        }
+        WordPartArena::Transformation { .. } => scan.transformation = true,
+        WordPartArena::IndirectExpansion { .. } | WordPartArena::ArrayIndices(_) => {
+            scan.indirect_expansion = true;
+        }
+        WordPartArena::CommandSubstitution { .. } | WordPartArena::ProcessSubstitution { .. } => {
+            scan.command_or_process_substitution = true;
+        }
+        WordPartArena::ArrayAccess(_)
+        | WordPartArena::ArrayLength(_)
+        | WordPartArena::Substring { .. }
+        | WordPartArena::ArraySlice { .. } => scan.array_or_compound = true,
+        WordPartArena::Parameter(parameter) => match &parameter.syntax {
+            ParameterExpansionSyntaxNode::Bourne(BourneParameterExpansionNode::Access {
+                ..
+            }) => {}
+            ParameterExpansionSyntaxNode::Bourne(
+                BourneParameterExpansionNode::Transformation { .. },
+            ) => scan.transformation = true,
+            ParameterExpansionSyntaxNode::Bourne(BourneParameterExpansionNode::Indirect {
+                ..
+            }) => scan.indirect_expansion = true,
+            ParameterExpansionSyntaxNode::Bourne(BourneParameterExpansionNode::Operation {
+                ..
+            }) => scan.parameter_operator = true,
+            ParameterExpansionSyntaxNode::Bourne(
+                BourneParameterExpansionNode::Length { .. }
+                | BourneParameterExpansionNode::Indices { .. }
+                | BourneParameterExpansionNode::PrefixMatch { .. }
+                | BourneParameterExpansionNode::Slice { .. },
+            )
+            | ParameterExpansionSyntaxNode::Zsh(_) => scan.mixed_dynamic = true,
+        },
+        WordPartArena::ZshQualifiedGlob(_)
+        | WordPartArena::Length(_)
+        | WordPartArena::PrefixMatch { .. } => scan.mixed_dynamic = true,
     }
 }
 
@@ -5735,6 +10067,12 @@ fn case_arm_matches_anything(patterns: &[Pattern]) -> bool {
     patterns.iter().any(pattern_matches_anything)
 }
 
+fn case_arm_matches_anything_arena(patterns: &[PatternNode], store: &AstStore) -> bool {
+    patterns
+        .iter()
+        .any(|pattern| pattern_matches_anything_arena(pattern, store))
+}
+
 fn pattern_matches_anything(pattern: &Pattern) -> bool {
     !pattern.parts.is_empty()
         && pattern
@@ -5747,11 +10085,29 @@ fn pattern_matches_anything(pattern: &Pattern) -> bool {
             .any(|part| pattern_part_matches_anything(&part.kind))
 }
 
+fn pattern_matches_anything_arena(pattern: &PatternNode, store: &AstStore) -> bool {
+    let parts = store.pattern_parts(pattern.parts);
+    !parts.is_empty()
+        && parts
+            .iter()
+            .all(|part| pattern_part_can_match_empty_arena(&part.kind, store))
+        && parts
+            .iter()
+            .any(|part| pattern_part_matches_anything_arena(&part.kind, store))
+}
+
 fn pattern_can_match_empty(pattern: &Pattern) -> bool {
     pattern
         .parts
         .iter()
         .all(|part| pattern_part_can_match_empty(&part.kind))
+}
+
+fn pattern_can_match_empty_arena(pattern: &PatternNode, store: &AstStore) -> bool {
+    store
+        .pattern_parts(pattern.parts)
+        .iter()
+        .all(|part| pattern_part_can_match_empty_arena(&part.kind, store))
 }
 
 fn pattern_part_matches_anything(part: &PatternPart) -> bool {
@@ -5762,6 +10118,19 @@ fn pattern_part_matches_anything(part: &PatternPart) -> bool {
         | PatternPart::AnyChar
         | PatternPart::CharClass(_)
         | PatternPart::Word(_) => false,
+    }
+}
+
+fn pattern_part_matches_anything_arena(part: &PatternPartArena, store: &AstStore) -> bool {
+    match part {
+        PatternPartArena::AnyString => true,
+        PatternPartArena::Group { kind, patterns } => {
+            pattern_group_matches_anything_arena(*kind, store.patterns(*patterns), store)
+        }
+        PatternPartArena::Literal(_)
+        | PatternPartArena::AnyChar
+        | PatternPartArena::CharClass(_)
+        | PatternPartArena::Word(_) => false,
     }
 }
 
@@ -5776,12 +10145,41 @@ fn pattern_part_can_match_empty(part: &PatternPart) -> bool {
     }
 }
 
+fn pattern_part_can_match_empty_arena(part: &PatternPartArena, store: &AstStore) -> bool {
+    match part {
+        PatternPartArena::AnyString => true,
+        PatternPartArena::Group { kind, patterns } => {
+            pattern_group_can_match_empty_arena(*kind, store.patterns(*patterns), store)
+        }
+        PatternPartArena::Literal(_)
+        | PatternPartArena::AnyChar
+        | PatternPartArena::CharClass(_)
+        | PatternPartArena::Word(_) => false,
+    }
+}
+
 fn pattern_group_matches_anything(kind: PatternGroupKind, patterns: &[Pattern]) -> bool {
     match kind {
         PatternGroupKind::ZeroOrOne
         | PatternGroupKind::ZeroOrMore
         | PatternGroupKind::OneOrMore
         | PatternGroupKind::ExactlyOne => patterns.iter().any(pattern_matches_anything),
+        PatternGroupKind::NoneOf => false,
+    }
+}
+
+fn pattern_group_matches_anything_arena(
+    kind: PatternGroupKind,
+    patterns: &[PatternNode],
+    store: &AstStore,
+) -> bool {
+    match kind {
+        PatternGroupKind::ZeroOrOne
+        | PatternGroupKind::ZeroOrMore
+        | PatternGroupKind::OneOrMore
+        | PatternGroupKind::ExactlyOne => patterns
+            .iter()
+            .any(|pattern| pattern_matches_anything_arena(pattern, store)),
         PatternGroupKind::NoneOf => false,
     }
 }
@@ -5796,10 +10194,30 @@ fn pattern_group_can_match_empty(kind: PatternGroupKind, patterns: &[Pattern]) -
     }
 }
 
+fn pattern_group_can_match_empty_arena(
+    kind: PatternGroupKind,
+    patterns: &[PatternNode],
+    store: &AstStore,
+) -> bool {
+    match kind {
+        PatternGroupKind::ZeroOrOne | PatternGroupKind::ZeroOrMore => true,
+        PatternGroupKind::OneOrMore | PatternGroupKind::ExactlyOne => patterns
+            .iter()
+            .any(|pattern| pattern_can_match_empty_arena(pattern, store)),
+        PatternGroupKind::NoneOf => false,
+    }
+}
+
 fn word_is_semantically_inert(word: &Word) -> bool {
     word.parts
         .iter()
         .all(|part| word_part_is_semantically_inert(&part.kind))
+}
+
+fn word_is_semantically_inert_arena(word: shuck_ast::WordView<'_>, store: &AstStore) -> bool {
+    word.parts()
+        .iter()
+        .all(|part| word_part_is_semantically_inert_arena(&part.kind, store))
 }
 
 fn heredoc_body_is_semantically_inert(body: &HeredocBody, source: &str) -> bool {
@@ -5830,6 +10248,42 @@ fn word_part_is_semantically_inert(part: &WordPart) -> bool {
         | WordPart::PrefixMatch { .. }
         | WordPart::ProcessSubstitution { .. }
         | WordPart::Transformation { .. } => false,
+    }
+}
+
+fn word_part_is_semantically_inert_arena(part: &WordPartArena, store: &AstStore) -> bool {
+    match part {
+        WordPartArena::Literal(_) | WordPartArena::SingleQuoted { .. } => true,
+        WordPartArena::ZshQualifiedGlob(glob) => {
+            store
+                .zsh_glob_segments(glob.segments)
+                .iter()
+                .all(|segment| match segment {
+                    shuck_ast::ZshGlobSegmentNode::Pattern(pattern) => {
+                        pattern_is_semantically_inert_arena(pattern, store)
+                    }
+                    shuck_ast::ZshGlobSegmentNode::InlineControl(_) => true,
+                })
+        }
+        WordPartArena::DoubleQuoted { parts, .. } => store
+            .word_parts(*parts)
+            .iter()
+            .all(|part| word_part_is_semantically_inert_arena(&part.kind, store)),
+        WordPartArena::ArithmeticExpansion { expression_ast, .. } => expression_ast.is_none(),
+        WordPartArena::Variable(_)
+        | WordPartArena::CommandSubstitution { .. }
+        | WordPartArena::Parameter(_)
+        | WordPartArena::ParameterExpansion { .. }
+        | WordPartArena::Length(_)
+        | WordPartArena::ArrayAccess(_)
+        | WordPartArena::ArrayLength(_)
+        | WordPartArena::ArrayIndices(_)
+        | WordPartArena::Substring { .. }
+        | WordPartArena::ArraySlice { .. }
+        | WordPartArena::IndirectExpansion { .. }
+        | WordPartArena::PrefixMatch { .. }
+        | WordPartArena::ProcessSubstitution { .. }
+        | WordPartArena::Transformation { .. } => false,
     }
 }
 
@@ -5864,6 +10318,13 @@ fn pattern_is_semantically_inert(pattern: &Pattern) -> bool {
         .all(|part| pattern_part_is_semantically_inert(&part.kind))
 }
 
+fn pattern_is_semantically_inert_arena(pattern: &PatternNode, store: &AstStore) -> bool {
+    store
+        .pattern_parts(pattern.parts)
+        .iter()
+        .all(|part| pattern_part_is_semantically_inert_arena(&part.kind, store))
+}
+
 fn pattern_part_is_semantically_inert(part: &PatternPart) -> bool {
     match part {
         PatternPart::Literal(_)
@@ -5872,6 +10333,20 @@ fn pattern_part_is_semantically_inert(part: &PatternPart) -> bool {
         | PatternPart::CharClass(_) => true,
         PatternPart::Group { patterns, .. } => patterns.iter().all(pattern_is_semantically_inert),
         PatternPart::Word(word) => word_is_semantically_inert(word),
+    }
+}
+
+fn pattern_part_is_semantically_inert_arena(part: &PatternPartArena, store: &AstStore) -> bool {
+    match part {
+        PatternPartArena::Literal(_)
+        | PatternPartArena::AnyString
+        | PatternPartArena::AnyChar
+        | PatternPartArena::CharClass(_) => true,
+        PatternPartArena::Group { patterns, .. } => store
+            .patterns(*patterns)
+            .iter()
+            .all(|pattern| pattern_is_semantically_inert_arena(pattern, store)),
+        PatternPartArena::Word(word) => word_is_semantically_inert_arena(store.word(*word), store),
     }
 }
 
@@ -5944,6 +10419,21 @@ fn collect_pipeline_segments<'a>(stmt: &'a Stmt, out: &mut SmallVec<[&'a Stmt; 4
     }
 }
 
+fn collect_pipeline_segments_arena<'a>(
+    seq: StmtSeqView<'a>,
+    out: &mut SmallVec<[StmtView<'a>; 4]>,
+) {
+    for stmt in seq.stmts() {
+        match stmt.command().binary() {
+            Some(command) if matches!(command.op(), BinaryOp::Pipe | BinaryOp::PipeAll) => {
+                collect_pipeline_segments_arena(command.left(), out);
+                collect_pipeline_segments_arena(command.right(), out);
+            }
+            _ => out.push(stmt),
+        }
+    }
+}
+
 fn collect_logical_segments<'a>(
     stmt: &'a Stmt,
     commands: &mut SmallVec<[&'a Stmt; 4]>,
@@ -5956,6 +10446,23 @@ fn collect_logical_segments<'a>(
             collect_logical_segments(&command.right, commands, operators);
         }
         _ => commands.push(stmt),
+    }
+}
+
+fn collect_logical_segments_arena<'a>(
+    seq: StmtSeqView<'a>,
+    commands: &mut SmallVec<[StmtView<'a>; 4]>,
+    operators: &mut SmallVec<[RecordedListOperator; 4]>,
+) {
+    for stmt in seq.stmts() {
+        match stmt.command().binary() {
+            Some(command) if matches!(command.op(), BinaryOp::And | BinaryOp::Or) => {
+                collect_logical_segments_arena(command.left(), commands, operators);
+                operators.push(recorded_list_operator(command.op()));
+                collect_logical_segments_arena(command.right(), commands, operators);
+            }
+            _ => commands.push(stmt),
+        }
     }
 }
 

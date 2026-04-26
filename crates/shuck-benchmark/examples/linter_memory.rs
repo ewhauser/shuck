@@ -183,7 +183,7 @@ impl PreparedInput {
     fn new(source: &'static str) -> Self {
         let output = parse_fixture(source);
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let shell = ShellDialect::infer(source, None);
         let file_context = classify_file_context(source, None, shell);
 

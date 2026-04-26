@@ -1,4 +1,4 @@
-use shuck_ast::{Name, Word};
+use shuck_ast::Name;
 
 const COMMON_PREINITIALIZED: &[&str] = &[
     "IFS",
@@ -137,8 +137,6 @@ impl RuntimePrelude {
     pub(crate) fn implicit_reads_for_simple_command(
         &self,
         command_name: &Name,
-        _args: &[&Word],
-        _source: &str,
     ) -> &'static [&'static str] {
         match command_name.as_str() {
             "read" => READ_IMPLICIT_READS,

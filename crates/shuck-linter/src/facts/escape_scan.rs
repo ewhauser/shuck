@@ -506,7 +506,7 @@ mod tests {
     ) {
         let output = Parser::with_dialect(source, parse_dialect).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
         let file_context = classify_file_context(source, path, shell);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
         visit(facts.escape_scan_matches());

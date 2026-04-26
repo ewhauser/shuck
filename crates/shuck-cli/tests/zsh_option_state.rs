@@ -133,8 +133,8 @@ fn run_fixture(fixture: &Fixture) -> Result<()> {
         return Err(anyhow::anyhow!("parse error: {}", parsed.strict_error()));
     }
     let indexer = Indexer::new(&fixture.source, &parsed);
-    let semantic = SemanticModel::build_with_options(
-        &parsed.file,
+    let semantic = SemanticModel::build_arena_with_options(
+        &parsed.arena_file,
         &fixture.source,
         &indexer,
         SemanticBuildOptions {
