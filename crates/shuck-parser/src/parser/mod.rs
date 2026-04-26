@@ -2054,6 +2054,40 @@ impl<'a> Parser<'a> {
         )
     }
 
+    /// Classify an already-parsed word as a shell assignment and split its value.
+    ///
+    /// This is the parser-owned entrypoint for downstream analysis that needs
+    /// assignment target/value structure from a `Word` that was parsed as a
+    /// normal command argument.
+    pub fn parse_assignment_word(
+        source: &str,
+        word: Word,
+        explicit_array_kind: Option<ArrayKind>,
+        subscript_interpretation: SubscriptInterpretation,
+    ) -> Option<Assignment> {
+        let mut parser = Parser::new(source);
+        parser.parse_assignment_from_word(word, explicit_array_kind, subscript_interpretation)
+    }
+
+    /// Classify a contiguous group of already-parsed words as a shell assignment.
+    ///
+    /// Some shell syntax, such as process substitution inside an array subscript,
+    /// can produce multiple AST words while still occupying one contiguous
+    /// assignment operand in the source.
+    pub fn parse_assignment_word_group(
+        source: &str,
+        words: &[&Word],
+        explicit_array_kind: Option<ArrayKind>,
+        subscript_interpretation: SubscriptInterpretation,
+    ) -> Option<Assignment> {
+        let first = words.first()?;
+        let last = words.last()?;
+        let span = Span::from_positions(first.span.start, last.span.end);
+        let raw = span.slice(source);
+        let mut parser = Parser::new(source);
+        parser.parse_assignment_from_text(raw, span, explicit_array_kind, subscript_interpretation)
+    }
+
     /// Parse a word string with caller-configured limits.
     /// Prevents bypass of parser limits in parameter expansion contexts.
     pub fn parse_word_string_with_limits(input: &str, max_depth: usize, max_fuel: usize) -> Word {

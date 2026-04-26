@@ -5039,6 +5039,32 @@ fn test_parse_typeset_clause_classifies_flags_and_assignments() {
 }
 
 #[test]
+fn test_parse_assignment_word_handles_process_substitution_subscript() {
+    let input = "\\declare -A arr[<(printf \"]\")]=$(date)\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected escaped declaration to parse as simple command");
+    };
+    let words = command.args[1..].iter().collect::<Vec<_>>();
+    let assignment = Parser::parse_assignment_word_group(
+        input,
+        &words,
+        Some(ArrayKind::Associative),
+        SubscriptInterpretation::Contextual,
+    )
+    .expect("expected assignment word");
+
+    assert_eq!(assignment.target.name, "arr");
+    assert_eq!(assignment.target.name_span.slice(input), "arr");
+    assert!(assignment.target.subscript.is_some());
+    let AssignmentValue::Scalar(value) = &assignment.value else {
+        panic!("expected scalar value");
+    };
+    assert_eq!(value.span.slice(input), "$(date)");
+}
+
+#[test]
 fn test_parse_declaration_name_operand_preserves_nested_arithmetic_subscript() {
     let input = "declare assoc[$((0))]\n";
     let script = Parser::new(input).parse().unwrap().file;

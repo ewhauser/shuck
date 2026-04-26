@@ -3061,12 +3061,3 @@ demo() {
         assert_eq!(probes, vec![("out", false, true)]);
     });
 }
-
-#[test]
-fn parses_assignment_words_with_process_substitution_subscripts() {
-    let word = "arr[<(printf \"]\")]=$(date)";
-    let parsed = super::parse_assignment_word(word)
-        .map(|parsed| (parsed.name, &word[parsed.value_offset..]));
-
-    assert_eq!(parsed, Some(("arr", "$(date)")));
-}
