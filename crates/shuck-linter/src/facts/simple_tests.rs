@@ -260,7 +260,7 @@ fn simple_test_operands<'a>(command: &'a SimpleCommand, source: &str) -> Option<
 fn build_simple_test_fact<'a>(
     command: &'a Command,
     source: &str,
-    file_context: &FileContext,
+    _file_context: &FileContext,
 ) -> Option<SimpleTestFact<'a>> {
     let Command::Simple(command) = command else {
         return None;
@@ -305,8 +305,7 @@ fn build_simple_test_fact<'a>(
         effective_shape,
         effective_operator_family,
         operand_classes,
-        empty_test_suppressed: file_context
-            .span_intersects_kind(ContextRegionKind::ShellSpecParametersBlock, command.span),
+        empty_test_suppressed: false,
     })
 }
 
