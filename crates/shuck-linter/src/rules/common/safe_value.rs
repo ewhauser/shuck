@@ -3,9 +3,9 @@ use std::cell::RefCell;
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     BinaryOp, BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand, FunctionDef,
-    Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Position, RedirectKind,
-    Span, Stmt, StmtSeq, StmtTerminator, VarRef, Word, WordPart, WordPartNode,
-    static_word_text, word_is_standalone_status_capture, word_is_standalone_variable_like,
+    Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Position, RedirectKind, Span,
+    Stmt, StmtSeq, StmtTerminator, VarRef, Word, WordPart, WordPartNode, static_word_text,
+    word_is_standalone_status_capture, word_is_standalone_variable_like,
 };
 use shuck_semantic::{
     AssignmentValueOrigin, BindingAttributes, BindingKind, BindingOrigin, LoopValueOrigin, ScopeId,
@@ -250,15 +250,13 @@ impl<'a> SafeValueIndex<'a> {
                 operator,
                 operand_word_ast,
                 ..
-            } => {
-                self.parameter_expansion_is_safe(
-                    reference,
-                    operator,
-                    operand_word_ast.as_ref(),
-                    span,
-                    query,
-                )
-            }
+            } => self.parameter_expansion_is_safe(
+                reference,
+                operator,
+                operand_word_ast.as_ref(),
+                span,
+                query,
+            ),
         }
     }
 
@@ -3966,9 +3964,8 @@ impl<'a> SafeValueIndex<'a> {
             ParameterOp::UseDefault | ParameterOp::AssignDefault => {
                 self.name_is_safe(name, at, query)
                     || (query == SafeValueQuery::NumericTestOperand
-                        && operand_word.is_some_and(|word| {
-                            self.word_is_safe_numeric_operand(word, at)
-                        })
+                        && operand_word
+                            .is_some_and(|word| self.word_is_safe_numeric_operand(word, at))
                         && self.name_has_numeric_loop_body_assignment(name, at))
             }
             ParameterOp::Error => self.name_is_safe(name, at, query),
