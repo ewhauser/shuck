@@ -2332,7 +2332,6 @@ fn build_declaration_assignment_probes<'a>(
         .filter_map(|operand| {
             let SemanticDeclarationOperand::Assignment {
                 name,
-                operand_span,
                 name_span,
                 value_span,
                 value_origin,
@@ -2349,7 +2348,7 @@ fn build_declaration_assignment_probes<'a>(
                 target_name_span: *name_span,
                 has_command_substitution: *has_command_or_process_substitution
                     || *value_origin == AssignmentValueOrigin::CommandOrProcessSubstitution,
-                status_capture: single_word_for_declaration_operand_span(command, *operand_span)
+                status_capture: word_for_declaration_value_span(command, *value_span)
                     .is_some_and(|word| word_span_is_standalone_status_capture(word, *value_span)),
             })
         })
@@ -2395,29 +2394,15 @@ fn semantic_declaration_readonly_flag(declaration: &Declaration) -> bool {
     })
 }
 
-fn single_word_for_declaration_operand_span<'a>(
-    command: &'a Command,
-    span: Span,
-) -> Option<&'a Word> {
-    let words = words_for_declaration_operand_span(command, span);
-    match words.as_slice() {
-        [word] => Some(*word),
-        _ => None,
-    }
-}
-
-fn words_for_declaration_operand_span<'a>(command: &'a Command, span: Span) -> Vec<&'a Word> {
+fn word_for_declaration_value_span(command: &Command, span: Span) -> Option<&Word> {
     let Command::Simple(command) = command else {
-        return Vec::new();
+        return None;
     };
 
     command
         .args
         .iter()
-        .filter(|word| {
-            span.start.offset <= word.span.start.offset && word.span.end.offset <= span.end.offset
-        })
-        .collect()
+        .find(|word| span.start.offset >= word.span.start.offset && span.end.offset <= word.span.end.offset)
 }
 
 fn word_span_is_standalone_status_capture(word: &Word, span: Span) -> bool {
@@ -2545,7 +2530,6 @@ fn collect_binding_values<'a>(
         for operand in &declaration.operands {
             let SemanticDeclarationOperand::Assignment {
                 name,
-                operand_span,
                 name_span,
                 value_span,
                 ..
@@ -2553,7 +2537,7 @@ fn collect_binding_values<'a>(
             else {
                 continue;
             };
-            let Some(word) = single_word_for_declaration_operand_span(command, *operand_span) else {
+            let Some(word) = word_for_declaration_value_span(command, *value_span) else {
                 continue;
             };
             let standalone_status_or_pid_capture =
