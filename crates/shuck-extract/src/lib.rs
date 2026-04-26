@@ -161,14 +161,14 @@ impl Extractor for GitHubActionsExtractor {
     }
 
     fn probe(&self, source: &str) -> bool {
-        parse_yaml(GITHUB_ACTIONS_SOURCE_ID, source)
+        parse_github_actions_yaml(source)
             .ok()
             .and_then(|node| node.as_mapping().cloned())
             .is_some_and(|mapping| is_github_actions_mapping(&mapping))
     }
 
     fn extract(&self, source: &str) -> Result<Vec<EmbeddedScript>> {
-        let root = parse_yaml(GITHUB_ACTIONS_SOURCE_ID, source)
+        let root = parse_github_actions_yaml(source)
             .map_err(|err| anyhow!("parse GitHub Actions YAML: {err}"))?;
         let Some(root) = root.as_mapping() else {
             return Ok(Vec::new());
@@ -183,6 +183,226 @@ impl Extractor for GitHubActionsExtractor {
             extract_workflow(root, source)
         }
     }
+}
+
+fn parse_github_actions_yaml(source: &str) -> std::result::Result<Node, marked_yaml::LoadError> {
+    if source_has_yaml_anchors_or_aliases(source) {
+        let sanitized = sanitize_yaml_anchors_and_aliases(source);
+        parse_yaml(GITHUB_ACTIONS_SOURCE_ID, sanitized)
+    } else {
+        parse_yaml(GITHUB_ACTIONS_SOURCE_ID, source)
+    }
+}
+
+// marked-yaml rejects anchors and aliases, but GHA workflows often use them
+// around env maps or shared steps. Remove only the YAML metadata outside block
+// scalars; aliases become null so alias-only steps are skipped when we cannot
+// preserve a real source span for the referenced node.
+fn source_has_yaml_anchors_or_aliases(source: &str) -> bool {
+    let mut block_parent_indent = None;
+    for line in source.lines() {
+        let indent = leading_space_count(line);
+        if let Some(parent_indent) = block_parent_indent {
+            if line.trim().is_empty() || indent > parent_indent {
+                continue;
+            }
+            block_parent_indent = None;
+        }
+
+        if line_has_yaml_anchor_or_alias(line) {
+            return true;
+        }
+        if line_starts_block_scalar(line) {
+            block_parent_indent = Some(indent);
+        }
+    }
+    false
+}
+
+fn sanitize_yaml_anchors_and_aliases(source: &str) -> String {
+    let mut output = source.as_bytes().to_vec();
+    let mut offset = 0;
+    let mut block_parent_indent = None;
+
+    for line in source.split_inclusive('\n') {
+        let line_without_newline = line.strip_suffix('\n').unwrap_or(line);
+        let line_content = line_without_newline
+            .strip_suffix('\r')
+            .unwrap_or(line_without_newline);
+        let indent = leading_space_count(line_content);
+
+        if let Some(parent_indent) = block_parent_indent {
+            if line_content.trim().is_empty() || indent > parent_indent {
+                offset += line.len();
+                continue;
+            }
+            block_parent_indent = None;
+        }
+
+        sanitize_yaml_anchor_or_alias_line(&mut output, offset, line_content);
+        if line_starts_block_scalar(line_content) {
+            block_parent_indent = Some(indent);
+        }
+
+        offset += line.len();
+    }
+
+    String::from_utf8(output).expect("YAML anchor sanitization preserved UTF-8")
+}
+
+fn sanitize_yaml_anchor_or_alias_line(output: &mut [u8], line_start: usize, line: &str) {
+    let bytes = line.as_bytes();
+    let mut index = 0;
+    let mut quote = YamlLineQuote::Unquoted;
+
+    while index < bytes.len() {
+        match quote {
+            YamlLineQuote::Unquoted => match bytes[index] {
+                b'\'' => quote = YamlLineQuote::Single,
+                b'"' => quote = YamlLineQuote::Double,
+                b'&' | b'*' if yaml_anchor_token_starts(bytes, index) => {
+                    let token_len = yaml_anchor_token_len(bytes, index);
+                    if bytes[index] == b'&' {
+                        output[line_start + index..line_start + index + token_len].fill(b' ');
+                    } else {
+                        output[line_start + index] = b'~';
+                        output[line_start + index + 1..line_start + index + token_len].fill(b' ');
+                    }
+                    index += token_len;
+                    continue;
+                }
+                _ => {}
+            },
+            YamlLineQuote::Single => {
+                if bytes[index] == b'\'' {
+                    quote = YamlLineQuote::Unquoted;
+                }
+            }
+            YamlLineQuote::Double => match bytes[index] {
+                b'"' => quote = YamlLineQuote::Unquoted,
+                b'\\' => {
+                    index += 1;
+                }
+                _ => {}
+            },
+        }
+
+        index += 1;
+    }
+}
+
+fn line_has_yaml_anchor_or_alias(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    let mut index = 0;
+    let mut quote = YamlLineQuote::Unquoted;
+
+    while index < bytes.len() {
+        match quote {
+            YamlLineQuote::Unquoted => match bytes[index] {
+                b'\'' => quote = YamlLineQuote::Single,
+                b'"' => quote = YamlLineQuote::Double,
+                b'&' | b'*' if yaml_anchor_token_starts(bytes, index) => return true,
+                _ => {}
+            },
+            YamlLineQuote::Single => {
+                if bytes[index] == b'\'' {
+                    quote = YamlLineQuote::Unquoted;
+                }
+            }
+            YamlLineQuote::Double => match bytes[index] {
+                b'"' => quote = YamlLineQuote::Unquoted,
+                b'\\' => {
+                    index += 1;
+                }
+                _ => {}
+            },
+        }
+
+        index += 1;
+    }
+
+    false
+}
+
+fn yaml_anchor_token_starts(bytes: &[u8], index: usize) -> bool {
+    yaml_anchor_token_boundary_before(bytes, index) && yaml_anchor_token_len(bytes, index) > 1
+}
+
+fn yaml_anchor_token_boundary_before(bytes: &[u8], index: usize) -> bool {
+    bytes[..index]
+        .iter()
+        .rev()
+        .find(|byte| !byte.is_ascii_whitespace())
+        .is_none_or(|byte| matches!(byte, b':' | b'-' | b'[' | b'{' | b','))
+}
+
+fn yaml_anchor_token_len(bytes: &[u8], index: usize) -> usize {
+    let mut len = 1;
+    while bytes
+        .get(index + len)
+        .is_some_and(|byte| is_yaml_anchor_name_byte(*byte))
+    {
+        len += 1;
+    }
+    len
+}
+
+fn is_yaml_anchor_name_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.')
+}
+
+fn line_starts_block_scalar(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    let mut quote = YamlLineQuote::Unquoted;
+    let mut index = 0;
+
+    while index < bytes.len() {
+        match quote {
+            YamlLineQuote::Unquoted => match bytes[index] {
+                b'\'' => quote = YamlLineQuote::Single,
+                b'"' => quote = YamlLineQuote::Double,
+                b'|' | b'>' if previous_non_space_byte(bytes, index) == Some(b':') => {
+                    return true;
+                }
+                _ => {}
+            },
+            YamlLineQuote::Single => {
+                if bytes[index] == b'\'' {
+                    quote = YamlLineQuote::Unquoted;
+                }
+            }
+            YamlLineQuote::Double => match bytes[index] {
+                b'"' => quote = YamlLineQuote::Unquoted,
+                b'\\' => {
+                    index += 1;
+                }
+                _ => {}
+            },
+        }
+
+        index += 1;
+    }
+
+    false
+}
+
+fn previous_non_space_byte(bytes: &[u8], index: usize) -> Option<u8> {
+    bytes[..index]
+        .iter()
+        .rev()
+        .find(|byte| !byte.is_ascii_whitespace())
+        .copied()
+}
+
+fn leading_space_count(line: &str) -> usize {
+    line.bytes().take_while(|byte| *byte == b' ').count()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum YamlLineQuote {
+    Unquoted,
+    Single,
+    Double,
 }
 
 fn gha_path_matches(path: &Path) -> bool {

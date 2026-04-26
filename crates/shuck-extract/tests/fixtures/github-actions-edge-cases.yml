@@ -1,0 +1,81 @@
+name: GitHub Actions edge cases
+
+on:
+  push:
+
+env: &workflow_env
+  WORKFLOW_VALUE: from-env
+  EXPRESSION_VALUE: ${{ github.ref }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  missing-unix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Missing shell on Unix
+        run: |
+          echo "$WORKFLOW_VALUE"
+
+  defaulted:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: sh
+    steps:
+      - name: Job default shell
+        env: *workflow_env
+        run: |
+          echo "$EXPRESSION_VALUE"
+
+  explicit-shells:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bash shell
+        shell: bash
+        run: |
+          echo "${{ github.sha }}"
+      - name: Sh shell
+        shell: sh
+        env:
+          STEP_VALUE: step-env
+        run: |
+          echo "$STEP_VALUE"
+      - name: Custom bash template
+        shell: bash --noprofile --norc -e -o pipefail {0}
+        run: |
+          printf '%s\n' "${{ github.event.pull_request.title }}"
+      - name: Unsupported PowerShell
+        shell: pwsh
+        run: Write-Host "skip"
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Missing shell on Windows
+        run: echo "default Windows shell"
+      - name: Explicit Windows shell
+        shell: cmd
+        run: echo "cmd shell"
+      - name: Bash on Windows
+        shell: bash
+        run: echo "bash on Windows"
+
+  anchors-and-env:
+    runs-on: ubuntu-latest
+    steps:
+      - &anchored_step
+        name: Anchored run step
+        shell: bash
+        run: |
+          echo "$WORKFLOW_VALUE"
+      - name: Aliased env map
+        env: *workflow_env
+        shell: bash
+        run: |
+          echo "${{ env.WORKFLOW_VALUE }}"
