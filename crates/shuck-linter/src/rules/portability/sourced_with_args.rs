@@ -1,6 +1,5 @@
 use shuck_ast::static_command_name_text;
 
-use crate::context::FileContextTag;
 use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct SourcedWithArgs;
@@ -17,9 +16,6 @@ impl Violation for SourcedWithArgs {
 
 pub fn sourced_with_args(checker: &mut Checker) {
     if !targets_posix_dot_shell(checker.shell()) {
-        return;
-    }
-    if checker.file_context().has_tag(FileContextTag::PatchFile) {
         return;
     }
 
@@ -46,11 +42,9 @@ fn targets_posix_dot_shell(shell: ShellDialect) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use super::*;
     use crate::LinterSettings;
-    use crate::test::{test_snippet, test_snippet_at_path};
+    use crate::test::test_snippet;
 
     #[test]
     fn ignores_extra_arguments_in_bash() {
@@ -70,17 +64,5 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "yes");
-    }
-
-    #[test]
-    fn ignores_patch_file_context() {
-        let source = "#! /bin/sh /usr/share/dpatch/dpatch-run\nat configure time by the --with-conf=<file> argument but defaults to\n";
-        let diagnostics = test_snippet_at_path(
-            Path::new("example.patch"),
-            source,
-            &LinterSettings::for_rule(Rule::SourcedWithArgs),
-        );
-
-        assert!(diagnostics.is_empty());
     }
 }
