@@ -24,7 +24,8 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
     let mut array_history = HashMap::new();
     let mut bindings = semantic.bindings().iter().collect::<Vec<_>>();
     bindings.sort_by_key(|binding| (binding.span.start.offset, binding.span.end.offset));
-    let history_events = array_history_events(checker, &bindings);
+    let builtin_history = builtin_array_history(checker);
+    let history_events = array_history_events(checker, &bindings, &builtin_history.events);
     let mut next_history_event = 0usize;
     let append_declaration_assignments = append_declaration_assignment_name_spans(checker);
 
@@ -53,15 +54,15 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
                 binding,
                 &append_declaration_assignments,
             ) {
-                if binding_establishes_array_history(checker, binding) {
+                if binding_establishes_array_history(binding, &builtin_history) {
                     array_history.insert(name, true);
-                } else if binding_resets_array_history(checker, binding) {
+                } else if binding_resets_array_history(binding, &builtin_history) {
                     array_history.insert(name, false);
                 }
                 return None;
             }
             if binding_is_array_like(binding) {
-                if binding_establishes_array_history(checker, binding) {
+                if binding_establishes_array_history(binding, &builtin_history) {
                     array_history.insert(name, true);
                 }
                 return None;
@@ -69,7 +70,7 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
 
             checker.facts().binding_value(binding.id)?.scalar_word()?;
 
-            if binding_establishes_array_history(checker, binding) {
+            if binding_establishes_array_history(binding, &builtin_history) {
                 array_history.insert(name.clone(), true);
             }
 
@@ -87,71 +88,107 @@ struct ArrayHistoryEvent {
     array_like: bool,
 }
 
-fn array_history_events(checker: &Checker<'_>, bindings: &[&Binding]) -> Vec<ArrayHistoryEvent> {
-    let mut events = builtin_array_history_events(checker);
+fn array_history_events(
+    checker: &Checker<'_>,
+    bindings: &[&Binding],
+    builtin_events: &[ArrayHistoryEvent],
+) -> Vec<ArrayHistoryEvent> {
+    let mut events = builtin_events.to_vec();
     events.extend(presence_test_reset_events(checker, bindings));
     events.extend(name_only_declaration_history_events(checker));
     events.sort_by_key(|event| (event.offset, !event.array_like));
     events
 }
 
-fn builtin_array_history_events(checker: &Checker<'_>) -> Vec<ArrayHistoryEvent> {
-    let mut events = checker
-        .facts()
-        .commands()
-        .iter()
-        .flat_map(|command| command_array_history_events(checker, command))
-        .collect::<Vec<_>>();
-    events.sort_by_key(|event| event.offset);
-    events
+#[derive(Debug, Default)]
+struct BuiltinArrayHistory {
+    events: Vec<ArrayHistoryEvent>,
+    target_spans: HashSet<(usize, usize)>,
 }
 
-fn command_array_history_events(
+impl BuiltinArrayHistory {
+    fn contains_target(&self, binding: &Binding) -> bool {
+        self.target_spans
+            .contains(&(binding.span.start.offset, binding.span.end.offset))
+    }
+}
+
+fn builtin_array_history(checker: &Checker<'_>) -> BuiltinArrayHistory {
+    let mut history = BuiltinArrayHistory::default();
+    let mut seen_commands = HashSet::new();
+
+    for binding in checker.semantic().bindings() {
+        if !matches!(
+            binding.kind,
+            BindingKind::ReadTarget | BindingKind::MapfileTarget
+        ) {
+            continue;
+        }
+        let Some(command) = binding_command(checker, binding) else {
+            continue;
+        };
+        if !seen_commands.insert(command.id()) {
+            continue;
+        }
+        collect_command_array_history(checker, command, &mut history);
+    }
+
+    let events = &mut history.events;
+    events.sort_by_key(|event| event.offset);
+    history
+}
+
+fn collect_command_array_history(
     checker: &Checker<'_>,
     command: crate::facts::commands::CommandFactRef<'_, '_>,
-) -> Vec<ArrayHistoryEvent> {
+    history: &mut BuiltinArrayHistory,
+) {
     if matches!(checker.shell(), ShellDialect::Bash) && command.effective_name_is("read") {
-        return command
-            .options()
-            .read()
-            .filter(|_| !command_is_shadowed_function(checker, command))
-            .map(|read| {
-                read.array_target_name_uses()
-                    .iter()
-                    .filter(|target| matches!(target.kind(), ComparableNameUseKind::Literal))
-                    .map(|target| ArrayHistoryEvent {
-                        offset: target.span().start.offset,
-                        name: Name::from(target.key().as_str()),
-                        array_like: true,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let Some(read) = command.options().read() else {
+            return;
+        };
+        if command_is_shadowed_function(checker, command) {
+            return;
+        }
+        for target in read.array_target_name_uses() {
+            if !matches!(target.kind(), ComparableNameUseKind::Literal) {
+                continue;
+            }
+            history
+                .target_spans
+                .insert((target.span().start.offset, target.span().end.offset));
+            history.events.push(ArrayHistoryEvent {
+                offset: target.span().start.offset,
+                name: Name::from(target.key().as_str()),
+                array_like: true,
+            });
+        }
+        return;
     }
 
     if matches!(checker.shell(), ShellDialect::Bash)
         && (command.effective_name_is("mapfile") || command.effective_name_is("readarray"))
     {
-        return command
-            .options()
-            .mapfile()
-            .filter(|_| !command_is_shadowed_function(checker, command))
-            .map(|mapfile| {
-                mapfile
-                    .target_name_uses()
-                    .iter()
-                    .filter(|target| matches!(target.kind(), ComparableNameUseKind::Literal))
-                    .map(|target| ArrayHistoryEvent {
-                        offset: target.span().start.offset,
-                        name: Name::from(target.key().as_str()),
-                        array_like: true,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let Some(mapfile) = command.options().mapfile() else {
+            return;
+        };
+        if command_is_shadowed_function(checker, command) {
+            return;
+        }
+        for target in mapfile.target_name_uses() {
+            if !matches!(target.kind(), ComparableNameUseKind::Literal) {
+                continue;
+            }
+            history
+                .target_spans
+                .insert((target.span().start.offset, target.span().end.offset));
+            history.events.push(ArrayHistoryEvent {
+                offset: target.span().start.offset,
+                name: Name::from(target.key().as_str()),
+                array_like: true,
+            });
+        }
     }
-
-    Vec::new()
 }
 
 fn presence_test_reset_events(
@@ -310,11 +347,15 @@ fn binding_can_trigger_array_to_string_conversion(
     )
 }
 
-fn binding_establishes_array_history(checker: &Checker<'_>, binding: &Binding) -> bool {
+fn binding_establishes_array_history(
+    binding: &Binding,
+    builtin_history: &BuiltinArrayHistory,
+) -> bool {
     match binding.kind {
         BindingKind::Imported => false,
-        BindingKind::ReadTarget => read_target_is_array_like(checker, binding),
-        BindingKind::MapfileTarget => mapfile_target_is_array_like(checker, binding),
+        BindingKind::ReadTarget | BindingKind::MapfileTarget => {
+            builtin_history.contains_target(binding)
+        }
         BindingKind::Declaration(DeclarationBuiltin::Local)
             if !binding
                 .attributes
@@ -326,14 +367,15 @@ fn binding_establishes_array_history(checker: &Checker<'_>, binding: &Binding) -
     }
 }
 
-fn binding_resets_array_history(checker: &Checker<'_>, binding: &Binding) -> bool {
+fn binding_resets_array_history(binding: &Binding, builtin_history: &BuiltinArrayHistory) -> bool {
     match binding.kind {
         BindingKind::LoopVariable
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
         | BindingKind::ArithmeticAssignment => true,
-        BindingKind::ReadTarget => !read_target_is_array_like(checker, binding),
-        BindingKind::MapfileTarget => !mapfile_target_is_array_like(checker, binding),
+        BindingKind::ReadTarget | BindingKind::MapfileTarget => {
+            !builtin_history.contains_target(binding)
+        }
         BindingKind::Assignment
         | BindingKind::ParameterDefaultAssignment
         | BindingKind::AppendAssignment
@@ -364,50 +406,13 @@ fn binding_uses_builtin_array_history(checker: &Checker<'_>, binding: &Binding) 
     matches!(checker.shell(), ShellDialect::Bash) && matches!(binding.name.as_str(), "MAPFILE")
 }
 
-fn read_target_is_array_like(checker: &Checker<'_>, binding: &Binding) -> bool {
-    if !matches!(checker.shell(), ShellDialect::Bash) {
-        return false;
-    }
-
-    binding_command(checker, binding)
-        .filter(|command| command.effective_name_is("read"))
-        .filter(|command| !command_is_shadowed_function(checker, *command))
-        .and_then(|command| command.options().read())
-        .is_some_and(|read| {
-            read.array_target_name_uses()
-                .iter()
-                .any(|target| target.span() == binding.span)
-        })
-}
-
-fn mapfile_target_is_array_like(checker: &Checker<'_>, binding: &Binding) -> bool {
-    if !matches!(checker.shell(), ShellDialect::Bash) {
-        return false;
-    }
-
-    let Some(command) = binding_command(checker, binding) else {
-        return false;
-    };
-    if !(command.effective_name_is("mapfile") || command.effective_name_is("readarray")) {
-        return false;
-    }
-
-    !command_is_shadowed_function(checker, command)
-        && command.options().mapfile().is_some_and(|mapfile| {
-            mapfile
-                .target_name_uses()
-                .iter()
-                .any(|target| target.span() == binding.span)
-        })
-}
-
 fn binding_command<'checker, 'ast>(
     checker: &'checker Checker<'ast>,
     binding: &Binding,
 ) -> Option<crate::facts::commands::CommandFactRef<'checker, 'ast>> {
     checker
         .facts()
-        .innermost_command_at(binding.span.start.offset)
+        .innermost_command_at_binding_offset(binding.span.start.offset)
         .or_else(|| {
             checker
                 .facts()

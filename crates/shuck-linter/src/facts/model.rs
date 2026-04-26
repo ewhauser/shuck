@@ -5,6 +5,7 @@ pub struct LinterFacts<'a> {
     #[cfg_attr(not(test), allow(dead_code))]
     command_ids_by_span: CommandLookupIndex,
     innermost_command_ids_by_offset: CommandOffsetLookup,
+    innermost_command_ids_by_binding_offset: CommandOffsetLookup,
     command_parent_ids: Vec<Option<CommandId>>,
     command_dominance_barrier_flags: Vec<bool>,
     if_condition_command_ids: FxHashSet<CommandId>,
@@ -256,6 +257,14 @@ impl<'a> LinterFacts<'a> {
 
     pub fn innermost_command_id_at(&self, offset: usize) -> Option<CommandId> {
         precomputed_command_id_for_offset(&self.innermost_command_ids_by_offset, offset)
+    }
+
+    pub(crate) fn innermost_command_at_binding_offset(
+        &self,
+        offset: usize,
+    ) -> Option<CommandFactRef<'_, 'a>> {
+        precomputed_command_id_for_offset(&self.innermost_command_ids_by_binding_offset, offset)
+            .map(|id| self.command(id))
     }
 
     pub fn command_parent_id(&self, id: CommandId) -> Option<CommandId> {

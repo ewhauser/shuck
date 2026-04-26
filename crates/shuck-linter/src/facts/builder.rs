@@ -766,6 +766,15 @@ impl<'a> LinterFactsBuilder<'a> {
                 .collect(),
             command_facts_require_source_order,
         );
+        let innermost_command_ids_by_binding_offset = build_innermost_command_ids_by_offset(
+            &commands,
+            self.semantic
+                .bindings()
+                .iter()
+                .map(|binding| binding.span.start.offset)
+                .collect(),
+            command_facts_require_source_order,
+        );
         let command_dominance_barrier_flags = build_command_dominance_barrier_flags(&commands);
         let c006_suppressing_reference_offsets_by_name =
             build_c006_suppressing_reference_offsets_by_name(
@@ -796,6 +805,7 @@ impl<'a> LinterFactsBuilder<'a> {
             structural_command_ids,
             command_ids_by_span,
             innermost_command_ids_by_offset,
+            innermost_command_ids_by_binding_offset,
             command_parent_ids,
             command_dominance_barrier_flags,
             if_condition_command_ids,
