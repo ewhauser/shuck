@@ -757,6 +757,19 @@ impl<'a> SafeValueIndex<'a> {
             !self.binding_is_blocked_by_exit_like_function_call(*binding_id, at)
         });
         if !bindings.is_empty() {
+            let dispatch_bindings = self.s001_top_level_dispatch_helper_bindings_before(name, at);
+            if !dispatch_bindings.is_empty() {
+                let mut combined = bindings.clone();
+                combined.extend(dispatch_bindings);
+                combined
+                    .sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+                combined.dedup();
+                if let Some(exposure) =
+                    self.s001_field_safe_binding_group_exposure(&combined, at, query)
+                {
+                    return exposure;
+                }
+            }
             return S001QuoteExposure::Unsafe;
         }
 

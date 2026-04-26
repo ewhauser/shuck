@@ -2724,6 +2724,11 @@ start_script
 VMID=100
 STORAGE=local
 THIN=\"discard=on,ssd=1,\"
+case \"$STORAGE\" in
+  btrfs)
+    FORMAT=\",efitype=4m\"
+    ;;
+esac
 DISK0_REF=${STORAGE}:vm-${VMID}-disk-0
 DISK1_REF=${STORAGE}:vm-${VMID}-disk-1
 qm set $VMID \\
@@ -2764,6 +2769,30 @@ qm set 100 -scsi0 ${DISK1_REF},${DISK_CACHE}size=12G
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["${DISK_CACHE}"]
+        );
+    }
+
+    #[test]
+    fn reports_top_level_branch_literal_without_dispatch_fallback() {
+        let source = "\
+#!/bin/bash
+STORAGE=local
+case \"$STORAGE\" in
+  btrfs)
+    FORMAT=\",efitype=4m\"
+    ;;
+esac
+DISK0_REF=${STORAGE}:vm-100-disk-0
+qm set 100 -efidisk0 ${DISK0_REF}${FORMAT}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${FORMAT}"]
         );
     }
 
