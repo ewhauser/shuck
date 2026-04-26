@@ -36,9 +36,11 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 #[derive(Debug)]
 struct Args {
-    fixture: String,
+    fixture: Option<String>,
     iterations: usize,
     corpus_root: Option<PathBuf>,
+    fixture_manifest: Option<PathBuf>,
+    write_fixture_manifest: Option<PathBuf>,
     rules: Option<RuleSet>,
     resolve_source_closure: bool,
 }
@@ -46,6 +48,7 @@ struct Args {
 #[derive(Debug, Clone)]
 struct LargeCorpusFixture {
     path: PathBuf,
+    canonical_path: PathBuf,
     cache_rel_path: PathBuf,
     shell: String,
 }
@@ -68,11 +71,15 @@ impl LargeCorpusPathResolver {
         let mut path_by_cache_rel = HashMap::new();
 
         for fixture in fixtures {
-            let canonical_path =
-                fs::canonicalize(&fixture.path).unwrap_or_else(|_| fixture.path.clone());
             cache_rel_by_path.insert(fixture.path.clone(), fixture.cache_rel_path.clone());
-            cache_rel_by_path.insert(canonical_path.clone(), fixture.cache_rel_path.clone());
-            path_by_cache_rel.insert(fixture.cache_rel_path.clone(), canonical_path);
+            cache_rel_by_path.insert(
+                fixture.canonical_path.clone(),
+                fixture.cache_rel_path.clone(),
+            );
+            path_by_cache_rel.insert(
+                fixture.cache_rel_path.clone(),
+                fixture.canonical_path.clone(),
+            );
         }
 
         Self {
@@ -119,7 +126,11 @@ fn main() -> Result<()> {
             "large corpus not found; set {LARGE_CORPUS_ROOT_ENV}, populate ./{LARGE_CORPUS_CACHE_DIR_NAME}, or pass --root"
         )
     })?;
-    let fixtures = collect_fixtures(&corpus_dir);
+    let fixtures = if let Some(manifest) = args.fixture_manifest.as_deref() {
+        read_fixture_manifest(manifest)?
+    } else {
+        collect_fixtures(&corpus_dir)
+    };
     if fixtures.is_empty() {
         return Err(format!(
             "no fixtures found in {}",
@@ -127,9 +138,19 @@ fn main() -> Result<()> {
         )
         .into());
     }
+    if let Some(manifest) = args.write_fixture_manifest.as_deref() {
+        write_fixture_manifest(manifest, &fixtures)?;
+        eprintln!(
+            "wrote {} fixture(s) to {}",
+            fixtures.len(),
+            manifest.display()
+        );
+        return Ok(());
+    }
 
-    let fixture = find_fixture(&fixtures, &args.fixture)
-        .ok_or_else(|| format!("fixture `{}` not found in large corpus", args.fixture))?
+    let fixture_name = args.fixture.as_ref().ok_or("missing fixture name")?;
+    let fixture = find_fixture(&fixtures, fixture_name)
+        .ok_or_else(|| format!("fixture `{fixture_name}` not found in large corpus"))?
         .clone();
     let resolver = LargeCorpusPathResolver::new(&fixtures);
     let settings = build_linter_settings(args.rules, args.resolve_source_closure);
@@ -163,6 +184,8 @@ fn parse_args() -> Result<Option<Args>> {
     let mut fixture = None;
     let mut iterations = 1usize;
     let mut corpus_root = None;
+    let mut fixture_manifest = None;
+    let mut write_fixture_manifest = None;
     let mut rules = None;
     let mut resolve_source_closure = true;
     let mut values = env::args().skip(1);
@@ -179,6 +202,20 @@ fn parse_args() -> Result<Option<Args>> {
             "--root" => {
                 corpus_root = Some(PathBuf::from(
                     values.next().ok_or("missing value after --root")?,
+                ));
+            }
+            "--fixture-manifest" => {
+                fixture_manifest = Some(PathBuf::from(
+                    values
+                        .next()
+                        .ok_or("missing value after --fixture-manifest")?,
+                ));
+            }
+            "--write-fixture-manifest" => {
+                write_fixture_manifest = Some(PathBuf::from(
+                    values
+                        .next()
+                        .ok_or("missing value after --write-fixture-manifest")?,
                 ));
             }
             "--rules" => {
@@ -200,11 +237,15 @@ fn parse_args() -> Result<Option<Args>> {
         }
     }
 
-    let fixture = fixture.ok_or("missing fixture name")?;
+    if fixture.is_none() && write_fixture_manifest.is_none() {
+        return Err("missing fixture name".into());
+    }
     Ok(Some(Args {
         fixture,
         iterations,
         corpus_root,
+        fixture_manifest,
+        write_fixture_manifest,
         rules,
         resolve_source_closure,
     }))
@@ -212,12 +253,13 @@ fn parse_args() -> Result<Option<Args>> {
 
 fn print_usage() {
     eprintln!(
-        "Usage: large_corpus_profile <fixture> [--iterations N] [--root PATH] [--rules SELECTORS] [--no-source-closure]"
+        "Usage: large_corpus_profile <fixture> [--iterations N] [--root PATH] [--fixture-manifest PATH] [--rules SELECTORS] [--no-source-closure]"
     );
     eprintln!();
     eprintln!("Examples:");
     eprintln!("  large_corpus_profile xwmx__nb__nb --iterations 10");
     eprintln!("  large_corpus_profile xwmx__nb__nb --rules C063");
+    eprintln!("  large_corpus_profile --write-fixture-manifest /tmp/large-corpus.tsv");
 }
 
 fn parse_positive_usize(name: &str, value: Option<String>) -> Result<usize> {
@@ -395,10 +437,12 @@ fn collect_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
             .strip_prefix(&scripts_dir)
             .unwrap_or(path.as_path())
             .to_path_buf();
+        let canonical_path = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
         let shell = resolve_shell(&path, &source);
 
         fixtures.push(LargeCorpusFixture {
             path,
+            canonical_path,
             cache_rel_path,
             shell,
         });
@@ -406,6 +450,65 @@ fn collect_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
 
     fixtures.sort_by(|left, right| left.path.cmp(&right.path));
     fixtures
+}
+
+fn write_fixture_manifest(path: &Path, fixtures: &[LargeCorpusFixture]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut contents = String::new();
+    for fixture in fixtures {
+        contents.push_str(&fixture.path.to_string_lossy());
+        contents.push('\t');
+        contents.push_str(&fixture.canonical_path.to_string_lossy());
+        contents.push('\t');
+        contents.push_str(&fixture.cache_rel_path.to_string_lossy());
+        contents.push('\t');
+        contents.push_str(&fixture.shell);
+        contents.push('\n');
+    }
+    fs::write(path, contents)?;
+    Ok(())
+}
+
+fn read_fixture_manifest(path: &Path) -> Result<Vec<LargeCorpusFixture>> {
+    let contents = fs::read_to_string(path)
+        .map_err(|err| format!("failed to read fixture manifest {}: {err}", path.display()))?;
+    let mut fixtures = Vec::new();
+    for (index, line) in contents.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let mut parts = line.split('\t');
+        let Some(path) = parts.next() else {
+            continue;
+        };
+        let Some(canonical_path) = parts.next() else {
+            return Err(format!(
+                "fixture manifest line {} is missing canonical path",
+                index + 1
+            )
+            .into());
+        };
+        let Some(cache_rel_path) = parts.next() else {
+            return Err(
+                format!("fixture manifest line {} is missing cache path", index + 1).into(),
+            );
+        };
+        let Some(shell) = parts.next() else {
+            return Err(format!("fixture manifest line {} is missing shell", index + 1).into());
+        };
+        if parts.next().is_some() {
+            return Err(format!("fixture manifest line {} has too many fields", index + 1).into());
+        }
+        fixtures.push(LargeCorpusFixture {
+            path: PathBuf::from(path),
+            canonical_path: PathBuf::from(canonical_path),
+            cache_rel_path: PathBuf::from(cache_rel_path),
+            shell: shell.to_owned(),
+        });
+    }
+    Ok(fixtures)
 }
 
 fn resolve_shell(path: &Path, src: &[u8]) -> String {
