@@ -2263,6 +2263,23 @@ json=\"$(echo \\\"${items[*]}\\\")\"
     }
 
     #[test]
+    fn reports_nested_substitution_arguments_after_escaped_quote_default_segments() {
+        let source = "\
+#!/bin/sh
+label=\",label=\\\"${fallback:=value}$(render value $line)\\\"\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$line"]
+        );
+    }
+
+    #[test]
     fn reports_decl_assignment_values_in_sh_mode() {
         let source = "\
 local _patch=$TERMUX_PKG_BUILDER_DIR/file.diff

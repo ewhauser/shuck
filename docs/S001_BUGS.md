@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=35`
-- Individual reviewed records classified below: 46 total (`shellcheck-only=23`, `shuck-only=23`).
+- `reviewed_divergences=33`
+- Individual reviewed records classified below: 44 total (`shellcheck-only=21`, `shuck-only=23`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -45,10 +45,8 @@ Resolved records should not remain as reviewed divergences.
 - `gentoo__gentoo__eclass__tests__toolchain.sh:155:7-13` `${ret}`
 - `nvm-sh__nvm__test__slow__nvm_get_latest__nvm_get_latest:26:10-14` `$URL`
 
-## [ ] ShellCheck-only: nested command substitution / here-string argument (3)
+## [ ] ShellCheck-only: nested command substitution / here-string argument (1)
 
-- `bittorf__kalua__openwrt-monitoring__meshrdf_generate_map.sh:263:70-75` `$LINE`
-- `bittorf__kalua__openwrt-monitoring__meshrdf_generate_netjson.sh:577:70-75` `$LINE`
 - `google__oss-fuzz__projects__threetenbp__build.sh:57:37-47` `$JAVA_HOME`
 
 ## [ ] ShellCheck-only: test/probe command operand (2)

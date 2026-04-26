@@ -493,6 +493,30 @@ fn test_parse_escaped_quotes_before_command_substitution_keep_nested_pipeline_li
 }
 
 #[test]
+fn test_parse_escaped_quotes_after_default_expansion_keep_command_substitution_live() {
+    let input = "label=\",label=\\\"${fallback:=value}$(render value $line)\\\"\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted assignment value");
+    };
+    let WordPart::CommandSubstitution { body, .. } = &parts[2].kind else {
+        panic!("expected command substitution after default expansion");
+    };
+
+    let inner = expect_simple(&body[0]);
+    assert_eq!(inner.name.render(input), "render");
+    assert_eq!(inner.args[1].render(input), "$line");
+}
+
+#[test]
 fn test_parse_command_substitution_with_piped_tr_after_quoted_variable_keeps_nested_pipeline_live()
 {
     let input = "ATLAS_SHARED=$(echo \"$ATLAS_SHARED\"|cut -b 1|tr a-z A-Z)\n";

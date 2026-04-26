@@ -3638,12 +3638,7 @@ impl<'a> Parser<'a> {
                                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             }
                             let inner_text = consumed_text.strip_suffix(')').unwrap_or_default();
-                            if had_prefix {
-                                self.nested_stmt_seq_from_source(inner_text, nested_source_base)
-                            } else {
-                                let inner_end = inner_start.advanced_by(inner_text);
-                                self.nested_stmt_seq_from_current_input(inner_start, inner_end)
-                            }
+                            self.nested_stmt_seq_from_source(inner_text, nested_source_base)
                         } else {
                             let mut cmd_str = String::new();
                             let mut depth = 1;
@@ -3664,14 +3659,7 @@ impl<'a> Parser<'a> {
                                     _ => cmd_str.push(c),
                                 }
                             }
-                            if had_prefix {
-                                self.nested_stmt_seq_from_source(&cmd_str, nested_source_base)
-                            } else {
-                                self.nested_stmt_seq_from_current_input(
-                                    inner_start,
-                                    inner_start.advanced_by(&cmd_str),
-                                )
-                            }
+                            self.nested_stmt_seq_from_source(&cmd_str, nested_source_base)
                         }
                     } else {
                         let mut cmd_str = String::new();
@@ -3693,10 +3681,7 @@ impl<'a> Parser<'a> {
                         if had_prefix {
                             self.nested_stmt_seq_from_source(&cmd_str, inner_start)
                         } else {
-                            self.nested_stmt_seq_from_current_input(
-                                inner_start,
-                                inner_start.advanced_by(&cmd_str),
-                            )
+                            self.nested_stmt_seq_from_source(&cmd_str, inner_start)
                         }
                     };
                     Self::push_word_part(
