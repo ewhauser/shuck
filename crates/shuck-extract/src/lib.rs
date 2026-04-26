@@ -834,7 +834,7 @@ fn build_embedded_script(
         .get(&run.span.start.into())
         .map(|span| span.start)
         .unwrap_or(run.span.start);
-    let start_offset = byte_offset_for_line_column(host_source, marker.line(), marker.col() + 1);
+    let start_offset = scalar_token_offset_for_marker(host_source, marker.line(), marker.col() + 1);
     let source_mapping = source_mapping_for_scalar(host_source, start_offset, raw_source);
     let host_offset = source_mapping.host_offset;
     let host_start_line = source_mapping.host_line_starts[0].line;
@@ -854,6 +854,45 @@ fn build_embedded_script(
         placeholders,
         implicit_flags: shell.implicit_flags,
     }
+}
+
+fn scalar_token_offset_for_marker(source: &str, line: usize, column: usize) -> usize {
+    let offset = byte_offset_for_line_column(source, line, column);
+    skip_yaml_anchor_prefix(source, offset).unwrap_or(offset)
+}
+
+fn skip_yaml_anchor_prefix(source: &str, offset: usize) -> Option<usize> {
+    let mut cursor = skip_ascii_whitespace(source, offset);
+    if source.get(cursor..)?.chars().next()? != '&' {
+        return None;
+    }
+
+    cursor += '&'.len_utf8();
+    while source
+        .get(cursor..)?
+        .chars()
+        .next()
+        .is_some_and(is_yaml_anchor_name_char)
+    {
+        cursor += source[cursor..].chars().next()?.len_utf8();
+    }
+
+    Some(skip_ascii_whitespace(source, cursor))
+}
+
+fn skip_ascii_whitespace(source: &str, mut offset: usize) -> usize {
+    while source
+        .get(offset..)
+        .and_then(|tail| tail.chars().next())
+        .is_some_and(|ch| matches!(ch, ' ' | '\t'))
+    {
+        offset += 1;
+    }
+    offset
+}
+
+fn is_yaml_anchor_name_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.')
 }
 
 struct SourceMapping {
@@ -1936,6 +1975,42 @@ jobs:
             vec![
                 HostLineStart { line: 4, column: 3 },
                 HostLineStart { line: 5, column: 1 },
+            ]
+        );
+    }
+
+    #[test]
+    fn remaps_aliased_quoted_run_scalars_after_anchor_token() {
+        let source = r#"
+on: push
+x-run: &quoted "echo\t\"hi\""
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: *quoted
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "echo\t\"hi\"");
+        assert_eq!(scripts[0].host_start_line, 3);
+        assert_eq!(scripts[0].host_start_column, 17);
+        assert_eq!(
+            scripts[0].host_column_mappings,
+            vec![
+                HostColumnMapping {
+                    line: 1,
+                    column: 6,
+                    host_line: 3,
+                    host_column: 23,
+                },
+                HostColumnMapping {
+                    line: 1,
+                    column: 7,
+                    host_line: 3,
+                    host_column: 25,
+                },
             ]
         );
     }
