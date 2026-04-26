@@ -16,10 +16,12 @@ export default function RulesIndexPage() {
     (r) => r.status === "implemented_with_known_shellcheck_divergences",
   ).length;
   const planned = allRules.length - fullyImplemented - implementedWithKnownShellcheckDivergences;
+  const implementedFixes = allRules.filter((r) => r.fixStatus === "implemented").length;
+  const plannedFixes = allRules.filter((r) => r.fixStatus === "planned").length;
 
   // Strip heavy fields (rationale, examples, etc.) before sending to the client component.
   const listRules: RuleListItem[] = allRules.map(
-    ({ code, shellcheckCode, name, category, description, implemented, status }) => ({
+    ({
       code,
       shellcheckCode,
       name,
@@ -27,6 +29,18 @@ export default function RulesIndexPage() {
       description,
       implemented,
       status,
+      fixStatus,
+      fixSafety,
+    }) => ({
+      code,
+      shellcheckCode,
+      name,
+      category,
+      description,
+      implemented,
+      status,
+      fixStatus,
+      fixSafety,
     }),
   );
 
@@ -40,6 +54,7 @@ export default function RulesIndexPage() {
           {implementedWithKnownShellcheckDivergences} with known ShellCheck divergences
         </span>
         , {planned} planned.
+        {" "}{implementedFixes} autofixes implemented, {plannedFixes} planned.
       </p>
       <div className="mb-6 flex flex-wrap gap-x-4 gap-y-2 text-sm text-fg-secondary">
         <span className="inline-flex items-center gap-2">

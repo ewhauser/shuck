@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import generatedRulesJson from "../app/lib/rules-data.generated.json";
 import {
   generateRulesData,
+  parseImplementedFixAvailability,
   parseImplementedRulesFromRegistry,
   rulesDataSourcePaths,
 } from "./rules-data";
@@ -42,8 +43,44 @@ declare_rules! {
 }
 `);
 
-  assert.equal(implementedRules.get("C085"), "Warning");
-  assert.equal(implementedRules.get("S001"), "Warning");
+  assert.deepEqual(implementedRules.get("C085"), {
+    severity: "Warning",
+    violationName: "StderrBeforeStdoutRedirect",
+  });
+  assert.deepEqual(implementedRules.get("S001"), {
+    severity: "Warning",
+    violationName: "UnquotedExpansion",
+  });
+});
+
+test("parseImplementedFixAvailability reads violation autofix metadata", () => {
+  const fixAvailability = parseImplementedFixAvailability(`
+impl Violation for NoFix {
+    fn rule() -> Rule {
+        Rule::NoFix
+    }
+}
+
+impl Violation for SomeFix {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
+
+    fn rule() -> Rule {
+        Rule::SomeFix
+    }
+}
+
+impl Violation for EveryFix {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
+    fn rule() -> Rule {
+        Rule::EveryFix
+    }
+}
+`);
+
+  assert.equal(fixAvailability.get("NoFix"), undefined);
+  assert.equal(fixAvailability.get("SomeFix"), "sometimes");
+  assert.equal(fixAvailability.get("EveryFix"), "always");
 });
 
 test("generated rules data matches registry implementation state", () => {

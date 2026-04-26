@@ -4,7 +4,12 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { codeToHtml } from "shiki";
 import { allRules, getRuleByCode } from "@/app/lib/rules-data";
-import { CategoryBadge, SeverityBadge, RuleStatusBadge } from "@/app/components/docs/RuleBadge";
+import {
+  CategoryBadge,
+  FixStatusBadge,
+  RuleStatusBadge,
+  SeverityBadge,
+} from "@/app/components/docs/RuleBadge";
 
 interface Props {
   params: Promise<{ code: string }>;
@@ -68,6 +73,7 @@ export default async function RuleDetailPage({ params }: Props) {
         <CategoryBadge category={rule.category} />
         {rule.severity && <SeverityBadge severity={rule.severity} />}
         <RuleStatusBadge status={rule.status} />
+        <FixStatusBadge status={rule.fixStatus} safety={rule.fixSafety} />
       </div>
 
       {rule.status === "implemented_with_known_shellcheck_divergences" && (
@@ -149,6 +155,22 @@ export default async function RuleDetailPage({ params }: Props) {
                 ? "Implemented"
                 : "Planned"}
           </dd>
+          <dt className="text-fg-secondary">Autofix</dt>
+          <dd className="text-fg-primary">
+            {rule.fixStatus === "none"
+              ? "-"
+              : rule.fixStatus === "implemented"
+                ? rule.fixSafety === "safe"
+                  ? "Safe"
+                  : "Unsafe"
+                : "Planned"}
+          </dd>
+          {rule.fixDescription && (
+            <>
+              <dt className="text-fg-secondary">Fix behavior</dt>
+              <dd className="text-fg-primary">{rule.fixDescription}</dd>
+            </>
+          )}
           <dt className="text-fg-secondary">Category</dt>
           <dd className="text-fg-primary">{rule.category}</dd>
         </dl>

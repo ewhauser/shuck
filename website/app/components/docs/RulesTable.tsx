@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 import type { RuleListItem } from "@/app/lib/rules-data";
 import { categories } from "@/app/lib/rules-data";
-import { RuleStatusDot } from "./RuleBadge";
+import { FixStatusBadge, RuleStatusDot } from "./RuleBadge";
 
 interface Props {
   rules: RuleListItem[];
@@ -111,6 +111,7 @@ export default function RulesTable({ rules }: Props) {
                   <th className="px-3 py-2 text-left font-medium text-fg-secondary">ShellCheck</th>
                   <th className="px-3 py-2 text-left font-medium text-fg-secondary">Name</th>
                   <th className="hidden px-3 py-2 text-left font-medium text-fg-secondary md:table-cell">Message</th>
+                  <th className="px-3 py-2 text-left font-medium text-fg-secondary">Fix</th>
                   <th className="px-3 py-2 text-center font-medium text-fg-secondary">Status</th>
                 </tr>
               </thead>
@@ -145,6 +146,9 @@ export default function RulesTable({ rules }: Props) {
                     </td>
                     <td className="hidden px-3 py-2 text-fg-secondary md:table-cell">
                       <span className="line-clamp-1">{rule.description}</span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <FixStatusBadge status={rule.fixStatus} safety={rule.fixSafety} />
                     </td>
                     <td className="px-3 py-2 text-center">
                       <RuleStatusDot status={rule.status} />

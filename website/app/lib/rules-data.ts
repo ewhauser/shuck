@@ -5,6 +5,10 @@ export type RuleStatus =
   | "implemented"
   | "implemented_with_known_shellcheck_divergences";
 
+export type FixAvailability = "none" | "sometimes" | "always";
+export type FixStatus = "none" | "planned" | "implemented";
+export type FixSafety = "safe" | "unsafe";
+
 export interface RuleData {
   code: string;
   name: string;
@@ -18,6 +22,10 @@ export interface RuleData {
   status: RuleStatus;
   hasKnownShellcheckDivergences: boolean;
   severity: string | null;
+  fixStatus: FixStatus;
+  fixAvailability: FixAvailability;
+  fixSafety: FixSafety | null;
+  fixDescription: string | null;
   examples: Array<{ kind: string; code: string }>;
 }
 
@@ -30,6 +38,8 @@ export interface RuleListItem {
   description: string;
   implemented: boolean;
   status: RuleStatus;
+  fixStatus: FixStatus;
+  fixSafety: FixSafety | null;
 }
 
 export const allRules: RuleData[] = rulesJson as RuleData[];
