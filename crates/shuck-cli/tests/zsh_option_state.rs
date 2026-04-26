@@ -9,7 +9,6 @@ use serde::Deserialize;
 use shuck_indexer::Indexer;
 use shuck_linter::{
     AmbientShellOptions, Checker, ExpansionContext, RuleSet, ShellDialect, WordFactContext,
-    classify_file_context,
 };
 use shuck_parser::parser::Parser;
 use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile};
@@ -142,7 +141,6 @@ fn run_fixture(fixture: &Fixture) -> Result<()> {
             ..SemanticBuildOptions::default()
         },
     );
-    let file_context = classify_file_context(&fixture.source, None, ShellDialect::Zsh);
     let rules = RuleSet::EMPTY;
     let checker = Checker::new(
         &parsed.file,
@@ -154,7 +152,6 @@ fn run_fixture(fixture: &Fixture) -> Result<()> {
         AmbientShellOptions::default(),
         false,
         shuck_linter::LinterRuleOptions::default(),
-        &file_context,
         None,
         None,
     );

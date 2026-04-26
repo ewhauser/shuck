@@ -854,8 +854,7 @@ write_target
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let reference_span = |name: &str| {
         semantic

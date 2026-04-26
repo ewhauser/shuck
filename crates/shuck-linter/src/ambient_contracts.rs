@@ -4,35 +4,26 @@ use std::path::Path;
 use shuck_ast::Name;
 use shuck_semantic::{ContractCertainty, FileContract, ProvidedBinding, ProvidedBindingKind};
 
-use crate::{FileContext, ShellDialect};
+use crate::ShellDialect;
 
 struct AmbientContractProvider {
-    matches: fn(source: &str, path: &Path, shell: ShellDialect, file_context: &FileContext) -> bool,
-    build: fn(
-        source: &str,
-        path: &Path,
-        shell: ShellDialect,
-        file_context: &FileContext,
-    ) -> FileContract,
+    matches: fn(source: &str, path: &Path, shell: ShellDialect) -> bool,
+    build: fn(source: &str, path: &Path, shell: ShellDialect) -> FileContract,
 }
 
 pub(crate) fn file_entry_contract(
     source: &str,
     path: Option<&Path>,
     shell: ShellDialect,
-    file_context: &FileContext,
 ) -> Option<FileContract> {
     let path = path?;
     let mut merged = FileContract::default();
     let mut matched = false;
 
     for provider in providers() {
-        if (provider.matches)(source, path, shell, file_context) {
+        if (provider.matches)(source, path, shell) {
             matched = true;
-            merge_contract(
-                &mut merged,
-                (provider.build)(source, path, shell, file_context),
-            );
+            merge_contract(&mut merged, (provider.build)(source, path, shell));
         }
     }
 
@@ -59,22 +50,12 @@ fn merge_contract(merged: &mut FileContract, contract: FileContract) {
     }
 }
 
-fn matches_sourced_runtime_contract(
-    source: &str,
-    path: &Path,
-    _shell: ShellDialect,
-    file_context: &FileContext,
-) -> bool {
+fn matches_sourced_runtime_contract(source: &str, path: &Path, _shell: ShellDialect) -> bool {
     let lower = lower_path(path);
-    sourced_runtime_path_shape(&lower) && sourced_runtime_source_shape(source, file_context, &lower)
+    sourced_runtime_path_shape(&lower) && sourced_runtime_source_shape(source, &lower)
 }
 
-fn build_sourced_runtime_contract(
-    source: &str,
-    path: &Path,
-    _shell: ShellDialect,
-    _file_context: &FileContext,
-) -> FileContract {
+fn build_sourced_runtime_contract(source: &str, path: &Path, _shell: ShellDialect) -> FileContract {
     let lower = lower_path(path);
     let mut names = BTreeSet::new();
 
@@ -120,11 +101,7 @@ fn sourced_runtime_path_shape(lower: &str) -> bool {
     )
 }
 
-fn sourced_runtime_source_shape(
-    source: &str,
-    _file_context: &FileContext,
-    lower_path: &str,
-) -> bool {
+fn sourced_runtime_source_shape(source: &str, lower_path: &str) -> bool {
     has_probable_function_definition(source)
         || has_source_command(source)
         || source.contains("PROMPT_COMMAND")
@@ -597,11 +574,9 @@ fn source_mentions_name(source: &str, name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FileContextTag, classify_file_context};
 
     fn contract_for(path: &Path, source: &str) -> Option<FileContract> {
-        let context = classify_file_context(source, Some(path), ShellDialect::Sh);
-        file_entry_contract(source, Some(path), ShellDialect::Sh, &context)
+        file_entry_contract(source, Some(path), ShellDialect::Sh)
     }
 
     fn has_initialized_binding(contract: &FileContract, name: &str) -> bool {
@@ -848,19 +823,5 @@ backup_run() {
         assert!(!has_initialized_binding(&contract, "lockdir"));
         assert!(!has_initialized_binding(&contract, "commandname"));
         assert!(!contract.externally_consumed_bindings);
-    }
-
-    #[test]
-    fn broad_project_closure_tags_alone_do_not_inject_contracts() {
-        let path = Path::new("/tmp/project/scripts/helper.sh");
-        let source = "\
-# shellcheck source=helper-lib.sh
-. ./helper-lib.sh
-printf '%s\\n' \"$pkgname\"
-";
-        let context = classify_file_context(source, Some(path), ShellDialect::Sh);
-        assert!(context.has_tag(FileContextTag::ProjectClosure));
-
-        assert!(file_entry_contract(source, Some(path), ShellDialect::Sh, &context).is_none());
     }
 }

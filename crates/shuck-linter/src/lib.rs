@@ -9,9 +9,6 @@ mod ambient_contracts;
 #[allow(missing_docs)]
 mod checker;
 #[allow(missing_docs)]
-/// File-context classification helpers used by lint rules.
-pub mod context;
-#[allow(missing_docs)]
 mod diagnostic;
 #[allow(missing_docs)]
 mod facts;
@@ -48,8 +45,6 @@ pub mod test;
 
 /// Primary checker API for walking facts and emitting diagnostics.
 pub use checker::Checker;
-/// File-context classification types.
-pub use context::{FileContext, FileContextTag, classify_file_context};
 /// Rule diagnostics and severity levels.
 pub use diagnostic::{Diagnostic, Severity};
 /// Command-substitution classification exposed by fact APIs.
@@ -227,9 +222,7 @@ fn analyze_file_at_path_with_resolver_and_shell(
     shell: ShellDialect,
     first_parse_error: Option<(usize, usize)>,
 ) -> AnalysisResult {
-    let file_context = classify_file_context(source, source_path, shell);
-    let file_entry_contract =
-        ambient_contracts::file_entry_contract(source, source_path, shell, &file_context);
+    let file_entry_contract = ambient_contracts::file_entry_contract(source, source_path, shell);
     let analyzed_paths_fallback =
         source_path.map(|path| FxHashSet::from_iter([path.to_path_buf()]));
     let analyzed_paths = settings
@@ -263,7 +256,6 @@ fn analyze_file_at_path_with_resolver_and_shell(
         settings.ambient_shell_options,
         settings.report_environment_style_names,
         settings.rule_options.clone(),
-        &file_context,
         suppression_index,
         first_parse_error,
     );

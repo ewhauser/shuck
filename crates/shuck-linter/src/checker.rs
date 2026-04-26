@@ -7,8 +7,8 @@ use shuck_indexer::Indexer;
 use shuck_semantic::{SemanticAnalysis, SemanticModel};
 
 use crate::{
-    AmbientShellOptions, Diagnostic, FileContext, LinterFacts, LinterRuleOptions, Rule, RuleSet,
-    ShellDialect, SuppressionIndex, Violation, rules,
+    AmbientShellOptions, Diagnostic, LinterFacts, LinterRuleOptions, Rule, RuleSet, ShellDialect,
+    SuppressionIndex, Violation, rules,
 };
 
 pub struct Checker<'a> {
@@ -23,7 +23,6 @@ pub struct Checker<'a> {
     ambient_shell_options: AmbientShellOptions,
     report_environment_style_names: bool,
     rule_options: LinterRuleOptions,
-    file_context: &'a FileContext,
     suppression_index: Option<&'a SuppressionIndex>,
     first_parse_error: Option<(usize, usize)>,
     diagnostics: Vec<Diagnostic>,
@@ -59,7 +58,6 @@ impl<'a> Checker<'a> {
         ambient_shell_options: AmbientShellOptions,
         report_environment_style_names: bool,
         rule_options: LinterRuleOptions,
-        file_context: &'a FileContext,
         suppression_index: Option<&'a SuppressionIndex>,
         first_parse_error: Option<(usize, usize)>,
     ) -> Self {
@@ -75,7 +73,6 @@ impl<'a> Checker<'a> {
             ambient_shell_options,
             report_environment_style_names,
             rule_options,
-            file_context,
             suppression_index,
             first_parse_error,
             diagnostics: Vec::new(),
@@ -123,17 +120,12 @@ impl<'a> Checker<'a> {
         &self.rule_options
     }
 
-    pub fn file_context(&self) -> &'a FileContext {
-        self.file_context
-    }
-
     fn build_facts(&self) -> LinterFacts<'a> {
         LinterFacts::build_with_shell_and_ambient_shell_options(
             self.file,
             self.source,
             self.semantic,
             self.indexer,
-            self.file_context,
             self.shell,
             self.ambient_shell_options,
         )
