@@ -2762,13 +2762,13 @@ fn simple_declaration_assignment_value_words<'a>(
                 parsing_options = false;
                 continue;
             }
-            if simple_command_declaration_option_word(&text) {
+            if simple_command_declaration_option_word(text) {
                 continue;
             }
             parsing_options = false;
         }
 
-        let Some(parsed) = parse_assignment_word(&text) else {
+        let Some(parsed) = parse_assignment_word(text) else {
             continue;
         };
         let value_text = &text[parsed.value_offset..];
