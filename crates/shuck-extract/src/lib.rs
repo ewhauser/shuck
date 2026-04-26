@@ -424,6 +424,7 @@ fn line_has_run_key_after(line: &str, start: usize) -> bool {
             YamlLineQuote::Unquoted => match bytes[index] {
                 b'\'' => quote = YamlLineQuote::Single,
                 b'"' => quote = YamlLineQuote::Double,
+                b'#' if yaml_hash_starts_comment(bytes, index) => return false,
                 b'r' if yaml_key_starts_at(line, index, "run") => return true,
                 _ => {}
             },
@@ -451,6 +452,9 @@ fn yaml_key_starts_at(line: &str, index: usize, key: &str) -> bool {
     let bytes = line.as_bytes();
     let key_bytes = key.as_bytes();
     if bytes.get(index..index + key_bytes.len()) != Some(key_bytes) {
+        return false;
+    }
+    if index > 0 && is_yaml_anchor_name_byte(bytes[index - 1]) {
         return false;
     }
     let after_key = index + key_bytes.len();

@@ -13,7 +13,7 @@ fn extracts_workflow_edge_case_fixture() {
     )
     .unwrap();
 
-    assert_eq!(scripts.len(), 25);
+    assert_eq!(scripts.len(), 26);
 
     let missing_unix = script(&scripts, "jobs.missing-unix.steps[0].run");
     assert_eq!(missing_unix.dialect, ExtractedDialect::Bash);
@@ -117,6 +117,15 @@ fn extracts_workflow_edge_case_fixture() {
     assert_eq!(
         short_alias_unsupported.dialect,
         ExtractedDialect::Unsupported
+    );
+
+    let short_alias_comment = script(&scripts, "jobs.short-shell-aliases.steps[2].run");
+    assert_eq!(short_alias_comment.dialect, ExtractedDialect::Bash);
+    assert!(short_alias_comment.implicit_flags.errexit);
+    assert!(short_alias_comment.implicit_flags.pipefail);
+    assert_eq!(
+        short_alias_comment.implicit_flags.template.as_deref(),
+        Some("bash --noprofile --norc -e -o pipefail {0}")
     );
 
     let reused_before = script(&scripts, "jobs.redefined-anchors.steps[0].run");

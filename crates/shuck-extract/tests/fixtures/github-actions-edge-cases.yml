@@ -118,6 +118,9 @@ jobs:
       - name: Short alias unsupported shell
         shell: *p
         run: Write-Host short alias pwsh
+      - name: Short alias with run comment
+        shell: *b # run: keep strict bash
+        run: echo short alias comment
 
   redefined-anchors:
     runs-on: ubuntu-latest
