@@ -7,7 +7,7 @@ use rustc_hash::FxHashMap;
 use shuck_ast::{TextRange, TextSize};
 use shuck_indexer::Indexer;
 use shuck_parser::{
-    Error as ParseError, ShellDialect as ParseShellDialect, ShellProfile,
+    Error as ParseError,
     parser::{ParseResult, Parser},
 };
 
@@ -177,18 +177,8 @@ fn resolve_shell(
     }
 }
 
-fn inferred_shell_profile(shell: ShellDialect) -> ShellProfile {
-    let dialect = match shell {
-        ShellDialect::Sh | ShellDialect::Dash | ShellDialect::Ksh => ParseShellDialect::Posix,
-        ShellDialect::Mksh => ParseShellDialect::Mksh,
-        ShellDialect::Zsh => ParseShellDialect::Zsh,
-        ShellDialect::Unknown | ShellDialect::Bash => ParseShellDialect::Bash,
-    };
-    ShellProfile::native(dialect)
-}
-
 fn parse_for_lint(source: &str, shell: ShellDialect) -> ParseResult {
-    Parser::with_profile(source, inferred_shell_profile(shell)).parse()
+    Parser::with_profile(source, shell.shell_profile()).parse()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

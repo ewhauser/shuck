@@ -13,6 +13,28 @@ pub enum ShellDialect {
 }
 
 impl ShellDialect {
+    pub fn parser_dialect(self) -> shuck_parser::ShellDialect {
+        match self {
+            Self::Zsh => shuck_parser::ShellDialect::Zsh,
+            Self::Unknown | Self::Sh | Self::Bash | Self::Dash | Self::Ksh | Self::Mksh => {
+                shuck_parser::ShellDialect::Bash
+            }
+        }
+    }
+
+    pub fn semantic_dialect(self) -> shuck_parser::ShellDialect {
+        match self {
+            Self::Sh | Self::Dash | Self::Ksh => shuck_parser::ShellDialect::Posix,
+            Self::Mksh => shuck_parser::ShellDialect::Mksh,
+            Self::Zsh => shuck_parser::ShellDialect::Zsh,
+            Self::Unknown | Self::Bash => shuck_parser::ShellDialect::Bash,
+        }
+    }
+
+    pub fn shell_profile(self) -> shuck_parser::ShellProfile {
+        shuck_parser::ShellProfile::native(self.semantic_dialect())
+    }
+
     pub fn from_name(name: &str) -> Self {
         match name.trim().to_ascii_lowercase().as_str() {
             "sh" => Self::Sh,
@@ -116,5 +138,69 @@ mod tests {
             Some(Path::new("/tmp/example.sh")),
         );
         assert_eq!(inferred, ShellDialect::Sh);
+    }
+
+    #[test]
+    fn parser_dialect_matches_linter_shell_policy() {
+        assert_eq!(
+            ShellDialect::Unknown.parser_dialect(),
+            shuck_parser::ShellDialect::Bash
+        );
+        assert_eq!(
+            ShellDialect::Bash.parser_dialect(),
+            shuck_parser::ShellDialect::Bash
+        );
+        assert_eq!(
+            ShellDialect::Sh.parser_dialect(),
+            shuck_parser::ShellDialect::Bash
+        );
+        assert_eq!(
+            ShellDialect::Dash.parser_dialect(),
+            shuck_parser::ShellDialect::Bash
+        );
+        assert_eq!(
+            ShellDialect::Ksh.parser_dialect(),
+            shuck_parser::ShellDialect::Bash
+        );
+        assert_eq!(
+            ShellDialect::Mksh.parser_dialect(),
+            shuck_parser::ShellDialect::Bash
+        );
+        assert_eq!(
+            ShellDialect::Zsh.parser_dialect(),
+            shuck_parser::ShellDialect::Zsh
+        );
+    }
+
+    #[test]
+    fn semantic_dialect_matches_linter_shell_policy() {
+        assert_eq!(
+            ShellDialect::Unknown.semantic_dialect(),
+            shuck_parser::ShellDialect::Bash
+        );
+        assert_eq!(
+            ShellDialect::Bash.semantic_dialect(),
+            shuck_parser::ShellDialect::Bash
+        );
+        assert_eq!(
+            ShellDialect::Sh.semantic_dialect(),
+            shuck_parser::ShellDialect::Posix
+        );
+        assert_eq!(
+            ShellDialect::Dash.semantic_dialect(),
+            shuck_parser::ShellDialect::Posix
+        );
+        assert_eq!(
+            ShellDialect::Ksh.semantic_dialect(),
+            shuck_parser::ShellDialect::Posix
+        );
+        assert_eq!(
+            ShellDialect::Mksh.semantic_dialect(),
+            shuck_parser::ShellDialect::Mksh
+        );
+        assert_eq!(
+            ShellDialect::Zsh.semantic_dialect(),
+            shuck_parser::ShellDialect::Zsh
+        );
     }
 }

@@ -231,27 +231,9 @@ fn resolve_large_corpus_shell(path: &Path, source: &[u8]) -> String {
     }
 }
 
-fn parser_dialect_for_large_corpus_shell(shell: &str) -> shuck_parser::ShellDialect {
-    match ShellDialect::from_name(shell) {
-        ShellDialect::Sh | ShellDialect::Dash | ShellDialect::Ksh => {
-            shuck_parser::ShellDialect::Posix
-        }
-        ShellDialect::Mksh => shuck_parser::ShellDialect::Mksh,
-        ShellDialect::Zsh => shuck_parser::ShellDialect::Zsh,
-        ShellDialect::Unknown | ShellDialect::Bash => shuck_parser::ShellDialect::Bash,
-    }
-}
-
-fn shell_profile_for_large_corpus_shell(shell: &str) -> shuck_parser::ShellProfile {
-    shuck_parser::ShellProfile::native(parser_dialect_for_large_corpus_shell(shell))
-}
-
 fn parse_large_corpus_fixture(fixture: &LargeCorpusFixture) -> ParseResult {
-    Parser::with_dialect(
-        &fixture.source,
-        parser_dialect_for_large_corpus_shell(&fixture.shell),
-    )
-    .parse()
+    let shell = ShellDialect::from_name(&fixture.shell);
+    Parser::with_dialect(&fixture.source, shell.parser_dialect()).parse()
 }
 
 fn prepare_word_facts_input(
@@ -269,7 +251,7 @@ fn prepare_word_facts_input(
             source_path_resolver: resolver,
             file_entry_contract: None,
             analyzed_paths: None,
-            shell_profile: Some(shell_profile_for_large_corpus_shell(&fixture.shell)),
+            shell_profile: Some(ShellDialect::from_name(&fixture.shell).shell_profile()),
             resolve_source_closure: true,
         },
     );

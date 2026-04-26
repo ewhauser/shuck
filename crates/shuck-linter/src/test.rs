@@ -3,36 +3,22 @@ use std::fs;
 use std::path::Path;
 
 use shuck_indexer::Indexer;
-use shuck_parser::ShellProfile;
-use shuck_parser::parser::{ParseResult, Parser, ShellDialect as ParseShellDialect};
+use shuck_parser::parser::{ParseResult, Parser};
 use similar::TextDiff;
 
-use crate::{Applicability, Diagnostic, LinterSettings, apply_fixes, lint_file};
+use crate::{Applicability, Diagnostic, LinterSettings, ShellDialect, apply_fixes, lint_file};
 
-fn inferred_shell_profile(
-    source: &str,
-    settings: &LinterSettings,
-    path: Option<&Path>,
-) -> ShellProfile {
+fn infer_shell(source: &str, settings: &LinterSettings, path: Option<&Path>) -> ShellDialect {
     let shell = if settings.shell == crate::ShellDialect::Unknown {
         crate::ShellDialect::infer(source, path)
     } else {
         settings.shell
     };
-    let dialect = match shell {
-        crate::ShellDialect::Zsh => ParseShellDialect::Zsh,
-        crate::ShellDialect::Unknown
-        | crate::ShellDialect::Sh
-        | crate::ShellDialect::Dash
-        | crate::ShellDialect::Ksh
-        | crate::ShellDialect::Mksh
-        | crate::ShellDialect::Bash => ParseShellDialect::Bash,
-    };
-    ShellProfile::native(dialect)
+    shell
 }
 
 fn parse_for_lint(source: &str, settings: &LinterSettings, path: Option<&Path>) -> ParseResult {
-    Parser::with_profile(source, inferred_shell_profile(source, settings, path)).parse()
+    Parser::with_profile(source, infer_shell(source, settings, path).shell_profile()).parse()
 }
 
 #[derive(Debug, Clone)]

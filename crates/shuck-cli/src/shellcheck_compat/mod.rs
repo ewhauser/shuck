@@ -16,7 +16,6 @@ use shuck_linter::{
     LinterSettings, Rule, RuleSet, Severity, ShellCheckCodeMap, ShellCheckLevel, ShellDialect,
     SuppressionIndex, first_statement_line, parse_directives, rule_metadata,
 };
-use shuck_parser::ShellProfile;
 use shuck_parser::parser::Parser;
 use shuck_semantic::SourcePathResolver;
 use shuck_semantic::SourceRefKind;
@@ -931,7 +930,7 @@ fn lint_with_context(
         .transpose()?
         .unwrap_or_else(|| ShellDialect::infer(source, Some(path)));
 
-    let parse_result = Parser::with_profile(source, shell_profile(shell)).parse();
+    let parse_result = Parser::with_profile(source, shell.shell_profile()).parse();
     let indexer = Indexer::new(source, &parse_result);
     let shellcheck_map = &options.shellcheck_map;
     let directives = parse_directives(
@@ -1185,19 +1184,6 @@ fn validate_shell(value: &str) -> Result<(), CompatCliError> {
             4,
             format!("unsupported shell `{value}`"),
         )),
-    }
-}
-
-fn shell_profile(shell: ShellDialect) -> ShellProfile {
-    match shell {
-        ShellDialect::Sh | ShellDialect::Dash | ShellDialect::Ksh => {
-            ShellProfile::native(shuck_parser::ShellDialect::Posix)
-        }
-        ShellDialect::Mksh => ShellProfile::native(shuck_parser::ShellDialect::Mksh),
-        ShellDialect::Zsh => ShellProfile::native(shuck_parser::ShellDialect::Zsh),
-        ShellDialect::Unknown | ShellDialect::Bash => {
-            ShellProfile::native(shuck_parser::ShellDialect::Bash)
-        }
     }
 }
 

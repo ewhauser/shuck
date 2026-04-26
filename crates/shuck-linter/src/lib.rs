@@ -119,7 +119,6 @@ use rustc_hash::FxHashSet;
 use shuck_ast::{File, Position, Span, TextSize};
 use shuck_indexer::{Indexer, LineIndex};
 use shuck_parser::parser::{ParseResult, Parser};
-use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile};
 use shuck_semantic::{
     SemanticBuildOptions, SemanticModel, SourcePathResolver, TraversalObserver,
     build_with_observer_with_options,
@@ -241,7 +240,7 @@ fn analyze_file_at_path_with_resolver_and_shell(
         .or(analyzed_paths_fallback.as_ref());
 
     let mut observer = LintTraversalObserver::default();
-    let shell_profile = inferred_shell_profile(shell);
+    let shell_profile = shell.shell_profile();
     let semantic = build_with_observer_with_options(
         file,
         source,
@@ -303,18 +302,8 @@ fn resolve_shell(
     }
 }
 
-fn inferred_shell_profile(shell: ShellDialect) -> ShellProfile {
-    let dialect = match shell {
-        ShellDialect::Sh | ShellDialect::Dash | ShellDialect::Ksh => ParseShellDialect::Posix,
-        ShellDialect::Mksh => ParseShellDialect::Mksh,
-        ShellDialect::Zsh => ParseShellDialect::Zsh,
-        ShellDialect::Unknown | ShellDialect::Bash => ParseShellDialect::Bash,
-    };
-    ShellProfile::native(dialect)
-}
-
 fn parse_for_lint(source: &str, shell: ShellDialect) -> ParseResult {
-    Parser::with_profile(source, inferred_shell_profile(shell)).parse()
+    Parser::with_profile(source, shell.shell_profile()).parse()
 }
 
 fn parse_error_position(parse_result: &ParseResult) -> Option<(usize, usize)> {
