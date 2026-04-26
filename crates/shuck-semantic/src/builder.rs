@@ -1354,7 +1354,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
         for part in parts {
-            if span_inside_escaped_parameter_template(word_span, part.span, self.source) {
+            if span_is_escaped_parameter_template_name(word_span, part.span, self.source) {
                 continue;
             }
             self.visit_word_part(&part.kind, part.span, kind, flow, nested_regions);
@@ -4393,7 +4393,7 @@ fn escaped_braced_literal_reference_names(text: &str, span: Span) -> Vec<(Name, 
     references
 }
 
-fn span_inside_escaped_parameter_template(word_span: Span, span: Span, source: &str) -> bool {
+fn span_is_escaped_parameter_template_name(word_span: Span, span: Span, source: &str) -> bool {
     if span.start.offset < word_span.start.offset || span.start.offset >= word_span.end.offset {
         return false;
     }
@@ -4410,7 +4410,13 @@ fn span_inside_escaped_parameter_template(word_span: Span, span: Span, source: &
             {
                 let body_start = dollar_offset + "${".len();
                 let body_end = end_offset.saturating_sub('}'.len_utf8());
-                if relative_offset >= body_start && relative_offset < body_end {
+                if relative_offset == body_start
+                    && relative_offset < body_end
+                    && text[relative_offset..]
+                        .chars()
+                        .next()
+                        .is_some_and(is_name_start_character)
+                {
                     return true;
                 }
                 index = end_offset;
