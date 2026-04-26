@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     BinaryOp, BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand, FunctionDef,
@@ -103,6 +105,8 @@ pub struct SafeValueIndex<'a> {
     reference_ids_by_name_span: FxHashMap<(Name, FactSpan), ReferenceId>,
     block_by_reference: FxHashMap<ReferenceId, BlockId>,
     block_by_binding: FxHashMap<BindingId, BlockId>,
+    unreachable_blocks: FxHashSet<BlockId>,
+    command_cover_memo: RefCell<FxHashMap<(crate::facts::CommandId, Name, FactSpan), bool>>,
     memo: FxHashMap<(FactSpan, FactSpan, SafeValueQuery, Option<ScopeId>), bool>,
     visiting: FxHashSet<(FactSpan, FactSpan, SafeValueQuery, Option<ScopeId>)>,
     binding_value_stack: Vec<BindingId>,
@@ -168,6 +172,7 @@ impl<'a> SafeValueIndex<'a> {
                 block_by_binding.insert(*binding_id, block.id);
             }
         }
+        let unreachable_blocks = analysis.cfg().unreachable().iter().copied().collect();
 
         Self {
             semantic,
@@ -182,6 +187,8 @@ impl<'a> SafeValueIndex<'a> {
             reference_ids_by_name_span,
             block_by_reference,
             block_by_binding,
+            unreachable_blocks,
+            command_cover_memo: RefCell::new(FxHashMap::default()),
             memo: FxHashMap::default(),
             visiting: FxHashSet::default(),
             binding_value_stack: Vec::new(),
@@ -2143,6 +2150,22 @@ impl<'a> SafeValueIndex<'a> {
         name: &Name,
         at: Span,
     ) -> bool {
+        let key = (command.id(), name.clone(), FactSpan::new(at));
+        if let Some(result) = self.command_cover_memo.borrow().get(&key) {
+            return *result;
+        }
+
+        let result = self.command_blocks_cover_all_paths_to_reference_uncached(command, name, at);
+        self.command_cover_memo.borrow_mut().insert(key, result);
+        result
+    }
+
+    fn command_blocks_cover_all_paths_to_reference_uncached(
+        &self,
+        command: crate::facts::CommandFactRef<'_, 'a>,
+        name: &Name,
+        at: Span,
+    ) -> bool {
         if self.enclosing_function_scope_at(command.span().start.offset)
             != self.enclosing_function_scope_at(at.start.offset)
         {
@@ -2159,12 +2182,7 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         };
 
-        let cover_blocks = self
-            .analysis
-            .block_ids_for_span(command.span())
-            .iter()
-            .copied()
-            .collect::<FxHashSet<_>>();
+        let cover_blocks = self.analysis.block_ids_for_span(command.span());
         if cover_blocks.is_empty() {
             return false;
         }
@@ -2173,7 +2191,6 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         let cfg = self.analysis.cfg();
-        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
         let entry = self
             .enclosing_function_scope_at(at.start.offset)
             .and_then(|scope| cfg.scope_entry(scope))
@@ -2182,7 +2199,7 @@ impl<'a> SafeValueIndex<'a> {
         let mut seen = FxHashSet::default();
         while let Some(block_id) = stack.pop() {
             if cover_blocks.contains(&block_id)
-                || unreachable.contains(&block_id)
+                || self.unreachable_blocks.contains(&block_id)
                 || !seen.insert(block_id)
             {
                 continue;
@@ -2708,8 +2725,7 @@ impl<'a> SafeValueIndex<'a> {
             return Vec::new();
         };
 
-        let cfg = self.analysis.cfg();
-        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let unreachable = &self.unreachable_blocks;
         let candidates = self
             .semantic
             .bindings_for(name)
@@ -2737,7 +2753,7 @@ impl<'a> SafeValueIndex<'a> {
                     *binding_block,
                     reference_block,
                     &candidates,
-                    &unreachable,
+                    unreachable,
                 )
             })
             .map(|(binding_id, _)| binding_id)
@@ -2817,11 +2833,10 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         let cfg = self.analysis.cfg();
-        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
         let mut stack = vec![binding_block];
         let mut seen = FxHashSet::default();
         while let Some(block_id) = stack.pop() {
-            if unreachable.contains(&block_id) || !seen.insert(block_id) {
+            if self.unreachable_blocks.contains(&block_id) || !seen.insert(block_id) {
                 continue;
             }
             for (successor, _) in cfg.successors(block_id) {
@@ -3499,7 +3514,6 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         let cfg = self.analysis.cfg();
-        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
         let mut stack = vec![self.flow_entry_block_for_binding_scopes(
             &[self.semantic.binding(binding_id).scope],
             at.start.offset,
@@ -3507,7 +3521,7 @@ impl<'a> SafeValueIndex<'a> {
         let mut seen = FxHashSet::default();
         while let Some(block_id) = stack.pop() {
             if block_id == binding_block
-                || unreachable.contains(&block_id)
+                || self.unreachable_blocks.contains(&block_id)
                 || !seen.insert(block_id)
             {
                 continue;
@@ -3579,7 +3593,6 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         let cfg = self.analysis.cfg();
-        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
         let binding_scopes = bindings
             .iter()
             .copied()
@@ -3590,7 +3603,7 @@ impl<'a> SafeValueIndex<'a> {
         let mut seen = FxHashSet::default();
         while let Some(block_id) = stack.pop() {
             if cover_blocks.contains(&block_id)
-                || unreachable.contains(&block_id)
+                || self.unreachable_blocks.contains(&block_id)
                 || !seen.insert(block_id)
             {
                 continue;
@@ -3682,7 +3695,6 @@ impl<'a> SafeValueIndex<'a> {
             return true;
         }
 
-        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
         let binding_scopes = bindings
             .iter()
             .copied()
@@ -3693,7 +3705,7 @@ impl<'a> SafeValueIndex<'a> {
         let mut seen = FxHashSet::default();
         while let Some(block_id) = stack.pop() {
             if cover_blocks.contains(&block_id)
-                || unreachable.contains(&block_id)
+                || self.unreachable_blocks.contains(&block_id)
                 || !seen.insert(block_id)
             {
                 continue;
