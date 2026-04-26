@@ -1,4 +1,4 @@
-use shuck_ast::{ConditionalUnaryOp, Span, Word};
+use shuck_ast::{ConditionalUnaryOp, Span};
 
 use crate::{
     Checker, ConditionalNodeFact, ConditionalOperatorFamily, ExpansionContext, Rule,
@@ -53,7 +53,7 @@ fn collect_simple_test_spans(
 
 fn simple_test_condition_operand<'a>(
     simple_test: &'a crate::SimpleTestFact<'a>,
-) -> Option<&'a Word> {
+) -> Option<&'a shuck_ast::Word> {
     match simple_test.effective_shape() {
         SimpleTestShape::Truthy => simple_test.effective_operands().first().copied(),
         SimpleTestShape::Unary

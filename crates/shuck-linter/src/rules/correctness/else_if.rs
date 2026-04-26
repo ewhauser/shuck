@@ -27,11 +27,7 @@ pub fn else_if(checker: &mut Checker) {
             let CompoundCommandNode::If { else_branch, .. } = command.node() else {
                 return None;
             };
-            let first = command
-                .store()
-                .stmt_seq((*else_branch)?)
-                .stmts()
-                .next()?;
+            let first = command.store().stmt_seq((*else_branch)?).stmts().next()?;
             if first.command().kind() != ArenaFileCommandKind::Compound
                 || !matches!(
                     first.command().compound()?.node(),

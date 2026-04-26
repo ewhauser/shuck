@@ -1,4 +1,4 @@
-use shuck_ast::{ArenaFileCommandKind, AssignmentNode, Span};
+use shuck_ast::{ArenaFileCommandKind, AssignmentNode, DeclOperandNode, Span};
 
 use crate::{Checker, FactWordRef, Rule, ShellDialect, Violation};
 
@@ -29,14 +29,18 @@ pub fn zsh_assignment_to_zero(checker: &mut Checker) {
                 .iter()
                 .filter_map(typed_assignment_to_zero_span)
                 .chain(
-                    fact.arena_body_name_word(checker.source())
+                    fact.arena_simple_name_word()
                         .and_then(|word| assignment_like_word_span(word, checker.source())),
                 )
                 .collect::<Vec<_>>(),
             ArenaFileCommandKind::Decl => fact
-                .arena_body_args(checker.source())
-                .into_iter()
-                .filter_map(|word| assignment_like_word_span(word, checker.source()))
+                .arena_declaration_operands()
+                .iter()
+                .filter_map(|operand| {
+                    declaration_operand_assignment_to_zero_span(operand, |word| {
+                        assignment_like_word_span(fact.arena_word(word), checker.source())
+                    })
+                })
                 .collect::<Vec<_>>(),
             ArenaFileCommandKind::Builtin
             | ArenaFileCommandKind::Binary
@@ -64,6 +68,17 @@ fn typed_assignment_to_zero_span(assignment: &AssignmentNode) -> Option<Span> {
         assignment.target.name_span.start,
         assignment.target.name_span.start.advanced_by("0"),
     ))
+}
+
+fn declaration_operand_assignment_to_zero_span(
+    operand: &DeclOperandNode,
+    dynamic_word_span: impl FnOnce(shuck_ast::WordId) -> Option<Span>,
+) -> Option<Span> {
+    match operand {
+        DeclOperandNode::Assignment(assignment) => typed_assignment_to_zero_span(assignment),
+        DeclOperandNode::Dynamic(word) | DeclOperandNode::Flag(word) => dynamic_word_span(*word),
+        DeclOperandNode::Name(_) => None,
+    }
 }
 
 #[cfg(test)]

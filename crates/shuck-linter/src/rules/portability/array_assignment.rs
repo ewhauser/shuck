@@ -42,10 +42,14 @@ fn command_array_assignment_spans(
         ArenaFileCommandKind::Decl => command
             .arena_assignments()
             .iter()
-            .chain(command.arena_declaration_operands().iter().filter_map(|operand| match operand {
-                DeclOperandNode::Assignment(assignment) => Some(assignment),
-                DeclOperandNode::Flag(_) | DeclOperandNode::Name(_) | DeclOperandNode::Dynamic(_) => None,
-            }))
+            .chain(command.arena_declaration_operands().iter().filter_map(
+                |operand| match operand {
+                    DeclOperandNode::Assignment(assignment) => Some(assignment),
+                    DeclOperandNode::Flag(_)
+                    | DeclOperandNode::Name(_)
+                    | DeclOperandNode::Dynamic(_) => None,
+                },
+            ))
             .filter_map(|assignment| array_assignment_span(assignment, source))
             .collect(),
         ArenaFileCommandKind::Binary

@@ -336,12 +336,12 @@ fn loop_keyword_report_span(
     checker: &Checker<'_>,
     definition_span: shuck_ast::Span,
 ) -> Option<shuck_ast::Span> {
-    if let Some(header) = checker.facts().for_headers().iter().find(|header| {
-        header
-            .target_spans()
-            .iter()
-            .any(|target_span| *target_span == definition_span)
-    }) {
+    if let Some(header) = checker
+        .facts()
+        .for_headers()
+        .iter()
+        .find(|header| header.target_spans().contains(&definition_span))
+    {
         return Some(keyword_span(header.span(), "for"));
     }
 

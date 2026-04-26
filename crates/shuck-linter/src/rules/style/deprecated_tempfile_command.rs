@@ -19,12 +19,13 @@ impl Violation for DeprecatedTempfileCommand {
 }
 
 pub fn deprecated_tempfile_command(checker: &mut Checker) {
+    let source = checker.source();
     let spans = checker
         .facts()
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("tempfile") && fact.wrappers().is_empty())
-        .filter_map(|fact| fact.body_name_word().map(|word| word.span))
+        .filter_map(|fact| fact.arena_body_name_word(source).map(|word| word.span()))
         .collect::<Vec<_>>();
 
     for span in spans {

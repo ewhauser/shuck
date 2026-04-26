@@ -1,4 +1,4 @@
-use crate::{Checker, CommandFact, CommandFacts, ListFact, Rule, Violation, WrapperKind};
+use crate::{Checker, CommandFactRef, CommandFacts, ListFact, Rule, Violation, WrapperKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Name, Span};
 use shuck_semantic::{
@@ -35,6 +35,7 @@ pub fn unreachable_after_exit(checker: &mut Checker) {
                     short_circuit_lists,
                     commands,
                     semantic_analysis,
+                    source,
                 ) && !span_is_inside_unreached_function(*span, &unreached_function_spans)
             })
             .collect::<Vec<_>>(),
@@ -248,6 +249,7 @@ fn span_matches_short_circuit_skip(
     short_circuit_lists: &[ListFact],
     commands: CommandFacts<'_, '_>,
     semantic_analysis: &SemanticAnalysis<'_>,
+    source: &str,
 ) -> bool {
     short_circuit_lists.iter().any(|list| {
         if span == list.span() {
@@ -258,7 +260,7 @@ fn span_matches_short_circuit_skip(
             return false;
         }
 
-        if !list_starts_with_condition(list, commands, semantic_analysis) {
+        if !list_starts_with_condition(list, commands, semantic_analysis, source) {
             return false;
         }
 
@@ -273,6 +275,7 @@ fn list_starts_with_condition(
     list: &ListFact,
     commands: CommandFacts<'_, '_>,
     semantic_analysis: &SemanticAnalysis<'_>,
+    source: &str,
 ) -> bool {
     let Some(first_segment) = list.segments().first() else {
         return false;
@@ -291,14 +294,15 @@ fn list_starts_with_condition(
             Some("[" | "test" | "true" | "false")
         );
 
-    starts_like_condition && !command_name_resolves_to_function(&command, semantic_analysis)
+    starts_like_condition && !command_name_resolves_to_function(command, semantic_analysis, source)
 }
 
 fn command_name_resolves_to_function(
-    command: &CommandFact<'_>,
+    command: CommandFactRef<'_, '_>,
     semantic_analysis: &SemanticAnalysis<'_>,
+    source: &str,
 ) -> bool {
-    if wrapper_name_resolves_to_function(command, semantic_analysis) {
+    if wrapper_name_resolves_to_function(command, semantic_analysis, source) {
         return true;
     }
 
@@ -320,21 +324,22 @@ fn command_name_resolves_to_function(
 }
 
 fn wrapper_name_resolves_to_function(
-    command: &CommandFact<'_>,
+    command: CommandFactRef<'_, '_>,
     semantic_analysis: &SemanticAnalysis<'_>,
+    source: &str,
 ) -> bool {
     if command.wrappers().is_empty() {
         return false;
     }
-    let Some(name) = command.literal_name() else {
+    let Some(name) = command.arena_literal_name(source) else {
         return false;
     };
-    let Some(name_span) = command.body_word_span() else {
+    let Some(name_span) = command.arena_simple_name_word().map(|word| word.span()) else {
         return false;
     };
 
     semantic_analysis
-        .visible_function_binding_at_call(&Name::from(name), name_span)
+        .visible_function_binding_at_call(&Name::from(name.as_ref()), name_span)
         .is_some()
 }
 

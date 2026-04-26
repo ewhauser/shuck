@@ -20,7 +20,7 @@ pub fn bad_var_name(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
-        .filter_map(|fact| bad_var_name_span(fact.arena_body_name_word(source)?.span(), source))
+        .filter_map(|fact| bad_var_name_span(fact.arena_simple_name_word()?.span(), source))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || BadVarName);

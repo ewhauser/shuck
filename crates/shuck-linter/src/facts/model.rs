@@ -1,6 +1,6 @@
 pub struct LinterFacts<'a> {
     source: &'a str,
-    arena_file: ArenaFile,
+    arena_file: &'a ArenaFile,
     commands: Vec<CommandFact<'a>>,
     structural_command_ids: Vec<CommandId>,
     #[cfg_attr(not(test), allow(dead_code))]
@@ -130,7 +130,8 @@ pub struct LinterFacts<'a> {
 
 impl<'a> LinterFacts<'a> {
     pub fn build(
-        file: &'a File,
+        file: &'a shuck_ast::File,
+        arena_file: &'a ArenaFile,
         source: &'a str,
         semantic: &'a SemanticModel,
         indexer: &'a Indexer,
@@ -138,6 +139,7 @@ impl<'a> LinterFacts<'a> {
     ) -> Self {
         Self::build_with_ambient_shell_options(
             file,
+            arena_file,
             source,
             semantic,
             indexer,
@@ -147,7 +149,8 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn build_with_ambient_shell_options(
-        file: &'a File,
+        file: &'a shuck_ast::File,
+        arena_file: &'a ArenaFile,
         source: &'a str,
         semantic: &'a SemanticModel,
         indexer: &'a Indexer,
@@ -156,6 +159,7 @@ impl<'a> LinterFacts<'a> {
     ) -> Self {
         Self::build_with_shell_and_ambient_shell_options(
             file,
+            arena_file,
             source,
             semantic,
             indexer,
@@ -165,8 +169,10 @@ impl<'a> LinterFacts<'a> {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn build_with_shell_and_ambient_shell_options(
-        file: &'a File,
+        file: &'a shuck_ast::File,
+        arena_file: &'a ArenaFile,
         source: &'a str,
         semantic: &'a SemanticModel,
         indexer: &'a Indexer,
@@ -176,6 +182,7 @@ impl<'a> LinterFacts<'a> {
     ) -> Self {
         LinterFactsBuilder::new(
             file,
+            arena_file,
             source,
             semantic,
             indexer,
@@ -187,11 +194,15 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn commands(&self) -> CommandFacts<'_, 'a> {
-        CommandFacts::new(&self.commands, &self.fact_store, &self.arena_file)
+        CommandFacts::new(&self.commands, &self.fact_store, self.arena_file)
     }
 
     pub fn arena_file(&self) -> &ArenaFile {
-        &self.arena_file
+        self.arena_file
+    }
+
+    pub fn source(&self) -> &str {
+        self.source
     }
 
     pub fn malformed_bracket_test_spans(&self, source: &str) -> Vec<Span> {
@@ -199,14 +210,14 @@ impl<'a> LinterFacts<'a> {
             .iter()
             .filter(|fact| fact.static_utility_name_is("["))
             .filter(|fact| {
-                fact.arena_body_args(&self.arena_file, source)
+                fact.arena_body_args(self.arena_file, source)
                     .last()
                     .and_then(|word| word.static_text(source))
                     .as_deref()
                     != Some("]")
             })
             .map(|fact| {
-                fact.arena_body_name_word(&self.arena_file, source)
+                fact.arena_body_name_word(self.arena_file, source)
                     .map_or(fact.span(), |word| word.span())
             })
             .collect()
@@ -257,7 +268,7 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn command(&self, id: CommandId) -> CommandFactRef<'_, 'a> {
-        CommandFactRef::new(&self.commands[id.index()], &self.fact_store, &self.arena_file)
+        CommandFactRef::new(&self.commands[id.index()], &self.fact_store, self.arena_file)
     }
 
     pub fn innermost_command_at(&self, offset: usize) -> Option<CommandFactRef<'_, 'a>> {
@@ -407,7 +418,9 @@ impl<'a> LinterFacts<'a> {
         self.commands
             .iter()
             .filter(|command| contains_span(command.span(), span))
-            .filter_map(|command| assignment_value_target_for_span(command, span))
+            .filter_map(|command| {
+                assignment_value_target_for_span(self.arena_file, self.source, command, span)
+            })
             .min_by_key(|(_, value_span)| value_span.end.offset - value_span.start.offset)
             .map(|(name, _)| name)
     }
@@ -1091,16 +1104,39 @@ fn source_position_at_offset(source: &str, target_offset: usize) -> Option<Posit
     Some(position)
 }
 
-fn assignment_value_span(value: &AssignmentValue) -> Option<Span> {
-    match value {
-        AssignmentValue::Scalar(word) => Some(word.span),
-        AssignmentValue::Compound(_) => None,
-    }
+fn assignment_value_target_for_span<'a>(
+    arena_file: &'a ArenaFile,
+    source: &'a str,
+    command: &'a CommandFact<'a>,
+    span: Span,
+) -> Option<(&'a Name, Span)> {
+    let command = arena_file.store.command(command.arena_command_id()?);
+
+    arena_command_assignments(command)
+        .iter()
+        .find_map(|assignment| arena_assignment_value_target_for_span(arena_file, assignment, span))
+        .or_else(|| {
+            let normalized = command::normalize_arena_command(command, source);
+            normalized.declaration.and_then(|declaration| {
+                declaration.assignment_operands.iter().find_map(|assignment| {
+                    arena_assignment_value_target_for_span(arena_file, assignment, span)
+                })
+            })
+        })
 }
 
-fn assignment_value_target_for_span<'a>(
-    _command: &'a CommandFact<'a>,
-    _span: Span,
+fn arena_assignment_value_target_for_span<'a>(
+    arena_file: &'a ArenaFile,
+    assignment: &'a AssignmentNode,
+    span: Span,
 ) -> Option<(&'a Name, Span)> {
-    None
+    let value_span = arena_assignment_value_span(arena_file, &assignment.value);
+    contains_span(value_span, span).then_some((&assignment.target.name, value_span))
+}
+
+fn arena_assignment_value_span(arena_file: &ArenaFile, value: &AssignmentValueNode) -> Span {
+    match value {
+        AssignmentValueNode::Scalar(word) => arena_file.store.word(*word).span(),
+        AssignmentValueNode::Compound(array) => array.span,
+    }
 }

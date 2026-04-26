@@ -22,14 +22,15 @@ pub fn echoed_command_substitution(checker: &mut Checker) {
         .iter()
         .filter(|fact| fact.effective_name_is("echo"))
         .filter_map(|fact| {
-            let [word] = fact.body_args() else {
+            let args = fact.arena_body_args(checker.source());
+            let [word] = args.as_slice() else {
                 return None;
             };
 
             checker
                 .facts()
                 .word_fact(
-                    word.span,
+                    word.span(),
                     WordFactContext::Expansion(ExpansionContext::CommandArgument),
                 )
                 .filter(|fact| fact.classification().has_plain_command_substitution())
@@ -40,14 +41,14 @@ pub fn echoed_command_substitution(checker: &mut Checker) {
                                 substitution.host_kind(),
                                 SubstitutionHostKind::CommandArgument
                             )
-                            && substitution.host_word_span() == word.span
+                            && substitution.host_word_span() == word.span()
                             && (substitution.is_bash_file_slurp()
                                 || substitution.body_has_multiple_statements()
                                 || (substitution.uses_backtick_syntax()
                                     && !substitution.unquoted_in_host()))
                     })
                 })
-                .map(|_| word.span)
+                .map(|_| word.span())
         })
         .collect::<Vec<_>>();
 

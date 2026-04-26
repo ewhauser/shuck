@@ -22,9 +22,7 @@ pub fn coproc(checker: &mut Checker) {
         .commands()
         .iter()
         .filter_map(|fact| match fact.compound_kind() {
-            Some(CommandFactCompoundKind::Coproc) => {
-                Some(fact.span_in_source(checker.source()))
-            }
+            Some(CommandFactCompoundKind::Coproc) => Some(fact.span_in_source(checker.source())),
             _ => None,
         })
         .collect::<Vec<_>>();

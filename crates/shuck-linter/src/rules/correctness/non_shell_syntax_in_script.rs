@@ -47,7 +47,8 @@ fn non_shell_syntax_span(
 
     let name = command.arena_body_name_word(source)?;
     let text = name.static_text(source)?;
-    if !looks_like_c_declaration_keyword(text.as_ref()) || command.arena_body_args(source).is_empty()
+    if !looks_like_c_declaration_keyword(text.as_ref())
+        || command.arena_body_args(source).is_empty()
     {
         return None;
     }

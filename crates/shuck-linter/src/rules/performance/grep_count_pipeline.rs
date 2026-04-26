@@ -1,4 +1,4 @@
-use shuck_ast::{Span, static_word_text};
+use shuck_ast::Span;
 
 use crate::{Checker, CommandFactRef, PipelineFact, Rule, Violation};
 
@@ -51,18 +51,18 @@ fn unsafe_grep_count_pipeline_spans(checker: &Checker<'_>, pipeline: &PipelineFa
                 return None;
             }
 
-            command_body_span(left)
+            command_body_span(left, checker.source())
         })
         .collect()
 }
 
-fn command_body_span(fact: CommandFactRef<'_, '_>) -> Option<Span> {
-    let body_name = fact.body_name_word()?;
-    let mut end = body_name.span.end;
+fn command_body_span(fact: CommandFactRef<'_, '_>, source: &str) -> Option<Span> {
+    let body_name = fact.arena_body_name_word(source)?;
+    let mut end = body_name.span().end;
 
-    for word in fact.body_args() {
-        if word.span.end.offset > end.offset {
-            end = word.span.end;
+    for word in fact.arena_body_args(source) {
+        if word.span().end.offset > end.offset {
+            end = word.span().end;
         }
     }
 
@@ -73,7 +73,7 @@ fn command_body_span(fact: CommandFactRef<'_, '_>) -> Option<Span> {
         }
     }
 
-    Some(Span::from_positions(body_name.span.start, end))
+    Some(Span::from_positions(body_name.span().start, end))
 }
 
 fn is_raw_utility_named(fact: CommandFactRef<'_, '_>, name: &str) -> bool {
@@ -81,8 +81,8 @@ fn is_raw_utility_named(fact: CommandFactRef<'_, '_>, name: &str) -> bool {
 }
 
 fn wc_uses_line_count(fact: CommandFactRef<'_, '_>, source: &str) -> bool {
-    fact.body_args().iter().any(|word| {
-        static_word_text(word, source).is_some_and(|text| {
+    fact.arena_body_args(source).iter().any(|word| {
+        word.static_text(source).is_some_and(|text| {
             text == "-l" || text == "--lines" || (text.starts_with('-') && text[1..].contains('l'))
         })
     })

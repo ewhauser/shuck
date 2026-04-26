@@ -1,4 +1,4 @@
-use shuck_ast::{ConditionalUnaryOp, Span, Word, static_word_text};
+use shuck_ast::{ConditionalUnaryOp, Span};
 
 use crate::facts::word_spans;
 use crate::{
@@ -88,10 +88,10 @@ fn is_file_test_unary_op(op: ConditionalUnaryOp) -> bool {
     )
 }
 
-fn collect_directory_operand_spans(operands: &[&Word], source: &str) -> Vec<Span> {
+fn collect_directory_operand_spans(operands: &[&shuck_ast::Word], source: &str) -> Vec<Span> {
     let operand_texts = operands
         .iter()
-        .map(|word| static_word_text(word, source))
+        .map(|word| shuck_ast::static_word_text(word, source))
         .collect::<Vec<_>>();
     let mut spans = Vec::new();
     let mut index = 0usize;
@@ -137,7 +137,7 @@ fn simple_test_unary_file_test_span(
     if !is_simple_test_file_test_unary_operator(
         simple_test
             .effective_operator_word()
-            .and_then(|word| static_word_text(word, source))
+            .and_then(|word| shuck_ast::static_word_text(word, source))
             .as_deref(),
     ) {
         return None;
@@ -149,7 +149,7 @@ fn simple_test_unary_file_test_span(
         .and_then(|word| reportable_glob_span(word, source))
 }
 
-fn reportable_glob_span(word: &Word, source: &str) -> Option<Span> {
+fn reportable_glob_span(word: &shuck_ast::Word, source: &str) -> Option<Span> {
     (!word_spans::word_unquoted_glob_pattern_spans(word, source).is_empty()).then_some(word.span)
 }
 

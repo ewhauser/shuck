@@ -1,4 +1,4 @@
-use shuck_ast::{DeclOperand, static_word_text};
+use shuck_ast::DeclOperandNode;
 
 use crate::{Checker, Rule, Violation};
 
@@ -19,26 +19,34 @@ pub fn spaced_assignment(checker: &mut Checker) {
     let spans = checker
         .facts()
         .structural_commands()
-        .filter_map(|fact| fact.declaration())
-        .flat_map(|declaration| {
+        .flat_map(|fact| {
+            let Some(declaration) = fact.declaration() else {
+                return Vec::new();
+            };
             declaration
                 .operands
                 .windows(2)
-                .filter_map(|pair| spaced_assignment_span(pair, source))
+                .filter_map(|pair| spaced_assignment_span(pair, fact, source))
+                .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || SpacedAssignment);
 }
 
-fn spaced_assignment_span(pair: &[DeclOperand], source: &str) -> Option<shuck_ast::Span> {
-    let [DeclOperand::Name(_), DeclOperand::Dynamic(word)] = pair else {
+fn spaced_assignment_span(
+    pair: &[DeclOperandNode],
+    fact: crate::CommandFactRef<'_, '_>,
+    source: &str,
+) -> Option<shuck_ast::Span> {
+    let [DeclOperandNode::Name(_), DeclOperandNode::Dynamic(word)] = pair else {
         return None;
     };
 
-    static_word_text(word, source)?
+    let word = fact.arena_word(*word);
+    word.static_text(source)?
         .starts_with('=')
-        .then_some(word.span)
+        .then_some(word.span())
 }
 
 #[cfg(test)]

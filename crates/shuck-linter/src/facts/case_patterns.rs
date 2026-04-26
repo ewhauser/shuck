@@ -325,8 +325,12 @@ struct ReachableCasePattern {
 }
 
 impl StaticCasePatternMatcher {
-    fn from_pattern(pattern: &Pattern, source: &str) -> Option<Self> {
-        ensure_case_pattern_is_statically_analyzable(pattern, source)?;
+    fn from_arena_pattern(
+        store: &AstStore,
+        pattern: &PatternNode,
+        source: &str,
+    ) -> Option<Self> {
+        ensure_arena_case_pattern_is_statically_analyzable(store, pattern, source)?;
 
         let mut tokens = Vec::new();
         collect_static_case_pattern_tokens(pattern.span.slice(source), &mut tokens)?;
@@ -349,10 +353,16 @@ impl StaticCasePatternMatcher {
         })
     }
 
-    fn from_case_subject(word: &Word, source: &str) -> Option<Self> {
+    fn from_arena_case_subject(word: WordView<'_>, source: &str) -> Option<Self> {
         let mut tokens = Vec::new();
         let mut saw_dynamic = false;
-        collect_static_case_subject_tokens(&word.parts, source, &mut tokens, &mut saw_dynamic)?;
+        collect_arena_static_case_subject_tokens(
+            word.parts(),
+            word.store(),
+            source,
+            &mut tokens,
+            &mut saw_dynamic,
+        )?;
         if !saw_dynamic {
             return None;
         }
@@ -669,6 +679,26 @@ fn ensure_case_pattern_is_statically_analyzable(pattern: &Pattern, source: &str)
     Some(())
 }
 
+fn ensure_arena_case_pattern_is_statically_analyzable(
+    store: &AstStore,
+    pattern: &PatternNode,
+    source: &str,
+) -> Option<()> {
+    for part in store.pattern_parts(pattern.parts) {
+        match &part.kind {
+            PatternPartArena::Literal(_)
+            | PatternPartArena::AnyString
+            | PatternPartArena::AnyChar => {}
+            PatternPartArena::Word(word) => {
+                static_word_text_arena(store.word(*word), source)?;
+            }
+            PatternPartArena::Group { .. } | PatternPartArena::CharClass(_) => return None,
+        }
+    }
+
+    Some(())
+}
+
 fn collect_static_case_pattern_tokens(
     pattern_syntax: &str,
     out: &mut Vec<CasePatternToken>,
@@ -730,46 +760,53 @@ fn collect_static_case_pattern_tokens(
     Some(())
 }
 
-fn collect_static_case_subject_tokens(
-    parts: &[WordPartNode],
+fn collect_arena_static_case_subject_tokens(
+    parts: &[WordPartArenaNode],
+    store: &AstStore,
     source: &str,
     out: &mut Vec<CasePatternToken>,
     saw_dynamic: &mut bool,
 ) -> Option<()> {
     for part in parts {
         match &part.kind {
-            WordPart::Literal(text) => {
+            WordPartArena::Literal(text) => {
                 for ch in text.as_str(source, part.span).chars() {
                     push_case_pattern_literal_tokens_char(ch, out);
                 }
             }
-            WordPart::SingleQuoted { value, .. } => {
+            WordPartArena::SingleQuoted { value, .. } => {
                 for ch in value.slice(source).chars() {
                     push_case_pattern_literal_tokens_char(ch, out);
                 }
             }
-            WordPart::DoubleQuoted { parts, .. } => {
-                collect_static_case_subject_tokens(parts, source, out, saw_dynamic)?;
+            WordPartArena::DoubleQuoted { parts, .. } => {
+                collect_arena_static_case_subject_tokens(
+                    store.word_parts(*parts),
+                    store,
+                    source,
+                    out,
+                    saw_dynamic,
+                )?;
             }
-            WordPart::Variable(_)
-            | WordPart::CommandSubstitution { .. }
-            | WordPart::ArithmeticExpansion { .. }
-            | WordPart::Parameter(_)
-            | WordPart::ParameterExpansion { .. }
-            | WordPart::Length(_)
-            | WordPart::ArrayAccess(_)
-            | WordPart::ArrayLength(_)
-            | WordPart::ArrayIndices(_)
-            | WordPart::Substring { .. }
-            | WordPart::ArraySlice { .. }
-            | WordPart::IndirectExpansion { .. }
-            | WordPart::PrefixMatch { .. }
-            | WordPart::ProcessSubstitution { .. }
-            | WordPart::Transformation { .. } => {
+            WordPartArena::Variable(_)
+            | WordPartArena::CommandSubstitution { .. }
+            | WordPartArena::ArithmeticExpansion { .. }
+            | WordPartArena::Parameter(_)
+            | WordPartArena::ParameterExpansion { .. }
+            | WordPartArena::Length(_)
+            | WordPartArena::ArrayAccess(_)
+            | WordPartArena::ArrayLength(_)
+            | WordPartArena::ArrayIndices(_)
+            | WordPartArena::Substring { .. }
+            | WordPartArena::ArraySlice { .. }
+            | WordPartArena::IndirectExpansion { .. }
+            | WordPartArena::PrefixMatch { .. }
+            | WordPartArena::ProcessSubstitution { .. }
+            | WordPartArena::Transformation { .. } => {
                 *saw_dynamic = true;
                 push_case_pattern_token(out, CasePatternToken::AnyString);
             }
-            WordPart::ZshQualifiedGlob(_) => return None,
+            WordPartArena::ZshQualifiedGlob(_) => return None,
         }
     }
 
@@ -791,14 +828,126 @@ fn push_case_pattern_token(out: &mut Vec<CasePatternToken>, token: CasePatternTo
 }
 
 fn build_case_pattern_shadow_facts(
-    _commands: &[CommandFact<'_>],
-    _source: &str,
+    commands: &[CommandFact<'_>],
+    arena_file: &ArenaFile,
+    source: &str,
 ) -> Vec<CasePatternShadowFact> {
-    Vec::new()
+    let mut shadows = Vec::new();
+
+    for fact in commands {
+        let Some(command) = fact
+            .arena_command_id()
+            .map(|id| arena_file.store.command(id))
+        else {
+            continue;
+        };
+        let Some(compound) = command.compound() else {
+            continue;
+        };
+        let CompoundCommandNode::Case { cases, .. } = compound.node() else {
+            continue;
+        };
+
+        let mut prior_arm_patterns = Vec::<ReachableCasePattern>::new();
+        let mut fallthrough_arm_patterns = Vec::<ReachableCasePattern>::new();
+        let mut spent_shadowing_patterns = FxHashSet::default();
+
+        for item in command.store().case_items(*cases) {
+            let mut same_item_patterns = Vec::<ReachableCasePattern>::new();
+
+            for pattern in command.store().patterns(item.patterns) {
+                let Some(matcher) =
+                    StaticCasePatternMatcher::from_arena_pattern(command.store(), pattern, source)
+                else {
+                    continue;
+                };
+
+                for previous in prior_arm_patterns
+                    .iter()
+                    .chain(fallthrough_arm_patterns.iter())
+                    .chain(same_item_patterns.iter())
+                {
+                    if spent_shadowing_patterns.contains(&FactSpan::new(previous.span)) {
+                        continue;
+                    }
+
+                    if previous.matcher.subsumes(&matcher) {
+                        shadows.push(CasePatternShadowFact {
+                            shadowing_pattern_span: previous.span,
+                            shadowed_pattern_span: pattern.span,
+                        });
+                        spent_shadowing_patterns.insert(FactSpan::new(previous.span));
+                        break;
+                    }
+                }
+
+                same_item_patterns.push(ReachableCasePattern {
+                    span: pattern.span,
+                    matcher,
+                });
+            }
+
+            match item.terminator {
+                CaseTerminator::Break => {
+                    prior_arm_patterns.append(&mut fallthrough_arm_patterns);
+                    prior_arm_patterns.extend(same_item_patterns);
+                }
+                CaseTerminator::FallThrough => {
+                    fallthrough_arm_patterns.extend(same_item_patterns);
+                }
+                CaseTerminator::Continue | CaseTerminator::ContinueMatching => {
+                    fallthrough_arm_patterns.clear();
+                }
+            }
+        }
+    }
+
+    shadows
 }
 
-fn build_case_pattern_impossible_spans(_commands: &[CommandFact<'_>], _source: &str) -> Vec<Span> {
-    Vec::new()
+fn build_case_pattern_impossible_spans(
+    commands: &[CommandFact<'_>],
+    arena_file: &ArenaFile,
+    source: &str,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    for fact in commands {
+        let Some(command) = fact
+            .arena_command_id()
+            .map(|id| arena_file.store.command(id))
+        else {
+            continue;
+        };
+        let Some(compound) = command.compound() else {
+            continue;
+        };
+        let CompoundCommandNode::Case { word, cases, .. } = compound.node() else {
+            continue;
+        };
+
+        let Some(subject_matcher) =
+            StaticCasePatternMatcher::from_arena_case_subject(command.store().word(*word), source)
+        else {
+            continue;
+        };
+
+        for item in command.store().case_items(*cases) {
+            for pattern in command.store().patterns(item.patterns) {
+                let Some(pattern_matcher) =
+                    StaticCasePatternMatcher::from_arena_pattern(command.store(), pattern, source)
+                else {
+                    continue;
+                };
+
+                if !subject_matcher.intersects(&pattern_matcher) {
+                    spans.push(pattern.span);
+                }
+            }
+        }
+    }
+
+    spans
 }
 
 #[derive(Debug, Clone)]

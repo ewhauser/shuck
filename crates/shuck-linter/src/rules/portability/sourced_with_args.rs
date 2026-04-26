@@ -1,5 +1,3 @@
-use shuck_ast::static_command_name_text;
-
 use crate::context::FileContextTag;
 use crate::{Checker, Rule, ShellDialect, Violation};
 
@@ -28,13 +26,13 @@ pub fn sourced_with_args(checker: &mut Checker) {
         .commands()
         .iter()
         .filter(|fact| {
-            fact.body_name_word()
-                .and_then(|word| static_command_name_text(word, checker.source()))
+            fact.arena_body_name_word(checker.source())
+                .and_then(|word| word.static_text(checker.source()))
                 .as_deref()
                 == Some(".")
         })
-        .filter_map(|fact| fact.body_args().get(1).copied())
-        .map(|word| word.span)
+        .filter_map(|fact| fact.arena_body_args(checker.source()).get(1).copied())
+        .map(|word| word.span())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || SourcedWithArgs);

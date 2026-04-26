@@ -18,8 +18,8 @@ pub fn bare_slash_marker(checker: &mut Checker) {
         .facts()
         .structural_commands()
         .filter(|fact| fact.wrappers().is_empty())
-        .filter(|fact| fact.body_args().is_empty())
-        .filter_map(|fact| fact.body_name_word().map(|word| word.span))
+        .filter(|fact| fact.arena_body_args(source).is_empty())
+        .filter_map(|fact| fact.arena_body_name_word(source).map(|word| word.span()))
         .filter(|span| span.slice(source) == "*/")
         .collect::<Vec<_>>();
 

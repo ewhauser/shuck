@@ -174,61 +174,70 @@ impl FunctionCliDispatchFacts {
 
 fn build_function_header_facts<'a>(
     semantic: &SemanticModel,
-    functions: &[(&'a FunctionDef, Option<AstCommandId>)],
+    functions: &[AstCommandId],
     commands: &[CommandFact<'a>],
+    arena_file: &ArenaFile,
     source: &str,
 ) -> Vec<FunctionHeaderFact> {
-    let call_arity_by_binding =
-        build_function_call_arity_facts(semantic, functions, commands, source);
     let command_ids_by_arena_id = commands
         .iter()
         .filter_map(|fact| Some((fact.arena_command_id()?.index(), fact.id())))
         .collect::<FxHashMap<_, _>>();
-    functions
+    let mut facts = functions
         .iter()
         .copied()
-        .map(|(function, arena_command_id)| {
+        .map(|arena_command_id| {
+            let command = arena_file.store.command(arena_command_id);
+            let function = command.function().expect("function command view");
             let binding_id = function_header_binding_id(semantic, function);
             let scope_id = binding_id
                 .and_then(|binding_id| function_header_scope_id(semantic, function, binding_id));
-            let call_arity = binding_id
-                .and_then(|binding_id| call_arity_by_binding.get(&binding_id).cloned())
-                .unwrap_or_default();
 
             FunctionHeaderFact {
-                command_id: arena_command_id
-                    .and_then(|id| command_ids_by_arena_id.get(&id.index()).copied()),
-                arena_command_id,
+                command_id: command_ids_by_arena_id
+                    .get(&arena_command_id.index())
+                    .copied(),
+                arena_command_id: Some(arena_command_id),
                 entries: function
-                    .header
-                    .entries
+                    .entries()
                     .iter()
                     .map(|entry| FunctionHeaderEntryFact {
                         name: entry.static_name.clone(),
-                        word_span: entry.word.span,
+                        word_span: function.store().word(entry.word).span(),
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
-                function_span: function.span,
-                header_span: function.header.span(),
-                body_span: function.body.span,
-                uses_function_keyword: function.uses_function_keyword(),
-                has_trailing_parens: function.has_trailing_parens(),
-                function_keyword_span: function.header.function_keyword_span,
-                trailing_parens_span: function.header.trailing_parens_span,
-                has_terminal_exit: function_body_has_terminal_exit(&function.body),
+                function_span: command.span(),
+                header_span: function_header_span(function),
+                body_span: function_body_span(function),
+                uses_function_keyword: function.function_keyword_span().is_some(),
+                has_trailing_parens: function.trailing_parens_span().is_some(),
+                function_keyword_span: function.function_keyword_span(),
+                trailing_parens_span: function.trailing_parens_span(),
+                has_terminal_exit: function_body_has_terminal_exit(function.body()),
                 binding_id,
                 scope_id,
-                call_arity,
+                call_arity: FunctionCallArityFacts::default(),
             }
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    let call_arity_by_binding =
+        build_function_call_arity_facts(semantic, &facts, commands, arena_file, source);
+    for fact in &mut facts {
+        fact.call_arity = fact
+            .binding_id()
+            .and_then(|binding_id| call_arity_by_binding.get(&binding_id).cloned())
+            .unwrap_or_default();
+    }
+
+    facts
 }
 
 fn build_function_cli_dispatch_facts(
     semantic: &SemanticModel,
     function_headers: &[FunctionHeaderFact],
-    file: &File,
+    arena_file: &ArenaFile,
     source: &str,
 ) -> FxHashMap<ScopeId, FunctionCliDispatchFacts> {
     let mut facts = FxHashMap::<ScopeId, FunctionCliDispatchFacts>::default();
@@ -237,27 +246,34 @@ fn build_function_cli_dispatch_facts(
         .filter_map(|header| Some((header.binding_id()?, header.function_scope()?)))
         .collect::<FxHashMap<_, _>>();
 
-    for pair in file.body.as_slice().windows(2) {
-        let [case_stmt, trailing_exit_stmt] = pair else {
+    for pair in arena_file.view().body().stmt_ids().windows(2) {
+        let [case_stmt_id, trailing_exit_stmt_id] = pair else {
             continue;
         };
-        let Command::Compound(CompoundCommand::Case(case_command)) = &case_stmt.command else {
+        let case_stmt = arena_file.store.stmt(*case_stmt_id);
+        let trailing_exit_stmt = arena_file.store.stmt(*trailing_exit_stmt_id);
+        let Some(case_command) = case_stmt.command().compound() else {
             continue;
         };
-        if case_subject_variable_name(&case_command.word) != Some("1") {
+        let CompoundCommandNode::Case { word, cases, .. } = case_command.node() else {
+            continue;
+        };
+        if case_subject_variable_name_arena(arena_file.store.word(*word)) != Some("1") {
             continue;
         }
         if !stmt_is_top_level_exit(trailing_exit_stmt) {
             continue;
         }
 
-        for item in &case_command.cases {
-            let Some(dispatcher_span) = first_positional_dispatch_in_commands(&item.body) else {
+        for item in arena_file.store.case_items(*cases) {
+            let Some(dispatcher_span) =
+                first_positional_dispatch_in_commands(arena_file.store.stmt_seq(item.body))
+            else {
                 continue;
             };
 
-            for pattern in &item.patterns {
-                let Some(name) = static_case_pattern_text(pattern, source) else {
+            for pattern in arena_file.store.patterns(item.patterns) {
+                let Some(name) = static_case_pattern_text_arena(pattern, source) else {
                     continue;
                 };
                 if !is_plausible_shell_function_name(&name) {
@@ -287,17 +303,18 @@ fn build_function_cli_dispatch_facts(
     facts
 }
 
-fn stmt_is_top_level_exit(stmt: &Stmt) -> bool {
-    if stmt.negated || matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
+fn stmt_is_top_level_exit(stmt: StmtView<'_>) -> bool {
+    if stmt.negated() || matches!(stmt.terminator(), Some(StmtTerminator::Background(_))) {
         return false;
     }
 
-    let Command::Builtin(BuiltinCommand::Exit(command)) = &stmt.command else {
+    let Some(command) = stmt.command().builtin() else {
         return false;
     };
-    if !command.extra_args.is_empty()
-        || !command.assignments.is_empty()
-        || !stmt.redirects.is_empty()
+    if command.kind() != shuck_ast::BuiltinCommandNodeKind::Exit
+        || !command.extra_arg_ids().is_empty()
+        || !command.assignments().is_empty()
+        || !stmt.redirects().is_empty()
     {
         return false;
     }
@@ -305,9 +322,89 @@ fn stmt_is_top_level_exit(stmt: &Stmt) -> bool {
     true
 }
 
+fn function_static_name_entries(
+    function: FunctionCommandView<'_>,
+) -> impl Iterator<Item = (&Name, Span)> + '_ {
+    function.entries().iter().filter_map(move |entry| {
+        entry
+            .static_name
+            .as_ref()
+            .map(|name| (name, function.store().word(entry.word).span()))
+    })
+}
+
+fn static_case_pattern_text_arena(pattern: &PatternNode, source: &str) -> Option<String> {
+    let mut tokens = Vec::new();
+    collect_static_case_pattern_tokens(pattern.span.slice(source), &mut tokens)?;
+    tokens
+        .into_iter()
+        .map(|token| match token {
+            CasePatternToken::Literal(ch) => Some(ch),
+            CasePatternToken::AnyChar | CasePatternToken::AnyString => None,
+        })
+        .collect()
+}
+
+fn case_subject_variable_name_arena(word: WordView<'_>) -> Option<&str> {
+    standalone_variable_name_from_word_parts_arena(word.parts(), word.store())
+}
+
+fn standalone_variable_name_from_word_parts_arena<'a>(
+    parts: &'a [WordPartArenaNode],
+    store: &'a AstStore,
+) -> Option<&'a str> {
+    let [part] = parts else {
+        return None;
+    };
+
+    match &part.kind {
+        WordPartArena::Variable(name) => Some(name.as_str()),
+        WordPartArena::DoubleQuoted { parts, .. } => {
+            standalone_variable_name_from_word_parts_arena(store.word_parts(*parts), store)
+        }
+        WordPartArena::Parameter(parameter) => match &parameter.syntax {
+            ParameterExpansionSyntaxNode::Bourne(BourneParameterExpansionNode::Access {
+                reference,
+            }) if reference.subscript.is_none() => Some(reference.name.as_str()),
+            ParameterExpansionSyntaxNode::Zsh(syntax)
+                if syntax.length_prefix.is_none()
+                    && syntax.operation.is_none()
+                    && syntax.modifiers.is_empty() =>
+            {
+                match &syntax.target {
+                    ZshExpansionTargetNode::Reference(reference)
+                        if reference.subscript.is_none() =>
+                    {
+                        Some(reference.name.as_str())
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        },
+        WordPartArena::Literal(_)
+        | WordPartArena::SingleQuoted { .. }
+        | WordPartArena::CommandSubstitution { .. }
+        | WordPartArena::ArithmeticExpansion { .. }
+        | WordPartArena::ParameterExpansion { .. }
+        | WordPartArena::Length(_)
+        | WordPartArena::ArrayAccess(_)
+        | WordPartArena::ArrayLength(_)
+        | WordPartArena::ArrayIndices(_)
+        | WordPartArena::Substring { .. }
+        | WordPartArena::ArraySlice { .. }
+        | WordPartArena::IndirectExpansion { .. }
+        | WordPartArena::PrefixMatch { .. }
+        | WordPartArena::ProcessSubstitution { .. }
+        | WordPartArena::Transformation { .. }
+        | WordPartArena::ZshQualifiedGlob(_) => None,
+    }
+}
+
 fn build_function_parameter_fallback_spans(
     commands: &[CommandFact<'_>],
     structural_command_ids: &[CommandId],
+    arena_file: &ArenaFile,
     source: &str,
 ) -> Vec<Span> {
     let structural_commands = structural_command_ids
@@ -318,11 +415,13 @@ fn build_function_parameter_fallback_spans(
 
     structural_commands
         .windows(2)
-        .filter_map(|pair| function_parameter_fallback_span(pair, source))
+        .filter_map(|pair| function_parameter_fallback_span(pair, arena_file, source))
         .chain(
             commands
                 .iter()
-                .filter_map(named_coproc_subshell_fallback_span),
+                .filter_map(|command| {
+                    named_coproc_subshell_fallback_span(command, arena_file, source)
+                }),
         )
         .collect()
 }
@@ -330,11 +429,19 @@ fn build_function_parameter_fallback_spans(
 fn build_completion_registered_function_command_flags(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
+    function_headers: &[FunctionHeaderFact],
+    arena_file: &ArenaFile,
     lists: &[ListFact],
     source: &str,
 ) -> Vec<bool> {
-    let registered_scopes =
-        build_completion_registered_function_scopes(semantic, commands, lists, source);
+    let registered_scopes = build_completion_registered_function_scopes(
+        semantic,
+        commands,
+        function_headers,
+        arena_file,
+        lists,
+        source,
+    );
 
     commands
         .iter()
@@ -348,12 +455,14 @@ fn build_completion_registered_function_command_flags(
 fn build_completion_registered_function_scopes(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
+    function_headers: &[FunctionHeaderFact],
+    arena_file: &ArenaFile,
     lists: &[ListFact],
     source: &str,
 ) -> FxHashSet<ScopeId> {
     let function_candidates = commands
         .iter()
-        .map(|command| completion_registered_function_candidate(semantic, command))
+        .map(|command| completion_registered_function_candidate(semantic, command, function_headers))
         .collect::<Vec<_>>();
     let mut scopes = FxHashSet::default();
 
@@ -366,6 +475,7 @@ fn build_completion_registered_function_scopes(
             if list.segments()[index + 1..].iter().any(|later_segment| {
                 command_registers_completion_function(
                     command_fact(commands, later_segment.command_id()),
+                    arena_file,
                     source,
                     &candidate.name,
                 )
@@ -380,13 +490,22 @@ fn build_completion_registered_function_scopes(
 
 fn completion_registered_function_candidate(
     _semantic: &SemanticModel,
-    _command: &CommandFact<'_>,
+    command: &CommandFact<'_>,
+    function_headers: &[FunctionHeaderFact],
 ) -> Option<CompletionRegisteredFunctionCandidate> {
-    None
+    let header = function_headers
+        .iter()
+        .find(|header| header.command_id() == Some(command.id()))?;
+    let (name, _) = header.static_name_entry()?;
+    Some(CompletionRegisteredFunctionCandidate {
+        scope: header.function_scope()?,
+        name: name.as_str().into(),
+    })
 }
 
 fn command_registers_completion_function(
     command: &CommandFact<'_>,
+    arena_file: &ArenaFile,
     source: &str,
     expected_name: &str,
 ) -> bool {
@@ -395,8 +514,8 @@ fn command_registers_completion_function(
     }
 
     let mut expects_function_name = false;
-    for word in command.body_args() {
-        let Some(text) = static_word_text(word, source) else {
+    for word in command.arena_body_args(arena_file, source) {
+        let Some(text) = word.static_text(source) else {
             expects_function_name = false;
             continue;
         };
@@ -431,12 +550,16 @@ struct CompletionRegisteredFunctionCandidate {
     name: Box<str>,
 }
 
-fn function_parameter_fallback_span(pair: &[&CommandFact<'_>], source: &str) -> Option<Span> {
+fn function_parameter_fallback_span(
+    pair: &[&CommandFact<'_>],
+    arena_file: &ArenaFile,
+    source: &str,
+) -> Option<Span> {
     let [first, second] = pair else {
         return None;
     };
-    let name = first.normalized().effective_or_literal_name()?;
-    if !is_plausible_shell_function_name(name) || !first.normalized().body_args().is_empty() {
+    let name = first.effective_or_literal_name()?;
+    if !is_plausible_shell_function_name(name) || !first.arena_body_args(arena_file, source).is_empty() {
         return None;
     }
     if first.command_kind() != ArenaFileCommandKind::Simple {
@@ -458,13 +581,66 @@ fn function_parameter_fallback_span(pair: &[&CommandFact<'_>], source: &str) -> 
     Some(Span::from_positions(start, start.advanced_by("(")))
 }
 
-fn named_coproc_subshell_fallback_span(command: &CommandFact<'_>) -> Option<Span> {
-    let _ = command;
-    None
+fn named_coproc_subshell_fallback_span(
+    command: &CommandFact<'_>,
+    arena_file: &ArenaFile,
+    source: &str,
+) -> Option<Span> {
+    let command = arena_file.store.command(command.arena_command_id()?);
+    let CompoundCommandNode::Coproc {
+        name_span: Some(name_span),
+        body,
+        ..
+    } = command.compound()?.node()
+    else {
+        return None;
+    };
+
+    let body_stmt = single_test_single_arena_stmt(arena_file.store.stmt_seq(*body))?;
+    if body_stmt
+        .command()
+        .compound()
+        .is_none_or(|command| !matches!(command.node(), CompoundCommandNode::Subshell(_)))
+    {
+        return None;
+    }
+
+    let search_start = name_span.end.offset;
+    let search_end = body_stmt.command().span().start.offset.max(search_start);
+    let search = source.get(search_start..=search_end)?;
+    let relative = search.find('(')?;
+    let position = position_at_offset_strict(source, search_start + relative + "(".len());
+    Some(Span::from_positions(position, position))
 }
 
-fn function_body_has_terminal_exit(body: &Stmt) -> bool {
-    matches!(stmt_terminal_flow_kind(body), TerminalFlowKind::Exit)
+fn function_header_span(function: FunctionCommandView<'_>) -> Span {
+    let mut span = function.function_keyword_span().unwrap_or_default();
+    for entry in function.entries() {
+        span = merge_non_empty_span(span, function.store().word(entry.word).span());
+    }
+    if let Some(parens_span) = function.trailing_parens_span() {
+        span = merge_non_empty_span(span, parens_span);
+    }
+    span
+}
+
+fn function_body_span(function: FunctionCommandView<'_>) -> Span {
+    single_test_single_arena_stmt(function.body()).map_or_else(
+        || function.body().span(),
+        |stmt| stmt.span(),
+    )
+}
+
+fn merge_non_empty_span(current: Span, next: Span) -> Span {
+    match (current == Span::new(), next == Span::new()) {
+        (true, _) => next,
+        (_, true) => current,
+        (false, false) => current.merge(next),
+    }
+}
+
+fn function_body_has_terminal_exit(body: StmtSeqView<'_>) -> bool {
+    matches!(stmt_seq_terminal_flow_kind(body), TerminalFlowKind::Exit)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -476,11 +652,11 @@ enum TerminalFlowKind {
     Stop,
 }
 
-fn stmt_seq_terminal_flow_kind(commands: &StmtSeq) -> TerminalFlowKind {
+fn stmt_seq_terminal_flow_kind(commands: StmtSeqView<'_>) -> TerminalFlowKind {
     let mut saw_maybe_exit = false;
     let mut saw_maybe_stop = false;
 
-    for stmt in commands.as_slice() {
+    for stmt in commands.stmts() {
         match stmt_terminal_flow_kind(stmt) {
             TerminalFlowKind::None => {}
             TerminalFlowKind::MaybeExit => saw_maybe_exit = true,
@@ -505,69 +681,76 @@ fn stmt_seq_terminal_flow_kind(commands: &StmtSeq) -> TerminalFlowKind {
     }
 }
 
-fn stmt_terminal_flow_kind(stmt: &Stmt) -> TerminalFlowKind {
-    if matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
+fn stmt_terminal_flow_kind(stmt: StmtView<'_>) -> TerminalFlowKind {
+    if matches!(stmt.terminator(), Some(StmtTerminator::Background(_))) {
         return TerminalFlowKind::None;
     }
 
-    command_terminal_flow_kind(&stmt.command)
+    command_terminal_flow_kind(stmt.command())
 }
 
-fn command_terminal_flow_kind(command: &Command) -> TerminalFlowKind {
-    match command {
-        Command::Builtin(BuiltinCommand::Exit(_)) => TerminalFlowKind::Exit,
-        Command::Builtin(BuiltinCommand::Return(_)) => TerminalFlowKind::Stop,
-        Command::Compound(CompoundCommand::If(command)) => alternative_terminal_flow_kind(
-            std::iter::once(stmt_seq_terminal_flow_kind(&command.then_branch))
+fn command_terminal_flow_kind(command: CommandView<'_>) -> TerminalFlowKind {
+    if let Some(command) = command.builtin() {
+        return match command.kind() {
+            shuck_ast::BuiltinCommandNodeKind::Exit => TerminalFlowKind::Exit,
+            shuck_ast::BuiltinCommandNodeKind::Return => TerminalFlowKind::Stop,
+            shuck_ast::BuiltinCommandNodeKind::Break
+            | shuck_ast::BuiltinCommandNodeKind::Continue => TerminalFlowKind::None,
+        };
+    }
+
+    let Some(command) = command.compound() else {
+        return TerminalFlowKind::None;
+    };
+    let store = command.store();
+    match command.node() {
+        CompoundCommandNode::If {
+            then_branch,
+            elif_branches,
+            else_branch,
+            ..
+        } => alternative_terminal_flow_kind(
+            std::iter::once(stmt_seq_terminal_flow_kind(store.stmt_seq(*then_branch)))
                 .chain(
-                    command
-                        .elif_branches
+                    store
+                        .elif_branches(*elif_branches)
                         .iter()
-                        .map(|(_, body)| stmt_seq_terminal_flow_kind(body)),
+                        .map(|branch| stmt_seq_terminal_flow_kind(store.stmt_seq(branch.body))),
                 )
-                .chain(command.else_branch.iter().map(stmt_seq_terminal_flow_kind)),
-            command.else_branch.is_none(),
+                .chain(
+                    else_branch
+                        .iter()
+                        .map(|branch| stmt_seq_terminal_flow_kind(store.stmt_seq(*branch))),
+                ),
+            else_branch.is_none(),
         ),
-        Command::Compound(CompoundCommand::For(command)) => {
-            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        CompoundCommandNode::For { body, .. }
+        | CompoundCommandNode::Repeat { body, .. }
+        | CompoundCommandNode::Foreach { body, .. }
+        | CompoundCommandNode::While { body, .. }
+        | CompoundCommandNode::Until { body, .. }
+        | CompoundCommandNode::Select { body, .. } => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(store.stmt_seq(*body)))
         }
-        Command::Compound(CompoundCommand::Repeat(command)) => {
-            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        CompoundCommandNode::ArithmeticFor(command) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(store.stmt_seq(command.body)))
         }
-        Command::Compound(CompoundCommand::Foreach(command)) => {
-            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
-        }
-        Command::Compound(CompoundCommand::ArithmeticFor(command)) => {
-            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
-        }
-        Command::Compound(CompoundCommand::While(command)) => {
-            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
-        }
-        Command::Compound(CompoundCommand::Until(command)) => {
-            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
-        }
-        Command::Compound(CompoundCommand::Select(command)) => {
-            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
-        }
-        Command::Compound(CompoundCommand::Case(command)) => alternative_terminal_flow_kind(
-            command
-                .cases
+        CompoundCommandNode::Case { cases, .. } => alternative_terminal_flow_kind(
+            store
+                .case_items(*cases)
                 .iter()
-                .map(|case| stmt_seq_terminal_flow_kind(&case.body)),
+                .map(|case| stmt_seq_terminal_flow_kind(store.stmt_seq(case.body))),
             true,
         ),
-        Command::Compound(CompoundCommand::BraceGroup(body)) => stmt_seq_terminal_flow_kind(body),
-        Command::Compound(CompoundCommand::Time(command)) => command
-            .command
-            .as_deref()
-            .map_or(TerminalFlowKind::None, stmt_terminal_flow_kind),
-        Command::Simple(_)
-        | Command::Builtin(_)
-        | Command::Decl(_)
-        | Command::Binary(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => TerminalFlowKind::None,
+        CompoundCommandNode::BraceGroup(body) => stmt_seq_terminal_flow_kind(store.stmt_seq(*body)),
+        CompoundCommandNode::Time { command, .. } => command
+            .map(|body| stmt_seq_terminal_flow_kind(store.stmt_seq(body)))
+            .unwrap_or(TerminalFlowKind::None),
+        CompoundCommandNode::Subshell(_)
+        | CompoundCommandNode::Conditional(_)
+        | CompoundCommandNode::Arithmetic(_)
+        | CompoundCommandNode::Always { .. }
+        | CompoundCommandNode::Coproc { .. } => TerminalFlowKind::None,
     }
 }
 
@@ -614,17 +797,18 @@ fn alternative_terminal_flow_kind(
 
     TerminalFlowKind::None
 }
-fn build_function_call_arity_facts<'a>(
+fn build_function_call_arity_facts(
     semantic: &SemanticModel,
-    functions: &[(&FunctionDef, Option<AstCommandId>)],
-    commands: &[CommandFact<'a>],
+    functions: &[FunctionHeaderFact],
+    commands: &[CommandFact<'_>],
+    arena_file: &ArenaFile,
     source: &str,
 ) -> FxHashMap<BindingId, FunctionCallArityFacts> {
     let mut facts = FxHashMap::<BindingId, FunctionCallArityFacts>::default();
     let mut seen_names = FxHashSet::default();
 
-    for &(function, _) in functions {
-        let Some((name, _)) = function.static_name_entries().next() else {
+    for function in functions {
+        let Some((name, _)) = function.static_name_entry() else {
             continue;
         };
         if !seen_names.insert(name.clone()) {
@@ -637,13 +821,13 @@ fn build_function_call_arity_facts<'a>(
             {
                 continue;
             }
-            let Some(name_word) = command.body_name_word() else {
+            let Some(name_word) = command.arena_body_name_word(arena_file, source) else {
                 continue;
             };
             let Some(binding_id) = visible_function_binding_for_call_offset(
                 semantic,
                 name,
-                name_word.span.start.offset,
+                name_word.span().start.offset,
             ) else {
                 continue;
             };
@@ -651,9 +835,9 @@ fn build_function_call_arity_facts<'a>(
                 .entry(binding_id)
                 .or_default()
                 .record_call(
-                    function_call_arg_count(command, source),
-                    name_word.span,
-                    function_call_diagnostic_span(command, name_word.span, source),
+                    function_call_arg_count(command, arena_file, source),
+                    name_word.span(),
+                    function_call_diagnostic_span(command, name_word.span(), source),
                 );
         }
     }
@@ -673,20 +857,21 @@ fn function_call_diagnostic_span(
     trim_trailing_whitespace_span(command.stmt_span(), source)
 }
 
-fn function_call_arg_count(command: &CommandFact<'_>, source: &str) -> usize {
-    let arg_count = command.body_args().len();
+fn function_call_arg_count(command: &CommandFact<'_>, arena_file: &ArenaFile, source: &str) -> usize {
+    let arg_count = command.arena_body_args(arena_file, source).len();
     if arg_count != 0 || command.has_redirects() || !command.is_nested_word_command() {
         return arg_count;
     }
 
-    let Some(name_word) = command.body_name_word() else {
+    let Some(name_word) = command.arena_body_name_word(arena_file, source) else {
         return 0;
     };
     let stmt_span = trim_trailing_whitespace_span(command.stmt_span(), source);
-    let tail = if stmt_span.end.offset > name_word.span.end.offset {
-        trim_shell_layout_prefix(&source[name_word.span.end.offset..stmt_span.end.offset])
+    let name_end = name_word.span().end.offset;
+    let tail = if stmt_span.end.offset > name_end {
+        trim_shell_layout_prefix(&source[name_end..stmt_span.end.offset])
     } else {
-        trim_shell_layout_prefix(&source[name_word.span.end.offset..])
+        trim_shell_layout_prefix(&source[name_end..])
     };
     if tail.is_empty() {
         return 0;
@@ -703,9 +888,9 @@ fn function_call_arg_count(command: &CommandFact<'_>, source: &str) -> usize {
 
 fn function_header_binding_id(
     semantic: &SemanticModel,
-    function: &FunctionDef,
+    function: FunctionCommandView<'_>,
 ) -> Option<BindingId> {
-    let (name, name_span) = function.static_name_entries().next()?;
+    let (name, name_span) = function_static_name_entries(function).next()?;
     semantic
         .function_definitions(name)
         .iter()
@@ -715,18 +900,19 @@ fn function_header_binding_id(
 
 fn function_header_scope_id(
     semantic: &SemanticModel,
-    function: &FunctionDef,
+    function: FunctionCommandView<'_>,
     binding_id: BindingId,
 ) -> Option<ScopeId> {
-    let (name, _) = function.static_name_entries().next()?;
+    let (name, _) = function_static_name_entries(function).next()?;
     let binding = semantic.binding(binding_id);
+    let body_span = function_body_span(function);
 
     semantic.scopes().iter().find_map(|scope| {
         let shuck_semantic::ScopeKind::Function(function_scope) = &scope.kind else {
             return None;
         };
         (scope.parent == Some(binding.scope)
-            && scope.span == function.body.span
+            && scope.span == body_span
             && function_scope.contains_name(name))
         .then_some(scope.id)
     })
@@ -785,101 +971,106 @@ fn visible_function_binding_defined_before_offset(
     })
 }
 
-fn first_positional_dispatch_in_commands(commands: &StmtSeq) -> Option<Span> {
+fn first_positional_dispatch_in_commands(commands: StmtSeqView<'_>) -> Option<Span> {
     commands
-        .iter()
-        .find_map(|stmt| first_positional_dispatch_in_command(&stmt.command))
+        .stmts()
+        .find_map(|stmt| first_positional_dispatch_in_command(stmt.command()))
 }
 
-fn first_positional_dispatch_in_command(command: &Command) -> Option<Span> {
-    match command {
-        Command::Binary(command) => first_positional_dispatch_in_command(&command.left.command)
-            .or_else(|| first_positional_dispatch_in_command(&command.right.command)),
-        Command::Compound(CompoundCommand::BraceGroup(commands))
-        | Command::Compound(CompoundCommand::Subshell(commands)) => {
-            first_positional_dispatch_in_commands(commands)
+fn first_positional_dispatch_in_command(command: CommandView<'_>) -> Option<Span> {
+    if let Some(simple) = command.simple() {
+        return word_is_plain_positional_parameter(simple.name(), "1").then_some(simple.name().span());
+    }
+
+    if let Some(binary) = command.binary() {
+        return first_positional_dispatch_in_commands(binary.left())
+            .or_else(|| first_positional_dispatch_in_commands(binary.right()));
+    }
+
+    let Some(compound) = command.compound() else {
+        return None;
+    };
+    let store = compound.store();
+    match compound.node() {
+        CompoundCommandNode::BraceGroup(body) | CompoundCommandNode::Subshell(body) => {
+            first_positional_dispatch_in_commands(store.stmt_seq(*body))
         }
-        Command::Compound(CompoundCommand::If(command)) => {
-            first_positional_dispatch_in_commands(&command.condition)
-                .or_else(|| first_positional_dispatch_in_commands(&command.then_branch))
-                .or_else(|| {
-                    command
-                        .elif_branches
-                        .iter()
-                        .find_map(|(condition, branch)| {
-                            first_positional_dispatch_in_commands(condition)
-                                .or_else(|| first_positional_dispatch_in_commands(branch))
-                        })
+        CompoundCommandNode::If {
+            condition,
+            then_branch,
+            elif_branches,
+            else_branch,
+            ..
+        } => first_positional_dispatch_in_commands(store.stmt_seq(*condition))
+            .or_else(|| first_positional_dispatch_in_commands(store.stmt_seq(*then_branch)))
+            .or_else(|| {
+                store.elif_branches(*elif_branches).iter().find_map(|branch| {
+                    first_positional_dispatch_in_commands(store.stmt_seq(branch.condition))
+                        .or_else(|| first_positional_dispatch_in_commands(store.stmt_seq(branch.body)))
                 })
-                .or_else(|| {
-                    command
-                        .else_branch
-                        .as_ref()
-                        .and_then(first_positional_dispatch_in_commands)
-                })
+            })
+            .or_else(|| {
+                else_branch
+                    .map(|body| first_positional_dispatch_in_commands(store.stmt_seq(body)))
+                    .flatten()
+            }),
+        CompoundCommandNode::While {
+            condition, body, ..
         }
-        Command::Compound(CompoundCommand::While(command)) => {
-            first_positional_dispatch_in_commands(&command.condition)
-                .or_else(|| first_positional_dispatch_in_commands(&command.body))
+        | CompoundCommandNode::Until {
+            condition, body, ..
+        } => first_positional_dispatch_in_commands(store.stmt_seq(*condition))
+            .or_else(|| first_positional_dispatch_in_commands(store.stmt_seq(*body))),
+        CompoundCommandNode::For { body, .. }
+        | CompoundCommandNode::Select { body, .. }
+        | CompoundCommandNode::Repeat { body, .. }
+        | CompoundCommandNode::Foreach { body, .. } => {
+            first_positional_dispatch_in_commands(store.stmt_seq(*body))
         }
-        Command::Compound(CompoundCommand::Until(command)) => {
-            first_positional_dispatch_in_commands(&command.condition)
-                .or_else(|| first_positional_dispatch_in_commands(&command.body))
+        CompoundCommandNode::ArithmeticFor(command) => {
+            first_positional_dispatch_in_commands(store.stmt_seq(command.body))
         }
-        Command::Compound(CompoundCommand::For(command)) => {
-            first_positional_dispatch_in_commands(&command.body)
-        }
-        Command::Compound(CompoundCommand::Select(command)) => {
-            first_positional_dispatch_in_commands(&command.body)
-        }
-        Command::Compound(CompoundCommand::Case(command)) => command
-            .cases
+        CompoundCommandNode::Case { cases, .. } => store
+            .case_items(*cases)
             .iter()
-            .find_map(|item| first_positional_dispatch_in_commands(&item.body)),
-        Command::Compound(CompoundCommand::Time(command)) => command
-            .command
-            .as_ref()
-            .and_then(|stmt| first_positional_dispatch_in_command(&stmt.command)),
-        Command::Compound(CompoundCommand::Conditional(_))
-        | Command::Compound(_)
-        | Command::Builtin(_)
-        | Command::Decl(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => None,
-        Command::Simple(command) => {
-            word_is_plain_positional_parameter(&command.name, "1").then_some(command.name.span)
-        }
+            .find_map(|item| first_positional_dispatch_in_commands(store.stmt_seq(item.body))),
+        CompoundCommandNode::Time { command, .. } => command
+            .and_then(|body| first_positional_dispatch_in_commands(store.stmt_seq(body))),
+        CompoundCommandNode::Conditional(_)
+        | CompoundCommandNode::Arithmetic(_)
+        | CompoundCommandNode::Always { .. }
+        | CompoundCommandNode::Coproc { .. } => None,
     }
 }
 
-fn word_is_plain_positional_parameter(word: &Word, target: &str) -> bool {
-    let [part] = word.parts.as_slice() else {
+fn word_is_plain_positional_parameter(word: WordView<'_>, target: &str) -> bool {
+    let [part] = word.parts() else {
         return false;
     };
 
-    word_part_is_plain_positional_parameter(&part.kind, target)
+    word_part_is_plain_positional_parameter(&part.kind, word.store(), target)
 }
 
-fn word_part_is_plain_positional_parameter(part: &WordPart, target: &str) -> bool {
+fn word_part_is_plain_positional_parameter(part: &WordPartArena, store: &AstStore, target: &str) -> bool {
     match part {
-        WordPart::Variable(name) => name.as_str() == target,
-        WordPart::DoubleQuoted { parts, .. } => {
-            let [part] = parts.as_slice() else {
+        WordPartArena::Variable(name) => name.as_str() == target,
+        WordPartArena::DoubleQuoted { parts, .. } => {
+            let [part] = store.word_parts(*parts) else {
                 return false;
             };
-            word_part_is_plain_positional_parameter(&part.kind, target)
+            word_part_is_plain_positional_parameter(&part.kind, store, target)
         }
-        WordPart::Parameter(parameter) => match &parameter.syntax {
-            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
+        WordPartArena::Parameter(parameter) => match &parameter.syntax {
+            ParameterExpansionSyntaxNode::Bourne(BourneParameterExpansionNode::Access { reference }) => {
                 reference.subscript.is_none() && reference.name.as_str() == target
             }
-            ParameterExpansionSyntax::Zsh(syntax) => {
+            ParameterExpansionSyntaxNode::Zsh(syntax) => {
                 syntax.length_prefix.is_none()
                     && syntax.operation.is_none()
                     && syntax.modifiers.is_empty()
                     && matches!(
                         &syntax.target,
-                        ZshExpansionTarget::Reference(reference)
+                        ZshExpansionTargetNode::Reference(reference)
                             if reference.subscript.is_none()
                                 && reference.name.as_str() == target
                     )
@@ -890,20 +1081,17 @@ fn word_part_is_plain_positional_parameter(part: &WordPart, target: &str) -> boo
     }
 }
 
-fn function_body_without_braces_span(function: &FunctionDef) -> Option<Span> {
-    match &function.body.command {
-        Command::Compound(
-            CompoundCommand::BraceGroup(_)
-            | CompoundCommand::Subshell(_)
-            | CompoundCommand::Arithmetic(_),
-        ) => None,
-        Command::Compound(_) => Some(function.body.span),
-        Command::Simple(_)
-        | Command::Decl(_)
-        | Command::Builtin(_)
-        | Command::Binary(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => None,
+fn function_body_without_braces_span(function: CommandView<'_>) -> Option<Span> {
+    let function = function.function()?;
+    let body = single_test_single_arena_stmt(function.body())?;
+    let Some(compound) = body.command().compound() else {
+        return None;
+    };
+    match compound.node() {
+        CompoundCommandNode::BraceGroup(_)
+        | CompoundCommandNode::Subshell(_)
+        | CompoundCommandNode::Arithmetic(_) => None,
+        _ => Some(body.span()),
     }
 }
 

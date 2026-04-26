@@ -284,19 +284,19 @@ fn lint_large_corpus_fixture_with_settings(
         .with_shell(ShellDialect::from_name(&fixture.shell))
         .with_analyzed_paths([fixture.path.clone()]);
     let parse_result = parse_large_corpus_fixture(fixture);
-    let indexer = Indexer::new(&fixture.source, &parse_result);
+    let indexer = Indexer::new_arena(&fixture.source, &parse_result.arena_file);
     let shellcheck_map = ShellCheckCodeMap::default();
     let directives = parse_directives(
         &fixture.source,
-        &parse_result.file,
+        &parse_result.arena_file,
         indexer.comment_index(),
         &shellcheck_map,
     );
     let suppression_index = (!directives.is_empty()).then(|| {
         SuppressionIndex::new(
             &directives,
-            &parse_result.file,
-            first_statement_line(&parse_result.file).unwrap_or(u32::MAX),
+            &parse_result.arena_file,
+            first_statement_line(&parse_result.arena_file).unwrap_or(u32::MAX),
         )
     });
 
@@ -337,8 +337,11 @@ fn large_corpus_without_source_closure_settings(fixture: &LargeCorpusFixture) ->
 
 fn build_large_corpus_word_facts(input: &PreparedWordFactsInput) -> usize {
     black_box(
-        benchmark_collect_word_facts(&input.parse_result.file, &input.source, &input.semantic)
-            + input.indexer.comment_index().comments().len(),
+        benchmark_collect_word_facts(
+            &input.parse_result.arena_file,
+            &input.source,
+            &input.semantic,
+        ) + input.indexer.comment_index().comments().len(),
     )
 }
 

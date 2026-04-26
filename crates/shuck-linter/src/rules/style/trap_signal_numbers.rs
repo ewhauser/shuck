@@ -1,5 +1,6 @@
-use shuck_ast::{Span, Word, static_word_text};
+use shuck_ast::Span;
 
+use crate::facts::words::FactWordRef;
 use crate::rules::portability::trap_common::parse_trap_args;
 use crate::{Checker, Rule, ShellDialect, Violation};
 
@@ -28,13 +29,15 @@ pub fn trap_signal_numbers(checker: &mut Checker) {
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("trap"))
-        .flat_map(|fact| trap_numeric_signal_spans(fact.body_args(), checker.source()))
+        .flat_map(|fact| {
+            trap_numeric_signal_spans(&fact.arena_body_args(checker.source()), checker.source())
+        })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || TrapSignalNumbers);
 }
 
-fn trap_numeric_signal_spans(args: &[&Word], source: &str) -> Vec<Span> {
+fn trap_numeric_signal_spans<'a>(args: &'a [FactWordRef<'a>], source: &'a str) -> Vec<Span> {
     if !trap_action_allows_numeric_signal_report(args, source) {
         return Vec::new();
     }
@@ -50,22 +53,25 @@ fn trap_numeric_signal_spans(args: &[&Word], source: &str) -> Vec<Span> {
         .signal_words
         .iter()
         .filter_map(|word| {
-            static_word_text(word, source)
+            word.static_text(source)
                 .as_deref()
                 .is_some_and(is_reportable_numeric_signal)
-                .then_some(word.span)
+                .then_some(word.span())
         })
         .collect()
 }
 
-fn trap_action_allows_numeric_signal_report(args: &[&Word], source: &str) -> bool {
+fn trap_action_allows_numeric_signal_report<'a>(
+    args: &'a [FactWordRef<'a>],
+    source: &'a str,
+) -> bool {
     if args.len() < 2 {
         return false;
     }
 
     !matches!(
         args.first()
-            .and_then(|word| static_word_text(word, source))
+            .and_then(|word| word.static_text(source))
             .as_deref(),
         Some("-" | "--")
     )

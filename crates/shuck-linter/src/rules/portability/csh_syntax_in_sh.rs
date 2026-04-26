@@ -1,4 +1,4 @@
-use shuck_ast::{Span, static_word_text};
+use shuck_ast::Span;
 
 use super::targets_non_zsh_shell;
 use crate::{Checker, Rule, Violation};
@@ -25,25 +25,22 @@ pub fn csh_syntax_in_sh(checker: &mut Checker) {
         .structural_commands()
         .filter(|fact| fact.effective_name_is("set"))
         .filter_map(|fact| {
-            let [name_word, value_word, ..] = fact.body_args() else {
+            let args = fact.arena_body_args(checker.source());
+            let [name_word, value_word, ..] = args.as_slice() else {
                 return None;
             };
-            let name = static_word_text(name_word, checker.source())?;
+            let name = name_word.static_text(checker.source())?;
             is_shell_name(&name).then_some(())?;
 
-            let value = static_word_text(value_word, checker.source())?;
+            let value = value_word.static_text(checker.source())?;
             value.starts_with('=').then_some(Span::from_positions(
-                value_word_start(value_word),
-                value_word_start(value_word).advanced_by("="),
+                value_word.span().start,
+                value_word.span().start.advanced_by("="),
             ))
         })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || CshSyntaxInSh);
-}
-
-fn value_word_start(word: &shuck_ast::Word) -> shuck_ast::Position {
-    word.span.start
 }
 
 fn is_shell_name(name: &str) -> bool {

@@ -108,13 +108,12 @@ impl ListFact {
 
 pub(super) fn build_list_facts<'a>(
     commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+    _command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
     arena_file: &ArenaFile,
     source: &str,
 ) -> Vec<ListFact> {
-    let command_relationships =
-        CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
+    let command_relationships = CommandRelationshipContext::new(commands, command_child_index);
     let mut nested_list_commands = FxHashSet::default();
 
     for fact in commands {

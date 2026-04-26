@@ -307,19 +307,19 @@ fn run_large_corpus_fixture(
         .with_shell(ShellDialect::from_name(&fixture.shell))
         .with_analyzed_paths([fixture.path.clone()]);
     let parsed = Parser::with_dialect(&source, shuck_parser::ShellDialect::Bash).parse();
-    let indexer = Indexer::new(&source, &parsed);
+    let indexer = Indexer::new_arena(&source, &parsed.arena_file);
     let shellcheck_map = ShellCheckCodeMap::default();
     let directives = parse_directives(
         &source,
-        &parsed.file,
+        &parsed.arena_file,
         indexer.comment_index(),
         &shellcheck_map,
     );
     let suppression_index = (!directives.is_empty()).then(|| {
         SuppressionIndex::new(
             &directives,
-            &parsed.file,
-            first_statement_line(&parsed.file).unwrap_or(u32::MAX),
+            &parsed.arena_file,
+            first_statement_line(&parsed.arena_file).unwrap_or(u32::MAX),
         )
     });
     let diagnostics = lint_file_at_path_with_resolver_and_parse_result(

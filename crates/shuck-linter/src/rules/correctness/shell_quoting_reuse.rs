@@ -1,5 +1,5 @@
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{AssignmentValueNode, DeclOperandNode, Name, Span, Word, static_word_text};
+use shuck_ast::{AssignmentValueNode, DeclOperandNode, Name, Span};
 use shuck_semantic::{
     Binding, BindingAttributes, BindingId, BindingKind, Reference, ReferenceKind,
 };
@@ -152,7 +152,7 @@ pub(crate) fn analyze_shell_quoting_reuse(checker: &Checker<'_>) -> ShellQuoting
 #[derive(Clone, Copy)]
 struct ScalarBinding<'a> {
     id: BindingId,
-    word: &'a Word,
+    word: &'a shuck_ast::Word,
     context: WordFactContext,
 }
 
@@ -379,13 +379,13 @@ fn bracket_v_name_spans(
 
             let operator = simple_test
                 .effective_operator_word()
-                .and_then(|word| static_word_text(word, checker.source()));
+                .and_then(|word| shuck_ast::static_word_text(word, checker.source()));
             if operator.as_deref() != Some("-v") {
                 return None;
             }
 
             let operand = simple_test.effective_operands().get(1)?;
-            let name = static_word_text(operand, checker.source())?;
+            let name = shuck_ast::static_word_text(operand, checker.source())?;
             let binding_id = checker
                 .semantic()
                 .bindings_for(&Name::from(name.as_ref()))

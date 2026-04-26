@@ -132,7 +132,7 @@ fn run_fixture(fixture: &Fixture) -> Result<()> {
     if parsed.is_err() {
         return Err(anyhow::anyhow!("parse error: {}", parsed.strict_error()));
     }
-    let indexer = Indexer::new(&fixture.source, &parsed);
+    let indexer = Indexer::new_arena(&fixture.source, &parsed.arena_file);
     let semantic = SemanticModel::build_arena_with_options(
         &parsed.arena_file,
         &fixture.source,
@@ -145,6 +145,7 @@ fn run_fixture(fixture: &Fixture) -> Result<()> {
     let file_context = classify_file_context(&fixture.source, None, ShellDialect::Zsh);
     let rules = RuleSet::EMPTY;
     let checker = Checker::new(
+        &parsed.arena_file,
         &parsed.file,
         &fixture.source,
         &semantic,

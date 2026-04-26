@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use rustc_hash::FxHashSet;
 use shuck_ast::TextSize;
-use shuck_ast::{ArenaFile, File, Span};
+use shuck_ast::{ArenaFile, Span};
 use shuck_indexer::Indexer;
 use shuck_semantic::{SemanticAnalysis, SemanticModel};
 
@@ -15,7 +15,7 @@ pub struct Checker<'a> {
     semantic: &'a SemanticModel,
     semantic_analysis: SemanticAnalysis<'a>,
     indexer: &'a Indexer,
-    file: &'a File,
+    file: &'a shuck_ast::File,
     ast: &'a ArenaFile,
     source: &'a str,
     facts: OnceLock<LinterFacts<'a>>,
@@ -51,8 +51,8 @@ impl DiagnosticKey {
 impl<'a> Checker<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        file: &'a File,
         ast: &'a ArenaFile,
+        file: &'a shuck_ast::File,
         source: &'a str,
         semantic: &'a SemanticModel,
         indexer: &'a Indexer,
@@ -110,6 +110,7 @@ impl<'a> Checker<'a> {
         self.facts.get_or_init(|| {
             LinterFacts::build_with_shell_and_ambient_shell_options(
                 self.file,
+                self.ast,
                 self.source,
                 self.semantic,
                 self.indexer,
@@ -223,6 +224,7 @@ impl<'a> Checker<'a> {
         let facts = self.facts.get_or_init(|| {
             LinterFacts::build_with_shell_and_ambient_shell_options(
                 self.file,
+                self.ast,
                 self.source,
                 self.semantic,
                 self.indexer,
@@ -251,6 +253,7 @@ impl<'a> Checker<'a> {
         let facts = self.facts.get_or_init(|| {
             LinterFacts::build_with_shell_and_ambient_shell_options(
                 self.file,
+                self.ast,
                 self.source,
                 self.semantic,
                 self.indexer,
@@ -312,6 +315,7 @@ impl<'a> Checker<'a> {
         let facts = self.facts.get_or_init(|| {
             LinterFacts::build_with_shell_and_ambient_shell_options(
                 self.file,
+                self.ast,
                 self.source,
                 self.semantic,
                 self.indexer,
@@ -338,6 +342,7 @@ impl<'a> Checker<'a> {
         let facts = self.facts.get_or_init(|| {
             LinterFacts::build_with_shell_and_ambient_shell_options(
                 self.file,
+                self.ast,
                 self.source,
                 self.semantic,
                 self.indexer,

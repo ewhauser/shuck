@@ -109,15 +109,15 @@ fn append_target_for_statement(
                 continue;
             }
 
-            let comparable = redirect.comparable_path()?;
-            let key = comparable.key().clone();
-            if anchor_start.is_none() {
-                let command_end = command
-                    .body_args()
-                    .last()
-                    .map(|word| word.span.end)
-                    .or_else(|| command.body_word_span().map(|span| span.end))
-                    .unwrap_or(command.body_span().end);
+                let comparable = redirect.comparable_path()?;
+                let key = comparable.key().clone();
+                if anchor_start.is_none() {
+                    let command_end = command
+                        .arena_body_args(checker.source())
+                        .last()
+                        .map(|word| word.span().end)
+                        .or_else(|| command.body_word_span().map(|span| span.end))
+                        .unwrap_or(command.body_span().end);
                 let redirect_end = command
                     .redirect_facts()
                     .iter()

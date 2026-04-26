@@ -1,4 +1,4 @@
-use shuck_ast::{ConditionalUnaryOp, Span, Word};
+use shuck_ast::{ConditionalUnaryOp, Span};
 
 use crate::{
     Checker, ConditionalNodeFact, ConditionalOperatorFamily, FixAvailability, Rule,
@@ -58,7 +58,7 @@ fn simple_test_diagnostics(
 
 fn simple_test_diagnostic(
     fact: &crate::SimpleTestFact<'_>,
-    word: &Word,
+    word: &shuck_ast::Word,
     _source: &str,
 ) -> Option<crate::Diagnostic> {
     let index = fact

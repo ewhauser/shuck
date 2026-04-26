@@ -102,14 +102,14 @@ fn declaration_command_anchor_start(
 }
 
 fn effective_name_span(fact: crate::CommandFactRef<'_, '_>, source: &str) -> Option<Span> {
-    let word = fact.body_name_word()?;
+    let word = fact.arena_body_name_word(source)?;
     let name = fact.effective_or_literal_name()?;
-    let text = word.span.slice(source);
+    let text = word.span().slice(source);
     let offset = text.rfind(name)?;
 
     (offset + name.len() == text.len()).then(|| {
-        let start = word.span.start.advanced_by(&text[..offset]);
-        Span::from_positions(start, word.span.end)
+        let start = word.span().start.advanced_by(&text[..offset]);
+        Span::from_positions(start, word.span().end)
     })
 }
 

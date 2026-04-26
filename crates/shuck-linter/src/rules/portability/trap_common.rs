@@ -1,15 +1,15 @@
-use shuck_ast::{Word, static_word_text};
+use crate::facts::words::FactWordRef;
 
 pub(crate) struct ParsedTrapArgs<'a> {
-    pub(crate) signal_words: &'a [&'a Word],
+    pub(crate) signal_words: &'a [FactWordRef<'a>],
     pub(crate) listing_mode: bool,
 }
 
 pub(crate) fn parse_trap_args<'a>(
-    args: &'a [&'a Word],
-    source: &str,
+    args: &'a [FactWordRef<'a>],
+    source: &'a str,
 ) -> Option<ParsedTrapArgs<'a>> {
-    let first = args.first().and_then(|word| static_word_text(word, source));
+    let first = args.first().and_then(|word| word.static_text(source));
 
     match first.as_deref() {
         Some(first) if trap_is_listing_mode(first) => Some(ParsedTrapArgs {

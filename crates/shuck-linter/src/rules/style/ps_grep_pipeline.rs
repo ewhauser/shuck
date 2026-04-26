@@ -41,18 +41,18 @@ fn unsafe_ps_grep_pipeline_spans(checker: &Checker<'_>, pipeline: &PipelineFact)
                 return None;
             }
 
-            command_body_span(left)
+            command_body_span(left, checker.source())
         })
         .collect()
 }
 
-fn command_body_span(fact: CommandFactRef<'_, '_>) -> Option<Span> {
-    let body_name = fact.body_name_word()?;
-    let mut end = body_name.span.end;
+fn command_body_span(fact: CommandFactRef<'_, '_>, source: &str) -> Option<Span> {
+    let body_name = fact.arena_body_name_word(source)?;
+    let mut end = body_name.span().end;
 
-    for word in fact.body_args() {
-        if word.span.end.offset > end.offset {
-            end = word.span.end;
+    for word in fact.arena_body_args(source) {
+        if word.span().end.offset > end.offset {
+            end = word.span().end;
         }
     }
 
@@ -63,7 +63,7 @@ fn command_body_span(fact: CommandFactRef<'_, '_>) -> Option<Span> {
         }
     }
 
-    Some(Span::from_positions(body_name.span.start, end))
+    Some(Span::from_positions(body_name.span().start, end))
 }
 
 fn is_raw_utility_named(fact: CommandFactRef<'_, '_>, name: &str) -> bool {

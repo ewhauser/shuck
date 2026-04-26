@@ -1,4 +1,4 @@
-use shuck_ast::{Command, CompoundCommand, File, Position, Span, Stmt, StmtSeq};
+use shuck_ast::{ArenaFile, CompoundCommandNode, Position, Span, StmtSeqView, StmtView};
 use shuck_parser::parser::{ParseDiagnostic, ParseResult};
 
 use crate::rules::correctness::c_prototype_fragment::CPrototypeFragment;
@@ -40,7 +40,7 @@ impl Violation for ExtglobInCasePattern {
 }
 
 pub(crate) fn collect_parse_rule_diagnostics(
-    file: &File,
+    file: &ArenaFile,
     source: &str,
     parse_result: Option<&ParseResult>,
     enabled_rules: &RuleSet,
@@ -650,7 +650,7 @@ enum MissingDoneLoopKind {
 }
 
 fn missing_done_loop_kind(
-    file: &File,
+    file: &ArenaFile,
     source: &str,
     parse_diagnostics: &[ParseDiagnostic],
 ) -> Option<MissingDoneLoopKind> {
@@ -668,22 +668,31 @@ fn missing_done_loop_kind(
     })
 }
 
-fn missing_done_belongs_to_for_loop(file: &File, source: &str) -> bool {
-    let eof_offset = file.span.end.offset;
+fn missing_done_belongs_to_for_loop(file: &ArenaFile, source: &str) -> bool {
+    let eof_offset = file.view().span().end.offset;
     let mut trailing_loop_kind = None;
 
-    walk_commands(&file.body, &mut |stmt| {
-        if stmt.span.end.offset != eof_offset {
+    walk_arena_statements(file.view().body(), &mut |stmt| {
+        let span = stmt.span();
+        if span.end.offset != eof_offset {
             return;
         }
 
-        let is_for_loop = match &stmt.command {
-            Command::Compound(CompoundCommand::For(_)) => true,
-            Command::Compound(CompoundCommand::While(_) | CompoundCommand::Until(_)) => false,
-            _ => return,
+        let Some(is_for_loop) =
+            stmt.command()
+                .compound()
+                .and_then(|command| match command.node() {
+                    CompoundCommandNode::For { .. } => Some(true),
+                    CompoundCommandNode::While { .. } | CompoundCommandNode::Until { .. } => {
+                        Some(false)
+                    }
+                    _ => None,
+                })
+        else {
+            return;
         };
 
-        let start_offset = stmt.span.start.offset;
+        let start_offset = span.start.offset;
         if trailing_loop_kind
             .as_ref()
             .is_none_or(|(best_start, _)| start_offset >= *best_start)
@@ -698,72 +707,19 @@ fn missing_done_belongs_to_for_loop(file: &File, source: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn walk_commands(commands: &StmtSeq, visit: &mut impl FnMut(&Stmt)) {
-    for stmt in commands.iter() {
-        walk_command(stmt, visit);
+fn walk_arena_statements<'a>(commands: StmtSeqView<'a>, visit: &mut impl FnMut(StmtView<'a>)) {
+    for stmt in commands.stmts() {
+        walk_arena_statement(stmt, visit);
     }
 }
 
-fn walk_command(stmt: &Stmt, visit: &mut impl FnMut(&Stmt)) {
+fn walk_arena_statement<'a>(stmt: StmtView<'a>, visit: &mut impl FnMut(StmtView<'a>)) {
     visit(stmt);
-
-    match &stmt.command {
-        Command::Binary(command) => {
-            walk_command(&command.left, visit);
-            walk_command(&command.right, visit);
-        }
-        Command::Compound(command) => walk_compound_command(command, visit),
-        Command::Function(function) => walk_command(&function.body, visit),
-        Command::AnonymousFunction(function) => walk_command(&function.body, visit),
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
+    for child in stmt.command().child_sequences() {
+        walk_arena_statements(child, visit);
     }
-}
-
-fn walk_compound_command(command: &CompoundCommand, visit: &mut impl FnMut(&Stmt)) {
-    match command {
-        CompoundCommand::If(command) => {
-            walk_commands(&command.condition, visit);
-            walk_commands(&command.then_branch, visit);
-            for (condition, body) in &command.elif_branches {
-                walk_commands(condition, visit);
-                walk_commands(body, visit);
-            }
-            if let Some(body) = &command.else_branch {
-                walk_commands(body, visit);
-            }
-        }
-        CompoundCommand::For(command) => walk_commands(&command.body, visit),
-        CompoundCommand::Repeat(command) => walk_commands(&command.body, visit),
-        CompoundCommand::Foreach(command) => walk_commands(&command.body, visit),
-        CompoundCommand::ArithmeticFor(command) => walk_commands(&command.body, visit),
-        CompoundCommand::While(command) => {
-            walk_commands(&command.condition, visit);
-            walk_commands(&command.body, visit);
-        }
-        CompoundCommand::Until(command) => {
-            walk_commands(&command.condition, visit);
-            walk_commands(&command.body, visit);
-        }
-        CompoundCommand::Case(command) => {
-            for case in &command.cases {
-                walk_commands(&case.body, visit);
-            }
-        }
-        CompoundCommand::Select(command) => walk_commands(&command.body, visit),
-        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            walk_commands(commands, visit);
-        }
-        CompoundCommand::Always(command) => {
-            walk_commands(&command.body, visit);
-            walk_commands(&command.always_body, visit);
-        }
-        CompoundCommand::Time(command) => {
-            if let Some(command) = &command.command {
-                walk_command(command, visit);
-            }
-        }
-        CompoundCommand::Coproc(command) => walk_command(&command.body, visit),
-        CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => {}
+    for child in stmt.redirect_child_sequences() {
+        walk_arena_statements(child, visit);
     }
 }
 
@@ -868,8 +824,9 @@ fn is_x048_shell(shell: ShellDialect) -> bool {
         ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
     )
 }
-fn eof_point(file: &File) -> Span {
-    Span::from_positions(file.span.end, file.span.end)
+fn eof_point(file: &ArenaFile) -> Span {
+    let end = file.view().span().end;
+    Span::from_positions(end, end)
 }
 
 fn c_prototype_fragment_span(diagnostic: &ParseDiagnostic, source: &str) -> Option<Span> {
@@ -970,7 +927,7 @@ mod tests {
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::MissingFi);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1012,7 +969,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::MissingFi);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1039,7 +996,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::FunctionParamsInSh);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1057,7 +1014,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::FunctionParamsInSh);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1077,7 +1034,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::UnusedAssignment);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1093,7 +1050,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1112,7 +1069,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::UnusedAssignment);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1128,7 +1085,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1144,7 +1101,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1160,7 +1117,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1176,7 +1133,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1192,7 +1149,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1208,7 +1165,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::MissingDoneInForLoop);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1237,7 +1194,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfMissingThen);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1259,7 +1216,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfMissingThen);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1278,7 +1235,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfMissingThen);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1300,7 +1257,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::MissingDoneInForLoop);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1317,7 +1274,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::MissingDoneInForLoop);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1333,7 +1290,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::MissingDoneInForLoop);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1349,7 +1306,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::DanglingElse);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1366,7 +1323,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::DanglingElse);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1383,7 +1340,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::DanglingElse);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1399,7 +1356,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::UnusedAssignment);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1415,7 +1372,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1432,7 +1389,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1449,7 +1406,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1465,7 +1422,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1481,7 +1438,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1497,7 +1454,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1523,7 +1480,7 @@ esac
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1563,7 +1520,7 @@ esac
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1588,7 +1545,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1604,7 +1561,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1620,7 +1577,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1636,7 +1593,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1652,7 +1609,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1668,7 +1625,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::LinebreakBeforeAnd);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1686,7 +1643,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::LinebreakBeforeAnd);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1702,7 +1659,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::CPrototypeFragment);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1729,7 +1686,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshBraceIf);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1747,7 +1704,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshBraceIf);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1763,7 +1720,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshBraceIf);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1779,7 +1736,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshBraceIf);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1795,7 +1752,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshBraceIf);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1811,7 +1768,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshBraceIf);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1829,7 +1786,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshBraceIf);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1847,7 +1804,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshAlwaysBlock);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1870,7 +1827,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ExtglobCase);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1895,7 +1852,7 @@ fi
 
         for shell in [ShellDialect::Bash, ShellDialect::Ksh] {
             let diagnostics = collect_parse_rule_diagnostics(
-                &recovered.file,
+                &recovered.arena_file,
                 source,
                 Some(&recovered),
                 &settings.rules,
@@ -1923,7 +1880,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ExtglobInCasePattern);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1958,7 +1915,7 @@ fi
             Rule::ExtglobInCasePattern,
         ]);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1979,7 +1936,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshAlwaysBlock);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -1995,7 +1952,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshAlwaysBlock);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,
@@ -2011,7 +1968,7 @@ fi
         let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshAlwaysBlock);
         let diagnostics = collect_parse_rule_diagnostics(
-            &recovered.file,
+            &recovered.arena_file,
             source,
             Some(&recovered),
             &settings.rules,

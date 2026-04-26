@@ -70,20 +70,24 @@ fn unsafe_find_to_xargs_diagnostics(
                 return None;
             }
 
-            let span = find_command_span(left_segment, left);
-            let fix = find_output_to_xargs_fix(left, right);
+            let span = find_command_span(left_segment, left, checker.source());
+            let fix = find_output_to_xargs_fix(left, right, checker.source());
 
             Some(crate::Diagnostic::new(FindOutputToXargs, span).with_fix(fix))
         })
         .collect()
 }
 
-fn find_output_to_xargs_fix(left: CommandFactRef<'_, '_>, right: CommandFactRef<'_, '_>) -> Fix {
+fn find_output_to_xargs_fix(
+    left: CommandFactRef<'_, '_>,
+    right: CommandFactRef<'_, '_>,
+    source: &str,
+) -> Fix {
     let mut edits = Vec::new();
 
     if !left.options().find().is_some_and(|find| find.has_print0) {
         edits.push(Edit::insertion(
-            find_print0_insertion_offset(left),
+            find_print0_insertion_offset(left, source),
             " -print0",
         ));
     }
@@ -94,7 +98,7 @@ fn find_output_to_xargs_fix(left: CommandFactRef<'_, '_>, right: CommandFactRef<
         .is_some_and(|xargs| xargs.uses_null_input)
     {
         edits.push(Edit::insertion(
-            xargs_null_input_insertion_offset(right),
+            xargs_null_input_insertion_offset(right, source),
             " -0",
         ));
     }
@@ -106,29 +110,42 @@ fn find_output_to_xargs_fix(left: CommandFactRef<'_, '_>, right: CommandFactRef<
     Fix::unsafe_edits(edits)
 }
 
-fn find_print0_insertion_offset(command: CommandFactRef<'_, '_>) -> usize {
+fn find_print0_insertion_offset(command: CommandFactRef<'_, '_>, source: &str) -> usize {
     command
         .redirect_facts()
         .first()
         .map(|redirect| redirect.span().start.offset)
-        .or_else(|| command.body_args().last().map(|word| word.span.end.offset))
-        .or_else(|| command.body_name_word().map(|word| word.span.end.offset))
+        .or_else(|| {
+            command
+                .arena_body_args(source)
+                .last()
+                .map(|word| word.span().end.offset)
+        })
+        .or_else(|| {
+            command
+                .arena_body_name_word(source)
+                .map(|word| word.span().end.offset)
+        })
         .expect("find command diagnostics should have a body insertion point")
 }
 
-fn xargs_null_input_insertion_offset(command: CommandFactRef<'_, '_>) -> usize {
+fn xargs_null_input_insertion_offset(command: CommandFactRef<'_, '_>, source: &str) -> usize {
     command
-        .body_name_word()
-        .map(|word| word.span.end.offset)
+        .arena_body_name_word(source)
+        .map(|word| word.span().end.offset)
         .expect("xargs command diagnostics should have a body name word")
 }
 
-fn find_command_span(_segment: &PipelineSegmentFact, fact: CommandFactRef<'_, '_>) -> Span {
+fn find_command_span(
+    _segment: &PipelineSegmentFact,
+    fact: CommandFactRef<'_, '_>,
+    source: &str,
+) -> Span {
     let end = fact
         .redirect_facts()
         .last()
         .map(|redirect| redirect.span().end)
-        .or_else(|| fact.body_args().last().map(|word| word.span.end))
+        .or_else(|| fact.arena_body_args(source).last().map(|word| word.span().end))
         .or_else(|| fact.body_word_span().map(|span| span.end))
         .unwrap_or_else(|| fact.body_span().end);
     Span::from_positions(fact.body_span().start, end)

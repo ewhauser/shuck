@@ -949,13 +949,12 @@ fn simple_test_is_numeric_binary_operator(text: &str) -> bool {
 
 pub(super) fn build_single_test_subshell_spans<'a>(
     commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+    _command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
     arena_file: &ArenaFile,
     source: &str,
 ) -> Vec<Span> {
-    let command_relationships =
-        CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
+    let command_relationships = CommandRelationshipContext::new(commands, command_child_index);
     commands
         .iter()
         .filter_map(|fact| single_test_subshell_span(fact, command_relationships, arena_file, source))
@@ -964,13 +963,12 @@ pub(super) fn build_single_test_subshell_spans<'a>(
 
 pub(super) fn build_subshell_test_group_spans<'a>(
     commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
+    _command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
     arena_file: &ArenaFile,
     source: &str,
 ) -> Vec<Span> {
-    let command_relationships =
-        CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
+    let command_relationships = CommandRelationshipContext::new(commands, command_child_index);
     commands
         .iter()
         .filter_map(|fact| subshell_test_group_span(fact, command_relationships, arena_file, source))
@@ -1007,7 +1005,7 @@ fn single_test_subshell_span<'a>(
         return None;
     }
 
-    if !simple_test && !is_test_condition_fact(body_fact, command_relationships) {
+    if !simple_test && !is_test_condition_fact(body_fact, command_relationships, arena_file) {
         return None;
     }
 
@@ -1029,16 +1027,32 @@ fn is_test_like_command(fact: &CommandFact<'_>) -> bool {
 fn is_test_condition_fact<'a>(
     fact: &CommandFact<'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
+    arena_file: &ArenaFile,
 ) -> bool {
     if fact.shape().is_short_circuit_binary() {
-        let child_ids = command_relationships.command_child_index.child_ids(fact.id());
-        if child_ids.len() != 2 {
+        let Some(command) = fact
+            .arena_command_id()
+            .map(|id| arena_file.store.command(id))
+            .and_then(|command| command.binary())
+        else {
             return false;
-        }
-        let left = command_relationships.fact(child_ids[0]);
-        let right = command_relationships.fact(child_ids[1]);
-        is_test_condition_fact(left, command_relationships)
-            && is_test_condition_fact(right, command_relationships)
+        };
+        let Some(left_stmt) = single_test_single_arena_stmt(command.left()) else {
+            return false;
+        };
+        let Some(right_stmt) = single_test_single_arena_stmt(command.right()) else {
+            return false;
+        };
+        let Some(left) = command_relationships.child_or_lookup_arena_fact(fact.id(), left_stmt)
+        else {
+            return false;
+        };
+        let Some(right) = command_relationships.child_or_lookup_arena_fact(fact.id(), right_stmt)
+        else {
+            return false;
+        };
+        is_test_condition_fact(left, command_relationships, arena_file)
+            && is_test_condition_fact(right, command_relationships, arena_file)
     } else {
         is_test_like_command(fact)
     }
@@ -1056,7 +1070,7 @@ fn subshell_test_group_span<'a>(
         _ => return None,
     };
 
-    if !subshell_body_contains_grouped_tests(body, fact.id(), command_relationships) {
+    if !subshell_body_contains_grouped_tests(body, fact.id(), command_relationships, arena_file) {
         return None;
     }
 
@@ -1067,8 +1081,9 @@ fn subshell_body_contains_grouped_tests<'a>(
     body: StmtSeqView<'_>,
     parent_id: CommandId,
     command_relationships: CommandRelationshipContext<'_, 'a>,
+    arena_file: &ArenaFile,
 ) -> bool {
-    subshell_body_analysis(body, parent_id, command_relationships)
+    subshell_body_analysis(body, parent_id, command_relationships, arena_file)
         .is_some_and(|analysis| analysis.has_grouping && analysis.test_count > 0)
 }
 
@@ -1082,14 +1097,16 @@ fn subshell_stmt_analysis<'a>(
     stmt: StmtView<'_>,
     parent_id: CommandId,
     command_relationships: CommandRelationshipContext<'_, 'a>,
+    arena_file: &ArenaFile,
 ) -> Option<GroupedTestAnalysis> {
     let fact = command_relationships.child_or_lookup_arena_fact(parent_id, stmt)?;
-    subshell_command_analysis(fact, command_relationships)
+    subshell_command_analysis(fact, command_relationships, arena_file)
 }
 
 fn subshell_command_analysis<'a>(
     fact: &CommandFact<'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
+    arena_file: &ArenaFile,
 ) -> Option<GroupedTestAnalysis> {
     match fact.shape().kind {
         ArenaFileCommandKind::Simple | ArenaFileCommandKind::Builtin
@@ -1117,8 +1134,16 @@ fn subshell_command_analysis<'a>(
         ArenaFileCommandKind::Compound
             if fact.shape().compound_kind == Some(CommandFactCompoundKind::BraceGroup) =>
         {
-            let child = command_relationships.command_child_index.child_ids(fact.id()).first().copied()?;
-            let inner = subshell_command_analysis(command_relationships.fact(child), command_relationships)?;
+            let command = arena_file.store.command(fact.arena_command_id()?);
+            let CompoundCommandNode::BraceGroup(body) = command.compound()?.node() else {
+                return None;
+            };
+            let inner = subshell_body_analysis(
+                arena_file.store.stmt_seq(*body),
+                fact.id(),
+                command_relationships,
+                arena_file,
+            )?;
             Some(GroupedTestAnalysis {
                 test_count: inner.test_count,
                 has_grouping: true,
@@ -1127,20 +1152,30 @@ fn subshell_command_analysis<'a>(
         ArenaFileCommandKind::Compound
             if fact.shape().compound_kind == Some(CommandFactCompoundKind::Subshell) =>
         {
-            let child = command_relationships.command_child_index.child_ids(fact.id()).first().copied()?;
-            let inner = subshell_command_analysis(command_relationships.fact(child), command_relationships)?;
+            let command = arena_file.store.command(fact.arena_command_id()?);
+            let CompoundCommandNode::Subshell(body) = command.compound()?.node() else {
+                return None;
+            };
+            let inner = subshell_body_analysis(
+                arena_file.store.stmt_seq(*body),
+                fact.id(),
+                command_relationships,
+                arena_file,
+            )?;
             Some(GroupedTestAnalysis {
                 test_count: inner.test_count,
                 has_grouping: inner.has_grouping,
             })
         }
         ArenaFileCommandKind::Binary if fact.shape().is_short_circuit_binary() => {
-            let child_ids = command_relationships.command_child_index.child_ids(fact.id());
-            let [left_id, right_id] = child_ids else {
-                return None;
-            };
-            let left = subshell_command_analysis(command_relationships.fact(*left_id), command_relationships)?;
-            let right = subshell_command_analysis(command_relationships.fact(*right_id), command_relationships)?;
+            let command = arena_file.store.command(fact.arena_command_id()?);
+            let command = command.binary()?;
+            let left_stmt = single_test_single_arena_stmt(command.left())?;
+            let right_stmt = single_test_single_arena_stmt(command.right())?;
+            let left = command_relationships.child_or_lookup_arena_fact(fact.id(), left_stmt)?;
+            let right = command_relationships.child_or_lookup_arena_fact(fact.id(), right_stmt)?;
+            let left = subshell_command_analysis(left, command_relationships, arena_file)?;
+            let right = subshell_command_analysis(right, command_relationships, arena_file)?;
             Some(GroupedTestAnalysis {
                 test_count: left.test_count + right.test_count,
                 has_grouping: true,
@@ -1154,6 +1189,7 @@ fn subshell_body_analysis<'a>(
     body: StmtSeqView<'_>,
     parent_id: CommandId,
     command_relationships: CommandRelationshipContext<'_, 'a>,
+    arena_file: &ArenaFile,
 ) -> Option<GroupedTestAnalysis> {
     let mut analysis = GroupedTestAnalysis::default();
 
@@ -1162,7 +1198,8 @@ fn subshell_body_analysis<'a>(
     }
 
     for stmt in body.stmts() {
-        let stmt_analysis = subshell_stmt_analysis(stmt, parent_id, command_relationships)?;
+        let stmt_analysis =
+            subshell_stmt_analysis(stmt, parent_id, command_relationships, arena_file)?;
         analysis.test_count += stmt_analysis.test_count;
         analysis.has_grouping |= stmt_analysis.has_grouping;
     }
@@ -1240,255 +1277,4 @@ fn mixed_short_circuit_operator_span(operators: &[ListOperatorFact]) -> Option<S
     }
 
     None
-}
-
-fn word_contains_find_substitution<'a>(
-    word: &'a Word,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-) -> bool {
-    word.parts
-        .iter()
-        .any(|part| part_contains_find_substitution(&part.kind, commands, command_ids_by_span))
-}
-
-fn word_contains_line_oriented_substitution<'a>(
-    word: &'a Word,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-) -> bool {
-    word.parts.iter().any(|part| {
-        part_contains_line_oriented_substitution(&part.kind, commands, command_ids_by_span)
-    })
-}
-
-fn word_contains_command_substitution_named<'a>(
-    word: &'a Word,
-    name: &str,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-) -> bool {
-    word.parts.iter().any(|part| {
-        part_contains_command_substitution_named(&part.kind, name, commands, command_ids_by_span)
-    })
-}
-
-fn part_contains_command_substitution_named<'a>(
-    part: &WordPart,
-    name: &str,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-) -> bool {
-    match part {
-        WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| {
-            part_contains_command_substitution_named(
-                &part.kind,
-                name,
-                commands,
-                command_ids_by_span,
-            )
-        }),
-        WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
-            substitution_body_is_simple_command_named(body, name, commands, command_ids_by_span)
-        }
-        _ => false,
-    }
-}
-
-fn part_contains_line_oriented_substitution<'a>(
-    part: &WordPart,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-) -> bool {
-    match part {
-        WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| {
-            part_contains_line_oriented_substitution(
-                &part.kind,
-                commands,
-                command_ids_by_span,
-            )
-        }),
-        WordPart::CommandSubstitution { body, .. } => {
-            substitution_body_is_line_oriented(body, commands, command_ids_by_span)
-        }
-        _ => false,
-    }
-}
-
-fn part_contains_find_substitution<'a>(
-    part: &WordPart,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-) -> bool {
-    match part {
-        WordPart::DoubleQuoted { parts, .. } => parts
-            .iter()
-            .any(|part| part_contains_find_substitution(&part.kind, commands, command_ids_by_span)),
-        WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
-            substitution_body_is_find(body, commands, command_ids_by_span)
-        }
-        _ => false,
-    }
-}
-
-fn substitution_body_is_find<'a>(
-    body: &'a StmtSeq,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-) -> bool {
-    matches!(body.as_slice(), [stmt] if stmt_invokes_find(stmt, commands, command_ids_by_span))
-}
-
-fn substitution_body_is_line_oriented<'a>(
-    body: &'a StmtSeq,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-) -> bool {
-    matches!(
-        body.as_slice(),
-        [stmt] if command_is_line_oriented_substitution_body(&stmt.command, commands, command_ids_by_span)
-    )
-}
-
-fn substitution_body_is_pgrep_lookup<'a>(
-    body: &'a StmtSeq,
-    commands: CommandFacts<'_, 'a>,
-    command_ids_by_span: &CommandLookupIndex,
-) -> bool {
-    matches!(
-        body.as_slice(),
-        [stmt]
-            if stmt_effective_or_literal_basename_is_ref(stmt, "pgrep", commands, command_ids_by_span)
-    )
-}
-
-fn substitution_body_is_seq_utility<'a>(
-    body: &'a StmtSeq,
-    commands: CommandFacts<'_, 'a>,
-    command_ids_by_span: &CommandLookupIndex,
-) -> bool {
-    matches!(
-        body.as_slice(),
-        [stmt] if stmt_effective_or_literal_basename_is_ref(stmt, "seq", commands, command_ids_by_span)
-    )
-}
-
-fn substitution_body_is_simple_command_named<'a>(
-    body: &'a StmtSeq,
-    name: &str,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-) -> bool {
-    matches!(body.as_slice(), [stmt] if stmt_literal_name_is(stmt, name, commands, command_ids_by_span))
-}
-
-fn command_is_line_oriented_substitution_body<'a>(
-    command: &'a Command,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-) -> bool {
-    match command {
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {
-            command_fact_for_command(command, commands, command_ids_by_span)
-                .is_some_and(command_fact_is_line_oriented_utility)
-        }
-        Command::Binary(binary) => match binary.op {
-            BinaryOp::Pipe | BinaryOp::PipeAll => {
-                command_is_line_oriented_substitution_body(
-                    &binary.left.command,
-                    commands,
-                    command_ids_by_span,
-                ) && command_is_line_oriented_substitution_body(
-                    &binary.right.command,
-                    commands,
-                    command_ids_by_span,
-                )
-            }
-            BinaryOp::And | BinaryOp::Or => false,
-        },
-        Command::Compound(CompoundCommand::Time(command)) => command
-            .command
-            .as_deref()
-            .is_some_and(|stmt| {
-                command_is_line_oriented_substitution_body(
-                    &stmt.command,
-                    commands,
-                    command_ids_by_span,
-                )
-            }),
-        Command::Compound(
-            CompoundCommand::If(_)
-            | CompoundCommand::For(_)
-            | CompoundCommand::Repeat(_)
-            | CompoundCommand::Foreach(_)
-            | CompoundCommand::ArithmeticFor(_)
-            | CompoundCommand::While(_)
-            | CompoundCommand::Until(_)
-            | CompoundCommand::Case(_)
-            | CompoundCommand::Select(_)
-            | CompoundCommand::Arithmetic(_)
-            | CompoundCommand::Conditional(_)
-            | CompoundCommand::Subshell(_)
-            | CompoundCommand::BraceGroup(_)
-            | CompoundCommand::Coproc(_)
-            | CompoundCommand::Always(_),
-        ) => false,
-        Command::Function(_) | Command::AnonymousFunction(_) => false,
-    }
-}
-
-fn command_fact_is_line_oriented_utility(fact: &CommandFact<'_>) -> bool {
-    if command_fact_invokes_find(fact) {
-        return false;
-    }
-
-    fact.effective_or_literal_name().is_some_and(|name| {
-        matches!(
-            name.rsplit('/').next().unwrap_or(name),
-            "cat" | "grep" | "egrep" | "fgrep" | "awk" | "sed" | "cut" | "sort"
-        )
-    })
-}
-
-fn stmt_invokes_find<'a>(
-    stmt: &'a Stmt,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-) -> bool {
-    command_fact_for_stmt(stmt, commands, command_ids_by_span)
-        .is_some_and(command_fact_invokes_find)
-}
-
-fn command_fact_invokes_find(fact: &CommandFact<'_>) -> bool {
-    command_name_matches_basename(fact.literal_name(), "find")
-        || command_name_matches_basename(fact.effective_name(), "find")
-        || fact.has_wrapper(WrapperKind::FindExec)
-        || fact.has_wrapper(WrapperKind::FindExecDir)
-}
-
-fn command_name_matches_basename(name: Option<&str>, expected: &str) -> bool {
-    name.is_some_and(|name| name == expected || name.rsplit('/').next() == Some(expected))
-}
-
-fn stmt_literal_name_is<'a>(
-    stmt: &'a Stmt,
-    name: &str,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-) -> bool {
-    command_fact_for_stmt(stmt, commands, command_ids_by_span).and_then(CommandFact::literal_name)
-        == Some(name)
-}
-
-fn stmt_effective_or_literal_basename_is_ref<'a>(
-    stmt: &'a Stmt,
-    name: &str,
-    commands: CommandFacts<'_, 'a>,
-    command_ids_by_span: &CommandLookupIndex,
-) -> bool {
-    command_fact_ref_for_stmt(stmt, commands, command_ids_by_span)
-        .and_then(CommandFactRef::effective_or_literal_name)
-        .is_some_and(|command_name| {
-            command_name == name || command_name.rsplit('/').next() == Some(name)
-        })
 }

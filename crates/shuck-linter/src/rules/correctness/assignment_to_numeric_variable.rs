@@ -1,4 +1,4 @@
-use shuck_ast::{DeclOperand, Position, Span};
+use shuck_ast::{DeclOperandNode, Position, Span};
 
 use crate::{Checker, Rule, Violation};
 
@@ -39,12 +39,13 @@ fn command_assignment_spans(fact: crate::facts::CommandFactRef<'_, '_>, source: 
                 .operands
                 .iter()
                 .filter_map(|operand| match operand {
-                    DeclOperand::Dynamic(word) => {
-                        numeric_assignment_target_span(word.span.slice(source), word.span.start)
+                    DeclOperandNode::Dynamic(word) => {
+                        let word = fact.arena_word(*word);
+                        numeric_assignment_target_span(word.span().slice(source), word.span().start)
                     }
-                    DeclOperand::Flag(_) | DeclOperand::Name(_) | DeclOperand::Assignment(_) => {
-                        None
-                    }
+                    DeclOperandNode::Flag(_)
+                    | DeclOperandNode::Name(_)
+                    | DeclOperandNode::Assignment(_) => None,
                 }),
         );
     }

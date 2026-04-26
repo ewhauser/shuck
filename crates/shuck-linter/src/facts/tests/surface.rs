@@ -855,7 +855,14 @@ write_target
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let reference_span = |name: &str| {
         semantic

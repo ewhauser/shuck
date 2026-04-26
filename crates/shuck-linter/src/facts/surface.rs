@@ -2950,8 +2950,12 @@ mod tests {
         SubscriptSpanIndex, arithmetic_expr_has_positional_parameter_operator,
         word_has_unquoted_positional_parameter_operator_neighbors,
     };
-    use shuck_ast::{Command, Position, Span, WordPart};
+    use shuck_ast as ast;
+    use shuck_ast::{Position, Span};
     use shuck_parser::parser::Parser;
+
+    type Command = ast::Command;
+    type WordPart = ast::WordPart;
 
     fn span(start: usize, end: usize) -> Span {
         Span::from_positions(

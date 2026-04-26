@@ -31,11 +31,11 @@ pub fn avoid_let_builtin(checker: &mut Checker) {
 }
 
 fn let_command_span(source: &str, fact: crate::facts::CommandFactRef<'_, '_>) -> Option<Span> {
-    let name = fact.body_name_word()?;
+    let name = fact.arena_body_name_word(source)?;
     let mut end = fact
-        .body_args()
+        .arena_body_args(source)
         .last()
-        .map_or(name.span.end, |word| let_argument_end(source, word));
+        .map_or(name.span().end, |word| let_argument_end(source, *word));
 
     let tail = source.get(end.offset..)?;
     let mut padding_end = end;
@@ -52,18 +52,26 @@ fn let_command_span(source: &str, fact: crate::facts::CommandFactRef<'_, '_>) ->
         }
     }
 
-    Some(Span::from_positions(name.span.start, end))
+    Some(Span::from_positions(name.span().start, end))
 }
 
-fn let_argument_end(source: &str, word: &shuck_ast::Word) -> shuck_ast::Position {
-    if word.is_fully_quoted() {
-        let text = word.span.slice(source);
+fn let_argument_end(source: &str, word: crate::FactWordRef<'_>) -> shuck_ast::Position {
+    if word_is_fully_quoted(source, word) {
+        let text = word.span().slice(source);
         if let Some(trimmed) = text.strip_suffix('"').or_else(|| text.strip_suffix('\'')) {
-            return word.span.start.advanced_by(trimmed);
+            return word.span().start.advanced_by(trimmed);
         }
     }
 
-    word.span.end
+    word.span().end
+}
+
+fn word_is_fully_quoted(source: &str, word: crate::FactWordRef<'_>) -> bool {
+    let text = word.span().slice(source);
+    (text.starts_with('"') && text.ends_with('"'))
+        || (text.starts_with('\'') && text.ends_with('\''))
+        || (text.starts_with("$'") && text.ends_with('\''))
+        || (text.starts_with("$\"") && text.ends_with('"'))
 }
 
 #[cfg(test)]

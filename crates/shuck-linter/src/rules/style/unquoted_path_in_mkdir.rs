@@ -1,5 +1,3 @@
-use shuck_ast::static_word_text;
-
 use crate::{Checker, CommandFactRef, ExpansionContext, Rule, Violation, WordFactContext};
 
 pub struct UnquotedPathInMkdir;
@@ -40,19 +38,19 @@ fn mkdir_path_operand_spans(command: CommandFactRef<'_, '_>, source: &str) -> Ve
     let mut options_open = true;
     let mut expects_mode_operand = false;
 
-    for word in command.body_args() {
+    for word in command.arena_body_args(source) {
         if expects_mode_operand {
             expects_mode_operand = false;
             continue;
         }
 
-        let raw_text = word.span.slice(source);
+        let raw_text = word.span().slice(source);
         if options_open && (raw_text.starts_with("--mode=") || raw_text.starts_with("--context=")) {
             continue;
         }
 
-        let Some(text) = static_word_text(word, source) else {
-            spans.push(word.span);
+        let Some(text) = word.static_text(source) else {
+            spans.push(word.span());
             options_open = false;
             continue;
         };
@@ -62,11 +60,11 @@ fn mkdir_path_operand_spans(command: CommandFactRef<'_, '_>, source: &str) -> Ve
             continue;
         }
 
-        if options_open && is_mkdir_option(word.span, text.as_ref(), &mut expects_mode_operand) {
+        if options_open && is_mkdir_option(word.span(), text.as_ref(), &mut expects_mode_operand) {
             continue;
         }
 
-        spans.push(word.span);
+        spans.push(word.span());
         options_open = false;
     }
 

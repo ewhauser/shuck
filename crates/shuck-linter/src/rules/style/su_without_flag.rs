@@ -34,7 +34,7 @@ pub fn su_without_flag(checker: &mut Checker) {
         .filter(|fact| fact.options().su().is_some_and(|su| !su.has_login_flag()))
         .filter(|fact| !piped_command_ids.contains(&fact.id()))
         .filter(|fact| !fact.has_redirects())
-        .filter(|fact| fact.body_args().len() < 2)
+        .filter(|fact| fact.arena_body_args(checker.source()).len() < 2)
         .map(|fact| fact.span_in_source(checker.source()))
         .collect::<Vec<_>>();
 

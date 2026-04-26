@@ -40,6 +40,7 @@ fn prepare_facts_input(source: &'static str) -> PreparedFactsInput {
 fn build_linter_facts(input: &PreparedFactsInput) -> usize {
     let facts = LinterFacts::build(
         &input.output.file,
+        &input.output.arena_file,
         input.source,
         &input.semantic,
         &input.indexer,
@@ -60,14 +61,14 @@ fn build_linter_facts(input: &PreparedFactsInput) -> usize {
 
 fn build_normalized_commands(input: &PreparedFactsInput) -> usize {
     black_box(benchmark_normalize_commands(
-        &input.output.file,
+        &input.output.arena_file,
         input.source,
     ))
 }
 
 fn build_word_facts(input: &PreparedFactsInput) -> usize {
     black_box(benchmark_collect_word_facts(
-        &input.output.file,
+        &input.output.arena_file,
         input.source,
         &input.semantic,
     ))
@@ -79,18 +80,18 @@ fn lint_source(
     shellcheck_map: &ShellCheckCodeMap,
 ) -> usize {
     let output = parse_fixture(source);
-    let indexer = Indexer::new(source, &output);
+    let indexer = Indexer::new_arena(source, &output.arena_file);
     let directives = parse_directives(
         source,
-        &output.file,
+        &output.arena_file,
         indexer.comment_index(),
         shellcheck_map,
     );
     let suppression_index = (!directives.is_empty()).then(|| {
         SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         )
     });
     let diagnostics = lint_file(

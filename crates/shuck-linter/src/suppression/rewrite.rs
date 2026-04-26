@@ -115,15 +115,15 @@ fn analyze_source(
     let indexer = Indexer::new(source, &parse_result);
     let directives = parse_directives(
         source,
-        &parse_result.file,
+        &parse_result.arena_file,
         indexer.comment_index(),
         shellcheck_map,
     );
     let suppression_index = (!directives.is_empty()).then(|| {
         SuppressionIndex::new(
             &directives,
-            &parse_result.file,
-            first_statement_line(&parse_result.file).unwrap_or(u32::MAX),
+            &parse_result.arena_file,
+            first_statement_line(&parse_result.arena_file).unwrap_or(u32::MAX),
         )
     });
     let diagnostics = lint_file(

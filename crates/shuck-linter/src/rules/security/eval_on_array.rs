@@ -13,6 +13,7 @@ impl Violation for EvalOnArray {
 }
 
 pub fn eval_on_array(checker: &mut Checker) {
+    let source = checker.source();
     let command_arg_facts = checker
         .facts()
         .expansion_word_facts(ExpansionContext::CommandArgument)
@@ -22,12 +23,12 @@ pub fn eval_on_array(checker: &mut Checker) {
         .facts()
         .structural_commands()
         .filter(|fact| fact.effective_name_is("eval"))
-        .flat_map(|command| command.body_args())
+        .flat_map(|command| command.arena_body_args(source))
         .flat_map(|word| {
             command_arg_facts
                 .iter()
                 .copied()
-                .filter(move |fact| fact.span() == word.span)
+                .filter(move |fact| fact.span() == word.span())
                 .flat_map(|fact| {
                     fact.direct_all_elements_array_expansion_spans()
                         .iter()

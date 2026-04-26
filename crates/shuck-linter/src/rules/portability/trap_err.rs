@@ -1,6 +1,7 @@
-use shuck_ast::static_word_text;
+use shuck_ast::Span;
 
 use super::trap_common::parse_trap_args;
+use crate::facts::words::FactWordRef;
 use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct TrapErr;
@@ -27,13 +28,15 @@ pub fn trap_err(checker: &mut Checker) {
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("trap"))
-        .flat_map(|fact| trap_pseudo_signal_spans(fact.body_args(), checker.source()))
+        .flat_map(|fact| {
+            trap_pseudo_signal_spans(&fact.arena_body_args(checker.source()), checker.source())
+        })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || TrapErr);
 }
 
-fn trap_pseudo_signal_spans(args: &[&shuck_ast::Word], source: &str) -> Vec<shuck_ast::Span> {
+fn trap_pseudo_signal_spans<'a>(args: &'a [FactWordRef<'a>], source: &'a str) -> Vec<Span> {
     let Some(parsed) = parse_trap_args(args, source) else {
         return Vec::new();
     };
@@ -42,11 +45,11 @@ fn trap_pseudo_signal_spans(args: &[&shuck_ast::Word], source: &str) -> Vec<shuc
         .signal_words
         .iter()
         .filter_map(|word| {
-            static_word_text(word, source).and_then(|text| {
+            word.static_text(source).and_then(|text| {
                 NONPORTABLE_TRAP_PSEUDO_SIGNALS
                     .iter()
                     .any(|signal| text.eq_ignore_ascii_case(signal))
-                    .then_some(word.span)
+                    .then_some(word.span())
             })
         })
         .collect()

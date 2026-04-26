@@ -1,5 +1,6 @@
-use crate::facts::word_spans;
-use crate::{Checker, ExpansionContext, Rule, Violation, WordFactHostKind};
+use crate::{
+    Checker, ExpansionContext, Rule, Violation, WordFactContext, WordFactHostKind,
+};
 
 pub struct SuspiciousBracketGlob;
 
@@ -16,12 +17,18 @@ impl Violation for SuspiciousBracketGlob {
 pub fn suspicious_bracket_glob(checker: &mut Checker) {
     let source = checker.source();
     let spans = checker
-        .facts()
-        .commands()
-        .iter()
-        .filter_map(|fact| fact.body_name_word())
-        .filter(|word| !bare_bracket_test_name(word.span.slice(source)))
-        .flat_map(|word| word_spans::word_suspicious_bracket_glob_spans(word, source))
+                .facts()
+                .commands()
+                .iter()
+                .filter_map(|fact| fact.arena_body_name_word(source))
+                .filter(|word| !bare_bracket_test_name(word.span().slice(source)))
+                .filter_map(|word| {
+                    checker.facts().word_fact(
+                        word.span(),
+                        WordFactContext::Expansion(ExpansionContext::CommandName),
+                    )
+                })
+                .flat_map(|fact| fact.suspicious_bracket_glob_spans(source))
         .chain(
             checker
                 .facts()
@@ -36,7 +43,7 @@ pub fn suspicious_bracket_glob(checker: &mut Checker) {
                 .iter()
                 .filter_map(|fact| fact.conditional())
                 .flat_map(|conditional| {
-                    word_spans::conditional_suspicious_bracket_glob_spans(
+                    crate::facts::word_spans::conditional_suspicious_bracket_glob_spans(
                         conditional.expression(),
                         source,
                     )

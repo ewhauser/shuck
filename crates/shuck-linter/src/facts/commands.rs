@@ -123,80 +123,12 @@ impl CommandFactShape {
         }
     }
 
-    fn from_recursive(command: &Command) -> Self {
-        match command {
-            Command::Simple(_) => Self {
-                kind: ArenaFileCommandKind::Simple,
-                binary_op: None,
-                binary_op_span: None,
-                compound_kind: None,
-            },
-            Command::Builtin(_) => Self {
-                kind: ArenaFileCommandKind::Builtin,
-                binary_op: None,
-                binary_op_span: None,
-                compound_kind: None,
-            },
-            Command::Decl(_) => Self {
-                kind: ArenaFileCommandKind::Decl,
-                binary_op: None,
-                binary_op_span: None,
-                compound_kind: None,
-            },
-            Command::Binary(command) => Self {
-                kind: ArenaFileCommandKind::Binary,
-                binary_op: Some(command.op),
-                binary_op_span: Some(command.op_span),
-                compound_kind: None,
-            },
-            Command::Compound(command) => Self {
-                kind: ArenaFileCommandKind::Compound,
-                binary_op: None,
-                binary_op_span: None,
-                compound_kind: Some(CommandFactCompoundKind::from_recursive(command)),
-            },
-            Command::Function(_) => Self {
-                kind: ArenaFileCommandKind::Function,
-                binary_op: None,
-                binary_op_span: None,
-                compound_kind: None,
-            },
-            Command::AnonymousFunction(_) => Self {
-                kind: ArenaFileCommandKind::AnonymousFunction,
-                binary_op: None,
-                binary_op_span: None,
-                compound_kind: None,
-            },
-        }
-    }
-
     fn is_short_circuit_binary(self) -> bool {
         matches!(self.binary_op, Some(BinaryOp::And | BinaryOp::Or))
     }
 }
 
 impl CommandFactCompoundKind {
-    fn from_recursive(command: &CompoundCommand) -> Self {
-        match command {
-            CompoundCommand::If(_) => Self::If,
-            CompoundCommand::ArithmeticFor(_) => Self::ArithmeticFor,
-            CompoundCommand::For(_) => Self::For,
-            CompoundCommand::Repeat(_) => Self::Repeat,
-            CompoundCommand::While(_) => Self::While,
-            CompoundCommand::Until(_) => Self::Until,
-            CompoundCommand::Subshell(_) => Self::Subshell,
-            CompoundCommand::BraceGroup(_) => Self::BraceGroup,
-            CompoundCommand::Always(_) => Self::Always,
-            CompoundCommand::Case(_) => Self::Case,
-            CompoundCommand::Select(_) => Self::Select,
-            CompoundCommand::Foreach(_) => Self::Foreach,
-            CompoundCommand::Arithmetic(_) => Self::Arithmetic,
-            CompoundCommand::Time(_) => Self::Time,
-            CompoundCommand::Conditional(_) => Self::Conditional,
-            CompoundCommand::Coproc(_) => Self::Coproc,
-        }
-    }
-
     fn from_arena(command: &CompoundCommandNode) -> Self {
         match command {
             CompoundCommandNode::If { .. } => Self::If,
@@ -237,6 +169,7 @@ pub struct CommandFact<'a> {
     scope: Option<ScopeId>,
     normalized: NormalizedCommand<'a>,
     arena_normalized: Option<ArenaCommandNameFacts>,
+    arena_declaration: Option<ArenaNormalizedDeclaration<'a>>,
     zsh_options: Option<ZshOptionState>,
     redirect_facts: IdRange<RedirectFact>,
     substitution_facts: IdRange<SubstitutionFact>,
@@ -402,8 +335,8 @@ impl<'a> CommandFact<'a> {
         self.wrappers().contains(&wrapper)
     }
 
-    pub fn declaration(&self) -> Option<&NormalizedDeclaration<'a>> {
-        self.normalized.declaration.as_ref()
+    pub fn declaration(&self) -> Option<&ArenaNormalizedDeclaration<'a>> {
+        self.arena_declaration.as_ref()
     }
 
     fn single_declaration_assignment_info(&self) -> Option<(&str, Span)> {
@@ -577,6 +510,10 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
             .map(|id| self.arena_file.store.command(id))
     }
 
+    pub fn arena_file(self) -> &'facts ArenaFile {
+        self.arena_file
+    }
+
     pub(crate) fn command_kind(self) -> ArenaFileCommandKind {
         self.fact.command_kind()
     }
@@ -675,6 +612,16 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
             .map(|id| FactWordRef::new(self.arena_file, id))
     }
 
+    pub fn arena_simple_name_word(self) -> Option<FactWordRef<'facts>> {
+        self.arena_command()?
+            .simple()
+            .map(|simple| FactWordRef::new(self.arena_file, simple.name_id()))
+    }
+
+    pub fn arena_word(self, id: WordId) -> FactWordRef<'facts> {
+        FactWordRef::new(self.arena_file, id)
+    }
+
     pub fn arena_body_word_ids(self, source: &'facts str) -> Vec<WordId> {
         self.arena_normalized(source)
             .map_or_else(Vec::new, |normalized| normalized.body_words)
@@ -752,8 +699,8 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
         self.fact.has_wrapper(wrapper)
     }
 
-    pub fn declaration(self) -> Option<&'facts NormalizedDeclaration<'a>> {
-        self.fact.normalized.declaration.as_ref()
+    pub fn declaration(self) -> Option<&'facts ArenaNormalizedDeclaration<'a>> {
+        self.fact.arena_declaration.as_ref()
     }
 
     pub fn body_span(self) -> Span {
@@ -859,7 +806,7 @@ fn command_span_with_redirects_and_shellcheck_tail(
 fn effective_command_zsh_options(
     semantic: &SemanticModel,
     offset: usize,
-    normalized: &NormalizedCommand<'_>,
+    normalized: &command::ArenaNormalizedCommand<'_>,
 ) -> Option<ZshOptionState> {
     let mut options = semantic.zsh_options_at(offset).cloned();
     if normalized.has_wrapper(WrapperKind::Noglob)
@@ -1628,6 +1575,47 @@ fn command_lookup_kind(command: &Command) -> CommandLookupKind {
     }
 }
 
+fn arena_command_lookup_kind(command: CommandView<'_>) -> CommandLookupKind {
+    match command.kind() {
+        ArenaFileCommandKind::Simple => CommandLookupKind::Simple,
+        ArenaFileCommandKind::Builtin => {
+            let command = command.builtin().expect("builtin command view");
+            CommandLookupKind::Builtin(match command.kind() {
+                shuck_ast::BuiltinCommandNodeKind::Break => BuiltinLookupKind::Break,
+                shuck_ast::BuiltinCommandNodeKind::Continue => BuiltinLookupKind::Continue,
+                shuck_ast::BuiltinCommandNodeKind::Return => BuiltinLookupKind::Return,
+                shuck_ast::BuiltinCommandNodeKind::Exit => BuiltinLookupKind::Exit,
+            })
+        }
+        ArenaFileCommandKind::Decl => CommandLookupKind::Decl,
+        ArenaFileCommandKind::Binary => CommandLookupKind::Binary,
+        ArenaFileCommandKind::Compound => {
+            let command = command.compound().expect("compound command view");
+            CommandLookupKind::Compound(match command.node() {
+                CompoundCommandNode::If { .. } => CompoundLookupKind::If,
+                CompoundCommandNode::For { .. } => CompoundLookupKind::For,
+                CompoundCommandNode::Repeat { .. } => CompoundLookupKind::Repeat,
+                CompoundCommandNode::Foreach { .. } => CompoundLookupKind::Foreach,
+                CompoundCommandNode::ArithmeticFor(_) => CompoundLookupKind::ArithmeticFor,
+                CompoundCommandNode::While { .. } => CompoundLookupKind::While,
+                CompoundCommandNode::Until { .. } => CompoundLookupKind::Until,
+                CompoundCommandNode::Case { .. } => CompoundLookupKind::Case,
+                CompoundCommandNode::Select { .. } => CompoundLookupKind::Select,
+                CompoundCommandNode::Subshell(_) => CompoundLookupKind::Subshell,
+                CompoundCommandNode::BraceGroup(_) => CompoundLookupKind::BraceGroup,
+                CompoundCommandNode::Arithmetic(_) => CompoundLookupKind::Arithmetic,
+                CompoundCommandNode::Time { .. } => CompoundLookupKind::Time,
+                CompoundCommandNode::Conditional(_) => CompoundLookupKind::Conditional,
+                CompoundCommandNode::Coproc { .. } => CompoundLookupKind::Coproc,
+                CompoundCommandNode::Always { .. } => CompoundLookupKind::Always,
+            })
+        }
+        ArenaFileCommandKind::Function => CommandLookupKind::Function,
+        ArenaFileCommandKind::AnonymousFunction => CommandLookupKind::AnonymousFunction,
+    }
+}
+
+#[cfg(test)]
 fn command_id_for_command(
     command: &Command,
     command_ids_by_span: &CommandLookupIndex,
@@ -1636,6 +1624,21 @@ fn command_id_for_command(
         .get(&FactSpan::new(command_span(command)))
         .and_then(|entries| {
             let kind = command_lookup_kind(command);
+            entries
+                .iter()
+                .find(|entry| entry.kind == kind)
+                .map(|entry| entry.id)
+        })
+}
+
+fn command_id_for_arena_command(
+    command: CommandView<'_>,
+    command_ids_by_span: &CommandLookupIndex,
+) -> Option<CommandId> {
+    command_ids_by_span
+        .get(&FactSpan::new(command.span()))
+        .and_then(|entries| {
+            let kind = arena_command_lookup_kind(command);
             entries
                 .iter()
                 .find(|entry| entry.kind == kind)
@@ -1659,19 +1662,16 @@ fn command_fact_ref<'facts, 'a>(
 #[derive(Clone, Copy)]
 struct CommandRelationshipContext<'facts, 'a> {
     commands: &'facts [CommandFact<'a>],
-    command_ids_by_span: &'facts CommandLookupIndex,
     command_child_index: &'facts CommandChildIndex,
 }
 
 impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
     fn new(
         commands: &'facts [CommandFact<'a>],
-        command_ids_by_span: &'facts CommandLookupIndex,
         command_child_index: &'facts CommandChildIndex,
     ) -> Self {
         Self {
             commands,
-            command_ids_by_span,
             command_child_index,
         }
     }
@@ -1680,45 +1680,11 @@ impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
         &self.commands[id.index()]
     }
 
-    fn id_for_command(self, command: &Command) -> Option<CommandId> {
-        command_id_for_command(command, self.command_ids_by_span)
-    }
-
-    fn fact_for_command(self, command: &Command) -> Option<&'facts CommandFact<'a>> {
-        self.id_for_command(command).map(|id| self.fact(id))
-    }
-
-    fn fact_for_stmt(self, stmt: &Stmt) -> Option<&'facts CommandFact<'a>> {
-        self.fact_for_command(&stmt.command)
-    }
-
     fn fact_for_arena_stmt(self, stmt: StmtView<'_>) -> Option<&'facts CommandFact<'a>> {
         let id = stmt.command().id();
         self.commands
             .iter()
             .find(|fact| fact.arena_command_id().is_some_and(|candidate| candidate.index() == id.index()))
-    }
-
-    fn child_id_for_command(self, parent_id: CommandId, command: &Command) -> Option<CommandId> {
-        child_command_id_for_command(parent_id, command, self.commands, self.command_child_index)
-    }
-
-    fn child_fact_for_stmt(
-        self,
-        parent_id: CommandId,
-        stmt: &Stmt,
-    ) -> Option<&'facts CommandFact<'a>> {
-        self.child_id_for_command(parent_id, &stmt.command)
-            .map(|id| self.fact(id))
-    }
-
-    fn child_or_lookup_fact(
-        self,
-        parent_id: CommandId,
-        stmt: &Stmt,
-    ) -> Option<&'facts CommandFact<'a>> {
-        self.child_fact_for_stmt(parent_id, stmt)
-            .or_else(|| self.fact_for_stmt(stmt))
     }
 
     fn child_or_lookup_arena_fact(
@@ -1859,41 +1825,13 @@ fn trim_trailing_whitespace_span(span: Span, source: &str) -> Span {
     Span::from_positions(span.start, span.start.advanced_by(trimmed))
 }
 
-fn command_fact_for_command<'a>(
-    command: &Command,
+fn command_fact_for_arena_stmt<'a>(
+    stmt: StmtView<'_>,
     commands: &'a [CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> Option<&'a CommandFact<'a>> {
-    command_id_for_command(command, command_ids_by_span).map(|id| command_fact(commands, id))
-}
-
-fn command_fact_for_stmt<'a>(
-    stmt: &Stmt,
-    commands: &'a [CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-) -> Option<&'a CommandFact<'a>> {
-    command_fact_for_command(&stmt.command, commands, command_ids_by_span)
-}
-
-fn child_command_id_for_command(
-    parent_id: CommandId,
-    command: &Command,
-    commands: &[CommandFact<'_>],
-    command_child_index: &CommandChildIndex,
-) -> Option<CommandId> {
-    command_child_index
-        .child_ids(parent_id)
-        .iter()
-        .copied()
-        .find(|id| command_fact(commands, *id).span() == command_span(command))
-}
-
-fn command_fact_ref_for_stmt<'facts, 'a>(
-    stmt: &Stmt,
-    commands: CommandFacts<'facts, 'a>,
-    command_ids_by_span: &CommandLookupIndex,
-) -> Option<CommandFactRef<'facts, 'a>> {
-    command_id_for_command(&stmt.command, command_ids_by_span).map(|id| command_fact_ref(commands, id))
+    command_id_for_arena_command(stmt.command(), command_ids_by_span)
+        .map(|id| command_fact(commands, id))
 }
 
 fn builtin_span(command: &BuiltinCommand) -> Span {

@@ -1,5 +1,3 @@
-use shuck_ast::static_word_text;
-
 use crate::{Checker, Rule, Violation};
 
 pub struct UnquotedTrRange;
@@ -21,10 +19,13 @@ pub fn unquoted_tr_range(checker: &mut Checker) {
         .iter()
         .filter(|fact| fact.effective_name_is("tr") && fact.wrappers().is_empty())
         .flat_map(|fact| {
-            fact.body_args().iter().filter_map(|word| {
-                let text = static_word_text(word, checker.source())?;
-                is_bracketed_tr_set(text.as_ref()).then_some(word.span)
-            })
+            fact.arena_body_args(checker.source())
+                .into_iter()
+                .filter_map(|word| {
+                    let text = word.static_text(checker.source())?;
+                    is_bracketed_tr_set(text.as_ref()).then_some(word.span())
+                })
+                .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
 

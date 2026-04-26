@@ -374,7 +374,7 @@ fn build_comment_double_quote_nesting_spans(source: &str, indexer: &Indexer) -> 
 }
 
 fn build_trailing_directive_comment_spans(
-    file: &File,
+    file: &ArenaFile,
     case_items: &[CaseItemFact],
     source: &str,
     indexer: &Indexer,

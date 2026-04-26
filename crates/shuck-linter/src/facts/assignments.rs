@@ -371,7 +371,10 @@ fn build_env_prefix_scope_spans(
             continue;
         };
         let command = arena_file.store.command(command_id);
-        if command_is_assignment_only(fact, source) {
+        let stmt = fact
+            .arena_stmt_id()
+            .map(|stmt_id| arena_file.store.stmt(stmt_id));
+        if command_is_assignment_only(fact, command, source) {
             continue;
         }
 
@@ -410,11 +413,17 @@ fn build_env_prefix_scope_spans(
                             })
                         })
                     });
-            let body_uses_name = command_body_mentions_name_outside_nested_commands(
-                command,
-                source,
-                &assignment.target.name,
-            );
+            let body_uses_name =
+                command_body_mentions_name_outside_nested_commands(
+                    command,
+                    source,
+                    &assignment.target.name,
+                ) || stmt.is_some_and(|stmt| {
+                    stmt_redirects_mention_name_outside_nested_commands(
+                        stmt,
+                        &assignment.target.name,
+                    )
+                });
 
             if (earlier_prefix_uses_name
                 || later_prefix_uses_name
@@ -496,6 +505,20 @@ fn build_env_prefix_scope_spans(
                     ControlFlow::Continue(())
                 },
             );
+            if let Some(stmt) = stmt {
+                let _ = visit_stmt_redirect_reference_spans_outside_nested_commands(
+                    stmt,
+                    &assignment.target.name,
+                    &mut |span| {
+                        push_fact_span(
+                            span,
+                            &mut scope_spans.expansion_scope_spans,
+                            &mut seen_expansion_scope_spans,
+                        );
+                        ControlFlow::Continue(())
+                    },
+                );
+            }
         }
     }
 
@@ -516,8 +539,16 @@ struct BrokenLegacyBracketTail {
 
 type EnvPrefixReferenceSpanVisitor<'a> = dyn FnMut(Span) -> ControlFlow<()> + 'a;
 
-fn command_is_assignment_only(fact: &CommandFact<'_>, _source: &str) -> bool {
-    fact.body_word_span().is_none() || fact.effective_or_literal_name().is_none()
+fn command_is_assignment_only(
+    fact: &CommandFact<'_>,
+    command: CommandView<'_>,
+    source: &str,
+) -> bool {
+    if let Some(simple) = command.simple() {
+        return simple.name().span().slice(source).is_empty() && simple.arg_ids().is_empty();
+    }
+
+    fact.body_word_span().is_none() && fact.effective_or_literal_name().is_none()
 }
 
 fn broken_legacy_bracket_tail(
@@ -592,6 +623,18 @@ fn command_body_mentions_name_outside_nested_commands(
     visit_command_body_reference_spans_outside_nested_commands(
         command,
         source,
+        name,
+        &mut |_span| ControlFlow::Break(()),
+    )
+    .is_break()
+}
+
+fn stmt_redirects_mention_name_outside_nested_commands(
+    stmt: StmtView<'_>,
+    name: &Name,
+) -> bool {
+    visit_stmt_redirect_reference_spans_outside_nested_commands(
+        stmt,
         name,
         &mut |_span| ControlFlow::Break(()),
     )
@@ -722,6 +765,27 @@ fn visit_command_body_reference_spans_outside_nested_commands(
                     )?;
                 }
             }
+        }
+    }
+
+    ControlFlow::Continue(())
+}
+
+fn visit_stmt_redirect_reference_spans_outside_nested_commands(
+    stmt: StmtView<'_>,
+    name: &Name,
+    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
+) -> ControlFlow<()> {
+    for redirect in stmt.redirects() {
+        match &redirect.target {
+            RedirectTargetNode::Word(word_id) => {
+                visit_word_reference_spans_outside_nested_commands(
+                    stmt.command().store().word(*word_id),
+                    name,
+                    visit,
+                )?;
+            }
+            RedirectTargetNode::Heredoc(_) => {}
         }
     }
 
@@ -1342,10 +1406,11 @@ fn build_nonpersistent_assignment_spans(
                 let resets = offsets
                     .into_iter()
                     .map(|offset| {
-                        let command_id = precomputed_command_id_for_offset(
-                            &innermost_command_ids_by_offset,
-                            offset,
-                        );
+                        let command_id =
+                            precomputed_command_id_for_offset(&innermost_command_ids_by_offset, offset)
+                                .or_else(|| {
+                                    command_id_for_prefix_assignment_offset(commands, offset)
+                                });
                         let command_end_offset = command_id
                             .and_then(|id| commands.get(id.index()))
                             .map(CommandFact::span)
@@ -1420,7 +1485,17 @@ fn build_nonpersistent_assignment_spans(
             &innermost_command_ids_by_offset,
             synthetic_read.span().start.offset,
         );
-        let same_command_prefix_reset = false;
+        let same_command_prefix_reset =
+            synthetic_command_id.is_some_and(|synthetic_command_id| {
+                reset_offsets.iter().any(|reset| {
+                    reset.command_id == Some(synthetic_command_id)
+                }) || command_has_assignment_to_name(
+                    commands,
+                    arena_file,
+                    synthetic_command_id,
+                    synthetic_read.name(),
+                )
+            });
         let synthetic_command_end_offset = synthetic_command_id
             .and_then(|id| commands.get(id.index()))
             .map(CommandFact::span)
@@ -1949,6 +2024,47 @@ fn compare_command_offset_entries(
 
 fn command_offset_entry(commands: &[CommandFact<'_>], id: CommandId) -> (Span, CommandId) {
     (command_fact(commands, id).span(), id)
+}
+
+fn command_id_for_prefix_assignment_offset(
+    commands: &[CommandFact<'_>],
+    offset: usize,
+) -> Option<CommandId> {
+    commands
+        .iter()
+        .filter(|command| {
+            let stmt_span = command.stmt_span();
+            stmt_span.start.offset <= offset
+                && offset <= stmt_span.end.offset
+                && command.span().start.offset >= offset
+        })
+        .min_by_key(|command| {
+            let span = command.span();
+            let stmt_span = command.stmt_span();
+            (
+                span.start.offset,
+                stmt_span.end.offset.saturating_sub(stmt_span.start.offset),
+                command.id().index(),
+            )
+        })
+        .map(CommandFact::id)
+}
+
+fn command_has_assignment_to_name(
+    commands: &[CommandFact<'_>],
+    arena_file: &ArenaFile,
+    command_id: CommandId,
+    name: &Name,
+) -> bool {
+    let Some(command) = commands.get(command_id.index()) else {
+        return false;
+    };
+    let Some(arena_command_id) = command.arena_command_id() else {
+        return false;
+    };
+    arena_command_assignments(arena_file.store.command(arena_command_id))
+        .iter()
+        .any(|assignment| assignment.target.name.as_str() == name.as_str())
 }
 
 fn precomputed_command_id_for_offset(

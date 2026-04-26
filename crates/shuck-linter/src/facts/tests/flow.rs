@@ -4,7 +4,10 @@ use crate::facts::{
     collect_precise_function_return_guard_suppressions_in_seq,
     stmt_is_non_test_return_status_guard, stmt_is_unary_test_return_status_guard,
 };
-use shuck_ast::{Command, CompoundCommand};
+use shuck_ast as ast;
+
+type Command = ast::Command;
+type CompoundCommand = ast::CompoundCommand;
 
 #[test]
 fn assignment_value_facts_ignore_line_continuation_backslashes_for_shell_quoting_literals() {
@@ -99,7 +102,14 @@ fn builds_command_facts_for_wrapped_and_nested_commands() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let outer = facts
         .structural_commands()
@@ -144,7 +154,14 @@ fn exposes_structural_commands_and_id_lookups() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let structural = facts
         .structural_commands()
@@ -180,7 +197,14 @@ fn precomputes_innermost_command_ids_for_nested_offsets() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let outer_id = facts
         .commands()

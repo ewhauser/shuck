@@ -2407,19 +2407,19 @@ fn lint_large_corpus_output(
     linter_settings: &shuck_linter::LinterSettings,
     source_path_resolver: Option<&(dyn shuck_semantic::SourcePathResolver + Send + Sync)>,
 ) -> Vec<shuck_linter::Diagnostic> {
-    let indexer = shuck_indexer::Indexer::new(source, parse_result);
+    let indexer = shuck_indexer::Indexer::new_arena(source, &parse_result.arena_file);
     let shellcheck_map = shuck_linter::ShellCheckCodeMap::default();
     let directives = shuck_linter::parse_directives(
         source,
-        &parse_result.file,
+        &parse_result.arena_file,
         indexer.comment_index(),
         &shellcheck_map,
     );
     let suppression_index = (!directives.is_empty()).then(|| {
         shuck_linter::SuppressionIndex::new(
             &directives,
-            &parse_result.file,
-            shuck_linter::first_statement_line(&parse_result.file).unwrap_or(u32::MAX),
+            &parse_result.arena_file,
+            shuck_linter::first_statement_line(&parse_result.arena_file).unwrap_or(u32::MAX),
         )
     });
 

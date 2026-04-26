@@ -13,6 +13,7 @@ impl Violation for ReadWithoutRaw {
 }
 
 pub fn read_without_raw(checker: &mut Checker) {
+    let source = checker.source();
     let spans = checker
         .facts()
         .commands()
@@ -23,7 +24,7 @@ pub fn read_without_raw(checker: &mut Checker) {
                 .read()
                 .is_some_and(|read| !read.uses_raw_input)
         })
-        .filter_map(|fact| fact.body_name_word().map(|word| word.span))
+        .filter_map(|fact| fact.arena_body_name_word(source).map(|word| word.span()))
         .collect::<Vec<_>>();
 
     checker.report_all(spans, || ReadWithoutRaw);

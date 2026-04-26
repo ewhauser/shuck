@@ -231,7 +231,7 @@ source \"${scriptfolder}${known_pins_dbfile}\"
         };
 
         let diagnostics = lint_file_at_path_with_resolver(
-            &parse_result.file,
+            &parse_result,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::UntrackedSourceFile),
@@ -489,7 +489,7 @@ fi
         };
 
         let diagnostics = lint_file_at_path_with_resolver(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::UntrackedSourceFile),
@@ -526,7 +526,7 @@ fi
         };
 
         let diagnostics = lint_file_at_path_with_resolver(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::UntrackedSourceFile),

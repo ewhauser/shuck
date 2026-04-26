@@ -13,6 +13,7 @@ impl Violation for ExprArithmetic {
 }
 
 pub fn expr_arithmetic(checker: &mut Checker) {
+    let source = checker.source();
     let spans = checker
         .facts()
         .commands()
@@ -23,7 +24,7 @@ pub fn expr_arithmetic(checker: &mut Checker) {
                 .expr()
                 .is_some_and(|expr| expr.uses_arithmetic_operator())
         })
-        .filter_map(|fact| fact.body_name_word().map(|word| word.span))
+        .filter_map(|fact| fact.arena_body_name_word(source).map(|word| word.span()))
         .collect::<Vec<_>>();
 
     checker.report_all(spans, || ExprArithmetic);

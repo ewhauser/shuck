@@ -66,7 +66,8 @@ fn bracket_comparison_redirect_diagnostics(
     let Some(opening_bracket) = command.body_word_span() else {
         return Vec::new();
     };
-    let Some(closing_bracket) = command.body_args().last() else {
+    let Some(closing_bracket) = command.arena_body_args(source).last().map(|word| word.span())
+    else {
         return Vec::new();
     };
 
@@ -77,7 +78,7 @@ fn bracket_comparison_redirect_diagnostics(
             numeric_comparison_redirect_diagnostic(
                 redirect,
                 opening_bracket,
-                closing_bracket.span,
+                closing_bracket,
                 source,
             )
         })

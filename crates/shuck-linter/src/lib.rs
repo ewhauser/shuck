@@ -59,23 +59,24 @@ pub use facts::CommandSubstitutionKind;
 /// Extracted structural facts available to rules and callers.
 pub use facts::{
     ArenaNormalizedCommand, ArenaNormalizedDeclaration, BacktickFragmentFact, CommandFact,
-    CommandFactCompoundKind, CommandFactRef, CommandFacts, CommandOptionFacts, ConditionalBareWordFact,
-    ConditionalBinaryFact, ConditionalFact, ConditionalMixedLogicalOperatorFact,
-    ConditionalNodeFact, ConditionalOperandFact, ConditionalOperatorFamily,
-    ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts, ExpansionAnalysis,
-    ExpansionContext, ExpansionHazards, ExpansionValueShape, FactWordRef, FindCommandFacts,
-    FindExecCommandFacts, FindExecShellCommandFacts, ForHeaderFact, FunctionCallArityFacts,
-    FunctionHeaderFact, GrepPatternSourceKind, LegacyArithmeticFragmentFact, ListFact,
-    ListOperatorFact, LoopHeaderWordFact, PathWordFact, PipelineFact, PipelineOperatorFact,
-    PipelineSegmentFact, PositionalParameterFragmentFact, PrintfCommandFacts, ReadCommandFacts,
-    RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis, RedirectTargetKind,
-    RmCommandFacts, RuntimeLiteralAnalysis, SelectHeaderFact, SimpleTestFact,
-    SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact,
-    SshCommandFacts, StatementFact, SubstitutionFact, SubstitutionHostKind,
-    SubstitutionOutputIntent, SudoFamilyCommandFacts, SudoFamilyInvoker, TestOperandClass,
-    UnsetCommandFacts, WaitCommandFacts, WordClassification, WordExpansionKind, WordFactContext,
-    WordFactHostKind, WordLiteralness, WordOccurrence, WordOccurrenceIter, WordOccurrenceRef,
-    WordQuote, WordSubstitutionShape, XargsCommandFacts, leading_literal_word_prefix,
+    CommandFactCompoundKind, CommandFactRef, CommandFacts, CommandOptionFacts,
+    ConditionalBareWordFact, ConditionalBinaryFact, ConditionalFact,
+    ConditionalMixedLogicalOperatorFact, ConditionalNodeFact, ConditionalOperandFact,
+    ConditionalOperatorFamily, ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts,
+    ExpansionAnalysis, ExpansionContext, ExpansionHazards, ExpansionValueShape, FactWordRef,
+    FindCommandFacts, FindExecCommandFacts, FindExecShellCommandFacts, ForHeaderFact,
+    FunctionCallArityFacts, FunctionHeaderFact, GrepPatternSourceKind,
+    LegacyArithmeticFragmentFact, ListFact, ListOperatorFact, LoopHeaderWordFact, PathWordFact,
+    PipelineFact, PipelineOperatorFact, PipelineSegmentFact, PositionalParameterFragmentFact,
+    PrintfCommandFacts, ReadCommandFacts, RedirectDevNullStatus, RedirectFact,
+    RedirectTargetAnalysis, RedirectTargetKind, RmCommandFacts, RuntimeLiteralAnalysis,
+    SelectHeaderFact, SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax,
+    SingleQuotedFragmentFact, SshCommandFacts, StatementFact, SubstitutionFact,
+    SubstitutionHostKind, SubstitutionOutputIntent, SudoFamilyCommandFacts, SudoFamilyInvoker,
+    TestOperandClass, UnsetCommandFacts, WaitCommandFacts, WordClassification, WordExpansionKind,
+    WordFactContext, WordFactHostKind, WordLiteralness, WordOccurrence, WordOccurrenceIter,
+    WordOccurrenceRef, WordQuote, WordSubstitutionShape, XargsCommandFacts,
+    leading_literal_word_prefix,
 };
 /// Fact collection types and stable identifiers into those collections.
 pub use facts::{
@@ -117,7 +118,7 @@ pub use suppression::{
 pub use violation::Violation;
 
 use rustc_hash::FxHashSet;
-use shuck_ast::{ArenaFile, File, Position, Span, TextSize};
+use shuck_ast::{ArenaFile, Position, Span, TextSize};
 use shuck_indexer::{Indexer, LineIndex};
 use shuck_parser::parser::{ParseResult, Parser};
 use shuck_semantic::{
@@ -147,17 +148,6 @@ impl LintTraversalObserver {
 
 impl TraversalObserver for LintTraversalObserver {}
 
-/// Builds semantic facts and linter diagnostics for a parsed file.
-pub fn analyze_file(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
-) -> AnalysisResult {
-    analyze_file_at_path(file, source, indexer, settings, suppression_index, None)
-}
-
 /// Builds semantic facts and linter diagnostics for an arena-backed parsed file.
 pub fn analyze_arena_file(
     ast: &ArenaFile,
@@ -172,35 +162,19 @@ pub fn analyze_arena_file(
 #[cfg(feature = "benchmarking")]
 #[doc(hidden)]
 #[must_use]
-pub fn benchmark_normalize_commands(file: &File, source: &str) -> usize {
-    facts::benchmark_normalize_commands(file, source)
+pub fn benchmark_normalize_commands(ast: &ArenaFile, source: &str) -> usize {
+    facts::benchmark_normalize_commands(ast, source)
 }
 
 #[cfg(feature = "benchmarking")]
 #[doc(hidden)]
 #[must_use]
-pub fn benchmark_collect_word_facts(file: &File, source: &str, semantic: &SemanticModel) -> usize {
-    facts::benchmark_collect_word_facts(file, source, semantic)
-}
-
-/// Builds semantic facts and linter diagnostics for a parsed file at an optional source path.
-pub fn analyze_file_at_path(
-    file: &File,
+pub fn benchmark_collect_word_facts(
+    ast: &ArenaFile,
     source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
-    source_path: Option<&Path>,
-) -> AnalysisResult {
-    analyze_file_at_path_with_resolver(
-        file,
-        source,
-        indexer,
-        settings,
-        suppression_index,
-        source_path,
-        None,
-    )
+    semantic: &SemanticModel,
+) -> usize {
+    facts::benchmark_collect_word_facts(ast, source, semantic)
 }
 
 /// Builds semantic facts and linter diagnostics for an arena-backed file at an optional source path.
@@ -234,10 +208,12 @@ pub fn analyze_arena_file_at_path_with_resolver(
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> AnalysisResult {
     let shell = resolve_shell(settings, source, source_path);
-    let first_parse_error = parse_error_position(&parse_for_lint(source, shell));
+    let parse_result = parse_for_lint(source, shell);
+    let first_parse_error = parse_error_position(&parse_result);
 
     analyze_arena_file_at_path_with_resolver_and_shell(
         ast,
+        &parse_result.file,
         source,
         indexer,
         settings,
@@ -247,112 +223,12 @@ pub fn analyze_arena_file_at_path_with_resolver(
         shell,
         first_parse_error,
     )
-}
-
-/// Builds semantic facts and linter diagnostics with a custom source-path resolver.
-pub fn analyze_file_at_path_with_resolver(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
-    source_path: Option<&Path>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-) -> AnalysisResult {
-    let shell = resolve_shell(settings, source, source_path);
-    let first_parse_error = parse_error_position(&parse_for_lint(source, shell));
-
-    analyze_file_at_path_with_resolver_and_shell(
-        file,
-        source,
-        indexer,
-        settings,
-        suppression_index,
-        source_path,
-        source_path_resolver,
-        shell,
-        first_parse_error,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn analyze_file_at_path_with_resolver_and_shell(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
-    source_path: Option<&Path>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-    shell: ShellDialect,
-    first_parse_error: Option<(usize, usize)>,
-) -> AnalysisResult {
-    let ast = ArenaFile::from_file(file);
-    let file_context = classify_file_context(source, source_path, shell);
-    let file_entry_contract =
-        ambient_contracts::file_entry_contract(source, source_path, shell, &file_context);
-    let analyzed_paths_fallback =
-        source_path.map(|path| FxHashSet::from_iter([path.to_path_buf()]));
-    let analyzed_paths = settings
-        .analyzed_paths
-        .as_deref()
-        .or(analyzed_paths_fallback.as_ref());
-
-    let mut observer = LintTraversalObserver::default();
-    let shell_profile = shell.shell_profile();
-    let semantic = build_with_observer_arena_with_options(
-        &ast,
-        source,
-        indexer,
-        &mut observer,
-        SemanticBuildOptions {
-            source_path,
-            source_path_resolver,
-            file_entry_contract,
-            analyzed_paths,
-            shell_profile: Some(shell_profile),
-            resolve_source_closure: settings.resolve_source_closure,
-        },
-    );
-    let checker = Checker::new(
-        file,
-        &ast,
-        source,
-        &semantic,
-        indexer,
-        &settings.rules,
-        shell,
-        settings.ambient_shell_options,
-        settings.report_environment_style_names,
-        settings.rule_options.clone(),
-        &file_context,
-        suppression_index,
-        first_parse_error,
-    );
-    let mut diagnostics = observer.into_diagnostics();
-    diagnostics.extend(checker.check());
-    for diagnostic in &mut diagnostics {
-        if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
-            diagnostic.severity = severity;
-        }
-    }
-
-    if let Some(suppression_index) = suppression_index {
-        filter_suppressed_diagnostics(&mut diagnostics, indexer, suppression_index);
-    }
-    filter_per_file_ignored_diagnostics(&mut diagnostics, settings, source_path);
-
-    diagnostics
-        .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
-    AnalysisResult {
-        semantic,
-        diagnostics,
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
 fn analyze_arena_file_at_path_with_resolver_and_shell(
     ast: &ArenaFile,
+    file: &shuck_ast::File,
     source: &str,
     indexer: &Indexer,
     settings: &LinterSettings,
@@ -362,7 +238,6 @@ fn analyze_arena_file_at_path_with_resolver_and_shell(
     shell: ShellDialect,
     first_parse_error: Option<(usize, usize)>,
 ) -> AnalysisResult {
-    let file = ast.to_file();
     let file_context = classify_file_context(source, source_path, shell);
     let file_entry_contract =
         ambient_contracts::file_entry_contract(source, source_path, shell, &file_context);
@@ -390,8 +265,8 @@ fn analyze_arena_file_at_path_with_resolver_and_shell(
         },
     );
     let checker = Checker::new(
-        &file,
         ast,
+        file,
         source,
         &semantic,
         indexer,
@@ -459,7 +334,7 @@ fn parse_error_position(parse_result: &ParseResult) -> Option<(usize, usize)> {
 
 /// Lints a parsed file located at an optional source path.
 pub fn lint_file_at_path(
-    file: &File,
+    parse_result: &ParseResult,
     source: &str,
     indexer: &Indexer,
     settings: &LinterSettings,
@@ -467,7 +342,7 @@ pub fn lint_file_at_path(
     source_path: Option<&Path>,
 ) -> Vec<Diagnostic> {
     lint_file_at_path_with_resolver(
-        file,
+        parse_result,
         source,
         indexer,
         settings,
@@ -479,7 +354,7 @@ pub fn lint_file_at_path(
 
 /// Lints a parsed file with a custom source-path resolver.
 pub fn lint_file_at_path_with_resolver(
-    file: &File,
+    parse_result: &ParseResult,
     source: &str,
     indexer: &Indexer,
     settings: &LinterSettings,
@@ -487,45 +362,15 @@ pub fn lint_file_at_path_with_resolver(
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> Vec<Diagnostic> {
-    let shell = resolve_shell(settings, source, source_path);
-    let parse_result = parse_for_lint(source, shell);
-
-    let mut diagnostics = analyze_file_at_path_with_resolver_and_shell(
-        file,
+    lint_file_at_path_with_resolver_and_parse_result(
+        parse_result,
         source,
         indexer,
         settings,
         suppression_index,
         source_path,
         source_path_resolver,
-        shell,
-        parse_error_position(&parse_result),
     )
-    .diagnostics;
-
-    diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
-        &parse_result.file,
-        source,
-        Some(&parse_result),
-        &settings.rules,
-        shell,
-    ));
-
-    for diagnostic in &mut diagnostics {
-        if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
-            diagnostic.severity = severity;
-        }
-    }
-
-    if let Some(suppression_index) = suppression_index {
-        filter_suppressed_diagnostics(&mut diagnostics, indexer, suppression_index);
-    }
-    filter_per_file_ignored_diagnostics(&mut diagnostics, settings, source_path);
-
-    diagnostics
-        .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
-
-    diagnostics
 }
 
 /// Lints an existing parse result while preserving parse-aware diagnostics.
@@ -541,7 +386,8 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
 ) -> Vec<Diagnostic> {
     let shell = resolve_shell(settings, source, source_path);
 
-    let mut diagnostics = analyze_file_at_path_with_resolver_and_shell(
+    let mut diagnostics = analyze_arena_file_at_path_with_resolver_and_shell(
+        &parse_result.arena_file,
         &parse_result.file,
         source,
         indexer,
@@ -555,7 +401,7 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
     .diagnostics;
 
     diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
-        &parse_result.file,
+        &parse_result.arena_file,
         source,
         Some(parse_result),
         &settings.rules,
@@ -615,6 +461,7 @@ pub fn lint_arena_file(
 
     let mut diagnostics = analyze_arena_file_at_path_with_resolver_and_shell(
         &parse_result.arena_file,
+        &parse_result.file,
         source,
         indexer,
         settings,
@@ -627,7 +474,7 @@ pub fn lint_arena_file(
     .diagnostics;
 
     diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
-        &parse_result.file,
+        &parse_result.arena_file,
         source,
         Some(parse_result),
         &settings.rules,
@@ -766,7 +613,8 @@ fn ceil_char_boundary(source: &str, offset: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shuck_ast::{Command, Position, Span};
+    use shuck_ast as ast;
+    use shuck_ast::{Position, Span};
     use shuck_parser::Error as ParseError;
     use shuck_parser::parser::{
         ParseDiagnostic, ParseStatus, Parser, ShellDialect as ParseDialect, SyntaxFacts,
@@ -774,6 +622,8 @@ mod tests {
     use std::fs;
     use std::path::Path;
     use tempfile::tempdir;
+
+    type Command = ast::Command;
 
     fn lint(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
         let output = Parser::new(source).parse().unwrap();
@@ -791,7 +641,7 @@ mod tests {
         let source = fs::read_to_string(path).unwrap();
         let output = Parser::new(&source).parse().unwrap();
         let indexer = Indexer::new(&source, &output);
-        lint_file_at_path(&output.file, &source, &indexer, settings, None, Some(path))
+        lint_file_at_path(&output, &source, &indexer, settings, None, Some(path))
     }
 
     fn lint_for_rule(source: &str, rule: Rule) -> Vec<Diagnostic> {
@@ -811,7 +661,7 @@ mod tests {
         let output = Parser::new(&source).parse().unwrap();
         let indexer = Indexer::new(&source, &output);
         lint_file_at_path_with_resolver(
-            &output.file,
+            &output,
             &source,
             &indexer,
             &LinterSettings::for_rule(rule),
@@ -824,7 +674,7 @@ mod tests {
     fn lint_named_source(path: &Path, source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        lint_file_at_path(&output.file, source, &indexer, settings, None, Some(path))
+        lint_file_at_path(&output, source, &indexer, settings, None, Some(path))
     }
 
     fn lint_named_source_with_parse_dialect(
@@ -835,7 +685,7 @@ mod tests {
     ) -> Vec<Diagnostic> {
         let output = Parser::with_dialect(source, parse_dialect).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        lint_file_at_path(&output.file, source, &indexer, settings, None, Some(path))
+        lint_file_at_path(&output, source, &indexer, settings, None, Some(path))
     }
 
     fn runtime_prelude_source(shebang: &str) -> String {
@@ -874,8 +724,8 @@ mod tests {
         let source = "#!/bin/bash\nvalue=ok\necho \"$value\"\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let result = analyze_file(
-            &output.file,
+        let result = analyze_arena_file(
+            &output.arena_file,
             source,
             &indexer,
             &LinterSettings::default(),
@@ -889,14 +739,16 @@ mod tests {
 
     #[test]
     fn parse_error_position_falls_back_to_first_diagnostic_span() {
-        let file = Parser::new("#!/bin/bash\n").parse().unwrap().file;
+        let parsed = Parser::new("#!/bin/bash\n").parse().unwrap();
+        let arena_file = parsed.arena_file;
+        let file = parsed.file;
         let diagnostic_start = Position {
             line: 3,
             column: 2,
             offset: 14,
         };
         let parse_result = ParseResult {
-            arena_file: shuck_ast::ArenaFile::from_file(&file),
+            arena_file,
             file,
             diagnostics: vec![ParseDiagnostic {
                 message: "expected command".to_owned(),
@@ -2044,14 +1896,14 @@ echo $bar
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
 
         let echo_foo = match &output.file.body[1].command {
@@ -2112,14 +1964,14 @@ EOF
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5412,14 +5264,14 @@ foo=1
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5443,14 +5295,14 @@ foo=1
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5476,14 +5328,14 @@ foo=2
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5511,14 +5363,14 @@ f() {
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5543,14 +5395,14 @@ printf '%s\\n' \"$foo\"
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5577,14 +5429,14 @@ f() {
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5608,14 +5460,14 @@ f() {
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5639,14 +5491,14 @@ f() {
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5674,14 +5526,14 @@ f
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5705,14 +5557,14 @@ function f { :; }
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5736,14 +5588,14 @@ function f { :; }
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5767,14 +5619,14 @@ echo \\n
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5798,14 +5650,14 @@ let x=1
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5829,14 +5681,14 @@ declare foo=bar
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5860,14 +5712,14 @@ source ./helpers.sh
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5891,14 +5743,14 @@ function f() { :; }
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5922,14 +5774,14 @@ arr[$((1+1))]=x
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,
@@ -5955,14 +5807,14 @@ f() {
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let suppressions = SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &output.arena_file,
+            first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
             &output,

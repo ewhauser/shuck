@@ -1,4 +1,4 @@
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, FactWordRef, Rule, Violation};
 
 pub struct RedundantSpacesInEcho;
 
@@ -20,9 +20,10 @@ pub fn redundant_spaces_in_echo(checker: &mut Checker) {
         .filter(|fact| fact.effective_name_is("echo"))
         .filter(|fact| fact.wrappers().is_empty())
         .filter_map(|fact| {
-            if has_repeated_argument_spaces(fact.body_args(), source) {
-                fact.body_name_word()
-                    .and_then(|name| command_span(name, fact.body_args()))
+            let args = fact.arena_body_args(source);
+            if has_repeated_argument_spaces(&args, source) {
+                fact.arena_body_name_word(source)
+                    .and_then(|name| command_span(name, &args))
             } else {
                 None
             }
@@ -32,10 +33,10 @@ pub fn redundant_spaces_in_echo(checker: &mut Checker) {
     checker.report_all(spans, || RedundantSpacesInEcho);
 }
 
-fn has_repeated_argument_spaces(words: &[&shuck_ast::Word], source: &str) -> bool {
+fn has_repeated_argument_spaces(words: &[FactWordRef<'_>], source: &str) -> bool {
     words
         .windows(2)
-        .any(|pair| repeated_space_gap(pair[0].span, pair[1].span, source))
+        .any(|pair| repeated_space_gap(pair[0].span(), pair[1].span(), source))
 }
 
 fn repeated_space_gap(left: shuck_ast::Span, right: shuck_ast::Span, source: &str) -> bool {
@@ -63,11 +64,11 @@ fn repeated_space_gap(left: shuck_ast::Span, right: shuck_ast::Span, source: &st
     gap.len() >= 4 && gap.chars().all(|ch| ch == ' ')
 }
 
-fn command_span(name: &shuck_ast::Word, args: &[&shuck_ast::Word]) -> Option<shuck_ast::Span> {
+fn command_span(name: FactWordRef<'_>, args: &[FactWordRef<'_>]) -> Option<shuck_ast::Span> {
     let last = args.last()?;
     Some(shuck_ast::Span::from_positions(
-        name.span.start,
-        last.span.end,
+        name.span().start,
+        last.span().end,
     ))
 }
 

@@ -29,14 +29,14 @@ pub fn c_style_comment(checker: &mut Checker) {
             let Some(command) = checker.facts().commands().get(index) else {
                 continue;
             };
-            let Some(name) = command.body_name_word() else {
+            let Some(name) = command.arena_body_name_word(checker.source()) else {
                 continue;
             };
-            name.span
+            name.span()
                 .slice(checker.source())
                 .starts_with("/*")
-                .then_some(crate::Diagnostic::new(CStyleComment, name.span).with_fix(
-                    Fix::unsafe_edit(Edit::insertion(name.span.start.offset, "# ")),
+                .then_some(crate::Diagnostic::new(CStyleComment, name.span()).with_fix(
+                    Fix::unsafe_edit(Edit::insertion(name.span().start.offset, "# ")),
                 ))
         };
 

@@ -1,5 +1,5 @@
 use rustc_hash::FxHashMap;
-use shuck_ast::{ArrayElem, Assignment, AssignmentValue, Span};
+use shuck_ast::{ArrayElemNode, AssignmentNode, AssignmentValueNode, Span};
 use shuck_semantic::ReferenceKind;
 
 use crate::{Checker, Rule, Violation};
@@ -39,7 +39,7 @@ fn declaration_cross_reference_spans(
     let mut spans = Vec::new();
 
     for assignment in declaration.assignment_operands.iter().copied() {
-        for value_span in assignment_value_spans(assignment) {
+        for value_span in assignment_value_spans(fact, assignment) {
             for reference in checker.semantic().references().iter().filter(|reference| {
                 reference.kind != ReferenceKind::DeclarationName
                     && contains_span(value_span, reference.span)
@@ -59,22 +59,33 @@ fn declaration_cross_reference_spans(
     spans
 }
 
-fn assignment_value_spans(assignment: &Assignment) -> Vec<Span> {
+fn assignment_value_spans(
+    fact: crate::CommandFactRef<'_, '_>,
+    assignment: &AssignmentNode,
+) -> Vec<Span> {
     match &assignment.value {
-        AssignmentValue::Scalar(word) => vec![word.span],
-        AssignmentValue::Compound(array) => array
-            .elements
+        AssignmentValueNode::Scalar(word) => vec![fact.arena_word(*word).span()],
+        AssignmentValueNode::Compound(array) => fact
+            .arena_file()
+            .store
+            .array_elems(array.elements)
             .iter()
-            .flat_map(array_element_spans)
+            .flat_map(|element| array_element_spans(fact, element))
             .collect(),
     }
 }
 
-fn array_element_spans(element: &ArrayElem) -> Vec<Span> {
+fn array_element_spans(fact: crate::CommandFactRef<'_, '_>, element: &ArrayElemNode) -> Vec<Span> {
     match element {
-        ArrayElem::Sequential(word) => vec![word.span],
-        ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-            vec![key.span(), value.span]
+        ArrayElemNode::Sequential(value) => vec![fact.arena_word(value.word).span()],
+        ArrayElemNode::Keyed { key, value } | ArrayElemNode::KeyedAppend { key, value } => {
+            let value_span = fact.arena_word(value.word).span();
+            vec![
+                key.word_ast
+                    .map(|word| fact.arena_word(word).span())
+                    .unwrap_or(value_span),
+                value_span,
+            ]
         }
     }
 }

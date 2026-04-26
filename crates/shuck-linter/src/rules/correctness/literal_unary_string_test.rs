@@ -1,4 +1,4 @@
-use shuck_ast::{ConditionalUnaryOp, Word, static_word_text};
+use shuck_ast::ConditionalUnaryOp;
 
 use crate::facts::word_spans;
 use crate::{
@@ -59,8 +59,8 @@ fn simple_test_diagnostics(
 
 fn simple_test_diagnostic(
     fact: &crate::SimpleTestFact<'_>,
-    operator: &Word,
-    operand: &Word,
+    operator: &shuck_ast::Word,
+    operand: &shuck_ast::Word,
     source: &str,
 ) -> Option<crate::Diagnostic> {
     if unary_operand_is_explicit_boolean_literal(operator, operand, source) {
@@ -156,9 +156,9 @@ fn conditional_diagnostic(
 const EMPTY_LITERAL_REPLACEMENT: &str = "\"\"";
 const NON_EMPTY_LITERAL_REPLACEMENT: &str = "x";
 
-fn explicit_literal_replacement_for_word(word: &Word, source: &str) -> &'static str {
+fn explicit_literal_replacement_for_word(word: &shuck_ast::Word, source: &str) -> &'static str {
     explicit_literal_replacement_for_text(
-        static_word_text(word, source)
+        shuck_ast::static_word_text(word, source)
             .as_deref()
             .unwrap_or_else(|| word.span.slice(source)),
     )
@@ -182,14 +182,17 @@ fn quoted_literal_body(text: &str) -> Option<&str> {
 }
 
 fn unary_operand_is_explicit_boolean_literal(
-    operator: &Word,
-    operand: &Word,
+    operator: &shuck_ast::Word,
+    operand: &shuck_ast::Word,
     source: &str,
 ) -> bool {
     matches!(
-        static_word_text(operator, source).as_deref(),
+        shuck_ast::static_word_text(operator, source).as_deref(),
         Some("-z" | "-n")
-    ) && matches!(static_word_text(operand, source).as_deref(), Some("" | "x"))
+    ) && matches!(
+        shuck_ast::static_word_text(operand, source).as_deref(),
+        Some("" | "x")
+    )
 }
 
 fn conditional_unary_operand_is_explicit_boolean_literal(
@@ -210,7 +213,7 @@ fn conditional_operand_text(
     source: &str,
 ) -> Option<String> {
     if let Some(word) = operand.word() {
-        return static_word_text(word, source).map(|text| text.into_owned());
+        return shuck_ast::static_word_text(word, source).map(|text| text.into_owned());
     }
 
     operand

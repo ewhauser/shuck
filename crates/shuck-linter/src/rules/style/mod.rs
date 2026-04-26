@@ -59,6 +59,7 @@ pub mod single_quote_backslash;
 pub mod spaced_tabstrip_close;
 pub mod su_without_flag;
 pub mod suspect_closing_quote;
+#[cfg(test)]
 pub mod syntax;
 pub mod trailing_directive;
 pub mod trap_signal_numbers;

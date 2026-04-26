@@ -1,7 +1,5 @@
 use crate::context::FileContextTag;
-use crate::{
-    Checker, CommandFactRef, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation,
-};
+use crate::{Checker, CommandFactRef, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{ArenaFileCommandKind, CompoundCommandNode};
 use shuck_semantic::{
@@ -2310,7 +2308,10 @@ fn has_apparent_infinite_loop_after(checker: &Checker<'_>, offset: usize) -> boo
     })
 }
 
-fn command_is_apparent_infinite_loop(checker: &Checker<'_>, command: CommandFactRef<'_, '_>) -> bool {
+fn command_is_apparent_infinite_loop(
+    checker: &Checker<'_>,
+    command: CommandFactRef<'_, '_>,
+) -> bool {
     apparent_infinite_loop_body_span(checker, command)
         .is_some_and(|body_span| !loop_body_contains_break(checker, body_span))
 }
@@ -2324,12 +2325,20 @@ fn apparent_infinite_loop_body_span(
     match compound.node() {
         CompoundCommandNode::While {
             condition, body, ..
-        } => condition_text_is(source, compound.store().stmt_seq(*condition).span(), &["true", ":"])
-            .then_some(compound.store().stmt_seq(*body).span()),
+        } => condition_text_is(
+            source,
+            compound.store().stmt_seq(*condition).span(),
+            &["true", ":"],
+        )
+        .then_some(compound.store().stmt_seq(*body).span()),
         CompoundCommandNode::Until {
             condition, body, ..
-        } => condition_text_is(source, compound.store().stmt_seq(*condition).span(), &["false"])
-            .then_some(compound.store().stmt_seq(*body).span()),
+        } => condition_text_is(
+            source,
+            compound.store().stmt_seq(*condition).span(),
+            &["false"],
+        )
+        .then_some(compound.store().stmt_seq(*body).span()),
         _ => None,
     }
 }
@@ -2457,7 +2466,7 @@ fn has_intervening_executable_command(
     end_offset: usize,
 ) -> bool {
     checker.facts().structural_commands().any(|fact| {
-            fact.body_span().start.offset > start_offset
+        fact.body_span().start.offset > start_offset
             && fact.body_span().start.offset < end_offset
             && fact.command_kind() != ArenaFileCommandKind::Function
     })

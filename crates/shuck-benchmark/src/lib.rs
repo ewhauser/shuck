@@ -255,18 +255,18 @@ mod tests {
 
         for file in TEST_FILES.iter() {
             let output = parse_fixture(file.source);
-            let indexer = Indexer::new(file.source, &output);
+            let indexer = Indexer::new_arena(file.source, &output.arena_file);
             let directives = parse_directives(
                 file.source,
-                &output.file,
+                &output.arena_file,
                 indexer.comment_index(),
                 &shellcheck_map,
             );
             let suppression_index = (!directives.is_empty()).then(|| {
                 SuppressionIndex::new(
                     &directives,
-                    &output.file,
-                    first_statement_line(&output.file).unwrap_or(u32::MAX),
+                    &output.arena_file,
+                    first_statement_line(&output.arena_file).unwrap_or(u32::MAX),
                 )
             });
             let diagnostics = lint_file(

@@ -213,6 +213,7 @@ struct CaseReport {
 fn facts_size(input: &PreparedInput) -> usize {
     let facts = LinterFacts::build_with_shell_and_ambient_shell_options(
         &input.output.file,
+        &input.output.arena_file,
         input.source,
         &input.semantic,
         &input.indexer,
@@ -233,6 +234,7 @@ fn facts_size(input: &PreparedInput) -> usize {
 
 fn check_diagnostics(input: &PreparedInput, settings: &LinterSettings) -> usize {
     let checker = Checker::new(
+        &input.output.arena_file,
         &input.output.file,
         input.source,
         &input.semantic,

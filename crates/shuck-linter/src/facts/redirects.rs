@@ -387,6 +387,75 @@ fn visit_command_substitution_loop_header_words<'a>(
     }
 }
 
+fn visit_command_argument_words_for_substitutions<'a>(
+    command: &'a Command,
+    source: &str,
+    visitor: &mut impl FnMut(&'a Word),
+) {
+    match command {
+        Command::Simple(command) => {
+            if static_word_text(&command.name, source).as_deref() == Some("trap") {
+                return;
+            }
+            for word in &command.args {
+                visitor(word);
+            }
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => {
+                if let Some(word) = &command.depth {
+                    visitor(word);
+                }
+                for word in &command.extra_args {
+                    visitor(word);
+                }
+            }
+            BuiltinCommand::Continue(command) => {
+                if let Some(word) = &command.depth {
+                    visitor(word);
+                }
+                for word in &command.extra_args {
+                    visitor(word);
+                }
+            }
+            BuiltinCommand::Return(command) => {
+                if let Some(word) = &command.code {
+                    visitor(word);
+                }
+                for word in &command.extra_args {
+                    visitor(word);
+                }
+            }
+            BuiltinCommand::Exit(command) => {
+                if let Some(word) = &command.code {
+                    visitor(word);
+                }
+                for word in &command.extra_args {
+                    visitor(word);
+                }
+            }
+        },
+        Command::Decl(command) => {
+            for operand in &command.operands {
+                if let DeclOperand::Dynamic(word) = operand {
+                    visitor(word);
+                }
+            }
+        }
+        Command::Function(function) => {
+            for entry in &function.header.entries {
+                visitor(&entry.word);
+            }
+        }
+        Command::AnonymousFunction(function) => {
+            for word in &function.args {
+                visitor(word);
+            }
+        }
+        Command::Binary(_) | Command::Compound(_) => {}
+    }
+}
+
 fn standalone_comparable_name_use(word: &Word, source: &str) -> Option<ComparableNameUse> {
     if let Some(text) = static_word_text(word, source)
         && comparable_name_text(text.as_ref())

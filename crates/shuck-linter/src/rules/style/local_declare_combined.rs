@@ -1,4 +1,4 @@
-use shuck_ast::DeclOperand;
+use shuck_ast::DeclOperandNode;
 
 use crate::{Checker, DeclarationKind, Rule, ShellDialect, Violation};
 
@@ -46,9 +46,11 @@ fn declaration_combination_span(fact: crate::CommandFactRef<'_, '_>) -> Option<s
         .operands
         .iter()
         .find_map(|operand| match operand {
-            DeclOperand::Name(name) if name.name.as_str() == expected => Some(name.span),
-            DeclOperand::Flag(_) | DeclOperand::Dynamic(_) | DeclOperand::Assignment(_) => None,
-            DeclOperand::Name(_) => None,
+            DeclOperandNode::Name(name) if name.name.as_str() == expected => Some(name.span),
+            DeclOperandNode::Flag(_)
+            | DeclOperandNode::Dynamic(_)
+            | DeclOperandNode::Assignment(_) => None,
+            DeclOperandNode::Name(_) => None,
         })
 }
 

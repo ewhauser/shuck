@@ -931,19 +931,19 @@ fn lint_with_context(
         .unwrap_or_else(|| ShellDialect::infer(source, Some(path)));
 
     let parse_result = Parser::with_profile(source, shell.shell_profile()).parse();
-    let indexer = Indexer::new(source, &parse_result);
+    let indexer = Indexer::new_arena(source, &parse_result.arena_file);
     let shellcheck_map = &options.shellcheck_map;
     let directives = parse_directives(
         source,
-        &parse_result.file,
+        &parse_result.arena_file,
         indexer.comment_index(),
         shellcheck_map,
     );
     let suppression_index = (!directives.is_empty()).then(|| {
         SuppressionIndex::new(
             &directives,
-            &parse_result.file,
-            first_statement_line(&parse_result.file).unwrap_or(u32::MAX),
+            &parse_result.arena_file,
+            first_statement_line(&parse_result.arena_file).unwrap_or(u32::MAX),
         )
     });
 
@@ -977,8 +977,8 @@ fn lint_with_context(
         Some(path),
         Some(&resolver),
     );
-    let analysis = shuck_linter::analyze_file_at_path_with_resolver(
-        &parse_result.file,
+    let analysis = shuck_linter::analyze_arena_file_at_path_with_resolver(
+        &parse_result.arena_file,
         source,
         &indexer,
         &settings,

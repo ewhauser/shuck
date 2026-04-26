@@ -1,5 +1,6 @@
 struct LinterFactsBuilder<'a> {
-    file: &'a File,
+    file: &'a shuck_ast::File,
+    arena_file: &'a ArenaFile,
     source: &'a str,
     semantic: &'a SemanticModel,
     _indexer: &'a Indexer,
@@ -65,8 +66,10 @@ fn arena_word_ids_by_span(arena_file: &ArenaFile) -> FxHashMap<FactSpan, WordId>
 }
 
 impl<'a> LinterFactsBuilder<'a> {
+    #[allow(clippy::too_many_arguments)]
     fn new(
-        file: &'a File,
+        file: &'a shuck_ast::File,
+        arena_file: &'a ArenaFile,
         source: &'a str,
         semantic: &'a SemanticModel,
         indexer: &'a Indexer,
@@ -76,6 +79,7 @@ impl<'a> LinterFactsBuilder<'a> {
     ) -> Self {
         Self {
             file,
+            arena_file,
             source,
             semantic,
             _indexer: indexer,
@@ -87,8 +91,8 @@ impl<'a> LinterFactsBuilder<'a> {
 
     fn build(self) -> LinterFacts<'a> {
         let source = self.source;
-        let arena_file = ArenaFile::from_file(self.file);
-        let capacity = estimate_fact_build_capacity(&arena_file);
+        let arena_file = self.arena_file;
+        let capacity = estimate_fact_build_capacity(arena_file);
         let estimated_word_nodes = capacity.commands.saturating_mul(2);
         let estimated_word_occurrences = capacity.commands.saturating_mul(3);
 
@@ -115,7 +119,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut word_span_scratch = Vec::new();
         let mut word_node_ids_by_span =
             FxHashMap::with_capacity_and_hasher(estimated_word_nodes, Default::default());
-        let arena_word_ids_by_span = arena_word_ids_by_span(&arena_file);
+        let arena_word_ids_by_span = arena_word_ids_by_span(arena_file);
         let mut word_occurrences = Vec::with_capacity(estimated_word_occurrences);
         let mut pending_arithmetic_word_occurrences =
             Vec::with_capacity(capacity.commands.saturating_div(4));
@@ -139,17 +143,25 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut command_substitution_command_spans = Vec::new();
         let mut arithmetic_update_operator_spans = Vec::new();
         let mut base_prefix_arithmetic_spans = Vec::new();
-        let mut arena_visits = Vec::with_capacity(capacity.commands);
+        let mut arena_visits_by_lookup = FxHashMap::<
+            (FactSpan, CommandLookupKind),
+            VecDeque<(AstStmtId, AstCommandId)>,
+        >::default();
         walk_arena_commands(
             arena_file.view().body(),
             CommandWalkOptions {
                 descend_nested_word_commands: true,
             },
             &mut |visit, _| {
-                arena_visits.push((visit.command.span(), visit.stmt.id(), visit.command.id()));
+                arena_visits_by_lookup
+                    .entry((
+                        FactSpan::new(visit.command.span()),
+                        arena_command_lookup_kind(visit.command),
+                    ))
+                    .or_default()
+                    .push_back((visit.stmt.id(), visit.command.id()));
             },
         );
-        let mut arena_visits = arena_visits.into_iter().peekable();
 
         walk_commands(
             &self.file.body,
@@ -160,18 +172,13 @@ impl<'a> LinterFactsBuilder<'a> {
                 let key = FactSpan::new(command_span(visit.command));
                 let id = CommandId::new(commands.len());
                 let span = command_span(visit.command);
-                let (arena_stmt_id, arena_command_id) = match arena_visits.peek().copied() {
-                    Some((arena_span, _, _))
-                        if arena_span.start.offset == span.start.offset
-                            && arena_span.end.offset == span.end.offset =>
-                    {
-                        let (_, stmt_id, command_id) = arena_visits
-                            .next()
-                            .expect("peeked arena command should still be present");
+                let lookup_kind = command_lookup_kind(visit.command);
+                let (arena_stmt_id, arena_command_id) = arena_visits_by_lookup
+                    .get_mut(&(key, lookup_kind))
+                    .and_then(VecDeque::pop_front)
+                    .map_or((None, None), |(stmt_id, command_id)| {
                         (Some(stmt_id), Some(command_id))
-                    }
-                    _ => (None, None),
-                };
+                    });
                 while active_parent_commands
                     .last()
                     .is_some_and(|candidate| candidate.end_offset < span.end.offset)
@@ -188,7 +195,6 @@ impl<'a> LinterFactsBuilder<'a> {
                     id,
                     end_offset: span.end.offset,
                 });
-                let lookup_kind = command_lookup_kind(visit.command);
                 let entries = command_ids_by_span.entry(key).or_default();
                 let previous = entries.iter().find(|entry| entry.kind == lookup_kind);
                 debug_assert!(previous.is_none(), "duplicate command lookup key");
@@ -230,17 +236,24 @@ impl<'a> LinterFactsBuilder<'a> {
                     &mut ifs_literal_backslash_assignment_value_spans,
                 );
                 let normalized = command::normalize_command(visit.command, self.source);
-                let arena_normalized = arena_command_id.map(|command_id| {
-                    ArenaCommandNameFacts::from_normalized(command::normalize_arena_command(
+                let arena_normalized_command = arena_command_id.map(|command_id| {
+                    command::normalize_arena_command(
                         arena_file.store.command(command_id),
                         self.source,
-                    ))
+                    )
                 });
+                let arena_declaration = arena_normalized_command
+                    .as_ref()
+                    .and_then(|normalized| normalized.declaration.clone());
                 let command_zsh_options = effective_command_zsh_options(
                     self.semantic,
                     command_span(visit.command).start.offset,
-                    &normalized,
+                    arena_normalized_command
+                        .as_ref()
+                        .expect("arena command id should be available for every visit"),
                 );
+                let arena_normalized =
+                    arena_normalized_command.map(ArenaCommandNameFacts::from_normalized);
                 let nested_word_command = context.nested_word_command;
                 if !nested_word_command {
                     structural_command_ids.push(id);
@@ -347,9 +360,9 @@ impl<'a> LinterFactsBuilder<'a> {
                     &arena_word_ids_by_span,
                 );
                 let conditional = build_conditional_fact(visit.command, self.source);
-                let shape = arena_command_id
-                    .map(|id| CommandFactShape::from_arena(arena_file.store.command(id)))
-                    .unwrap_or_else(|| CommandFactShape::from_recursive(visit.command));
+                let shape = CommandFactShape::from_arena(arena_file.store.command(
+                    arena_command_id.expect("arena command id should be available for every visit"),
+                ));
                 commands.push(CommandFact {
                     id,
                     key,
@@ -367,6 +380,7 @@ impl<'a> LinterFactsBuilder<'a> {
                     scope,
                     normalized,
                     arena_normalized,
+                    arena_declaration,
                     zsh_options: command_zsh_options,
                     redirect_facts: redirect_fact_range,
                     substitution_facts: IdRange::empty(),
@@ -384,9 +398,13 @@ impl<'a> LinterFactsBuilder<'a> {
                     conditional,
                 });
 
-                if let Command::Function(function) = visit.command {
-                    functions.push((function, arena_command_id));
-                    if let Some(span) = function_body_without_braces_span(function) {
+                if let Some(command_id) = arena_command_id
+                    && arena_file.store.command(command_id).kind() == ArenaFileCommandKind::Function
+                {
+                    functions.push(command_id);
+                    if let Some(span) =
+                        function_body_without_braces_span(arena_file.store.command(command_id))
+                    {
                         function_body_without_braces_spans.push(span);
                     }
                 }
@@ -507,24 +525,24 @@ impl<'a> LinterFactsBuilder<'a> {
             )
         };
 
-        populate_linebreak_in_test_facts(&mut commands, &arena_file, self.source);
+        populate_linebreak_in_test_facts(&mut commands, arena_file, self.source);
         populate_substitution_fact_ranges(
             &mut commands,
             &mut fact_store,
             &command_ids_by_span,
             &command_child_index,
-            &arena_file,
+            arena_file,
             self.source,
         );
 
         let presence_tested_names =
             build_presence_tested_names(&commands, self.source, self.semantic);
         let function_headers =
-            build_function_header_facts(self.semantic, &functions, &commands, self.source);
+            build_function_header_facts(self.semantic, &functions, &commands, arena_file, self.source);
         let function_cli_dispatch_facts = build_function_cli_dispatch_facts(
             self.semantic,
             &function_headers,
-            self.file,
+            arena_file,
             self.source,
         );
         collect_condition_status_capture_from_sequences(
@@ -551,71 +569,75 @@ impl<'a> LinterFactsBuilder<'a> {
         let function_parameter_fallback_spans = build_function_parameter_fallback_spans(
             &commands,
             &structural_command_ids,
+            arena_file,
             self.source,
         );
         let for_headers = build_for_header_facts(
             &commands,
-            &arena_file,
+            arena_file,
             &command_ids_by_span,
             &arena_word_ids_by_span,
             self.source,
         );
         let select_headers = build_select_header_facts(
             &commands,
-            &arena_file,
+            arena_file,
             &command_ids_by_span,
             &arena_word_ids_by_span,
             self.source,
         );
-        let case_items = build_case_item_facts(&commands, &arena_file, self.source);
-        let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
+        let case_items = build_case_item_facts(&commands, arena_file, self.source);
+        let case_pattern_shadows =
+            build_case_pattern_shadow_facts(&commands, arena_file, self.source);
         let case_pattern_impossible_spans =
-            build_case_pattern_impossible_spans(&commands, self.source);
+            build_case_pattern_impossible_spans(&commands, arena_file, self.source);
         let pipelines = build_pipeline_facts(
             &commands,
             &command_ids_by_span,
             &command_child_index,
-            &arena_file,
+            arena_file,
         );
         populate_scope_fact_ranges(
             &mut commands,
             &mut fact_store,
             &pipelines,
             &if_condition_command_ids,
-            &arena_file,
+            arena_file,
             source,
         );
         let lists = build_list_facts(
             &commands,
             &command_ids_by_span,
             &command_child_index,
-            &arena_file,
+            arena_file,
             self.source,
         );
         let completion_registered_function_command_flags =
             build_completion_registered_function_command_flags(
                 self.semantic,
                 &commands,
+                &function_headers,
+                arena_file,
                 &lists,
                 self.source,
             );
         annotate_conditional_assignment_value_paths(self.semantic, &lists, &mut binding_values);
         let statement_facts =
-            build_statement_facts(&commands, &command_ids_by_span, &self.file.body);
+            build_statement_facts(&commands, &command_ids_by_span, arena_file.view().body());
         let background_semicolon_spans =
             build_background_semicolon_spans(&commands, &case_items, self.source);
         let single_test_subshell_spans = build_single_test_subshell_spans(
             &commands,
             &command_ids_by_span,
             &command_child_index,
-            &arena_file,
+            arena_file,
             self.source,
         );
         let subshell_test_group_spans = build_subshell_test_group_spans(
             &commands,
             &command_ids_by_span,
             &command_child_index,
-            &arena_file,
+            arena_file,
             self.source,
         );
         let shebang_header_facts = build_shebang_header_facts(self.source);
@@ -635,34 +657,34 @@ impl<'a> LinterFactsBuilder<'a> {
         let comment_double_quote_nesting_spans =
             build_comment_double_quote_nesting_spans(self.source, self._indexer);
         let trailing_directive_comment_spans = build_trailing_directive_comment_spans(
-            self.file,
+            arena_file,
             &case_items,
             self.source,
             self._indexer,
         );
-        let backtick_command_name_spans = build_backtick_command_name_spans(&commands, &arena_file);
+        let backtick_command_name_spans = build_backtick_command_name_spans(&commands, arena_file);
         let dollar_question_after_command_spans =
             build_dollar_question_after_command_spans(&self.file.body, self.source);
         let nonpersistent_assignment_spans = build_nonpersistent_assignment_spans(
             self.semantic,
             &commands,
-            &arena_file,
+            arena_file,
             self.source,
             matches!(self.shell, ShellDialect::Bash) && pipefail_enabled_anywhere,
             command_facts_require_source_order,
         );
         let heredoc_summary = build_heredoc_fact_summary(
             &commands,
-            &arena_file,
+            arena_file,
             self.source,
-            self.file.span.end.offset,
+            arena_file.view().span().end.offset,
         );
         let plus_equals_assignment_spans =
-            build_plus_equals_assignment_spans(&commands, &arena_file);
+            build_plus_equals_assignment_spans(&commands, arena_file);
         let literal_brace_spans = build_literal_brace_spans(
             &word_nodes,
             &word_occurrences,
-            CommandFacts::new(&commands, &fact_store, &arena_file),
+            CommandFacts::new(&commands, &fact_store, arena_file),
             &fact_store,
             source,
             self._indexer.region_index().heredoc_ranges(),
@@ -751,7 +773,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let EnvPrefixScopeSpans {
             assignment_scope_spans: env_prefix_assignment_scope_spans,
             expansion_scope_spans: env_prefix_expansion_scope_spans,
-        } = build_env_prefix_scope_spans(self.source, &commands, &arena_file);
+        } = build_env_prefix_scope_spans(self.source, &commands, arena_file);
         word_occurrences.extend(
             pending_arithmetic_word_occurrences
                 .into_iter()
@@ -813,7 +835,7 @@ impl<'a> LinterFactsBuilder<'a> {
             &array_assignment_split_word_ids,
         );
         let echo_to_sed_substitution_spans = build_echo_to_sed_substitution_spans(
-            CommandFacts::new(&commands, &fact_store, &arena_file),
+            CommandFacts::new(&commands, &fact_store, arena_file),
             &pipelines,
             &backticks,
             WordFactLookup {
@@ -825,9 +847,9 @@ impl<'a> LinterFactsBuilder<'a> {
             },
         );
         let assignment_like_command_name_spans =
-            build_assignment_like_command_name_spans(&commands, &arena_file, self.source);
+            build_assignment_like_command_name_spans(&commands, arena_file, self.source);
         let bare_command_name_assignment_spans =
-            build_bare_command_name_assignment_spans(&commands, &arena_file, source);
+            build_bare_command_name_assignment_spans(&commands, arena_file, source);
         let unquoted_command_argument_use_offsets = build_unquoted_command_argument_use_offsets(
             self.semantic,
             &word_nodes,

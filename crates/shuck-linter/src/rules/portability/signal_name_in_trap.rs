@@ -1,6 +1,7 @@
-use shuck_ast::{Span, Word, static_word_text};
+use shuck_ast::Span;
 
 use super::trap_common::parse_trap_args;
+use crate::facts::words::FactWordRef;
 use crate::{
     Checker, Fix, FixAvailability, Rule, ShellDialect, Violation,
     leading_static_word_prefix_fix_in_source,
@@ -43,7 +44,9 @@ pub fn signal_name_in_trap(checker: &mut Checker) {
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("trap"))
-        .flat_map(|fact| trap_signal_name_occurrences(fact.body_args(), checker.source()))
+        .flat_map(|fact| {
+            trap_signal_name_occurrences(&fact.arena_body_args(checker.source()), checker.source())
+        })
         .collect::<Vec<_>>();
 
     for occurrence in occurrences {
@@ -55,7 +58,10 @@ pub fn signal_name_in_trap(checker: &mut Checker) {
     }
 }
 
-fn trap_signal_name_occurrences(args: &[&Word], source: &str) -> Vec<SignalNameInTrapOccurrence> {
+fn trap_signal_name_occurrences<'a>(
+    args: &'a [FactWordRef<'a>],
+    source: &'a str,
+) -> Vec<SignalNameInTrapOccurrence> {
     let Some(parsed) = parse_trap_args(args, source) else {
         return Vec::new();
     };
@@ -67,7 +73,7 @@ fn trap_signal_name_occurrences(args: &[&Word], source: &str) -> Vec<SignalNameI
         .signal_words
         .iter()
         .filter_map(|word| {
-            let text = static_word_text(word, source)?;
+            let text = word.static_text(source)?;
             (text.len() > 3
                 && text
                     .get(..3)
@@ -76,20 +82,40 @@ fn trap_signal_name_occurrences(args: &[&Word], source: &str) -> Vec<SignalNameI
                     .chars()
                     .all(|character| character.is_ascii_alphanumeric()))
             .then(|| {
-                let span = word
-                    .quoted_content_span_in_source(source)
-                    .unwrap_or(word.span);
+                let span = quoted_content_span_in_source(*word, source).unwrap_or(word.span());
                 SignalNameInTrapOccurrence {
                     report_span: span,
-                    fix: signal_name_in_trap_fix(word, source),
+                    fix: signal_name_in_trap_fix(*word, source),
                 }
             })
         })
         .collect()
 }
 
-fn signal_name_in_trap_fix(word: &Word, source: &str) -> Option<Fix> {
+fn signal_name_in_trap_fix(word: FactWordRef<'_>, source: &str) -> Option<Fix> {
     leading_static_word_prefix_fix_in_source(word, source, SIG_PREFIX_LEN)
+}
+
+fn quoted_content_span_in_source(word: FactWordRef<'_>, source: &str) -> Option<Span> {
+    if word.parts().len() != 1 {
+        return None;
+    }
+
+    let span = word.span();
+    let raw = span.slice(source);
+    let quote = raw.chars().next()?;
+    if !matches!(quote, '"' | '\'') {
+        return None;
+    }
+
+    let body = raw.strip_prefix(quote)?.strip_suffix(quote)?;
+    if body.is_empty() {
+        return None;
+    }
+
+    let start = span.start.advanced_by(&raw[..quote.len_utf8()]);
+    let end = start.advanced_by(body);
+    Some(Span::from_positions(start, end))
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 use rustc_hash::FxHashSet;
-use shuck_ast::{ConditionalBinaryOp, ConditionalUnaryOp, Span, Word, static_word_text};
+use shuck_ast::{ConditionalBinaryOp, ConditionalUnaryOp, Span};
 
 use super::{
     CommandFact, CommandId, ConditionalFact, ConditionalNodeFact, ExpansionContext, FactSpan,
@@ -232,7 +232,7 @@ fn collect_simple_test_portability_spans(
     let operands = fact.operands();
     let operand_texts = operands
         .iter()
-        .map(|word| static_word_text(word, source))
+        .map(|word| shuck_ast::static_word_text(word, source))
         .collect::<Vec<_>>();
 
     let mut has_eqeq = false;
@@ -357,7 +357,7 @@ fn supports_extglob_portability_context(context: Option<ExpansionContext>) -> bo
     )
 }
 
-fn reportable_simple_test_glob_span(word: &Word, source: &str) -> Option<Span> {
+fn reportable_simple_test_glob_span(word: &shuck_ast::Word, source: &str) -> Option<Span> {
     (!word_spans::word_unquoted_glob_pattern_spans(word, source).is_empty()).then_some(word.span)
 }
 

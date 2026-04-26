@@ -19,6 +19,7 @@ pub(super) fn with_facts_dialect(
     let file_context = classify_file_context(source, path, shell);
     let facts = LinterFacts::build_with_shell_and_ambient_shell_options(
         &output.file,
+        &output.arena_file,
         source,
         &semantic,
         &indexer,

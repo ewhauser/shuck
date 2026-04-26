@@ -1043,6 +1043,7 @@ fn collect_arena_zsh_target_visits<'a, F>(
     }
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn collect_arena_arithmetic_expression_visits<'a, F>(
     expression: &'a ArithmeticExprArenaNode,
     options: CommandWalkOptions,
@@ -1086,6 +1087,7 @@ fn collect_arena_arithmetic_expression_visits<'a, F>(
     }
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn collect_arena_conditional_visits<'a, F>(
     expression: &'a ConditionalExprArena,
     options: CommandWalkOptions,

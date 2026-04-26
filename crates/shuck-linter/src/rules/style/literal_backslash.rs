@@ -46,8 +46,8 @@ fn is_command_name_word<'a>(
 ) -> bool {
     facts
         .command(fact.command_id())
-        .body_name_word()
-        .is_some_and(|word| word.span == fact.span())
+        .arena_body_name_word(facts.source())
+        .is_some_and(|word| word.span() == fact.span())
 }
 
 fn is_unalias_argument<'a>(

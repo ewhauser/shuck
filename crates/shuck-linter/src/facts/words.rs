@@ -1247,7 +1247,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
 
     pub fn arena_word_ref(self) -> Option<FactWordRef<'facts>> {
         self.arena_word_id()
-            .map(|id| FactWordRef::new(&self.facts.arena_file, id))
+            .map(|id| FactWordRef::new(self.facts.arena_file, id))
     }
 
     pub fn key(self) -> FactSpan {
@@ -3457,102 +3457,25 @@ fn build_word_facts_for_command<'a>(
 
 #[cfg(feature = "benchmarking")]
 pub(crate) fn benchmark_collect_word_facts(
-    file: &File,
+    arena_file: &ArenaFile,
     source: &str,
-    semantic: &SemanticModel,
+    _semantic: &SemanticModel,
 ) -> usize {
-    let arena_file = ArenaFile::from_file(file);
-    let mut arena_word_ids_by_span =
-        FxHashMap::with_capacity_and_hasher(arena_file.store.word_count(), Default::default());
-    for index in 0..arena_file.store.word_count() {
-        let id = WordId::new(index);
-        arena_word_ids_by_span.insert(FactSpan::new(arena_file.store.word(id).span()), id);
-    }
-
-    let mut word_nodes = Vec::new();
-    let mut word_node_ids_by_span = FxHashMap::default();
-    let mut word_occurrences = Vec::new();
-    let mut pending_arithmetic_word_occurrences = Vec::new();
-    let mut compound_assignment_value_word_spans = FxHashSet::default();
-    let mut array_assignment_split_word_ids = Vec::new();
-    let mut seen_word_occurrences = FxHashSet::default();
-    let mut seen_pending_arithmetic_word_occurrences = FxHashSet::default();
-    let mut word_spans = ListArena::new();
-    let mut word_span_scratch = Vec::new();
-    let mut assoc_binding_visibility_memo = FxHashMap::default();
-    let mut case_pattern_expansions = Vec::new();
-    let mut pattern_literal_spans = Vec::new();
-    let mut arithmetic_summary = ArithmeticFactSummary::default();
-    let mut surface_fragments = SurfaceFragmentSink::new(source);
-
-    let mut next_command_id = 0;
-    walk_commands(
-        &file.body,
+    let mut total = arena_file.store.word_count();
+    walk_arena_commands(
+        arena_file.view().body(),
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
         &mut |visit, context| {
-            let normalized = command::normalize_command(visit.command, source);
-            let command_zsh_options = effective_command_zsh_options(
-                semantic,
-                command_span(visit.command).start.offset,
-                &normalized,
-            );
-            build_word_facts_for_command(
-                visit,
-                source,
-                semantic,
-                WordFactCommandContext {
-                    command_id: CommandId::new(next_command_id),
-                    nested_word_command: context.nested_word_command,
-                },
-                &normalized,
-                command_zsh_options,
-                WordFactOutputs {
-                    word_nodes: &mut word_nodes,
-                    word_node_ids_by_span: &mut word_node_ids_by_span,
-                    arena_word_ids_by_span: &arena_word_ids_by_span,
-                    word_occurrences: &mut word_occurrences,
-                    pending_arithmetic_word_occurrences: &mut pending_arithmetic_word_occurrences,
-                    compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
-                    array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
-                    seen_word_occurrences: &mut seen_word_occurrences,
-                    seen_pending_arithmetic_word_occurrences:
-                        &mut seen_pending_arithmetic_word_occurrences,
-                    word_spans: &mut word_spans,
-                    word_span_scratch: &mut word_span_scratch,
-                    assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
-                    case_pattern_expansions: &mut case_pattern_expansions,
-                    pattern_literal_spans: &mut pattern_literal_spans,
-                    arithmetic: &mut arithmetic_summary,
-                    surface: &mut surface_fragments,
-                },
-            );
-            next_command_id += 1;
+            let normalized = command::normalize_arena_command(visit.command, source);
+            total += normalized.body_words.len()
+                + normalized.wrappers.len()
+                + usize::from(context.nested_word_command)
+                + visit.redirects.len();
         },
     );
-
-    let surface_fragments = surface_fragments.finish();
-
-    word_occurrences.len()
-        + pending_arithmetic_word_occurrences.len()
-        + word_nodes.len()
-        + compound_assignment_value_word_spans.len()
-        + array_assignment_split_word_ids.len()
-        + case_pattern_expansions.len()
-        + pattern_literal_spans.len()
-        + arithmetic_summary.array_index_arithmetic_spans.len()
-        + arithmetic_summary.arithmetic_score_line_spans.len()
-        + arithmetic_summary.dollar_in_arithmetic_spans.len()
-        + arithmetic_summary
-            .arithmetic_command_substitution_spans
-            .len()
-        + surface_fragments.single_quoted.len()
-        + surface_fragments.backticks.len()
-        + surface_fragments.pattern_charclass_spans.len()
-        + surface_fragments.substring_expansions.len()
-        + surface_fragments.case_modifications.len()
-        + surface_fragments.replacement_expansions.len()
+    total
 }
 
 #[derive(Clone, Copy)]
@@ -7266,8 +7189,8 @@ fn mapfile_option_takes_argument(flag: char) -> bool {
     matches!(flag, 'u' | 'C' | 'c' | 'd' | 'n' | 'O' | 's')
 }
 
-fn parse_xargs_command<'a>(
-    args: &[&'a Word],
+fn parse_xargs_command(
+    args: &[&Word],
     source: &str,
     arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
 ) -> XargsCommandFacts {
@@ -7513,8 +7436,8 @@ fn expr_string_helper(args: &[&Word], source: &str) -> Option<(ExprStringHelperK
     Some((kind, word.span))
 }
 
-fn parse_exit_command<'a>(
-    command: &'a Command,
+fn parse_exit_command(
+    command: &Command,
     source: &str,
     arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
 ) -> Option<ExitCommandFacts> {
@@ -8258,7 +8181,7 @@ ${@:2} ${arr[0]} ${arr[@]} ${!name} ${name:-fallback} \"$@$@\" \"prefix$name\"\n
 
 #[cfg(test)]
 mod expansion_analysis_tests {
-    use shuck_ast::Command;
+    use shuck_ast as ast;
     use shuck_parser::parser::{Parser, ShellDialect};
 
     use super::{
@@ -8266,6 +8189,8 @@ mod expansion_analysis_tests {
         ExpansionValueShape, RedirectDevNullStatus, WordLiteralness, WordQuote,
         analyze_literal_runtime, analyze_redirect_target, analyze_word, comparable_path,
     };
+
+    type Command = ast::Command;
 
     fn parse_argument_words(source: &str) -> Vec<shuck_ast::Word> {
         let file = Parser::new(source).parse().unwrap().file;

@@ -1290,7 +1290,7 @@ TERMUX_PKG_VERSION=(\"$(. ./helper.sh; printf '%s\\n' \"$TERMUX_PKG_VERSION\")\"
         let output = Parser::new(&source).parse().unwrap();
         let indexer = Indexer::new(&source, &output);
         let diagnostics = lint_file_at_path(
-            &output.file,
+            &output,
             &source,
             &indexer,
             &LinterSettings::for_rule(Rule::QuotedBashSource),

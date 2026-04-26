@@ -50,23 +50,22 @@ use shuck_ast::{
     ArithmeticExpr, ArithmeticExprArena, ArithmeticExprArenaNode, ArithmeticExprNode,
     ArithmeticLvalue, ArithmeticLvalueArena, ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem,
     ArrayElemNode, ArrayKind, Assignment, AssignmentNode, AssignmentValue, AssignmentValueNode,
-    AstStore, BackgroundOperator, BinaryCommand, BinaryCommandView, BinaryOp,
-    BourneParameterExpansion, BourneParameterExpansionNode, BraceQuoteContext, BraceSyntaxKind,
-    BuiltinCommand, CaseCommand, CaseTerminator, Command, CommandId as AstCommandId,
-    CommandSubstitutionSyntax, CommandView, CompoundCommand, CompoundCommandNode,
-    ConditionalBinaryOp, ConditionalExpr, ConditionalExprArena, ConditionalUnaryOp, DeclOperand,
-    DeclOperandNode, File, FunctionDef, HeredocBodyPartNode, IdRange, ListArena, Name,
-    ParameterExpansion, ParameterExpansionNode, ParameterExpansionSyntax,
-    ParameterExpansionSyntaxNode, ParameterOp, Pattern, PatternNode, PatternPart, PatternPartArena,
-    Position, PrefixMatchKind, Redirect, RedirectKind, RedirectNode, RedirectTargetNode,
-    SimpleCommand, SourceText, Span, StaticCommandWrapperTarget, Stmt, StmtId as AstStmtId,
-    StmtSeq, StmtSeqView, StmtTerminator, StmtView, Subscript, SubscriptNode, SubscriptSelector,
-    TextRange, TextSize, VarRef, VarRefNode, WhileCommand, Word, WordId, WordPart, WordPartArena,
-    WordPartArenaNode, WordPartNode, WordView, ZshExpansionOperation, ZshExpansionOperationNode,
-    ZshExpansionTarget, ZshExpansionTargetNode, ZshGlobSegment, ZshGlobSegmentNode,
-    ZshQualifiedGlob, is_shell_variable_name, static_command_name_text,
-    static_command_wrapper_target_index, static_word_text, static_word_text_arena,
-    word_is_standalone_status_capture,
+    AstStore, BackgroundOperator, BinaryCommandView, BinaryOp, BourneParameterExpansion,
+    BourneParameterExpansionNode, BraceQuoteContext, BraceSyntaxKind, BuiltinCommand, CaseCommand,
+    CaseTerminator, Command, CommandId as AstCommandId, CommandSubstitutionSyntax, CommandView,
+    CompoundCommand, CompoundCommandNode, ConditionalBinaryOp, ConditionalExpr,
+    ConditionalExprArena, ConditionalUnaryOp, DeclOperand, DeclOperandNode, FunctionCommandView,
+    FunctionDef, HeredocBodyPartNode, IdRange, ListArena, Name, ParameterExpansion,
+    ParameterExpansionNode, ParameterExpansionSyntax, ParameterExpansionSyntaxNode, ParameterOp,
+    Pattern, PatternNode, PatternPart, PatternPartArena, Position, PrefixMatchKind, Redirect,
+    RedirectKind, RedirectNode, RedirectTargetNode, SimpleCommand, SourceText, Span,
+    StaticCommandWrapperTarget, Stmt, StmtId as AstStmtId, StmtSeq, StmtSeqView, StmtTerminator,
+    StmtView, Subscript, SubscriptNode, SubscriptSelector, TextRange, TextSize, VarRef, VarRefNode,
+    WhileCommand, Word, WordId, WordPart, WordPartArena, WordPartArenaNode, WordPartNode, WordView,
+    ZshExpansionOperation, ZshExpansionOperationNode, ZshExpansionTarget, ZshExpansionTargetNode,
+    ZshGlobSegment, ZshGlobSegmentNode, ZshQualifiedGlob, is_shell_variable_name,
+    static_command_name_text, static_command_name_text_arena, static_command_wrapper_target_index,
+    static_word_text, static_word_text_arena, word_is_standalone_status_capture,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -75,12 +74,10 @@ use shuck_semantic::{
     ReferenceId, ReferenceKind, ScopeId, SemanticModel, ZshOptionState,
 };
 use smallvec::SmallVec;
-use std::{borrow::Cow, ops::ControlFlow, sync::OnceLock};
+use std::{borrow::Cow, collections::VecDeque, ops::ControlFlow, sync::OnceLock};
 
 pub use self::conditional_portability::ConditionalPortabilityFacts;
 pub(crate) use self::escape_scan::{EscapeScanMatch, EscapeScanSourceKind};
-#[cfg(feature = "benchmarking")]
-pub(crate) use self::normalized_commands::normalize_command;
 pub use self::normalized_commands::{
     ArenaNormalizedCommand, ArenaNormalizedDeclaration, DeclarationKind, NormalizedCommand,
     NormalizedDeclaration, WrapperKind,
@@ -115,15 +112,15 @@ include!("arithmetic.rs");
 include!("words.rs");
 
 #[cfg(feature = "benchmarking")]
-pub(crate) fn benchmark_normalize_commands(file: &File, source: &str) -> usize {
+pub(crate) fn benchmark_normalize_commands(arena_file: &ArenaFile, source: &str) -> usize {
     let mut total = 0;
-    walk_commands(
-        &file.body,
+    walk_arena_commands(
+        arena_file.view().body(),
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
         &mut |visit, _| {
-            let normalized = normalize_command(visit.command, source);
+            let normalized = command::normalize_arena_command(visit.command, source);
             total += normalized.wrappers.len()
                 + normalized.body_words.len()
                 + usize::from(normalized.literal_name.is_some())

@@ -85,10 +85,10 @@ fn command_has_separator_before(
     source: &str,
 ) -> bool {
     command
-        .body_args()
-        .iter()
-        .take_while(|word| word.span != target_span)
-        .filter_map(|word| shuck_ast::static_word_text(word, source))
+        .arena_body_args(source)
+        .into_iter()
+        .take_while(|word| word.span() != target_span)
+        .filter_map(|word| word.static_text(source))
         .any(|arg| arg == "--")
 }
 

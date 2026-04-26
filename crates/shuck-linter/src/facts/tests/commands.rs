@@ -32,7 +32,14 @@ fn summarizes_command_options_and_invokers() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let read = facts
         .commands()
@@ -445,7 +452,14 @@ amoeba=\"\" [ \"${AMOEBA:-yes}\" = \"yes\" ]
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Sh);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let line2 = facts
         .commands()
@@ -519,7 +533,14 @@ printf#
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Sh);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let command = |text: &str| {
         facts
@@ -617,7 +638,14 @@ fn summarizes_echo_options_for_path_qualified_echo() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Sh);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let echo = facts
         .commands()
@@ -640,7 +668,14 @@ fn builds_tr_facts_inside_escaped_quoted_command_substitutions() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Sh);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let tr = facts
         .commands()
@@ -664,7 +699,14 @@ fn builds_tr_facts_inside_piped_command_substitutions_with_quoted_operands() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Sh);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let tr = facts
         .commands()
@@ -690,7 +732,14 @@ fn tracks_quote_like_echo_escapes_inside_double_quotes_from_syntax_text() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert_eq!(
         facts
@@ -709,7 +758,14 @@ fn tracks_echo_backslash_double_quote_escape_shapes() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert_eq!(
         facts
@@ -731,7 +787,14 @@ fn ignores_json_like_backslash_quote_wrappers_around_variables() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(facts.echo_backslash_escape_word_spans().is_empty());
 }
@@ -752,7 +815,14 @@ echo Saved to \\\"\"$FILENAME\"\\\" \\(\"$(du -h \"$OUTPUT\" | cut -f1)\"\\)
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(facts.echo_backslash_escape_word_spans().is_empty());
 }
@@ -769,7 +839,14 @@ find . -print | xargs rm
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let find_facts = facts
         .commands()
@@ -800,7 +877,14 @@ expr 1 + 2
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Sh);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let exprs = facts
         .commands()
@@ -854,7 +938,14 @@ fn tracks_printf_formats_with_and_without_literal_percents() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let printfs = facts
         .commands()
@@ -1023,7 +1114,14 @@ unset parts[\"$key\"] extra
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let unset = facts
         .commands()
@@ -1054,7 +1152,14 @@ unset -xn unknown
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let unsets = facts
         .commands()
@@ -1086,7 +1191,14 @@ unset parts[\"$key\"] plain \"parts[safe]\" 'parts[also_safe]' nums[1]
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let unset = facts
         .commands()
@@ -1199,7 +1311,14 @@ unset -v \"${!prefix_@}\" x${!prefix_*} \"${!name}\" \"${!arr[@]}\"
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Sh);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let unset = facts
         .commands()
@@ -1225,7 +1344,14 @@ fn tracks_mapfile_input_fd_and_grouped_find_or_branches() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let mapfile = facts
         .commands()
@@ -1267,6 +1393,7 @@ fn tracks_mapfile_input_fd_and_grouped_find_or_branches() {
     let dynamic_file_context = classify_file_context(dynamic_source, None, ShellDialect::Bash);
     let dynamic_facts = LinterFacts::build(
         &dynamic_output.file,
+        &dynamic_output.arena_file,
         dynamic_source,
         &dynamic_semantic,
         &dynamic_indexer,
@@ -1305,7 +1432,14 @@ find . -type l -o -print
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let find_or_without_grouping_spans = facts
         .commands()
@@ -1345,7 +1479,14 @@ grep -e'*start' data.txt
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let grep_patterns = facts
         .commands()
@@ -1507,7 +1648,14 @@ grep --regexp='*start' data.txt
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let grep_patterns = facts
         .commands()
@@ -1551,7 +1699,14 @@ grep -$dynamic_option 1 -e '*explicit-after-dynamic-option' data.txt
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let grep_patterns = facts
         .commands()
@@ -1599,7 +1754,14 @@ grep 'foo*bar+' data.txt
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let grep_patterns = facts
         .commands()
@@ -1643,7 +1805,14 @@ grep --regexp='start*' data.txt
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let grep_patterns = facts
         .commands()
@@ -1685,7 +1854,14 @@ grep -eo item* data.txt
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let grep_modes = facts
         .commands()
@@ -1709,7 +1885,14 @@ ps --pid=\"$pid\" -o comm=
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let ps_commands = facts
         .commands()
@@ -1736,7 +1919,14 @@ ps 1,2 -o comm=
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let ps_commands = facts
         .commands()
@@ -1763,7 +1953,14 @@ ps ax -q 1 -o comm=
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let ps_commands = facts
         .commands()
@@ -1792,7 +1989,14 @@ echo ${foo:-$((10#1))}
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert_eq!(
         facts
@@ -1815,7 +2019,14 @@ echo ${foo:-${1##*/}}
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(facts.base_prefix_arithmetic_spans().is_empty());
 }
@@ -1832,7 +2043,14 @@ echo $((42949 - ${1#-} / 100000))
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(facts.base_prefix_arithmetic_spans().is_empty());
 }
@@ -1849,7 +2067,14 @@ echo $(( ${foo:-10#1} ))
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert_eq!(
         facts
@@ -2359,7 +2584,14 @@ fn summarizes_builtin_wrapped_reads() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let read = facts
         .commands()
@@ -2388,7 +2620,14 @@ read -- -a name
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let reads = facts
         .commands()
@@ -2464,7 +2703,14 @@ read -a \"items\" trailing
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let reads = facts
         .commands()
@@ -2512,7 +2758,14 @@ su -l
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let su_login_flags = facts
         .commands()
@@ -2549,7 +2802,14 @@ su root -s /bin/sh
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let su_login_flags = facts
         .commands()
@@ -2661,7 +2921,14 @@ fn summarizes_directory_change_commands_and_errexit_hints() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(facts.errexit_enabled_anywhere());
 
@@ -2699,7 +2966,14 @@ fn does_not_treat_long_shebang_options_as_errexit() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(!facts.errexit_enabled_anywhere());
 }
@@ -2711,7 +2985,14 @@ fn keeps_read_raw_input_when_option_flags_are_dynamic() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let read = facts
         .commands()
@@ -2733,7 +3014,14 @@ fn resolves_sudo_family_invokers_through_outer_wrappers() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let invokers = facts
         .commands()
@@ -2754,7 +3042,14 @@ fn resolves_sudo_family_invokers_when_wrapper_names_are_escaped() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let invokers = facts
         .commands()
@@ -2780,7 +3075,14 @@ command run0 --version
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let invokers = facts
         .commands()
@@ -2805,7 +3107,14 @@ fn parses_long_xargs_null_mode_and_numeric_exit_status() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let xargs = facts
         .commands()
@@ -2847,7 +3156,14 @@ exit \"$(printf '%s' 3)\"
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let exits = facts
         .commands()
@@ -2892,7 +3208,14 @@ xargs -i echo \"-----> Configuring {} with $template\"
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let xargs_facts = facts
         .commands()
@@ -2942,7 +3265,14 @@ fn does_not_consume_null_mode_after_optional_long_eof() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let xargs = facts
         .commands()
@@ -2965,7 +3295,14 @@ xargs -a inputs -iX echo X
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let xargs_facts = facts
         .commands()
@@ -3002,7 +3339,14 @@ find . | xargs -P11 echo
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let xargs_facts = facts
         .commands()

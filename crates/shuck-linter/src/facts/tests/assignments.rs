@@ -8,7 +8,14 @@ fn indexes_scalar_bindings_from_assignments_and_declarations() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     match &output.file.body[0].command {
         shuck_ast::Command::Simple(_) => {}
@@ -47,7 +54,14 @@ fn indexes_loop_bindings_from_for_words() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let loop_binding_span = match &output.file.body[0].command {
         shuck_ast::Command::Compound(shuck_ast::CompoundCommand::For(command)) => {
@@ -87,7 +101,14 @@ one_sided='-b' || one_sided='-y'
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let shortcut_bindings = semantic
         .bindings_for(&Name::from("w"))
@@ -154,7 +175,14 @@ printf '%s\\n' \"$foo\"
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let foo_bindings = semantic.bindings_for(&Name::from("foo"));
     assert_eq!(foo_bindings.len(), 1);
@@ -183,7 +211,14 @@ f() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     let shadow_binding = semantic
         .bindings_for(&Name::from("value"))
@@ -296,7 +331,14 @@ fn collects_broken_assoc_key_spans_from_compound_array_assignments() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert_eq!(
         facts
@@ -315,7 +357,14 @@ fn collects_comma_array_assignment_spans_from_compound_values() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert_eq!(
         facts
@@ -365,7 +414,14 @@ fn ignores_commas_after_even_backslashes_before_quote_regions() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -385,7 +441,14 @@ fn ignores_commas_inside_ansi_c_quoted_array_elements() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -405,7 +468,14 @@ fn ignores_commas_inside_quoted_command_substitution_array_elements() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -425,7 +495,14 @@ fn ignores_commas_inside_separator_started_command_substitution_comments() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -445,7 +522,14 @@ fn ignores_commas_inside_grouped_command_substitution_comments() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -465,7 +549,14 @@ fn ignores_commas_inside_compact_grouped_command_substitution_comments() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -485,7 +576,14 @@ fn ignores_commas_inside_command_substitution_case_patterns() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -506,7 +604,14 @@ fn ignores_commas_inside_piped_heredoc_command_substitution_array_elements() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -526,7 +631,14 @@ fn ignores_commas_inside_parameter_expansions_with_right_parens_in_command_subst
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -546,7 +658,14 @@ fn ignores_commas_inside_parameter_expansions_with_literal_braces() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -566,7 +685,14 @@ fn ignores_commas_inside_parameter_expansions_with_ansi_c_single_quotes() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -587,7 +713,14 @@ fn ignores_commas_inside_case_pattern_comments_after_right_parens() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -607,7 +740,14 @@ fn ignores_commas_inside_process_substitution_array_elements() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -627,7 +767,14 @@ fn ignores_commas_inside_comments_after_quoted_double_parens() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -647,7 +794,14 @@ fn ignores_commas_inside_arithmetic_shift_command_substitutions() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -685,7 +839,14 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -705,7 +866,14 @@ fn ignores_commas_inside_nested_case_patterns_in_command_substitutions() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -725,7 +893,14 @@ fn ignores_commas_inside_command_substitutions_with_plain_case_words() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -745,7 +920,14 @@ fn ignores_commas_inside_command_substitutions_with_ansi_c_single_quotes() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -765,7 +947,14 @@ fn ignores_commas_inside_command_substitutions_with_backticks() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -785,7 +974,14 @@ fn ignores_commas_inside_backticks_inside_parameter_expansions() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -805,7 +1001,14 @@ fn ignores_commas_inside_process_substitutions_inside_parameter_expansions() {
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -825,7 +1028,14 @@ fn ignores_commas_after_backticks_inside_parameter_expansions_in_command_substit
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -846,7 +1056,14 @@ fn ignores_commas_after_process_substitutions_inside_parameter_expansions_in_com
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build_arena(&output.arena_file, source, &indexer);
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(
+        &output.file,
+        &output.arena_file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+    );
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -928,6 +1145,7 @@ fn subshell_assignment_slices(source: &str, shell: ShellDialect) -> Vec<&str> {
     let file_context = classify_file_context(source, None, shell);
     let facts = LinterFacts::build_with_shell_and_ambient_shell_options(
         &output.file,
+        &output.arena_file,
         source,
         &semantic,
         &indexer,
@@ -950,6 +1168,7 @@ fn subshell_later_use_slices(source: &str, shell: ShellDialect) -> Vec<&str> {
     let file_context = classify_file_context(source, None, shell);
     let facts = LinterFacts::build_with_shell_and_ambient_shell_options(
         &output.file,
+        &output.arena_file,
         source,
         &semantic,
         &indexer,

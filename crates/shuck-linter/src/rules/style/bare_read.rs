@@ -17,13 +17,14 @@ pub fn bare_read(checker: &mut Checker) {
         return;
     }
 
+    let source = checker.source();
     let spans = checker
         .facts()
         .structural_commands()
         .filter(|fact| fact.effective_name_is("read"))
         .filter(|fact| fact.wrappers().is_empty())
-        .filter(|fact| fact.body_args().is_empty())
-        .filter_map(|fact| fact.body_name_word().map(|word| word.span))
+        .filter(|fact| fact.arena_body_args(source).is_empty())
+        .filter_map(|fact| fact.arena_body_name_word(source).map(|word| word.span()))
         .collect::<Vec<_>>();
 
     checker.report_all(spans, || BareRead);

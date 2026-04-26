@@ -39,7 +39,9 @@ fn simple_command_span(fact: CommandFactRef<'_, '_>) -> Span {
     let start = command
         .assignments()
         .first()
-        .map_or(command.name().span().start, |assignment| assignment.span.start);
+        .map_or(command.name().span().start, |assignment| {
+            assignment.span.start
+        });
     let mut end = command
         .args()
         .last()

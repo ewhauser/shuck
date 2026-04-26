@@ -1,9 +1,6 @@
 use shuck_ast::{
-    ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment, AssignmentValue,
-    BourneParameterExpansion, BuiltinCommand, CaseItem, Command, CompoundCommand, ConditionalExpr,
-    DeclOperand, File, FunctionDef, HeredocBodyPartNode, ParameterExpansion,
-    ParameterExpansionSyntax, Pattern, PatternPart, Redirect, Stmt, StmtSeq, TextRange, TextSize,
-    VarRef, Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment,
+    ArenaFile, AstStore, CaseItemNode, CommandView, CompoundCommandNode, StmtSeqView, StmtView,
+    TextRange, TextSize,
 };
 use shuck_indexer::{CommentIndex, IndexedComment};
 
@@ -42,7 +39,7 @@ pub enum SuppressionSource {
 /// Parse all suppression directives from a file's comments.
 pub fn parse_directives(
     source: &str,
-    file: &File,
+    file: &ArenaFile,
     comment_index: &CommentIndex,
     shellcheck_map: &ShellCheckCodeMap,
 ) -> Vec<SuppressionDirective> {
@@ -126,7 +123,7 @@ fn is_horizontal_whitespace(text: &str) -> bool {
 fn parse_shuck_directive(
     source: &str,
     comment: &NormalizedComment<'_>,
-    file: &File,
+    file: &ArenaFile,
     shellcheck_map: &ShellCheckCodeMap,
 ) -> Option<SuppressionDirective> {
     let body = strip_comment_prefix(comment.text);
@@ -161,7 +158,7 @@ fn parse_shuck_directive(
 fn parse_shellcheck_directive(
     source: &str,
     comment: &NormalizedComment<'_>,
-    file: &File,
+    file: &ArenaFile,
     shellcheck_map: &ShellCheckCodeMap,
 ) -> Option<SuppressionDirective> {
     let remainder = shellcheck_comment_remainder(comment.text)?;
@@ -205,7 +202,7 @@ fn parse_shellcheck_directive(
 
 pub(crate) fn shellcheck_directive_can_apply_to_following_command(
     source: &str,
-    file: &File,
+    file: &ArenaFile,
     comment_range: TextRange,
 ) -> bool {
     let Some(context) = inline_directive_context(source, comment_range) else {
@@ -216,15 +213,26 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
         return true;
     }
 
-    command_visits(&file.body)
-        .into_iter()
-        .any(|visit| match visit.command {
-            Command::Compound(CompoundCommand::If(command)) => {
-                let if_header = command.condition.first().is_some_and(|stmt| {
-                    next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+    command_visits(file.view().body()).into_iter().any(|visit| {
+        let Some(command) = visit.command.compound() else {
+            return false;
+        };
+        let store = command.store();
+        match command.node() {
+            CompoundCommandNode::If {
+                condition,
+                then_branch,
+                elif_branches,
+                else_branch,
+                ..
+            } => {
+                let condition = store.stmt_seq(*condition);
+                let then_branch = store.stmt_seq(*then_branch);
+                let if_header = first_stmt(condition).is_some_and(|stmt| {
+                    next_command_starts_after_comment_line(stmt.span().start.offset, &context)
                         && command_start_segment_matches(
                             source,
-                            visit.stmt.span.start.offset,
+                            visit.stmt.span().start.offset,
                             context.comment_start,
                             "if",
                         )
@@ -232,24 +240,26 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
 
                 let then_header = body_header_matches(
                     source,
-                    command.condition.span.end.offset,
-                    &command.then_branch,
+                    condition.span().end.offset,
+                    then_branch,
                     &context,
                     "then",
                 ) || body_opener_matches(
                     source,
-                    command.condition.span.end.offset,
-                    &command.then_branch,
+                    condition.span().end.offset,
+                    then_branch,
                     &context,
                     '{',
                 );
 
-                let mut previous_branch_end = command.then_branch.span.end.offset;
+                let mut previous_branch_end = then_branch.span().end.offset;
                 let mut elif_header = false;
                 let mut elif_body_header = false;
-                for (condition, branch) in &command.elif_branches {
-                    elif_header |= condition.first().is_some_and(|stmt| {
-                        next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+                for branch in store.elif_branches(*elif_branches) {
+                    let condition = store.stmt_seq(branch.condition);
+                    let body = store.stmt_seq(branch.body);
+                    elif_header |= first_stmt(condition).is_some_and(|stmt| {
+                        next_command_starts_after_comment_line(stmt.span().start.offset, &context)
                             && gap_segment_ends_with_keyword(
                                 source,
                                 previous_branch_end,
@@ -259,23 +269,24 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
                     });
                     elif_body_header |= body_header_matches(
                         source,
-                        condition.span.end.offset,
-                        branch,
+                        condition.span().end.offset,
+                        body,
                         &context,
                         "then",
                     ) || body_opener_matches(
                         source,
-                        condition.span.end.offset,
-                        branch,
+                        condition.span().end.offset,
+                        body,
                         &context,
                         '{',
                     );
-                    previous_branch_end = branch.span.end.offset;
+                    previous_branch_end = body.span().end.offset;
                 }
 
-                let else_header = command.else_branch.as_ref().is_some_and(|branch| {
-                    branch.first().is_some_and(|stmt| {
-                        next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+                let else_header = else_branch.is_some_and(|branch| {
+                    let branch = store.stmt_seq(branch);
+                    first_stmt(branch).is_some_and(|stmt| {
+                        next_command_starts_after_comment_line(stmt.span().start.offset, &context)
                             && (gap_segment_ends_with_keyword(
                                 source,
                                 previous_branch_end,
@@ -292,713 +303,125 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
 
                 if_header || then_header || elif_header || elif_body_header || else_header
             }
-            Command::Compound(CompoundCommand::For(command)) => {
-                body_header_matches(
-                    source,
-                    visit.stmt.span.start.offset,
-                    &command.body,
-                    &context,
-                    "do",
-                ) || body_opener_matches(
-                    source,
-                    visit.stmt.span.start.offset,
-                    &command.body,
-                    &context,
-                    '{',
-                )
-            }
-            Command::Compound(CompoundCommand::Repeat(command)) => {
-                body_header_matches(
-                    source,
-                    visit.stmt.span.start.offset,
-                    &command.body,
-                    &context,
-                    "do",
-                ) || body_opener_matches(
-                    source,
-                    visit.stmt.span.start.offset,
-                    &command.body,
-                    &context,
-                    '{',
-                )
-            }
-            Command::Compound(CompoundCommand::Foreach(command)) => {
-                body_header_matches(
-                    source,
-                    visit.stmt.span.start.offset,
-                    &command.body,
-                    &context,
-                    "do",
-                ) || body_opener_matches(
-                    source,
-                    visit.stmt.span.start.offset,
-                    &command.body,
-                    &context,
-                    '{',
-                )
-            }
-            Command::Compound(CompoundCommand::ArithmeticFor(command)) => {
-                body_header_matches(
-                    source,
-                    visit.stmt.span.start.offset,
-                    &command.body,
-                    &context,
-                    "do",
-                ) || body_opener_matches(
-                    source,
-                    visit.stmt.span.start.offset,
-                    &command.body,
-                    &context,
-                    '{',
-                )
-            }
-            Command::Compound(CompoundCommand::While(command)) => {
+            CompoundCommandNode::For { body, .. }
+            | CompoundCommandNode::Repeat { body, .. }
+            | CompoundCommandNode::Foreach { body, .. }
+            | CompoundCommandNode::Select { body, .. } => loop_body_header_matches(
+                source,
+                visit.stmt.span().start.offset,
+                store.stmt_seq(*body),
+                &context,
+            ),
+            CompoundCommandNode::ArithmeticFor(command) => loop_body_header_matches(
+                source,
+                visit.stmt.span().start.offset,
+                store.stmt_seq(command.body),
+                &context,
+            ),
+            CompoundCommandNode::While { condition, body } => {
+                let condition = store.stmt_seq(*condition);
+                let body = store.stmt_seq(*body);
                 loop_header_matches(
                     source,
-                    visit.stmt.span.start.offset,
-                    &command.condition,
+                    visit.stmt.span().start.offset,
+                    condition,
                     context,
                     "while",
-                ) || body_header_matches(
-                    source,
-                    command.condition.span.end.offset,
-                    &command.body,
-                    &context,
-                    "do",
-                ) || body_opener_matches(
-                    source,
-                    command.condition.span.end.offset,
-                    &command.body,
-                    &context,
-                    '{',
-                )
+                ) || loop_body_header_matches(source, condition.span().end.offset, body, &context)
             }
-            Command::Compound(CompoundCommand::Until(command)) => {
+            CompoundCommandNode::Until { condition, body } => {
+                let condition = store.stmt_seq(*condition);
+                let body = store.stmt_seq(*body);
                 loop_header_matches(
                     source,
-                    visit.stmt.span.start.offset,
-                    &command.condition,
+                    visit.stmt.span().start.offset,
+                    condition,
                     context,
                     "until",
-                ) || body_header_matches(
-                    source,
-                    command.condition.span.end.offset,
-                    &command.body,
-                    &context,
-                    "do",
-                ) || body_opener_matches(
-                    source,
-                    command.condition.span.end.offset,
-                    &command.body,
-                    &context,
-                    '{',
-                )
+                ) || loop_body_header_matches(source, condition.span().end.offset, body, &context)
             }
-            Command::Compound(CompoundCommand::Select(command)) => {
-                body_header_matches(
-                    source,
-                    visit.stmt.span.start.offset,
-                    &command.body,
-                    &context,
-                    "do",
-                ) || body_opener_matches(
-                    source,
-                    visit.stmt.span.start.offset,
-                    &command.body,
-                    &context,
-                    '{',
-                )
-            }
-            Command::Compound(CompoundCommand::Subshell(body)) => {
-                body.first().is_some_and(|stmt| {
-                    next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+            CompoundCommandNode::Subshell(body) => {
+                first_stmt(store.stmt_seq(*body)).is_some_and(|stmt| {
+                    next_command_starts_after_comment_line(stmt.span().start.offset, &context)
                         && context.prefix.trim_end().ends_with('(')
                 })
             }
-            Command::Compound(CompoundCommand::BraceGroup(body)) => {
-                body.first().is_some_and(|stmt| {
-                    next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+            CompoundCommandNode::BraceGroup(body) => {
+                first_stmt(store.stmt_seq(*body)).is_some_and(|stmt| {
+                    next_command_starts_after_comment_line(stmt.span().start.offset, &context)
                         && context.prefix.trim_end().ends_with('{')
                 })
             }
-            _ => false,
-        })
+            CompoundCommandNode::Case { .. }
+            | CompoundCommandNode::Arithmetic(_)
+            | CompoundCommandNode::Time { .. }
+            | CompoundCommandNode::Conditional(_)
+            | CompoundCommandNode::Coproc { .. }
+            | CompoundCommandNode::Always { .. } => false,
+        }
+    })
 }
 
-fn is_case_label_directive(comment: &NormalizedComment<'_>, file: &File) -> bool {
-    command_visits(&file.body).into_iter().any(|visit| {
-        let Command::Compound(CompoundCommand::Case(command)) = visit.command else {
+fn is_case_label_directive(comment: &NormalizedComment<'_>, file: &ArenaFile) -> bool {
+    command_visits(file.view().body()).into_iter().any(|visit| {
+        let Some(command) = visit.command.compound() else {
+            return false;
+        };
+        let store = command.store();
+        let CompoundCommandNode::Case { cases, .. } = command.node() else {
             return false;
         };
 
-        command
-            .cases
+        store
+            .case_items(*cases)
             .iter()
-            .any(|case| case_label_directive(case, comment))
+            .any(|case| case_label_directive(case, store, comment))
     })
 }
 
 #[derive(Clone, Copy)]
 struct DirectiveCommandVisit<'a> {
-    stmt: &'a Stmt,
-    command: &'a Command,
+    stmt: StmtView<'a>,
+    command: CommandView<'a>,
 }
 
-fn command_visits(commands: &StmtSeq) -> Vec<DirectiveCommandVisit<'_>> {
+fn command_visits(commands: StmtSeqView<'_>) -> Vec<DirectiveCommandVisit<'_>> {
     let mut visits = Vec::new();
     collect_command_visits(commands, &mut visits);
     visits
 }
 
-fn collect_command_visits<'a>(commands: &'a StmtSeq, visits: &mut Vec<DirectiveCommandVisit<'a>>) {
-    for stmt in commands.iter() {
+fn collect_command_visits<'a>(
+    commands: StmtSeqView<'a>,
+    visits: &mut Vec<DirectiveCommandVisit<'a>>,
+) {
+    for stmt in commands.stmts() {
         collect_command_visit(stmt, visits);
     }
 }
 
-fn collect_command_visit<'a>(stmt: &'a Stmt, visits: &mut Vec<DirectiveCommandVisit<'a>>) {
-    visits.push(DirectiveCommandVisit {
-        stmt,
-        command: &stmt.command,
-    });
+fn collect_command_visit<'a>(stmt: StmtView<'a>, visits: &mut Vec<DirectiveCommandVisit<'a>>) {
+    let command = stmt.command();
+    visits.push(DirectiveCommandVisit { stmt, command });
 
-    match &stmt.command {
-        Command::Simple(command) => {
-            collect_assignment_visits(&command.assignments, visits);
-            collect_word_visits(&command.name, visits);
-            collect_word_slice_visits(&command.args, visits);
-        }
-        Command::Builtin(command) => collect_builtin_visits(command, visits),
-        Command::Decl(command) => {
-            collect_assignment_visits(&command.assignments, visits);
-            for operand in &command.operands {
-                match operand {
-                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                        collect_word_visits(word, visits);
-                    }
-                    DeclOperand::Name(_) => {}
-                    DeclOperand::Assignment(assignment) => {
-                        collect_assignment_visit(assignment, visits);
-                    }
-                }
-            }
-        }
-        Command::Binary(command) => {
-            collect_command_visit(&command.left, visits);
-            collect_command_visit(&command.right, visits);
-        }
-        Command::Compound(command) => collect_compound_visits(command, visits),
-        Command::Function(FunctionDef { header, body, .. }) => {
-            for entry in &header.entries {
-                collect_word_visits(&entry.word, visits);
-            }
-            collect_command_visit(body, visits);
-        }
-        Command::AnonymousFunction(function) => {
-            collect_word_slice_visits(&function.args, visits);
-            collect_command_visit(&function.body, visits);
-        }
+    for child in command.child_sequences() {
+        collect_command_visits(child, visits);
     }
-
-    collect_redirect_visits(&stmt.redirects, visits);
-}
-
-fn collect_builtin_visits<'a>(
-    command: &'a BuiltinCommand,
-    visits: &mut Vec<DirectiveCommandVisit<'a>>,
-) {
-    match command {
-        BuiltinCommand::Break(command) => {
-            collect_assignment_visits(&command.assignments, visits);
-            if let Some(word) = &command.depth {
-                collect_word_visits(word, visits);
-            }
-            collect_word_slice_visits(&command.extra_args, visits);
-        }
-        BuiltinCommand::Continue(command) => {
-            collect_assignment_visits(&command.assignments, visits);
-            if let Some(word) = &command.depth {
-                collect_word_visits(word, visits);
-            }
-            collect_word_slice_visits(&command.extra_args, visits);
-        }
-        BuiltinCommand::Return(command) => {
-            collect_assignment_visits(&command.assignments, visits);
-            if let Some(word) = &command.code {
-                collect_word_visits(word, visits);
-            }
-            collect_word_slice_visits(&command.extra_args, visits);
-        }
-        BuiltinCommand::Exit(command) => {
-            collect_assignment_visits(&command.assignments, visits);
-            if let Some(word) = &command.code {
-                collect_word_visits(word, visits);
-            }
-            collect_word_slice_visits(&command.extra_args, visits);
-        }
+    for child in stmt.redirect_child_sequences() {
+        collect_command_visits(child, visits);
     }
 }
 
-fn collect_compound_visits<'a>(
-    command: &'a CompoundCommand,
-    visits: &mut Vec<DirectiveCommandVisit<'a>>,
-) {
-    match command {
-        CompoundCommand::If(command) => {
-            collect_command_visits(&command.condition, visits);
-            collect_command_visits(&command.then_branch, visits);
-            for (condition, body) in &command.elif_branches {
-                collect_command_visits(condition, visits);
-                collect_command_visits(body, visits);
-            }
-            if let Some(body) = &command.else_branch {
-                collect_command_visits(body, visits);
-            }
-        }
-        CompoundCommand::For(command) => {
-            if let Some(words) = &command.words {
-                collect_word_slice_visits(words, visits);
-            }
-            collect_command_visits(&command.body, visits);
-        }
-        CompoundCommand::Repeat(command) => {
-            collect_word_visits(&command.count, visits);
-            collect_command_visits(&command.body, visits);
-        }
-        CompoundCommand::Foreach(command) => {
-            collect_word_slice_visits(&command.words, visits);
-            collect_command_visits(&command.body, visits);
-        }
-        CompoundCommand::ArithmeticFor(command) => collect_command_visits(&command.body, visits),
-        CompoundCommand::While(command) => {
-            collect_command_visits(&command.condition, visits);
-            collect_command_visits(&command.body, visits);
-        }
-        CompoundCommand::Until(command) => {
-            collect_command_visits(&command.condition, visits);
-            collect_command_visits(&command.body, visits);
-        }
-        CompoundCommand::Case(command) => {
-            collect_word_visits(&command.word, visits);
-            for case in &command.cases {
-                collect_pattern_slice_visits(&case.patterns, visits);
-                collect_command_visits(&case.body, visits);
-            }
-        }
-        CompoundCommand::Select(command) => {
-            collect_word_slice_visits(&command.words, visits);
-            collect_command_visits(&command.body, visits);
-        }
-        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            collect_command_visits(commands, visits);
-        }
-        CompoundCommand::Always(command) => {
-            collect_command_visits(&command.body, visits);
-            collect_command_visits(&command.always_body, visits);
-        }
-        CompoundCommand::Arithmetic(_) => {}
-        CompoundCommand::Time(command) => {
-            if let Some(command) = &command.command {
-                collect_command_visit(command, visits);
-            }
-        }
-        CompoundCommand::Conditional(command) => {
-            collect_conditional_visits(&command.expression, visits);
-        }
-        CompoundCommand::Coproc(command) => collect_command_visit(&command.body, visits),
-    }
+fn first_stmt(sequence: StmtSeqView<'_>) -> Option<StmtView<'_>> {
+    sequence.stmts().next()
 }
 
-fn collect_assignment_visits<'a>(
-    assignments: &'a [Assignment],
-    visits: &mut Vec<DirectiveCommandVisit<'a>>,
-) {
-    for assignment in assignments {
-        collect_assignment_visit(assignment, visits);
-    }
-}
-
-fn collect_assignment_visit<'a>(
-    assignment: &'a Assignment,
-    visits: &mut Vec<DirectiveCommandVisit<'a>>,
-) {
-    match &assignment.value {
-        AssignmentValue::Scalar(word) => collect_word_visits(word, visits),
-        AssignmentValue::Compound(array) => {
-            for element in &array.elements {
-                match element {
-                    ArrayElem::Sequential(word) => collect_word_visits(word, visits),
-                    ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
-                        collect_word_visits(value, visits);
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn collect_word_slice_visits<'a>(words: &'a [Word], visits: &mut Vec<DirectiveCommandVisit<'a>>) {
-    for word in words {
-        collect_word_visits(word, visits);
-    }
-}
-
-fn collect_pattern_slice_visits<'a>(
-    patterns: &'a [Pattern],
-    visits: &mut Vec<DirectiveCommandVisit<'a>>,
-) {
-    for pattern in patterns {
-        collect_pattern_visits(pattern, visits);
-    }
-}
-
-fn collect_pattern_visits<'a>(pattern: &'a Pattern, visits: &mut Vec<DirectiveCommandVisit<'a>>) {
-    for (part, _) in pattern.parts_with_spans() {
-        match part {
-            PatternPart::Group { patterns, .. } => collect_pattern_slice_visits(patterns, visits),
-            PatternPart::Word(word) => collect_word_visits(word, visits),
-            PatternPart::Literal(_)
-            | PatternPart::AnyString
-            | PatternPart::AnyChar
-            | PatternPart::CharClass(_) => {}
-        }
-    }
-}
-
-fn collect_word_visits<'a>(word: &'a Word, visits: &mut Vec<DirectiveCommandVisit<'a>>) {
-    collect_word_part_visits(&word.parts, visits);
-}
-
-fn collect_word_part_visits<'a>(
-    parts: &'a [WordPartNode],
-    visits: &mut Vec<DirectiveCommandVisit<'a>>,
-) {
-    for part in parts {
-        match &part.kind {
-            WordPart::ZshQualifiedGlob(glob) => {
-                for pattern in zsh_glob_patterns(glob) {
-                    collect_pattern_visits(pattern, visits);
-                }
-            }
-            WordPart::DoubleQuoted { parts, .. } => collect_word_part_visits(parts, visits),
-            WordPart::ArithmeticExpansion { expression_ast, .. } => {
-                if let Some(expression_ast) = expression_ast.as_ref() {
-                    visit_arithmetic_words(expression_ast, &mut |word| {
-                        collect_word_visits(word, visits);
-                    });
-                }
-            }
-            WordPart::CommandSubstitution { body, .. }
-            | WordPart::ProcessSubstitution { body, .. } => collect_command_visits(body, visits),
-            WordPart::Parameter(parameter) => collect_parameter_expansion_visits(parameter, visits),
-            WordPart::ParameterExpansion {
-                reference,
-                operand_word_ast,
-                ..
-            }
-            | WordPart::IndirectExpansion {
-                reference,
-                operand_word_ast,
-                ..
-            } => {
-                collect_var_ref_word_visits(reference, visits);
-                if let Some(word) = operand_word_ast.as_ref() {
-                    collect_word_visits(word, visits);
-                }
-            }
-            WordPart::Length(reference)
-            | WordPart::ArrayAccess(reference)
-            | WordPart::ArrayLength(reference)
-            | WordPart::ArrayIndices(reference)
-            | WordPart::Transformation { reference, .. } => {
-                collect_var_ref_word_visits(reference, visits);
-            }
-            WordPart::Substring {
-                reference,
-                offset_ast,
-                offset_word_ast,
-                length_ast,
-                length_word_ast,
-                ..
-            }
-            | WordPart::ArraySlice {
-                reference,
-                offset_ast,
-                offset_word_ast,
-                length_ast,
-                length_word_ast,
-                ..
-            } => {
-                collect_var_ref_word_visits(reference, visits);
-                if let Some(expression) = offset_ast.as_ref() {
-                    visit_arithmetic_words(expression, &mut |word| {
-                        collect_word_visits(word, visits);
-                    });
-                } else {
-                    collect_word_visits(offset_word_ast, visits);
-                }
-                if let Some(expression) = length_ast.as_ref() {
-                    visit_arithmetic_words(expression, &mut |word| {
-                        collect_word_visits(word, visits);
-                    });
-                } else if let Some(word) = length_word_ast.as_ref() {
-                    collect_word_visits(word, visits);
-                }
-            }
-            WordPart::Literal(_)
-            | WordPart::SingleQuoted { .. }
-            | WordPart::Variable(_)
-            | WordPart::PrefixMatch { .. } => {}
-        }
-    }
-}
-
-fn zsh_glob_patterns(glob: &shuck_ast::ZshQualifiedGlob) -> impl Iterator<Item = &Pattern> + '_ {
-    glob.segments.iter().filter_map(|segment| match segment {
-        ZshGlobSegment::Pattern(pattern) => Some(pattern),
-        ZshGlobSegment::InlineControl(_) => None,
-    })
-}
-
-fn collect_var_ref_word_visits<'a>(
-    reference: &'a VarRef,
-    visits: &mut Vec<DirectiveCommandVisit<'a>>,
-) {
-    let Some(subscript) = reference.subscript.as_deref() else {
-        return;
-    };
-    if subscript.selector().is_some() {
-        return;
-    }
-    if let Some(expression) = subscript.arithmetic_ast.as_ref() {
-        visit_arithmetic_words(expression, &mut |word| {
-            collect_word_visits(word, visits);
-        });
-    } else if let Some(word) = subscript.word_ast() {
-        collect_word_visits(word, visits);
-    }
-}
-
-fn collect_parameter_expansion_visits<'a>(
-    parameter: &'a ParameterExpansion,
-    visits: &mut Vec<DirectiveCommandVisit<'a>>,
-) {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
-            BourneParameterExpansion::Access { reference }
-            | BourneParameterExpansion::Length { reference }
-            | BourneParameterExpansion::Indices { reference }
-            | BourneParameterExpansion::Transformation { reference, .. } => {
-                collect_var_ref_word_visits(reference, visits);
-            }
-            BourneParameterExpansion::Indirect {
-                reference,
-                operand_word_ast,
-                ..
-            } => {
-                collect_var_ref_word_visits(reference, visits);
-                if let Some(word) = operand_word_ast.as_ref() {
-                    collect_word_visits(word, visits);
-                }
-            }
-            BourneParameterExpansion::Operation {
-                reference,
-                operator,
-                operand_word_ast,
-                ..
-            } => {
-                collect_var_ref_word_visits(reference, visits);
-                if let Some(word) = operand_word_ast.as_ref() {
-                    collect_word_visits(word, visits);
-                }
-                if let Some(word) = operator.replacement_word_ast() {
-                    collect_word_visits(word, visits);
-                }
-            }
-            BourneParameterExpansion::Slice {
-                reference,
-                offset_ast,
-                offset_word_ast,
-                length_ast,
-                length_word_ast,
-                ..
-            } => {
-                collect_var_ref_word_visits(reference, visits);
-                if let Some(expression) = offset_ast.as_ref() {
-                    visit_arithmetic_words(expression, &mut |word| {
-                        collect_word_visits(word, visits);
-                    });
-                } else {
-                    collect_word_visits(offset_word_ast, visits);
-                }
-                if let Some(expression) = length_ast.as_ref() {
-                    visit_arithmetic_words(expression, &mut |word| {
-                        collect_word_visits(word, visits);
-                    });
-                } else if let Some(word) = length_word_ast.as_ref() {
-                    collect_word_visits(word, visits);
-                }
-            }
-            BourneParameterExpansion::PrefixMatch { .. } => {}
-        },
-        ParameterExpansionSyntax::Zsh(syntax) => {
-            collect_zsh_target_visits(&syntax.target, visits);
-
-            for modifier in &syntax.modifiers {
-                if let Some(word) = modifier.argument_word_ast() {
-                    collect_word_visits(word, visits);
-                }
-            }
-
-            if let Some(operation) = &syntax.operation {
-                match operation {
-                    shuck_ast::ZshExpansionOperation::PatternOperation { .. }
-                    | shuck_ast::ZshExpansionOperation::Defaulting { .. }
-                    | shuck_ast::ZshExpansionOperation::TrimOperation { .. }
-                    | shuck_ast::ZshExpansionOperation::Unknown { .. } => {
-                        if let Some(word) = operation.operand_word_ast() {
-                            collect_word_visits(word, visits);
-                        }
-                    }
-                    shuck_ast::ZshExpansionOperation::ReplacementOperation { .. } => {
-                        if let Some(word) = operation.pattern_word_ast() {
-                            collect_word_visits(word, visits);
-                        }
-                        if let Some(word) = operation.replacement_word_ast() {
-                            collect_word_visits(word, visits);
-                        }
-                    }
-                    shuck_ast::ZshExpansionOperation::Slice { .. } => {
-                        if let Some(word) = operation.offset_word_ast() {
-                            collect_word_visits(word, visits);
-                        }
-                        if let Some(word) = operation.length_word_ast() {
-                            collect_word_visits(word, visits);
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn collect_zsh_target_visits<'a>(
-    target: &'a ZshExpansionTarget,
-    visits: &mut Vec<DirectiveCommandVisit<'a>>,
-) {
-    match target {
-        ZshExpansionTarget::Reference(reference) => collect_var_ref_word_visits(reference, visits),
-        ZshExpansionTarget::Nested(parameter) => {
-            collect_parameter_expansion_visits(parameter, visits);
-        }
-        ZshExpansionTarget::Word(word) => collect_word_visits(word, visits),
-        ZshExpansionTarget::Empty => {}
-    }
-}
-
-fn collect_redirect_visits<'a>(
-    redirects: &'a [Redirect],
-    visits: &mut Vec<DirectiveCommandVisit<'a>>,
-) {
-    for redirect in redirects {
-        if let Some(word) = redirect.word_target() {
-            collect_word_visits(word, visits);
-        } else if let Some(heredoc) = redirect.heredoc()
-            && heredoc.delimiter.expands_body
-        {
-            collect_heredoc_body_part_visits(&heredoc.body.parts, visits);
-        }
-    }
-}
-
-fn collect_heredoc_body_part_visits<'a>(
-    parts: &'a [HeredocBodyPartNode],
-    visits: &mut Vec<DirectiveCommandVisit<'a>>,
-) {
-    for part in parts {
-        match &part.kind {
-            shuck_ast::HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => {
-                if let Some(expression_ast) = expression_ast.as_ref() {
-                    visit_arithmetic_words(expression_ast, &mut |word| {
-                        collect_word_visits(word, visits);
-                    });
-                }
-            }
-            shuck_ast::HeredocBodyPart::CommandSubstitution { body, .. } => {
-                collect_command_visits(body, visits);
-            }
-            shuck_ast::HeredocBodyPart::Literal(_)
-            | shuck_ast::HeredocBodyPart::Variable(_)
-            | shuck_ast::HeredocBodyPart::Parameter(_) => {}
-        }
-    }
-}
-
-fn collect_conditional_visits<'a>(
-    expression: &'a ConditionalExpr,
-    visits: &mut Vec<DirectiveCommandVisit<'a>>,
-) {
-    match expression {
-        ConditionalExpr::Binary(expr) => {
-            collect_conditional_visits(&expr.left, visits);
-            collect_conditional_visits(&expr.right, visits);
-        }
-        ConditionalExpr::Unary(expr) => collect_conditional_visits(&expr.expr, visits),
-        ConditionalExpr::Parenthesized(expr) => collect_conditional_visits(&expr.expr, visits),
-        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
-            collect_word_visits(word, visits);
-        }
-        ConditionalExpr::Pattern(pattern) => collect_pattern_visits(pattern, visits),
-        ConditionalExpr::VarRef(_) => {}
-    }
-}
-
-fn visit_arithmetic_words<'a>(
-    expression: &'a ArithmeticExprNode,
-    visitor: &mut impl FnMut(&'a Word),
-) {
-    match &expression.kind {
-        ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
-        ArithmeticExpr::Indexed { index, .. } => visit_arithmetic_words(index, visitor),
-        ArithmeticExpr::ShellWord(word) => visitor(word),
-        ArithmeticExpr::Parenthesized { expression } => {
-            visit_arithmetic_words(expression, visitor);
-        }
-        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
-            visit_arithmetic_words(expr, visitor);
-        }
-        ArithmeticExpr::Binary { left, right, .. } => {
-            visit_arithmetic_words(left, visitor);
-            visit_arithmetic_words(right, visitor);
-        }
-        ArithmeticExpr::Conditional {
-            condition,
-            then_expr,
-            else_expr,
-        } => {
-            visit_arithmetic_words(condition, visitor);
-            visit_arithmetic_words(then_expr, visitor);
-            visit_arithmetic_words(else_expr, visitor);
-        }
-        ArithmeticExpr::Assignment { target, value, .. } => {
-            visit_arithmetic_lvalue_words(target, visitor);
-            visit_arithmetic_words(value, visitor);
-        }
-    }
-}
-
-fn visit_arithmetic_lvalue_words<'a>(
-    target: &'a ArithmeticLvalue,
-    visitor: &mut impl FnMut(&'a Word),
-) {
-    match target {
-        ArithmeticLvalue::Variable(_) => {}
-        ArithmeticLvalue::Indexed { index, .. } => visit_arithmetic_words(index, visitor),
-    }
-}
-
-fn case_label_directive(case: &CaseItem, comment: &NormalizedComment<'_>) -> bool {
-    let Some(pattern) = case.patterns.last() else {
+fn case_label_directive(
+    case: &CaseItemNode,
+    store: &AstStore,
+    comment: &NormalizedComment<'_>,
+) -> bool {
+    let Some(pattern) = store.patterns(case.patterns).last() else {
         return false;
     };
 
@@ -1010,9 +433,8 @@ fn case_label_directive(case: &CaseItem, comment: &NormalizedComment<'_>) -> boo
         return false;
     }
 
-    case.body
-        .first()
-        .is_none_or(|stmt| u32::try_from(stmt.span.start.line).ok() != Some(comment.line))
+    first_stmt(store.stmt_seq(case.body))
+        .is_none_or(|stmt| u32::try_from(stmt.span().start.line).ok() != Some(comment.line))
 }
 
 fn strip_comment_prefix(text: &str) -> &str {
@@ -1123,25 +545,35 @@ fn segment_ends_with_char(source: &str, start: usize, end: usize, ch: char) -> b
 fn loop_header_matches(
     source: &str,
     command_start: usize,
-    condition: &StmtSeq,
+    condition: StmtSeqView<'_>,
     context: InlineDirectiveContext<'_>,
     keyword: &str,
 ) -> bool {
-    condition.first().is_some_and(|stmt| {
-        next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+    first_stmt(condition).is_some_and(|stmt| {
+        next_command_starts_after_comment_line(stmt.span().start.offset, &context)
             && command_start_segment_matches(source, command_start, context.comment_start, keyword)
     })
+}
+
+fn loop_body_header_matches(
+    source: &str,
+    header_end: usize,
+    body: StmtSeqView<'_>,
+    context: &InlineDirectiveContext<'_>,
+) -> bool {
+    body_header_matches(source, header_end, body, context, "do")
+        || body_opener_matches(source, header_end, body, context, '{')
 }
 
 fn body_header_matches(
     source: &str,
     header_end: usize,
-    body: &StmtSeq,
+    body: StmtSeqView<'_>,
     context: &InlineDirectiveContext<'_>,
     keyword: &str,
 ) -> bool {
-    body.first().is_some_and(|stmt| {
-        next_command_starts_after_comment_line(stmt.span.start.offset, context)
+    first_stmt(body).is_some_and(|stmt| {
+        next_command_starts_after_comment_line(stmt.span().start.offset, context)
             && gap_segment_ends_with_keyword(source, header_end, context.comment_start, keyword)
     })
 }
@@ -1149,12 +581,12 @@ fn body_header_matches(
 fn body_opener_matches(
     source: &str,
     header_end: usize,
-    body: &StmtSeq,
+    body: StmtSeqView<'_>,
     context: &InlineDirectiveContext<'_>,
     opener: char,
 ) -> bool {
-    body.first().is_some_and(|stmt| {
-        next_command_starts_after_comment_line(stmt.span.start.offset, context)
+    first_stmt(body).is_some_and(|stmt| {
+        next_command_starts_after_comment_line(stmt.span().start.offset, context)
             && gap_segment_ends_with_char(source, header_end, context.comment_start, opener)
     })
 }
@@ -1218,7 +650,7 @@ mod tests {
         let indexer = Indexer::new(source, &output);
         parse_directives(
             source,
-            &output.file,
+            &output.arena_file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         )

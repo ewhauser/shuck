@@ -3040,12 +3040,25 @@ pub fn static_command_name_text_arena<'a>(
     word: WordView<'_>,
     source: &'a str,
 ) -> Option<Cow<'a, str>> {
-    try_static_command_name_parts_text_arena(word.parts(), source)
+    try_static_command_name_parts_text_arena(
+        word.parts(),
+        word.store(),
+        source,
+        ArenaStaticCommandNameContext::Unquoted,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum ArenaStaticCommandNameContext {
+    Unquoted,
+    DoubleQuoted,
 }
 
 fn try_static_command_name_parts_text_arena<'a>(
     parts: &[WordPartArenaNode],
+    store: &AstStore,
     source: &'a str,
+    context: ArenaStaticCommandNameContext,
 ) -> Option<Cow<'a, str>> {
     if parts.is_empty() {
         return Some(Cow::Borrowed(""));
@@ -3056,32 +3069,104 @@ fn try_static_command_name_parts_text_arena<'a>(
             WordPartArena::Literal(text) => {
                 append_decoded_static_command_literal_arena(
                     text.as_str(source, part.span),
+                    context,
                     &mut result,
                 );
             }
             WordPartArena::SingleQuoted { value, .. } => result.push_str(value.slice(source)),
-            WordPartArena::DoubleQuoted { .. } => return None,
+            WordPartArena::DoubleQuoted { parts, .. } => {
+                if !collect_static_command_name_parts_text_arena(
+                    store.word_parts(*parts),
+                    store,
+                    source,
+                    ArenaStaticCommandNameContext::DoubleQuoted,
+                    &mut result,
+                ) {
+                    return None;
+                }
+            }
             _ => return None,
         }
     }
     Some(Cow::Owned(result))
 }
 
-fn append_decoded_static_command_literal_arena(text: &str, out: &mut String) {
-    let mut chars = text.chars();
-    while let Some(ch) = chars.next() {
-        if ch != '\\' {
-            out.push(ch);
+fn collect_static_command_name_parts_text_arena(
+    parts: &[WordPartArenaNode],
+    store: &AstStore,
+    source: &str,
+    context: ArenaStaticCommandNameContext,
+    out: &mut String,
+) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPartArena::Literal(text) => {
+                append_decoded_static_command_literal_arena(
+                    text.as_str(source, part.span),
+                    context,
+                    out,
+                );
+            }
+            WordPartArena::SingleQuoted { value, .. } => out.push_str(value.slice(source)),
+            WordPartArena::DoubleQuoted { parts, .. } => {
+                if !collect_static_command_name_parts_text_arena(
+                    store.word_parts(*parts),
+                    store,
+                    source,
+                    ArenaStaticCommandNameContext::DoubleQuoted,
+                    out,
+                ) {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+
+    true
+}
+
+fn append_decoded_static_command_literal_arena(
+    text: &str,
+    context: ArenaStaticCommandNameContext,
+    out: &mut String,
+) {
+    let bytes = text.as_bytes();
+    let mut copy_start = 0usize;
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] != b'\\' {
+            index += 1;
             continue;
         }
-        let Some(next) = chars.next() else {
+
+        out.push_str(&text[copy_start..index]);
+        index += 1;
+
+        let Some(&next) = bytes.get(index) else {
             out.push('\\');
             return;
         };
-        if next != '\n' {
-            out.push(next);
+
+        match context {
+            ArenaStaticCommandNameContext::Unquoted => {
+                copy_start = if next == b'\n' { index + 1 } else { index };
+            }
+            ArenaStaticCommandNameContext::DoubleQuoted => match next {
+                b'$' | b'`' | b'"' | b'\\' => copy_start = index,
+                b'\n' => copy_start = index + 1,
+                _ => {
+                    out.push('\\');
+                    copy_start = index;
+                }
+            },
         }
+
+        index += 1;
     }
+
+    out.push_str(&text[copy_start..]);
 }
 
 #[derive(Default)]

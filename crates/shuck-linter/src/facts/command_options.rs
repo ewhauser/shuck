@@ -1116,8 +1116,8 @@ fn read_option_attached_target_span(span: Span, source: &str, start: usize, end:
     Span::from_positions(start_pos, end_pos)
 }
 
-fn parse_echo_command<'a>(
-    args: &[&'a Word],
+fn parse_echo_command(
+    args: &[&Word],
     source: &str,
     arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
 ) -> EchoCommandFacts {
@@ -1373,8 +1373,8 @@ fn strip_backtick_escaped_double_quotes_in_source(text: &str) -> &str {
     &text[2..text.len() - 2]
 }
 
-fn parse_tr_command<'a>(
-    args: &[&'a Word],
+fn parse_tr_command(
+    args: &[&Word],
     source: &str,
     arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
 ) -> TrCommandFacts {
@@ -1397,7 +1397,7 @@ fn parse_tr_command<'a>(
         index += 1;
     }
 
-    let operand_words = args[index..].iter().copied().collect::<Vec<_>>();
+    let operand_words = args[index..].to_vec();
     let operand_word_ids = word_ids_for_words(operand_words.iter().copied(), arena_word_ids_by_span);
     TrCommandFacts {
         operand_spans: operand_words
@@ -2078,8 +2078,8 @@ fn split_brace_alternatives(text: &str) -> Vec<&str> {
     alternatives
 }
 
-fn parse_grep_command<'a>(
-    args: &[&'a Word],
+fn parse_grep_command(
+    args: &[&Word],
     source: &str,
     arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
 ) -> Option<GrepCommandFacts> {
@@ -2743,8 +2743,8 @@ fn grep_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word>
     args.get(index..).unwrap_or(&[]).to_vec()
 }
 
-fn grep_pattern_fact<'a>(
-    word: &'a Word,
+fn grep_pattern_fact(
+    word: &Word,
     source: &str,
     arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
     source_kind: GrepPatternSourceKind,
@@ -2762,8 +2762,8 @@ fn grep_pattern_fact<'a>(
     )
 }
 
-fn grep_prefixed_pattern_fact<'a>(
-    word: &'a Word,
+fn grep_prefixed_pattern_fact(
+    word: &Word,
     source: &str,
     arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
     prefix_len: usize,
@@ -3551,8 +3551,8 @@ fn printf_uses_q_format(word: &Word, source: &str) -> bool {
     false
 }
 
-fn parse_unset_command<'a>(
-    args: &[&'a Word],
+fn parse_unset_command(
+    args: &[&Word],
     source: &str,
     arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
 ) -> UnsetCommandFacts {
@@ -3624,8 +3624,8 @@ fn parse_unset_command<'a>(
     }
 }
 
-fn parse_unset_operand_fact<'a>(
-    word: &'a Word,
+fn parse_unset_operand_fact(
+    word: &Word,
     source: &str,
     arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
 ) -> UnsetOperandFact {

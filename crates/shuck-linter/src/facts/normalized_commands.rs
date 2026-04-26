@@ -467,10 +467,13 @@ fn mumps_run_arena_resolution(
 
 #[cfg(test)]
 mod tests {
-    use shuck_ast::{ArenaFile, Command};
+    use shuck_ast as ast;
+    use shuck_ast::ArenaFile;
     use shuck_parser::parser::Parser;
 
     use super::{DeclarationKind, WrapperKind, normalize_arena_command, normalize_command};
+
+    type Command = ast::Command;
 
     fn parse_first_command(source: &str) -> Command {
         let output = Parser::new(source).parse().unwrap();

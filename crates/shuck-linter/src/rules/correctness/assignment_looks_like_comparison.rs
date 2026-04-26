@@ -4,7 +4,9 @@ use shuck_ast::{
 };
 use shuck_semantic::{Binding, BindingAttributes, BindingKind};
 
-use crate::{Checker, CommandFactRef, ExpansionContext, Rule, Violation, WordFactContext, WordQuote};
+use crate::{
+    Checker, CommandFactRef, ExpansionContext, Rule, Violation, WordFactContext, WordQuote,
+};
 
 pub struct AssignmentLooksLikeComparison;
 

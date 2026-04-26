@@ -21,7 +21,7 @@ pub fn backslash_before_command(checker: &mut Checker) {
         .commands()
         .iter()
         .filter_map(|fact| {
-            let word = fact.arena_body_name_word(source)?;
+            let word = fact.arena_simple_name_word()?;
             backslash_before_command_span(word.span(), source)
         })
         .collect::<Vec<_>>();
@@ -30,10 +30,8 @@ pub fn backslash_before_command(checker: &mut Checker) {
 }
 
 fn backslash_before_command_span(name_span: Span, source: &str) -> Option<Span> {
-    (name_span.slice(source) == "\\command").then_some(Span::from_positions(
-        name_span.start,
-        name_span.start,
-    ))
+    (name_span.slice(source) == "\\command")
+        .then_some(Span::from_positions(name_span.start, name_span.start))
 }
 
 #[cfg(test)]
