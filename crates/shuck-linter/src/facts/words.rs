@@ -3397,6 +3397,7 @@ fn build_word_facts_for_command<'a>(
         semantic,
         context.command_id,
         context.nested_word_command,
+        context.scope,
         normalized,
         command_zsh_options,
         outputs,
@@ -3434,9 +3435,11 @@ pub(crate) fn benchmark_collect_word_facts(
         },
         &mut |visit, context| {
             let normalized = command::normalize_command(visit.command, source);
+            let command_start_offset = command_span(visit.command).start.offset;
+            let scope = semantic.scope_at(command_start_offset);
             let command_zsh_options = effective_command_zsh_options(
                 semantic,
-                command_span(visit.command).start.offset,
+                command_start_offset,
                 &normalized,
             );
             build_word_facts_for_command(
@@ -3446,6 +3449,7 @@ pub(crate) fn benchmark_collect_word_facts(
                 WordFactCommandContext {
                     command_id: CommandId::new(next_command_id),
                     nested_word_command: context.nested_word_command,
+                    scope,
                 },
                 &normalized,
                 command_zsh_options,
@@ -3499,6 +3503,7 @@ pub(crate) fn benchmark_collect_word_facts(
 struct WordFactCommandContext {
     command_id: CommandId,
     nested_word_command: bool,
+    scope: ScopeId,
 }
 
 struct WordFactOutputs<'out, 'a> {
@@ -3808,6 +3813,7 @@ struct WordFactCollector<'out, 'a, 'norm> {
     semantic: &'a SemanticModel,
     command_id: CommandId,
     nested_word_command: bool,
+    command_scope: ScopeId,
     surface_command_name: Option<&'norm str>,
     surface_body_arg_start_offset: Option<usize>,
     command_zsh_options: Option<ZshOptionState>,
@@ -3848,11 +3854,13 @@ fn simple_command_word_at(command: &SimpleCommand, index: usize) -> &Word {
 }
 
 impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         source: &'a str,
         semantic: &'a SemanticModel,
         command_id: CommandId,
         nested_word_command: bool,
+        command_scope: ScopeId,
         normalized: &'norm NormalizedCommand<'a>,
         command_zsh_options: Option<ZshOptionState>,
         outputs: WordFactOutputs<'out, 'a>,
@@ -3862,6 +3870,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             semantic,
             command_id,
             nested_word_command,
+            command_scope,
             surface_command_name: normalized.effective_or_literal_name(),
             surface_body_arg_start_offset: normalized
                 .body_args()
@@ -5142,10 +5151,9 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         owner_name_span: Option<Span>,
         subscript: &Subscript,
     ) -> bool {
-        let current_scope = self.semantic.scope_at(subscript.span().start.offset);
         let key = (
             owner_name.clone(),
-            current_scope,
+            self.command_scope,
             owner_name_span.map(FactSpan::new),
         );
         if let Some(result) = self.assoc_binding_visibility_memo.get(&key) {
@@ -5157,7 +5165,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         {
             visible
         } else {
-            self.assoc_binding_visible_from_named_callers(owner_name, subscript.span())
+            self.assoc_binding_visible_from_named_callers(owner_name)
         };
         self.assoc_binding_visibility_memo.insert(key, visible);
         visible
@@ -5170,14 +5178,13 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         subscript: &Subscript,
     ) -> Option<bool> {
         let lookup_span = owner_name_span.unwrap_or(subscript.span());
-        let current_scope = self.semantic.scope_at(subscript.span().start.offset);
         self.semantic
-            .visible_binding_for_assoc_lookup(owner_name, current_scope, lookup_span)
+            .visible_binding_for_assoc_lookup(owner_name, self.command_scope, lookup_span)
             .map(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
     }
 
-    fn assoc_binding_visible_from_named_callers(&self, owner_name: &Name, span: Span) -> bool {
-        let Some(function_names) = self.named_function_scope_names(span.start.offset) else {
+    fn assoc_binding_visible_from_named_callers(&self, owner_name: &Name) -> bool {
+        let Some(function_names) = self.named_function_scope_names(self.command_scope) else {
             return false;
         };
 
@@ -5191,18 +5198,18 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             }
 
             for call_site in self.semantic.call_sites_for(&function_name) {
-                if let Some(binding) =
-                    self.visible_binding_for_caller_assoc_lookup(owner_name, call_site.name_span)
-                {
+                if let Some(binding) = self.semantic.visible_binding_for_assoc_lookup(
+                    owner_name,
+                    call_site.scope,
+                    call_site.name_span,
+                ) {
                     if binding.attributes.contains(BindingAttributes::ASSOC) {
                         return true;
                     }
                     continue;
                 }
 
-                if let Some(caller_names) =
-                    self.named_function_scope_names(call_site.name_span.start.offset)
-                {
+                if let Some(caller_names) = self.named_function_scope_names(call_site.scope) {
                     worklist.extend(caller_names.iter().cloned());
                 }
             }
@@ -5211,18 +5218,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         false
     }
 
-    fn visible_binding_for_caller_assoc_lookup(
-        &self,
-        owner_name: &Name,
-        span: Span,
-    ) -> Option<&shuck_semantic::Binding> {
-        let current_scope = self.semantic.scope_at(span.start.offset);
-        self.semantic
-            .visible_binding_for_assoc_lookup(owner_name, current_scope, span)
-    }
-
-    fn named_function_scope_names(&self, offset: usize) -> Option<&[Name]> {
-        let scope = self.semantic.scope_at(offset);
+    fn named_function_scope_names(&self, scope: ScopeId) -> Option<&[Name]> {
         self.semantic.ancestor_scopes(scope).find_map(|scope_id| {
             match &self.semantic.scope(scope_id).kind {
                 shuck_semantic::ScopeKind::Function(shuck_semantic::FunctionScopeKind::Named(

@@ -196,6 +196,7 @@ fn build_function_cli_dispatch_facts(
                 let Some(binding_id) = visible_function_binding_defined_before_offset(
                     semantic,
                     &name,
+                    semantic.scope_at(dispatcher_span.start.offset),
                     dispatcher_span.start.offset,
                 ) else {
                     continue;
@@ -267,7 +268,7 @@ fn build_completion_registered_function_command_flags(
     commands
         .iter()
         .map(|command| {
-            enclosing_function_scope(semantic, command.span().start.offset)
+            enclosing_function_scope(semantic, command.scope())
                 .is_some_and(|scope| registered_scopes.contains(&scope))
         })
         .collect()
@@ -444,6 +445,7 @@ fn build_function_call_arity_facts<'a>(
             let Some(binding_id) = visible_function_binding_for_call_offset(
                 semantic,
                 name,
+                command.scope(),
                 name_word.span.start.offset,
             ) else {
                 continue;
@@ -536,11 +538,10 @@ fn function_header_scope_id(
 fn visible_function_binding_for_call_offset(
     semantic: &SemanticModel,
     name: &Name,
+    site_scope: ScopeId,
     site_offset: usize,
 ) -> Option<BindingId> {
-    let scopes = semantic
-        .ancestor_scopes(semantic.scope_at(site_offset))
-        .collect::<Vec<_>>();
+    let scopes = semantic.ancestor_scopes(site_scope).collect::<Vec<_>>();
 
     scopes
         .iter()
@@ -569,11 +570,10 @@ fn visible_function_binding_for_call_offset(
 fn visible_function_binding_defined_before_offset(
     semantic: &SemanticModel,
     name: &Name,
+    site_scope: ScopeId,
     site_offset: usize,
 ) -> Option<BindingId> {
-    let scopes = semantic
-        .ancestor_scopes(semantic.scope_at(site_offset))
-        .collect::<Vec<_>>();
+    let scopes = semantic.ancestor_scopes(site_scope).collect::<Vec<_>>();
 
     scopes.iter().copied().find_map(|scope| {
         semantic
@@ -798,7 +798,8 @@ fn build_function_positional_parameter_facts(
         }
 
         let offset = command.span().start.offset;
-        if let Some(scope) = innermost_nonpersistent_scope_within_function(semantic, offset) {
+        if let Some(scope) = innermost_nonpersistent_scope_within_function(semantic, command.scope())
+        {
             local_reset_offsets_by_scope
                 .entry(scope)
                 .or_default()
@@ -809,6 +810,7 @@ fn build_function_positional_parameter_facts(
     for reference in semantic.references() {
         if reference_has_local_positional_reset(
             semantic,
+            reference.scope,
             reference.span.start.offset,
             &local_reset_offsets_by_scope,
         ) {
@@ -826,8 +828,7 @@ fn build_function_positional_parameter_facts(
                 continue;
             }
 
-            let Some(scope) = enclosing_function_scope(semantic, reference.span.start.offset)
-            else {
+            let Some(scope) = enclosing_function_scope(semantic, reference.scope) else {
                 continue;
             };
 
@@ -843,7 +844,7 @@ fn build_function_positional_parameter_facts(
             continue;
         }
 
-        let Some(scope) = enclosing_function_scope(semantic, reference.span.start.offset) else {
+        let Some(scope) = enclosing_function_scope(semantic, reference.scope) else {
             continue;
         };
 
@@ -857,15 +858,17 @@ fn build_function_positional_parameter_facts(
             continue;
         }
 
+        let fragment_scope = semantic.scope_at(fragment.span().start.offset);
         if reference_has_local_positional_reset(
             semantic,
+            fragment_scope,
             fragment.span().start.offset,
             &local_reset_offsets_by_scope,
         ) {
             continue;
         }
 
-        let Some(scope) = enclosing_function_scope(semantic, fragment.span().start.offset) else {
+        let Some(scope) = enclosing_function_scope(semantic, fragment_scope) else {
             continue;
         };
 
@@ -877,7 +880,7 @@ fn build_function_positional_parameter_facts(
 
     for command in commands {
         let Some(scope) =
-            enclosing_function_scope_for_positional_reset(semantic, command.span().start.offset)
+            enclosing_function_scope_for_positional_reset(semantic, command.scope())
         else {
             continue;
         };
@@ -894,8 +897,7 @@ fn build_function_positional_parameter_facts(
     facts
 }
 
-fn enclosing_function_scope(semantic: &SemanticModel, offset: usize) -> Option<ScopeId> {
-    let scope = semantic.scope_at(offset);
+fn enclosing_function_scope(semantic: &SemanticModel, scope: ScopeId) -> Option<ScopeId> {
     semantic.ancestor_scopes(scope).find(|scope| {
         matches!(
             semantic.scope_kind(*scope),
@@ -906,10 +908,8 @@ fn enclosing_function_scope(semantic: &SemanticModel, offset: usize) -> Option<S
 
 fn enclosing_function_scope_for_positional_reset(
     semantic: &SemanticModel,
-    offset: usize,
+    scope: ScopeId,
 ) -> Option<ScopeId> {
-    let scope = semantic.scope_at(offset);
-
     for scope in semantic.ancestor_scopes(scope) {
         match semantic.scope_kind(scope) {
             shuck_semantic::ScopeKind::Function(_) => return Some(scope),
@@ -925,10 +925,8 @@ fn enclosing_function_scope_for_positional_reset(
 
 fn innermost_nonpersistent_scope_within_function(
     semantic: &SemanticModel,
-    offset: usize,
+    scope: ScopeId,
 ) -> Option<ScopeId> {
-    let scope = semantic.scope_at(offset);
-
     for scope in semantic.ancestor_scopes(scope) {
         match semantic.scope_kind(scope) {
             shuck_semantic::ScopeKind::Subshell
@@ -944,11 +942,10 @@ fn innermost_nonpersistent_scope_within_function(
 
 fn reference_has_local_positional_reset(
     semantic: &SemanticModel,
+    scope: ScopeId,
     offset: usize,
     local_reset_offsets_by_scope: &FxHashMap<ScopeId, Vec<usize>>,
 ) -> bool {
-    let scope = semantic.scope_at(offset);
-
     for scope in semantic.ancestor_scopes(scope) {
         match semantic.scope_kind(scope) {
             shuck_semantic::ScopeKind::Subshell
