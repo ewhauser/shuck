@@ -260,6 +260,7 @@ fn scope_compat_findings(
     let mut seen = FxHashSet::default();
     let mut index = ScopeCompatIndex::default();
     add_scope_compat_binding_candidates(&mut index, checker);
+    add_scope_compat_presence_test_candidates(&mut index, checker);
     add_scope_compat_name_uses(&mut index, checker);
 
     for name_use in index.references() {
@@ -400,6 +401,18 @@ fn add_scope_compat_binding_candidates(index: &mut ScopeCompatIndex, checker: &C
     }
 }
 
+fn add_scope_compat_presence_test_candidates(index: &mut ScopeCompatIndex, checker: &Checker<'_>) {
+    for (name, span) in checker
+        .facts()
+        .presence_test_candidate_spans(checker.semantic())
+    {
+        let name = name.as_str();
+        if is_reportable_build_flag_family_name(name) {
+            index.add_build_flag_candidate(name, span);
+        }
+    }
+}
+
 fn add_scope_compat_name_uses(index: &mut ScopeCompatIndex, checker: &Checker<'_>) {
     for name_use in checker
         .facts()
@@ -418,13 +431,15 @@ fn add_scope_compat_name_uses(index: &mut ScopeCompatIndex, checker: &Checker<'_
             continue;
         }
         if name_use.kind() != ComparableNameUseKind::Derived
-            || !is_braced_parameter_use(checker.source(), name_use.span())
             || !is_reportable_build_flag_family_name(name)
         {
             continue;
         }
 
         index.add_build_flag_candidate(name, name_use.span());
+        if !is_braced_parameter_use(checker.source(), name_use.span()) {
+            continue;
+        }
         index.build_flag_references.push(ScopeCompatUse {
             name: name.to_owned(),
             span: name_use.span(),
@@ -1292,6 +1307,54 @@ done
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["${CFLAGS}", "${MY_CFLAGS}"]
+        );
+    }
+
+    #[test]
+    fn reports_build_flag_scope_compat_with_presence_test_candidate() {
+        let source = "\
+#!/bin/bash
+if [ -n \"${CXXFLAGS}\" ]; then :; fi
+for f in ${CFLAGS}; do
+  echo \"c flag: ${f}\"
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CFLAGS}"]
+        );
+    }
+
+    #[test]
+    fn reports_build_flag_scope_compat_with_unbraced_derived_candidate() {
+        let source = "\
+#!/bin/bash
+for f in $CXXFLAGS; do
+  echo \"cxx flag: ${f}\"
+done
+for f in ${CFLAGS}; do
+  echo \"c flag: ${f}\"
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CFLAGS}"]
         );
     }
 

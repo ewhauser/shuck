@@ -404,6 +404,43 @@ impl<'a> LinterFacts<'a> {
             .unwrap_or(&[])
     }
 
+    pub(crate) fn presence_test_candidate_spans(
+        &self,
+        semantic: &SemanticModel,
+    ) -> Vec<(Name, Span)> {
+        let mut names = FxHashSet::<Name>::default();
+        names.extend(self.presence_test_references_by_name.keys().cloned());
+        names.extend(self.presence_test_names_by_name.keys().cloned());
+
+        names
+            .into_iter()
+            .filter_map(|name| {
+                let span = self.first_presence_test_candidate_span(semantic, &name)?;
+                Some((name, span))
+            })
+            .collect()
+    }
+
+    fn first_presence_test_candidate_span(
+        &self,
+        semantic: &SemanticModel,
+        candidate_name: &Name,
+    ) -> Option<Span> {
+        self.presence_test_references_by_name
+            .get(candidate_name)
+            .into_iter()
+            .flatten()
+            .map(|presence| semantic.reference(presence.reference_id()).span)
+            .chain(
+                self.presence_test_names_by_name
+                    .get(candidate_name)
+                    .into_iter()
+                    .flatten()
+                    .map(|presence| presence.tested_span()),
+            )
+            .min_by_key(|span| (span.start.offset, span.end.offset))
+    }
+
     pub fn is_suppressed_subscript_reference(&self, span: Span) -> bool {
         self.suppressed_subscript_reference_spans
             .contains(&FactSpan::new(span))
@@ -1110,7 +1147,8 @@ fn is_interesting_scope_compat_name_use(
     name == "SHELLSPEC_EXECDIR"
         || name == "SHELLSPEC_SPECDIR"
         || kind == ComparableNameUseKind::Derived
-            && is_braced_scope_compat_parameter_use(source, span)
+            && (is_braced_scope_compat_parameter_use(source, span)
+                || is_unbraced_scope_compat_parameter_use(source, span))
             && is_reportable_build_flag_family_name(name)
 }
 
@@ -1119,6 +1157,13 @@ fn is_braced_scope_compat_parameter_use(source: &str, span: Span) -> bool {
         .as_bytes()
         .get(span.start.offset..span.start.offset + 2)
         .is_some_and(|prefix| prefix == b"${")
+}
+
+fn is_unbraced_scope_compat_parameter_use(source: &str, span: Span) -> bool {
+    source
+        .as_bytes()
+        .get(span.start.offset)
+        .is_some_and(|byte| *byte == b'$')
 }
 
 fn is_reportable_build_flag_family_name(name: &str) -> bool {
