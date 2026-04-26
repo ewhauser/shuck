@@ -364,13 +364,44 @@ impl CompiledPerFileShellList {
         self.entries.iter().fold(None, |shell, entry| {
             let matches = entry.basename_matcher.is_match(file_name)
                 || entry.relative_matcher.is_match(relative_path)
-                || entry.absolute_matcher.is_match(path)
-                || entry.absolute_matcher.is_match(normalize_path(path));
+                || per_file_shell_absolute_match(&entry.absolute_matcher, path);
             let applies = if entry.negated { !matches } else { matches };
 
             if applies { Some(entry.shell) } else { shell }
         })
     }
+}
+
+fn per_file_shell_absolute_match(matcher: &GlobMatcher, path: &Path) -> bool {
+    matcher.is_match(path)
+        || matcher.is_match(normalize_path(path))
+        || slash_normalized_match_path(path)
+            .as_deref()
+            .is_some_and(|normalized| matcher.is_match(normalized))
+        || normalized_absolute_shell_match_path(path)
+            .as_ref()
+            .is_some_and(|normalized| {
+                matcher.is_match(normalized)
+                    || slash_normalized_match_path(normalized)
+                        .as_deref()
+                        .is_some_and(|slash_normalized| matcher.is_match(slash_normalized))
+            })
+}
+
+fn normalized_absolute_shell_match_path(path: &Path) -> Option<PathBuf> {
+    let path = path.to_string_lossy();
+
+    if let Some(stripped) = path.strip_prefix(r"\\?\UNC\") {
+        return Some(PathBuf::from(format!(r"\\{stripped}")));
+    }
+
+    path.strip_prefix(r"\\?\").map(PathBuf::from)
+}
+
+fn slash_normalized_match_path(path: &Path) -> Option<PathBuf> {
+    let path = path.to_string_lossy();
+    path.contains('\\')
+        .then(|| PathBuf::from(path.replace('\\', "/")))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1450,6 +1481,7 @@ fn run_add_ignore_with_cwd(
     }
 
     for run in runs {
+        let per_file_shell = Arc::clone(&run.settings.per_file_shell);
         let analyzed_paths = run
             .files
             .iter()
@@ -1462,7 +1494,13 @@ fn run_add_ignore_with_cwd(
             .with_analyzed_paths(analyzed_paths);
 
         for file in run.files {
-            let result = add_ignores_to_path(&file.absolute_path, &linter_settings, reason)?;
+            let file_linter_settings =
+                if let Some(shell) = per_file_shell.shell_for_path(&file.absolute_path) {
+                    linter_settings.clone().with_shell(shell)
+                } else {
+                    linter_settings.clone()
+                };
+            let result = add_ignores_to_path(&file.absolute_path, &file_linter_settings, reason)?;
             report.directives_added += result.directives_added;
             if result.parse_error.is_none() && result.diagnostics.is_empty() {
                 continue;
@@ -3025,6 +3063,54 @@ jobs:
         .unwrap();
 
         assert!(report.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn add_ignore_respects_per_file_shell_overrides() {
+        let tempdir = tempdir().unwrap();
+        let script = tempdir.path().join("bashy.sh");
+        fs::write(&script, "source helper.sh\n").unwrap();
+
+        let mut args = check_args(true);
+        args.rule_selection = RuleSelectionArgs {
+            select: Some(vec![RuleSelector::Rule(Rule::SourceBuiltinInSh)]),
+            per_file_shell: Some(vec![PatternShellPair {
+                pattern: "bashy.sh".to_owned(),
+                shell: ShellDialect::Bash,
+            }]),
+            ..RuleSelectionArgs::default()
+        };
+
+        let report = run_add_ignore_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(report.directives_added, 0);
+        assert!(report.diagnostics.is_empty());
+        assert_eq!(fs::read_to_string(script).unwrap(), "source helper.sh\n");
+    }
+
+    #[test]
+    fn per_file_shell_matches_normalized_windows_verbatim_paths() {
+        let path = Path::new(r"\\?\C:\repo\nested\script.sh");
+        let per_file_shell = CompiledPerFileShellList::resolve(
+            PathBuf::from(r"C:\repo"),
+            [PerFileShell {
+                pattern: "C:/repo/nested/*.sh".to_owned(),
+                shell: ShellDialect::Bash,
+            }],
+        )
+        .unwrap();
+
+        assert_eq!(
+            per_file_shell.shell_for_path(path),
+            Some(ShellDialect::Bash)
+        );
     }
 
     #[test]
