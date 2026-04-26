@@ -792,6 +792,10 @@ impl<'a> Lexer<'a> {
         self.position_map.position_uncached(self.offset)
     }
 
+    pub(super) fn position_at_offset(&self, offset: usize) -> Position {
+        self.position_map.position_uncached(offset)
+    }
+
     fn current_position(&mut self) -> Position {
         #[cfg(feature = "benchmarking")]
         self.maybe_record_current_position_call();

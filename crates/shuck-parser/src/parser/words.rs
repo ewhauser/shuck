@@ -4632,8 +4632,8 @@ impl<'a> Parser<'a> {
         let body_end_offset = subst_start + needle.len() - ")".len();
 
         Some((
-            Position::new().advanced_by(&self.input[..body_start_offset]),
-            Position::new().advanced_by(&self.input[..body_end_offset]),
+            self.lexer.position_at_offset(body_start_offset),
+            self.lexer.position_at_offset(body_end_offset),
         ))
     }
 
