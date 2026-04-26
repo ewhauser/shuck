@@ -697,6 +697,7 @@ impl<'a> CommandOptionFacts<'a> {
         &self.file_operand_words
     }
 
+    #[cfg_attr(shuck_profiling, inline(never))]
     fn build(command: &'a Command, normalized: &NormalizedCommand<'a>, source: &str) -> Self {
         Self {
             rm: normalized

@@ -42,6 +42,7 @@ pub(super) struct PresenceTestedNames {
     pub(super) names_by_name: FxHashMap<Name, Vec<PresenceTestNameFact>>,
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(super) fn build_presence_tested_names(
     commands: &[CommandFact<'_>],
     source: &str,

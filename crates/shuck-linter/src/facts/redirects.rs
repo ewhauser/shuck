@@ -682,6 +682,7 @@ pub(crate) fn analyze_redirect_target(
     })
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_redirect_facts<'a>(
     redirects: &'a [Redirect],
     semantic: Option<&SemanticModel>,

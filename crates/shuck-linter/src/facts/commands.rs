@@ -665,12 +665,13 @@ fn background_semicolon_span(
     Some(Span::from_positions(start, end))
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn populate_scope_fact_ranges<'a>(
     commands: &mut [CommandFact<'a>],
     fact_store: &mut FactStore<'a>,
     pipelines: &[PipelineFact<'a>],
     if_condition_command_ids: &FxHashSet<CommandId>,
-    source: &str,
+    source: &'a str,
 ) {
     let (pipeline_summaries, pipeline_summary_ids_by_writer) = {
         let command_facts = CommandFacts::new(commands, fact_store);
@@ -681,60 +682,93 @@ fn populate_scope_fact_ranges<'a>(
             source,
         )
     };
-    let mut source_words = Vec::new();
-    let mut name_reads = Vec::new();
-    let mut heredoc_name_reads = Vec::new();
-    let mut name_writes = Vec::new();
+    let inputs = ScopeFactInputs {
+        pipeline_summaries: &pipeline_summaries,
+        pipeline_summary_ids_by_writer: &pipeline_summary_ids_by_writer,
+        if_condition_command_ids,
+        source,
+    };
+    let mut scratch = ScopeFactScratch::default();
 
     for index in 0..commands.len() {
-        {
-            let command_facts = CommandFacts::new(commands, fact_store);
-            let command = command_facts
-                .get(index)
-                .expect("command index should resolve while populating scope facts");
-            collect_scope_read_source_words_for_command(
-                command_facts,
-                command,
-                &pipeline_summaries,
-                &pipeline_summary_ids_by_writer[index],
-                if_condition_command_ids,
-                source,
-                &mut source_words,
-            );
-            collect_scope_name_read_uses_for_command(
-                command_facts,
-                command,
-                &pipeline_summaries,
-                &pipeline_summary_ids_by_writer[index],
-                source,
-                &mut name_reads,
-            );
-            collect_scope_heredoc_name_read_uses_for_command(
-                command_facts,
-                command,
-                &pipeline_summaries,
-                &pipeline_summary_ids_by_writer[index],
-                source,
-                &mut heredoc_name_reads,
-            );
-            collect_scope_name_write_uses_for_command(
-                command_facts,
-                command,
-                source,
-                &mut name_writes,
-            );
-        }
-
-        commands[index].scope_read_source_words =
-            fact_store.scope_read_source_words.push_many(source_words.drain(..));
-        commands[index].scope_name_read_uses =
-            fact_store.scope_name_read_uses.push_many(name_reads.drain(..));
-        commands[index].scope_heredoc_name_read_uses = fact_store
-            .scope_heredoc_name_read_uses
-            .push_many(heredoc_name_reads.drain(..));
-        commands[index].scope_name_write_uses =
-            fact_store.scope_name_write_uses.push_many(name_writes.drain(..));
+        populate_scope_fact_ranges_for_command(index, commands, fact_store, inputs, &mut scratch);
     }
+}
+
+#[derive(Clone, Copy)]
+struct ScopeFactInputs<'facts, 'a> {
+    pipeline_summaries: &'facts [PipelineScopeSummary<'a>],
+    pipeline_summary_ids_by_writer: &'facts [SmallVec<[usize; 1]>],
+    if_condition_command_ids: &'facts FxHashSet<CommandId>,
+    source: &'a str,
+}
+
+#[derive(Default)]
+struct ScopeFactScratch<'a> {
+    source_words: Vec<PathWordFact<'a>>,
+    name_reads: Vec<ComparableNameUse>,
+    heredoc_name_reads: Vec<ComparableNameUse>,
+    name_writes: Vec<ComparableNameUse>,
+}
+
+#[cfg_attr(shuck_profiling, inline(never))]
+fn populate_scope_fact_ranges_for_command<'a>(
+    index: usize,
+    commands: &mut [CommandFact<'a>],
+    fact_store: &mut FactStore<'a>,
+    inputs: ScopeFactInputs<'_, 'a>,
+    scratch: &mut ScopeFactScratch<'a>,
+) {
+    {
+        let command_facts = CommandFacts::new(commands, fact_store);
+        let command = command_facts
+            .get(index)
+            .expect("command index should resolve while populating scope facts");
+        collect_scope_read_source_words_for_command(
+            command_facts,
+            command,
+            inputs.pipeline_summaries,
+            &inputs.pipeline_summary_ids_by_writer[index],
+            inputs.if_condition_command_ids,
+            inputs.source,
+            &mut scratch.source_words,
+        );
+        collect_scope_name_read_uses_for_command(
+            command_facts,
+            command,
+            inputs.pipeline_summaries,
+            &inputs.pipeline_summary_ids_by_writer[index],
+            inputs.source,
+            &mut scratch.name_reads,
+        );
+        collect_scope_heredoc_name_read_uses_for_command(
+            command_facts,
+            command,
+            inputs.pipeline_summaries,
+            &inputs.pipeline_summary_ids_by_writer[index],
+            inputs.source,
+            &mut scratch.heredoc_name_reads,
+        );
+        collect_scope_name_write_uses_for_command(
+            command_facts,
+            command,
+            inputs.source,
+            &mut scratch.name_writes,
+        );
+    }
+
+    commands[index].scope_read_source_words = fact_store
+        .scope_read_source_words
+        .push_many(scratch.source_words.drain(..));
+    commands[index].scope_name_read_uses = fact_store
+        .scope_name_read_uses
+        .push_many(scratch.name_reads.drain(..));
+    commands[index].scope_heredoc_name_read_uses = fact_store
+        .scope_heredoc_name_read_uses
+        .push_many(scratch.heredoc_name_reads.drain(..));
+    commands[index].scope_name_write_uses = fact_store
+        .scope_name_write_uses
+        .push_many(scratch.name_writes.drain(..));
 }
 
 struct PipelineScopeSummary<'a> {
@@ -743,6 +777,7 @@ struct PipelineScopeSummary<'a> {
     heredoc_name_reads: Vec<ComparableNameUse>,
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_pipeline_scope_summaries<'a>(
     commands: CommandFacts<'_, 'a>,
     pipelines: &[PipelineFact<'a>],
@@ -801,6 +836,7 @@ fn build_pipeline_scope_summaries<'a>(
     (summaries, summary_ids_by_writer)
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn collect_scope_read_source_words_for_command<'a>(
     commands: CommandFacts<'_, 'a>,
     command: CommandFactRef<'_, 'a>,
@@ -831,6 +867,7 @@ fn collect_scope_read_source_words_for_command<'a>(
     dedup_path_words(words);
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn collect_scope_name_read_uses_for_command(
     commands: CommandFacts<'_, '_>,
     command: CommandFactRef<'_, '_>,
@@ -849,6 +886,7 @@ fn collect_scope_name_read_uses_for_command(
     dedup_name_uses(uses);
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn collect_scope_heredoc_name_read_uses_for_command(
     commands: CommandFacts<'_, '_>,
     command: CommandFactRef<'_, '_>,
@@ -874,6 +912,7 @@ fn collect_scope_heredoc_name_read_uses_for_command(
     dedup_name_uses(uses);
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn collect_scope_name_write_uses_for_command(
     commands: CommandFacts<'_, '_>,
     command: CommandFactRef<'_, '_>,
@@ -1396,6 +1435,7 @@ fn compare_command_parent_entries(
         .then_with(|| right_id.index().cmp(&left_id.index()))
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_command_dominance_barrier_flags(commands: &[CommandFact<'_>]) -> Vec<bool> {
     commands
         .iter()

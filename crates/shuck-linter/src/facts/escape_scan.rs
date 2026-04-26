@@ -81,6 +81,7 @@ struct EscapeScanMatchContext {
     host_contains_single_quoted_fragment: bool,
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(super) fn build_escape_scan_matches(
     commands: &[CommandFact<'_>],
     nodes: &[WordNode<'_>],

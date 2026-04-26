@@ -1183,6 +1183,7 @@ fn split_scope_compat_build_flag_family_name(name: &str) -> Option<(&str, &'stat
         })
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn populate_array_assignment_split_scalar_expansion_spans(
     shell: ShellDialect,
     commands: &[CommandFact<'_>],
