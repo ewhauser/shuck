@@ -134,6 +134,135 @@ impl C063RuleOptionsConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ConfigSectionMetadata {
+    pub key: &'static str,
+    pub docs: &'static str,
+    pub fields: &'static [ConfigFieldMetadata],
+    pub sections: &'static [ConfigSectionMetadata],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ConfigFieldMetadata {
+    pub key: &'static str,
+    pub docs: &'static str,
+    pub default: &'static str,
+    pub value_type: &'static str,
+    pub example: &'static str,
+}
+
+pub(crate) fn configuration_metadata() -> &'static [ConfigSectionMetadata] {
+    &CONFIGURATION_METADATA
+}
+
+const CONFIGURATION_METADATA: [ConfigSectionMetadata; 2] = [
+    ConfigSectionMetadata {
+        key: "check",
+        docs: "File-level analysis behavior for `shuck check`.",
+        fields: &[ConfigFieldMetadata {
+            key: "embedded",
+            docs: "Lint supported embedded shell scripts in non-shell files, including GitHub Actions workflow `run` blocks and composite action steps.",
+            default: "true",
+            value_type: "bool",
+            example: "embedded = false",
+        }],
+        sections: &[],
+    },
+    ConfigSectionMetadata {
+        key: "lint",
+        docs: "Rule selection, per-file ignores, fix eligibility, and rule-specific behavior for `shuck check`.",
+        fields: &[
+            ConfigFieldMetadata {
+                key: "extend-fixable",
+                docs: "Add rules to the set that can receive automatic fixes when `shuck check --fix` is enabled.",
+                default: "[]",
+                value_type: "list[selector]",
+                example: r#"extend-fixable = ["S074"]"#,
+            },
+            ConfigFieldMetadata {
+                key: "extend-per-file-ignores",
+                docs: "Add more per-file ignores without replacing the existing `per-file-ignores` table.",
+                default: "{}",
+                value_type: "table[str, list[selector]]",
+                example: r#"extend-per-file-ignores = { "vendor/**" = ["ALL"] }"#,
+            },
+            ConfigFieldMetadata {
+                key: "extend-select",
+                docs: "Enable additional rules on top of the default or explicitly selected rule set.",
+                default: "[]",
+                value_type: "list[selector]",
+                example: r#"extend-select = ["S"]"#,
+            },
+            ConfigFieldMetadata {
+                key: "fixable",
+                docs: "Replace the set of rules that can receive automatic fixes when fixes are available.",
+                default: r#"["ALL"]"#,
+                value_type: "list[selector]",
+                example: r#"fixable = ["C", "S074"]"#,
+            },
+            ConfigFieldMetadata {
+                key: "ignore",
+                docs: "Remove rules from the active rule set.",
+                default: "[]",
+                value_type: "list[selector]",
+                example: r#"ignore = ["S074"]"#,
+            },
+            ConfigFieldMetadata {
+                key: "per-file-ignores",
+                docs: "Ignore selected rules for files that match a glob pattern.",
+                default: "{}",
+                value_type: "table[str, list[selector]]",
+                example: r#"per-file-ignores = { "scripts/*.sh" = ["S074"] }"#,
+            },
+            ConfigFieldMetadata {
+                key: "select",
+                docs: "Replace the default rule set with the selectors listed here.",
+                default: "all implemented non-style rules",
+                value_type: "list[selector]",
+                example: r#"select = ["C", "K"]"#,
+            },
+            ConfigFieldMetadata {
+                key: "unfixable",
+                docs: "Prevent selected rules from receiving automatic fixes, even when `--fix` is enabled.",
+                default: "[]",
+                value_type: "list[selector]",
+                example: r#"unfixable = ["C001"]"#,
+            },
+        ],
+        sections: &[ConfigSectionMetadata {
+            key: "rule-options",
+            docs: "Rule-specific behavior overrides for diagnostics that intentionally support more than one analysis mode.",
+            fields: &[],
+            sections: &[
+                ConfigSectionMetadata {
+                    key: "c001",
+                    docs: "Behavior overrides for `C001` unused assignment analysis.",
+                    fields: &[ConfigFieldMetadata {
+                        key: "treat-indirect-expansion-targets-as-used",
+                        docs: "Treat scalar indirect-expansion targets such as `${!name}` as a use of the referenced target.",
+                        default: "false",
+                        value_type: "bool",
+                        example: "treat-indirect-expansion-targets-as-used = true",
+                    }],
+                    sections: &[],
+                },
+                ConfigSectionMetadata {
+                    key: "c063",
+                    docs: "Behavior overrides for `C063` overwritten and unreached function analysis.",
+                    fields: &[ConfigFieldMetadata {
+                        key: "report-unreached-nested-definitions",
+                        docs: "Report nested function definitions when no reachable direct call reaches the enclosing function scope before it exits.",
+                        default: "false",
+                        value_type: "bool",
+                        example: "report-unreached-nested-definitions = true",
+                    }],
+                    sections: &[],
+                },
+            ],
+        }],
+    },
+];
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct ConfigArguments {
     isolated: bool,

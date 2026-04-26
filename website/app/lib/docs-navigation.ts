@@ -11,6 +11,7 @@ export const docsNavigation: NavItem[] = [
       { title: "Overview", href: "/docs/getting-started" },
       { title: "Configuration", href: "/docs/configuration" },
       { title: "Suppression", href: "/docs/suppression" },
+      { title: "Settings Reference", href: "/docs/settings" },
       { title: "ShellCheck Compatibility", href: "/docs/shellcheck-compat" },
       { title: "Embedded Scripts", href: "/docs/embedded-scripts" },
     ],
