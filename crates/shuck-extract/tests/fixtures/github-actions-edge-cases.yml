@@ -82,3 +82,13 @@ jobs:
         shell: bash
         run: |
           echo "${{ env.WORKFLOW_VALUE }}"
+      - name: Anchored block scalar
+        shell: bash
+        run: &anchored_run |
+          case "$WORKFLOW_VALUE" in
+            *prod) echo prod ;;
+          esac
+
+  flow-style:
+    runs-on: ubuntu-latest
+    steps: [{ shell: *posix_shell, run: echo flow }]

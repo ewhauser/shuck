@@ -13,7 +13,7 @@ fn extracts_workflow_edge_case_fixture() {
     )
     .unwrap();
 
-    assert_eq!(scripts.len(), 11);
+    assert_eq!(scripts.len(), 13);
 
     let missing_unix = script(&scripts, "jobs.missing-unix.steps[0].run");
     assert_eq!(missing_unix.dialect, ExtractedDialect::Bash);
@@ -83,6 +83,15 @@ fn extracts_workflow_edge_case_fixture() {
     assert_eq!(env_alias.source, "echo \"${_SHUCK_GHA_1}\"\n");
     assert_eq!(env_alias.placeholders[0].expression, "env.WORKFLOW_VALUE");
     assert_eq!(env_alias.placeholders[0].taint, ExpressionTaint::Trusted);
+
+    let anchored_block = script(&scripts, "jobs.anchors-and-env.steps[2].run");
+    assert_eq!(anchored_block.dialect, ExtractedDialect::Bash);
+    assert!(anchored_block.source.contains("*prod) echo prod ;;"));
+
+    let flow_style = script(&scripts, "jobs.flow-style.steps[0].run");
+    assert_eq!(flow_style.dialect, ExtractedDialect::Sh);
+    assert_eq!(flow_style.source, "echo flow");
+    assert_eq!(flow_style.host_start_column, 41);
 }
 
 #[test]
