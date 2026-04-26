@@ -104,17 +104,7 @@ impl<'a> Checker<'a> {
     }
 
     pub fn facts(&self) -> &LinterFacts<'a> {
-        self.facts.get_or_init(|| {
-            LinterFacts::build_with_shell_and_ambient_shell_options(
-                self.file,
-                self.source,
-                self.semantic,
-                self.indexer,
-                self.file_context,
-                self.shell,
-                self.ambient_shell_options,
-            )
-        })
+        self.facts.get_or_init(|| self.build_facts())
     }
 
     pub fn is_rule_enabled(&self, rule: Rule) -> bool {
@@ -135,6 +125,18 @@ impl<'a> Checker<'a> {
 
     pub fn file_context(&self) -> &'a FileContext {
         self.file_context
+    }
+
+    fn build_facts(&self) -> LinterFacts<'a> {
+        LinterFacts::build_with_shell_and_ambient_shell_options(
+            self.file,
+            self.source,
+            self.semantic,
+            self.indexer,
+            self.file_context,
+            self.shell,
+            self.ambient_shell_options,
+        )
     }
 
     pub fn first_parse_error(&self) -> Option<(usize, usize)> {
@@ -217,17 +219,7 @@ impl<'a> Checker<'a> {
     ) where
         V: Violation,
     {
-        let facts = self.facts.get_or_init(|| {
-            LinterFacts::build_with_shell_and_ambient_shell_options(
-                self.file,
-                self.source,
-                self.semantic,
-                self.indexer,
-                self.file_context,
-                self.shell,
-                self.ambient_shell_options,
-            )
-        });
+        let facts = self.facts.get_or_init(|| self.build_facts());
         let diagnostics = &mut self.diagnostics;
         let reported = &mut self.reported;
         let mut report = |span| {
@@ -245,17 +237,7 @@ impl<'a> Checker<'a> {
     ) where
         V: Violation,
     {
-        let facts = self.facts.get_or_init(|| {
-            LinterFacts::build_with_shell_and_ambient_shell_options(
-                self.file,
-                self.source,
-                self.semantic,
-                self.indexer,
-                self.file_context,
-                self.shell,
-                self.ambient_shell_options,
-            )
-        });
+        let facts = self.facts.get_or_init(|| self.build_facts());
         let diagnostics = &mut self.diagnostics;
         let reported = &mut self.reported;
         let mut report = |span| {
@@ -306,17 +288,7 @@ impl<'a> Checker<'a> {
         &mut self,
         collect: impl FnOnce(&LinterFacts<'a>, &mut dyn FnMut(Diagnostic)),
     ) {
-        let facts = self.facts.get_or_init(|| {
-            LinterFacts::build_with_shell_and_ambient_shell_options(
-                self.file,
-                self.source,
-                self.semantic,
-                self.indexer,
-                self.file_context,
-                self.shell,
-                self.ambient_shell_options,
-            )
-        });
+        let facts = self.facts.get_or_init(|| self.build_facts());
         let diagnostics = &mut self.diagnostics;
         let reported = &mut self.reported;
         let mut report = |diagnostic: Diagnostic| {
@@ -332,17 +304,7 @@ impl<'a> Checker<'a> {
         &mut self,
         collect: impl FnOnce(&LinterFacts<'a>, &mut dyn FnMut(Diagnostic)),
     ) {
-        let facts = self.facts.get_or_init(|| {
-            LinterFacts::build_with_shell_and_ambient_shell_options(
-                self.file,
-                self.source,
-                self.semantic,
-                self.indexer,
-                self.file_context,
-                self.shell,
-                self.ambient_shell_options,
-            )
-        });
+        let facts = self.facts.get_or_init(|| self.build_facts());
         let diagnostics = &mut self.diagnostics;
         let reported = &mut self.reported;
         let mut report = |diagnostic: Diagnostic| {

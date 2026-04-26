@@ -4,13 +4,10 @@ use super::{
     BacktickFragmentFact, CommandFact, ExpansionContext, SingleQuotedFragmentFact, WordFactContext,
     WordFactHostKind, WordNode, WordOccurrence, word_spans,
 };
-use crate::FileContext;
-use crate::context::FileContextTag;
 use crate::facts::{occurrence_span, occurrence_word};
 
 pub(super) struct EscapeScanContext<'a> {
     pub(super) source: &'a str,
-    pub(super) file_context: &'a FileContext,
 }
 
 pub(super) struct EscapeScanInputs<'a> {
@@ -91,10 +88,6 @@ pub(super) fn build_escape_scan_matches(
     inputs: EscapeScanInputs<'_>,
     context: EscapeScanContext<'_>,
 ) -> Vec<EscapeScanMatch> {
-    if context.file_context.has_tag(FileContextTag::PatchFile) {
-        return Vec::new();
-    }
-
     let mut matches = Vec::new();
     let mut span_buffer = Vec::new();
 

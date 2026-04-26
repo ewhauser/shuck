@@ -635,7 +635,6 @@ impl<'a> LinterFactsBuilder<'a> {
             },
             EscapeScanContext {
                 source: self.source,
-                file_context: self._file_context,
             },
         );
         let echo_backslash_escape_word_spans =

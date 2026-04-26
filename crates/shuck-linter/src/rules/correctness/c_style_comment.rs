@@ -1,4 +1,3 @@
-use crate::context::FileContextTag;
 use crate::{Checker, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct CStyleComment;
@@ -20,10 +19,6 @@ impl Violation for CStyleComment {
 }
 
 pub fn c_style_comment(checker: &mut Checker) {
-    if checker.file_context().has_tag(FileContextTag::PatchFile) {
-        return;
-    }
-
     for index in 0..checker.facts().commands().len() {
         let diagnostic = {
             let Some(command) = checker.facts().commands().get(index) else {
@@ -50,9 +45,7 @@ pub fn c_style_comment(checker: &mut Checker) {
 mod tests {
     use std::path::Path;
 
-    use crate::test::{
-        test_path_with_fix, test_snippet, test_snippet_at_path, test_snippet_with_fix,
-    };
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
     use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
 
     #[test]
@@ -104,18 +97,6 @@ mod tests {
             "#!/bin/sh\n# /* note */\n# /*compact*/\necho '/* note */'\n"
         );
         assert!(result.fixed_diagnostics.is_empty());
-    }
-
-    #[test]
-    fn ignores_patch_file_context() {
-        let source = "/* Find the appropriate server to reach an ip */\n";
-        let diagnostics = test_snippet_at_path(
-            Path::new("change.patch"),
-            source,
-            &LinterSettings::for_rule(Rule::CStyleComment),
-        );
-
-        assert!(diagnostics.is_empty());
     }
 
     #[test]

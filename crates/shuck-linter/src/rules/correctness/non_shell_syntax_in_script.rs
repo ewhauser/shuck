@@ -1,6 +1,5 @@
 use shuck_ast::{Command, StmtTerminator, static_word_text};
 
-use crate::context::FileContextTag;
 use crate::{Checker, Rule, Violation};
 
 pub struct NonShellSyntaxInScript;
@@ -16,10 +15,6 @@ impl Violation for NonShellSyntaxInScript {
 }
 
 pub fn non_shell_syntax_in_script(checker: &mut Checker) {
-    if checker.file_context().has_tag(FileContextTag::PatchFile) {
-        return;
-    }
-
     let spans = checker
         .facts()
         .commands()
@@ -75,10 +70,7 @@ fn looks_like_c_declaration_keyword(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use crate::test::test_snippet;
-    use crate::test::test_snippet_at_path;
     use crate::{LinterSettings, Rule};
 
     #[test]
@@ -97,18 +89,6 @@ mod tests {
     fn ignores_regular_shell_commands() {
         let source = "#!/bin/sh\necho value;\n";
         let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::NonShellSyntaxInScript),
-        );
-
-        assert!(diagnostics.is_empty());
-    }
-
-    #[test]
-    fn ignores_patch_file_context() {
-        let source = "int value;\n";
-        let diagnostics = test_snippet_at_path(
-            Path::new("change.patch"),
             source,
             &LinterSettings::for_rule(Rule::NonShellSyntaxInScript),
         );
