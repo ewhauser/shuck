@@ -9,16 +9,15 @@ use similar::TextDiff;
 use crate::{Applicability, Diagnostic, LinterSettings, ShellDialect, apply_fixes, lint_file};
 
 fn infer_shell(source: &str, settings: &LinterSettings, path: Option<&Path>) -> ShellDialect {
-    let shell = if settings.shell == crate::ShellDialect::Unknown {
+    if settings.shell == crate::ShellDialect::Unknown {
         crate::ShellDialect::infer(source, path)
     } else {
         settings.shell
-    };
-    shell
+    }
 }
 
 fn parse_for_lint(source: &str, settings: &LinterSettings, path: Option<&Path>) -> ParseResult {
-    Parser::with_profile(source, infer_shell(source, settings, path).shell_profile()).parse()
+    Parser::with_dialect(source, infer_shell(source, settings, path).parser_dialect()).parse()
 }
 
 #[derive(Debug, Clone)]
