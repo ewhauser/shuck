@@ -168,7 +168,7 @@ struct GlobalArgs {
 #[derive(Debug, Subcommand)]
 enum StableCommand {
     /// Lint shell files and supported embedded shell scripts.
-    Check(CheckCommand),
+    Check(Box<CheckCommand>),
     #[command(hide = true)]
     Format(FormatCommand),
     /// Remove shuck cache entries for the provided paths' projects.
@@ -178,7 +178,7 @@ enum StableCommand {
 #[derive(Debug, Subcommand)]
 enum ExperimentalCommand {
     /// Lint shell files and supported embedded shell scripts.
-    Check(CheckCommand),
+    Check(Box<CheckCommand>),
     /// Format shell files.
     Format(FormatCommand),
     /// Remove shuck cache entries for the provided paths' projects.
@@ -280,7 +280,7 @@ impl Args {
 #[derive(Debug, Clone, Subcommand)]
 pub enum Command {
     /// Lint shell files and supported embedded shell scripts.
-    Check(CheckCommand),
+    Check(Box<CheckCommand>),
     /// Format shell files.
     Format(FormatCommand),
     /// Remove shuck cache entries for the provided paths' projects.
@@ -900,7 +900,7 @@ mod tests {
     {
         let parsed = StableCli::try_parse_from(args).unwrap();
         match Args::from_stable(parsed).unwrap().command {
-            Command::Check(command) => command,
+            Command::Check(command) => *command,
             command => panic!("expected check command, got {command:?}"),
         }
     }
