@@ -1955,8 +1955,7 @@ fn should_suppress_overwrite(
         return true;
     }
 
-    (file_context.has_tag(FileContextTag::TestHarness)
-        || file_context.has_tag(FileContextTag::HelperLibrary))
+    file_context.has_tag(FileContextTag::HelperLibrary)
         && (unset_function_between(
             checker,
             overwritten.name.as_str(),
@@ -2525,23 +2524,6 @@ Describe 'matcher'
 ";
         let diagnostics = test_snippet_at_path(
             Path::new("/tmp/ko1nksm__shellspec__spec__core__matcher_spec.sh"),
-            source,
-            &LinterSettings::for_rule(Rule::OverwrittenFunction),
-        );
-
-        assert!(diagnostics.is_empty());
-    }
-
-    #[test]
-    fn test_double_swaps_after_unset_are_suppressed() {
-        let source = "\
-curl() { printf '%s\\n' first; }
-unset -f curl
-curl() { printf '%s\\n' second; }
-curl
-";
-        let diagnostics = test_snippet_at_path(
-            Path::new("/tmp/project/tests/nvm_compare_checksum_test.sh"),
             source,
             &LinterSettings::for_rule(Rule::OverwrittenFunction),
         );
@@ -3820,31 +3802,6 @@ factory_two
     }
 
     #[test]
-    fn cleanup_unset_elsewhere_suppresses_test_double_swaps() {
-        let source = "\
-cleanup() {
-  unset -f nvm_compute_checksum
-}
-nvm_compute_checksum() {
-  echo first
-}
-try_err nvm_compare_checksum
-nvm_compute_checksum() {
-  echo second
-}
-try_err nvm_compare_checksum
-cleanup
-";
-        let diagnostics = test_snippet_at_path(
-            Path::new("/tmp/project/tests/nvm_compare_checksum_test.sh"),
-            source,
-            &LinterSettings::for_rule(Rule::OverwrittenFunction),
-        );
-
-        assert!(diagnostics.is_empty());
-    }
-
-    #[test]
     fn transitive_direct_calls_before_redefinition_do_not_report() {
         let source = "\
 \\. ./helpers.sh
@@ -3883,23 +3840,6 @@ helper() { printf '%s\\n' second; }
 
         assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
         assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
-    }
-
-    #[test]
-    fn opaque_helper_calls_before_redefinition_are_suppressed() {
-        let source = "\
-\\. ./helpers.sh
-helper() { printf '%s\\n' first; }
-run_case
-helper() { printf '%s\\n' second; }
-";
-        let diagnostics = test_snippet_at_path(
-            Path::new("/tmp/project/tests/helper_swap_test.sh"),
-            source,
-            &LinterSettings::for_rule(Rule::OverwrittenFunction),
-        );
-
-        assert!(diagnostics.is_empty());
     }
 
     #[test]
