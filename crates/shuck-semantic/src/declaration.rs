@@ -37,6 +37,7 @@ pub enum DeclarationOperand {
         value_span: Span,
         append: bool,
         value_origin: AssignmentValueOrigin,
+        has_command_substitution: bool,
         has_command_or_process_substitution: bool,
     },
     DynamicWord {

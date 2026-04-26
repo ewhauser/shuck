@@ -2334,8 +2334,7 @@ fn build_declaration_assignment_probes<'a>(
                 name,
                 name_span,
                 value_span,
-                value_origin,
-                has_command_or_process_substitution,
+                has_command_substitution,
                 ..
             } = operand
             else {
@@ -2346,8 +2345,7 @@ fn build_declaration_assignment_probes<'a>(
                 readonly_flag,
                 target_name: name.as_str().into(),
                 target_name_span: *name_span,
-                has_command_substitution: *has_command_or_process_substitution
-                    || *value_origin == AssignmentValueOrigin::CommandOrProcessSubstitution,
+                has_command_substitution: *has_command_substitution,
                 status_capture: word_for_declaration_value_span(command, *value_span)
                     .is_some_and(|word| word_span_is_standalone_status_capture(word, *value_span)),
             })

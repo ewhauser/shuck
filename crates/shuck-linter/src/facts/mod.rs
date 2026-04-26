@@ -63,9 +63,9 @@ use shuck_indexer::Indexer;
 #[cfg(test)]
 use shuck_parser::parser::Parser;
 use shuck_semantic::{
-    AssignmentValueOrigin, Binding, BindingAttributes, BindingId, BindingKind, Declaration,
-    DeclarationBuiltin, DeclarationOperand as SemanticDeclarationOperand, OptionValue, Reference,
-    ReferenceId, ReferenceKind, ScopeId, SemanticModel, ZshOptionState,
+    Binding, BindingAttributes, BindingId, BindingKind, Declaration, DeclarationBuiltin,
+    DeclarationOperand as SemanticDeclarationOperand, OptionValue, Reference, ReferenceId,
+    ReferenceKind, ScopeId, SemanticModel, ZshOptionState,
 };
 use smallvec::SmallVec;
 use std::{borrow::Cow, ops::ControlFlow, sync::OnceLock};

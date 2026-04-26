@@ -2769,6 +2769,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     value_span: assignment.value_span,
                     append: assignment.append,
                     value_origin: assignment.value_origin,
+                    has_command_substitution: assignment.has_command_substitution,
                     has_command_or_process_substitution: assignment
                         .has_command_or_process_substitution,
                 });
@@ -3955,6 +3956,9 @@ fn declaration_operands(operands: &[DeclOperand], source: &str) -> Vec<Declarati
                 value_span: assignment_value_span(assignment),
                 append: assignment.append,
                 value_origin: assignment_value_origin(&assignment.value),
+                has_command_substitution: assignment_value_has_command_substitution(
+                    &assignment.value,
+                ),
                 has_command_or_process_substitution:
                     assignment_value_has_command_or_process_substitution(&assignment.value),
             },
@@ -4966,6 +4970,7 @@ struct SimpleDeclarationAssignment {
     append: bool,
     array_like: bool,
     value_origin: AssignmentValueOrigin,
+    has_command_substitution: bool,
     has_command_or_process_substitution: bool,
 }
 
@@ -4985,6 +4990,7 @@ fn parse_simple_declaration_assignment(
     let array_like = assignment.target.subscript.is_some()
         || matches!(assignment.value, AssignmentValue::Compound(_));
     let value_origin = assignment_value_origin(&assignment.value);
+    let has_command_substitution = assignment_value_has_command_substitution(&assignment.value);
     let has_command_or_process_substitution =
         assignment_value_has_command_or_process_substitution(&assignment.value);
 
@@ -4996,6 +5002,7 @@ fn parse_simple_declaration_assignment(
         append: assignment.append,
         array_like,
         value_origin,
+        has_command_substitution,
         has_command_or_process_substitution,
     })
 }
@@ -5625,7 +5632,16 @@ fn assignment_value_has_command_or_process_substitution(value: &AssignmentValue)
     };
     let mut scan = AssignmentWordOriginScan::default();
     scan_assignment_word_parts(&word.parts, &mut scan);
-    scan.command_or_process_substitution
+    scan.command_substitution || scan.process_substitution
+}
+
+fn assignment_value_has_command_substitution(value: &AssignmentValue) -> bool {
+    let AssignmentValue::Scalar(word) = value else {
+        return false;
+    };
+    let mut scan = AssignmentWordOriginScan::default();
+    scan_assignment_word_parts(&word.parts, &mut scan);
+    scan.command_substitution
 }
 
 fn binding_origin_for_assignment(assignment: &Assignment, source: &str) -> BindingOrigin {
@@ -5693,7 +5709,8 @@ struct AssignmentWordOriginScan {
     parameter_operator: bool,
     transformation: bool,
     indirect_expansion: bool,
-    command_or_process_substitution: bool,
+    command_substitution: bool,
+    process_substitution: bool,
     array_or_compound: bool,
     mixed_dynamic: bool,
 }
@@ -5704,7 +5721,7 @@ impl AssignmentWordOriginScan {
             self.parameter_operator,
             self.transformation,
             self.indirect_expansion,
-            self.command_or_process_substitution,
+            self.command_substitution || self.process_substitution,
             self.array_or_compound,
             self.mixed_dynamic,
         ]
@@ -5720,7 +5737,7 @@ impl AssignmentWordOriginScan {
             Some(AssignmentValueOrigin::Transformation)
         } else if self.indirect_expansion {
             Some(AssignmentValueOrigin::IndirectExpansion)
-        } else if self.command_or_process_substitution {
+        } else if self.command_substitution || self.process_substitution {
             Some(AssignmentValueOrigin::CommandOrProcessSubstitution)
         } else if self.array_or_compound {
             Some(AssignmentValueOrigin::ArrayOrCompound)
@@ -5779,9 +5796,8 @@ fn scan_assignment_word_part(part: &WordPart, scan: &mut AssignmentWordOriginSca
         | WordPart::ArithmeticExpansion { .. } => {}
         WordPart::DoubleQuoted { parts, .. } => scan_assignment_word_parts(parts, scan),
         WordPart::Parameter(parameter) => scan_parameter_word_part(parameter, scan),
-        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {
-            scan.command_or_process_substitution = true;
-        }
+        WordPart::CommandSubstitution { .. } => scan.command_substitution = true,
+        WordPart::ProcessSubstitution { .. } => scan.process_substitution = true,
         WordPart::ParameterExpansion { reference, .. } => {
             if reference.has_array_selector() {
                 scan.array_or_compound = true;

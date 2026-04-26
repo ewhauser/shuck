@@ -3023,6 +3023,7 @@ fn collects_declaration_assignment_probes_for_process_substitution_subscripts() 
     let source = "\
 #!/bin/bash
 \\declare -A arr[<(printf \"]\")]=$(date)
+\\export out=<(printf hi)
 ";
 
     with_facts(source, None, |_, facts| {
@@ -3032,7 +3033,7 @@ fn collects_declaration_assignment_probes_for_process_substitution_subscripts() 
             .map(|probe| (probe.target_name(), probe.has_command_substitution()))
             .collect::<Vec<_>>();
 
-        assert_eq!(probes, vec![("arr", true)]);
+        assert_eq!(probes, vec![("arr", true), ("out", false)]);
     });
 }
 
