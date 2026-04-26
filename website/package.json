@@ -7,6 +7,7 @@
     "generate:rules": "tsx scripts/generate-rules.ts",
     "generate:shellcheck-compat": "tsx scripts/generate-shellcheck-compat.ts",
     "generate:data": "pnpm generate:rules && pnpm generate:shellcheck-compat",
+    "test": "tsx --test scripts/*.test.ts app/lib/*.test.ts",
     "prebuild": "pnpm generate:data",
     "dev": "pnpm generate:data && next dev",
     "build": "next build",

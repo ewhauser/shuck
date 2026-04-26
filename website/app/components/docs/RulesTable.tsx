@@ -108,6 +108,7 @@ export default function RulesTable({ rules }: Props) {
               <thead>
                 <tr className="border-b border-fg-dim/20 bg-bg-card/50">
                   <th className="px-3 py-2 text-left font-medium text-fg-secondary">Code</th>
+                  <th className="px-3 py-2 text-left font-medium text-fg-secondary">ShellCheck</th>
                   <th className="px-3 py-2 text-left font-medium text-fg-secondary">Name</th>
                   <th className="hidden px-3 py-2 text-left font-medium text-fg-secondary md:table-cell">Message</th>
                   <th className="px-3 py-2 text-center font-medium text-fg-secondary">Status</th>
@@ -126,6 +127,13 @@ export default function RulesTable({ rules }: Props) {
                       >
                         {rule.code}
                       </Link>
+                    </td>
+                    <td className="px-3 py-2">
+                      {rule.shellcheckCode ? (
+                        <span className="font-mono text-fg-secondary">{rule.shellcheckCode}</span>
+                      ) : (
+                        <span className="text-fg-dim">-</span>
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       <Link

@@ -83,30 +83,30 @@ export default function Home() {
               <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
               <div className="w-3 h-3 rounded-full bg-[#28c840]" />
               <span className="flex-1 text-center text-[11px] font-mono font-medium text-fg-dim tracking-wider">
-                shuck check deploy.sh
+                shuck check --select S deploy.sh
               </span>
             </div>
             {/* Output */}
             <div className="p-4 font-mono text-[12px] leading-[1.5] overflow-x-auto whitespace-pre text-fg-dim">
-              <div><span className="text-[#febc2e]">warning[C006]</span><span className="text-fg-primary">: double-quote this variable to prevent word splitting</span></div>
+              <div><span className="text-[#febc2e]">warning[S001]</span><span className="text-fg-primary">: quote parameter expansions to avoid word splitting and globbing</span></div>
               <div><span className="text-accent">{"  --> "}</span><span className="text-fg-secondary">deploy.sh:3:10</span></div>
               <div><span className="text-accent">{"   |"}</span></div>
               <div><span className="text-accent">{"3  |"}</span><span className="text-fg-secondary">{"  rm -rf $"}</span><span className="text-[#febc2e]">build_dir</span></div>
               <div><span className="text-accent">{"   |"}</span>{"          "}<span className="text-[#febc2e]">{"^^^^^^^^^^"}</span></div>
               <div><span className="text-accent">{"   |"}</span></div>
               <div>&nbsp;</div>
-              <div><span className="text-[#febc2e]">warning[C019]</span><span className="text-fg-primary">{": use \"$@\" instead of $* to preserve argument boundaries"}</span></div>
+              <div><span className="text-[#febc2e]">warning[S014]</span><span className="text-fg-primary">: quote star-splat expansions to preserve argument boundaries</span></div>
               <div><span className="text-accent">{"  --> "}</span><span className="text-fg-secondary">deploy.sh:7:12</span></div>
               <div><span className="text-accent">{"   |"}</span></div>
               <div><span className="text-accent">{"7  |"}</span><span className="text-fg-secondary">{"  for arg in $"}</span><span className="text-[#febc2e]">*</span><span className="text-fg-secondary">{"; do"}</span></div>
               <div><span className="text-accent">{"   |"}</span>{"             "}<span className="text-[#febc2e]">{"^^"}</span></div>
               <div><span className="text-accent">{"   |"}</span></div>
               <div>&nbsp;</div>
-              <div><span className="text-[#ff5f57]">error[C003]</span><span className="text-fg-primary">{": use $(...) instead of legacy backtick syntax"}</span></div>
+              <div><span className="text-[#febc2e]">warning[S005]</span><span className="text-fg-primary">{": prefer `$(...)` over legacy backtick substitution"}</span></div>
               <div><span className="text-accent">{"  --> "}</span><span className="text-fg-secondary">deploy.sh:12:10</span></div>
               <div><span className="text-accent">{"   |"}</span></div>
-              <div><span className="text-accent">{"12 |"}</span><span className="text-fg-secondary">{"  local v="}</span><span className="text-[#ff5f57]">{"`git describe`"}</span></div>
-              <div><span className="text-accent">{"   |"}</span>{"          "}<span className="text-[#ff5f57]">{"^^^^^^^^^^^^^^^"}</span></div>
+              <div><span className="text-accent">{"12 |"}</span><span className="text-fg-secondary">{"  local v="}</span><span className="text-[#febc2e]">{"`git describe`"}</span></div>
+              <div><span className="text-accent">{"   |"}</span>{"          "}<span className="text-[#febc2e]">{"^^^^^^^^^^^^^^^"}</span></div>
               <div><span className="text-accent">{"   |"}</span></div>
             </div>
           </div>

@@ -19,8 +19,9 @@ export default function RulesIndexPage() {
 
   // Strip heavy fields (rationale, examples, etc.) before sending to the client component.
   const listRules: RuleListItem[] = allRules.map(
-    ({ code, name, category, description, implemented, status }) => ({
+    ({ code, shellcheckCode, name, category, description, implemented, status }) => ({
       code,
+      shellcheckCode,
       name,
       category,
       description,
