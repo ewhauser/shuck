@@ -222,7 +222,7 @@ impl MisspellingCandidateLookup {
         }
         ids.sort_unstable();
         ids.dedup();
-        self.best_from_ids(entries, target_name, tie_break, ids.into_iter(), Some(2))
+        self.best_from_ids(entries, target_name, tie_break, ids, Some(2))
     }
 
     fn best_edit2_strong_shape<'a>(
@@ -232,7 +232,7 @@ impl MisspellingCandidateLookup {
         tie_break: CandidateTieBreak,
     ) -> Option<&'a str> {
         let ids = self.env_trie.edit2_candidate_ids(target_name);
-        self.best_from_ids(entries, target_name, tie_break, ids.into_iter(), Some(3))
+        self.best_from_ids(entries, target_name, tie_break, ids, Some(3))
     }
 
     fn best_from_ids<'a>(

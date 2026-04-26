@@ -6505,8 +6505,7 @@ move_up $count
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
