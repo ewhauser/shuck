@@ -532,6 +532,11 @@ fn analyze_unused_assignments_exact(
         })
         .collect::<Vec<_>>();
     let scope_components = exact.scope_components(context);
+    let mut reaching_name_cache = ReachingNameCache::new(
+        &reaching_definitions.reaching_in,
+        &exact.binding_data.bindings_for_name,
+        &exact.binding_data.bindings_for_name_list,
+    );
     let interprocedural_reads = if context.call_sites.is_empty() {
         None
     } else {
@@ -590,17 +595,14 @@ fn analyze_unused_assignments_exact(
                 &context.bindings[resolved_binding_id.index()],
             ))
         {
-            mark_reaching_defs_used_except(
+            reaching_name_cache.mark_used_for_name(
                 &mut used_bindings,
-                incoming,
-                &exact.binding_data.bindings_for_name[name_id.index()],
-                resolved_binding_id,
+                block_id,
+                name_id,
+                Some(resolved_binding_id),
             );
         } else {
-            used_bindings.or_intersection_with(
-                incoming,
-                &exact.binding_data.bindings_for_name[name_id.index()],
-            );
+            reaching_name_cache.mark_used_for_name(&mut used_bindings, block_id, name_id, None);
         }
 
         let Some(resolved_binding_id) = resolved_binding_id else {
@@ -643,9 +645,11 @@ fn analyze_unused_assignments_exact(
         {
             continue;
         }
-        used_bindings.or_intersection_with(
-            &reaching_definitions.reaching_in[block_id.index()],
-            &exact.binding_data.bindings_for_name[synthetic_read_name_ids[read_index].index()],
+        reaching_name_cache.mark_used_for_name(
+            &mut used_bindings,
+            block_id,
+            synthetic_read_name_ids[read_index],
+            None,
         );
     }
 
@@ -1070,16 +1074,6 @@ impl DenseBitSet {
         }
     }
 
-    fn or_intersection_with(&mut self, left: &Self, right: &Self) {
-        debug_assert_eq!(self.words.len(), left.words.len());
-        debug_assert_eq!(self.words.len(), right.words.len());
-        for ((word, left_word), right_word) in
-            self.words.iter_mut().zip(&left.words).zip(&right.words)
-        {
-            *word |= *left_word & *right_word;
-        }
-    }
-
     fn or_intersection3_with(&mut self, first: &Self, second: &Self, third: &Self) {
         debug_assert_eq!(self.words.len(), first.words.len());
         debug_assert_eq!(self.words.len(), second.words.len());
@@ -1166,8 +1160,100 @@ impl NameTable {
 struct DenseBindingData {
     binding_name_ids: Vec<NameId>,
     bindings_for_name: Vec<DenseBitSet>,
+    bindings_for_name_list: Vec<Vec<BindingId>>,
     bindings_in_scope: Vec<DenseBitSet>,
     next_overwrite: Vec<Option<BindingId>>,
+}
+
+struct ReachingNameCache<'a> {
+    reaching_in: &'a [DenseBitSet],
+    bindings_for_name: &'a [DenseBitSet],
+    bindings_for_name_list: &'a [Vec<BindingId>],
+    binding_word_count: usize,
+    memo: FxHashMap<(u32, u32), SmallVec<[BindingId; 4]>>,
+}
+
+impl<'a> ReachingNameCache<'a> {
+    fn new(
+        reaching_in: &'a [DenseBitSet],
+        bindings_for_name: &'a [DenseBitSet],
+        bindings_for_name_list: &'a [Vec<BindingId>],
+    ) -> Self {
+        Self {
+            reaching_in,
+            bindings_for_name,
+            bindings_for_name_list,
+            binding_word_count: reaching_in
+                .first()
+                .map_or(0, |definitions| definitions.words.len()),
+            memo: FxHashMap::default(),
+        }
+    }
+
+    fn reaching_defs_for_name(&mut self, block: BlockId, name: NameId) -> &[BindingId] {
+        let key = (block.index() as u32, name.index() as u32);
+        if !self.memo.contains_key(&key) {
+            let incoming = &self.reaching_in[block.index()];
+            let reaching = self.bindings_for_name_list[name.index()]
+                .iter()
+                .copied()
+                .filter(|binding| incoming.contains(binding.index()))
+                .collect();
+            self.memo.insert(key, reaching);
+        }
+
+        self.memo
+            .get(&key)
+            .expect("cached reaching defs")
+            .as_slice()
+    }
+
+    fn mark_used_for_name(
+        &mut self,
+        used: &mut DenseBitSet,
+        block: BlockId,
+        name: NameId,
+        except: Option<BindingId>,
+    ) {
+        if self.should_use_sparse_cache(name) {
+            for binding in self.reaching_defs_for_name(block, name) {
+                if Some(*binding) != except {
+                    used.insert(binding.index());
+                }
+            }
+        } else if self.should_use_sparse_direct(name) {
+            let incoming = &self.reaching_in[block.index()];
+            for binding in &self.bindings_for_name_list[name.index()] {
+                if Some(*binding) != except && incoming.contains(binding.index()) {
+                    used.insert(binding.index());
+                }
+            }
+        } else {
+            let incoming = &self.reaching_in[block.index()];
+            let candidates = &self.bindings_for_name[name.index()];
+            for binding_index in incoming.iter_ones() {
+                if except.is_some_and(|binding| binding.index() == binding_index) {
+                    continue;
+                }
+                if candidates.contains(binding_index) {
+                    used.insert(binding_index);
+                }
+            }
+        }
+    }
+
+    fn should_use_sparse_cache(&self, name: NameId) -> bool {
+        // Dense bitset scans are faster for small and medium scripts; only pay
+        // for sparse lookup/caching once the binding universe is very large.
+        self.binding_word_count > 512
+            && self.bindings_for_name_list[name.index()].len() > 8
+            && self.should_use_sparse_direct(name)
+    }
+
+    fn should_use_sparse_direct(&self, name: NameId) -> bool {
+        self.binding_word_count > 512
+            && self.bindings_for_name_list[name.index()].len() * 4 < self.binding_word_count
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1332,7 +1418,7 @@ fn build_dense_binding_data_for_scope_count(
     let mut bindings_for_name = (0..name_count)
         .map(|_| DenseBitSet::new(binding_count))
         .collect::<Vec<_>>();
-    let mut bindings_by_name = vec![Vec::new(); name_count];
+    let mut bindings_for_name_list = vec![Vec::new(); name_count];
     let mut bindings_in_scope = (0..scope_count)
         .map(|_| DenseBitSet::new(binding_count))
         .collect::<Vec<_>>();
@@ -1343,14 +1429,14 @@ fn build_dense_binding_data_for_scope_count(
         };
         binding_name_ids.push(name_id);
         bindings_for_name[name_id.index()].insert(binding.id.index());
-        bindings_by_name[name_id.index()].push(binding.id);
+        bindings_for_name_list[name_id.index()].push(binding.id);
         if let Some(bindings_in_scope) = bindings_in_scope.get_mut(binding.scope.index()) {
             bindings_in_scope.insert(binding.id.index());
         }
     }
 
     let mut next_overwrite = vec![None; binding_count];
-    for binding_ids in bindings_by_name {
+    for binding_ids in &bindings_for_name_list {
         for pair in binding_ids.windows(2) {
             next_overwrite[pair[0].index()] = Some(pair[1]);
         }
@@ -1359,6 +1445,7 @@ fn build_dense_binding_data_for_scope_count(
     DenseBindingData {
         binding_name_ids,
         bindings_for_name,
+        bindings_for_name_list,
         bindings_in_scope,
         next_overwrite,
     }
@@ -2283,19 +2370,6 @@ fn mark_reaching_defs_for_names_used(
 ) {
     for binding_index in incoming.iter_ones() {
         if used_names.contains(binding_name_ids[binding_index].index()) {
-            used_bindings.insert(binding_index);
-        }
-    }
-}
-
-fn mark_reaching_defs_used_except(
-    used_bindings: &mut DenseBitSet,
-    incoming: &DenseBitSet,
-    candidates: &DenseBitSet,
-    excluded: BindingId,
-) {
-    for binding_index in incoming.iter_ones() {
-        if binding_index != excluded.index() && candidates.contains(binding_index) {
             used_bindings.insert(binding_index);
         }
     }
