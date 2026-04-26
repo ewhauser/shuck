@@ -798,7 +798,6 @@ impl<'a> LinterFactsBuilder<'a> {
                 source,
                 &backtick_substitution_spans,
             );
-
         LinterFacts {
             source,
             commands,
@@ -824,6 +823,9 @@ impl<'a> LinterFactsBuilder<'a> {
             c006_suppressing_reference_offsets_by_name,
             presence_test_references_by_name: presence_tested_names.references_by_name,
             presence_test_names_by_name: presence_tested_names.names_by_name,
+            possible_variable_misspelling_use_scan: OnceLock::new(),
+            possible_variable_misspelling_index: OnceLock::new(),
+            possible_variable_misspelling_scope_compat_name_uses: OnceLock::new(),
             suppressed_subscript_reference_spans,
             subscript_later_suppression_reference_spans,
             compound_assignment_value_word_spans,
