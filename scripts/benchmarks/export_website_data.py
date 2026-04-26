@@ -404,9 +404,11 @@ def main() -> int:
             "warmupRuns": args.warmup_runs,
             "measuredRuns": args.measured_runs,
             "ignoreFailure": True,
-            "shuckCommand": "shuck check --no-cache <fixture>",
+            "shuckCommand": "shuck check --no-cache --select ALL <fixture>",
             "comparisonCommand": (
-                "shellcheck --severity=style <fixture>" if comparison_tool else None
+                "shellcheck --enable=all --severity=style <fixture>"
+                if comparison_tool
+                else None
             ),
             "notes": args.notes or None,
         },

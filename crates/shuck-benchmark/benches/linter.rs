@@ -4,7 +4,7 @@ use criterion::{
 use shuck_benchmark::{benchmark_cases, configure_benchmark_allocator, parse_fixture};
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    LinterFacts, LinterSettings, ShellCheckCodeMap, ShellDialect, SuppressionIndex,
+    LinterFacts, LinterSettings, RuleSet, ShellCheckCodeMap, ShellDialect, SuppressionIndex,
     benchmark_collect_word_facts, benchmark_normalize_commands, classify_file_context,
     first_statement_line, lint_file, parse_directives,
 };
@@ -185,7 +185,10 @@ fn bench_linter_word_facts(c: &mut Criterion) {
 
 fn bench_linter(c: &mut Criterion) {
     let mut group = c.benchmark_group("linter");
-    let settings = LinterSettings::default();
+    let settings = LinterSettings {
+        rules: RuleSet::all(),
+        ..LinterSettings::default()
+    };
     let shellcheck_map = ShellCheckCodeMap::default();
 
     for case in benchmark_cases() {

@@ -41,8 +41,8 @@ const baseDataset: BenchmarkDataset = {
     warmupRuns: 3,
     measuredRuns: 10,
     ignoreFailure: true,
-    shuckCommand: "shuck check --no-cache <fixture>",
-    comparisonCommand: "shellcheck --severity=style <fixture>",
+    shuckCommand: "shuck check --no-cache --select ALL <fixture>",
+    comparisonCommand: "shellcheck --enable=all --severity=style <fixture>",
     notes: null,
   },
   corpus: {

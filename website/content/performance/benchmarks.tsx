@@ -301,7 +301,8 @@ export default function BenchmarksDoc() {
         </li>
         <li>
           The comparison command is{" "}
-          <code>shellcheck --severity=style &lt;fixture&gt;</code> on the same input.
+          <code>shellcheck --enable=all --severity=style &lt;fixture&gt;</code> on
+          the same input.
         </li>
         <li>
           <code>--ignore-failure</code> is intentional. These fixtures contain lint
