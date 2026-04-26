@@ -13,6 +13,7 @@ struct ShebangHeaderFacts {
     enables_errexit: bool,
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
     let mut source_lines = source_lines_with_offsets(source).enumerate();
     let Some((_, first_line)) = source_lines.next() else {
@@ -302,6 +303,7 @@ fn line_span(line_number: usize, offset: usize, line: &str) -> Span {
     Span::from_positions(start, end)
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_commented_continuation_comment_spans(source: &str, indexer: &Indexer) -> Vec<Span> {
     let line_index = indexer.line_index();
     let comment_index = indexer.comment_index();

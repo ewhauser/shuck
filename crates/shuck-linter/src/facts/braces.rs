@@ -1,3 +1,4 @@
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_literal_brace_spans(
     nodes: &[WordNode<'_>],
     occurrences: &[WordOccurrence],

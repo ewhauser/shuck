@@ -97,6 +97,7 @@ pub(super) struct ConditionalPortabilityInputs<'a> {
     pub nested_pattern_charclass_spans: &'a FxHashSet<FactSpan>,
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(super) fn build_conditional_portability_facts<'a>(
     commands: &[CommandFact<'a>],
     elif_condition_command_ids: &FxHashSet<CommandId>,

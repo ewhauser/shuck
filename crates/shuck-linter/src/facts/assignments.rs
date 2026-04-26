@@ -109,6 +109,7 @@ impl<'a> BindingValueFact<'a> {
     }
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_bare_command_name_assignment_spans<'a>(
     commands: &[CommandFact<'a>],
     word_nodes: &[WordNode<'a>],
@@ -130,6 +131,7 @@ fn build_bare_command_name_assignment_spans<'a>(
         .collect()
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_assignment_like_command_name_spans<'a>(
     commands: &[CommandFact<'a>],
     source: &str,
@@ -408,6 +410,7 @@ struct EnvPrefixScopeSpans {
     expansion_scope_spans: Vec<Span>,
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_env_prefix_scope_spans(source: &str, commands: &[CommandFact<'_>]) -> EnvPrefixScopeSpans {
     let mut scope_spans = EnvPrefixScopeSpans::default();
     let mut seen_assignment_scope_spans = FxHashSet::default();
@@ -1248,6 +1251,7 @@ fn collect_plus_equals_assignment_span(assignment: &Assignment, spans: &mut Vec<
     spans.push(Span::from_positions(target.name_span.start, end));
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_nonpersistent_assignment_spans(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
@@ -1899,6 +1903,7 @@ fn escaped_braced_parameter_names(text: &str) -> Vec<String> {
     names
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_innermost_command_ids_by_offset(
     commands: &[CommandFact<'_>],
     mut offsets: Vec<usize>,

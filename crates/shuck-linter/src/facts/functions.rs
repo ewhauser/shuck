@@ -124,6 +124,7 @@ impl FunctionCliDispatchFacts {
     }
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_function_header_facts<'a>(
     semantic: &SemanticModel,
     functions: &[&'a FunctionDef],
@@ -153,6 +154,7 @@ fn build_function_header_facts<'a>(
         .collect()
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_function_cli_dispatch_facts(
     semantic: &SemanticModel,
     function_headers: &[FunctionHeaderFact<'_>],

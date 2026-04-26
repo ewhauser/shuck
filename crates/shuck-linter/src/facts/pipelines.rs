@@ -99,6 +99,7 @@ impl<'a> PipelineFact<'a> {
 }
 
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(super) fn build_pipeline_facts<'a>(
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,

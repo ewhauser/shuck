@@ -1743,6 +1743,7 @@ fn parameter_expansion_end_offset(source: &str, dollar_offset: usize) -> Option<
     (end > after_dollar).then_some(end)
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_brace_variable_before_bracket_spans<'a>(
     nodes: &[WordNode<'a>],
     occurrences: &[WordOccurrence],
@@ -1895,6 +1896,7 @@ fn build_function_in_alias_spans(commands: &[CommandFact<'_>], source: &str) -> 
     spans
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_alias_definition_expansion_spans(
     commands: &[CommandFact<'_>],
     fact_store: &FactStore<'_>,
@@ -2288,6 +2290,7 @@ struct WordFactLookup<'facts, 'a> {
     source: &'a str,
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_echo_to_sed_substitution_spans<'a>(
     commands: CommandFacts<'_, 'a>,
     pipelines: &[PipelineFact<'a>],
@@ -3392,6 +3395,7 @@ fn build_unquoted_command_argument_use_offsets(
     offsets_by_name
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_word_facts_for_command<'a>(
     visit: CommandVisit<'a>,
     source: &'a str,

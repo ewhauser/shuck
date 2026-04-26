@@ -33,6 +33,7 @@ struct HeredocFactSummary {
     spaced_tabstrip_close_spans: Vec<Span>,
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn estimate_fact_build_capacity(file: &File) -> FactBuildCapacity {
     let mut capacity = FactBuildCapacity::default();
     walk_commands(
@@ -661,59 +662,13 @@ impl<'a> LinterFactsBuilder<'a> {
         } = build_env_prefix_scope_spans(self.source, &commands);
         let unset_command_ids_by_target_name =
             build_unset_command_ids_by_target_name(&commands, &structural_command_ids, source);
-        word_occurrences.extend(
-            pending_arithmetic_word_occurrences
-                .into_iter()
-                .map(|pending| WordOccurrence {
-                    node_id: pending.node_id,
-                    command_id: pending.command_id,
-                    nested_word_command: pending.nested_word_command,
-                    context: WordFactContext::ArithmeticCommand,
-                    host_kind: pending.host_kind,
-                    runtime_literal: RuntimeLiteralAnalysis::default(),
-                    operand_class: None,
-                    enclosing_expansion_context: Some(pending.enclosing_expansion_context),
-                    array_assignment_split_scalar_expansion_spans: IdRange::empty(),
-                }),
+        let word_index = build_word_occurrence_index(
+            &commands,
+            &word_nodes,
+            &mut word_occurrences,
+            pending_arithmetic_word_occurrences,
+            &mut fact_store,
         );
-        let mut word_index = FxHashMap::<FactSpan, SmallVec<[WordOccurrenceId; 2]>>::default();
-        word_index.reserve(word_occurrences.len());
-        let mut word_occurrence_offsets_by_command = vec![0usize; commands.len()];
-        for fact in &word_occurrences {
-            word_occurrence_offsets_by_command[fact.command_id.index()] += 1;
-        }
-        let mut next_word_occurrence_offset = 0usize;
-        let word_occurrence_ids_by_command = word_occurrence_offsets_by_command
-            .iter_mut()
-            .map(|count| {
-                let range = IdRange::from_start_len(next_word_occurrence_offset, *count);
-                *count = next_word_occurrence_offset;
-                next_word_occurrence_offset = range.end_index();
-                range
-            })
-            .collect::<Vec<_>>();
-        let mut word_occurrence_ids =
-            vec![WordOccurrenceId::new(0); next_word_occurrence_offset];
-        for (index, fact) in word_occurrences.iter().enumerate() {
-            let id = WordOccurrenceId::new(index);
-            word_index
-                .entry(occurrence_key(&word_nodes, fact))
-                .or_default()
-                .push(id);
-            let command_index = fact.command_id.index();
-            let offset = word_occurrence_offsets_by_command[command_index];
-            word_occurrence_ids[offset] = id;
-            word_occurrence_offsets_by_command[command_index] += 1;
-        }
-        let mut word_occurrence_id_store = ListArena::with_capacity(word_occurrence_ids.len());
-        let all_word_occurrence_ids = word_occurrence_id_store.push_many(word_occurrence_ids);
-        debug_assert_eq!(all_word_occurrence_ids.start_index(), 0);
-        debug_assert_eq!(
-            all_word_occurrence_ids.end_index(),
-            next_word_occurrence_offset
-        );
-        fact_store.word_occurrence_ids = word_occurrence_id_store;
-        fact_store.word_occurrence_ids_by_command = word_occurrence_ids_by_command;
         populate_array_assignment_split_scalar_expansion_spans(
             self.shell,
             &commands,
@@ -947,6 +902,75 @@ impl<'a> LinterFactsBuilder<'a> {
             conditional_portability,
         }
     }
+}
+
+#[cfg_attr(shuck_profiling, inline(never))]
+fn build_word_occurrence_index(
+    commands: &[CommandFact<'_>],
+    word_nodes: &[WordNode<'_>],
+    word_occurrences: &mut Vec<WordOccurrence>,
+    pending_arithmetic_word_occurrences: Vec<PendingArithmeticWordOccurrence>,
+    fact_store: &mut FactStore<'_>,
+) -> FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>> {
+    word_occurrences.extend(
+        pending_arithmetic_word_occurrences
+            .into_iter()
+            .map(|pending| WordOccurrence {
+                node_id: pending.node_id,
+                command_id: pending.command_id,
+                nested_word_command: pending.nested_word_command,
+                context: WordFactContext::ArithmeticCommand,
+                host_kind: pending.host_kind,
+                runtime_literal: RuntimeLiteralAnalysis::default(),
+                operand_class: None,
+                enclosing_expansion_context: Some(pending.enclosing_expansion_context),
+                array_assignment_split_scalar_expansion_spans: IdRange::empty(),
+            }),
+    );
+
+    let mut word_index = FxHashMap::<FactSpan, SmallVec<[WordOccurrenceId; 2]>>::default();
+    word_index.reserve(word_occurrences.len());
+
+    let mut word_occurrence_offsets_by_command = vec![0usize; commands.len()];
+    for fact in word_occurrences.iter() {
+        word_occurrence_offsets_by_command[fact.command_id.index()] += 1;
+    }
+
+    let mut next_word_occurrence_offset = 0usize;
+    let word_occurrence_ids_by_command = word_occurrence_offsets_by_command
+        .iter_mut()
+        .map(|count| {
+            let range = IdRange::from_start_len(next_word_occurrence_offset, *count);
+            *count = next_word_occurrence_offset;
+            next_word_occurrence_offset = range.end_index();
+            range
+        })
+        .collect::<Vec<_>>();
+
+    let mut word_occurrence_ids = vec![WordOccurrenceId::new(0); next_word_occurrence_offset];
+    for (index, fact) in word_occurrences.iter().enumerate() {
+        let id = WordOccurrenceId::new(index);
+        word_index
+            .entry(occurrence_key(word_nodes, fact))
+            .or_default()
+            .push(id);
+        let command_index = fact.command_id.index();
+        let offset = word_occurrence_offsets_by_command[command_index];
+        word_occurrence_ids[offset] = id;
+        word_occurrence_offsets_by_command[command_index] += 1;
+    }
+
+    let mut word_occurrence_id_store = ListArena::with_capacity(word_occurrence_ids.len());
+    let all_word_occurrence_ids = word_occurrence_id_store.push_many(word_occurrence_ids);
+    debug_assert_eq!(all_word_occurrence_ids.start_index(), 0);
+    debug_assert_eq!(
+        all_word_occurrence_ids.end_index(),
+        next_word_occurrence_offset
+    );
+    fact_store.word_occurrence_ids = word_occurrence_id_store;
+    fact_store.word_occurrence_ids_by_command = word_occurrence_ids_by_command;
+
+    word_index
 }
 
 fn build_c006_suppressing_reference_offsets_by_name(

@@ -105,6 +105,7 @@ impl<'a> ListFact<'a> {
     }
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 pub(super) fn build_list_facts<'a>(
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,

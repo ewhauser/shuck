@@ -1,3 +1,4 @@
+#[cfg_attr(shuck_profiling, inline(never))]
 fn build_heredoc_fact_summary(
     commands: &[CommandFact<'_>],
     source: &str,
@@ -222,4 +223,3 @@ fn position_at_offset_opt(source: &str, target_offset: usize) -> Option<Position
     }
     Some(position)
 }
-

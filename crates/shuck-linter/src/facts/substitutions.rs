@@ -148,6 +148,7 @@ impl SubstitutionFact {
     }
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn populate_substitution_fact_ranges<'a>(
     commands: &mut [CommandFact<'a>],
     fact_store: &mut FactStore<'a>,

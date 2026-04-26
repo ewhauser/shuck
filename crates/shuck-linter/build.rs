@@ -86,6 +86,25 @@ fn parse_rule_metadata(
 }
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(shuck_profiling)");
+    println!("cargo:rerun-if-env-changed=PROFILE");
+    println!("cargo:rerun-if-env-changed=OUT_DIR");
+    let profile = env::var("PROFILE").unwrap_or_default();
+    let out_dir = env::var_os("OUT_DIR").map(PathBuf::from);
+    let out_dir_uses_profiling_profile = out_dir.as_ref().is_some_and(|path| {
+        let mut previous = None;
+        for component in path.components() {
+            if component.as_os_str() == "build" {
+                return previous == Some("profiling");
+            }
+            previous = component.as_os_str().to_str();
+        }
+        false
+    });
+    if profile == "profiling" || out_dir_uses_profiling_profile {
+        println!("cargo:rustc-cfg=shuck_profiling");
+    }
+
     let manifest_dir = PathBuf::from(match env::var("CARGO_MANIFEST_DIR") {
         Ok(value) => value,
         Err(err) => panic!("CARGO_MANIFEST_DIR: {err}"),

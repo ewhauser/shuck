@@ -409,6 +409,7 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
     }
 
+    #[cfg_attr(shuck_profiling, inline(never))]
     pub(super) fn finish(self) -> SurfaceFragmentFacts {
         self.facts
     }
