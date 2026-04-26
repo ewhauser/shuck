@@ -200,6 +200,7 @@ fn parse_github_actions_yaml(source: &str) -> std::result::Result<Node, marked_y
 // referenced scalar in place.
 fn source_has_yaml_anchors_or_aliases(source: &str) -> bool {
     let mut block_parent_indent = None;
+    let mut quote = YamlLineQuote::Unquoted;
     for line in source.lines() {
         let indent = leading_space_count(line);
         if let Some(parent_indent) = block_parent_indent {
@@ -209,10 +210,10 @@ fn source_has_yaml_anchors_or_aliases(source: &str) -> bool {
             block_parent_indent = None;
         }
 
-        if line_has_yaml_anchor_or_alias(line) {
+        if line_has_yaml_anchor_or_alias(line, &mut quote) {
             return true;
         }
-        if line_starts_block_scalar(line) {
+        if quote == YamlLineQuote::Unquoted && line_starts_block_scalar(line) {
             block_parent_indent = Some(indent);
         }
     }
@@ -223,6 +224,7 @@ fn sanitize_yaml_anchors_and_aliases(source: &str) -> String {
     let mut anchor_values = HashMap::new();
     let mut output = String::with_capacity(source.len());
     let mut block_parent_indent = None;
+    let mut quote = YamlLineQuote::Unquoted;
 
     for line in source.split_inclusive('\n') {
         let line_without_newline = line.strip_suffix('\n').unwrap_or(line);
@@ -248,10 +250,11 @@ fn sanitize_yaml_anchors_and_aliases(source: &str) -> String {
         output.push_str(&sanitize_yaml_anchor_or_alias_line(
             line_content,
             &mut anchor_values,
+            &mut quote,
         ));
         output.push_str(carriage_return);
         output.push_str(newline);
-        if line_starts_block_scalar(line_content) {
+        if quote == YamlLineQuote::Unquoted && line_starts_block_scalar(line_content) {
             block_parent_indent = Some(indent);
         }
     }
@@ -262,18 +265,18 @@ fn sanitize_yaml_anchors_and_aliases(source: &str) -> String {
 fn sanitize_yaml_anchor_or_alias_line(
     line: &str,
     anchor_values: &mut HashMap<String, String>,
+    quote: &mut YamlLineQuote,
 ) -> String {
     let bytes = line.as_bytes();
     let mut output = String::with_capacity(line.len());
     let mut index = 0;
     let mut copied_until = 0;
-    let mut quote = YamlLineQuote::Unquoted;
 
     while index < bytes.len() {
-        match quote {
+        match *quote {
             YamlLineQuote::Unquoted => match bytes[index] {
-                b'\'' => quote = YamlLineQuote::Single,
-                b'"' => quote = YamlLineQuote::Double,
+                b'\'' => *quote = YamlLineQuote::Single,
+                b'"' => *quote = YamlLineQuote::Double,
                 b'&' | b'*' if yaml_anchor_token_starts(bytes, index) => {
                     let token_len = yaml_anchor_token_len(bytes, index);
                     output.push_str(&line[copied_until..index]);
@@ -306,11 +309,11 @@ fn sanitize_yaml_anchor_or_alias_line(
             },
             YamlLineQuote::Single => {
                 if bytes[index] == b'\'' {
-                    quote = YamlLineQuote::Unquoted;
+                    *quote = YamlLineQuote::Unquoted;
                 }
             }
             YamlLineQuote::Double => match bytes[index] {
-                b'"' => quote = YamlLineQuote::Unquoted,
+                b'"' => *quote = YamlLineQuote::Unquoted,
                 b'\\' => {
                     index += 1;
                 }
@@ -422,6 +425,7 @@ fn line_has_run_key_after(line: &str, start: usize) -> bool {
     while index < bytes.len() {
         match quote {
             YamlLineQuote::Unquoted => match bytes[index] {
+                b'\'' | b'"' if yaml_quoted_key_starts_at(line, index, "run") => return true,
                 b'\'' => quote = YamlLineQuote::Single,
                 b'"' => quote = YamlLineQuote::Double,
                 b'#' if yaml_hash_starts_comment(bytes, index) => return false,
@@ -470,26 +474,40 @@ fn yaml_key_starts_at(line: &str, index: usize, key: &str) -> bool {
         .is_some_and(|offset| bytes[after_key + offset] == b':')
 }
 
-fn line_has_yaml_anchor_or_alias(line: &str) -> bool {
+fn yaml_quoted_key_starts_at(line: &str, index: usize, key: &str) -> bool {
+    let bytes = line.as_bytes();
+    let quote_end = yaml_quoted_scalar_end(bytes, index);
+    if quote_end <= index + 1 || quote_end > bytes.len() {
+        return false;
+    }
+    if &line[index + 1..quote_end - 1] != key {
+        return false;
+    }
+    bytes[quote_end..]
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .is_some_and(|offset| bytes[quote_end + offset] == b':')
+}
+
+fn line_has_yaml_anchor_or_alias(line: &str, quote: &mut YamlLineQuote) -> bool {
     let bytes = line.as_bytes();
     let mut index = 0;
-    let mut quote = YamlLineQuote::Unquoted;
 
     while index < bytes.len() {
-        match quote {
+        match *quote {
             YamlLineQuote::Unquoted => match bytes[index] {
-                b'\'' => quote = YamlLineQuote::Single,
-                b'"' => quote = YamlLineQuote::Double,
+                b'\'' => *quote = YamlLineQuote::Single,
+                b'"' => *quote = YamlLineQuote::Double,
                 b'&' | b'*' if yaml_anchor_token_starts(bytes, index) => return true,
                 _ => {}
             },
             YamlLineQuote::Single => {
                 if bytes[index] == b'\'' {
-                    quote = YamlLineQuote::Unquoted;
+                    *quote = YamlLineQuote::Unquoted;
                 }
             }
             YamlLineQuote::Double => match bytes[index] {
-                b'"' => quote = YamlLineQuote::Unquoted,
+                b'"' => *quote = YamlLineQuote::Unquoted,
                 b'\\' => {
                     index += 1;
                 }

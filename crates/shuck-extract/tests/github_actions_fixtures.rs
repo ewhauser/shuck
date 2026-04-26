@@ -13,7 +13,7 @@ fn extracts_workflow_edge_case_fixture() {
     )
     .unwrap();
 
-    assert_eq!(scripts.len(), 26);
+    assert_eq!(scripts.len(), 28);
 
     let missing_unix = script(&scripts, "jobs.missing-unix.steps[0].run");
     assert_eq!(missing_unix.dialect, ExtractedDialect::Bash);
@@ -104,6 +104,10 @@ fn extracts_workflow_edge_case_fixture() {
     assert_eq!(colon_pattern.dialect, ExtractedDialect::Bash);
     assert_eq!(colon_pattern.source, "echo foo:*bar");
 
+    let quoted_pattern = script(&scripts, "jobs.anchors-and-env.steps[7].run");
+    assert_eq!(quoted_pattern.dialect, ExtractedDialect::Bash);
+    assert!(quoted_pattern.source.contains("*prod) echo quoted prod ;;"));
+
     let short_alias_default = script(&scripts, "jobs.short-shell-aliases.steps[0].run");
     assert_eq!(short_alias_default.dialect, ExtractedDialect::Bash);
     assert!(short_alias_default.implicit_flags.errexit);
@@ -155,6 +159,10 @@ fn extracts_workflow_edge_case_fixture() {
 
     let flow_pwsh = script(&scripts, "jobs.flow-style.steps[3].run");
     assert_eq!(flow_pwsh.dialect, ExtractedDialect::Unsupported);
+
+    let quoted_run_key = script(&scripts, "jobs.flow-style.steps[4].run");
+    assert_eq!(quoted_run_key.source, "echo quoted key");
+    assert_eq!(quoted_run_key.host_start_column, 29);
 }
 
 #[test]
