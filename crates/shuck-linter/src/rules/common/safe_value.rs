@@ -381,7 +381,12 @@ impl<'a> SafeValueIndex<'a> {
     fn span_is_inside_command_substitution_scope(&self, span: Span) -> bool {
         self.semantic
             .ancestor_scopes(self.semantic.scope_at(span.start.offset))
-            .any(|scope| matches!(self.semantic.scope(scope).kind, ScopeKind::CommandSubstitution))
+            .any(|scope| {
+                matches!(
+                    self.semantic.scope(scope).kind,
+                    ScopeKind::CommandSubstitution
+                )
+            })
     }
 
     fn literal_part_is_safe(&self, part: &WordPart, span: Span, query: SafeValueQuery) -> bool {
@@ -1418,7 +1423,7 @@ impl<'a> SafeValueIndex<'a> {
             .binding_value(binding_id)
             .filter(|value| !value.conditional_assignment_shortcut())
             .and_then(|value| value.scalar_word())
-            .is_some_and(word_is_standalone_status_capture)
+            .is_some_and(word_is_standalone_status_or_pid_capture)
         {
             return true;
         }
@@ -3366,7 +3371,32 @@ fn assignment_value_after_definition(source: &str, definition_span: Span) -> Opt
 }
 
 fn assignment_value_text_is_standalone_status_capture(text: &str) -> bool {
-    matches!(text, "$?" | "${?}" | "\"$?\"" | "\"${?}\"")
+    matches!(
+        text,
+        "$?" | "${?}" | "\"$?\"" | "\"${?}\"" | "$!" | "${!}" | "\"$!\"" | "\"${!}\""
+    )
+}
+
+fn word_is_standalone_status_or_pid_capture(word: &Word) -> bool {
+    matches!(word.parts.as_slice(), [part] if part_is_standalone_status_or_pid_capture(&part.kind))
+}
+
+fn part_is_standalone_status_or_pid_capture(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(name) => matches!(name.as_str(), "?" | "!"),
+        WordPart::DoubleQuoted { parts, .. } => {
+            matches!(
+                parts.as_slice(),
+                [part] if part_is_standalone_status_or_pid_capture(&part.kind)
+            )
+        }
+        WordPart::Parameter(parameter) => matches!(
+            parameter.bourne(),
+            Some(BourneParameterExpansion::Access { reference })
+                if matches!(reference.name.as_str(), "?" | "!") && reference.subscript.is_none()
+        ),
+        _ => false,
+    }
 }
 
 fn safe_numeric_shell_variable(name: &Name) -> bool {

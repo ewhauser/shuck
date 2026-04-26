@@ -2761,6 +2761,19 @@ cleanup() {
     }
 
     #[test]
+    fn skips_pid_capture_bindings() {
+        let source = "\
+#!/bin/bash
+long_running_task &
+tarpid=$!
+counter=$(ps -A | grep $tarpid | wc -l)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn skips_status_capture_after_escaped_name_only_declarations() {
         let source = "\
 #!/bin/bash

@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=63`
-- Individual reviewed records classified below: 100 total (`shellcheck-only=23`, `shuck-only=77`).
+- `reviewed_divergences=62`
+- Individual reviewed records classified below: 98 total (`shellcheck-only=23`, `shuck-only=75`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -125,7 +125,7 @@ Resolved records should not remain as reviewed divergences.
 - `swoodford__aws__vpc-sg-import-rules-cloudflare.sh:281:101-106` `$PORT`
 - `swoodford__aws__wafv2-web-acl-pingdom.sh:196:40-49` `$WAFSCOPE`
 
-## [ ] Shuck-only: numeric/test operand (9)
+## [ ] Shuck-only: numeric/test operand (7)
 
 - `bittorf__kalua__openwrt-addons__etc__kalua__watch:362:40-58` `${overall:-$count}`
 - `bittorf__kalua__openwrt-monitoring__send_sms.sh:145:10-19` `${pos:-0}`
@@ -134,8 +134,6 @@ Resolved records should not remain as reviewed divergences.
 - `pi-hole__pi-hole__advanced__Scripts__piholeCheckout.sh:215:18-34` `$download_status`
 - `pi-hole__pi-hole__advanced__Scripts__piholeCheckout.sh:221:20-36` `$download_status`
 - `super-linter__super-linter__test__run-super-linter-tests.sh:724:36-57` `${EXPECTED_EXIT_CODE}`
-- `tteck__Proxmox__misc__glances.sh:100:37-49` `$SPINNER_PID`
-- `tteck__Proxmox__misc__glances.sh:100:73-85` `$SPINNER_PID`
 
 ## [ ] Shuck-only: status/return/exit operand (8)
 
