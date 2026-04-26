@@ -102,6 +102,11 @@ pub static TEST_FILES: LazyLock<Vec<TestFile>> = LazyLock::new(|| {
             source: fixture_source(include_bytes!("../resources/files/nvm.sh")),
             speed: TestCaseSpeed::Slow,
         },
+        TestFile {
+            name: "bashtop",
+            source: fixture_source(include_bytes!("../resources/files/bashtop.sh")),
+            speed: TestCaseSpeed::Slow,
+        },
     ]
 });
 
