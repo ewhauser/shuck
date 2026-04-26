@@ -1266,7 +1266,7 @@ fn build_nonpersistent_assignment_spans(
 
         let Some(nonpersistent_scope) = nonpersistent_scope_span_for_assignment(
             semantic,
-            binding.span.start.offset,
+            binding.scope,
             &scope_spans_by_id,
             suppress_bash_pipefail_pipeline_side_effects,
         ) else {
@@ -1487,8 +1487,7 @@ fn build_nonpersistent_assignment_spans(
             .unwrap_or(&[]);
         let event_command_id =
             precomputed_command_id_for_offset(&innermost_command_ids_by_offset, read.span.start.offset);
-        let read_function_scope =
-            enclosing_function_scope_for_scope(semantic, semantic.scope_at(read.span.start.offset));
+        let read_function_scope = enclosing_function_scope_for_scope(semantic, read.scope);
         if let Some(candidate) = candidate_ids.iter().rev().find(|candidate| {
             read.span.start.offset > candidate.subshell_end
                 && candidate_allows_unresolved_later_use(candidate, read_function_scope)
@@ -1503,7 +1502,10 @@ fn build_nonpersistent_assignment_spans(
                 name: read.name.clone(),
                 span: candidate.assignment_span,
             });
-            later_use_sites.push(read);
+            later_use_sites.push(NamedSpan {
+                name: read.name,
+                span: read.span,
+            });
         }
     }
 
@@ -1684,12 +1686,12 @@ struct PersistentReset {
 
 fn nonpersistent_scope_span_for_assignment(
     semantic: &SemanticModel,
-    offset: usize,
+    scope: ScopeId,
     scope_spans_by_id: &FxHashMap<ScopeId, Span>,
     suppress_bash_pipefail_pipeline_side_effects: bool,
 ) -> Option<NonpersistentScopeSpan> {
     semantic
-        .ancestor_scopes(semantic.scope_at(offset))
+        .ancestor_scopes(scope)
         .find(|scope_id| match semantic.scope_kind(*scope_id) {
             shuck_semantic::ScopeKind::Pipeline => !suppress_bash_pipefail_pipeline_side_effects,
             shuck_semantic::ScopeKind::Subshell
@@ -1801,19 +1803,26 @@ fn command_prefix_assignments_reset_name(command: &Command, name: &Name) -> bool
         .any(|assignment| assignment.target.name == *name)
 }
 
+struct PromptRuntimeRead {
+    name: Name,
+    span: Span,
+    scope: ScopeId,
+}
+
 fn build_prompt_runtime_read_spans(
     commands: &[CommandFact<'_>],
     source: &str,
-) -> Vec<NamedSpan> {
+) -> Vec<PromptRuntimeRead> {
     let mut reads = Vec::new();
 
     for command in commands {
+        let scope = command.scope();
         for assignment in command_assignments(command.command()) {
-            collect_prompt_runtime_reads_from_assignment(assignment, source, &mut reads);
+            collect_prompt_runtime_reads_from_assignment(assignment, scope, source, &mut reads);
         }
         for operand in declaration_operands(command.command()) {
             if let DeclOperand::Assignment(assignment) = operand {
-                collect_prompt_runtime_reads_from_assignment(assignment, source, &mut reads);
+                collect_prompt_runtime_reads_from_assignment(assignment, scope, source, &mut reads);
             }
         }
     }
@@ -1825,8 +1834,9 @@ fn build_prompt_runtime_read_spans(
 
 fn collect_prompt_runtime_reads_from_assignment(
     assignment: &Assignment,
+    scope: ScopeId,
     source: &str,
-    reads: &mut Vec<NamedSpan>,
+    reads: &mut Vec<PromptRuntimeRead>,
 ) {
     if assignment.target.name.as_str() != "PS4" {
         return;
@@ -1837,9 +1847,10 @@ fn collect_prompt_runtime_reads_from_assignment(
 
     let target_span = assignment_target_span(assignment);
     for name in escaped_braced_parameter_names(word.span.slice(source)) {
-        reads.push(NamedSpan {
+        reads.push(PromptRuntimeRead {
             name: Name::from(name.as_str()),
             span: target_span,
+            scope,
         });
     }
 }

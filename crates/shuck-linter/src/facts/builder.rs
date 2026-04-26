@@ -191,9 +191,11 @@ impl<'a> LinterFactsBuilder<'a> {
                     &mut ifs_literal_backslash_assignment_value_spans,
                 );
                 let normalized = command::normalize_command(visit.command, self.source);
+                let command_start_offset = command_span(visit.command).start.offset;
+                let scope = self.semantic.scope_at(command_start_offset);
                 let command_zsh_options = effective_command_zsh_options(
                     self.semantic,
-                    command_span(visit.command).start.offset,
+                    command_start_offset,
                     &normalized,
                 );
                 let nested_word_command = context.nested_word_command;
@@ -207,6 +209,7 @@ impl<'a> LinterFactsBuilder<'a> {
                     WordFactCommandContext {
                         command_id: id,
                         nested_word_command,
+                        scope,
                     },
                     &normalized,
                     command_zsh_options.clone(),
@@ -239,6 +242,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 collect_arithmetic_update_operator_spans_in_command(
                     visit.command,
                     self.semantic,
+                    scope,
                     self.source,
                     &mut arithmetic_update_operator_spans,
                 );
@@ -274,8 +278,6 @@ impl<'a> LinterFactsBuilder<'a> {
                 );
                 let redirect_fact_range = redirect_fact_store.push_many(redirect_facts);
                 let options = CommandOptionFacts::build(visit.command, &normalized, self.source);
-                let scope =
-                    (!nested_word_command).then(|| self.semantic.scope_at(normalized.body_span.start.offset));
                 let declaration_assignment_probes = build_declaration_assignment_probes(
                     visit.command,
                     &normalized,

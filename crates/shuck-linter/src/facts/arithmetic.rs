@@ -723,6 +723,7 @@ fn build_double_paren_grouping_spans(commands: &[CommandFact<'_>], source: &str)
 fn collect_arithmetic_update_operator_spans_in_command(
     command: &Command,
     semantic: &SemanticModel,
+    scope: ScopeId,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
@@ -730,7 +731,7 @@ fn collect_arithmetic_update_operator_spans_in_command(
         Command::Simple(command) => {
             for assignment in &command.assignments {
                 collect_arithmetic_update_operator_spans_in_assignment(
-                    assignment, semantic, source, spans,
+                    assignment, semantic, scope, source, spans,
                 );
             }
             collect_arithmetic_update_operator_spans_in_word(
@@ -747,7 +748,7 @@ fn collect_arithmetic_update_operator_spans_in_command(
             BuiltinCommand::Break(command) => {
                 for assignment in &command.assignments {
                     collect_arithmetic_update_operator_spans_in_assignment(
-                        assignment, semantic, source, spans,
+                        assignment, semantic, scope, source, spans,
                     );
                 }
                 if let Some(word) = &command.depth {
@@ -760,7 +761,7 @@ fn collect_arithmetic_update_operator_spans_in_command(
             BuiltinCommand::Continue(command) => {
                 for assignment in &command.assignments {
                     collect_arithmetic_update_operator_spans_in_assignment(
-                        assignment, semantic, source, spans,
+                        assignment, semantic, scope, source, spans,
                     );
                 }
                 if let Some(word) = &command.depth {
@@ -773,7 +774,7 @@ fn collect_arithmetic_update_operator_spans_in_command(
             BuiltinCommand::Return(command) => {
                 for assignment in &command.assignments {
                     collect_arithmetic_update_operator_spans_in_assignment(
-                        assignment, semantic, source, spans,
+                        assignment, semantic, scope, source, spans,
                     );
                 }
                 if let Some(word) = &command.code {
@@ -786,7 +787,7 @@ fn collect_arithmetic_update_operator_spans_in_command(
             BuiltinCommand::Exit(command) => {
                 for assignment in &command.assignments {
                     collect_arithmetic_update_operator_spans_in_assignment(
-                        assignment, semantic, source, spans,
+                        assignment, semantic, scope, source, spans,
                     );
                 }
                 if let Some(word) = &command.code {
@@ -800,7 +801,7 @@ fn collect_arithmetic_update_operator_spans_in_command(
         Command::Decl(command) => {
             for assignment in &command.assignments {
                 collect_arithmetic_update_operator_spans_in_assignment(
-                    assignment, semantic, source, spans,
+                    assignment, semantic, scope, source, spans,
                 );
             }
             for operand in &command.operands {
@@ -812,7 +813,7 @@ fn collect_arithmetic_update_operator_spans_in_command(
                     }
                     DeclOperand::Assignment(assignment) => {
                         collect_arithmetic_update_operator_spans_in_assignment(
-                            assignment, semantic, source, spans,
+                            assignment, semantic, scope, source, spans,
                         );
                     }
                     DeclOperand::Name(_) => {}
@@ -898,20 +899,19 @@ fn collect_arithmetic_update_operator_spans_in_command(
 fn collect_arithmetic_update_operator_spans_in_assignment(
     assignment: &Assignment,
     semantic: &SemanticModel,
+    scope: ScopeId,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
     collect_arithmetic_update_operator_spans_in_assignment_target(
         &assignment.target,
         semantic,
+        scope,
         source,
         spans,
     );
-    let target_is_contextual_assoc = var_ref_name_has_visible_assoc_binding_at(
-        &assignment.target,
-        semantic,
-        assignment.target.name_span,
-    );
+    let target_is_contextual_assoc =
+        var_ref_name_has_visible_assoc_binding_at(&assignment.target, semantic, scope);
 
     match &assignment.value {
         AssignmentValue::Scalar(word) => {
@@ -951,10 +951,11 @@ fn collect_arithmetic_update_operator_spans_in_assignment(
 fn collect_arithmetic_update_operator_spans_in_assignment_target(
     reference: &VarRef,
     semantic: &SemanticModel,
+    scope: ScopeId,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    if !var_ref_subscript_has_assoc_semantics(reference, semantic) {
+    if !var_ref_subscript_has_assoc_semantics_in_scope(reference, semantic, scope) {
         collect_arithmetic_update_operator_spans_in_subscript(
             reference.subscript.as_deref(),
             source,
@@ -983,40 +984,64 @@ fn var_ref_subscript_has_assoc_semantics(reference: &VarRef, semantic: &Semantic
         return false;
     }
 
-    var_ref_name_has_visible_assoc_binding_at(reference, semantic, subscript.span())
+    let scope = semantic.scope_at(subscript.span().start.offset);
+    var_ref_name_has_visible_assoc_binding_at(reference, semantic, scope)
+}
+
+fn var_ref_subscript_has_assoc_semantics_in_scope(
+    reference: &VarRef,
+    semantic: &SemanticModel,
+    scope: ScopeId,
+) -> bool {
+    let Some(subscript) = reference.subscript.as_deref() else {
+        return false;
+    };
+    if matches!(
+        subscript.interpretation,
+        shuck_ast::SubscriptInterpretation::Associative
+    ) {
+        return true;
+    }
+    if !matches!(
+        subscript.interpretation,
+        shuck_ast::SubscriptInterpretation::Contextual
+    ) {
+        return false;
+    }
+
+    var_ref_name_has_visible_assoc_binding_at(reference, semantic, scope)
 }
 
 fn var_ref_name_has_visible_assoc_binding_at(
     reference: &VarRef,
     semantic: &SemanticModel,
-    scope_span: Span,
+    scope: ScopeId,
 ) -> bool {
     if let Some(visible) =
-        var_ref_name_has_visible_assoc_binding_in_nearest_scope(reference, semantic, scope_span)
+        var_ref_name_has_visible_assoc_binding_in_nearest_scope(reference, semantic, scope)
     {
         return visible;
     }
 
-    var_ref_name_has_visible_assoc_binding_from_named_callers(&reference.name, semantic, scope_span)
+    var_ref_name_has_visible_assoc_binding_from_named_callers(&reference.name, semantic, scope)
 }
 
 fn var_ref_name_has_visible_assoc_binding_in_nearest_scope(
     reference: &VarRef,
     semantic: &SemanticModel,
-    scope_span: Span,
+    scope: ScopeId,
 ) -> Option<bool> {
-    let current_scope = semantic.scope_at(scope_span.start.offset);
     semantic
-        .visible_binding_for_assoc_lookup(&reference.name, current_scope, reference.name_span)
+        .visible_binding_for_assoc_lookup(&reference.name, scope, reference.name_span)
         .map(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
 }
 
 fn var_ref_name_has_visible_assoc_binding_from_named_callers(
     name: &Name,
     semantic: &SemanticModel,
-    scope_span: Span,
+    scope: ScopeId,
 ) -> bool {
-    let Some(function_names) = named_function_scope_names(semantic, scope_span.start.offset) else {
+    let Some(function_names) = named_function_scope_names(semantic, scope) else {
         return false;
     };
 
@@ -1030,19 +1055,18 @@ fn var_ref_name_has_visible_assoc_binding_from_named_callers(
         }
 
         for call_site in semantic.call_sites_for(&function_name) {
-            let current_scope = semantic.scope_at(call_site.name_span.start.offset);
-            if let Some(binding) =
-                semantic.visible_binding_for_assoc_lookup(name, current_scope, call_site.name_span)
-            {
+            if let Some(binding) = semantic.visible_binding_for_assoc_lookup(
+                name,
+                call_site.scope,
+                call_site.name_span,
+            ) {
                 if binding.attributes.contains(BindingAttributes::ASSOC) {
                     return true;
                 }
                 continue;
             }
 
-            if let Some(caller_names) =
-                named_function_scope_names(semantic, call_site.name_span.start.offset)
-            {
+            if let Some(caller_names) = named_function_scope_names(semantic, call_site.scope) {
                 worklist.extend(caller_names.iter().cloned());
             }
         }
@@ -1089,8 +1113,7 @@ impl AssocCallerSeenNames {
     }
 }
 
-fn named_function_scope_names(semantic: &SemanticModel, offset: usize) -> Option<&[Name]> {
-    let scope = semantic.scope_at(offset);
+fn named_function_scope_names(semantic: &SemanticModel, scope: ScopeId) -> Option<&[Name]> {
     semantic
         .ancestor_scopes(scope)
         .find_map(|scope_id| match &semantic.scope(scope_id).kind {
@@ -1227,7 +1250,14 @@ fn collect_arithmetic_update_operator_spans_in_nested_command_body(
             descend_nested_word_commands: true,
         },
     ) {
-        collect_arithmetic_update_operator_spans_in_command(visit.command, semantic, source, spans);
+        let scope = semantic.scope_at(visit.stmt.span.start.offset);
+        collect_arithmetic_update_operator_spans_in_command(
+            visit.command,
+            semantic,
+            scope,
+            source,
+            spans,
+        );
         for redirect in visit.redirects {
             if let Some(word) = redirect.word_target() {
                 collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);

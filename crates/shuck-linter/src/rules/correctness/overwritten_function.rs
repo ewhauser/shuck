@@ -257,10 +257,7 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
 
     for fact in checker.facts().structural_commands() {
         let offset = fact.body_span().start.offset;
-        let known_scope = fact.scope();
-        if let Some(scope) = known_scope {
-            scopes_by_offset.entry(offset).or_insert(scope);
-        }
+        scopes_by_offset.entry(offset).or_insert(fact.scope());
         let is_function = matches!(fact.command(), shuck_ast::Command::Function(_));
         if is_function {
             function_definition_offsets.insert(offset);
@@ -279,7 +276,7 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
         }
 
         if !is_function && let Some(name) = fact.effective_name() {
-            let scope = known_scope.unwrap_or_else(|| checker.semantic().scope_at(offset));
+            let scope = fact.scope();
             calls
                 .entry(name.to_owned())
                 .or_default()
@@ -309,7 +306,7 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
                 && !command_offset_is_under_dominance_barrier(checker, offset)
                 && !command_offset_is_unreachable(checker, offset)
             {
-                let scope = known_scope.unwrap_or_else(|| checker.semantic().scope_at(offset));
+                let scope = fact.scope();
                 let command_fact = CompatUnsetCommandFact { scope, offset };
                 for target in targets {
                     unset_commands_by_target
@@ -322,7 +319,7 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
 
         let apparent_loop_body_span = apparent_infinite_loop_body_span(checker, fact.command());
         if is_return || apparent_loop_body_span.is_some() {
-            let scope = known_scope.unwrap_or_else(|| checker.semantic().scope_at(offset));
+            let scope = fact.scope();
             if scope_is_file_scope(checker, scope) {
                 if is_return {
                     top_level_return_offsets.push(offset);
