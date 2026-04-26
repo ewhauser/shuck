@@ -21,6 +21,16 @@
       "byte_size": 150227
     },
     {
+      "local_filename": "files/bashtop.sh",
+      "upstream_repo": "aristocratos/bashtop",
+      "upstream_path": "bashtop",
+      "commit": "60f95a1a74c8e7e589c02aa03d60141152df8337",
+      "source_url": "https://raw.githubusercontent.com/aristocratos/bashtop/60f95a1a74c8e7e589c02aa03d60141152df8337/bashtop",
+      "spdx_license_id": "Apache-2.0",
+      "license_filename": "licenses/bashtop-LICENSE",
+      "byte_size": 206484
+    },
+    {
       "local_filename": "files/pyenv-python-build.sh",
       "upstream_repo": "pyenv/pyenv",
       "upstream_path": "plugins/python-build/bin/python-build",
