@@ -183,6 +183,9 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     pub fn part_is_safe(&mut self, part: &WordPart, span: Span, query: SafeValueQuery) -> bool {
+        if part_is_safe_special_parameter_access(part) {
+            return true;
+        }
         if self.span_is_after_unconditional_inline_terminator(span) {
             return false;
         }
@@ -3359,6 +3362,24 @@ fn command_fact_is_standalone_exit(command: crate::facts::CommandFactRef<'_, '_>
 
 fn safe_special_parameter(name: &Name) -> bool {
     matches!(name.as_str(), "@" | "#" | "?" | "$" | "!" | "-")
+}
+
+fn part_is_safe_special_parameter_access(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(name) => safe_special_parameter(name),
+        WordPart::DoubleQuoted { parts, .. } => {
+            matches!(
+                parts.as_slice(),
+                [part] if part_is_safe_special_parameter_access(&part.kind)
+            )
+        }
+        WordPart::Parameter(parameter) => matches!(
+            parameter.bourne(),
+            Some(BourneParameterExpansion::Access { reference })
+                if safe_special_parameter(&reference.name) && reference.subscript.is_none()
+        ),
+        _ => false,
+    }
 }
 
 fn assignment_value_after_definition(source: &str, definition_span: Span) -> Option<&str> {

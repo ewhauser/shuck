@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=62`
-- Individual reviewed records classified below: 98 total (`shellcheck-only=23`, `shuck-only=75`).
+- `reviewed_divergences=61`
+- Individual reviewed records classified below: 97 total (`shellcheck-only=23`, `shuck-only=74`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -135,9 +135,8 @@ Resolved records should not remain as reviewed divergences.
 - `pi-hole__pi-hole__advanced__Scripts__piholeCheckout.sh:221:20-36` `$download_status`
 - `super-linter__super-linter__test__run-super-linter-tests.sh:724:36-57` `${EXPECTED_EXIT_CODE}`
 
-## [ ] Shuck-only: status/return/exit operand (8)
+## [ ] Shuck-only: status/return/exit operand (7)
 
-- `bittorf__kalua__openwrt-addons__etc__kalua__net:2620:79-81` `$?`
 - `bittorf__kalua__openwrt-addons__etc__profile.d__kalua.sh:11:33-36` `$rc`
 - `rvm__rvm__scripts__extras__chruby.sh:31:10-21` `${__result}`
 - `rvm__rvm__scripts__functions__build_requirements:160:10-29` `${__summary_status}`

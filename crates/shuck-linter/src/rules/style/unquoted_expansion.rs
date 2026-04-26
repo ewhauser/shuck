@@ -2311,6 +2311,7 @@ printf '%s\\n' 'prefix:'$name':suffix'
         let source = "\
 #!/bin/bash
 printf '%s\\n' $? $# $$ $! $- $0 $1 $* $@
+run || return $?
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 

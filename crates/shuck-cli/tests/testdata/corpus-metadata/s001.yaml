@@ -70,13 +70,6 @@ reviewed_divergences:
     end_column: 31
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__net"
-    line: 2620
-    end_line: 2620
-    column: 79
-    end_column: 81
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
     line: 362
     end_line: 362
