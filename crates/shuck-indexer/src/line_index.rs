@@ -4,22 +4,31 @@ use shuck_ast::{TextRange, TextSize};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LineIndex {
     line_starts: Vec<TextSize>,
+    raw_continuation_line_starts: Vec<TextSize>,
 }
 
 impl LineIndex {
     /// Build from source text.
     pub fn new(source: &str) -> Self {
-        let mut line_starts =
-            Vec::with_capacity(source.bytes().filter(|byte| *byte == b'\n').count() + 1);
+        let bytes = source.as_bytes();
+        let mut line_starts = Vec::new();
+        let mut raw_continuation_line_starts = Vec::new();
         line_starts.push(TextSize::new(0));
 
-        for (index, byte) in source.bytes().enumerate() {
+        for (index, byte) in bytes.iter().copied().enumerate() {
             if byte == b'\n' {
-                line_starts.push(TextSize::new((index + 1) as u32));
+                let next_line_start = TextSize::new((index + 1) as u32);
+                line_starts.push(next_line_start);
+                if index > 0 && bytes[index - 1] == b'\\' {
+                    raw_continuation_line_starts.push(next_line_start);
+                }
             }
         }
 
-        Self { line_starts }
+        Self {
+            line_starts,
+            raw_continuation_line_starts,
+        }
     }
 
     /// Return the 1-based line number containing `offset`.
@@ -57,6 +66,10 @@ impl LineIndex {
     pub fn line_count(&self) -> usize {
         self.line_starts.len()
     }
+
+    pub(crate) fn raw_continuation_line_starts(&self) -> &[TextSize] {
+        &self.raw_continuation_line_starts
+    }
 }
 
 #[cfg(test)]
@@ -82,6 +95,17 @@ mod tests {
         assert_eq!(index.line_number(TextSize::new(4)), 2);
         assert_eq!(index.line_number(TextSize::new(source.len() as u32)), 3);
         assert_eq!(index.line_range(2, source).unwrap().slice(source), "two");
+    }
+
+    #[test]
+    fn tracks_raw_continuation_candidates_while_collecting_lines() {
+        let source = "echo foo \\\n  bar\necho \"foo\\\nbar\"\n";
+        let index = LineIndex::new(source);
+
+        assert_eq!(
+            index.raw_continuation_line_starts(),
+            &[TextSize::new(11), TextSize::new(28)]
+        );
     }
 
     #[test]
