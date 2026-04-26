@@ -16,6 +16,8 @@ use shuck_semantic::{BindingId, BlockId, ReferenceId, ReferenceKind};
 use crate::facts::analyze_literal_runtime;
 use crate::{ExpansionContext, FactSpan, LinterFacts};
 
+type S001FunctionEventKey = Vec<usize>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SafeValueQuery {
     Argv,
@@ -1198,66 +1200,77 @@ impl<'a> SafeValueIndex<'a> {
         &self,
         scope: ScopeId,
         after_offset: usize,
-    ) -> Option<usize> {
-        self.s001_first_function_call_event_after_inner(
+    ) -> Option<S001FunctionEventKey> {
+        self.s001_function_call_event_keys_after_inner(
             scope,
             after_offset,
             &mut FxHashSet::default(),
         )
+        .into_iter()
+        .min()
     }
 
-    fn s001_first_function_call_event_after_inner(
+    fn s001_function_call_event_keys_after_inner(
         &self,
         scope: ScopeId,
         after_offset: usize,
         seen_scopes: &mut FxHashSet<ScopeId>,
-    ) -> Option<usize> {
+    ) -> Vec<S001FunctionEventKey> {
         if !seen_scopes.insert(scope) {
-            return None;
+            return Vec::new();
         }
 
-        let definition_command = self.function_definition_command_for_scope(scope)?;
-        let function_kind = self.named_function_kind(scope)?;
-        let mut first_offset: Option<usize> = None;
-        for function_name in function_kind.static_names() {
-            for site in self.semantic.call_sites_for(function_name) {
-                if site.scope == scope {
-                    continue;
-                }
-                let call_span = self
-                    .command_for_name_word_span(site.span)
-                    .map_or(site.span, |command| command.span_in_source(self.source));
-                if !self.definition_command_resolves_at_call(definition_command.id(), call_span) {
-                    continue;
-                }
-                let event_offset = match self.enclosing_function_scope_at(call_span.start.offset) {
-                    Some(caller_scope) => self.s001_first_function_call_event_after_inner(
-                        caller_scope,
-                        after_offset,
-                        seen_scopes,
-                    ),
-                    None => {
-                        (call_span.start.offset > after_offset).then_some(call_span.start.offset)
+        let result = (|| {
+            let definition_command = self.function_definition_command_for_scope(scope)?;
+            let function_kind = self.named_function_kind(scope)?;
+            let mut event_keys = Vec::new();
+            for function_name in function_kind.static_names() {
+                for site in self.semantic.call_sites_for(function_name) {
+                    if site.scope == scope {
+                        continue;
                     }
-                };
-                if let Some(event_offset) = event_offset {
-                    first_offset = Some(
-                        first_offset.map_or(event_offset, |current| current.min(event_offset)),
-                    );
+                    let call_span = self
+                        .command_for_name_word_span(site.span)
+                        .map_or(site.span, |command| command.span_in_source(self.source));
+                    if !self.definition_command_resolves_at_call(definition_command.id(), call_span)
+                    {
+                        continue;
+                    }
+                    match self.enclosing_function_scope_at(call_span.start.offset) {
+                        Some(caller_scope) => {
+                            for mut event_key in self.s001_function_call_event_keys_after_inner(
+                                caller_scope,
+                                after_offset,
+                                seen_scopes,
+                            ) {
+                                event_key.push(call_span.start.offset);
+                                event_keys.push(event_key);
+                            }
+                        }
+                        None => {
+                            if call_span.start.offset > after_offset {
+                                event_keys.push(vec![call_span.start.offset]);
+                            }
+                        }
+                    }
                 }
             }
-        }
 
-        first_offset
+            Some(event_keys)
+        })()
+        .unwrap_or_default();
+
+        seen_scopes.remove(&scope);
+        result
     }
 
     fn s001_first_function_unset_event_after(
         &self,
         target_scope: ScopeId,
         after_offset: usize,
-    ) -> Option<usize> {
+    ) -> Option<S001FunctionEventKey> {
         let target_function = self.named_function_kind(target_scope)?;
-        let mut first_offset: Option<usize> = None;
+        let mut first_key: Option<S001FunctionEventKey> = None;
 
         for command in self.facts.structural_commands() {
             if !command.options().unset().is_some_and(|unset| {
@@ -1276,26 +1289,31 @@ impl<'a> SafeValueIndex<'a> {
             }
 
             let command_span = command.span_in_source(self.source);
-            let event_offset = match self.enclosing_function_scope_at(command_span.start.offset) {
+            let event_key = match self.enclosing_function_scope_at(command_span.start.offset) {
                 Some(unsetter_scope) => {
                     if unsetter_scope == target_scope {
                         None
                     } else {
                         self.s001_first_function_call_event_after(unsetter_scope, after_offset)
+                            .map(|mut event_key| {
+                                event_key.push(command_span.start.offset);
+                                event_key
+                            })
                     }
                 }
-                None => {
-                    (command_span.start.offset > after_offset).then_some(command_span.start.offset)
-                }
+                None => (command_span.start.offset > after_offset)
+                    .then(|| vec![command_span.start.offset]),
             };
 
-            if let Some(event_offset) = event_offset {
-                first_offset =
-                    Some(first_offset.map_or(event_offset, |current| current.min(event_offset)));
+            if let Some(event_key) = event_key {
+                first_key = Some(match first_key {
+                    Some(current) => current.min(event_key),
+                    None => event_key,
+                });
             }
         }
 
-        first_offset
+        first_key
     }
 
     fn command_has_dominance_barrier_ancestor(&self, command_id: crate::facts::CommandId) -> bool {

@@ -2566,6 +2566,52 @@ cleanup
     }
 
     #[test]
+    fn reports_function_body_values_when_indirect_unset_precedes_indirect_call() {
+        let source = "\
+#!/bin/sh
+cleanup() { unset -f fetch; }
+version=v1
+URL=\"https://example.invalid/$version\"
+fetch() { echo $URL; }
+wrapper() { fetch; }
+runner() {
+  cleanup
+  wrapper
+}
+runner
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$URL"]
+        );
+    }
+
+    #[test]
+    fn keeps_function_body_values_safe_when_indirect_call_precedes_indirect_unset() {
+        let source = "\
+#!/bin/sh
+cleanup() { unset -f fetch; }
+version=v1
+URL=\"https://example.invalid/$version\"
+fetch() { echo $URL; }
+wrapper() { fetch; }
+runner() {
+  wrapper
+  cleanup
+}
+runner
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_append_assignments_without_safe_prior_values() {
         let source = "\
 #!/bin/bash
