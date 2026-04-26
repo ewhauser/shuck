@@ -7,7 +7,7 @@ use rustc_hash::FxHashMap;
 use shuck_ast::{TextRange, TextSize};
 use shuck_indexer::Indexer;
 use shuck_parser::{
-    Error as ParseError, ShellDialect as ParseShellDialect, ShellProfile,
+    Error as ParseError,
     parser::{ParseResult, Parser},
 };
 
@@ -177,18 +177,8 @@ fn resolve_shell(
     }
 }
 
-fn inferred_shell_profile(shell: ShellDialect) -> ShellProfile {
-    let dialect = match shell {
-        ShellDialect::Sh | ShellDialect::Dash | ShellDialect::Ksh => ParseShellDialect::Posix,
-        ShellDialect::Mksh => ParseShellDialect::Mksh,
-        ShellDialect::Zsh => ParseShellDialect::Zsh,
-        ShellDialect::Unknown | ShellDialect::Bash => ParseShellDialect::Bash,
-    };
-    ShellProfile::native(dialect)
-}
-
 fn parse_for_lint(source: &str, shell: ShellDialect) -> ParseResult {
-    Parser::with_profile(source, inferred_shell_profile(shell)).parse()
+    Parser::with_dialect(source, shell.parser_dialect()).parse()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -611,6 +601,16 @@ mod tests {
         assert!(result.diagnostics.is_empty());
         assert!(result.parse_error.is_some());
         assert_eq!(updated, "#!/bin/bash\necho \"unterminated\n");
+    }
+
+    #[test]
+    fn parses_sh_files_with_shared_lint_dialect_policy() {
+        let source = "# shellcheck shell=sh\narr=(one)\necho $foo\n";
+        let (result, updated) = run_add_ignore(source, None);
+
+        assert!(result.directives_added > 0);
+        assert!(result.parse_error.is_none());
+        assert!(updated.contains("echo $foo  # shuck: ignore=C006\n"));
     }
 
     #[test]

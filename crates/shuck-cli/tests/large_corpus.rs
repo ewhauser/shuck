@@ -2365,23 +2365,6 @@ fn unsupported_large_corpus_shebang_shell(first_line: &str) -> Option<&str> {
 // Shuck runner
 // ---------------------------------------------------------------------------
 
-fn parser_dialect_for_large_corpus_shell(shell: &str) -> shuck_parser::ShellDialect {
-    match shuck_linter::ShellDialect::from_name(shell) {
-        shuck_linter::ShellDialect::Sh
-        | shuck_linter::ShellDialect::Dash
-        | shuck_linter::ShellDialect::Ksh => shuck_parser::ShellDialect::Posix,
-        shuck_linter::ShellDialect::Mksh => shuck_parser::ShellDialect::Mksh,
-        shuck_linter::ShellDialect::Zsh => shuck_parser::ShellDialect::Zsh,
-        shuck_linter::ShellDialect::Unknown | shuck_linter::ShellDialect::Bash => {
-            shuck_parser::ShellDialect::Bash
-        }
-    }
-}
-
-fn shell_profile_for_large_corpus_shell(shell: &str) -> shuck_parser::ShellProfile {
-    shuck_parser::ShellProfile::native(parser_dialect_for_large_corpus_shell(shell))
-}
-
 fn run_shuck_with_parse_dialect(
     fixture: &LargeCorpusFixture,
     linter_settings: &shuck_linter::LinterSettings,
@@ -2460,7 +2443,7 @@ fn run_shuck(
         fixture,
         linter_settings,
         source_path_resolver,
-        shuck_parser::ShellDialect::Bash,
+        shuck_linter::ShellDialect::from_name(&fixture.shell).parser_dialect(),
         &fixture.shell,
     )
 }
@@ -2493,7 +2476,7 @@ fn parse_fixture_for_effective_large_corpus_shell_with_timeout(
     let timeout = effective_shuck_timeout(source.as_bytes(), timeout);
     run_with_timeout("shuck", timeout, move || {
         let shell = effective_large_corpus_shell(&fixture);
-        let shell_profile = shell_profile_for_large_corpus_shell(shell);
+        let shell_profile = shuck_linter::ShellDialect::from_name(shell).shell_profile();
         let parsed =
             shuck_parser::parser::Parser::with_profile(&source, shell_profile.clone()).parse();
         if parsed.is_err() {
@@ -3289,7 +3272,7 @@ mod tests {
     #[test]
     fn parser_dialect_for_large_corpus_zsh_shell_is_zsh() {
         assert_eq!(
-            parser_dialect_for_large_corpus_shell("zsh"),
+            shuck_linter::ShellDialect::from_name("zsh").parser_dialect(),
             shuck_parser::ShellDialect::Zsh
         );
     }

@@ -1372,14 +1372,7 @@ fn analyze_shell_file(
 ) -> Result<FileCheckResult> {
     let mut source = read_shared_source(&pending.file.absolute_path)?;
     let inferred_shell = ShellDialect::infer(&source, Some(&pending.file.absolute_path));
-    let parse_dialect = match inferred_shell {
-        ShellDialect::Sh | ShellDialect::Dash | ShellDialect::Ksh => {
-            shuck_parser::ShellDialect::Posix
-        }
-        ShellDialect::Mksh => shuck_parser::ShellDialect::Mksh,
-        ShellDialect::Zsh => shuck_parser::ShellDialect::Zsh,
-        ShellDialect::Unknown | ShellDialect::Bash => shuck_parser::ShellDialect::Bash,
-    };
+    let parse_dialect = inferred_shell.parser_dialect();
 
     let linter_settings = base_linter_settings.clone().with_shell(inferred_shell);
     let mut parse_result = Parser::with_dialect(&source, parse_dialect).parse();
