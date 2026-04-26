@@ -4055,9 +4055,11 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         }
         if bindings.iter().copied().any(|binding_id| {
-            self.binding_is_one_sided_short_circuit_assignment(binding_id)
+            (self.binding_is_one_sided_short_circuit_assignment(binding_id)
+                && !self.binding_assigns_static_integer_literal(binding_id))
                 || self.facts.binding_value(binding_id).is_some_and(|value| {
                     value.conditional_assignment_shortcut()
+                        && !self.binding_assigns_static_integer_literal(binding_id)
                         || value.scalar_word().is_some_and(|word| {
                             static_word_text(word, self.source).is_some_and(|text| text.is_empty())
                         })
@@ -4102,6 +4104,13 @@ impl<'a> SafeValueIndex<'a> {
         };
 
         word_static_text_is_shell_integer(word, self.source) || word_is_arithmetic_expansion(word)
+    }
+
+    fn binding_assigns_static_integer_literal(&self, binding_id: BindingId) -> bool {
+        self.facts
+            .binding_value(binding_id)
+            .and_then(|value| value.scalar_word())
+            .is_some_and(|word| word_static_text_is_shell_integer(word, self.source))
     }
 
     fn s001_name_has_only_arithmetic_numeric_bindings(&mut self, name: &Name, at: Span) -> bool {

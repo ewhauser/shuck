@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=24`
-- Individual reviewed records classified below: 32 total (`shellcheck-only=17`, `shuck-only=15`).
+- `reviewed_divergences=23`
+- Individual reviewed records classified below: 30 total (`shellcheck-only=17`, `shuck-only=13`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -51,12 +51,10 @@ Resolved records should not remain as reviewed divergences.
 
 - `bittorf__kalua__openwrt-addons__etc__init.d__override_uci_vars:418:29-31` `$i`
 
-## [ ] Shuck-only: simple command argument ShellCheck suppresses (6)
+## [ ] Shuck-only: simple command argument ShellCheck suppresses (4)
 
 - `bats-core__bats-core__libexec__bats-core__bats-format-pretty:78:13-32` `$line_backoff_count`
-- `gentoo__gentoo__eclass__tests__toolchain-funcs.sh:61:6-12` `${ret}`
 - `ko1nksm__shellspec__lib__general.sh:442:15-39` `$shellspec_readfile_data`
-- `ko1nksm__shellspec__lib__libexec__shellspec.sh:94:37-39` `$c`
 - `masonr__yet-another-bench-script__yabs.sh:991:12-19` `$GB_URL`
 - `pi-hole__pi-hole__automated install__basic-install.sh:1833:21-39` `${webInterfaceDir}`
 

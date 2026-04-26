@@ -3103,6 +3103,11 @@ dynamic_test() {
   quiet=${1:-0}
   if [ ${quiet} -eq 0 ]; then :; fi
 }
+static_status() {
+  ret=0
+  command && ret=1 || ret=0
+  tend ${ret}
+}
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 

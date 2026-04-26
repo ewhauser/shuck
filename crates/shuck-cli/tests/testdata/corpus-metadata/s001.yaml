@@ -83,13 +83,6 @@ reviewed_divergences:
     column: 85
     end_column: 109
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__eclass__tests__toolchain-funcs.sh"
-    line: 61
-    end_line: 61
-    column: 6
-    end_column: 12
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "gentoo__gentoo__eclass__tests__toolchain.sh"
     line: 155
@@ -116,13 +109,6 @@ reviewed_divergences:
     line: 442
     end_line: 442
     column: 15
-    end_column: 39
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "ko1nksm__shellspec__lib__libexec__shellspec.sh"
-    line: 94
-    end_line: 94
-    column: 37
     end_column: 39
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
