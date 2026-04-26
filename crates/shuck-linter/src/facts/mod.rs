@@ -9,6 +9,7 @@
 
 mod conditional_portability;
 mod escape_scan;
+mod misspelling;
 mod normalized_commands;
 mod presence;
 pub(crate) mod surface;
@@ -21,6 +22,11 @@ use self::word_spans::{expansion_part_spans, word_unbraced_variable_before_brack
 use self::{
     conditional_portability::{ConditionalPortabilityInputs, build_conditional_portability_facts},
     escape_scan::{EscapeScanContext, EscapeScanInputs, build_escape_scan_matches},
+    misspelling::{
+        PossibleVariableMisspellingIndex, build_possible_variable_misspelling_index,
+        scan_possible_variable_misspelling_candidate,
+        should_scan_possible_variable_misspelling_candidates,
+    },
     normalized_commands as command,
     presence::{PresenceTestNameFact, PresenceTestReferenceFact, build_presence_tested_names},
     surface::{
@@ -61,7 +67,7 @@ use shuck_semantic::{
     ReferenceId, ReferenceKind, ScopeId, SemanticModel, ZshOptionState,
 };
 use smallvec::SmallVec;
-use std::{borrow::Cow, ops::ControlFlow};
+use std::{borrow::Cow, ops::ControlFlow, sync::OnceLock};
 
 pub use self::conditional_portability::ConditionalPortabilityFacts;
 pub(crate) use self::escape_scan::{EscapeScanMatch, EscapeScanSourceKind};

@@ -384,7 +384,7 @@ fn build_flag_scope_candidate_name(checker: &Checker<'_>, reference_name: &str) 
             checker
                 .facts()
                 .possible_variable_misspelling_scope_compat_name_uses()
-                .into_iter()
+                .iter()
                 .filter_map(|name_use| {
                     let candidate_name = name_use.key().as_str();
                     if candidate_name == reference_name
@@ -483,6 +483,12 @@ fn looks_like_case_mismatch_reference(name: &str) -> bool {
 }
 
 fn preferred_candidate_name(checker: &Checker<'_>, target_name: &str) -> Option<String> {
+    if checker.semantic().bindings().len() >= 1024 {
+        return checker
+            .facts()
+            .possible_variable_misspelling_candidate(checker.semantic(), target_name);
+    }
+
     let binding_candidates = checker
         .semantic()
         .bindings()
@@ -988,6 +994,72 @@ echo \"$FOO1\"
                 .collect::<Vec<_>>(),
             vec!["$PACKAGE_NAME", "$FOOBAR", "$FOO1"]
         );
+    }
+
+    #[test]
+    fn prefers_exact_case_fold_candidate_over_edit_distance_candidate() {
+        let source = "\
+#!/bin/sh
+package_name=demo
+PACKAG_NAME=demo
+echo \"$PACKAGE_NAME\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("`package_name`"));
+    }
+
+    #[test]
+    fn prefers_binding_candidates_over_presence_test_candidates() {
+        let source = "\
+#!/bin/sh
+PACKAG_NAME=demo
+if [ -n \"$package_name\" ]; then :; fi
+echo \"$PACKAGE_NAME\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("`PACKAG_NAME`"));
+    }
+
+    #[test]
+    fn keeps_binding_tie_breaking_by_first_span() {
+        let source = "\
+#!/bin/sh
+ALPHA_VALUF=demo
+ALPHA_VALUE=demo
+echo \"$ALPHA_VALUG\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("`ALPHA_VALUF`"));
+    }
+
+    #[test]
+    fn rejects_weak_two_edit_shapes() {
+        let source = "\
+#!/bin/sh
+ABCDEF=demo
+echo \"$ABXYEF\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]

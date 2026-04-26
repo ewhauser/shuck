@@ -22,6 +22,9 @@ pub struct LinterFacts<'a> {
     c006_suppressing_reference_offsets_by_name: FxHashMap<Name, Vec<usize>>,
     presence_test_references_by_name: FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
     presence_test_names_by_name: FxHashMap<Name, Vec<PresenceTestNameFact>>,
+    possible_variable_misspelling_use_scan: OnceLock<bool>,
+    possible_variable_misspelling_index: OnceLock<PossibleVariableMisspellingIndex>,
+    possible_variable_misspelling_scope_compat_name_uses: OnceLock<Vec<ComparableNameUse>>,
     suppressed_subscript_reference_spans: FxHashSet<FactSpan>,
     subscript_later_suppression_reference_spans: FxHashSet<FactSpan>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
@@ -324,6 +327,38 @@ impl<'a> LinterFacts<'a> {
         self.presence_test_references_by_name
             .keys()
             .chain(self.presence_test_names_by_name.keys())
+    }
+
+    pub(crate) fn possible_variable_misspelling_candidate(
+        &self,
+        semantic: &SemanticModel,
+        target_name: &str,
+    ) -> Option<String> {
+        if *self.possible_variable_misspelling_use_scan.get_or_init(|| {
+            should_scan_possible_variable_misspelling_candidates(
+                semantic,
+                &self.presence_test_references_by_name,
+                &self.presence_test_names_by_name,
+            )
+        }) {
+            return scan_possible_variable_misspelling_candidate(
+                semantic,
+                &self.presence_test_references_by_name,
+                &self.presence_test_names_by_name,
+                target_name,
+            );
+        }
+
+        self.possible_variable_misspelling_index
+            .get_or_init(|| {
+                build_possible_variable_misspelling_index(
+                    semantic,
+                    &self.presence_test_references_by_name,
+                    &self.presence_test_names_by_name,
+                )
+            })
+            .candidate_name(target_name)
+            .map(ToOwned::to_owned)
     }
 
     pub fn is_presence_tested_name(&self, name: &Name, span: Span) -> bool {
@@ -830,58 +865,65 @@ impl<'a> LinterFacts<'a> {
 
     pub(crate) fn possible_variable_misspelling_scope_compat_name_uses(
         &self,
-    ) -> Vec<ComparableNameUse> {
-        let mut uses = Vec::new();
-        for word_fact in self
-            .expansion_word_facts(ExpansionContext::DeclarationAssignmentValue)
-            .chain(self.expansion_word_facts(ExpansionContext::AssignmentValue))
-            .chain(self.case_subject_facts())
-        {
-            uses.extend(
-                comparable_name_uses(word_fact.word(), self.source)
-                    .into_vec()
-                    .into_iter()
-                    .filter(|name_use| name_use.kind() == ComparableNameUseKind::Parameter),
-            );
-        }
-        for command in self.commands() {
-            visit_command_words_for_substitutions(
-                command.command(),
-                command.redirects(),
-                self.source,
-                &mut |word| {
-                    uses.extend(
-                        comparable_name_uses(word, self.source)
-                            .into_vec()
-                            .into_iter()
-                            .filter(|name_use| name_use.kind() == ComparableNameUseKind::Derived),
-                    );
-                },
-            );
-        }
-        for word in self
-            .for_headers()
-            .iter()
-            .flat_map(|header| header.words())
-            .chain(self.select_headers().iter().flat_map(|header| header.words()))
-        {
-            uses.extend(
-                comparable_name_uses(word.word(), self.source)
-                    .into_vec()
-                    .into_iter()
-                    .filter_map(|mut name_use| {
-                        if name_use.kind() == ComparableNameUseKind::Parameter {
-                            name_use.mark_derived();
-                            Some(name_use)
-                        } else {
-                            None
-                        }
-                    }),
-            );
-        }
-        uses.extend(build_flag_for_loop_source_name_uses(self.source));
-        uses
+    ) -> &[ComparableNameUse] {
+        self.possible_variable_misspelling_scope_compat_name_uses
+            .get_or_init(|| build_possible_variable_misspelling_scope_compat_name_uses(self))
     }
+}
+
+fn build_possible_variable_misspelling_scope_compat_name_uses(
+    facts: &LinterFacts<'_>,
+) -> Vec<ComparableNameUse> {
+    let mut uses = Vec::new();
+    for word_fact in facts
+        .expansion_word_facts(ExpansionContext::DeclarationAssignmentValue)
+        .chain(facts.expansion_word_facts(ExpansionContext::AssignmentValue))
+        .chain(facts.case_subject_facts())
+    {
+        uses.extend(
+            comparable_name_uses(word_fact.word(), facts.source)
+                .into_vec()
+                .into_iter()
+                .filter(|name_use| name_use.kind() == ComparableNameUseKind::Parameter),
+        );
+    }
+    for command in facts.commands() {
+        visit_command_words_for_substitutions(
+            command.command(),
+            command.redirects(),
+            facts.source,
+            &mut |word| {
+                uses.extend(
+                    comparable_name_uses(word, facts.source)
+                        .into_vec()
+                        .into_iter()
+                        .filter(|name_use| name_use.kind() == ComparableNameUseKind::Derived),
+                );
+            },
+        );
+    }
+    for word in facts
+        .for_headers()
+        .iter()
+        .flat_map(|header| header.words())
+        .chain(facts.select_headers().iter().flat_map(|header| header.words()))
+    {
+        uses.extend(
+            comparable_name_uses(word.word(), facts.source)
+                .into_vec()
+                .into_iter()
+                .filter_map(|mut name_use| {
+                    if name_use.kind() == ComparableNameUseKind::Parameter {
+                        name_use.mark_derived();
+                        Some(name_use)
+                    } else {
+                        None
+                    }
+                }),
+        );
+    }
+    uses.extend(build_flag_for_loop_source_name_uses(facts.source));
+    uses
 }
 
 fn populate_array_assignment_split_scalar_expansion_spans(
