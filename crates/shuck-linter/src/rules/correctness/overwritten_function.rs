@@ -1955,34 +1955,7 @@ fn should_suppress_overwrite(
         return true;
     }
 
-    file_context.has_tag(FileContextTag::HelperLibrary)
-        && (unset_function_between(
-            checker,
-            overwritten.name.as_str(),
-            first.span.end.offset,
-            second.span.start.offset,
-        ) || (unset_function_anywhere(checker, overwritten.name.as_str())
-            && has_intervening_executable_command(
-                checker,
-                first.span.end.offset,
-                second.span.start.offset,
-            ))
-            || (file_context.has_tag(FileContextTag::ProjectClosure)
-                && (checker
-                    .semantic()
-                    .call_sites_for(&overwritten.name)
-                    .is_empty()
-                    || has_only_indirect_call_sites_between(
-                        checker,
-                        overwritten,
-                        first.span.end.offset,
-                        second.span.start.offset,
-                    ))
-                && has_intervening_executable_command(
-                    checker,
-                    first.span.end.offset,
-                    second.span.start.offset,
-                )))
+    false
 }
 
 fn should_suppress_unreached(checker: &Checker<'_>, unreached: &SemanticUnreachedFunction) -> bool {
@@ -2424,63 +2397,6 @@ fn compat_cutoff_would_report_binding(
     };
 
     !has_direct_call_to_binding_before_offset_cached(checker, binding_id, cutoff.offset, &mut reach)
-}
-
-fn unset_function_between(
-    checker: &Checker<'_>,
-    name: &str,
-    start_offset: usize,
-    end_offset: usize,
-) -> bool {
-    checker.facts().structural_commands().any(|fact| {
-        fact.effective_name_is("unset")
-            && fact.body_span().start.offset > start_offset
-            && fact.body_span().start.offset < end_offset
-            && fact
-                .options()
-                .unset()
-                .is_some_and(|unset| unset.targets_function_name(checker.source(), name))
-    })
-}
-
-fn unset_function_anywhere(checker: &Checker<'_>, name: &str) -> bool {
-    checker.facts().structural_commands().any(|fact| {
-        fact.effective_name_is("unset")
-            && fact
-                .options()
-                .unset()
-                .is_some_and(|unset| unset.targets_function_name(checker.source(), name))
-    })
-}
-
-fn has_intervening_executable_command(
-    checker: &Checker<'_>,
-    start_offset: usize,
-    end_offset: usize,
-) -> bool {
-    checker.facts().structural_commands().any(|fact| {
-        fact.body_span().start.offset > start_offset
-            && fact.body_span().start.offset < end_offset
-            && !matches!(fact.command(), shuck_ast::Command::Function(_))
-    })
-}
-
-fn has_only_indirect_call_sites_between(
-    checker: &Checker<'_>,
-    overwritten: &SemanticOverwrittenFunction,
-    start_offset: usize,
-    end_offset: usize,
-) -> bool {
-    let first = checker.semantic().binding(overwritten.first);
-    let call_sites = checker.semantic().call_sites_for(&overwritten.name);
-    let has_nested_call_site = call_sites.iter().any(|site| site.scope != first.scope);
-    let has_same_scope_call_between = call_sites.iter().any(|site| {
-        site.scope == first.scope
-            && site.span.start.offset > start_offset
-            && site.span.start.offset < end_offset
-    });
-
-    has_nested_call_site && !has_same_scope_call_between
 }
 
 #[cfg(test)]

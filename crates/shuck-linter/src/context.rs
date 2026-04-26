@@ -7,7 +7,6 @@ use crate::ShellDialect;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FileContextTag {
     ShellSpec,
-    HelperLibrary,
     ProjectClosure,
     DirectiveHandling,
 }
@@ -16,7 +15,6 @@ impl FileContextTag {
     pub const fn label(self) -> &'static str {
         match self {
             Self::ShellSpec => "shellspec",
-            Self::HelperLibrary => "helper-library",
             Self::ProjectClosure => "project-closure",
             Self::DirectiveHandling => "directive-handling",
         }
@@ -77,11 +75,6 @@ pub fn classify_file_context(
     _shell: ShellDialect,
 ) -> FileContext {
     let path_lower = path.map(|path| path.to_string_lossy().to_ascii_lowercase());
-    let path_tokens = path
-        .map(path_tokens)
-        .unwrap_or_default()
-        .into_iter()
-        .collect::<Vec<_>>();
     let lines = collect_lines(source);
 
     let has_shellspec_path = path_lower
@@ -100,22 +93,6 @@ pub fn classify_file_context(
     let mut tags = Vec::new();
     if has_shellspec_path && has_shellspec_dsl {
         tags.push(FileContextTag::ShellSpec);
-    }
-
-    if (path_tokens.iter().any(|token| {
-        matches!(
-            token.as_str(),
-            "lib" | "libexec" | "completion" | "plugins" | "helpers"
-        )
-    }) || path_lower.as_deref().is_some_and(|value| {
-        value.contains("completions-core") || value.contains("completions-fallback")
-    }) || path
-        .and_then(Path::file_name)
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.to_ascii_lowercase().ends_with(".func")))
-        && source_defines_function(&lines)
-    {
-        tags.push(FileContextTag::HelperLibrary);
     }
 
     if lines.iter().any(|line| {
@@ -193,18 +170,6 @@ fn collect_lines(source: &str) -> Vec<LineInfo<'_>> {
     lines
 }
 
-fn path_tokens(path: &Path) -> Vec<String> {
-    path.iter()
-        .filter_map(|part| part.to_str())
-        .flat_map(|part| {
-            part.split(|char: char| !char.is_ascii_alphanumeric())
-                .filter(|token| !token.is_empty())
-                .map(|token| token.to_ascii_lowercase())
-                .collect::<Vec<_>>()
-        })
-        .collect()
-}
-
 fn matches_directive(body: &str) -> bool {
     let lower = body.to_ascii_lowercase();
     lower.starts_with("shellcheck ") || lower == "shellcheck" || lower.starts_with("shuck:")
@@ -215,24 +180,6 @@ fn starts_project_closure_command(trimmed: &str) -> bool {
         || trimmed.starts_with(". ")
         || trimmed.starts_with("\\source ")
         || trimmed.starts_with("\\. ")
-}
-
-fn source_defines_function(lines: &[LineInfo<'_>]) -> bool {
-    lines
-        .iter()
-        .any(|line| probable_function_definition(line.trimmed))
-}
-
-fn probable_function_definition(trimmed: &str) -> bool {
-    if trimmed.starts_with('#') || trimmed.is_empty() {
-        return false;
-    }
-
-    if let Some(rest) = trimmed.strip_prefix("function ") {
-        return rest.contains('{');
-    }
-
-    trimmed.contains("() {") || trimmed.contains("(){")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -356,7 +303,7 @@ It 'still shell'
     }
 
     #[test]
-    fn classifies_helper_test_project_and_directive_contexts() {
+    fn classifies_project_and_directive_contexts() {
         let source = "\
 # shellcheck source=./lib.sh
 # shuck: disable=SH-001
@@ -369,7 +316,6 @@ source ./lib.sh
             ShellDialect::Bash,
         );
 
-        assert!(context.has_tag(FileContextTag::HelperLibrary));
         assert!(context.has_tag(FileContextTag::ProjectClosure));
         assert!(context.has_tag(FileContextTag::DirectiveHandling));
     }
