@@ -220,7 +220,7 @@ fn source_has_yaml_anchors_or_aliases(source: &str) -> bool {
 }
 
 fn sanitize_yaml_anchors_and_aliases(source: &str) -> String {
-    let anchor_values = collect_yaml_scalar_anchors(source);
+    let mut anchor_values = HashMap::new();
     let mut output = String::with_capacity(source.len());
     let mut block_parent_indent = None;
 
@@ -247,7 +247,7 @@ fn sanitize_yaml_anchors_and_aliases(source: &str) -> String {
 
         output.push_str(&sanitize_yaml_anchor_or_alias_line(
             line_content,
-            &anchor_values,
+            &mut anchor_values,
         ));
         output.push_str(carriage_return);
         output.push_str(newline);
@@ -259,33 +259,9 @@ fn sanitize_yaml_anchors_and_aliases(source: &str) -> String {
     output
 }
 
-fn collect_yaml_scalar_anchors(source: &str) -> HashMap<String, String> {
-    let mut anchors = HashMap::new();
-    let mut block_parent_indent = None;
-
-    for line in source.lines() {
-        let indent = leading_space_count(line);
-        if let Some(parent_indent) = block_parent_indent {
-            if line.trim().is_empty() || indent > parent_indent {
-                continue;
-            }
-            block_parent_indent = None;
-        }
-
-        if let Some((name, value)) = yaml_scalar_anchor_definition(line) {
-            anchors.insert(name.to_owned(), value.to_owned());
-        }
-        if line_starts_block_scalar(line) {
-            block_parent_indent = Some(indent);
-        }
-    }
-
-    anchors
-}
-
 fn sanitize_yaml_anchor_or_alias_line(
     line: &str,
-    anchor_values: &HashMap<String, String>,
+    anchor_values: &mut HashMap<String, String>,
 ) -> String {
     let bytes = line.as_bytes();
     let mut output = String::with_capacity(line.len());
@@ -302,6 +278,11 @@ fn sanitize_yaml_anchor_or_alias_line(
                     let token_len = yaml_anchor_token_len(bytes, index);
                     output.push_str(&line[copied_until..index]);
                     if bytes[index] == b'&' {
+                        if let Some((name, value)) =
+                            yaml_scalar_anchor_definition_at(line, index, token_len)
+                        {
+                            anchor_values.insert(name.to_owned(), value.to_owned());
+                        }
                         push_padded_replacement(&mut output, "", token_len);
                     } else {
                         let alias_name = &line[index + 1..index + token_len];
@@ -344,51 +325,70 @@ fn sanitize_yaml_anchor_or_alias_line(
     output
 }
 
-fn yaml_scalar_anchor_definition(line: &str) -> Option<(&str, &str)> {
-    let bytes = line.as_bytes();
-    let mut index = 0;
-    let mut quote = YamlLineQuote::Unquoted;
-
-    while index < bytes.len() {
-        match quote {
-            YamlLineQuote::Unquoted => match bytes[index] {
-                b'\'' => quote = YamlLineQuote::Single,
-                b'"' => quote = YamlLineQuote::Double,
-                b'&' if yaml_anchor_token_starts(bytes, index) => {
-                    let token_len = yaml_anchor_token_len(bytes, index);
-                    let value = line[index + token_len..].trim();
-                    if !yaml_anchor_value_is_aliasable_scalar(value) {
-                        return None;
-                    }
-                    return Some((&line[index + 1..index + token_len], value));
-                }
-                _ => {}
-            },
-            YamlLineQuote::Single => {
-                if bytes[index] == b'\'' {
-                    quote = YamlLineQuote::Unquoted;
-                }
-            }
-            YamlLineQuote::Double => match bytes[index] {
-                b'"' => quote = YamlLineQuote::Unquoted,
-                b'\\' => {
-                    index += 1;
-                }
-                _ => {}
-            },
-        }
-
-        index += 1;
-    }
-
-    None
-}
-
 fn yaml_anchor_value_is_aliasable_scalar(value: &str) -> bool {
     value
         .as_bytes()
         .first()
         .is_some_and(|byte| !matches!(byte, b'&' | b'*' | b'|' | b'>' | b'#'))
+}
+
+fn yaml_scalar_anchor_definition_at(
+    line: &str,
+    anchor_start: usize,
+    token_len: usize,
+) -> Option<(&str, &str)> {
+    let value_start = line[anchor_start + token_len..]
+        .bytes()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .map(|offset| anchor_start + token_len + offset)?;
+    let value_end = yaml_anchor_scalar_value_end(line, value_start);
+    let value = line[value_start..value_end].trim_end();
+    if !yaml_anchor_value_is_aliasable_scalar(value) {
+        return None;
+    }
+    Some((&line[anchor_start + 1..anchor_start + token_len], value))
+}
+
+fn yaml_anchor_scalar_value_end(line: &str, value_start: usize) -> usize {
+    let bytes = line.as_bytes();
+    if matches!(bytes[value_start], b'\'' | b'"') {
+        return yaml_quoted_scalar_end(bytes, value_start);
+    }
+
+    let in_flow = yaml_index_is_inside_flow_collection(bytes, value_start);
+    let mut index = value_start;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'#' if yaml_hash_starts_comment(bytes, index) => return index,
+            b',' | b']' | b'}' if in_flow => return index,
+            _ => {}
+        }
+        index += 1;
+    }
+    bytes.len()
+}
+
+fn yaml_quoted_scalar_end(bytes: &[u8], quote_start: usize) -> usize {
+    let quote = bytes[quote_start];
+    let mut index = quote_start + 1;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\'' if quote == b'\'' && bytes.get(index + 1) == Some(&b'\'') => {
+                index += 1;
+            }
+            byte if byte == quote => return index + 1,
+            b'\\' if quote == b'"' => {
+                index += 1;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    bytes.len()
+}
+
+fn yaml_hash_starts_comment(bytes: &[u8], index: usize) -> bool {
+    index == 0 || bytes[index - 1].is_ascii_whitespace()
 }
 
 fn push_yaml_alias_replacement(

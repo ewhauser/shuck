@@ -11,6 +11,10 @@ x-shells:
   posix: &posix_shell sh
   strict-bash: &b bash --noprofile --norc -e -o pipefail {0}
   powershell: &p pwsh
+  reused: &reused_shell sh
+  commented: &comment_shell sh # shared shell alias
+
+x-flow-shells: { posix: &flow_posix sh, powershell: &flow_pwsh pwsh }
 
 defaults:
   run:
@@ -112,6 +116,23 @@ jobs:
         shell: *p
         run: Write-Host short alias pwsh
 
+  redefined-anchors:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Alias before redefinition
+        shell: *reused_shell
+        run: echo reused sh
+      - name: Redefine shell anchor
+        shell: &reused_shell bash
+        run: echo redefine bash
+      - name: Alias after redefinition
+        shell: *reused_shell
+        run: echo reused bash
+
   flow-style:
     runs-on: ubuntu-latest
-    steps: [{ shell: *posix_shell, run: echo flow }]
+    steps:
+      - { shell: *posix_shell, run: echo flow }
+      - { shell: *flow_posix, run: echo flow alias }
+      - { shell: *comment_shell, run: echo comment alias }
+      - { shell: *flow_pwsh, run: echo flow pwsh }

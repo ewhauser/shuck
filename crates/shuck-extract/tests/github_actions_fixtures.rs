@@ -13,7 +13,7 @@ fn extracts_workflow_edge_case_fixture() {
     )
     .unwrap();
 
-    assert_eq!(scripts.len(), 18);
+    assert_eq!(scripts.len(), 24);
 
     let missing_unix = script(&scripts, "jobs.missing-unix.steps[0].run");
     assert_eq!(missing_unix.dialect, ExtractedDialect::Bash);
@@ -115,10 +115,33 @@ fn extracts_workflow_edge_case_fixture() {
         ExtractedDialect::Unsupported
     );
 
+    let reused_before = script(&scripts, "jobs.redefined-anchors.steps[0].run");
+    assert_eq!(reused_before.dialect, ExtractedDialect::Sh);
+    assert_eq!(reused_before.source, "echo reused sh");
+
+    let redefined = script(&scripts, "jobs.redefined-anchors.steps[1].run");
+    assert_eq!(redefined.dialect, ExtractedDialect::Bash);
+    assert_eq!(redefined.source, "echo redefine bash");
+
+    let reused_after = script(&scripts, "jobs.redefined-anchors.steps[2].run");
+    assert_eq!(reused_after.dialect, ExtractedDialect::Bash);
+    assert_eq!(reused_after.source, "echo reused bash");
+
     let flow_style = script(&scripts, "jobs.flow-style.steps[0].run");
     assert_eq!(flow_style.dialect, ExtractedDialect::Sh);
     assert_eq!(flow_style.source, "echo flow");
-    assert_eq!(flow_style.host_start_column, 41);
+    assert_eq!(flow_style.host_start_column, 37);
+
+    let flow_alias = script(&scripts, "jobs.flow-style.steps[1].run");
+    assert_eq!(flow_alias.dialect, ExtractedDialect::Sh);
+    assert_eq!(flow_alias.source, "echo flow alias");
+
+    let comment_alias = script(&scripts, "jobs.flow-style.steps[2].run");
+    assert_eq!(comment_alias.dialect, ExtractedDialect::Sh);
+    assert_eq!(comment_alias.source, "echo comment alias");
+
+    let flow_pwsh = script(&scripts, "jobs.flow-style.steps[3].run");
+    assert_eq!(flow_pwsh.dialect, ExtractedDialect::Unsupported);
 }
 
 #[test]
