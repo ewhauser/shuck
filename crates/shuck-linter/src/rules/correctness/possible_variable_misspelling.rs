@@ -1,14 +1,13 @@
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 use shuck_ast::{Name, Position, Span};
-use smallvec::SmallVec;
 
 use crate::facts::ComparableNameUseKind;
 use crate::{Checker, Rule, Violation};
 
 use super::variable_reference_common::{
     VariableReferenceFilter, has_same_name_defining_bindings, is_environment_style_name,
-    is_reportable_variable_reference, is_sc2154_defining_binding,
+    is_reportable_variable_reference,
 };
 
 pub struct PossibleVariableMisspelling {
@@ -66,93 +65,93 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
             offsets
         });
 
-    let mut findings = checker
+    let mut candidate_cache = FxHashMap::<String, Option<String>>::default();
+    let mut findings = Vec::new();
+    for uninitialized in checker
         .semantic_analysis()
         .uninitialized_references()
         .iter()
-        .filter_map(|uninitialized| {
-            let reference = checker.semantic().reference(uninitialized.reference);
-            if !is_reportable_variable_reference(
-                checker,
-                reference,
-                VariableReferenceFilter {
-                    suppress_environment_style_names: false,
-                },
-            ) {
-                return None;
-            }
-            if !looks_like_case_mismatch_reference(reference.name.as_str()) {
-                return None;
-            }
-            if is_known_runtime_name(reference.name.as_str()) {
-                return None;
-            }
-            if is_internal_placeholder_name(reference.name.as_str()) {
-                return None;
-            }
-            if has_prior_guarded_reference(
-                &guarded_name_offsets,
-                reference.name.as_str(),
-                reference.span,
-            ) {
-                return None;
-            }
-            if has_same_name_defining_bindings(checker, &reference.name) {
-                return None;
-            }
-            if is_presence_tested_reference_name(checker, reference.name.as_str(), reference.span) {
-                return None;
-            }
-            if is_assignment_target_variant_reference(
-                checker,
-                reference.name.as_str(),
-                reference.span,
-            ) {
-                return None;
-            }
-            if is_build_flag_alias_assignment_value(
-                checker,
-                reference.name.as_str(),
-                reference.span,
-            ) {
-                return None;
-            }
+    {
+        let reference = checker.semantic().reference(uninitialized.reference);
+        if !is_reportable_variable_reference(
+            checker,
+            reference,
+            VariableReferenceFilter {
+                suppress_environment_style_names: false,
+            },
+        ) {
+            continue;
+        }
+        if !looks_like_case_mismatch_reference(reference.name.as_str()) {
+            continue;
+        }
+        if is_known_runtime_name(reference.name.as_str()) {
+            continue;
+        }
+        if is_internal_placeholder_name(reference.name.as_str()) {
+            continue;
+        }
+        if has_prior_guarded_reference(
+            &guarded_name_offsets,
+            reference.name.as_str(),
+            reference.span,
+        ) {
+            continue;
+        }
+        if has_same_name_defining_bindings(checker, &reference.name) {
+            continue;
+        }
+        if is_presence_tested_reference_name(checker, reference.name.as_str(), reference.span) {
+            continue;
+        }
+        if is_assignment_target_variant_reference(checker, reference.name.as_str(), reference.span)
+        {
+            continue;
+        }
+        if is_build_flag_alias_assignment_value(checker, reference.name.as_str(), reference.span) {
+            continue;
+        }
 
-            let candidate = preferred_candidate_name(checker, reference.name.as_str())?;
-            if is_build_flag_family_non_report_pair(reference.name.as_str(), candidate.as_str()) {
-                return None;
-            }
-            if is_hostid_label_echo(reference.name.as_str(), reference.span, checker.source()) {
-                return None;
-            }
-            if is_parallel_c_and_cxx_flag_use(
-                checker,
-                reference.name.as_str(),
-                reference.span,
-                candidate.as_str(),
-            ) {
-                return None;
-            }
-            if is_literal_numbered_suffix_variant(
-                checker.source(),
-                reference.name.as_str(),
-                reference.span,
-                candidate.as_str(),
-            ) {
-                return None;
-            }
-            Some((reference.span, reference.name.to_string(), candidate))
-        })
-        .collect::<Vec<_>>();
+        let Some(candidate) =
+            cached_candidate_name(&mut candidate_cache, checker, reference.name.as_str())
+        else {
+            continue;
+        };
+        if is_build_flag_family_non_report_pair(reference.name.as_str(), candidate.as_str()) {
+            continue;
+        }
+        if is_hostid_label_echo(reference.name.as_str(), reference.span, checker.source()) {
+            continue;
+        }
+        if is_parallel_c_and_cxx_flag_use(
+            checker,
+            reference.name.as_str(),
+            reference.span,
+            candidate.as_str(),
+        ) {
+            continue;
+        }
+        if is_literal_numbered_suffix_variant(
+            checker.source(),
+            reference.name.as_str(),
+            reference.span,
+            candidate.as_str(),
+        ) {
+            continue;
+        }
+        findings.push((reference.span, reference.name.to_string(), candidate));
+    }
     findings.extend(heredoc_findings(
         checker,
         &guarded_name_offsets,
         &suppressed_reference_spans,
+        &mut candidate_cache,
     ));
     findings.extend(scope_compat_findings(
         checker,
         &guarded_name_offsets,
         &suppressed_reference_spans,
+        &mut candidate_cache,
     ));
 
     findings.sort_by_key(|(span, _, _)| (span.start.offset, span.end.offset));
@@ -176,6 +175,7 @@ fn heredoc_findings(
     checker: &Checker<'_>,
     guarded_name_offsets: &FxHashMap<String, Vec<usize>>,
     suppressed_reference_spans: &FxHashMap<String, Vec<Span>>,
+    candidate_cache: &mut FxHashMap<String, Option<String>>,
 ) -> Vec<(Span, String, String)> {
     let mut findings = Vec::new();
     let mut seen = FxHashSet::default();
@@ -196,7 +196,7 @@ fn heredoc_findings(
             {
                 continue;
             }
-            let candidate = match preferred_candidate_name(checker, reference_name) {
+            let candidate = match cached_candidate_name(candidate_cache, checker, reference_name) {
                 Some(candidate) => candidate,
                 None => continue,
             };
@@ -254,6 +254,7 @@ fn scope_compat_findings(
     checker: &Checker<'_>,
     guarded_name_offsets: &FxHashMap<String, Vec<usize>>,
     suppressed_reference_spans: &FxHashMap<String, Vec<Span>>,
+    candidate_cache: &mut FxHashMap<String, Option<String>>,
 ) -> Vec<(Span, String, String)> {
     let mut findings = Vec::new();
     let mut seen = FxHashSet::default();
@@ -298,10 +299,11 @@ fn scope_compat_findings(
             continue;
         }
 
-        let candidate = match preferred_scope_compat_candidate_name(checker, reference_name) {
-            Some(candidate) => candidate,
-            None => continue,
-        };
+        let candidate =
+            match preferred_scope_compat_candidate_name(checker, candidate_cache, reference_name) {
+                Some(candidate) => candidate,
+                None => continue,
+            };
         if !is_scope_compat_pair(checker, reference_name, name_use.span(), candidate.as_str()) {
             continue;
         }
@@ -352,9 +354,10 @@ fn is_braced_parameter_use(source: &str, span: Span) -> bool {
 
 fn preferred_scope_compat_candidate_name(
     checker: &Checker<'_>,
+    candidate_cache: &mut FxHashMap<String, Option<String>>,
     reference_name: &str,
 ) -> Option<String> {
-    preferred_candidate_name(checker, reference_name)
+    cached_candidate_name(candidate_cache, checker, reference_name)
         .or_else(|| build_flag_scope_candidate_name(checker, reference_name))
 }
 
@@ -483,163 +486,24 @@ fn looks_like_case_mismatch_reference(name: &str) -> bool {
 }
 
 fn preferred_candidate_name(checker: &Checker<'_>, target_name: &str) -> Option<String> {
-    if checker.semantic().bindings().len() >= 1024 {
-        return checker
-            .facts()
-            .possible_variable_misspelling_candidate(checker.semantic(), target_name);
-    }
-
-    let binding_candidates = checker
-        .semantic()
-        .bindings()
-        .iter()
-        .filter(|binding| is_sc2154_defining_binding(binding.kind))
-        .filter(|binding| binding.name.as_str() != target_name)
-        .filter(|binding| binding.name.as_str().len() >= 4)
-        .filter_map(|binding| {
-            candidate_match_rank(target_name, binding.name.as_str()).map(|rank| {
-                (
-                    rank,
-                    binding.span.start.offset,
-                    binding.span.end.offset,
-                    binding.name.to_string(),
-                )
-            })
-        });
-    binding_candidates
-        .min_by_key(|(rank, start, end, _)| (*rank, *start, *end))
-        .map(|(_, _, _, name)| name)
-        .or_else(|| presence_tested_candidate_name(checker, target_name))
-}
-
-fn presence_tested_candidate_name(checker: &Checker<'_>, target_name: &str) -> Option<String> {
     checker
         .facts()
-        .presence_tested_candidate_names()
-        .filter(|candidate_name| candidate_name.as_str() != target_name)
-        .filter_map(|candidate_name| {
-            let first_span = first_presence_test_span(checker, candidate_name)?;
-            candidate_match_rank(target_name, candidate_name.as_str()).map(|rank| {
-                (
-                    rank,
-                    first_span.start.offset,
-                    first_span.end.offset,
-                    candidate_name,
-                )
-            })
-        })
-        .min_by(|left, right| {
-            (left.0, left.1, left.2)
-                .cmp(&(right.0, right.1, right.2))
-                .then_with(|| left.3.as_str().cmp(right.3.as_str()))
-        })
-        .map(|(_, _, _, name)| name.to_string())
+        .possible_variable_misspelling_candidate(checker.semantic(), target_name)
 }
 
-fn first_presence_test_span(checker: &Checker<'_>, candidate_name: &Name) -> Option<Span> {
-    checker
-        .facts()
-        .presence_test_references(candidate_name)
-        .iter()
-        .map(|presence| checker.semantic().reference(presence.reference_id()).span)
-        .chain(
-            checker
-                .facts()
-                .presence_test_names(candidate_name)
-                .iter()
-                .map(|presence| presence.tested_span()),
-        )
-        .min_by_key(|span| (span.start.offset, span.end.offset))
+fn cached_candidate_name(
+    cache: &mut FxHashMap<String, Option<String>>,
+    checker: &Checker<'_>,
+    target_name: &str,
+) -> Option<String> {
+    cache
+        .entry(target_name.to_owned())
+        .or_insert_with(|| preferred_candidate_name(checker, target_name))
+        .clone()
 }
 
 fn canonical_uppercase_name(name: &str) -> String {
     name.chars().map(|char| char.to_ascii_uppercase()).collect()
-}
-
-fn candidate_match_rank(target_name: &str, candidate_name: &str) -> Option<u8> {
-    if target_name.len() >= 4
-        && target_name.len() == candidate_name.len()
-        && candidate_name
-            .as_bytes()
-            .eq_ignore_ascii_case(target_name.as_bytes())
-    {
-        return Some(0);
-    }
-
-    if !is_environment_style_name(candidate_name)
-        || target_name.len() < 3
-        || candidate_name.len() < 4
-    {
-        return None;
-    }
-
-    let distance =
-        bounded_ascii_edit_distance(target_name.as_bytes(), candidate_name.as_bytes(), 2)?;
-    if distance == 0 {
-        return None;
-    }
-    if distance == 2 && !has_strong_two_edit_shape(target_name, candidate_name) {
-        return None;
-    }
-    Some(distance + 1)
-}
-
-fn has_strong_two_edit_shape(target_name: &str, candidate_upper: &str) -> bool {
-    let common_prefix = common_prefix_len(target_name.as_bytes(), candidate_upper.as_bytes());
-    let common_suffix = common_suffix_len(
-        &target_name.as_bytes()[common_prefix..],
-        &candidate_upper.as_bytes()[common_prefix..],
-    );
-
-    matches!((target_name, candidate_upper), ("CFLAGS", "CXXFLAGS"))
-        || matches!((target_name, candidate_upper), ("OS_NAME", "HOSTNAME"))
-        || has_separator_plural_compaction(target_name, candidate_upper)
-        || common_prefix >= 5
-        || common_suffix >= 5
-        || (common_prefix >= 4 && common_suffix >= 4)
-}
-
-fn has_separator_plural_compaction(left: &str, right: &str) -> bool {
-    compacted_plural_matches(left, right) || compacted_plural_matches(right, left)
-}
-
-fn compacted_plural_matches(pluralish_name: &str, compact_singular_name: &str) -> bool {
-    let Some((prefix, last_segment)) = pluralish_name.rsplit_once('_') else {
-        return false;
-    };
-    let Some(singular_segment) = last_segment.strip_suffix('S') else {
-        return false;
-    };
-    if compacted_len(prefix) < 4 || singular_segment.len() < 4 {
-        return false;
-    }
-
-    let compacted = pluralish_name
-        .chars()
-        .filter(|char| *char != '_')
-        .collect::<String>();
-    compacted
-        .strip_suffix('S')
-        .is_some_and(|singular| singular == compact_singular_name)
-}
-
-fn compacted_len(name: &str) -> usize {
-    name.chars().filter(|char| *char != '_').count()
-}
-
-fn common_prefix_len(left: &[u8], right: &[u8]) -> usize {
-    left.iter()
-        .zip(right)
-        .take_while(|(left, right)| left == right)
-        .count()
-}
-
-fn common_suffix_len(left: &[u8], right: &[u8]) -> usize {
-    left.iter()
-        .rev()
-        .zip(right.iter().rev())
-        .take_while(|(left, right)| left == right)
-        .count()
 }
 
 fn is_assignment_target_variant_reference(
@@ -836,40 +700,6 @@ fn source_suffix_matches(source: &str, offset: usize, suffix: &str) -> bool {
         .as_bytes()
         .get(offset..offset + suffix.len())
         .is_some_and(|source_suffix| source_suffix.eq_ignore_ascii_case(suffix.as_bytes()))
-}
-
-fn bounded_ascii_edit_distance(left: &[u8], right: &[u8], max_distance: u8) -> Option<u8> {
-    let max_distance = usize::from(max_distance);
-    if left.len().abs_diff(right.len()) > max_distance {
-        return None;
-    }
-
-    let mut previous = (0..=right.len()).collect::<SmallVec<[usize; 32]>>();
-    let mut current = SmallVec::<[usize; 32]>::new();
-    current.resize(right.len() + 1, 0);
-
-    for (left_index, left_byte) in left.iter().enumerate() {
-        current[0] = left_index + 1;
-        let mut row_min = current[0];
-
-        for (right_index, right_byte) in right.iter().enumerate() {
-            let deletion = previous[right_index + 1] + 1;
-            let insertion = current[right_index] + 1;
-            let substitution = previous[right_index] + usize::from(left_byte != right_byte);
-            let value = deletion.min(insertion).min(substitution);
-            current[right_index + 1] = value;
-            row_min = row_min.min(value);
-        }
-
-        if row_min > max_distance {
-            return None;
-        }
-
-        std::mem::swap(&mut previous, &mut current);
-    }
-
-    let distance = previous[right.len()];
-    (distance <= max_distance).then_some(distance as u8)
 }
 
 fn is_known_runtime_name(name: &str) -> bool {
