@@ -128,7 +128,7 @@ Ignore selected rules for files that match a glob pattern.
 
 ```toml
 [lint]
-"scripts/*.sh" = ["S074"]
+per-file-ignores = { "scripts/*.sh" = ["S074"] }
 ```
 
 ---

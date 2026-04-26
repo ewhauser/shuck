@@ -212,7 +212,7 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 2] = [
                 docs: "Ignore selected rules for files that match a glob pattern.",
                 default: "{}",
                 value_type: "table[str, list[selector]]",
-                example: r#""scripts/*.sh" = ["S074"]"#,
+                example: r#"per-file-ignores = { "scripts/*.sh" = ["S074"] }"#,
             },
             ConfigFieldMetadata {
                 key: "select",
