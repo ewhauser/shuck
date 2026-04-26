@@ -28,6 +28,10 @@ fi
 
 case_name=$(printf '%s' "$fixture" | tr '/:' '__')
 output="$output_dir/$case_name.json.gz"
+manifest="$output_dir/large-corpus-fixtures.tsv"
+
+echo "Preparing large corpus fixture manifest outside the sampled process..."
+"$binary" --write-fixture-manifest "$manifest"
 
 echo "Recording large-corpus/$fixture to $output"
 samply record \
@@ -37,7 +41,9 @@ samply record \
     --iteration-count "$profile_iterations" \
     --profile-name "large-corpus/$fixture" \
     -- \
-    "$binary" "$fixture" --iterations "$fixture_iterations"
+    "$binary" "$fixture" \
+        --iterations "$fixture_iterations" \
+        --fixture-manifest "$manifest"
 
 if [ "${SAMPLY_VIEW:-0}" = "1" ]; then
     echo "Opening profile in samply..."

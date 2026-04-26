@@ -1,0 +1,4 @@
+interface:
+  display_name: "Profile Shuck Script"
+  short_description: "Profile shuck scripts and report hotspots"
+  default_prompt: "Use $profile-shuck-script to profile a shuck corpus script and summarize the newest hotspots."
