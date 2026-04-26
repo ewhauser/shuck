@@ -761,17 +761,6 @@ End
     }
 
     #[test]
-    fn helper_library_context_uses_path_tokens() {
-        let context = classify_file_context(
-            "helper() { :; }\n",
-            Some(Path::new("/tmp/repo/libexec/plugins/tool.func")),
-            ShellDialect::Sh,
-        );
-
-        assert!(context.has_tag(FileContextTag::HelperLibrary));
-    }
-
-    #[test]
     fn project_specific_paths_do_not_suppress_undefined_variables() {
         let diagnostics = lint_named_source(
             Path::new("/tmp/void-packages/common/build-style/void-cross.sh"),

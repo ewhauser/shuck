@@ -4,7 +4,7 @@ use std::path::Path;
 use shuck_ast::Name;
 use shuck_semantic::{ContractCertainty, FileContract, ProvidedBinding, ProvidedBindingKind};
 
-use crate::{FileContext, FileContextTag, ShellDialect};
+use crate::{FileContext, ShellDialect};
 
 struct AmbientContractProvider {
     matches: fn(source: &str, path: &Path, shell: ShellDialect, file_context: &FileContext) -> bool,
@@ -122,11 +122,10 @@ fn sourced_runtime_path_shape(lower: &str) -> bool {
 
 fn sourced_runtime_source_shape(
     source: &str,
-    file_context: &FileContext,
+    _file_context: &FileContext,
     lower_path: &str,
 ) -> bool {
-    file_context.has_tag(FileContextTag::HelperLibrary)
-        || has_probable_function_definition(source)
+    has_probable_function_definition(source)
         || has_source_command(source)
         || source.contains("PROMPT_COMMAND")
         || source.contains("COMPREPLY")
