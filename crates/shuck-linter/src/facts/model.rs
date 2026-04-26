@@ -320,12 +320,6 @@ impl<'a> LinterFacts<'a> {
         &self.presence_tested_names
     }
 
-    pub(crate) fn presence_tested_candidate_names(&self) -> impl Iterator<Item = &Name> {
-        self.presence_test_references_by_name
-            .keys()
-            .chain(self.presence_test_names_by_name.keys())
-    }
-
     pub(crate) fn possible_variable_misspelling_candidate(
         &self,
         semantic: &SemanticModel,

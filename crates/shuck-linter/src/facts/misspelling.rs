@@ -50,14 +50,102 @@ impl MisspellingCandidateSet {
 #[derive(Debug)]
 struct MisspellingCandidateLookup {
     casefold_exact: FxHashMap<Box<str>, SmallVec<[usize; 2]>>,
-    deletions: FxHashMap<Box<str>, SmallVec<[usize; 4]>>,
+    edit1_deletions: FxHashMap<Box<str>, SmallVec<[usize; 4]>>,
+    env_trie: MisspellingCandidateTrie,
+}
+
+#[derive(Debug)]
+struct MisspellingCandidateTrie {
+    nodes: Vec<MisspellingCandidateTrieNode>,
+}
+
+#[derive(Debug, Default)]
+struct MisspellingCandidateTrieNode {
+    children: SmallVec<[(u8, usize); 4]>,
+    candidate_ids: SmallVec<[usize; 1]>,
+}
+
+impl MisspellingCandidateTrie {
+    fn new() -> Self {
+        Self {
+            nodes: vec![MisspellingCandidateTrieNode::default()],
+        }
+    }
+
+    fn insert(&mut self, name: &str, candidate_id: usize) {
+        let mut node_id = 0;
+        for byte in name.bytes() {
+            if let Some((_, child_id)) = self.nodes[node_id]
+                .children
+                .iter()
+                .find(|(child_byte, _)| *child_byte == byte)
+            {
+                node_id = *child_id;
+                continue;
+            }
+
+            let child_id = self.nodes.len();
+            self.nodes.push(MisspellingCandidateTrieNode::default());
+            self.nodes[node_id].children.push((byte, child_id));
+            node_id = child_id;
+        }
+        self.nodes[node_id].candidate_ids.push(candidate_id);
+    }
+
+    fn edit2_candidate_ids(&self, target_name: &str) -> SmallVec<[usize; 16]> {
+        let target = target_name.as_bytes();
+        let initial_row = (0..=target.len())
+            .map(|index| u8::try_from(index).unwrap_or(3).min(3))
+            .collect::<SmallVec<[u8; 32]>>();
+        let mut ids = SmallVec::<[usize; 16]>::new();
+
+        for (byte, child_id) in self.nodes[0].children.iter().copied() {
+            self.collect_edit2_candidate_ids(child_id, byte, target, &initial_row, &mut ids);
+        }
+
+        ids
+    }
+
+    fn collect_edit2_candidate_ids(
+        &self,
+        node_id: usize,
+        node_byte: u8,
+        target: &[u8],
+        previous_row: &[u8],
+        ids: &mut SmallVec<[usize; 16]>,
+    ) {
+        let mut current_row = SmallVec::<[u8; 32]>::new();
+        current_row.push(previous_row[0].saturating_add(1));
+        let mut row_min = current_row[0];
+
+        for (index, target_byte) in target.iter().enumerate() {
+            let insertion = current_row[index].saturating_add(1);
+            let deletion = previous_row[index + 1].saturating_add(1);
+            let substitution = previous_row[index] + u8::from(*target_byte != node_byte);
+            let value = insertion.min(deletion).min(substitution).min(3);
+            current_row.push(value);
+            row_min = row_min.min(value);
+        }
+
+        if current_row[target.len()] <= 2 {
+            ids.extend_from_slice(&self.nodes[node_id].candidate_ids);
+        }
+        if row_min > 2 {
+            return;
+        }
+
+        for (byte, child_id) in self.nodes[node_id].children.iter().copied() {
+            self.collect_edit2_candidate_ids(child_id, byte, target, &current_row, ids);
+        }
+    }
 }
 
 impl MisspellingCandidateLookup {
     fn from_entries(entries: &[MisspellingCandidate]) -> Self {
         let mut index = Self {
             casefold_exact: FxHashMap::default(),
-            deletions: FxHashMap::default(),
+            edit1_deletions: FxHashMap::default(),
+            env_trie: MisspellingCandidateTrie::new(),
         };
 
         for (id, entry) in entries.iter().enumerate() {
@@ -72,8 +160,9 @@ impl MisspellingCandidateLookup {
                 continue;
             }
 
-            for key in deletion_keys(name) {
-                index.deletions.entry(key).or_default().push(id);
+            index.env_trie.insert(name, id);
+            for key in edit1_deletion_keys(name) {
+                index.edit1_deletions.entry(key).or_default().push(id);
             }
         }
 
@@ -86,29 +175,74 @@ impl MisspellingCandidateLookup {
         target_name: &str,
         tie_break: CandidateTieBreak,
     ) -> Option<&'a str> {
-        let mut ids = SmallVec::<[usize; 16]>::new();
-        if target_name.len() >= 4
-            && let Some(exact_ids) = self
-                .casefold_exact
-                .get(canonical_ascii_uppercase(target_name).as_str())
-        {
-            ids.extend_from_slice(exact_ids);
+        if let Some(best) = self.best_exact(entries, target_name, tie_break) {
+            return Some(best);
         }
-
-        if target_name.len() >= 3 {
-            for key in deletion_keys(target_name) {
-                if let Some(key_ids) = self.deletions.get(&key) {
-                    ids.extend_from_slice(key_ids);
-                }
-            }
-        }
-
-        if ids.is_empty() {
+        if target_name.len() < 3 {
             return None;
+        }
+        if let Some(best) = self.best_edit1(entries, target_name, tie_break) {
+            return Some(best);
+        }
+        self.best_edit2_strong_shape(entries, target_name, tie_break)
+    }
+
+    fn best_exact<'a>(
+        &self,
+        entries: &'a [MisspellingCandidate],
+        target_name: &str,
+        tie_break: CandidateTieBreak,
+    ) -> Option<&'a str> {
+        if target_name.len() < 4 {
+            return None;
+        }
+        let ids = self
+            .casefold_exact
+            .get(canonical_ascii_uppercase(target_name).as_str())?;
+        self.best_from_ids(
+            entries,
+            target_name,
+            tie_break,
+            ids.iter().copied(),
+            Some(0),
+        )
+    }
+
+    fn best_edit1<'a>(
+        &self,
+        entries: &'a [MisspellingCandidate],
+        target_name: &str,
+        tie_break: CandidateTieBreak,
+    ) -> Option<&'a str> {
+        let mut ids = SmallVec::<[usize; 16]>::new();
+        for key in edit1_deletion_keys(target_name) {
+            if let Some(key_ids) = self.edit1_deletions.get(&key) {
+                ids.extend_from_slice(key_ids);
+            }
         }
         ids.sort_unstable();
         ids.dedup();
+        self.best_from_ids(entries, target_name, tie_break, ids, Some(2))
+    }
 
+    fn best_edit2_strong_shape<'a>(
+        &self,
+        entries: &'a [MisspellingCandidate],
+        target_name: &str,
+        tie_break: CandidateTieBreak,
+    ) -> Option<&'a str> {
+        let ids = self.env_trie.edit2_candidate_ids(target_name);
+        self.best_from_ids(entries, target_name, tie_break, ids, Some(3))
+    }
+
+    fn best_from_ids<'a>(
+        &self,
+        entries: &'a [MisspellingCandidate],
+        target_name: &str,
+        tie_break: CandidateTieBreak,
+        ids: impl IntoIterator<Item = usize>,
+        required_rank: Option<u8>,
+    ) -> Option<&'a str> {
         ids.into_iter()
             .filter_map(|id| {
                 let entry = &entries[id];
@@ -116,6 +250,9 @@ impl MisspellingCandidateLookup {
                     return None;
                 }
                 let rank = candidate_match_rank(target_name, entry.name.as_str())?;
+                if required_rank.is_some_and(|required| rank != required) {
+                    return None;
+                }
                 Some((id, rank, entry))
             })
             .min_by(|left, right| compare_candidates(*left, *right, tie_break))
@@ -364,19 +501,18 @@ fn candidate_match_rank(target_name: &str, candidate_name: &str) -> Option<u8> {
     if !is_environment_style_name(candidate_name)
         || target_name.len() < 3
         || candidate_name.len() < 4
+        || target_name.len().abs_diff(candidate_name.len()) > 2
     {
         return None;
     }
 
-    let distance =
-        bounded_ascii_edit_distance(target_name.as_bytes(), candidate_name.as_bytes(), 2)?;
-    if distance == 0 {
+    if ascii_edit_distance_at_most(target_name.as_bytes(), candidate_name.as_bytes(), 1) {
+        return Some(2);
+    }
+    if !has_strong_two_edit_shape(target_name, candidate_name) {
         return None;
     }
-    if distance == 2 && !has_strong_two_edit_shape(target_name, candidate_name) {
-        return None;
-    }
-    Some(distance + 1)
+    ascii_edit_distance_at_most(target_name.as_bytes(), candidate_name.as_bytes(), 2).then_some(3)
 }
 
 fn has_strong_two_edit_shape(target_name: &str, candidate_upper: &str) -> bool {
@@ -437,72 +573,59 @@ fn common_suffix_len(left: &[u8], right: &[u8]) -> usize {
         .count()
 }
 
-fn bounded_ascii_edit_distance(left: &[u8], right: &[u8], max_distance: u8) -> Option<u8> {
-    let max_distance = usize::from(max_distance);
-    if left.len().abs_diff(right.len()) > max_distance {
-        return None;
+fn ascii_edit_distance_at_most(left: &[u8], right: &[u8], max_distance: u8) -> bool {
+    if left.len().abs_diff(right.len()) > usize::from(max_distance) {
+        return false;
     }
-
-    let mut previous = (0..=right.len()).collect::<SmallVec<[usize; 32]>>();
-    let mut current = SmallVec::<[usize; 32]>::new();
-    current.resize(right.len() + 1, 0);
-
-    for (left_index, left_byte) in left.iter().enumerate() {
-        current[0] = left_index + 1;
-        let mut row_min = current[0];
-
-        for (right_index, right_byte) in right.iter().enumerate() {
-            let deletion = previous[right_index + 1] + 1;
-            let insertion = current[right_index] + 1;
-            let substitution = previous[right_index] + usize::from(left_byte != right_byte);
-            let value = deletion.min(insertion).min(substitution);
-            current[right_index + 1] = value;
-            row_min = row_min.min(value);
-        }
-
-        if row_min > max_distance {
-            return None;
-        }
-
-        std::mem::swap(&mut previous, &mut current);
-    }
-
-    let distance = previous[right.len()];
-    (distance <= max_distance).then_some(distance as u8)
+    ascii_edit_distance_at_most_inner(left, right, max_distance)
 }
 
-fn deletion_keys(name: &str) -> Vec<Box<str>> {
-    let mut keys = Vec::new();
-    let mut scratch = Vec::with_capacity(name.len());
-    collect_deletion_keys(name.as_bytes(), 0, 2, &mut scratch, &mut keys);
+fn ascii_edit_distance_at_most_inner(mut left: &[u8], mut right: &[u8], edits_left: u8) -> bool {
+    while let (Some((&left_byte, left_rest)), Some((&right_byte, right_rest))) =
+        (left.split_first(), right.split_first())
+    {
+        if left_byte != right_byte {
+            break;
+        }
+        left = left_rest;
+        right = right_rest;
+    }
+
+    while let (Some((&left_byte, left_rest)), Some((&right_byte, right_rest))) =
+        (left.split_last(), right.split_last())
+    {
+        if left_byte != right_byte {
+            break;
+        }
+        left = left_rest;
+        right = right_rest;
+    }
+
+    if left.is_empty() || right.is_empty() {
+        return left.len().max(right.len()) <= usize::from(edits_left);
+    }
+    if edits_left == 0 || left.len().abs_diff(right.len()) > usize::from(edits_left) {
+        return false;
+    }
+
+    ascii_edit_distance_at_most_inner(&left[1..], right, edits_left - 1)
+        || ascii_edit_distance_at_most_inner(left, &right[1..], edits_left - 1)
+        || ascii_edit_distance_at_most_inner(&left[1..], &right[1..], edits_left - 1)
+}
+
+fn edit1_deletion_keys(name: &str) -> Vec<Box<str>> {
+    let bytes = name.as_bytes();
+    let mut keys = Vec::with_capacity(bytes.len() + 1);
+    keys.push(name.into());
+    for skip in 0..bytes.len() {
+        let mut key = String::with_capacity(bytes.len().saturating_sub(1));
+        key.push_str(&name[..skip]);
+        key.push_str(&name[skip + 1..]);
+        keys.push(key.into_boxed_str());
+    }
     keys.sort_unstable();
     keys.dedup();
     keys
-}
-
-fn collect_deletion_keys(
-    bytes: &[u8],
-    offset: usize,
-    remaining_deletions: usize,
-    scratch: &mut Vec<u8>,
-    keys: &mut Vec<Box<str>>,
-) {
-    if offset == bytes.len() {
-        keys.push(
-            String::from_utf8(scratch.clone())
-                .expect("shell names should be ASCII")
-                .into_boxed_str(),
-        );
-        return;
-    }
-
-    scratch.push(bytes[offset]);
-    collect_deletion_keys(bytes, offset + 1, remaining_deletions, scratch, keys);
-    scratch.pop();
-
-    if remaining_deletions > 0 {
-        collect_deletion_keys(bytes, offset + 1, remaining_deletions - 1, scratch, keys);
-    }
 }
 
 fn canonical_ascii_uppercase(name: &str) -> String {
