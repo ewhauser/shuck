@@ -834,11 +834,11 @@ done
 
     #[test]
     fn eval_single_quoted_strings_do_not_keep_assignments_live() {
-        let source = "#!/bin/sh\nas_lineno_1=$LINENO\neval 'test \"$as_lineno_1\"'\n";
+        let source = "#!/bin/sh\nsaved_line1=$LINENO\neval 'test \"$saved_line1\"'\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "as_lineno_1");
+        assert_eq!(diagnostics[0].span.slice(source), "saved_line1");
     }
 
     #[test]
