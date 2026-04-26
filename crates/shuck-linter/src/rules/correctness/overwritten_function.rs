@@ -1,4 +1,3 @@
-use crate::context::FileContextTag;
 use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::static_word_text;
@@ -1918,7 +1917,6 @@ fn should_suppress_overwrite(
     checker: &Checker<'_>,
     overwritten: &SemanticOverwrittenFunction,
 ) -> bool {
-    let file_context = checker.file_context();
     let compat_mode = checker
         .rule_options()
         .c063
@@ -1936,23 +1934,6 @@ fn should_suppress_overwrite(
 
     if compat_mode {
         return false;
-    }
-
-    if file_context.has_tag(FileContextTag::ShellSpec)
-        && checker
-            .semantic()
-            .call_sites_for(&overwritten.name)
-            .iter()
-            .any(|site| {
-                site.name_span.start.offset > first.span.end.offset
-                    && site.name_span.start.offset < second.span.start.offset
-            })
-    {
-        return true;
-    }
-
-    if file_context.has_tag(FileContextTag::ShellSpec) {
-        return true;
     }
 
     false
@@ -1982,11 +1963,6 @@ fn should_suppress_unreached(checker: &Checker<'_>, unreached: &SemanticUnreache
                     )
                 },
             ))
-        || (!checker
-            .rule_options()
-            .c063
-            .report_unreached_nested_definitions
-            && checker.file_context().has_tag(FileContextTag::ShellSpec))
         || (matches!(
             unreached.reason,
             UnreachedFunctionReason::EnclosingFunctionUnreached
@@ -2407,45 +2383,6 @@ mod tests {
 
     use crate::test::{test_path_with_fix, test_snippet_at_path, test_snippet_with_fix};
     use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
-
-    #[test]
-    fn shellspec_nested_helper_factories_are_suppressed() {
-        let source = "\
-Describe 'matcher'
-factory() {
-  shellspec_matcher__match() { :; }
-  shellspec_matcher__match() { :; }
-}
-";
-        let diagnostics = test_snippet_at_path(
-            Path::new("/tmp/ko1nksm__shellspec__spec__core__matcher_spec.sh"),
-            source,
-            &LinterSettings::for_rule(Rule::OverwrittenFunction),
-        );
-
-        assert!(diagnostics.is_empty());
-    }
-
-    #[test]
-    fn shellspec_top_level_example_helpers_are_suppressed() {
-        let source = "\
-Describe 'matcher'
-  Specify 'first'
-    helper() { return 0; }
-  End
-
-  Specify 'second'
-    helper() { return 1; }
-  End
-";
-        let diagnostics = test_snippet_at_path(
-            Path::new("/tmp/ko1nksm__shellspec__spec__core__matcher_spec.sh"),
-            source,
-            &LinterSettings::for_rule(Rule::OverwrittenFunction),
-        );
-
-        assert!(diagnostics.is_empty());
-    }
 
     #[test]
     fn ordinary_overwrites_still_report() {

@@ -6,7 +6,6 @@ use crate::ShellDialect;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FileContextTag {
-    ShellSpec,
     ProjectClosure,
     DirectiveHandling,
 }
@@ -14,7 +13,6 @@ pub enum FileContextTag {
 impl FileContextTag {
     pub const fn label(self) -> &'static str {
         match self {
-            Self::ShellSpec => "shellspec",
             Self::ProjectClosure => "project-closure",
             Self::DirectiveHandling => "directive-handling",
         }
@@ -91,9 +89,7 @@ pub fn classify_file_context(
     });
 
     let mut tags = Vec::new();
-    if has_shellspec_path && has_shellspec_dsl {
-        tags.push(FileContextTag::ShellSpec);
-    }
+    let is_shellspec = has_shellspec_path && has_shellspec_dsl;
 
     if lines.iter().any(|line| {
         let trimmed = line.trimmed;
@@ -113,7 +109,7 @@ pub fn classify_file_context(
         tags.push(FileContextTag::DirectiveHandling);
     }
 
-    let regions = if tags.contains(&FileContextTag::ShellSpec) {
+    let regions = if is_shellspec {
         shellspec_parameter_regions(&lines)
     } else {
         Vec::new()
@@ -273,7 +269,7 @@ mod tests {
     use crate::ShellDialect;
 
     #[test]
-    fn classifies_shellspec_files_and_parameter_regions() {
+    fn classifies_shellspec_parameter_regions() {
         let source = "\
 Describe 'clone'
 Parameters
@@ -290,7 +286,6 @@ It 'still shell'
             ShellDialect::Sh,
         );
 
-        assert!(context.has_tag(FileContextTag::ShellSpec));
         assert_eq!(context.regions().len(), 1);
         assert_eq!(
             context.regions()[0].kind,
