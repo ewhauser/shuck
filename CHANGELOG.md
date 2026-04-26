@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.0.23](https://github.com/ewhauser/shuck/compare/v0.0.22...v0.0.23) (2026-04-26)
+
+
+### Features
+
+* **cli:** support per-file shell overrides ([#608](https://github.com/ewhauser/shuck/issues/608)) ([fbfe3e2](https://github.com/ewhauser/shuck/commit/fbfe3e2f91932b4927e26cd1ab04cdf444784e5c))
+
+
+### Bug Fixes
+
+* **linter:** align S001 indirect expansion parity ([#596](https://github.com/ewhauser/shuck/issues/596)) ([6341fc9](https://github.com/ewhauser/shuck/commit/6341fc952b7badbf400b99fcf6f8b732af221d92))
+* **linter:** align S001 safe optional values ([#594](https://github.com/ewhauser/shuck/issues/594)) ([7575800](https://github.com/ewhauser/shuck/commit/75758001e4e811c09f3488e5b7fc4679ee4f1a07))
+* **linter:** clear S001 initializer self-reference divergences ([#598](https://github.com/ewhauser/shuck/issues/598)) ([2f7b5d7](https://github.com/ewhauser/shuck/commit/2f7b5d75bfb54e1b81ed857b20ef78d451392892))
+* **linter:** generalize C006 build-flag parity ([#580](https://github.com/ewhauser/shuck/issues/580)) ([ff1c1dc](https://github.com/ewhauser/shuck/commit/ff1c1dcbc08fa83a2209b47e7acbd3a0a1aa12c5))
+* **linter:** generalize xargs inline replace parity ([#581](https://github.com/ewhauser/shuck/issues/581)) ([6ac42f2](https://github.com/ewhauser/shuck/commit/6ac42f2cd684cdbcb7bd14c3720c0d152b68eaa8))
+* **linter:** move C005 exemptions into facts ([#583](https://github.com/ewhauser/shuck/issues/583)) ([77b6028](https://github.com/ewhauser/shuck/commit/77b60286dd347fbea9b1eb8143309b30098ad859))
+* **linter:** share shell dialect parsing policy ([#600](https://github.com/ewhauser/shuck/issues/600)) ([925b6c4](https://github.com/ewhauser/shuck/commit/925b6c49fe8d844e983e4c749c6d88b6cf63cd78))
+* **linter:** stop ambient contracts initializing runtime names ([#582](https://github.com/ewhauser/shuck/issues/582)) ([4ec1349](https://github.com/ewhauser/shuck/commit/4ec1349260d0f4020c512e978973562de4eeb6cd))
+* **website:** keep rule docs in sync ([#607](https://github.com/ewhauser/shuck/issues/607)) ([c687090](https://github.com/ewhauser/shuck/commit/c687090269637e1a1cffb1bfe63951af7e20aaaf))
+
+
+### Performance
+
+* **linter:** avoid sorting command fact relationships ([#590](https://github.com/ewhauser/shuck/issues/590)) ([789d785](https://github.com/ewhauser/shuck/commit/789d785b9269ca9fa00c256a4fb34551ad9a808f))
+* **linter:** cache C133 builtin array history ([#602](https://github.com/ewhauser/shuck/issues/602)) ([697b6b1](https://github.com/ewhauser/shuck/commit/697b6b16b4f330182b443f4af29d6111d59515ab))
+* **linter:** index C063 activation windows ([#597](https://github.com/ewhauser/shuck/issues/597)) ([8954525](https://github.com/ewhauser/shuck/commit/8954525d7ba5adfa9b38e3196749c8a95a9fb346))
+* **linter:** index possible misspelling candidates ([#603](https://github.com/ewhauser/shuck/issues/603)) ([1e6ba31](https://github.com/ewhauser/shuck/commit/1e6ba31f9f3c64e887b13c307ac714cbddb3df86))
+* **linter:** reduce facts allocation churn ([#584](https://github.com/ewhauser/shuck/issues/584)) ([b7cbee1](https://github.com/ewhauser/shuck/commit/b7cbee11bffb65044638618d712b50717794e468))
+* **linter:** reduce facts-layer allocation churn ([#578](https://github.com/ewhauser/shuck/issues/578)) ([f0a282f](https://github.com/ewhauser/shuck/commit/f0a282fc9d6c47c1a3fcc5e3dc8ed745f1e3e322))
+* **linter:** reuse command relationships in facts ([#592](https://github.com/ewhauser/shuck/issues/592)) ([585bbe9](https://github.com/ewhauser/shuck/commit/585bbe964170f5c780113c6482cb6d26dbde2b92))
+* **linter:** reuse command relationships in more facts ([#593](https://github.com/ewhauser/shuck/issues/593)) ([e0b8708](https://github.com/ewhauser/shuck/commit/e0b8708728e13ef7f52922a529b08c7029ee38ed))
+* **semantic:** avoid eager reaching map materialization ([#591](https://github.com/ewhauser/shuck/issues/591)) ([22fe078](https://github.com/ewhauser/shuck/commit/22fe078d8552d159df8c966f04fae969107f3fc6))
+* **semantic:** index parameter guard flow refs ([#605](https://github.com/ewhauser/shuck/issues/605)) ([d6bb74d](https://github.com/ewhauser/shuck/commit/d6bb74d2d3523b939ab8a1002d230ec264183799))
+* **semantic:** reduce CFG allocation churn ([#587](https://github.com/ewhauser/shuck/issues/587)) ([1e66db0](https://github.com/ewhauser/shuck/commit/1e66db092dd7ea456746aca451a526037cfd05f7))
+* speed up large corpus hotspot analysis ([#585](https://github.com/ewhauser/shuck/issues/585)) ([1fc11ae](https://github.com/ewhauser/shuck/commit/1fc11aefbae0147bb818cc85ff03bf0ce9d155a4))
+
+
+### Documentation
+
+* add AST arena migration spec ([#586](https://github.com/ewhauser/shuck/issues/586)) ([07567bb](https://github.com/ewhauser/shuck/commit/07567bb7d66e9cf18ac73af1adb184cefc9f93eb))
+* add suppression guide ([#611](https://github.com/ewhauser/shuck/issues/611)) ([239f4c8](https://github.com/ewhauser/shuck/commit/239f4c87ff7b2736e9ace162e033279d7c9f0f5d))
+* **website:** generate settings reference ([#610](https://github.com/ewhauser/shuck/issues/610)) ([fc381df](https://github.com/ewhauser/shuck/commit/fc381df6a2c872752cb5d0e1ca9b6b3273a46003))
+
+
+### Refactor
+
+* **formatter:** replace formatter implementation with stubs ([#588](https://github.com/ewhauser/shuck/issues/588)) ([800d9f3](https://github.com/ewhauser/shuck/commit/800d9f3a089a0e8f19a3741abf866ff5e6998c08))
+
 ## [0.0.22](https://github.com/ewhauser/shuck/compare/v0.0.21...v0.0.22) (2026-04-25)
 
 
