@@ -1,6 +1,6 @@
-use shuck_ast::{Assignment, Command, Span, Word};
+use shuck_ast::{ArenaFileCommandKind, AssignmentNode, Span};
 
-use crate::{Checker, Rule, ShellDialect, Violation};
+use crate::{Checker, FactWordRef, Rule, ShellDialect, Violation};
 
 pub struct ZshAssignmentToZero;
 
@@ -23,40 +23,43 @@ pub fn zsh_assignment_to_zero(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
-        .flat_map(|fact| match fact.command() {
-            Command::Simple(command) => command
-                .assignments
+        .flat_map(|fact| match fact.command_kind() {
+            ArenaFileCommandKind::Simple => fact
+                .arena_assignments()
                 .iter()
                 .filter_map(typed_assignment_to_zero_span)
-                .chain(assignment_like_word_span(&command.name, checker.source()))
+                .chain(
+                    fact.arena_body_name_word(checker.source())
+                        .and_then(|word| assignment_like_word_span(word, checker.source())),
+                )
                 .collect::<Vec<_>>(),
-            Command::Decl(_) => fact
-                .body_args()
-                .iter()
+            ArenaFileCommandKind::Decl => fact
+                .arena_body_args(checker.source())
+                .into_iter()
                 .filter_map(|word| assignment_like_word_span(word, checker.source()))
                 .collect::<Vec<_>>(),
-            Command::Builtin(_)
-            | Command::Binary(_)
-            | Command::Compound(_)
-            | Command::Function(_)
-            | Command::AnonymousFunction(_) => Vec::new(),
+            ArenaFileCommandKind::Builtin
+            | ArenaFileCommandKind::Binary
+            | ArenaFileCommandKind::Compound
+            | ArenaFileCommandKind::Function
+            | ArenaFileCommandKind::AnonymousFunction => Vec::new(),
         })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ZshAssignmentToZero);
 }
 
-fn assignment_like_word_span(word: &Word, source: &str) -> Option<Span> {
-    word.span
+fn assignment_like_word_span(word: FactWordRef<'_>, source: &str) -> Option<Span> {
+    word.span()
         .slice(source)
         .starts_with("0=")
         .then_some(Span::from_positions(
-            word.span.start,
-            word.span.start.advanced_by("0"),
+            word.span().start,
+            word.span().start.advanced_by("0"),
         ))
 }
 
-fn typed_assignment_to_zero_span(assignment: &Assignment) -> Option<Span> {
+fn typed_assignment_to_zero_span(assignment: &AssignmentNode) -> Option<Span> {
     (assignment.target.name.as_str() == "0").then_some(Span::from_positions(
         assignment.target.name_span.start,
         assignment.target.name_span.start.advanced_by("0"),

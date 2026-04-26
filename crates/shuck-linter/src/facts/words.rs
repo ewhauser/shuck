@@ -1056,6 +1056,7 @@ fn is_fully_quoted(word: &Word) -> bool {
 #[derive(Debug)]
 pub struct WordNode<'a> {
     key: FactSpan,
+    arena_word_id: Option<WordId>,
     word: &'a Word,
     analysis: ExpansionAnalysis,
     derived: WordNodeDerived<'a>,
@@ -1094,6 +1095,38 @@ pub struct WordOccurrence {
     operand_class: Option<TestOperandClass>,
     enclosing_expansion_context: Option<ExpansionContext>,
     array_assignment_split_scalar_expansion_spans: IdRange<Span>,
+}
+
+#[derive(Clone, Copy)]
+pub struct FactWordRef<'facts> {
+    arena_file: &'facts ArenaFile,
+    id: WordId,
+}
+
+impl<'facts> FactWordRef<'facts> {
+    pub(crate) fn new(arena_file: &'facts ArenaFile, id: WordId) -> Self {
+        Self { arena_file, id }
+    }
+
+    pub fn id(self) -> WordId {
+        self.id
+    }
+
+    pub fn view(self) -> WordView<'facts> {
+        self.arena_file.store.word(self.id)
+    }
+
+    pub fn span(self) -> Span {
+        self.view().span()
+    }
+
+    pub fn static_text(self, source: &'facts str) -> Option<Cow<'facts, str>> {
+        static_word_text_arena(self.view(), source)
+    }
+
+    pub fn parts(self) -> &'facts [WordPartArenaNode] {
+        self.view().parts()
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1203,12 +1236,26 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.node().word
     }
 
+    pub fn arena_word_id(self) -> Option<WordId> {
+        self.node().arena_word_id
+    }
+
+    pub fn arena_word(self) -> Option<WordView<'facts>> {
+        self.arena_word_id()
+            .map(|id| self.facts.arena_file.store.word(id))
+    }
+
+    pub fn arena_word_ref(self) -> Option<FactWordRef<'facts>> {
+        self.arena_word_id()
+            .map(|id| FactWordRef::new(&self.facts.arena_file, id))
+    }
+
     pub fn key(self) -> FactSpan {
         self.node().key
     }
 
     pub fn span(self) -> Span {
-        self.word().span
+        self.arena_word().map_or(self.word().span, |word| word.span())
     }
 
     pub fn single_double_quoted_replacement(self, source: &str) -> Box<str> {
@@ -1338,6 +1385,10 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.derived()
             .static_text
             .map(Cow::Borrowed)
+            .or_else(|| {
+                self.arena_word()
+                    .and_then(|word| static_word_text_arena(word, source))
+            })
             .or_else(|| static_word_text(self.word(), source))
     }
 
@@ -2290,7 +2341,7 @@ struct WordFactLookup<'facts, 'a> {
 
 fn build_echo_to_sed_substitution_spans<'a>(
     commands: CommandFacts<'_, 'a>,
-    pipelines: &[PipelineFact<'a>],
+    pipelines: &[PipelineFact],
     backticks: &[BacktickFragmentFact],
     lookup: WordFactLookup<'_, 'a>,
 ) -> Vec<Span> {
@@ -2318,7 +2369,7 @@ fn build_echo_to_sed_substitution_spans<'a>(
 
 fn sc2001_like_pipeline_span<'a>(
     commands: CommandFacts<'_, 'a>,
-    pipeline: &PipelineFact<'a>,
+    pipeline: &PipelineFact,
     backticks: &[BacktickFragmentFact],
     lookup: WordFactLookup<'_, 'a>,
 ) -> Option<Span> {
@@ -2336,7 +2387,7 @@ fn sc2001_like_pipeline_span<'a>(
     if left
         .options()
         .echo()
-        .and_then(|echo| echo.portability_flag_word())
+        .and_then(|echo| echo.portability_flag_span())
         .is_some()
     {
         return None;
@@ -2415,7 +2466,7 @@ fn sc2001_like_here_string_span(
     let mut here_strings = command
         .redirect_facts()
         .iter()
-        .filter(|redirect| redirect.redirect().kind == RedirectKind::HereString);
+        .filter(|redirect| redirect.kind() == RedirectKind::HereString);
     here_strings.next()?;
     if here_strings.next().is_some() {
         return None;
@@ -2434,7 +2485,7 @@ fn command_is_plain_named(command: CommandFactRef<'_, '_>, name: &str) -> bool {
 
 fn sc2001_like_backtick_pipeline_span(
     commands: CommandFacts<'_, '_>,
-    pipeline: &PipelineFact<'_>,
+    pipeline: &PipelineFact,
     sed_command: CommandFactRef<'_, '_>,
     source: &str,
 ) -> Option<Span> {
@@ -3410,6 +3461,14 @@ pub(crate) fn benchmark_collect_word_facts(
     source: &str,
     semantic: &SemanticModel,
 ) -> usize {
+    let arena_file = ArenaFile::from_file(file);
+    let mut arena_word_ids_by_span =
+        FxHashMap::with_capacity_and_hasher(arena_file.store.word_count(), Default::default());
+    for index in 0..arena_file.store.word_count() {
+        let id = WordId::new(index);
+        arena_word_ids_by_span.insert(FactSpan::new(arena_file.store.word(id).span()), id);
+    }
+
     let mut word_nodes = Vec::new();
     let mut word_node_ids_by_span = FxHashMap::default();
     let mut word_occurrences = Vec::new();
@@ -3452,6 +3511,7 @@ pub(crate) fn benchmark_collect_word_facts(
                 WordFactOutputs {
                     word_nodes: &mut word_nodes,
                     word_node_ids_by_span: &mut word_node_ids_by_span,
+                    arena_word_ids_by_span: &arena_word_ids_by_span,
                     word_occurrences: &mut word_occurrences,
                     pending_arithmetic_word_occurrences: &mut pending_arithmetic_word_occurrences,
                     compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
@@ -3506,6 +3566,7 @@ struct WordFactOutputs<'out, 'a> {
     word_spans: &'out mut ListArena<Span>,
     word_span_scratch: &'out mut Vec<Span>,
     word_node_ids_by_span: &'out mut FxHashMap<FactSpan, WordNodeId>,
+    arena_word_ids_by_span: &'out FxHashMap<FactSpan, WordId>,
     word_occurrences: &'out mut Vec<WordOccurrence>,
     pending_arithmetic_word_occurrences: &'out mut Vec<PendingArithmeticWordOccurrence>,
     compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
@@ -3815,6 +3876,7 @@ struct WordFactCollector<'out, 'a, 'norm> {
     word_spans: &'out mut ListArena<Span>,
     word_span_scratch: &'out mut Vec<Span>,
     word_node_ids_by_span: &'out mut FxHashMap<FactSpan, WordNodeId>,
+    arena_word_ids_by_span: &'out FxHashMap<FactSpan, WordId>,
     word_occurrences: &'out mut Vec<WordOccurrence>,
     pending_arithmetic_word_occurrences: &'out mut Vec<PendingArithmeticWordOccurrence>,
     array_assignment_split_word_ids: &'out mut Vec<WordOccurrenceId>,
@@ -3872,6 +3934,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             word_spans: outputs.word_spans,
             word_span_scratch: outputs.word_span_scratch,
             word_node_ids_by_span: outputs.word_node_ids_by_span,
+            arena_word_ids_by_span: outputs.arena_word_ids_by_span,
             word_occurrences: outputs.word_occurrences,
             pending_arithmetic_word_occurrences: outputs.pending_arithmetic_word_occurrences,
             array_assignment_split_word_ids: outputs.array_assignment_split_word_ids,
@@ -4768,6 +4831,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         if let Some(id) = self.word_node_ids_by_span.get(&key).copied() {
             return id;
         }
+        let arena_word_id = self.arena_word_ids_by_span.get(&key).copied();
 
         let id = WordNodeId::new(self.word_nodes.len());
         let analysis = analyze_word(word, self.source, self.command_zsh_options.as_ref());
@@ -4775,6 +4839,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             derive_word_fact_data(word, self.source, self.word_spans, self.word_span_scratch);
         self.word_nodes.push(WordNode {
             key,
+            arena_word_id,
             word,
             analysis,
             derived,
@@ -7201,7 +7266,11 @@ fn mapfile_option_takes_argument(flag: char) -> bool {
     matches!(flag, 'u' | 'C' | 'c' | 'd' | 'n' | 'O' | 's')
 }
 
-fn parse_xargs_command<'a>(args: &[&'a Word], source: &str) -> XargsCommandFacts<'a> {
+fn parse_xargs_command<'a>(
+    args: &[&'a Word],
+    source: &str,
+    arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
+) -> XargsCommandFacts {
     let mut uses_null_input = false;
     let mut max_procs = None;
     let mut zero_digit_option_word = false;
@@ -7290,12 +7359,15 @@ fn parse_xargs_command<'a>(args: &[&'a Word], source: &str) -> XargsCommandFacts
         }
     }
 
+    let command_operand_words = args[index..].to_vec().into_boxed_slice();
+    let command_operand_word_ids =
+        word_ids_for_words(command_operand_words.iter().copied(), arena_word_ids_by_span);
     XargsCommandFacts {
         uses_null_input,
         max_procs,
         zero_digit_option_word,
         inline_replace_options: inline_replace_options.into_boxed_slice(),
-        command_operand_words: args[index..].to_vec().into_boxed_slice(),
+        command_operand_word_ids,
         sc2267_default_replace_silent_shape: xargs_sc2267_default_replace_silent_shape(
             &args[index..],
             source,
@@ -7441,13 +7513,19 @@ fn expr_string_helper(args: &[&Word], source: &str) -> Option<(ExprStringHelperK
     Some((kind, word.span))
 }
 
-fn parse_exit_command<'a>(command: &'a Command, source: &str) -> Option<ExitCommandFacts<'a>> {
+fn parse_exit_command<'a>(
+    command: &'a Command,
+    source: &str,
+    arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
+) -> Option<ExitCommandFacts> {
     let Command::Builtin(BuiltinCommand::Exit(exit)) = command else {
         return None;
     };
     let Some(status_word) = exit.code.as_ref() else {
         return Some(ExitCommandFacts {
             status_word: None,
+            status_word_span: None,
+            status_word_id: None,
             is_numeric_literal: false,
             status_is_static: false,
             status_has_literal_content: false,
@@ -7456,7 +7534,11 @@ fn parse_exit_command<'a>(command: &'a Command, source: &str) -> Option<ExitComm
     let status_text = static_word_text(status_word, source);
 
     Some(ExitCommandFacts {
-        status_word: Some(status_word),
+        status_word: Some(FactWordSpan {
+            span: status_word.span,
+        }),
+        status_word_span: Some(status_word.span),
+        status_word_id: word_id_for_word(status_word, arena_word_ids_by_span),
         is_numeric_literal: status_text.as_deref().is_some_and(|text| {
             !text.is_empty() && text.chars().all(|character| character.is_ascii_digit())
         }),

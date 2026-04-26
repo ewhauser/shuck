@@ -1,6 +1,4 @@
-use shuck_ast::{Command, CompoundCommand};
-
-use crate::{Checker, Rule, ShellDialect, Violation};
+use crate::{Checker, CommandFactCompoundKind, Rule, ShellDialect, Violation};
 
 pub struct StandaloneArithmetic;
 
@@ -23,8 +21,8 @@ pub fn standalone_arithmetic(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
-        .filter_map(|fact| match fact.command() {
-            Command::Compound(CompoundCommand::Arithmetic(_)) => {
+        .filter_map(|fact| match fact.compound_kind() {
+            Some(CommandFactCompoundKind::Arithmetic) => {
                 Some(fact.span_in_source(checker.source()))
             }
             _ => None,

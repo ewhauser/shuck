@@ -1,4 +1,4 @@
-use shuck_ast::{BuiltinCommand, Command, Span};
+use shuck_ast::Span;
 use shuck_semantic::ScopeKind;
 
 use crate::{Checker, Rule, Violation};
@@ -34,15 +34,15 @@ pub(crate) fn loop_control_violations(
         .facts()
         .commands()
         .iter()
-        .filter_map(|fact| match fact.command() {
-            Command::Builtin(BuiltinCommand::Break(command)) if !continue_only => {
-                Some((command.span, keyword_span(command.span, "break"), "break"))
+        .filter_map(|fact| match fact.effective_name() {
+            Some("break") if !continue_only => {
+                let span = fact.span();
+                Some((span, keyword_span(span, "break"), "break"))
             }
-            Command::Builtin(BuiltinCommand::Continue(command)) => Some((
-                command.span,
-                keyword_span(command.span, "continue"),
-                "continue",
-            )),
+            Some("continue") => {
+                let span = fact.span();
+                Some((span, keyword_span(span, "continue"), "continue"))
+            }
             _ => None,
         })
         .filter(|(command_span, _, keyword)| {

@@ -3342,7 +3342,7 @@ fn literal_glob_pattern_spans(span: Span, source: &str) -> Vec<Span> {
     spans
 }
 
-fn suspicious_bracket_glob_text(text: &str) -> bool {
+pub(crate) fn suspicious_bracket_glob_text(text: &str) -> bool {
     let bytes = text.as_bytes();
     if bytes.len() < 3 || bytes[0] != b'[' || *bytes.last().unwrap_or(&b'\0') != b']' {
         return false;

@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::{
     AnonymousFunctionCommand, ArithmeticCommand, ArithmeticExpr, ArithmeticExprNode,
     ArithmeticForCommand, ArithmeticLvalue, Assignment, AssignmentValue, BinaryCommand,
@@ -2451,6 +2453,11 @@ pub struct CommandView<'a> {
 }
 
 impl<'a> CommandView<'a> {
+    /// Returns the arena store that owns this command.
+    pub fn store(self) -> &'a AstStore {
+        self.store
+    }
+
     /// Returns this node's ID.
     pub fn id(self) -> CommandId {
         self.id
@@ -2726,6 +2733,11 @@ pub struct DeclCommandView<'a> {
 }
 
 impl<'a> DeclCommandView<'a> {
+    /// Returns the arena store that owns this command.
+    pub fn store(self) -> &'a AstStore {
+        self.store
+    }
+
     /// Returns the declaration builtin variant.
     pub fn variant(self) -> &'a crate::Name {
         &self.node().variant
@@ -2820,6 +2832,11 @@ pub struct FunctionCommandView<'a> {
 }
 
 impl<'a> FunctionCommandView<'a> {
+    /// Returns the arena store that owns this command.
+    pub fn store(self) -> &'a AstStore {
+        self.store
+    }
+
     /// Returns the source span of the `function` keyword when present.
     pub fn function_keyword_span(self) -> Option<Span> {
         self.node().function_keyword_span
@@ -2870,6 +2887,11 @@ pub struct AnonymousFunctionCommandView<'a> {
 }
 
 impl<'a> AnonymousFunctionCommandView<'a> {
+    /// Returns the arena store that owns this command.
+    pub fn store(self) -> &'a AstStore {
+        self.store
+    }
+
     /// Returns the preserved anonymous function surface.
     pub fn surface(self) -> crate::AnonymousFunctionSurface {
         self.node().surface
@@ -2921,6 +2943,11 @@ pub struct CompoundCommandView<'a> {
 }
 
 impl<'a> CompoundCommandView<'a> {
+    /// Returns the arena store that owns this command.
+    pub fn store(self) -> &'a AstStore {
+        self.store
+    }
+
     /// Returns the compound command payload.
     pub fn node(self) -> &'a CompoundCommandNode {
         match &self.store.commands[self.id.index()].payload {
@@ -2972,6 +2999,88 @@ impl<'a> WordView<'a> {
 
     fn node(self) -> &'a WordNode {
         &self.store.words[self.id.index()]
+    }
+}
+
+/// Returns static shell text for an arena-backed word when it contains only
+/// literal and quote-removable parts.
+pub fn static_word_text_arena<'a>(word: WordView<'_>, source: &'a str) -> Option<Cow<'a, str>> {
+    try_static_word_parts_text_arena(word.parts(), word.store(), source)
+}
+
+fn try_static_word_parts_text_arena<'a>(
+    parts: &[WordPartArenaNode],
+    store: &AstStore,
+    source: &'a str,
+) -> Option<Cow<'a, str>> {
+    if parts.is_empty() {
+        return Some(Cow::Borrowed(""));
+    }
+    let mut owned = None::<String>;
+    for part in parts {
+        let text = match &part.kind {
+            WordPartArena::Literal(text) => text.as_str(source, part.span),
+            WordPartArena::SingleQuoted { value, .. } => value.slice(source),
+            WordPartArena::DoubleQuoted { parts, .. } => {
+                let text =
+                    try_static_word_parts_text_arena(store.word_parts(*parts), store, source)?;
+                owned.get_or_insert_with(String::new).push_str(&text);
+                continue;
+            }
+            _ => return None,
+        };
+        owned.get_or_insert_with(String::new).push_str(text);
+    }
+    owned.map(Cow::Owned)
+}
+
+/// Returns static command-name text for an arena-backed word, decoding
+/// backslash-escaped literal command names.
+pub fn static_command_name_text_arena<'a>(
+    word: WordView<'_>,
+    source: &'a str,
+) -> Option<Cow<'a, str>> {
+    try_static_command_name_parts_text_arena(word.parts(), source)
+}
+
+fn try_static_command_name_parts_text_arena<'a>(
+    parts: &[WordPartArenaNode],
+    source: &'a str,
+) -> Option<Cow<'a, str>> {
+    if parts.is_empty() {
+        return Some(Cow::Borrowed(""));
+    }
+    let mut result = String::new();
+    for part in parts {
+        match &part.kind {
+            WordPartArena::Literal(text) => {
+                append_decoded_static_command_literal_arena(
+                    text.as_str(source, part.span),
+                    &mut result,
+                );
+            }
+            WordPartArena::SingleQuoted { value, .. } => result.push_str(value.slice(source)),
+            WordPartArena::DoubleQuoted { .. } => return None,
+            _ => return None,
+        }
+    }
+    Some(Cow::Owned(result))
+}
+
+fn append_decoded_static_command_literal_arena(text: &str, out: &mut String) {
+    let mut chars = text.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        let Some(next) = chars.next() else {
+            out.push('\\');
+            return;
+        };
+        if next != '\n' {
+            out.push(next);
+        }
     }
 }
 

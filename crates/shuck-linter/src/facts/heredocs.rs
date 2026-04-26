@@ -1,5 +1,6 @@
 fn build_heredoc_fact_summary(
     commands: &[CommandFact<'_>],
+    arena_file: &ArenaFile,
     source: &str,
     file_end: usize,
 ) -> HeredocFactSummary {
@@ -8,9 +9,12 @@ fn build_heredoc_fact_summary(
     for command in commands {
         let unused_heredoc_command = command.literal_name() == Some("")
             && command.body_span().start.offset == command.body_span().end.offset;
+        let redirects = command
+            .arena_stmt_id()
+            .map(|id| arena_file.store.stmt(id).redirects())
+            .unwrap_or(&[]);
         let echo_here_doc_command = command.effective_name_is("echo")
-            && command
-                .redirects()
+            && redirects
                 .iter()
                 .any(|redirect| is_heredoc_redirect_kind(redirect.kind));
 
@@ -20,7 +24,7 @@ fn build_heredoc_fact_summary(
                 .push(command.span_in_source(source));
         }
 
-        for redirect in command.redirects() {
+        for redirect in redirects {
             if !is_heredoc_redirect_kind(redirect.kind) {
                 continue;
             }
@@ -29,7 +33,7 @@ fn build_heredoc_fact_summary(
                 summary.unused_heredoc_spans.push(redirect.span);
             }
 
-            let Some(heredoc) = redirect.heredoc() else {
+            let RedirectTargetNode::Heredoc(heredoc) = &redirect.target else {
                 continue;
             };
             let reaches_file_end = heredoc.body.span.end.offset == file_end;
@@ -222,4 +226,3 @@ fn position_at_offset_opt(source: &str, target_offset: usize) -> Option<Position
     }
     Some(position)
 }
-

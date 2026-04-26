@@ -1,16 +1,247 @@
 #[derive(Debug, Clone)]
+struct ArenaCommandNameFacts {
+    literal_name: Option<Box<str>>,
+    effective_name: Option<Box<str>>,
+    wrappers: Box<[WrapperKind]>,
+    body_span: Span,
+    body_word_span: Option<Span>,
+    body_words: Box<[WordId]>,
+    single_declaration_assignment: Option<CommandSingleAssignmentInfo>,
+}
+
+impl ArenaCommandNameFacts {
+    fn from_normalized(normalized: command::ArenaNormalizedCommand<'_>) -> Self {
+        let single_declaration_assignment = normalized
+            .declaration
+            .as_ref()
+            .and_then(arena_single_declaration_assignment_info);
+        Self {
+            literal_name: normalized
+                .literal_name
+                .map(|name| name.into_owned().into_boxed_str()),
+            effective_name: normalized
+                .effective_name
+                .map(|name| name.into_owned().into_boxed_str()),
+            wrappers: normalized.wrappers.into_boxed_slice(),
+            body_span: normalized.body_span,
+            body_word_span: normalized.body_word_span,
+            body_words: normalized.body_words.into_boxed_slice(),
+            single_declaration_assignment,
+        }
+    }
+
+    fn effective_or_literal_name(&self) -> Option<&str> {
+        self.effective_name
+            .as_deref()
+            .or(self.literal_name.as_deref())
+    }
+
+    fn body_name_word_id(&self) -> Option<WordId> {
+        self.body_words.first().copied()
+    }
+
+    fn body_args(&self) -> &[WordId] {
+        self.body_words.split_first().map_or(&[], |(_, rest)| rest)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CommandSingleAssignmentInfo {
+    target: Box<str>,
+    span: Span,
+}
+
+fn arena_single_declaration_assignment_info(
+    declaration: &command::ArenaNormalizedDeclaration<'_>,
+) -> Option<CommandSingleAssignmentInfo> {
+    if !declaration.assignments.is_empty() {
+        return None;
+    }
+
+    let mut assignment = None;
+    for operand in declaration.operands {
+        match operand {
+            DeclOperandNode::Flag(_) => {}
+            DeclOperandNode::Assignment(candidate) => {
+                if assignment.replace(candidate).is_some() {
+                    return None;
+                }
+            }
+            DeclOperandNode::Name(_) | DeclOperandNode::Dynamic(_) => return None,
+        }
+    }
+
+    let assignment = assignment?;
+    Some(CommandSingleAssignmentInfo {
+        target: assignment.target.name.as_str().to_owned().into_boxed_str(),
+        span: assignment.span,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandFactCompoundKind {
+    If,
+    ArithmeticFor,
+    For,
+    Repeat,
+    While,
+    Until,
+    Subshell,
+    BraceGroup,
+    Always,
+    Case,
+    Select,
+    Foreach,
+    Arithmetic,
+    Time,
+    Conditional,
+    Coproc,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CommandFactShape {
+    kind: ArenaFileCommandKind,
+    binary_op: Option<BinaryOp>,
+    binary_op_span: Option<Span>,
+    compound_kind: Option<CommandFactCompoundKind>,
+}
+
+impl CommandFactShape {
+    fn from_arena(command: CommandView<'_>) -> Self {
+        let kind = command.kind();
+        let (binary_op, binary_op_span) = command
+            .binary()
+            .map_or((None, None), |binary| (Some(binary.op()), Some(binary.op_span())));
+        let compound_kind = command
+            .compound()
+            .map(|compound| CommandFactCompoundKind::from_arena(compound.node()));
+        Self {
+            kind,
+            binary_op,
+            binary_op_span,
+            compound_kind,
+        }
+    }
+
+    fn from_recursive(command: &Command) -> Self {
+        match command {
+            Command::Simple(_) => Self {
+                kind: ArenaFileCommandKind::Simple,
+                binary_op: None,
+                binary_op_span: None,
+                compound_kind: None,
+            },
+            Command::Builtin(_) => Self {
+                kind: ArenaFileCommandKind::Builtin,
+                binary_op: None,
+                binary_op_span: None,
+                compound_kind: None,
+            },
+            Command::Decl(_) => Self {
+                kind: ArenaFileCommandKind::Decl,
+                binary_op: None,
+                binary_op_span: None,
+                compound_kind: None,
+            },
+            Command::Binary(command) => Self {
+                kind: ArenaFileCommandKind::Binary,
+                binary_op: Some(command.op),
+                binary_op_span: Some(command.op_span),
+                compound_kind: None,
+            },
+            Command::Compound(command) => Self {
+                kind: ArenaFileCommandKind::Compound,
+                binary_op: None,
+                binary_op_span: None,
+                compound_kind: Some(CommandFactCompoundKind::from_recursive(command)),
+            },
+            Command::Function(_) => Self {
+                kind: ArenaFileCommandKind::Function,
+                binary_op: None,
+                binary_op_span: None,
+                compound_kind: None,
+            },
+            Command::AnonymousFunction(_) => Self {
+                kind: ArenaFileCommandKind::AnonymousFunction,
+                binary_op: None,
+                binary_op_span: None,
+                compound_kind: None,
+            },
+        }
+    }
+
+    fn is_short_circuit_binary(self) -> bool {
+        matches!(self.binary_op, Some(BinaryOp::And | BinaryOp::Or))
+    }
+}
+
+impl CommandFactCompoundKind {
+    fn from_recursive(command: &CompoundCommand) -> Self {
+        match command {
+            CompoundCommand::If(_) => Self::If,
+            CompoundCommand::ArithmeticFor(_) => Self::ArithmeticFor,
+            CompoundCommand::For(_) => Self::For,
+            CompoundCommand::Repeat(_) => Self::Repeat,
+            CompoundCommand::While(_) => Self::While,
+            CompoundCommand::Until(_) => Self::Until,
+            CompoundCommand::Subshell(_) => Self::Subshell,
+            CompoundCommand::BraceGroup(_) => Self::BraceGroup,
+            CompoundCommand::Always(_) => Self::Always,
+            CompoundCommand::Case(_) => Self::Case,
+            CompoundCommand::Select(_) => Self::Select,
+            CompoundCommand::Foreach(_) => Self::Foreach,
+            CompoundCommand::Arithmetic(_) => Self::Arithmetic,
+            CompoundCommand::Time(_) => Self::Time,
+            CompoundCommand::Conditional(_) => Self::Conditional,
+            CompoundCommand::Coproc(_) => Self::Coproc,
+        }
+    }
+
+    fn from_arena(command: &CompoundCommandNode) -> Self {
+        match command {
+            CompoundCommandNode::If { .. } => Self::If,
+            CompoundCommandNode::ArithmeticFor { .. } => Self::ArithmeticFor,
+            CompoundCommandNode::For { .. } => Self::For,
+            CompoundCommandNode::Repeat { .. } => Self::Repeat,
+            CompoundCommandNode::While { .. } => Self::While,
+            CompoundCommandNode::Until { .. } => Self::Until,
+            CompoundCommandNode::Subshell(_) => Self::Subshell,
+            CompoundCommandNode::BraceGroup(_) => Self::BraceGroup,
+            CompoundCommandNode::Always { .. } => Self::Always,
+            CompoundCommandNode::Case { .. } => Self::Case,
+            CompoundCommandNode::Select { .. } => Self::Select,
+            CompoundCommandNode::Foreach { .. } => Self::Foreach,
+            CompoundCommandNode::Arithmetic(_) => Self::Arithmetic,
+            CompoundCommandNode::Time { .. } => Self::Time,
+            CompoundCommandNode::Conditional(_) => Self::Conditional,
+            CompoundCommandNode::Coproc { .. } => Self::Coproc,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct CommandFact<'a> {
     id: CommandId,
     key: FactSpan,
-    visit: CommandVisit<'a>,
+    span: Span,
+    arena_stmt_id: Option<AstStmtId>,
+    arena_command_id: Option<AstCommandId>,
+    shape: CommandFactShape,
+    stmt_span: Span,
+    stmt_negated: bool,
+    stmt_terminator: Option<StmtTerminator>,
+    stmt_terminator_span: Option<Span>,
+    has_redirects: bool,
+    has_assignments: bool,
     nested_word_command: bool,
     scope: Option<ScopeId>,
     normalized: NormalizedCommand<'a>,
+    arena_normalized: Option<ArenaCommandNameFacts>,
     zsh_options: Option<ZshOptionState>,
-    redirect_facts: IdRange<RedirectFact<'a>>,
+    redirect_facts: IdRange<RedirectFact>,
     substitution_facts: IdRange<SubstitutionFact>,
-    options: CommandOptionFacts<'a>,
-    scope_read_source_words: IdRange<PathWordFact<'a>>,
+    options: CommandOptionFacts,
+    scope_read_source_words: IdRange<PathWordFact>,
     scope_name_read_uses: IdRange<ComparableNameUse>,
     scope_heredoc_name_read_uses: IdRange<ComparableNameUse>,
     scope_name_write_uses: IdRange<ComparableNameUse>,
@@ -32,6 +263,30 @@ impl<'a> CommandFact<'a> {
         self.key
     }
 
+    pub fn arena_stmt_id(&self) -> Option<AstStmtId> {
+        self.arena_stmt_id
+    }
+
+    pub fn arena_command_id(&self) -> Option<AstCommandId> {
+        self.arena_command_id
+    }
+
+    fn shape(&self) -> CommandFactShape {
+        self.shape
+    }
+
+    pub(crate) fn command_kind(&self) -> ArenaFileCommandKind {
+        self.shape.kind
+    }
+
+    pub(crate) fn compound_kind(&self) -> Option<CommandFactCompoundKind> {
+        self.shape.compound_kind
+    }
+
+    pub(crate) fn binary_op(&self) -> Option<BinaryOp> {
+        self.shape.binary_op
+    }
+
     pub fn is_nested_word_command(&self) -> bool {
         self.nested_word_command
     }
@@ -40,24 +295,32 @@ impl<'a> CommandFact<'a> {
         self.scope
     }
 
-    pub fn stmt(&self) -> &'a Stmt {
-        self.visit.stmt
+    pub fn stmt_span(&self) -> Span {
+        self.stmt_span
     }
 
-    pub fn command(&self) -> &'a Command {
-        self.visit.command
+    pub fn stmt_negated(&self) -> bool {
+        self.stmt_negated
+    }
+
+    pub fn stmt_terminator(&self) -> Option<StmtTerminator> {
+        self.stmt_terminator
+    }
+
+    pub fn stmt_terminator_span(&self) -> Option<Span> {
+        self.stmt_terminator_span
     }
 
     pub fn span(&self) -> Span {
-        command_span(self.visit.command)
+        self.span
     }
 
     pub fn span_in_source(&self, source: &str) -> Span {
         trim_trailing_whitespace_span(self.span(), source)
     }
 
-    pub fn redirects(&self) -> &'a [Redirect] {
-        self.visit.redirects
+    pub fn has_redirects(&self) -> bool {
+        self.has_redirects
     }
 
     pub fn zsh_options(&self) -> Option<&ZshOptionState> {
@@ -68,7 +331,7 @@ impl<'a> CommandFact<'a> {
         &self.normalized
     }
 
-    pub fn options(&self) -> &CommandOptionFacts<'a> {
+    pub fn options(&self) -> &CommandOptionFacts {
         &self.options
     }
 
@@ -97,19 +360,28 @@ impl<'a> CommandFact<'a> {
     }
 
     pub fn literal_name(&self) -> Option<&str> {
-        self.normalized.literal_name.as_deref()
+        self.arena_normalized
+            .as_ref()
+            .and_then(|normalized| normalized.literal_name.as_deref())
+            .or(self.normalized.literal_name.as_deref())
     }
 
     pub fn effective_name(&self) -> Option<&str> {
-        self.normalized.effective_name.as_deref()
+        self.arena_normalized
+            .as_ref()
+            .and_then(|normalized| normalized.effective_name.as_deref())
+            .or(self.normalized.effective_name.as_deref())
     }
 
     pub fn effective_or_literal_name(&self) -> Option<&str> {
-        self.normalized.effective_or_literal_name()
+        self.arena_normalized
+            .as_ref()
+            .and_then(ArenaCommandNameFacts::effective_or_literal_name)
+            .or_else(|| self.normalized.effective_or_literal_name())
     }
 
     pub fn effective_name_is(&self, name: &str) -> bool {
-        self.normalized.effective_name_is(name)
+        self.effective_name() == Some(name)
     }
 
     pub fn static_utility_name(&self) -> Option<&str> {
@@ -121,19 +393,30 @@ impl<'a> CommandFact<'a> {
     }
 
     pub fn wrappers(&self) -> &[WrapperKind] {
-        &self.normalized.wrappers
+        self.arena_normalized
+            .as_ref()
+            .map_or(&self.normalized.wrappers, |normalized| &normalized.wrappers)
     }
 
     pub fn has_wrapper(&self, wrapper: WrapperKind) -> bool {
-        self.normalized.has_wrapper(wrapper)
+        self.wrappers().contains(&wrapper)
     }
 
     pub fn declaration(&self) -> Option<&NormalizedDeclaration<'a>> {
         self.normalized.declaration.as_ref()
     }
 
+    fn single_declaration_assignment_info(&self) -> Option<(&str, Span)> {
+        self.arena_normalized
+            .as_ref()
+            .and_then(|normalized| normalized.single_declaration_assignment.as_ref())
+            .map(|assignment| (assignment.target.as_ref(), assignment.span))
+    }
+
     pub fn body_span(&self) -> Span {
-        self.normalized.body_span
+        self.arena_normalized
+            .as_ref()
+            .map_or(self.normalized.body_span, |normalized| normalized.body_span)
     }
 
     pub fn body_name_word(&self) -> Option<&'a Word> {
@@ -141,7 +424,10 @@ impl<'a> CommandFact<'a> {
     }
 
     pub fn body_word_span(&self) -> Option<Span> {
-        self.normalized.body_word_span()
+        self.arena_normalized
+            .as_ref()
+            .and_then(|normalized| normalized.body_word_span)
+            .or_else(|| self.normalized.body_word_span())
     }
 
     pub fn body_word_contains_template_placeholder(&self, source: &str) -> bool {
@@ -179,15 +465,51 @@ impl<'a> CommandFact<'a> {
             return false;
         };
         let raw = span.slice(source);
-        raw != "[" || !command_assignments(self.command()).is_empty()
+        raw != "[" || self.has_assignments
     }
 
     pub fn body_args(&self) -> &[&'a Word] {
         self.normalized.body_args()
     }
 
-    pub fn file_operand_words(&self) -> &[&'a Word] {
-        self.options.file_operand_words()
+    pub fn arena_body_name_word<'facts>(
+        &self,
+        arena_file: &'facts ArenaFile,
+        source: &'facts str,
+    ) -> Option<FactWordRef<'facts>> {
+        let command_id = self.arena_command_id?;
+        self.arena_normalized
+            .as_ref()
+            .and_then(ArenaCommandNameFacts::body_name_word_id)
+            .or_else(|| {
+                let command = arena_file.store.command(command_id);
+                command::normalize_arena_command(command, source).body_name_word_id()
+            })
+            .map(|id| FactWordRef::new(arena_file, id))
+    }
+
+    pub fn arena_body_args<'facts>(
+        &self,
+        arena_file: &'facts ArenaFile,
+        source: &'facts str,
+    ) -> Vec<FactWordRef<'facts>> {
+        let Some(command_id) = self.arena_command_id else {
+            return Vec::new();
+        };
+        let owned_args;
+        let args = if let Some(normalized) = self.arena_normalized.as_ref() {
+            normalized.body_args()
+        } else {
+            let command = arena_file.store.command(command_id);
+            owned_args = command::normalize_arena_command(command, source)
+                .body_args()
+                .to_vec();
+            &owned_args
+        };
+        args.iter()
+            .copied()
+            .map(|id| FactWordRef::new(arena_file, id))
+            .collect()
     }
 
 }
@@ -209,31 +531,85 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
         self.fact.scope()
     }
 
-    pub fn stmt(self) -> &'a Stmt {
-        self.fact.stmt()
+    pub fn stmt_span(self) -> Span {
+        self.arena_stmt()
+            .map_or_else(|| self.fact.stmt_span(), |stmt| stmt.span())
     }
 
-    pub fn command(self) -> &'a Command {
-        self.fact.command()
+    pub fn stmt_negated(self) -> bool {
+        self.arena_stmt()
+            .map_or_else(|| self.fact.stmt_negated(), |stmt| stmt.negated())
+    }
+
+    pub fn stmt_terminator(self) -> Option<StmtTerminator> {
+        self.arena_stmt()
+            .map_or_else(|| self.fact.stmt_terminator(), |stmt| stmt.terminator())
+    }
+
+    pub fn stmt_terminator_span(self) -> Option<Span> {
+        self.arena_stmt()
+            .map_or_else(|| self.fact.stmt_terminator_span(), |stmt| stmt.terminator_span())
     }
 
     pub fn span(self) -> Span {
-        self.fact.span()
+        self.arena_command()
+            .map_or_else(|| self.fact.span(), |command| command.span())
     }
 
     pub fn span_in_source(self, source: &str) -> Span {
-        self.fact.span_in_source(source)
+        trim_trailing_whitespace_span(self.span(), source)
     }
 
-    pub fn redirects(self) -> &'a [Redirect] {
-        self.fact.redirects()
+    pub fn has_redirects(self) -> bool {
+        self.arena_stmt()
+            .map_or_else(|| self.fact.has_redirects(), |stmt| !stmt.redirects().is_empty())
+    }
+
+    pub fn arena_stmt(self) -> Option<StmtView<'facts>> {
+        self.fact
+            .arena_stmt_id
+            .map(|id| self.arena_file.store.stmt(id))
+    }
+
+    pub fn arena_command(self) -> Option<CommandView<'facts>> {
+        self.fact
+            .arena_command_id
+            .map(|id| self.arena_file.store.command(id))
+    }
+
+    pub(crate) fn command_kind(self) -> ArenaFileCommandKind {
+        self.fact.command_kind()
+    }
+
+    pub(crate) fn compound_kind(self) -> Option<CommandFactCompoundKind> {
+        self.fact.compound_kind()
+    }
+
+    pub(crate) fn binary_op(self) -> Option<BinaryOp> {
+        self.fact.binary_op()
+    }
+
+    pub fn arena_redirects(self) -> Option<&'facts [RedirectNode]> {
+        self.arena_stmt().map(|stmt| stmt.redirects())
+    }
+
+    pub fn arena_assignments(self) -> &'facts [AssignmentNode] {
+        self.arena_command()
+            .map(arena_command_assignments)
+            .unwrap_or(&[])
+    }
+
+    pub fn arena_declaration_operands(self) -> &'facts [DeclOperandNode] {
+        self.arena_command()
+            .map(arena_declaration_operands)
+            .unwrap_or(&[])
     }
 
     pub fn zsh_options(self) -> Option<&'facts ZshOptionState> {
         self.fact.zsh_options.as_ref()
     }
 
-    pub fn redirect_facts(self) -> &'facts [RedirectFact<'a>] {
+    pub fn redirect_facts(self) -> &'facts [RedirectFact] {
         self.store.redirect_facts(self.fact.redirect_facts)
     }
 
@@ -241,7 +617,7 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
         self.store.substitution_facts(self.fact.substitution_facts)
     }
 
-    pub fn scope_read_source_words(self) -> &'facts [PathWordFact<'a>] {
+    pub fn scope_read_source_words(self) -> &'facts [PathWordFact] {
         self.store
             .scope_read_source_words(self.fact.scope_read_source_words)
     }
@@ -269,7 +645,54 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
         &self.fact.normalized
     }
 
-    pub fn options(self) -> &'facts CommandOptionFacts<'a> {
+    pub fn arena_normalized(
+        self,
+        source: &'facts str,
+    ) -> Option<command::ArenaNormalizedCommand<'facts>> {
+        self.arena_command()
+            .map(|command| command::normalize_arena_command(command, source))
+    }
+
+    pub fn arena_literal_name(self, source: &'facts str) -> Option<Cow<'facts, str>> {
+        self.arena_normalized(source)?.literal_name
+    }
+
+    pub fn arena_effective_name(self, source: &'facts str) -> Option<Cow<'facts, str>> {
+        self.arena_normalized(source)?.effective_name
+    }
+
+    pub fn arena_effective_or_literal_name(self, source: &'facts str) -> Option<Cow<'facts, str>> {
+        let normalized = self.arena_normalized(source)?;
+        normalized.effective_name.or(normalized.literal_name)
+    }
+
+    pub fn arena_body_name_word_id(self, source: &'facts str) -> Option<WordId> {
+        self.arena_normalized(source)?.body_name_word_id()
+    }
+
+    pub fn arena_body_name_word(self, source: &'facts str) -> Option<FactWordRef<'facts>> {
+        self.arena_body_name_word_id(source)
+            .map(|id| FactWordRef::new(self.arena_file, id))
+    }
+
+    pub fn arena_body_word_ids(self, source: &'facts str) -> Vec<WordId> {
+        self.arena_normalized(source)
+            .map_or_else(Vec::new, |normalized| normalized.body_words)
+    }
+
+    pub fn arena_body_args(self, source: &'facts str) -> Vec<FactWordRef<'facts>> {
+        self.arena_normalized(source)
+            .map_or_else(Vec::new, |normalized| {
+                normalized
+                    .body_args()
+                    .iter()
+                    .copied()
+                    .map(|id| FactWordRef::new(self.arena_file, id))
+                    .collect()
+            })
+    }
+
+    pub fn options(self) -> &'facts CommandOptionFacts {
         &self.fact.options
     }
 
@@ -298,15 +721,15 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
     }
 
     pub fn literal_name(self) -> Option<&'facts str> {
-        self.fact.normalized.literal_name.as_deref()
+        self.fact.literal_name()
     }
 
     pub fn effective_name(self) -> Option<&'facts str> {
-        self.fact.normalized.effective_name.as_deref()
+        self.fact.effective_name()
     }
 
     pub fn effective_or_literal_name(self) -> Option<&'facts str> {
-        self.fact.normalized.effective_or_literal_name()
+        self.fact.effective_or_literal_name()
     }
 
     pub fn effective_name_is(self, name: &str) -> bool {
@@ -322,7 +745,7 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
     }
 
     pub fn wrappers(self) -> &'facts [WrapperKind] {
-        &self.fact.normalized.wrappers
+        self.fact.wrappers()
     }
 
     pub fn has_wrapper(self, wrapper: WrapperKind) -> bool {
@@ -370,8 +793,13 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
         self.fact.normalized.body_args()
     }
 
-    pub fn file_operand_words(self) -> &'facts [&'a Word] {
-        self.fact.options.file_operand_words()
+    pub fn file_operand_words(self) -> Vec<FactWordSpan> {
+        self.fact
+            .options
+            .file_operand_path_facts()
+            .iter()
+            .map(|fact| FactWordSpan { span: fact.span() })
+            .collect()
     }
 
     pub fn shellcheck_command_span(self, source: &str) -> Option<Span> {
@@ -382,7 +810,7 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
 
 fn pipeline_span_with_shellcheck_tail(
     commands: CommandFacts<'_, '_>,
-    pipeline: &PipelineFact<'_>,
+    pipeline: &PipelineFact,
     source: &str,
 ) -> Span {
     let Some(first_segment) = pipeline.first_segment() else {
@@ -396,34 +824,34 @@ fn pipeline_span_with_shellcheck_tail(
     let last_end = last.span_in_source(source).end;
     let end = extend_over_shellcheck_trailing_inline_space(last_end, source);
 
-    let Some(body_name_word) = first.body_name_word() else {
+    let Some(body_name_word) = first.arena_body_name_word(source) else {
         unreachable!("plain echo command should have a body name");
     };
-    Span::from_positions(body_name_word.span.start, end)
+    Span::from_positions(body_name_word.span().start, end)
 }
 
 fn command_span_with_redirects_and_shellcheck_tail(
     command: CommandFactRef<'_, '_>,
     source: &str,
 ) -> Option<Span> {
-    let body_name = command.body_name_word()?;
-    let mut end = body_name.span.end;
+    let body_name = command.arena_body_name_word(source)?;
+    let mut end = body_name.span().end;
 
-    for word in command.body_args() {
-        if word.span.end.offset > end.offset {
-            end = word.span.end;
+    for word in command.arena_body_args(source) {
+        if word.span().end.offset > end.offset {
+            end = word.span().end;
         }
     }
 
-    for redirect in command.redirect_facts() {
-        let redirect_end = redirect.redirect().span.end;
+    for redirect in command.arena_redirects().into_iter().flatten() {
+        let redirect_end = redirect.span.end;
         if redirect_end.offset > end.offset {
             end = redirect_end;
         }
     }
 
     Some(Span::from_positions(
-        body_name.span.start,
+        body_name.span().start,
         extend_over_shellcheck_trailing_inline_space(end, source),
     ))
 }
@@ -617,7 +1045,7 @@ fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
 
 fn build_background_semicolon_spans(
     commands: &[CommandFact<'_>],
-    case_items: &[CaseItemFact<'_>],
+    case_items: &[CaseItemFact],
     source: &str,
 ) -> Vec<Span> {
     let case_terminator_starts = case_items
@@ -638,11 +1066,11 @@ fn background_semicolon_span(
     case_terminator_starts: &FxHashSet<usize>,
     source: &str,
 ) -> Option<Span> {
-    if command.stmt().terminator != Some(StmtTerminator::Background(BackgroundOperator::Plain)) {
+    if command.stmt_terminator() != Some(StmtTerminator::Background(BackgroundOperator::Plain)) {
         return None;
     }
 
-    let terminator_span = command.stmt().terminator_span?;
+    let terminator_span = command.stmt_terminator_span()?;
     if terminator_span.slice(source) != "&" {
         return None;
     }
@@ -668,12 +1096,13 @@ fn background_semicolon_span(
 fn populate_scope_fact_ranges<'a>(
     commands: &mut [CommandFact<'a>],
     fact_store: &mut FactStore<'a>,
-    pipelines: &[PipelineFact<'a>],
+    pipelines: &[PipelineFact],
     if_condition_command_ids: &FxHashSet<CommandId>,
+    arena_file: &ArenaFile,
     source: &str,
 ) {
     let (pipeline_summaries, pipeline_summary_ids_by_writer) = {
-        let command_facts = CommandFacts::new(commands, fact_store);
+        let command_facts = CommandFacts::new(commands, fact_store, arena_file);
         build_pipeline_scope_summaries(
             command_facts,
             pipelines,
@@ -688,7 +1117,7 @@ fn populate_scope_fact_ranges<'a>(
 
     for index in 0..commands.len() {
         {
-            let command_facts = CommandFacts::new(commands, fact_store);
+            let command_facts = CommandFacts::new(commands, fact_store, arena_file);
             let command = command_facts
                 .get(index)
                 .expect("command index should resolve while populating scope facts");
@@ -737,18 +1166,18 @@ fn populate_scope_fact_ranges<'a>(
     }
 }
 
-struct PipelineScopeSummary<'a> {
-    source_words: Vec<PathWordFact<'a>>,
+struct PipelineScopeSummary {
+    source_words: Vec<PathWordFact>,
     name_reads: Vec<ComparableNameUse>,
     heredoc_name_reads: Vec<ComparableNameUse>,
 }
 
 fn build_pipeline_scope_summaries<'a>(
     commands: CommandFacts<'_, 'a>,
-    pipelines: &[PipelineFact<'a>],
+    pipelines: &[PipelineFact],
     if_condition_command_ids: &FxHashSet<CommandId>,
     source: &str,
-) -> (Vec<PipelineScopeSummary<'a>>, Vec<SmallVec<[usize; 1]>>) {
+) -> (Vec<PipelineScopeSummary>, Vec<SmallVec<[usize; 1]>>) {
     let mut summaries = Vec::new();
     let mut summary_ids_by_writer = vec![SmallVec::<[usize; 1]>::new(); commands.len()];
 
@@ -804,11 +1233,11 @@ fn build_pipeline_scope_summaries<'a>(
 fn collect_scope_read_source_words_for_command<'a>(
     commands: CommandFacts<'_, 'a>,
     command: CommandFactRef<'_, 'a>,
-    pipeline_summaries: &[PipelineScopeSummary<'a>],
+    pipeline_summaries: &[PipelineScopeSummary],
     pipeline_summary_ids: &[usize],
     if_condition_command_ids: &FxHashSet<CommandId>,
     source: &str,
-    words: &mut Vec<PathWordFact<'a>>,
+    words: &mut Vec<PathWordFact>,
 ) {
     collect_own_scope_read_source_words(command, if_condition_command_ids, source, words);
     if command_has_file_output_redirect(command) {
@@ -834,7 +1263,7 @@ fn collect_scope_read_source_words_for_command<'a>(
 fn collect_scope_name_read_uses_for_command(
     commands: CommandFacts<'_, '_>,
     command: CommandFactRef<'_, '_>,
-    pipeline_summaries: &[PipelineScopeSummary<'_>],
+    pipeline_summaries: &[PipelineScopeSummary],
     pipeline_summary_ids: &[usize],
     source: &str,
     uses: &mut Vec<ComparableNameUse>,
@@ -852,7 +1281,7 @@ fn collect_scope_name_read_uses_for_command(
 fn collect_scope_heredoc_name_read_uses_for_command(
     commands: CommandFacts<'_, '_>,
     command: CommandFactRef<'_, '_>,
-    pipeline_summaries: &[PipelineScopeSummary<'_>],
+    pipeline_summaries: &[PipelineScopeSummary],
     pipeline_summary_ids: &[usize],
     source: &str,
     uses: &mut Vec<ComparableNameUse>,
@@ -891,21 +1320,9 @@ fn collect_own_scope_read_source_words<'a>(
     command: CommandFactRef<'_, 'a>,
     if_condition_command_ids: &FxHashSet<CommandId>,
     source: &str,
-    words: &mut Vec<PathWordFact<'a>>,
+    words: &mut Vec<PathWordFact>,
 ) {
-    words.extend(command
-        .file_operand_words()
-        .iter()
-        .copied()
-        .map(|word| {
-            PathWordFact::new(
-                word,
-                ExpansionContext::CommandArgument,
-                source,
-                command.zsh_options(),
-            )
-        })
-    );
+    words.extend(command.options().file_operand_path_facts().iter().cloned());
     collect_command_redirect_read_source_words(command, source, words);
     collect_command_simple_test_path_words(command, source, words);
     if !if_condition_command_ids.contains(&command.id()) {
@@ -919,7 +1336,7 @@ fn collect_own_scope_name_read_uses(
     uses: &mut Vec<ComparableNameUse>,
 ) {
     for redirect in command.redirect_facts() {
-        match redirect.redirect().kind {
+        match redirect.kind() {
             RedirectKind::Input => {
                 uses.extend(redirect.comparable_name_uses().iter().cloned());
             }
@@ -938,21 +1355,11 @@ fn collect_own_scope_name_read_uses(
 
 fn collect_own_scope_heredoc_name_read_uses(
     command: CommandFactRef<'_, '_>,
-    source: &str,
+    _source: &str,
     uses: &mut Vec<ComparableNameUse>,
 ) {
     for redirect in command.redirect_facts() {
-        if !matches!(
-            redirect.redirect().kind,
-            RedirectKind::HereDoc | RedirectKind::HereDocStrip
-        ) {
-            continue;
-        }
-        if let Some(heredoc) = redirect.redirect().heredoc()
-            && heredoc.delimiter.expands_body
-        {
-            uses.extend(comparable_heredoc_name_uses(&heredoc.body, source));
-        }
+        uses.extend(redirect.comparable_heredoc_name_uses().iter().cloned());
     }
 }
 
@@ -971,7 +1378,7 @@ fn collect_nested_scope_read_source_words<'a>(
     command: CommandFactRef<'_, 'a>,
     if_condition_command_ids: &FxHashSet<CommandId>,
     source: &str,
-    words: &mut Vec<PathWordFact<'a>>,
+    words: &mut Vec<PathWordFact>,
 ) {
     for other in commands
         .iter()
@@ -1023,9 +1430,9 @@ fn collect_nested_scope_name_write_uses(
     }
 }
 
-fn dedup_path_words(words: &mut Vec<PathWordFact<'_>>) {
+fn dedup_path_words(words: &mut Vec<PathWordFact>) {
     let mut seen = FxHashSet::<(FactSpan, ExpansionContext)>::default();
-    words.retain(|fact| seen.insert((FactSpan::new(fact.word().span), fact.context())));
+    words.retain(|fact| seen.insert((FactSpan::new(fact.span()), fact.context())));
 }
 
 fn dedup_name_uses(uses: &mut Vec<ComparableNameUse>) {
@@ -1036,7 +1443,7 @@ fn dedup_name_uses(uses: &mut Vec<ComparableNameUse>) {
 fn command_has_file_output_redirect(command: CommandFactRef<'_, '_>) -> bool {
     command.redirect_facts().iter().any(|redirect| {
         matches!(
-            redirect.redirect().kind,
+            redirect.kind(),
             RedirectKind::Output
                 | RedirectKind::Clobber
                 | RedirectKind::Append
@@ -1050,7 +1457,7 @@ fn command_has_file_output_redirect(command: CommandFactRef<'_, '_>) -> bool {
 fn command_has_file_input_redirect(command: CommandFactRef<'_, '_>) -> bool {
     command.redirect_facts().iter().any(|redirect| {
         matches!(
-            redirect.redirect().kind,
+            redirect.kind(),
             RedirectKind::Input | RedirectKind::ReadWrite
         ) && redirect
             .analysis()
@@ -1060,37 +1467,20 @@ fn command_has_file_input_redirect(command: CommandFactRef<'_, '_>) -> bool {
 
 fn collect_command_redirect_read_source_words<'a>(
     command: CommandFactRef<'_, 'a>,
-    source: &str,
-    words: &mut Vec<PathWordFact<'a>>,
+    _source: &str,
+    words: &mut Vec<PathWordFact>,
 ) {
     for redirect in command.redirect_facts() {
-        if !matches!(
-            redirect.redirect().kind,
-            RedirectKind::Input | RedirectKind::ReadWrite | RedirectKind::HereString
-        ) {
-            continue;
+        if let Some(word) = redirect.read_source_word() {
+            words.push(word.clone());
         }
-
-        let Some(word) = redirect.redirect().word_target() else {
-            continue;
-        };
-        let context = match ExpansionContext::from_redirect_kind(redirect.redirect().kind) {
-            Some(context) => context,
-            None => unreachable!("input redirects should carry a word target context"),
-        };
-        words.push(PathWordFact::new(
-            word,
-            context,
-            source,
-            command.zsh_options(),
-        ));
     }
 }
 
 fn collect_command_simple_test_path_words<'a>(
     command: CommandFactRef<'_, 'a>,
     source: &str,
-    words: &mut Vec<PathWordFact<'a>>,
+    words: &mut Vec<PathWordFact>,
 ) {
     let Some(simple_test) = command.simple_test() else {
         return;
@@ -1102,6 +1492,7 @@ fn collect_command_simple_test_path_words<'a>(
         .map(|word| {
             PathWordFact::new(
                 word,
+                None,
                 ExpansionContext::StringTestOperand,
                 source,
                 command.zsh_options(),
@@ -1112,7 +1503,7 @@ fn collect_command_simple_test_path_words<'a>(
 fn collect_command_conditional_path_words<'a>(
     command: CommandFactRef<'_, 'a>,
     source: &str,
-    words: &mut Vec<PathWordFact<'a>>,
+    words: &mut Vec<PathWordFact>,
 ) {
     if let Some(conditional) = command.conditional() {
         for node in conditional.nodes() {
@@ -1123,6 +1514,7 @@ fn collect_command_conditional_path_words<'a>(
                     if let Some(word) = binary.left().word() {
                         words.push(PathWordFact::new(
                             word,
+                            None,
                             ExpansionContext::StringTestOperand,
                             source,
                             command.zsh_options(),
@@ -1131,6 +1523,7 @@ fn collect_command_conditional_path_words<'a>(
                     if let Some(word) = binary.right().word() {
                         words.push(PathWordFact::new(
                             word,
+                            None,
                             ExpansionContext::StringTestOperand,
                             source,
                             command.zsh_options(),
@@ -1154,14 +1547,17 @@ fn contains_span_strictly(outer: Span, inner: Span) -> bool {
         && (outer.start.offset < inner.start.offset || inner.end.offset < outer.end.offset)
 }
 
-fn build_backtick_command_name_spans(commands: &[CommandFact<'_>]) -> Vec<Span> {
+fn build_backtick_command_name_spans(commands: &[CommandFact<'_>], arena_file: &ArenaFile) -> Vec<Span> {
     let mut spans = commands
         .iter()
-        .filter_map(|fact| match fact.command() {
-            Command::Simple(command) if command.args.is_empty() => {
-                plain_backtick_command_name_span(&command.name)
-            }
-            _ => None,
+        .filter_map(|fact| {
+            let command = arena_file.store.command(fact.arena_command_id()?);
+            let simple = command.simple()?;
+            simple
+                .arg_ids()
+                .is_empty()
+                .then(|| plain_backtick_arena_command_name_span(simple.name()))
+                .flatten()
         })
         .collect::<Vec<_>>();
 
@@ -1171,18 +1567,19 @@ fn build_backtick_command_name_spans(commands: &[CommandFact<'_>]) -> Vec<Span> 
     spans
 }
 
-fn plain_backtick_command_name_span(word: &Word) -> Option<Span> {
-    let [part] = word.parts.as_slice() else {
+fn plain_backtick_arena_command_name_span(word: WordView<'_>) -> Option<Span> {
+    let [part] = word.parts() else {
         return None;
     };
 
-    match &part.kind {
-        WordPart::CommandSubstitution {
+    matches!(
+        part.kind,
+        WordPartArena::CommandSubstitution {
             syntax: CommandSubstitutionSyntax::Backtick,
             ..
-        } => Some(part.span),
-        _ => None,
-    }
+        }
+    )
+    .then_some(part.span)
 }
 
 fn command_span(command: &Command) -> Span {
@@ -1295,6 +1692,13 @@ impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
         self.fact_for_command(&stmt.command)
     }
 
+    fn fact_for_arena_stmt(self, stmt: StmtView<'_>) -> Option<&'facts CommandFact<'a>> {
+        let id = stmt.command().id();
+        self.commands
+            .iter()
+            .find(|fact| fact.arena_command_id().is_some_and(|candidate| candidate.index() == id.index()))
+    }
+
     fn child_id_for_command(self, parent_id: CommandId, command: &Command) -> Option<CommandId> {
         child_command_id_for_command(parent_id, command, self.commands, self.command_child_index)
     }
@@ -1315,6 +1719,25 @@ impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
     ) -> Option<&'facts CommandFact<'a>> {
         self.child_fact_for_stmt(parent_id, stmt)
             .or_else(|| self.fact_for_stmt(stmt))
+    }
+
+    fn child_or_lookup_arena_fact(
+        self,
+        parent_id: CommandId,
+        stmt: StmtView<'_>,
+    ) -> Option<&'facts CommandFact<'a>> {
+        let child_id = stmt.command().id();
+        self.command_child_index
+            .child_ids(parent_id)
+            .iter()
+            .copied()
+            .find(|id| {
+                self.fact(*id)
+                    .arena_command_id()
+                    .is_some_and(|candidate| candidate.index() == child_id.index())
+            })
+            .map(|id| self.fact(id))
+            .or_else(|| self.fact_for_arena_stmt(stmt))
     }
 
 }
@@ -1399,19 +1822,21 @@ fn compare_command_parent_entries(
 fn build_command_dominance_barrier_flags(commands: &[CommandFact<'_>]) -> Vec<bool> {
     commands
         .iter()
-        .map(|fact| match fact.command() {
-            Command::Binary(_) => true,
-            Command::Compound(compound) => !matches!(
-                compound,
-                CompoundCommand::BraceGroup(_)
-                    | CompoundCommand::Arithmetic(_)
-                    | CompoundCommand::Time(_)
+        .map(|fact| match fact.shape().kind {
+            ArenaFileCommandKind::Binary => true,
+            ArenaFileCommandKind::Compound => !matches!(
+                fact.shape().compound_kind,
+                Some(
+                    CommandFactCompoundKind::BraceGroup
+                        | CommandFactCompoundKind::Arithmetic
+                        | CommandFactCompoundKind::Time
+                )
             ),
-            Command::Simple(_)
-            | Command::Builtin(_)
-            | Command::Decl(_)
-            | Command::Function(_)
-            | Command::AnonymousFunction(_) => false,
+            ArenaFileCommandKind::Simple
+            | ArenaFileCommandKind::Builtin
+            | ArenaFileCommandKind::Decl
+            | ArenaFileCommandKind::Function
+            | ArenaFileCommandKind::AnonymousFunction => false,
         })
         .collect()
 }
@@ -1460,7 +1885,7 @@ fn child_command_id_for_command(
         .child_ids(parent_id)
         .iter()
         .copied()
-        .find(|id| std::ptr::eq(command_fact(commands, *id).command(), command))
+        .find(|id| command_fact(commands, *id).span() == command_span(command))
 }
 
 fn command_fact_ref_for_stmt<'facts, 'a>(

@@ -1,26 +1,39 @@
 #[derive(Debug, Clone)]
-pub struct PathWordFact<'a> {
-    word: &'a Word,
+pub struct PathWordFact {
+    span: Span,
+    word_id: Option<WordId>,
     context: ExpansionContext,
     comparable_path: Option<ComparablePath>,
+    comparable_name_uses: Box<[ComparableNameUse]>,
 }
 
-impl<'a> PathWordFact<'a> {
+impl PathWordFact {
     pub(crate) fn new(
-        word: &'a Word,
+        word: &Word,
+        word_id: Option<WordId>,
         context: ExpansionContext,
         source: &str,
         zsh_options: Option<&ZshOptionState>,
     ) -> Self {
         Self {
-            word,
+            span: word.span,
+            word_id,
             context,
             comparable_path: comparable_path(word, source, context, zsh_options),
+            comparable_name_uses: comparable_name_uses(word, source),
         }
     }
 
-    pub fn word(&self) -> &'a Word {
-        self.word
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn word(&self) -> FactWordSpan {
+        FactWordSpan { span: self.span }
+    }
+
+    pub fn word_id(&self) -> Option<WordId> {
+        self.word_id
     }
 
     pub fn context(&self) -> ExpansionContext {
@@ -29,6 +42,10 @@ impl<'a> PathWordFact<'a> {
 
     pub(crate) fn comparable_path(&self) -> Option<&ComparablePath> {
         self.comparable_path.as_ref()
+    }
+
+    pub(crate) fn comparable_name_uses(&self) -> &[ComparableNameUse] {
+        &self.comparable_name_uses
     }
 }
 
@@ -61,14 +78,23 @@ impl SuCommandFacts {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct EchoCommandFacts<'a> {
-    portability_flag_word: Option<&'a Word>,
+pub struct EchoCommandFacts {
+    portability_flag_span: Option<Span>,
+    portability_flag_word_id: Option<WordId>,
     uses_escape_interpreting_flag: bool,
 }
 
-impl<'a> EchoCommandFacts<'a> {
-    pub fn portability_flag_word(self) -> Option<&'a Word> {
-        self.portability_flag_word
+impl EchoCommandFacts {
+    pub fn portability_flag_span(self) -> Option<Span> {
+        self.portability_flag_span
+    }
+
+    pub fn portability_flag_word(self) -> Option<FactWordSpan> {
+        self.portability_flag_span.map(|span| FactWordSpan { span })
+    }
+
+    pub fn portability_flag_word_id(self) -> Option<WordId> {
+        self.portability_flag_word_id
     }
 
     pub fn uses_escape_interpreting_flag(self) -> bool {
@@ -77,13 +103,35 @@ impl<'a> EchoCommandFacts<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct TrCommandFacts<'a> {
-    operand_words: Box<[&'a Word]>,
+pub struct TrCommandFacts {
+    operand_spans: Box<[Span]>,
+    operand_static_texts: Box<[Option<Box<str>>]>,
+    operand_word_ids: Box<[Option<WordId>]>,
 }
 
-impl<'a> TrCommandFacts<'a> {
-    pub fn operand_words(&self) -> &[&'a Word] {
-        &self.operand_words
+impl TrCommandFacts {
+    pub fn operand_word_ids(&self) -> &[Option<WordId>] {
+        &self.operand_word_ids
+    }
+
+    pub fn operand_spans(&self) -> &[Span] {
+        &self.operand_spans
+    }
+
+    pub fn operand_words(&self) -> Vec<FactWordSpan> {
+        self.operand_spans
+            .iter()
+            .copied()
+            .map(|span| FactWordSpan { span })
+            .collect()
+    }
+
+    pub fn exact_operand_spans<'a>(&'a self, exact_text: &'a str) -> impl Iterator<Item = Span> + 'a {
+        self.operand_spans
+            .iter()
+            .copied()
+            .zip(self.operand_static_texts.iter())
+            .filter_map(move |(span, text)| (text.as_deref() == Some(exact_text)).then_some(span))
     }
 }
 
@@ -99,32 +147,52 @@ impl SedCommandFacts {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct PrintfCommandFacts<'a> {
-    pub format_word: Option<&'a Word>,
+pub struct PrintfCommandFacts {
+    pub format_word: Option<FactWordSpan>,
+    pub format_word_span: Option<Span>,
+    pub format_word_id: Option<WordId>,
     pub format_word_has_literal_percent: bool,
     pub uses_q_format: bool,
 }
 
 #[derive(Debug, Clone)]
-pub struct UnsetCommandFacts<'a> {
+pub struct UnsetCommandFacts {
     pub function_mode: bool,
     nameref_mode: bool,
-    operand_words: Box<[&'a Word]>,
-    operand_facts: Box<[UnsetOperandFact<'a>]>,
+    operand_spans: Box<[Span]>,
+    operand_static_texts: Box<[Option<Box<str>>]>,
+    operand_word_ids: Box<[Option<WordId>]>,
+    operand_facts: Box<[UnsetOperandFact]>,
     prefix_match_operand_spans: Box<[Span]>,
     options_parseable: bool,
 }
 
-impl<'a> UnsetCommandFacts<'a> {
-    pub fn operand_words(&self) -> &[&'a Word] {
-        &self.operand_words
+impl UnsetCommandFacts {
+    pub fn operand_spans(&self) -> &[Span] {
+        &self.operand_spans
+    }
+
+    pub fn operand_words(&self) -> Vec<FactWordSpan> {
+        self.operand_spans
+            .iter()
+            .copied()
+            .map(|span| FactWordSpan { span })
+            .collect()
+    }
+
+    pub fn operand_static_texts(&self) -> &[Option<Box<str>>] {
+        &self.operand_static_texts
+    }
+
+    pub fn operand_word_ids(&self) -> &[Option<WordId>] {
+        &self.operand_word_ids
     }
 
     pub fn prefix_match_operand_spans(&self) -> &[Span] {
         &self.prefix_match_operand_spans
     }
 
-    pub(crate) fn operand_facts(&self) -> &[UnsetOperandFact<'a>] {
+    pub(crate) fn operand_facts(&self) -> &[UnsetOperandFact] {
         &self.operand_facts
     }
 
@@ -136,13 +204,13 @@ impl<'a> UnsetCommandFacts<'a> {
         self.nameref_mode
     }
 
-    pub fn targets_function_name(&self, source: &str, target_name: &str) -> bool {
+    pub fn targets_function_name(&self, _source: &str, target_name: &str) -> bool {
         if !self.function_mode || !self.options_parseable {
             return false;
         }
 
-        for word in self.operand_words() {
-            let Some(text) = static_word_text(word, source) else {
+        for text in self.operand_static_texts() {
+            let Some(text) = text.as_deref() else {
                 return false;
             };
 
@@ -156,14 +224,31 @@ impl<'a> UnsetCommandFacts<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct UnsetOperandFact<'a> {
-    word: &'a Word,
+pub(crate) struct UnsetOperandFact {
+    span: Span,
+    #[allow(dead_code)]
+    word_id: Option<WordId>,
+    static_text: Option<Box<str>>,
     array_subscript: Option<UnsetArraySubscriptFact>,
 }
 
-impl<'a> UnsetOperandFact<'a> {
-    pub(crate) fn word(&self) -> &'a Word {
-        self.word
+impl UnsetOperandFact {
+    pub(crate) fn span(&self) -> Span {
+        self.span
+    }
+
+    #[cfg(test)]
+    pub(crate) fn word(&self) -> FactWordSpan {
+        FactWordSpan { span: self.span }
+    }
+
+    pub(crate) fn static_text(&self) -> Option<&str> {
+        self.static_text.as_deref()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn word_id(&self) -> Option<WordId> {
+        self.word_id
     }
 
     pub(crate) fn array_subscript(&self) -> Option<&UnsetArraySubscriptFact> {
@@ -257,16 +342,16 @@ impl MapfileCommandFacts {
 }
 
 #[derive(Debug, Clone)]
-pub struct XargsCommandFacts<'a> {
+pub struct XargsCommandFacts {
     pub uses_null_input: bool,
     max_procs: Option<u64>,
     zero_digit_option_word: bool,
     inline_replace_options: Box<[XargsInlineReplaceOptionFact]>,
-    command_operand_words: Box<[&'a Word]>,
+    command_operand_word_ids: Box<[Option<WordId>]>,
     sc2267_default_replace_silent_shape: bool,
 }
 
-impl<'a> XargsCommandFacts<'a> {
+impl XargsCommandFacts {
     pub fn max_procs(&self) -> Option<u64> {
         self.max_procs
     }
@@ -285,8 +370,8 @@ impl<'a> XargsCommandFacts<'a> {
             .map(XargsInlineReplaceOptionFact::span)
     }
 
-    pub fn command_operand_words(&self) -> &[&'a Word] {
-        &self.command_operand_words
+    pub fn command_operand_word_ids(&self) -> &[Option<WordId>] {
+        &self.command_operand_word_ids
     }
 
     pub fn has_sc2267_default_replace_silent_shape(&self) -> bool {
@@ -322,14 +407,14 @@ impl WaitCommandFacts {
 }
 
 #[derive(Debug, Clone)]
-pub struct GrepCommandFacts<'a> {
+pub struct GrepCommandFacts {
     pub uses_only_matching: bool,
     pub uses_fixed_strings: bool,
-    patterns: Box<[GrepPatternFact<'a>]>,
+    patterns: Box<[GrepPatternFact]>,
 }
 
-impl<'a> GrepCommandFacts<'a> {
-    pub fn patterns(&self) -> &[GrepPatternFact<'a>] {
+impl GrepCommandFacts {
+    pub fn patterns(&self) -> &[GrepPatternFact] {
         &self.patterns
     }
 }
@@ -353,24 +438,26 @@ impl GrepPatternSourceKind {
 }
 
 #[derive(Debug, Clone)]
-pub struct GrepPatternFact<'a> {
-    word: &'a Word,
+pub struct GrepPatternFact {
+    word_id: Option<WordId>,
+    span: Span,
     static_text: Option<Box<str>>,
     source_kind: GrepPatternSourceKind,
     is_first_pattern: bool,
     follows_separate_option_argument: bool,
     starts_with_glob_style_star: bool,
     has_glob_style_star_confusion: bool,
+    unquoted_glob_pattern_spans: Box<[Span]>,
     glob_style_star_replacement_spans: Box<[Span]>,
 }
 
-impl<'a> GrepPatternFact<'a> {
-    pub fn word(&self) -> &'a Word {
-        self.word
+impl GrepPatternFact {
+    pub fn word_id(&self) -> Option<WordId> {
+        self.word_id
     }
 
     pub fn span(&self) -> Span {
-        self.word.span
+        self.span
     }
 
     pub fn static_text(&self) -> Option<&str> {
@@ -395,6 +482,10 @@ impl<'a> GrepPatternFact<'a> {
 
     pub fn has_glob_style_star_confusion(&self) -> bool {
         self.has_glob_style_star_confusion
+    }
+
+    pub fn has_unquoted_glob_pattern(&self) -> bool {
+        !self.unquoted_glob_pattern_spans.is_empty()
     }
 
     pub fn glob_style_star_replacement_spans(&self) -> &[Span] {
@@ -548,20 +639,22 @@ impl ExprCommandFacts {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct ExitCommandFacts<'a> {
-    pub status_word: Option<&'a Word>,
+pub struct ExitCommandFacts {
+    pub status_word: Option<FactWordSpan>,
+    pub status_word_span: Option<Span>,
+    pub status_word_id: Option<WordId>,
     pub is_numeric_literal: bool,
     status_is_static: bool,
     status_has_literal_content: bool,
 }
 
-impl<'a> ExitCommandFacts<'a> {
+impl ExitCommandFacts {
     pub fn has_static_status(self) -> bool {
         self.status_is_static
     }
 
     pub fn has_invalid_status_argument(self) -> bool {
-        self.status_word.is_some()
+        self.status_word_span.is_some()
             && !self.is_numeric_literal
             && (self.status_is_static || self.status_has_literal_content)
     }
@@ -573,34 +666,35 @@ pub struct SudoFamilyCommandFacts {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct CommandOptionFacts<'a> {
+pub struct CommandOptionFacts {
     rm: Option<RmCommandFacts>,
     ssh: Option<SshCommandFacts>,
     read: Option<ReadCommandFacts>,
     su: Option<SuCommandFacts>,
-    echo: Option<EchoCommandFacts<'a>>,
+    echo: Option<EchoCommandFacts>,
     sed: Option<SedCommandFacts>,
-    tr: Option<TrCommandFacts<'a>>,
-    printf: Option<PrintfCommandFacts<'a>>,
-    unset: Option<UnsetCommandFacts<'a>>,
+    tr: Option<TrCommandFacts>,
+    printf: Option<PrintfCommandFacts>,
+    unset: Option<UnsetCommandFacts>,
     find: Option<FindCommandFacts>,
     find_exec: Option<FindExecCommandFacts>,
     find_exec_shell: Option<FindExecShellCommandFacts>,
     mapfile: Option<MapfileCommandFacts>,
-    xargs: Option<XargsCommandFacts<'a>>,
+    xargs: Option<XargsCommandFacts>,
     wait: Option<WaitCommandFacts>,
-    grep: Option<GrepCommandFacts<'a>>,
+    grep: Option<GrepCommandFacts>,
     ps: Option<PsCommandFacts>,
     set: Option<SetCommandFacts>,
     directory_change: Option<DirectoryChangeCommandFacts>,
     expr: Option<ExprCommandFacts>,
-    exit: Option<ExitCommandFacts<'a>>,
+    exit: Option<ExitCommandFacts>,
     sudo_family: Option<SudoFamilyCommandFacts>,
     nonportable_sh_builtin_option_span: Option<Span>,
-    file_operand_words: Box<[&'a Word]>,
+    file_operand_path_facts: Box<[PathWordFact]>,
+    file_operand_word_ids: Box<[Option<WordId>]>,
 }
 
-impl<'a> CommandOptionFacts<'a> {
+impl CommandOptionFacts {
     pub fn rm(&self) -> Option<&RmCommandFacts> {
         self.rm.as_ref()
     }
@@ -617,7 +711,7 @@ impl<'a> CommandOptionFacts<'a> {
         self.su.as_ref()
     }
 
-    pub fn echo(&self) -> Option<&EchoCommandFacts<'a>> {
+    pub fn echo(&self) -> Option<&EchoCommandFacts> {
         self.echo.as_ref()
     }
 
@@ -625,15 +719,15 @@ impl<'a> CommandOptionFacts<'a> {
         self.sed.as_ref()
     }
 
-    pub fn tr(&self) -> Option<&TrCommandFacts<'a>> {
+    pub fn tr(&self) -> Option<&TrCommandFacts> {
         self.tr.as_ref()
     }
 
-    pub fn printf(&self) -> Option<&PrintfCommandFacts<'a>> {
+    pub fn printf(&self) -> Option<&PrintfCommandFacts> {
         self.printf.as_ref()
     }
 
-    pub fn unset(&self) -> Option<&UnsetCommandFacts<'a>> {
+    pub fn unset(&self) -> Option<&UnsetCommandFacts> {
         self.unset.as_ref()
     }
 
@@ -653,7 +747,7 @@ impl<'a> CommandOptionFacts<'a> {
         self.mapfile.as_ref()
     }
 
-    pub fn xargs(&self) -> Option<&XargsCommandFacts<'a>> {
+    pub fn xargs(&self) -> Option<&XargsCommandFacts> {
         self.xargs.as_ref()
     }
 
@@ -661,7 +755,7 @@ impl<'a> CommandOptionFacts<'a> {
         self.wait.as_ref()
     }
 
-    pub fn grep(&self) -> Option<&GrepCommandFacts<'a>> {
+    pub fn grep(&self) -> Option<&GrepCommandFacts> {
         self.grep.as_ref()
     }
 
@@ -681,7 +775,7 @@ impl<'a> CommandOptionFacts<'a> {
         self.expr.as_ref()
     }
 
-    pub fn exit(&self) -> Option<&ExitCommandFacts<'a>> {
+    pub fn exit(&self) -> Option<&ExitCommandFacts> {
         self.exit.as_ref()
     }
 
@@ -693,11 +787,43 @@ impl<'a> CommandOptionFacts<'a> {
         self.nonportable_sh_builtin_option_span
     }
 
-    pub fn file_operand_words(&self) -> &[&'a Word] {
-        &self.file_operand_words
+    pub fn file_operand_path_facts(&self) -> &[PathWordFact] {
+        &self.file_operand_path_facts
     }
 
-    fn build(command: &'a Command, normalized: &NormalizedCommand<'a>, source: &str) -> Self {
+    pub fn file_operand_word_ids(&self) -> &[Option<WordId>] {
+        &self.file_operand_word_ids
+    }
+
+    fn build(
+        command: &Command,
+        normalized: &NormalizedCommand<'_>,
+        source: &str,
+        arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
+        zsh_options: Option<&ZshOptionState>,
+    ) -> Self {
+        let file_operand_words = same_command_file_operand_words(
+            normalized.effective_or_literal_name(),
+            normalized.body_args(),
+            source,
+        );
+        let file_operand_word_ids =
+            word_ids_for_words(file_operand_words.iter().copied(), arena_word_ids_by_span);
+        let file_operand_path_facts = file_operand_words
+            .iter()
+            .copied()
+            .zip(file_operand_word_ids.iter().copied())
+            .map(|(word, word_id)| {
+                PathWordFact::new(
+                    word,
+                    word_id,
+                    ExpansionContext::CommandArgument,
+                    source,
+                    zsh_options,
+                )
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
         Self {
             rm: normalized
                 .literal_name
@@ -723,25 +849,28 @@ impl<'a> CommandOptionFacts<'a> {
                 .then(|| parse_su_command(normalized.body_args(), source)),
             echo: normalized
                 .effective_basename_is("echo")
-                .then(|| parse_echo_command(normalized.body_args(), source)),
+                .then(|| parse_echo_command(normalized.body_args(), source, arena_word_ids_by_span)),
             sed: normalized
                 .effective_name_is("sed")
                 .then(|| parse_sed_command(normalized.body_args(), source)),
             tr: (normalized.effective_name_is("tr") && normalized.wrappers.is_empty())
-                .then(|| parse_tr_command(normalized.body_args(), source)),
+                .then(|| parse_tr_command(normalized.body_args(), source, arena_word_ids_by_span)),
             printf: normalized.effective_name_is("printf").then(|| {
                 let format_word = printf_format_word(normalized.body_args(), source);
                 PrintfCommandFacts {
+                    format_word_span: format_word.map(|word| word.span),
+                    format_word: format_word.map(|word| FactWordSpan { span: word.span }),
+                    format_word_id: format_word
+                        .and_then(|word| word_id_for_word(word, arena_word_ids_by_span)),
                     format_word_has_literal_percent: format_word
                         .is_some_and(|word| printf_format_word_has_literal_percent(word, source)),
                     uses_q_format: format_word
                         .is_some_and(|word| printf_uses_q_format(word, source)),
-                    format_word,
                 }
             }),
             unset: normalized
                 .effective_name_is("unset")
-                .then(|| parse_unset_command(normalized.body_args(), source)),
+                .then(|| parse_unset_command(normalized.body_args(), source, arena_word_ids_by_span)),
             find: (normalized.effective_name_is("find")
                 || normalized.literal_name.as_deref() == Some("find"))
             .then(|| parse_find_command(find_command_args(command, normalized, source), source)),
@@ -760,13 +889,13 @@ impl<'a> CommandOptionFacts<'a> {
             .then(|| parse_mapfile_command(normalized.body_args(), source)),
             xargs: normalized
                 .effective_name_is("xargs")
-                .then(|| parse_xargs_command(normalized.body_args(), source)),
+                .then(|| parse_xargs_command(normalized.body_args(), source, arena_word_ids_by_span)),
             wait: normalized
                 .effective_name_is("wait")
                 .then(|| parse_wait_command(normalized.body_args(), source)),
             grep: normalized
                 .effective_name_is("grep")
-                .then(|| parse_grep_command(normalized.body_args(), source))
+                .then(|| parse_grep_command(normalized.body_args(), source, arena_word_ids_by_span))
                 .flatten(),
             ps: normalized
                 .effective_name_is("ps")
@@ -779,7 +908,7 @@ impl<'a> CommandOptionFacts<'a> {
                 .effective_name_is("expr")
                 .then_some(())
                 .and_then(|_| parse_expr_command(normalized.body_args(), source)),
-            exit: parse_exit_command(command, source),
+            exit: parse_exit_command(command, source, arena_word_ids_by_span),
             sudo_family: normalized.has_wrapper(WrapperKind::SudoFamily).then(|| {
                 let Some(invoker) = detect_sudo_family_invoker(command, normalized, source) else {
                     unreachable!("sudo-family wrapper should preserve its invoker");
@@ -791,13 +920,27 @@ impl<'a> CommandOptionFacts<'a> {
             nonportable_sh_builtin_option_span: first_nonportable_sh_builtin_option_span(
                 normalized, source,
             ),
-            file_operand_words: same_command_file_operand_words(
-                normalized.effective_or_literal_name(),
-                normalized.body_args(),
-                source,
-            ),
+            file_operand_path_facts,
+            file_operand_word_ids,
         }
     }
+}
+
+fn word_id_for_word(word: &Word, arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>) -> Option<WordId> {
+    arena_word_ids_by_span
+        .get(&FactSpan::new(word.span))
+        .copied()
+}
+
+fn word_ids_for_words<'a>(
+    words: impl IntoIterator<Item = &'a Word>,
+    arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
+) -> Box<[Option<WordId>]> {
+    words
+        .into_iter()
+        .map(|word| word_id_for_word(word, arena_word_ids_by_span))
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
 }
 
 fn read_uses_raw_input(args: &[&Word], source: &str) -> bool {
@@ -973,7 +1116,11 @@ fn read_option_attached_target_span(span: Span, source: &str, start: usize, end:
     Span::from_positions(start_pos, end_pos)
 }
 
-fn parse_echo_command<'a>(args: &[&'a Word], source: &str) -> EchoCommandFacts<'a> {
+fn parse_echo_command<'a>(
+    args: &[&'a Word],
+    source: &str,
+    arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
+) -> EchoCommandFacts {
     let mut portability_flag_word = None;
     let mut uses_escape_interpreting_flag = false;
 
@@ -995,7 +1142,9 @@ fn parse_echo_command<'a>(args: &[&'a Word], source: &str) -> EchoCommandFacts<'
     }
 
     EchoCommandFacts {
-        portability_flag_word,
+        portability_flag_span: portability_flag_word.map(|word| word.span),
+        portability_flag_word_id: portability_flag_word
+            .and_then(|word| word_id_for_word(word, arena_word_ids_by_span)),
         uses_escape_interpreting_flag,
     }
 }
@@ -1224,7 +1373,11 @@ fn strip_backtick_escaped_double_quotes_in_source(text: &str) -> &str {
     &text[2..text.len() - 2]
 }
 
-fn parse_tr_command<'a>(args: &[&'a Word], source: &str) -> TrCommandFacts<'a> {
+fn parse_tr_command<'a>(
+    args: &[&'a Word],
+    source: &str,
+    arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
+) -> TrCommandFacts {
     let mut index = 0usize;
 
     while let Some(word) = args.get(index) {
@@ -1244,8 +1397,20 @@ fn parse_tr_command<'a>(args: &[&'a Word], source: &str) -> TrCommandFacts<'a> {
         index += 1;
     }
 
+    let operand_words = args[index..].iter().copied().collect::<Vec<_>>();
+    let operand_word_ids = word_ids_for_words(operand_words.iter().copied(), arena_word_ids_by_span);
     TrCommandFacts {
-        operand_words: args[index..].iter().copied().collect(),
+        operand_spans: operand_words
+            .iter()
+            .map(|word| word.span)
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+        operand_static_texts: operand_words
+            .iter()
+            .map(|word| static_word_text(word, source).map(|text| text.into_owned().into_boxed_str()))
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+        operand_word_ids,
     }
 }
 
@@ -1913,7 +2078,11 @@ fn split_brace_alternatives(text: &str) -> Vec<&str> {
     alternatives
 }
 
-fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommandFacts<'a>> {
+fn parse_grep_command<'a>(
+    args: &[&'a Word],
+    source: &str,
+    arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
+) -> Option<GrepCommandFacts> {
     let mut index = 0usize;
     let mut pending_dynamic_option_arg = false;
     let mut saw_separate_option_argument = false;
@@ -1985,6 +2154,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
                 patterns.push(grep_pattern_fact(
                     pattern_word,
                     source,
+                    arena_word_ids_by_span,
                     GrepPatternSourceKind::LongOptionSeparate,
                     patterns.is_empty(),
                     saw_separate_option_argument,
@@ -2001,6 +2171,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
             patterns.push(grep_prefixed_pattern_fact(
                 word,
                 source,
+                arena_word_ids_by_span,
                 "--regexp=".len(),
                 GrepPatternSourceKind::LongOptionAttached,
                 patterns.is_empty(),
@@ -2037,6 +2208,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
                 patterns.push(grep_pattern_fact(
                     pattern_word,
                     source,
+                    arena_word_ids_by_span,
                     GrepPatternSourceKind::ShortOptionSeparate,
                     patterns.is_empty(),
                     saw_separate_option_argument,
@@ -2076,6 +2248,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
                     patterns.push(grep_prefixed_pattern_fact(
                         word,
                         source,
+                        arena_word_ids_by_span,
                         2,
                         GrepPatternSourceKind::ShortOptionAttached,
                         patterns.is_empty(),
@@ -2085,6 +2258,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
                     patterns.push(grep_pattern_fact(
                         pattern_word,
                         source,
+                        arena_word_ids_by_span,
                         GrepPatternSourceKind::ShortOptionSeparate,
                         patterns.is_empty(),
                         saw_separate_option_argument,
@@ -2116,6 +2290,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
         patterns.push(grep_pattern_fact(
             pattern_word,
             source,
+            arena_word_ids_by_span,
             GrepPatternSourceKind::ImplicitOperand,
             patterns.is_empty(),
             saw_separate_option_argument,
@@ -2571,13 +2746,15 @@ fn grep_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word>
 fn grep_pattern_fact<'a>(
     word: &'a Word,
     source: &str,
+    arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
     source_kind: GrepPatternSourceKind,
     is_first_pattern: bool,
     follows_separate_option_argument: bool,
-) -> GrepPatternFact<'a> {
+) -> GrepPatternFact {
     grep_prefixed_pattern_fact(
         word,
         source,
+        arena_word_ids_by_span,
         0,
         source_kind,
         is_first_pattern,
@@ -2588,11 +2765,12 @@ fn grep_pattern_fact<'a>(
 fn grep_prefixed_pattern_fact<'a>(
     word: &'a Word,
     source: &str,
+    arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
     prefix_len: usize,
     source_kind: GrepPatternSourceKind,
     is_first_pattern: bool,
     follows_separate_option_argument: bool,
-) -> GrepPatternFact<'a> {
+) -> GrepPatternFact {
     let (static_text, glob_style_star_replacement_spans) =
         cooked_static_word_text_with_source_spans(word, source)
             .and_then(|(text, source_spans)| {
@@ -2611,13 +2789,16 @@ fn grep_prefixed_pattern_fact<'a>(
     let has_glob_style_star_confusion = !glob_style_star_replacement_spans.is_empty();
 
     GrepPatternFact {
-        word,
+        word_id: word_id_for_word(word, arena_word_ids_by_span),
+        span: word.span,
         static_text,
         source_kind,
         is_first_pattern,
         follows_separate_option_argument,
         starts_with_glob_style_star,
         has_glob_style_star_confusion,
+        unquoted_glob_pattern_spans: word_spans::word_unquoted_glob_pattern_spans(word, source)
+            .into_boxed_slice(),
         glob_style_star_replacement_spans,
     }
 }
@@ -3370,7 +3551,11 @@ fn printf_uses_q_format(word: &Word, source: &str) -> bool {
     false
 }
 
-fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts<'a> {
+fn parse_unset_command<'a>(
+    args: &[&'a Word],
+    source: &str,
+    arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
+) -> UnsetCommandFacts {
     let mut function_mode = false;
     let mut nameref_mode = false;
     let mut parsing_options = true;
@@ -3388,7 +3573,7 @@ fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts
 
             collect_word_prefix_match_spans(word, &mut prefix_match_operand_spans);
             operands.push(*word);
-            operand_facts.push(parse_unset_operand_fact(word, source));
+            operand_facts.push(parse_unset_operand_fact(word, source, arena_word_ids_by_span));
             continue;
         };
 
@@ -3415,22 +3600,39 @@ fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts
 
         collect_word_prefix_match_spans(word, &mut prefix_match_operand_spans);
         operands.push(*word);
-        operand_facts.push(parse_unset_operand_fact(word, source));
+        operand_facts.push(parse_unset_operand_fact(word, source, arena_word_ids_by_span));
     }
 
+    let operand_word_ids = word_ids_for_words(operands.iter().copied(), arena_word_ids_by_span);
     UnsetCommandFacts {
         function_mode,
         nameref_mode,
-        operand_words: operands.into_boxed_slice(),
+        operand_spans: operands
+            .iter()
+            .map(|word| word.span)
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+        operand_static_texts: operands
+            .iter()
+            .map(|word| static_word_text(word, source).map(|text| text.into_owned().into_boxed_str()))
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+        operand_word_ids,
         operand_facts: operand_facts.into_boxed_slice(),
         prefix_match_operand_spans: prefix_match_operand_spans.into_boxed_slice(),
         options_parseable,
     }
 }
 
-fn parse_unset_operand_fact<'a>(word: &'a Word, source: &str) -> UnsetOperandFact<'a> {
+fn parse_unset_operand_fact<'a>(
+    word: &'a Word,
+    source: &str,
+    arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
+) -> UnsetOperandFact {
     UnsetOperandFact {
-        word,
+        span: word.span,
+        word_id: word_id_for_word(word, arena_word_ids_by_span),
+        static_text: static_word_text(word, source).map(|text| text.into_owned().into_boxed_str()),
         array_subscript: parse_unset_array_subscript(word.span.slice(source)),
     }
 }

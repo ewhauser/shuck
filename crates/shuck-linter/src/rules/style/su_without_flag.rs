@@ -33,7 +33,7 @@ pub fn su_without_flag(checker: &mut Checker) {
         .filter(|fact| fact.effective_name_is("su") && fact.wrappers().is_empty())
         .filter(|fact| fact.options().su().is_some_and(|su| !su.has_login_flag()))
         .filter(|fact| !piped_command_ids.contains(&fact.id()))
-        .filter(|fact| fact.redirects().is_empty())
+        .filter(|fact| !fact.has_redirects())
         .filter(|fact| fact.body_args().len() < 2)
         .map(|fact| fact.span_in_source(checker.source()))
         .collect::<Vec<_>>();

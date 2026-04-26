@@ -25,10 +25,7 @@ pub fn grep_count_pipeline(checker: &mut Checker) {
     checker.report_all_dedup(spans, || GrepCountPipeline);
 }
 
-fn unsafe_grep_count_pipeline_spans(
-    checker: &Checker<'_>,
-    pipeline: &PipelineFact<'_>,
-) -> Vec<Span> {
+fn unsafe_grep_count_pipeline_spans(checker: &Checker<'_>, pipeline: &PipelineFact) -> Vec<Span> {
     pipeline
         .segments()
         .windows(2)
@@ -70,7 +67,7 @@ fn command_body_span(fact: CommandFactRef<'_, '_>) -> Option<Span> {
     }
 
     for redirect in fact.redirect_facts() {
-        let redirect_end = redirect.redirect().span.end;
+        let redirect_end = redirect.span().end;
         if redirect_end.offset > end.offset {
             end = redirect_end;
         }

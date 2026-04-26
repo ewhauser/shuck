@@ -1,4 +1,4 @@
-use shuck_ast::{Command, CompoundCommand, Position, Span};
+use shuck_ast::{ArenaFileCommandKind, CompoundCommandNode, Position, Span};
 
 use crate::{Checker, Rule, Violation};
 
@@ -20,16 +20,28 @@ pub fn else_if(checker: &mut Checker) {
         .commands()
         .iter()
         .filter_map(|fact| {
-            let Command::Compound(CompoundCommand::If(command)) = fact.command() else {
+            if fact.compound_kind() != Some(crate::CommandFactCompoundKind::If) {
+                return None;
+            }
+            let command = fact.arena_command()?.compound()?;
+            let CompoundCommandNode::If { else_branch, .. } = command.node() else {
                 return None;
             };
-            let branch = command.else_branch.as_ref()?;
-            let first = branch.stmts.first()?;
-            let Command::Compound(CompoundCommand::If(_)) = &first.command else {
+            let first = command
+                .store()
+                .stmt_seq((*else_branch)?)
+                .stmts()
+                .next()?;
+            if first.command().kind() != ArenaFileCommandKind::Compound
+                || !matches!(
+                    first.command().compound()?.node(),
+                    CompoundCommandNode::If { .. }
+                )
+            {
                 return None;
-            };
+            }
 
-            else_if_span(first.span.start, checker.source())
+            else_if_span(first.span().start, checker.source())
         })
         .collect::<Vec<_>>();
 

@@ -1,4 +1,4 @@
-use shuck_ast::{Assignment, AssignmentValue, BuiltinCommand, Command, DeclOperand, Span};
+use shuck_ast::{ArenaFileCommandKind, AssignmentNode, AssignmentValueNode, DeclOperandNode, Span};
 
 use crate::{Checker, Rule, ShellDialect, Violation};
 
@@ -33,44 +33,31 @@ fn command_array_assignment_spans(
     command: crate::CommandFactRef<'_, '_>,
     source: &str,
 ) -> Vec<Span> {
-    match command.command() {
-        Command::Simple(command) => command
-            .assignments
+    match command.command_kind() {
+        ArenaFileCommandKind::Simple | ArenaFileCommandKind::Builtin => command
+            .arena_assignments()
             .iter()
             .filter_map(|assignment| array_assignment_span(assignment, source))
             .collect(),
-        Command::Builtin(command) => builtin_assignments(command)
+        ArenaFileCommandKind::Decl => command
+            .arena_assignments()
             .iter()
-            .filter_map(|assignment| array_assignment_span(assignment, source))
-            .collect(),
-        Command::Decl(command) => command
-            .assignments
-            .iter()
-            .chain(command.operands.iter().filter_map(|operand| match operand {
-                DeclOperand::Assignment(assignment) => Some(assignment),
-                DeclOperand::Flag(_) | DeclOperand::Name(_) | DeclOperand::Dynamic(_) => None,
+            .chain(command.arena_declaration_operands().iter().filter_map(|operand| match operand {
+                DeclOperandNode::Assignment(assignment) => Some(assignment),
+                DeclOperandNode::Flag(_) | DeclOperandNode::Name(_) | DeclOperandNode::Dynamic(_) => None,
             }))
             .filter_map(|assignment| array_assignment_span(assignment, source))
             .collect(),
-        Command::Binary(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => Vec::new(),
+        ArenaFileCommandKind::Binary
+        | ArenaFileCommandKind::Compound
+        | ArenaFileCommandKind::Function
+        | ArenaFileCommandKind::AnonymousFunction => Vec::new(),
     }
 }
 
-fn builtin_assignments(command: &BuiltinCommand) -> &[Assignment] {
-    match command {
-        BuiltinCommand::Break(command) => &command.assignments,
-        BuiltinCommand::Continue(command) => &command.assignments,
-        BuiltinCommand::Return(command) => &command.assignments,
-        BuiltinCommand::Exit(command) => &command.assignments,
-    }
-}
-
-fn array_assignment_span(assignment: &Assignment, source: &str) -> Option<Span> {
+fn array_assignment_span(assignment: &AssignmentNode, source: &str) -> Option<Span> {
     match &assignment.value {
-        AssignmentValue::Compound(_) => {
+        AssignmentValueNode::Compound(_) => {
             let text = assignment.span.slice(source);
             let value_offset = text
                 .find("+=")
@@ -79,7 +66,7 @@ fn array_assignment_span(assignment: &Assignment, source: &str) -> Option<Span> 
             let value_start = assignment.span.start.advanced_by(&text[..value_offset]);
             Some(Span::from_positions(value_start, assignment.span.end))
         }
-        AssignmentValue::Scalar(_) => None,
+        AssignmentValueNode::Scalar(_) => None,
     }
 }
 

@@ -1,4 +1,4 @@
-use shuck_ast::{Command, Span};
+use shuck_ast::Span;
 
 use crate::{
     Checker, CommandFactRef, Edit, Fix, FixAvailability, PipelineFact, PipelineSegmentFact, Rule,
@@ -38,7 +38,7 @@ pub fn find_output_to_xargs(checker: &mut Checker) {
 
 fn unsafe_find_to_xargs_diagnostics(
     checker: &Checker<'_>,
-    pipeline: &PipelineFact<'_>,
+    pipeline: &PipelineFact,
 ) -> Vec<crate::Diagnostic> {
     pipeline
         .segments()
@@ -110,7 +110,7 @@ fn find_print0_insertion_offset(command: CommandFactRef<'_, '_>) -> usize {
     command
         .redirect_facts()
         .first()
-        .map(|redirect| redirect.redirect().span.start.offset)
+        .map(|redirect| redirect.span().start.offset)
         .or_else(|| command.body_args().last().map(|word| word.span.end.offset))
         .or_else(|| command.body_name_word().map(|word| word.span.end.offset))
         .expect("find command diagnostics should have a body insertion point")
@@ -123,20 +123,15 @@ fn xargs_null_input_insertion_offset(command: CommandFactRef<'_, '_>) -> usize {
         .expect("xargs command diagnostics should have a body name word")
 }
 
-fn find_command_span(segment: &PipelineSegmentFact<'_>, fact: CommandFactRef<'_, '_>) -> Span {
-    match &segment.command() {
-        Command::Simple(simple) => {
-            let end = segment
-                .stmt()
-                .redirects
-                .last()
-                .map(|redirect| redirect.span.end)
-                .or_else(|| simple.args.last().map(|word| word.span.end))
-                .unwrap_or(simple.name.span.end);
-            Span::from_positions(fact.body_span().start, end)
-        }
-        _ => fact.body_span(),
-    }
+fn find_command_span(_segment: &PipelineSegmentFact, fact: CommandFactRef<'_, '_>) -> Span {
+    let end = fact
+        .redirect_facts()
+        .last()
+        .map(|redirect| redirect.span().end)
+        .or_else(|| fact.body_args().last().map(|word| word.span.end))
+        .or_else(|| fact.body_word_span().map(|span| span.end))
+        .unwrap_or_else(|| fact.body_span().end);
+    Span::from_positions(fact.body_span().start, end)
 }
 
 #[cfg(test)]

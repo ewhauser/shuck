@@ -28,7 +28,7 @@ pub fn redirect_to_command_name(checker: &mut Checker) {
         .iter()
         .flat_map(|fact| fact.redirect_facts().iter())
         .filter_map(|redirect| {
-            let kind = redirect.redirect().kind;
+            let kind = redirect.kind();
             if !matches!(
                 kind,
                 RedirectKind::Output

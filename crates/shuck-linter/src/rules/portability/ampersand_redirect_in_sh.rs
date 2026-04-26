@@ -1,4 +1,4 @@
-use shuck_ast::{RedirectKind, Span, static_word_text};
+use shuck_ast::{RedirectKind, Span};
 
 use crate::{Checker, RedirectFact, Rule, ShellDialect, Violation};
 
@@ -30,10 +30,9 @@ pub fn ampersand_redirect_in_sh(checker: &mut Checker) {
     checker.report_all_dedup(spans, || AmpersandRedirectInSh);
 }
 
-fn combined_ampersand_redirect_span(redirect: &RedirectFact<'_>, source: &str) -> Option<Span> {
-    let redirect_data = redirect.redirect();
+fn combined_ampersand_redirect_span(redirect: &RedirectFact, source: &str) -> Option<Span> {
     if !matches!(
-        redirect_data.kind,
+        redirect.kind(),
         RedirectKind::DupOutput | RedirectKind::Output
     ) {
         return None;
@@ -44,14 +43,14 @@ fn combined_ampersand_redirect_span(redirect: &RedirectFact<'_>, source: &str) -
         return None;
     }
 
-    let target = redirect_data.word_target()?;
-    let target_text = static_word_text(target, source)?;
+    let target_span = redirect.target_span()?;
+    let target_text = redirect.target_static_text()?;
     if target_text == "-" || target_text.chars().all(|ch| ch.is_ascii_digit()) {
         return None;
     }
 
-    let redirect_start = redirect_data.span.start.offset;
-    let target_start = target.span.start.offset;
+    let redirect_start = redirect.span().start.offset;
+    let target_start = target_span.start.offset;
     if redirect_start > target_start || target_start > source.len() {
         return None;
     }
@@ -67,7 +66,7 @@ fn combined_ampersand_redirect_span(redirect: &RedirectFact<'_>, source: &str) -
         return None;
     }
 
-    Some(redirect_data.span)
+    Some(redirect.span())
 }
 
 #[cfg(test)]

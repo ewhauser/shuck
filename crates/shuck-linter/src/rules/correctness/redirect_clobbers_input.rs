@@ -51,13 +51,13 @@ fn clobber_spans_for_command(fact: crate::CommandFactRef<'_, '_>) -> Vec<Span> {
     let own_readwrite_spans = fact
         .redirect_facts()
         .iter()
-        .filter(|redirect| redirect.redirect().kind == RedirectKind::ReadWrite)
-        .filter_map(|redirect| redirect.redirect().word_target().map(|word| word.span))
+        .filter(|redirect| redirect.kind() == RedirectKind::ReadWrite)
+        .filter_map(|redirect| redirect.target_span())
         .collect::<Vec<_>>();
 
     for redirect in fact.redirect_facts() {
         if matches!(
-            redirect.redirect().kind,
+            redirect.kind(),
             RedirectKind::Output
                 | RedirectKind::Clobber
                 | RedirectKind::Append
@@ -87,7 +87,7 @@ fn clobber_spans_for_command(fact: crate::CommandFactRef<'_, '_>) -> Vec<Span> {
         };
 
         let key = redirect_path_match_key(comparable.key(), comparable.match_key());
-        match redirect.redirect().kind {
+        match redirect.kind() {
             RedirectKind::Input => {
                 read_paths.entry(key).or_default().push(comparable.span());
             }
@@ -113,7 +113,7 @@ fn clobber_spans_for_command(fact: crate::CommandFactRef<'_, '_>) -> Vec<Span> {
 
     for source_word in fact.scope_read_source_words() {
         if source_word.context() == ExpansionContext::RedirectTarget(RedirectKind::ReadWrite)
-            && own_readwrite_spans.contains(&source_word.word().span)
+            && own_readwrite_spans.contains(&source_word.span())
         {
             continue;
         }

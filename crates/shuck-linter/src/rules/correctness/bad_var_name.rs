@@ -1,4 +1,4 @@
-use shuck_ast::{Command, Span, Word};
+use shuck_ast::Span;
 
 use crate::{Checker, Rule, Violation};
 
@@ -20,22 +20,14 @@ pub fn bad_var_name(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
-        .filter_map(|fact| match fact.command() {
-            Command::Simple(command) => bad_var_name_span(&command.name, source),
-            Command::Builtin(_)
-            | Command::Decl(_)
-            | Command::Binary(_)
-            | Command::Compound(_)
-            | Command::Function(_)
-            | Command::AnonymousFunction(_) => None,
-        })
+        .filter_map(|fact| bad_var_name_span(fact.arena_body_name_word(source)?.span(), source))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || BadVarName);
 }
 
-fn bad_var_name_span(word: &Word, source: &str) -> Option<Span> {
-    let text = word.span.slice(source);
+fn bad_var_name_span(word_span: Span, source: &str) -> Option<Span> {
+    let text = word_span.slice(source);
     let target_end = text.find('=')?;
     if target_end > 0 && text.as_bytes()[target_end - 1] == b'+' {
         return None;
@@ -47,7 +39,7 @@ fn bad_var_name_span(word: &Word, source: &str) -> Option<Span> {
         return None;
     }
 
-    Some(word.span)
+    Some(word_span)
 }
 
 #[cfg(test)]

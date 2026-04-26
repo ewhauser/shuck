@@ -25,8 +25,7 @@ pub fn echo_flags(checker: &mut Checker) {
         .filter_map(|fact| {
             fact.options()
                 .echo()
-                .and_then(|echo| echo.portability_flag_word())
-                .map(|word| word.span)
+                .and_then(|echo| echo.portability_flag_span())
         })
         .collect::<Vec<_>>();
 

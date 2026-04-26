@@ -24,9 +24,9 @@ pub fn here_string(checker: &mut Checker) {
         .commands()
         .iter()
         .flat_map(|fact| fact.redirect_facts().iter())
-        .filter(|redirect| redirect.redirect().kind == RedirectKind::HereString)
+        .filter(|redirect| redirect.kind() == RedirectKind::HereString)
         .map(|redirect| {
-            let span = redirect.redirect().span;
+            let span = redirect.span();
             Span::from_positions(span.start, span.start.advanced_by("<<<"))
         })
         .collect::<Vec<_>>();

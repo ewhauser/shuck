@@ -375,7 +375,7 @@ fn build_comment_double_quote_nesting_spans(source: &str, indexer: &Indexer) -> 
 
 fn build_trailing_directive_comment_spans(
     file: &File,
-    case_items: &[CaseItemFact<'_>],
+    case_items: &[CaseItemFact],
     source: &str,
     indexer: &Indexer,
 ) -> Vec<Span> {
@@ -424,24 +424,24 @@ fn build_trailing_directive_comment_spans(
 }
 
 fn case_item_label_comment(
-    case_items: &[CaseItemFact<'_>],
+    case_items: &[CaseItemFact],
     line: usize,
     comment_start: usize,
 ) -> bool {
     case_items.iter().any(|case_item| {
-        let Some(pattern) = case_item.item().patterns.last() else {
+        let Some(pattern_span) = case_item.last_pattern_span() else {
             return false;
         };
 
-        if pattern.span.end.line != line || comment_start < pattern.span.end.offset {
+        if pattern_span.end.line != line || comment_start < pattern_span.end.offset {
             return false;
         }
 
-        let Some(stmt) = case_item.item().body.first() else {
+        let Some(stmt_span) = case_item.first_body_stmt_span() else {
             return true;
         };
 
-        stmt.span.start.line != line
+        stmt_span.start.line != line
     })
 }
 

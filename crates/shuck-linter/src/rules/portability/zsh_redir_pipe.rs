@@ -25,9 +25,9 @@ pub fn zsh_redir_pipe(checker: &mut Checker) {
         .commands()
         .iter()
         .filter_map(|command| {
-            (command.stmt().terminator
+            (command.stmt_terminator()
                 == Some(StmtTerminator::Background(BackgroundOperator::Pipe)))
-            .then_some(command.stmt().terminator_span)
+            .then_some(command.stmt_terminator_span())
             .flatten()
         })
         .collect::<Vec<_>>();

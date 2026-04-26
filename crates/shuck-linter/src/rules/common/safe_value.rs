@@ -1,9 +1,9 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    BinaryOp, BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand, FunctionDef,
-    Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Position, RedirectKind,
-    SourceText, Span, Stmt, StmtSeq, StmtTerminator, VarRef, Word, WordPart, WordPartNode,
-    static_word_text, word_is_standalone_status_capture, word_is_standalone_variable_like,
+    BinaryOp, BourneParameterExpansion, Name, ParameterExpansion, ParameterExpansionSyntax,
+    ParameterOp, Position, RedirectKind, SourceText, Span, StmtTerminator, VarRef, Word, WordPart,
+    WordPartNode, static_word_text,
+    word_is_standalone_status_capture, word_is_standalone_variable_like,
 };
 use shuck_semantic::{
     AssignmentValueOrigin, BindingAttributes, BindingKind, BindingOrigin, LoopValueOrigin, ScopeId,
@@ -11,7 +11,7 @@ use shuck_semantic::{
 };
 use shuck_semantic::{BindingId, BlockId, ReferenceId, ReferenceKind};
 
-use crate::facts::analyze_literal_runtime;
+use crate::facts::{CommandFactCompoundKind, analyze_literal_runtime};
 use crate::{ExpansionContext, FactSpan, LinterFacts};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -127,8 +127,8 @@ impl<'a> SafeValueIndex<'a> {
         let mut function_commands_by_span = FxHashMap::default();
         let mut commands_by_name_word_span = FxHashMap::default();
         for command in facts.commands() {
-            if let Command::Function(function) = command.command() {
-                function_commands_by_span.insert(FactSpan::new(function.span), command.id());
+            if command.command_kind() == shuck_ast::ArenaFileCommandKind::Function {
+                function_commands_by_span.insert(FactSpan::new(command.span()), command.id());
             }
             if let Some(name_word) = command.body_name_word() {
                 commands_by_name_word_span.insert(FactSpan::new(name_word.span), command.id());
@@ -337,15 +337,15 @@ impl<'a> SafeValueIndex<'a> {
             .or_else(|| self.innermost_command_id_containing_offset(span.start.offset));
         while let Some(command_id) = current {
             if matches!(
-                self.facts.command(command_id).command(),
-                Command::Compound(
-                    CompoundCommand::For(_)
-                        | CompoundCommand::Repeat(_)
-                        | CompoundCommand::Foreach(_)
-                        | CompoundCommand::ArithmeticFor(_)
-                        | CompoundCommand::While(_)
-                        | CompoundCommand::Until(_)
-                        | CompoundCommand::Select(_)
+                self.facts.command(command_id).compound_kind(),
+                Some(
+                    CommandFactCompoundKind::For
+                        | CommandFactCompoundKind::Repeat
+                        | CommandFactCompoundKind::Foreach
+                        | CommandFactCompoundKind::ArithmeticFor
+                        | CommandFactCompoundKind::While
+                        | CommandFactCompoundKind::Until
+                        | CommandFactCompoundKind::Select
                 )
             ) {
                 return true;
@@ -362,15 +362,23 @@ impl<'a> SafeValueIndex<'a> {
             .innermost_command_id_at(span.start.offset)
             .or_else(|| self.innermost_command_id_containing_offset(span.start.offset));
         while let Some(command_id) = current {
-            if let Command::Compound(CompoundCommand::If(command)) =
-                self.facts.command(command_id).command()
-                && (span_contains(command.condition.span, span)
-                    || command
-                        .elif_branches
-                        .iter()
-                        .any(|(condition, _)| span_contains(condition.span, span)))
+            let fact = self.facts.command(command_id);
+            if let Some(compound) = fact.arena_command().and_then(|command| command.compound())
+                && let shuck_ast::CompoundCommandNode::If {
+                    condition,
+                    elif_branches,
+                    ..
+                } = compound.node()
             {
-                return true;
+                let store = compound.store();
+                if span_contains(store.stmt_seq(*condition).span(), span)
+                    || store
+                        .elif_branches(*elif_branches)
+                        .iter()
+                        .any(|branch| span_contains(store.stmt_seq(branch.condition).span(), span))
+                {
+                    return true;
+                }
             }
             current = self.facts.command_parent_id(command_id);
         }
@@ -704,12 +712,10 @@ impl<'a> SafeValueIndex<'a> {
     ) -> bool {
         let binding = self.semantic.binding(binding_id);
         self.facts.function_headers().iter().any(|header| {
-            let Some(function_definition_command) =
-                self.function_definition_command(header.function())
-            else {
+            let Some(function_definition_command) = self.function_definition_command(header) else {
                 return false;
             };
-            function_has_terminal_exit(header.function())
+            header.has_terminal_exit()
                 && header
                     .call_arity()
                     .zero_arg_call_spans()
@@ -737,20 +743,21 @@ impl<'a> SafeValueIndex<'a> {
             command.span().end.offset <= at.start.offset
                 && !command.is_nested_word_command()
                 && self.command_runs_in_unconditional_flow(command.id(), at)
-                && matches!(
-                    command.command(),
-                    Command::Builtin(BuiltinCommand::Exit(_) | BuiltinCommand::Return(_))
-                )
+                && matches!(command.effective_name(), Some("exit" | "return"))
         })
     }
 
     fn function_definition_command(
         &self,
-        function: &FunctionDef,
+        header: &crate::FunctionHeaderFact,
     ) -> Option<crate::facts::CommandFactRef<'a, 'a>> {
-        self.function_commands_by_span
-            .get(&FactSpan::new(function.span))
-            .copied()
+        header
+            .command_id()
+            .or_else(|| {
+                self.function_commands_by_span
+                    .get(&FactSpan::new(header.function_span()))
+                    .copied()
+            })
             .map(|id| self.facts.command(id))
     }
 
@@ -837,10 +844,7 @@ impl<'a> SafeValueIndex<'a> {
     fn command_is_in_background_context(&self, command_id: crate::facts::CommandId) -> bool {
         let mut current = Some(command_id);
         while let Some(id) = current {
-            if matches!(
-                self.facts.command(id).stmt().terminator,
-                Some(StmtTerminator::Background(_))
-            ) {
+            if matches!(self.facts.command(id).stmt_terminator(), Some(StmtTerminator::Background(_))) {
                 return true;
             }
             current = self.facts.command_parent_id(id);
@@ -1553,7 +1557,7 @@ impl<'a> SafeValueIndex<'a> {
 
     fn unset_targets_variable_name(
         &self,
-        unset: &crate::facts::UnsetCommandFacts<'a>,
+        unset: &crate::facts::UnsetCommandFacts,
         name: &Name,
     ) -> bool {
         if unset.function_mode || unset.nameref_mode() || !unset.options_parseable() {
@@ -1561,8 +1565,7 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         unset.operand_facts().iter().any(|operand| {
-            operand.array_subscript().is_none()
-                && static_word_text(operand.word(), self.source).as_deref() == Some(name.as_str())
+            operand.array_subscript().is_none() && operand.static_text() == Some(name.as_str())
         })
     }
 
@@ -1632,14 +1635,12 @@ impl<'a> SafeValueIndex<'a> {
     fn loop_variable_reference_stays_within_body(&self, definition_span: Span, at: Span) -> bool {
         self.facts.for_headers().iter().any(|header| {
             header
-                .command()
-                .targets
+                .target_spans()
                 .iter()
-                .any(|target| target.span == definition_span)
-                && span_contains(header.command().body.span, at)
+                .any(|target_span| *target_span == definition_span)
+                && span_contains(header.body_span(), at)
         }) || self.facts.select_headers().iter().any(|header| {
-            header.command().variable_span == definition_span
-                && span_contains(header.command().body.span, at)
+            header.variable_span() == definition_span && span_contains(header.body_span(), at)
         })
     }
 
@@ -2549,8 +2550,7 @@ impl<'a> SafeValueIndex<'a> {
             let Some(function_kind) = self.named_function_kind(callee_scope) else {
                 continue;
             };
-            let Some(definition_command) = self.function_definition_command(header.function())
-            else {
+            let Some(definition_command) = self.function_definition_command(header) else {
                 continue;
             };
 
@@ -2580,7 +2580,7 @@ impl<'a> SafeValueIndex<'a> {
             .function_headers()
             .iter()
             .find(|header| header.function_scope() == Some(scope))
-            .map(|header| header.function().span.end.offset)
+            .map(|header| header.function_span().end.offset)
     }
 
     fn call_site_dominates_use(&self, call_span: Span, name: &Name, at: Span) -> bool {
@@ -2869,9 +2869,7 @@ impl<'a> SafeValueIndex<'a> {
     fn command_is_in_boolean_list(&self, command_id: crate::facts::CommandId) -> bool {
         let mut current = self.facts.command_parent_id(command_id);
         while let Some(id) = current {
-            if let Command::Binary(binary) = self.facts.command(id).command()
-                && matches!(binary.op, BinaryOp::And | BinaryOp::Or)
-            {
+            if matches!(self.facts.command(id).binary_op(), Some(BinaryOp::And | BinaryOp::Or)) {
                 return true;
             }
             current = self.facts.command_parent_id(id);
@@ -3301,28 +3299,27 @@ fn build_case_cli_reachable_function_scopes(
                 .any(|ancestor| matches!(semantic.scope(ancestor).kind, ScopeKind::Function(_)));
             (nested
                 || dispatcher_offset
-                    .is_some_and(|offset| header.function().span.start.offset < offset)
+                    .is_some_and(|offset| header.function_span().start.offset < offset)
                 || top_level_exit_offset
-                    .is_some_and(|offset| header.function().span.start.offset < offset))
+                    .is_some_and(|offset| header.function_span().start.offset < offset))
             .then_some(scope)
         })
         .collect()
 }
 
 fn command_fact_is_standalone_exit(command: crate::facts::CommandFactRef<'_, '_>) -> bool {
-    if command.stmt().negated
-        || matches!(
-            command.stmt().terminator,
-            Some(StmtTerminator::Background(_))
-        )
+    if command.stmt_negated()
+        || matches!(command.stmt_terminator(), Some(StmtTerminator::Background(_)))
     {
         return false;
     }
 
-    let Command::Builtin(BuiltinCommand::Exit(exit)) = command.command() else {
+    if command.effective_name() != Some("exit") {
         return false;
     };
-    exit.extra_args.is_empty() && exit.assignments.is_empty() && command.stmt().redirects.is_empty()
+    command.arena_command().and_then(|command| command.builtin()).is_some_and(|exit| {
+        exit.extra_arg_ids().is_empty() && exit.assignments().is_empty()
+    }) && !command.has_redirects()
 }
 
 fn safe_special_parameter(name: &Name) -> bool {
@@ -3412,161 +3409,6 @@ fn special_parameter_slice_reference(reference: &VarRef) -> bool {
     matches!(reference.name.as_str(), "@" | "*")
 }
 
-fn function_has_terminal_exit(function: &FunctionDef) -> bool {
-    matches!(
-        stmt_terminal_flow_kind(&function.body),
-        TerminalFlowKind::Exit
-    )
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TerminalFlowKind {
-    None,
-    MaybeExit,
-    MaybeStop,
-    Exit,
-    Stop,
-}
-
-fn stmt_seq_terminal_flow_kind(commands: &StmtSeq) -> TerminalFlowKind {
-    let mut saw_maybe_exit = false;
-    let mut saw_maybe_stop = false;
-
-    for stmt in commands.as_slice() {
-        match stmt_terminal_flow_kind(stmt) {
-            TerminalFlowKind::None => {}
-            TerminalFlowKind::MaybeExit => saw_maybe_exit = true,
-            TerminalFlowKind::MaybeStop => saw_maybe_stop = true,
-            TerminalFlowKind::Exit => {
-                return if saw_maybe_stop {
-                    TerminalFlowKind::Stop
-                } else {
-                    TerminalFlowKind::Exit
-                };
-            }
-            TerminalFlowKind::Stop => return TerminalFlowKind::Stop,
-        }
-    }
-
-    if saw_maybe_stop {
-        TerminalFlowKind::MaybeStop
-    } else if saw_maybe_exit {
-        TerminalFlowKind::MaybeExit
-    } else {
-        TerminalFlowKind::None
-    }
-}
-
-fn stmt_terminal_flow_kind(stmt: &Stmt) -> TerminalFlowKind {
-    if matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
-        return TerminalFlowKind::None;
-    }
-
-    command_terminal_flow_kind(&stmt.command)
-}
-
-fn command_terminal_flow_kind(command: &Command) -> TerminalFlowKind {
-    match command {
-        Command::Builtin(BuiltinCommand::Exit(_)) => TerminalFlowKind::Exit,
-        Command::Builtin(BuiltinCommand::Return(_)) => TerminalFlowKind::Stop,
-        Command::Compound(CompoundCommand::If(command)) => alternative_terminal_flow_kind(
-            std::iter::once(stmt_seq_terminal_flow_kind(&command.then_branch))
-                .chain(
-                    command
-                        .elif_branches
-                        .iter()
-                        .map(|(_, body)| stmt_seq_terminal_flow_kind(body)),
-                )
-                .chain(command.else_branch.iter().map(stmt_seq_terminal_flow_kind)),
-            command.else_branch.is_none(),
-        ),
-        Command::Compound(CompoundCommand::For(command)) => {
-            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
-        }
-        Command::Compound(CompoundCommand::Repeat(command)) => {
-            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
-        }
-        Command::Compound(CompoundCommand::Foreach(command)) => {
-            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
-        }
-        Command::Compound(CompoundCommand::ArithmeticFor(command)) => {
-            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
-        }
-        Command::Compound(CompoundCommand::While(command)) => {
-            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
-        }
-        Command::Compound(CompoundCommand::Until(command)) => {
-            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
-        }
-        Command::Compound(CompoundCommand::Select(command)) => {
-            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
-        }
-        Command::Compound(CompoundCommand::Case(command)) => alternative_terminal_flow_kind(
-            command
-                .cases
-                .iter()
-                .map(|case| stmt_seq_terminal_flow_kind(&case.body)),
-            true,
-        ),
-        Command::Compound(CompoundCommand::BraceGroup(body)) => stmt_seq_terminal_flow_kind(body),
-        Command::Compound(CompoundCommand::Time(command)) => command
-            .command
-            .as_deref()
-            .map_or(TerminalFlowKind::None, stmt_terminal_flow_kind),
-        Command::Simple(_)
-        | Command::Builtin(_)
-        | Command::Decl(_)
-        | Command::Binary(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => TerminalFlowKind::None,
-    }
-}
-
-fn maybe_stop_terminal_flow_kind(flow: TerminalFlowKind) -> TerminalFlowKind {
-    match flow {
-        TerminalFlowKind::None => TerminalFlowKind::None,
-        TerminalFlowKind::MaybeExit | TerminalFlowKind::Exit => TerminalFlowKind::MaybeExit,
-        TerminalFlowKind::MaybeStop | TerminalFlowKind::Stop => TerminalFlowKind::MaybeStop,
-    }
-}
-
-fn alternative_terminal_flow_kind(
-    branches: impl IntoIterator<Item = TerminalFlowKind>,
-    can_skip_all: bool,
-) -> TerminalFlowKind {
-    let mut saw_none = can_skip_all;
-    let mut saw_maybe_exit = false;
-    let mut saw_maybe_stop = false;
-    let mut saw_exit = false;
-    let mut saw_stop = false;
-
-    for flow in branches {
-        match flow {
-            TerminalFlowKind::None => saw_none = true,
-            TerminalFlowKind::MaybeExit => saw_maybe_exit = true,
-            TerminalFlowKind::MaybeStop => saw_maybe_stop = true,
-            TerminalFlowKind::Exit => saw_exit = true,
-            TerminalFlowKind::Stop => saw_stop = true,
-        }
-    }
-
-    if saw_maybe_stop || ((saw_none || saw_maybe_exit) && saw_stop) {
-        return TerminalFlowKind::MaybeStop;
-    }
-    if saw_maybe_exit || (saw_none && saw_exit) {
-        return TerminalFlowKind::MaybeExit;
-    }
-    if saw_exit && !saw_stop {
-        return TerminalFlowKind::Exit;
-    }
-    if saw_exit || saw_stop {
-        return TerminalFlowKind::Stop;
-    }
-
-    TerminalFlowKind::None
-}
-
 fn span_strictly_contains(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset
         && outer.end.offset >= inner.end.offset
@@ -3583,7 +3425,7 @@ mod tests {
         SemanticBuildOptions, SemanticModel,
     };
 
-    use super::{SafeValueIndex, SafeValueQuery, function_has_terminal_exit};
+    use super::{SafeValueIndex, SafeValueQuery};
     use crate::ExpansionContext;
     use crate::LinterFacts;
     use crate::{ShellDialect, classify_file_context};
@@ -5637,7 +5479,7 @@ echo x >> ${OPENBSD_CONTENTS}
             })
             .expect("expected redirect target fact");
 
-        assert!(function_has_terminal_exit(exit_header.function()));
+        assert!(exit_header.has_terminal_exit());
         assert_eq!(exit_header.call_arity().zero_arg_call_spans().len(), 1);
 
         assert!(!safe_values.word_occurrence_is_safe(nested_argument, SafeValueQuery::Argv));
@@ -5699,7 +5541,7 @@ helper() (
             })
             .expect("expected helper function header");
 
-        assert!(!function_has_terminal_exit(helper_header.function()));
+        assert!(!helper_header.has_terminal_exit());
     }
 
     #[test]
@@ -5726,7 +5568,7 @@ helper() {
             })
             .expect("expected helper function header");
 
-        assert!(function_has_terminal_exit(helper_header.function()));
+        assert!(helper_header.has_terminal_exit());
     }
 
     #[test]
@@ -5752,7 +5594,7 @@ helper() {
             })
             .expect("expected helper function header");
 
-        assert!(function_has_terminal_exit(helper_header.function()));
+        assert!(helper_header.has_terminal_exit());
     }
 
     #[test]
@@ -5778,7 +5620,7 @@ helper() {
             })
             .expect("expected helper function header");
 
-        assert!(function_has_terminal_exit(helper_header.function()));
+        assert!(helper_header.has_terminal_exit());
     }
 
     #[test]
@@ -5804,7 +5646,7 @@ helper() {
             })
             .expect("expected helper function header");
 
-        assert!(function_has_terminal_exit(helper_header.function()));
+        assert!(helper_header.has_terminal_exit());
     }
 
     #[test]
@@ -5834,7 +5676,7 @@ helper() {
             })
             .expect("expected helper function header");
 
-        assert!(function_has_terminal_exit(helper_header.function()));
+        assert!(helper_header.has_terminal_exit());
     }
 
     #[test]
@@ -5863,7 +5705,7 @@ helper() {
             })
             .expect("expected helper function header");
 
-        assert!(!function_has_terminal_exit(helper_header.function()));
+        assert!(!helper_header.has_terminal_exit());
     }
 
     #[test]
@@ -5892,7 +5734,7 @@ helper() {
             })
             .expect("expected helper function header");
 
-        assert!(function_has_terminal_exit(helper_header.function()));
+        assert!(helper_header.has_terminal_exit());
     }
 
     #[test]
@@ -5919,7 +5761,7 @@ helper() {
             })
             .expect("expected helper function header");
 
-        assert!(!function_has_terminal_exit(helper_header.function()));
+        assert!(!helper_header.has_terminal_exit());
     }
 
     #[test]
@@ -5950,7 +5792,7 @@ helper() {
             })
             .expect("expected helper function header");
 
-        assert!(!function_has_terminal_exit(helper_header.function()));
+        assert!(!helper_header.has_terminal_exit());
     }
 
     #[test]

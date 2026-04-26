@@ -1,5 +1,5 @@
 use crate::{Checker, Rule, ShellDialect, Violation};
-use shuck_ast::{Command, Span};
+use shuck_ast::{ArenaFileCommandKind, Span};
 use shuck_semantic::ScopeKind;
 
 pub struct UncheckedDirectoryChange {
@@ -38,7 +38,8 @@ pub(crate) fn unchecked_directory_change_spans(checker: &mut Checker) -> Vec<(&'
         .commands()
         .iter()
         .filter_map(|fact| {
-            let scope = semantic.scope_at(fact.stmt().span.start.offset);
+            let stmt_span = fact.stmt_span();
+            let scope = semantic.scope_at(stmt_span.start.offset);
             if fact.is_nested_word_command()
                 && !matches!(semantic.scope_kind(scope), ScopeKind::CommandSubstitution)
             {
@@ -47,7 +48,7 @@ pub(crate) fn unchecked_directory_change_spans(checker: &mut Checker) -> Vec<(&'
 
             let directory_change = fact.options().directory_change()?;
             let unchecked = semantic
-                .flow_context_at(&fact.stmt().span)
+                .flow_context_at(&stmt_span)
                 .map(|context| !context.exit_status_checked)
                 .unwrap_or(true);
 
@@ -60,20 +61,28 @@ pub(crate) fn unchecked_directory_change_spans(checker: &mut Checker) -> Vec<(&'
 }
 
 pub(crate) fn report_span(fact: crate::facts::CommandFactRef<'_, '_>, source: &str) -> Span {
-    match fact.command() {
-        Command::Simple(command) => {
-            let mut start = command.name.span.start;
-            if command.name.span.slice(source).starts_with('\\') {
+    match fact.command_kind() {
+        ArenaFileCommandKind::Simple => {
+            let Some(command) = fact.arena_command().and_then(|command| command.simple()) else {
+                return fact.span();
+            };
+            let name = command.name();
+            let mut start = name.span().start;
+            if name.span().slice(source).starts_with('\\') {
                 start = start.advanced_by("\\");
             }
             let end = command
-                .args
+                .args()
                 .last()
-                .map(|word| word.span.end)
+                .map(|word| word.span().end)
                 .into_iter()
-                .chain(fact.redirects().iter().map(|redirect| redirect.span.end))
+                .chain(
+                    fact.arena_redirects()
+                        .into_iter()
+                        .flat_map(|redirects| redirects.iter().map(|redirect| redirect.span.end)),
+                )
                 .max_by_key(|position| position.offset)
-                .unwrap_or(command.name.span.end);
+                .unwrap_or(name.span().end);
             Span::from_positions(start, end)
         }
         _ => fact.span(),

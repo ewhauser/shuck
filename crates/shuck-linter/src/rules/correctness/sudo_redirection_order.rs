@@ -1,6 +1,6 @@
-use shuck_ast::{Redirect, RedirectKind, Span};
+use shuck_ast::{RedirectKind, Span};
 
-use crate::{Checker, Rule, Violation, WrapperKind};
+use crate::{Checker, RedirectFact, Rule, Violation, WrapperKind};
 
 pub struct SudoRedirectionOrder;
 
@@ -24,11 +24,11 @@ pub fn sudo_redirection_order(checker: &mut Checker) {
         })
         .flat_map(|fact| {
             fact.redirect_facts().iter().filter_map(|redirect| {
-                (is_hazardous_sudo_redirect(redirect.redirect())
+                (is_hazardous_sudo_redirect(redirect)
                     && !redirect
                         .analysis()
                         .is_some_and(|analysis| analysis.is_definitely_dev_null()))
-                .then_some(sudo_redirect_span(redirect.redirect()))
+                .then_some(sudo_redirect_span(redirect))
             })
         })
         .collect::<Vec<_>>();
@@ -36,13 +36,13 @@ pub fn sudo_redirection_order(checker: &mut Checker) {
     checker.report_all_dedup(spans, || SudoRedirectionOrder);
 }
 
-fn is_hazardous_sudo_redirect(redirect: &Redirect) -> bool {
-    if redirect.fd.is_some() || redirect.fd_var.is_some() {
+fn is_hazardous_sudo_redirect(redirect: &RedirectFact) -> bool {
+    if redirect.fd().is_some() || redirect.has_fd_var() {
         return false;
     }
 
     matches!(
-        redirect.kind,
+        redirect.kind(),
         RedirectKind::Input
             | RedirectKind::Output
             | RedirectKind::Append
@@ -50,17 +50,17 @@ fn is_hazardous_sudo_redirect(redirect: &Redirect) -> bool {
     )
 }
 
-fn sudo_redirect_span(redirect: &Redirect) -> Span {
-    let start = match redirect.kind {
-        RedirectKind::OutputBoth => redirect.span.start.advanced_by("&"),
-        _ => redirect.span.start,
+fn sudo_redirect_span(redirect: &RedirectFact) -> Span {
+    let start = match redirect.kind() {
+        RedirectKind::OutputBoth => redirect.span().start.advanced_by("&"),
+        _ => redirect.span().start,
     };
-    let end = match redirect.kind {
+    let end = match redirect.kind() {
         RedirectKind::Append => start.advanced_by(">>"),
         _ => start.advanced_by(">"),
     };
 
-    if redirect.kind == RedirectKind::Input {
+    if redirect.kind() == RedirectKind::Input {
         return Span::from_positions(start, start.advanced_by("<"));
     }
 

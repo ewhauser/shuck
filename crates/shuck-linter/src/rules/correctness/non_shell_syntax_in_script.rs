@@ -1,4 +1,4 @@
-use shuck_ast::{Command, StmtTerminator, static_word_text};
+use shuck_ast::{ArenaFileCommandKind, StmtTerminator};
 
 use crate::context::FileContextTag;
 use crate::{Checker, Rule, Violation};
@@ -34,23 +34,25 @@ fn non_shell_syntax_span(
     command: crate::CommandFactRef<'_, '_>,
     source: &str,
 ) -> Option<shuck_ast::Span> {
-    if command.stmt().terminator != Some(StmtTerminator::Semicolon) {
+    if command.stmt_terminator() != Some(StmtTerminator::Semicolon) {
         return None;
     }
 
-    let Command::Simple(simple) = command.command() else {
+    if command.command_kind() != ArenaFileCommandKind::Simple {
         return None;
-    };
-    if !simple.assignments.is_empty() {
+    }
+    if !command.arena_assignments().is_empty() {
         return None;
     }
 
-    let name = static_word_text(&simple.name, source)?;
-    if !looks_like_c_declaration_keyword(name.as_ref()) || simple.args.is_empty() {
+    let name = command.arena_body_name_word(source)?;
+    let text = name.static_text(source)?;
+    if !looks_like_c_declaration_keyword(text.as_ref()) || command.arena_body_args(source).is_empty()
+    {
         return None;
     }
 
-    Some(simple.name.span)
+    Some(name.span())
 }
 
 fn looks_like_c_declaration_keyword(text: &str) -> bool {

@@ -36,7 +36,8 @@ pub fn unchecked_directory_change_in_function(checker: &mut Checker) {
     let mut reports = Vec::new();
 
     for fact in checker.facts().commands() {
-        let scope = semantic.scope_at(fact.stmt().span.start.offset);
+        let stmt_span = fact.stmt_span();
+        let scope = semantic.scope_at(stmt_span.start.offset);
         let barrier = nearest_dominance_barrier(checker.facts(), fact.id());
         if fact.is_nested_word_command()
             && !matches!(semantic.scope_kind(scope), ScopeKind::CommandSubstitution)
@@ -51,7 +52,7 @@ pub fn unchecked_directory_change_in_function(checker: &mut Checker) {
         }
 
         let unchecked = semantic
-            .flow_context_at(&fact.stmt().span)
+            .flow_context_at(&stmt_span)
             .map(|context| !context.exit_status_checked)
             .unwrap_or(true);
         let pending_key = (scope, barrier);

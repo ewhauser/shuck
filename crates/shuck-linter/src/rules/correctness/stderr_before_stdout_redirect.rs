@@ -52,10 +52,8 @@ pub fn stderr_before_stdout_redirect(checker: &mut Checker) {
 
                     let stdout_index =
                         last_later_stdout_file_redirect_index(&redirects[index + 1..])? + index + 1;
-                    let diagnostic = crate::Diagnostic::new(
-                        StderrBeforeStdoutRedirect,
-                        redirect.redirect().span,
-                    );
+                    let diagnostic =
+                        crate::Diagnostic::new(StderrBeforeStdoutRedirect, redirect.span());
                     Some(
                         match stderr_before_stdout_redirect_fix(
                             source,
@@ -76,19 +74,19 @@ pub fn stderr_before_stdout_redirect(checker: &mut Checker) {
     }
 }
 
-fn is_stderr_to_stdout_redirect(redirect: &RedirectFact<'_>) -> bool {
+fn is_stderr_to_stdout_redirect(redirect: &RedirectFact) -> bool {
     let Some(analysis) = redirect.analysis() else {
         return false;
     };
 
-    redirect.redirect().kind == RedirectKind::DupOutput
-        && redirect.redirect().fd == Some(2)
+    redirect.kind() == RedirectKind::DupOutput
+        && redirect.fd() == Some(2)
         && analysis.numeric_descriptor_target == Some(1)
 }
 
 fn stderr_before_stdout_redirect_fix(
     source: &str,
-    redirects: &[RedirectFact<'_>],
+    redirects: &[RedirectFact],
     stderr_index: usize,
     stdout_index: usize,
 ) -> Option<Fix> {
@@ -101,8 +99,8 @@ fn stderr_before_stdout_redirect_fix(
 
     let replacement = reordered_redirect_segment(source, redirects, stderr_index, stdout_index);
     let span = Span::from_positions(
-        redirects[stderr_index].redirect().span.start,
-        redirects[stdout_index].redirect().span.end,
+        redirects[stderr_index].span().start,
+        redirects[stdout_index].span().end,
     );
 
     Some(Fix::unsafe_edit(Edit::replacement(replacement, span)))
@@ -110,19 +108,19 @@ fn stderr_before_stdout_redirect_fix(
 
 fn reordered_redirect_segment(
     source: &str,
-    redirects: &[RedirectFact<'_>],
+    redirects: &[RedirectFact],
     stderr_index: usize,
     stdout_index: usize,
 ) -> String {
-    let moved_span = redirects[stderr_index].redirect().span;
+    let moved_span = redirects[stderr_index].span();
     let mut replacement = String::new();
 
     for index in stderr_index + 1..=stdout_index {
-        let span = redirects[index].redirect().span;
+        let span = redirects[index].span();
         let gap = if index == stderr_index + 1 {
             strip_leading_shell_trivia(&source[moved_span.end.offset..span.start.offset])
         } else {
-            &source[redirects[index - 1].redirect().span.end.offset..span.start.offset]
+            &source[redirects[index - 1].span().end.offset..span.start.offset]
         };
         replacement.push_str(gap);
         replacement.push_str(span.slice(source));
@@ -162,7 +160,7 @@ fn strip_leading_shell_trivia(text: &str) -> &str {
     &text[offset..]
 }
 
-fn last_later_stdout_file_redirect_index(redirects: &[RedirectFact<'_>]) -> Option<usize> {
+fn last_later_stdout_file_redirect_index(redirects: &[RedirectFact]) -> Option<usize> {
     redirects
         .iter()
         .enumerate()
@@ -170,20 +168,18 @@ fn last_later_stdout_file_redirect_index(redirects: &[RedirectFact<'_>]) -> Opti
         .next_back()
 }
 
-fn is_stdout_file_redirect(redirect: &RedirectFact<'_>) -> bool {
-    let data = redirect.redirect();
-    data.fd.unwrap_or(1) == 1
+fn is_stdout_file_redirect(redirect: &RedirectFact) -> bool {
+    redirect.fd().unwrap_or(1) == 1
         && matches!(
-            data.kind,
+            redirect.kind(),
             RedirectKind::Output | RedirectKind::Clobber | RedirectKind::Append
         )
 }
 
-fn redirect_conflicts_with_stderr_reorder(redirect: &RedirectFact<'_>) -> bool {
-    let data = redirect.redirect();
-    data.fd == Some(2)
-        || data.kind == RedirectKind::OutputBoth
-        || (data.kind == RedirectKind::DupOutput
+fn redirect_conflicts_with_stderr_reorder(redirect: &RedirectFact) -> bool {
+    redirect.fd() == Some(2)
+        || redirect.kind() == RedirectKind::OutputBoth
+        || (redirect.kind() == RedirectKind::DupOutput
             && redirect
                 .analysis()
                 .is_some_and(|analysis| analysis.numeric_descriptor_target == Some(2)))

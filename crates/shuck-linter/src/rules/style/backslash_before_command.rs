@@ -1,4 +1,4 @@
-use shuck_ast::{Command, Span};
+use shuck_ast::Span;
 
 use crate::{Checker, Rule, Violation};
 
@@ -20,20 +20,19 @@ pub fn backslash_before_command(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
-        .filter_map(|fact| backslash_before_command_span(fact.command(), source))
+        .filter_map(|fact| {
+            let word = fact.arena_body_name_word(source)?;
+            backslash_before_command_span(word.span(), source)
+        })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || BackslashBeforeCommand);
 }
 
-fn backslash_before_command_span(command: &Command, source: &str) -> Option<Span> {
-    let Command::Simple(simple) = command else {
-        return None;
-    };
-
-    (simple.name.span.slice(source) == "\\command").then_some(Span::from_positions(
-        simple.name.span.start,
-        simple.name.span.start,
+fn backslash_before_command_span(name_span: Span, source: &str) -> Option<Span> {
+    (name_span.slice(source) == "\\command").then_some(Span::from_positions(
+        name_span.start,
+        name_span.start,
     ))
 }
 

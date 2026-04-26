@@ -46,19 +46,27 @@ use crate::suppression::shellcheck_directive_can_apply_to_following_command;
 use crate::{AmbientShellOptions, FileContext, ShellDialect};
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue,
-    ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem, ArrayKind, Assignment, AssignmentValue,
-    BackgroundOperator, BinaryCommand, BinaryOp, BourneParameterExpansion, BraceQuoteContext,
-    BraceSyntaxKind, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command,
-    CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
-    ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef,
-    HeredocBodyPartNode, IdRange, ListArena, Name, ParameterExpansion, ParameterExpansionSyntax,
-    ParameterOp, Pattern, PatternPart, Position, PrefixMatchKind, Redirect, RedirectKind,
-    SelectCommand, SimpleCommand, SourceText, Span, StaticCommandWrapperTarget, Stmt, StmtSeq,
-    StmtTerminator, Subscript, SubscriptSelector, TextRange, TextSize, VarRef, WhileCommand, Word,
-    WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
+    ArenaFile, ArenaFileCommandKind, ArenaHeredocBodyPart, ArithmeticExpansionSyntax,
+    ArithmeticExpr, ArithmeticExprArena, ArithmeticExprArenaNode, ArithmeticExprNode,
+    ArithmeticLvalue, ArithmeticLvalueArena, ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem,
+    ArrayElemNode, ArrayKind, Assignment, AssignmentNode, AssignmentValue, AssignmentValueNode,
+    AstStore, BackgroundOperator, BinaryCommand, BinaryCommandView, BinaryOp,
+    BourneParameterExpansion, BourneParameterExpansionNode, BraceQuoteContext, BraceSyntaxKind,
+    BuiltinCommand, CaseCommand, CaseTerminator, Command, CommandId as AstCommandId,
+    CommandSubstitutionSyntax, CommandView, CompoundCommand, CompoundCommandNode,
+    ConditionalBinaryOp, ConditionalExpr, ConditionalExprArena, ConditionalUnaryOp, DeclOperand,
+    DeclOperandNode, File, FunctionDef, HeredocBodyPartNode, IdRange, ListArena, Name,
+    ParameterExpansion, ParameterExpansionNode, ParameterExpansionSyntax,
+    ParameterExpansionSyntaxNode, ParameterOp, Pattern, PatternNode, PatternPart, PatternPartArena,
+    Position, PrefixMatchKind, Redirect, RedirectKind, RedirectNode, RedirectTargetNode,
+    SimpleCommand, SourceText, Span, StaticCommandWrapperTarget, Stmt, StmtId as AstStmtId,
+    StmtSeq, StmtSeqView, StmtTerminator, StmtView, Subscript, SubscriptNode, SubscriptSelector,
+    TextRange, TextSize, VarRef, VarRefNode, WhileCommand, Word, WordId, WordPart, WordPartArena,
+    WordPartArenaNode, WordPartNode, WordView, ZshExpansionOperation, ZshExpansionOperationNode,
+    ZshExpansionTarget, ZshExpansionTargetNode, ZshGlobSegment, ZshGlobSegmentNode,
     ZshQualifiedGlob, is_shell_variable_name, static_command_name_text,
-    static_command_wrapper_target_index, static_word_text, word_is_standalone_status_capture,
+    static_command_wrapper_target_index, static_word_text, static_word_text_arena,
+    word_is_standalone_status_capture,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -74,7 +82,8 @@ pub(crate) use self::escape_scan::{EscapeScanMatch, EscapeScanSourceKind};
 #[cfg(feature = "benchmarking")]
 pub(crate) use self::normalized_commands::normalize_command;
 pub use self::normalized_commands::{
-    DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind,
+    ArenaNormalizedCommand, ArenaNormalizedDeclaration, DeclarationKind, NormalizedCommand,
+    NormalizedDeclaration, WrapperKind,
 };
 pub use self::surface::{
     BacktickFragmentFact, LegacyArithmeticFragmentFact, PositionalParameterFragmentFact,
@@ -128,8 +137,8 @@ pub(crate) fn benchmark_normalize_commands(file: &File, source: &str) -> usize {
 #[allow(unused_imports)]
 pub(crate) mod core {
     pub use super::{
-        CommandFactRef, CommandFacts, CommandId, FactSpan, SudoFamilyInvoker, WordNodeId,
-        WordOccurrenceId,
+        CommandFactRef, CommandFacts, CommandId, FactSpan, FactWordSpan, SudoFamilyInvoker,
+        WordNodeId, WordOccurrenceId,
     };
 }
 
@@ -194,13 +203,13 @@ pub(crate) mod command_options {
 
 #[allow(unused_imports)]
 pub(crate) mod commands {
-    pub use super::{CommandFact, CommandFactRef};
+    pub use super::{CommandFact, CommandFactCompoundKind, CommandFactRef};
 }
 
 #[allow(unused_imports)]
 pub(crate) mod words {
     pub use super::{
-        WordFactContext, WordFactHostKind, WordOccurrence, WordOccurrenceIter, WordOccurrenceRef,
-        leading_literal_word_prefix,
+        FactWordRef, WordFactContext, WordFactHostKind, WordOccurrence, WordOccurrenceIter,
+        WordOccurrenceRef, leading_literal_word_prefix,
     };
 }

@@ -22,7 +22,7 @@ pub fn multi_var_for_loop(checker: &mut Checker) {
         .facts()
         .for_headers()
         .iter()
-        .filter_map(|fact| fact.command().targets.get(1).map(|target| target.span))
+        .filter_map(|fact| fact.target_spans().get(1).copied())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || MultiVarForLoop);

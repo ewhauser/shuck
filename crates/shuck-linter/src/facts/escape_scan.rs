@@ -480,9 +480,9 @@ fn is_tr_operand_argument(
         .options()
         .tr()
         .is_some_and(|tr| {
-            tr.operand_words()
+            tr.operand_spans()
                 .iter()
-                .any(|word| word.span == occurrence_span(nodes, fact))
+                .any(|span| *span == occurrence_span(nodes, fact))
         })
 }
 

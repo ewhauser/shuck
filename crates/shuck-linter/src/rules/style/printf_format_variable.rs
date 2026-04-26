@@ -21,17 +21,17 @@ pub fn printf_format_variable(checker: &mut Checker) {
         .filter_map(|fact| {
             let printf = fact.options().printf()?;
             (!printf.format_word_has_literal_percent)
-                .then_some(printf.format_word)
+                .then_some(printf.format_word_span)
                 .flatten()
         })
-        .filter_map(|word| {
+        .filter_map(|span| {
             checker
                 .facts()
                 .word_fact(
-                    word.span,
+                    span,
                     WordFactContext::Expansion(ExpansionContext::CommandArgument),
                 )
-                .and_then(|fact| (!fact.classification().is_fixed_literal()).then_some(word.span))
+                .and_then(|fact| (!fact.classification().is_fixed_literal()).then_some(span))
         })
         .collect::<Vec<_>>();
 

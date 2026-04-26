@@ -23,6 +23,7 @@ pub enum SimpleTestOperatorFamily {
 #[derive(Debug, Clone)]
 pub struct SimpleTestFact<'a> {
     syntax: SimpleTestSyntax,
+    operand_ids: Box<[WordId]>,
     operands: Box<[&'a Word]>,
     shape: SimpleTestShape,
     operator_family: SimpleTestOperatorFamily,
@@ -40,6 +41,14 @@ impl<'a> SimpleTestFact<'a> {
 
     pub fn operands(&self) -> &[&'a Word] {
         &self.operands
+    }
+
+    pub fn operand_ids(&self) -> &[WordId] {
+        &self.operand_ids
+    }
+
+    pub fn effective_operand_ids(&self) -> &[WordId] {
+        &self.operand_ids[self.effective_operand_offset..]
     }
 
     pub fn shape(&self) -> SimpleTestShape {
@@ -261,6 +270,7 @@ fn build_simple_test_fact<'a>(
     command: &'a Command,
     source: &str,
     file_context: &FileContext,
+    arena_word_ids_by_span: &FxHashMap<FactSpan, WordId>,
 ) -> Option<SimpleTestFact<'a>> {
     let Command::Simple(command) = command else {
         return None;
@@ -295,9 +305,20 @@ fn build_simple_test_fact<'a>(
         .map(|word| classify_contextual_operand(word, source, ExpansionContext::CommandArgument))
         .collect::<Vec<_>>()
         .into_boxed_slice();
+    let operand_ids = operands
+        .iter()
+        .map(|word| {
+            arena_word_ids_by_span
+                .get(&FactSpan::new(word.span))
+                .copied()
+                .unwrap_or_else(|| panic!("arena word id missing for simple-test operand {:?}", word.span))
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
 
     Some(SimpleTestFact {
         syntax,
+        operand_ids,
         operands: operands.into_boxed_slice(),
         shape,
         operator_family,
@@ -930,13 +951,14 @@ pub(super) fn build_single_test_subshell_spans<'a>(
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
+    arena_file: &ArenaFile,
     source: &str,
 ) -> Vec<Span> {
     let command_relationships =
         CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
     commands
         .iter()
-        .filter_map(|fact| single_test_subshell_span(fact, command_relationships, source))
+        .filter_map(|fact| single_test_subshell_span(fact, command_relationships, arena_file, source))
         .collect()
 }
 
@@ -944,44 +966,44 @@ pub(super) fn build_subshell_test_group_spans<'a>(
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
+    arena_file: &ArenaFile,
     source: &str,
 ) -> Vec<Span> {
     let command_relationships =
         CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
     commands
         .iter()
-        .filter_map(|fact| subshell_test_group_span(fact, command_relationships, source))
+        .filter_map(|fact| subshell_test_group_span(fact, command_relationships, arena_file, source))
         .collect()
 }
 
 fn single_test_subshell_span<'a>(
     fact: &CommandFact<'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
+    arena_file: &ArenaFile,
     source: &str,
 ) -> Option<Span> {
-    let condition = match fact.command() {
-        Command::Compound(CompoundCommand::If(command)) => &command.condition,
-        Command::Compound(CompoundCommand::While(command)) => &command.condition,
-        Command::Compound(CompoundCommand::Until(command)) => &command.condition,
+    let command = arena_file.store.command(fact.arena_command_id()?);
+    let condition = match command.compound()?.node() {
+        CompoundCommandNode::If { condition, .. }
+        | CompoundCommandNode::While { condition, .. }
+        | CompoundCommandNode::Until { condition, .. } => arena_file.store.stmt_seq(*condition),
         _ => return None,
     };
 
-    let [stmt] = condition.as_slice() else {
-        return None;
+    let stmt = single_test_single_arena_stmt(condition)?;
+
+    let condition_fact = command_relationships.child_or_lookup_arena_fact(fact.id(), stmt)?;
+    let body = match stmt.command().compound()?.node() {
+        CompoundCommandNode::Subshell(body) => arena_file.store.stmt_seq(*body),
+        _ => return None,
     };
 
-    let condition_fact = command_relationships.child_or_lookup_fact(fact.id(), stmt)?;
-    let Command::Compound(CompoundCommand::Subshell(body)) = condition_fact.command() else {
-        return None;
-    };
+    let body_stmt = single_test_single_arena_stmt(body)?;
 
-    let [body_stmt] = body.as_slice() else {
-        return None;
-    };
-
-    let body_fact = command_relationships.child_or_lookup_fact(condition_fact.id(), body_stmt)?;
+    let body_fact = command_relationships.child_or_lookup_arena_fact(condition_fact.id(), body_stmt)?;
     let simple_test = is_test_like_command(body_fact);
-    if stmt.negated && !simple_test {
+    if stmt.negated() && !simple_test {
         return None;
     }
 
@@ -1001,40 +1023,37 @@ fn is_test_like_command(fact: &CommandFact<'_>) -> bool {
         .all(|wrapper| matches!(wrapper, WrapperKind::Command | WrapperKind::Builtin))
         && (fact.effective_name_is("test")
             || fact.effective_name_is("[")
-            || matches!(
-                fact.command(),
-                Command::Compound(CompoundCommand::Conditional(_))
-            ))
+            || fact.shape().compound_kind == Some(CommandFactCompoundKind::Conditional))
 }
 
 fn is_test_condition_fact<'a>(
     fact: &CommandFact<'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
 ) -> bool {
-    match fact.command() {
-        Command::Binary(binary) if matches!(binary.op, BinaryOp::And | BinaryOp::Or) => {
-            let Some(left) = command_relationships.child_or_lookup_fact(fact.id(), &binary.left)
-            else {
-                return false;
-            };
-            let Some(right) = command_relationships.child_or_lookup_fact(fact.id(), &binary.right)
-            else {
-                return false;
-            };
-            is_test_condition_fact(left, command_relationships)
-                && is_test_condition_fact(right, command_relationships)
+    if fact.shape().is_short_circuit_binary() {
+        let child_ids = command_relationships.command_child_index.child_ids(fact.id());
+        if child_ids.len() != 2 {
+            return false;
         }
-        _ => is_test_like_command(fact),
+        let left = command_relationships.fact(child_ids[0]);
+        let right = command_relationships.fact(child_ids[1]);
+        is_test_condition_fact(left, command_relationships)
+            && is_test_condition_fact(right, command_relationships)
+    } else {
+        is_test_like_command(fact)
     }
 }
 
 fn subshell_test_group_span<'a>(
     fact: &CommandFact<'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
+    arena_file: &ArenaFile,
     source: &str,
 ) -> Option<Span> {
-    let Command::Compound(CompoundCommand::Subshell(body)) = fact.command() else {
-        return None;
+    let command = arena_file.store.command(fact.arena_command_id()?);
+    let body = match command.compound()?.node() {
+        CompoundCommandNode::Subshell(body) => arena_file.store.stmt_seq(*body),
+        _ => return None,
     };
 
     if !subshell_body_contains_grouped_tests(body, fact.id(), command_relationships) {
@@ -1045,7 +1064,7 @@ fn subshell_test_group_span<'a>(
 }
 
 fn subshell_body_contains_grouped_tests<'a>(
-    body: &StmtSeq,
+    body: StmtSeqView<'_>,
     parent_id: CommandId,
     command_relationships: CommandRelationshipContext<'_, 'a>,
 ) -> bool {
@@ -1060,11 +1079,11 @@ struct GroupedTestAnalysis {
 }
 
 fn subshell_stmt_analysis<'a>(
-    stmt: &Stmt,
+    stmt: StmtView<'_>,
     parent_id: CommandId,
     command_relationships: CommandRelationshipContext<'_, 'a>,
 ) -> Option<GroupedTestAnalysis> {
-    let fact = command_relationships.child_or_lookup_fact(parent_id, stmt)?;
+    let fact = command_relationships.child_or_lookup_arena_fact(parent_id, stmt)?;
     subshell_command_analysis(fact, command_relationships)
 }
 
@@ -1072,10 +1091,10 @@ fn subshell_command_analysis<'a>(
     fact: &CommandFact<'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
 ) -> Option<GroupedTestAnalysis> {
-    match fact.command() {
-        Command::Simple(_)
-        | Command::Builtin(_)
-        | Command::Compound(CompoundCommand::Conditional(_)) => {
+    match fact.shape().kind {
+        ArenaFileCommandKind::Simple | ArenaFileCommandKind::Builtin
+            if fact.shape().compound_kind.is_none() =>
+        {
             if is_test_like_command(fact) {
                 return Some(GroupedTestAnalysis {
                     test_count: 1,
@@ -1084,25 +1103,44 @@ fn subshell_command_analysis<'a>(
             }
             None
         }
-        Command::Compound(CompoundCommand::BraceGroup(body)) => {
-            let inner = subshell_body_analysis(body, fact.id(), command_relationships)?;
+        ArenaFileCommandKind::Compound
+            if fact.shape().compound_kind == Some(CommandFactCompoundKind::Conditional) =>
+        {
+            if is_test_like_command(fact) {
+                return Some(GroupedTestAnalysis {
+                    test_count: 1,
+                    has_grouping: false,
+                });
+            }
+            None
+        }
+        ArenaFileCommandKind::Compound
+            if fact.shape().compound_kind == Some(CommandFactCompoundKind::BraceGroup) =>
+        {
+            let child = command_relationships.command_child_index.child_ids(fact.id()).first().copied()?;
+            let inner = subshell_command_analysis(command_relationships.fact(child), command_relationships)?;
             Some(GroupedTestAnalysis {
                 test_count: inner.test_count,
                 has_grouping: true,
             })
         }
-        Command::Compound(CompoundCommand::Subshell(body)) => {
-            let inner = subshell_body_analysis(body, fact.id(), command_relationships)?;
+        ArenaFileCommandKind::Compound
+            if fact.shape().compound_kind == Some(CommandFactCompoundKind::Subshell) =>
+        {
+            let child = command_relationships.command_child_index.child_ids(fact.id()).first().copied()?;
+            let inner = subshell_command_analysis(command_relationships.fact(child), command_relationships)?;
             Some(GroupedTestAnalysis {
                 test_count: inner.test_count,
                 has_grouping: inner.has_grouping,
             })
         }
-        Command::Binary(binary) if matches!(binary.op, BinaryOp::And | BinaryOp::Or) => {
-            let left =
-                subshell_stmt_analysis(&binary.left, fact.id(), command_relationships)?;
-            let right =
-                subshell_stmt_analysis(&binary.right, fact.id(), command_relationships)?;
+        ArenaFileCommandKind::Binary if fact.shape().is_short_circuit_binary() => {
+            let child_ids = command_relationships.command_child_index.child_ids(fact.id());
+            let [left_id, right_id] = child_ids else {
+                return None;
+            };
+            let left = subshell_command_analysis(command_relationships.fact(*left_id), command_relationships)?;
+            let right = subshell_command_analysis(command_relationships.fact(*right_id), command_relationships)?;
             Some(GroupedTestAnalysis {
                 test_count: left.test_count + right.test_count,
                 has_grouping: true,
@@ -1113,23 +1151,32 @@ fn subshell_command_analysis<'a>(
 }
 
 fn subshell_body_analysis<'a>(
-    body: &StmtSeq,
+    body: StmtSeqView<'_>,
     parent_id: CommandId,
     command_relationships: CommandRelationshipContext<'_, 'a>,
 ) -> Option<GroupedTestAnalysis> {
     let mut analysis = GroupedTestAnalysis::default();
 
-    if body.stmts.len() > 1 {
+    if body.stmt_ids().len() > 1 {
         analysis.has_grouping = true;
     }
 
-    for stmt in &body.stmts {
+    for stmt in body.stmts() {
         let stmt_analysis = subshell_stmt_analysis(stmt, parent_id, command_relationships)?;
         analysis.test_count += stmt_analysis.test_count;
         analysis.has_grouping |= stmt_analysis.has_grouping;
     }
 
     Some(analysis)
+}
+
+fn single_test_single_arena_stmt(seq: StmtSeqView<'_>) -> Option<StmtView<'_>> {
+    let mut stmts = seq.stmts();
+    let stmt = stmts.next()?;
+    if stmts.next().is_some() {
+        return None;
+    }
+    Some(stmt)
 }
 
 fn subshell_anchor_span(span: Span, source: &str) -> Span {
@@ -1179,27 +1226,6 @@ fn trim_trailing_whitespace_offset(source: &str, end_offset: usize) -> usize {
     }
 
     end_offset
-}
-
-fn collect_short_circuit_operators(command: &BinaryCommand, operators: &mut Vec<ListOperatorFact>) {
-    if let Command::Binary(left) = &command.left.command
-        && matches!(left.op, BinaryOp::And | BinaryOp::Or)
-    {
-        collect_short_circuit_operators(left, operators);
-    }
-
-    if matches!(command.op, BinaryOp::And | BinaryOp::Or) {
-        operators.push(ListOperatorFact {
-            op: command.op,
-            span: command.op_span,
-        });
-    }
-
-    if let Command::Binary(right) = &command.right.command
-        && matches!(right.op, BinaryOp::And | BinaryOp::Or)
-    {
-        collect_short_circuit_operators(right, operators);
-    }
 }
 
 fn mixed_short_circuit_operator_span(operators: &[ListOperatorFact]) -> Option<Span> {

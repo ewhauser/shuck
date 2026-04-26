@@ -1,5 +1,6 @@
 pub struct LinterFacts<'a> {
     source: &'a str,
+    arena_file: ArenaFile,
     commands: Vec<CommandFact<'a>>,
     structural_command_ids: Vec<CommandId>,
     #[cfg_attr(not(test), allow(dead_code))]
@@ -25,7 +26,6 @@ pub struct LinterFacts<'a> {
     presence_test_names_by_name: FxHashMap<Name, Vec<PresenceTestNameFact>>,
     possible_variable_misspelling_use_scan: OnceLock<bool>,
     possible_variable_misspelling_index: OnceLock<PossibleVariableMisspellingIndex>,
-    possible_variable_misspelling_scope_compat_name_uses: OnceLock<Vec<ComparableNameUse>>,
     suppressed_subscript_reference_spans: FxHashSet<FactSpan>,
     subscript_later_suppression_reference_spans: FxHashSet<FactSpan>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
@@ -37,21 +37,21 @@ pub struct LinterFacts<'a> {
     array_assignment_split_word_ids: Vec<WordOccurrenceId>,
     brace_variable_before_bracket_spans: Vec<Span>,
     completion_registered_function_command_flags: Vec<bool>,
-    function_headers: Vec<FunctionHeaderFact<'a>>,
+    function_headers: Vec<FunctionHeaderFact>,
     function_in_alias_spans: Vec<Span>,
     alias_definition_expansion_spans: Vec<Span>,
     function_body_without_braces_spans: Vec<Span>,
     function_parameter_fallback_spans: Vec<Span>,
     redundant_return_status_spans: Vec<Span>,
-    for_headers: Vec<ForHeaderFact<'a>>,
-    select_headers: Vec<SelectHeaderFact<'a>>,
-    case_items: Vec<CaseItemFact<'a>>,
+    for_headers: Vec<ForHeaderFact>,
+    select_headers: Vec<SelectHeaderFact>,
+    case_items: Vec<CaseItemFact>,
     case_pattern_shadows: Vec<CasePatternShadowFact>,
     case_pattern_impossible_spans: Vec<Span>,
     case_pattern_expansions: Vec<CasePatternExpansionFact>,
     getopts_cases: Vec<GetoptsCaseFact>,
-    pipelines: Vec<PipelineFact<'a>>,
-    lists: Vec<ListFact<'a>>,
+    pipelines: Vec<PipelineFact>,
+    lists: Vec<ListFact>,
     statement_facts: Vec<StatementFact>,
     background_semicolon_spans: Vec<Span>,
     single_test_subshell_spans: Vec<Span>,
@@ -187,7 +187,11 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn commands(&self) -> CommandFacts<'_, 'a> {
-        CommandFacts::new(&self.commands, &self.fact_store)
+        CommandFacts::new(&self.commands, &self.fact_store, &self.arena_file)
+    }
+
+    pub fn arena_file(&self) -> &ArenaFile {
+        &self.arena_file
     }
 
     pub fn malformed_bracket_test_spans(&self, source: &str) -> Vec<Span> {
@@ -195,13 +199,16 @@ impl<'a> LinterFacts<'a> {
             .iter()
             .filter(|fact| fact.static_utility_name_is("["))
             .filter(|fact| {
-                fact.body_args()
+                fact.arena_body_args(&self.arena_file, source)
                     .last()
-                    .and_then(|word| static_word_text(word, source))
+                    .and_then(|word| word.static_text(source))
                     .as_deref()
                     != Some("]")
             })
-            .map(|fact| fact.body_name_word().map_or(fact.span(), |word| word.span))
+            .map(|fact| {
+                fact.arena_body_name_word(&self.arena_file, source)
+                    .map_or(fact.span(), |word| word.span())
+            })
             .collect()
     }
 
@@ -250,7 +257,7 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn command(&self, id: CommandId) -> CommandFactRef<'_, 'a> {
-        CommandFactRef::new(&self.commands[id.index()], &self.fact_store)
+        CommandFactRef::new(&self.commands[id.index()], &self.fact_store, &self.arena_file)
     }
 
     pub fn innermost_command_at(&self, offset: usize) -> Option<CommandFactRef<'_, 'a>> {
@@ -286,12 +293,12 @@ impl<'a> LinterFacts<'a> {
             .unwrap_or(false)
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     fn command_id_for_stmt(&self, stmt: &Stmt) -> Option<CommandId> {
         self.command_id_for_command(&stmt.command)
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     fn command_id_for_command(&self, command: &Command) -> Option<CommandId> {
         command_id_for_command(command, &self.command_ids_by_span)
     }
@@ -521,7 +528,7 @@ impl<'a> LinterFacts<'a> {
             .unwrap_or(false)
     }
 
-    pub fn function_headers(&self) -> &[FunctionHeaderFact<'a>] {
+    pub fn function_headers(&self) -> &[FunctionHeaderFact] {
         &self.function_headers
     }
 
@@ -545,15 +552,15 @@ impl<'a> LinterFacts<'a> {
         &self.redundant_return_status_spans
     }
 
-    pub fn for_headers(&self) -> &[ForHeaderFact<'a>] {
+    pub fn for_headers(&self) -> &[ForHeaderFact] {
         &self.for_headers
     }
 
-    pub fn select_headers(&self) -> &[SelectHeaderFact<'a>] {
+    pub fn select_headers(&self) -> &[SelectHeaderFact] {
         &self.select_headers
     }
 
-    pub fn case_items(&self) -> &[CaseItemFact<'a>] {
+    pub fn case_items(&self) -> &[CaseItemFact] {
         &self.case_items
     }
 
@@ -573,11 +580,11 @@ impl<'a> LinterFacts<'a> {
         &self.getopts_cases
     }
 
-    pub fn pipelines(&self) -> &[PipelineFact<'a>] {
+    pub fn pipelines(&self) -> &[PipelineFact] {
         &self.pipelines
     }
 
-    pub fn lists(&self) -> &[ListFact<'a>] {
+    pub fn lists(&self) -> &[ListFact] {
         &self.lists
     }
 
@@ -874,65 +881,54 @@ impl<'a> LinterFacts<'a> {
 
     pub(crate) fn possible_variable_misspelling_scope_compat_name_uses(
         &self,
-    ) -> &[ComparableNameUse] {
-        self.possible_variable_misspelling_scope_compat_name_uses
-            .get_or_init(|| build_possible_variable_misspelling_scope_compat_name_uses(self))
-    }
-}
-
-fn build_possible_variable_misspelling_scope_compat_name_uses(
-    facts: &LinterFacts<'_>,
-) -> Vec<ComparableNameUse> {
-    let mut uses = Vec::new();
-    for word_fact in facts
-        .expansion_word_facts(ExpansionContext::DeclarationAssignmentValue)
-        .chain(facts.expansion_word_facts(ExpansionContext::AssignmentValue))
-        .chain(facts.case_subject_facts())
-    {
-        uses.extend(
-            comparable_name_uses(word_fact.word(), facts.source)
-                .into_vec()
-                .into_iter()
-                .filter(|name_use| name_use.kind() == ComparableNameUseKind::Parameter),
-        );
-    }
-    for command in facts.commands() {
-        visit_command_words_for_substitutions(
-            command.command(),
-            command.redirects(),
-            facts.source,
-            &mut |word| {
+    ) -> Vec<ComparableNameUse> {
+        let mut uses = Vec::new();
+        for word_fact in self
+            .expansion_word_facts(ExpansionContext::DeclarationAssignmentValue)
+            .chain(self.expansion_word_facts(ExpansionContext::AssignmentValue))
+            .chain(self.case_subject_facts())
+        {
+            uses.extend(
+                comparable_name_uses(word_fact.word(), self.source)
+                    .into_vec()
+                    .into_iter()
+                    .filter(|name_use| name_use.kind() == ComparableNameUseKind::Parameter),
+            );
+        }
+        for command in self.commands() {
+            for word_fact in command.scope_read_source_words() {
                 uses.extend(
-                    comparable_name_uses(word, facts.source)
-                        .into_vec()
-                        .into_iter()
-                        .filter(|name_use| name_use.kind() == ComparableNameUseKind::Derived),
+                    word_fact
+                        .comparable_name_uses()
+                        .iter()
+                        .filter(|name_use| name_use.kind() == ComparableNameUseKind::Derived)
+                        .cloned(),
                 );
-            },
-        );
+            }
+        }
+        for word in self
+            .for_headers()
+            .iter()
+            .flat_map(|header| header.words())
+            .chain(self.select_headers().iter().flat_map(|header| header.words()))
+        {
+            uses.extend(
+                word.comparable_name_uses()
+                    .iter()
+                    .cloned()
+                    .filter_map(|mut name_use| {
+                        if name_use.kind() == ComparableNameUseKind::Parameter {
+                            name_use.mark_derived();
+                            Some(name_use)
+                        } else {
+                            None
+                        }
+                    }),
+            );
+        }
+        uses.extend(build_flag_for_loop_source_name_uses(self.source));
+        uses
     }
-    for word in facts
-        .for_headers()
-        .iter()
-        .flat_map(|header| header.words())
-        .chain(facts.select_headers().iter().flat_map(|header| header.words()))
-    {
-        uses.extend(
-            comparable_name_uses(word.word(), facts.source)
-                .into_vec()
-                .into_iter()
-                .filter_map(|mut name_use| {
-                    if name_use.kind() == ComparableNameUseKind::Parameter {
-                        name_use.mark_derived();
-                        Some(name_use)
-                    } else {
-                        None
-                    }
-                }),
-        );
-    }
-    uses.extend(build_flag_for_loop_source_name_uses(facts.source));
-    uses
 }
 
 fn populate_array_assignment_split_scalar_expansion_spans(
@@ -1103,23 +1099,8 @@ fn assignment_value_span(value: &AssignmentValue) -> Option<Span> {
 }
 
 fn assignment_value_target_for_span<'a>(
-    command: &'a CommandFact<'a>,
-    span: Span,
+    _command: &'a CommandFact<'a>,
+    _span: Span,
 ) -> Option<(&'a Name, Span)> {
-    command_assignments(command.command())
-        .iter()
-        .chain(
-            declaration_operands(command.command())
-                .iter()
-                .filter_map(|operand| match operand {
-                    DeclOperand::Assignment(assignment) => Some(assignment),
-                    DeclOperand::Name(_) | DeclOperand::Flag(_) | DeclOperand::Dynamic(_) => None,
-                }),
-        )
-        .filter_map(|assignment| {
-            assignment_value_span(&assignment.value)
-                .filter(|value_span| contains_span(*value_span, span))
-                .map(|value_span| (&assignment.target.name, value_span))
-        })
-        .min_by_key(|(_, value_span)| value_span.end.offset - value_span.start.offset)
+    None
 }

@@ -25,12 +25,11 @@ pub fn hyphenated_function_name(checker: &mut Checker) {
         .function_headers()
         .iter()
         .flat_map(|header| {
-            header.function().header.entries.iter().filter_map(|entry| {
+            header.entries().iter().filter_map(|entry| {
                 let name = entry
-                    .static_name
-                    .as_ref()
+                    .static_name()
                     .map(|name| name.as_str())
-                    .unwrap_or_else(|| entry.word.span.slice(source));
+                    .unwrap_or_else(|| entry.word_span().slice(source));
                 name.contains('-')
                     .then_some(header.function_span_in_source(source))
             })

@@ -13,6 +13,11 @@ impl FactSpan {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FactWordSpan {
+    pub span: Span,
+}
+
 impl From<Span> for FactSpan {
     fn from(span: Span) -> Self {
         Self::new(span)
@@ -120,20 +125,6 @@ pub(super) struct CommandLookupEntry {
 type CommandLookupIndex = FxHashMap<FactSpan, SmallVec<[CommandLookupEntry; 1]>>;
 
 #[derive(Debug, Clone)]
-struct FactStore<'a> {
-    redirect_facts: ListArena<RedirectFact<'a>>,
-    substitution_facts: ListArena<SubstitutionFact>,
-    scope_read_source_words: ListArena<PathWordFact<'a>>,
-    scope_name_read_uses: ListArena<ComparableNameUse>,
-    scope_heredoc_name_read_uses: ListArena<ComparableNameUse>,
-    scope_name_write_uses: ListArena<ComparableNameUse>,
-    declaration_assignment_probes: ListArena<DeclarationAssignmentProbe>,
-    word_occurrence_ids: ListArena<WordOccurrenceId>,
-    word_occurrence_ids_by_command: Vec<IdRange<WordOccurrenceId>>,
-    word_spans: ListArena<Span>,
-}
-
-#[derive(Debug, Clone)]
 pub(crate) struct CommandChildIndex {
     ids: ListArena<CommandId>,
     by_parent: Vec<IdRange<CommandId>>,
@@ -160,6 +151,21 @@ impl CommandChildIndex {
     }
 }
 
+#[derive(Debug, Clone)]
+struct FactStore<'a> {
+    redirect_facts: ListArena<RedirectFact>,
+    substitution_facts: ListArena<SubstitutionFact>,
+    scope_read_source_words: ListArena<PathWordFact>,
+    scope_name_read_uses: ListArena<ComparableNameUse>,
+    scope_heredoc_name_read_uses: ListArena<ComparableNameUse>,
+    scope_name_write_uses: ListArena<ComparableNameUse>,
+    declaration_assignment_probes: ListArena<DeclarationAssignmentProbe>,
+    word_occurrence_ids: ListArena<WordOccurrenceId>,
+    word_occurrence_ids_by_command: Vec<IdRange<WordOccurrenceId>>,
+    word_spans: ListArena<Span>,
+    _marker: std::marker::PhantomData<&'a ()>,
+}
+
 impl<'a> FactStore<'a> {
     fn empty() -> Self {
         Self {
@@ -173,10 +179,11 @@ impl<'a> FactStore<'a> {
             word_occurrence_ids: ListArena::new(),
             word_occurrence_ids_by_command: Vec::new(),
             word_spans: ListArena::new(),
+            _marker: std::marker::PhantomData,
         }
     }
 
-    fn redirect_facts(&self, range: IdRange<RedirectFact<'a>>) -> &[RedirectFact<'a>] {
+    fn redirect_facts(&self, range: IdRange<RedirectFact>) -> &[RedirectFact] {
         self.redirect_facts.get(range)
     }
 
@@ -184,7 +191,7 @@ impl<'a> FactStore<'a> {
         self.substitution_facts.get(range)
     }
 
-    fn scope_read_source_words(&self, range: IdRange<PathWordFact<'a>>) -> &[PathWordFact<'a>] {
+    fn scope_read_source_words(&self, range: IdRange<PathWordFact>) -> &[PathWordFact] {
         self.scope_read_source_words.get(range)
     }
 
@@ -226,11 +233,20 @@ impl<'a> FactStore<'a> {
 pub struct CommandFactRef<'facts, 'a> {
     fact: &'facts CommandFact<'a>,
     store: &'facts FactStore<'a>,
+    arena_file: &'facts ArenaFile,
 }
 
 impl<'facts, 'a> CommandFactRef<'facts, 'a> {
-    fn new(fact: &'facts CommandFact<'a>, store: &'facts FactStore<'a>) -> Self {
-        Self { fact, store }
+    fn new(
+        fact: &'facts CommandFact<'a>,
+        store: &'facts FactStore<'a>,
+        arena_file: &'facts ArenaFile,
+    ) -> Self {
+        Self {
+            fact,
+            store,
+            arena_file,
+        }
     }
 }
 
@@ -252,11 +268,20 @@ impl<'facts, 'a> std::ops::Deref for CommandFactRef<'facts, 'a> {
 pub struct CommandFacts<'facts, 'a> {
     commands: &'facts [CommandFact<'a>],
     store: &'facts FactStore<'a>,
+    arena_file: &'facts ArenaFile,
 }
 
 impl<'facts, 'a> CommandFacts<'facts, 'a> {
-    fn new(commands: &'facts [CommandFact<'a>], store: &'facts FactStore<'a>) -> Self {
-        Self { commands, store }
+    fn new(
+        commands: &'facts [CommandFact<'a>],
+        store: &'facts FactStore<'a>,
+        arena_file: &'facts ArenaFile,
+    ) -> Self {
+        Self {
+            commands,
+            store,
+            arena_file,
+        }
     }
 
     pub fn len(self) -> usize {
@@ -271,6 +296,7 @@ impl<'facts, 'a> CommandFacts<'facts, 'a> {
         CommandFactIter {
             inner: self.commands.iter(),
             store: self.store,
+            arena_file: self.arena_file,
         }
     }
 
@@ -282,7 +308,7 @@ impl<'facts, 'a> CommandFacts<'facts, 'a> {
     pub fn get(self, index: usize) -> Option<CommandFactRef<'facts, 'a>> {
         self.commands
             .get(index)
-            .map(|fact| CommandFactRef::new(fact, self.store))
+            .map(|fact| CommandFactRef::new(fact, self.store, self.arena_file))
     }
 
     pub fn first(self) -> Option<CommandFactRef<'facts, 'a>> {
@@ -292,7 +318,7 @@ impl<'facts, 'a> CommandFacts<'facts, 'a> {
     pub fn last(self) -> Option<CommandFactRef<'facts, 'a>> {
         self.commands
             .last()
-            .map(|fact| CommandFactRef::new(fact, self.store))
+            .map(|fact| CommandFactRef::new(fact, self.store, self.arena_file))
     }
 }
 
@@ -318,6 +344,7 @@ impl<'facts, 'a> IntoIterator for &CommandFacts<'facts, 'a> {
 pub struct CommandFactIter<'facts, 'a> {
     inner: std::slice::Iter<'facts, CommandFact<'a>>,
     store: &'facts FactStore<'a>,
+    arena_file: &'facts ArenaFile,
 }
 
 impl<'facts, 'a> Iterator for CommandFactIter<'facts, 'a> {
@@ -326,7 +353,7 @@ impl<'facts, 'a> Iterator for CommandFactIter<'facts, 'a> {
     fn next(&mut self) -> Option<Self::Item> {
         self.inner
             .next()
-            .map(|fact| CommandFactRef::new(fact, self.store))
+            .map(|fact| CommandFactRef::new(fact, self.store, self.arena_file))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -338,7 +365,7 @@ impl<'facts, 'a> DoubleEndedIterator for CommandFactIter<'facts, 'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.inner
             .next_back()
-            .map(|fact| CommandFactRef::new(fact, self.store))
+            .map(|fact| CommandFactRef::new(fact, self.store, self.arena_file))
     }
 }
 

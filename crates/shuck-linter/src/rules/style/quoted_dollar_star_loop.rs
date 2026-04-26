@@ -1,4 +1,3 @@
-use crate::facts::word_spans;
 use crate::{Checker, Rule, Violation, WordQuote};
 
 pub struct QuotedDollarStarLoop;
@@ -32,9 +31,8 @@ pub fn quoted_dollar_star_loop(checker: &mut Checker) {
             }
 
             (classification.has_command_substitution()
-                || !word_spans::word_double_quoted_scalar_only_expansion_spans(word.word())
-                    .is_empty()
-                || !word_spans::word_quoted_star_splat_spans(word.word()).is_empty())
+                || word.has_double_quoted_scalar_only_expansion()
+                || word.has_quoted_star_splat())
             .then_some(word.span())
         })
         .collect::<Vec<_>>();

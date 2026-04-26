@@ -1,6 +1,6 @@
-use shuck_ast::{Command, CompoundCommand, Span};
+use shuck_ast::Span;
 
-use crate::{Checker, Rule, ShellDialect, Violation};
+use crate::{Checker, CommandFactCompoundKind, Rule, ShellDialect, Violation};
 
 pub struct CStyleForInSh;
 
@@ -23,8 +23,8 @@ pub fn c_style_for_in_sh(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
-        .filter_map(|fact| match fact.command() {
-            Command::Compound(CompoundCommand::ArithmeticFor(_)) => {
+        .filter_map(|fact| match fact.compound_kind() {
+            Some(CommandFactCompoundKind::ArithmeticFor) => {
                 Some(keyword_span(fact.span_in_source(checker.source()), "for"))
             }
             _ => None,

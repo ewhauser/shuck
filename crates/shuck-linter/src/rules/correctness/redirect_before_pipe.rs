@@ -25,7 +25,7 @@ pub fn redirect_before_pipe(checker: &mut Checker) {
     checker.report_all_dedup(spans, || RedirectBeforePipe);
 }
 
-fn redirect_spans_for_pipeline(checker: &Checker<'_>, pipeline: &PipelineFact<'_>) -> Vec<Span> {
+fn redirect_spans_for_pipeline(checker: &Checker<'_>, pipeline: &PipelineFact) -> Vec<Span> {
     pipeline
         .segments()
         .iter()
@@ -46,8 +46,8 @@ fn redirect_spans_for_pipeline(checker: &Checker<'_>, pipeline: &PipelineFact<'_
 }
 
 fn has_independent_stderr_to_stdout_dup(
-    redirects: &[crate::RedirectFact<'_>],
-    stdout_redirect: &crate::RedirectFact<'_>,
+    redirects: &[crate::RedirectFact],
+    stdout_redirect: &crate::RedirectFact,
 ) -> bool {
     redirects.iter().any(|redirect| {
         is_stderr_to_stdout_dup(redirect)
@@ -55,33 +55,29 @@ fn has_independent_stderr_to_stdout_dup(
     })
 }
 
-fn is_stderr_to_stdout_dup(redirect: &crate::RedirectFact<'_>) -> bool {
-    redirect.redirect().kind == RedirectKind::DupOutput
-        && redirect.redirect().fd == Some(2)
+fn is_stderr_to_stdout_dup(redirect: &crate::RedirectFact) -> bool {
+    redirect.kind() == RedirectKind::DupOutput
+        && redirect.fd() == Some(2)
         && redirect
             .analysis()
             .is_some_and(|analysis| analysis.numeric_descriptor_target == Some(1))
 }
 
 fn is_synthetic_append_both_dup(
-    dup_redirect: &crate::RedirectFact<'_>,
-    stdout_redirect: &crate::RedirectFact<'_>,
+    dup_redirect: &crate::RedirectFact,
+    stdout_redirect: &crate::RedirectFact,
 ) -> bool {
-    stdout_redirect.redirect().kind == RedirectKind::Append
-        && dup_redirect.redirect().span.start == stdout_redirect.redirect().span.start
+    stdout_redirect.kind() == RedirectKind::Append
+        && dup_redirect.span().start == stdout_redirect.span().start
 }
 
-fn stdout_redirect_span_before_pipe(
-    redirect: &crate::RedirectFact<'_>,
-    source: &str,
-) -> Option<Span> {
-    let data = redirect.redirect();
-    if data.fd.unwrap_or(1) != 1 {
+fn stdout_redirect_span_before_pipe(redirect: &crate::RedirectFact, source: &str) -> Option<Span> {
+    if redirect.fd().unwrap_or(1) != 1 {
         return None;
     }
 
     if !matches!(
-        data.kind,
+        redirect.kind(),
         RedirectKind::Output
             | RedirectKind::Clobber
             | RedirectKind::Append
@@ -97,20 +93,17 @@ fn stdout_redirect_span_before_pipe(
         .flatten()
 }
 
-fn redirect_operator_span(redirect: &crate::RedirectFact<'_>, source: &str) -> Option<Span> {
+fn redirect_operator_span(redirect: &crate::RedirectFact, source: &str) -> Option<Span> {
     let target_span = redirect.target_span()?;
-    let operator_slice =
-        source.get(redirect.redirect().span.start.offset..target_span.start.offset)?;
+    let operator_slice = source.get(redirect.span().start.offset..target_span.start.offset)?;
     let operator_start = operator_slice.find('>')?;
     let operator_end = operator_slice.rfind(|ch: char| !ch.is_whitespace())? + 1;
     let operator_start_pos = redirect
-        .redirect()
-        .span
+        .span()
         .start
         .advanced_by(&operator_slice[..operator_start]);
     let operator_end_pos = redirect
-        .redirect()
-        .span
+        .span()
         .start
         .advanced_by(&operator_slice[..operator_end]);
 

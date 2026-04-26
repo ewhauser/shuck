@@ -1,18 +1,54 @@
 #[derive(Debug, Clone)]
-pub struct FunctionHeaderFact<'a> {
-    function: &'a FunctionDef,
+pub struct FunctionHeaderEntryFact {
+    name: Option<Name>,
+    word_span: Span,
+}
+
+impl FunctionHeaderEntryFact {
+    pub fn static_name(&self) -> Option<&Name> {
+        self.name.as_ref()
+    }
+
+    pub fn word_span(&self) -> Span {
+        self.word_span
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionHeaderFact {
+    command_id: Option<CommandId>,
+    arena_command_id: Option<AstCommandId>,
+    entries: Box<[FunctionHeaderEntryFact]>,
+    function_span: Span,
+    header_span: Span,
+    body_span: Span,
+    uses_function_keyword: bool,
+    has_trailing_parens: bool,
+    function_keyword_span: Option<Span>,
+    trailing_parens_span: Option<Span>,
+    has_terminal_exit: bool,
     binding_id: Option<BindingId>,
     scope_id: Option<ScopeId>,
     call_arity: FunctionCallArityFacts,
 }
 
-impl<'a> FunctionHeaderFact<'a> {
-    pub fn function(&self) -> &'a FunctionDef {
-        self.function
+impl FunctionHeaderFact {
+    pub fn command_id(&self) -> Option<CommandId> {
+        self.command_id
     }
 
-    pub fn static_name_entry(&self) -> Option<(&'a Name, Span)> {
-        self.function.static_name_entries().next()
+    pub fn arena_command_id(&self) -> Option<AstCommandId> {
+        self.arena_command_id
+    }
+
+    pub fn static_name_entry(&self) -> Option<(&Name, Span)> {
+        self.entries
+            .iter()
+            .find_map(|entry| Some((entry.static_name()?, entry.word_span())))
+    }
+
+    pub fn entries(&self) -> &[FunctionHeaderEntryFact] {
+        &self.entries
     }
 
     pub fn binding_id(&self) -> Option<BindingId> {
@@ -28,27 +64,39 @@ impl<'a> FunctionHeaderFact<'a> {
     }
 
     pub fn function_span_in_source(&self, source: &str) -> Span {
-        trim_trailing_whitespace_span(self.function.span, source)
+        trim_trailing_whitespace_span(self.function_span, source)
     }
 
     pub fn span_in_source(&self, source: &str) -> Span {
-        trim_trailing_whitespace_span(self.function.header.span(), source)
+        trim_trailing_whitespace_span(self.header_span, source)
+    }
+
+    pub fn function_span(&self) -> Span {
+        self.function_span
+    }
+
+    pub fn body_span(&self) -> Span {
+        self.body_span
     }
 
     pub fn uses_function_keyword(&self) -> bool {
-        self.function.uses_function_keyword()
+        self.uses_function_keyword
     }
 
     pub fn has_trailing_parens(&self) -> bool {
-        self.function.has_trailing_parens()
+        self.has_trailing_parens
     }
 
     pub fn function_keyword_span(&self) -> Option<Span> {
-        self.function.header.function_keyword_span
+        self.function_keyword_span
     }
 
     pub fn trailing_parens_span(&self) -> Option<Span> {
-        self.function.header.trailing_parens_span
+        self.trailing_parens_span
+    }
+
+    pub fn has_terminal_exit(&self) -> bool {
+        self.has_terminal_exit
     }
 }
 
@@ -126,16 +174,20 @@ impl FunctionCliDispatchFacts {
 
 fn build_function_header_facts<'a>(
     semantic: &SemanticModel,
-    functions: &[&'a FunctionDef],
+    functions: &[(&'a FunctionDef, Option<AstCommandId>)],
     commands: &[CommandFact<'a>],
     source: &str,
-) -> Vec<FunctionHeaderFact<'a>> {
+) -> Vec<FunctionHeaderFact> {
     let call_arity_by_binding =
         build_function_call_arity_facts(semantic, functions, commands, source);
+    let command_ids_by_arena_id = commands
+        .iter()
+        .filter_map(|fact| Some((fact.arena_command_id()?.index(), fact.id())))
+        .collect::<FxHashMap<_, _>>();
     functions
         .iter()
         .copied()
-        .map(|function| {
+        .map(|(function, arena_command_id)| {
             let binding_id = function_header_binding_id(semantic, function);
             let scope_id = binding_id
                 .and_then(|binding_id| function_header_scope_id(semantic, function, binding_id));
@@ -144,7 +196,27 @@ fn build_function_header_facts<'a>(
                 .unwrap_or_default();
 
             FunctionHeaderFact {
-                function,
+                command_id: arena_command_id
+                    .and_then(|id| command_ids_by_arena_id.get(&id.index()).copied()),
+                arena_command_id,
+                entries: function
+                    .header
+                    .entries
+                    .iter()
+                    .map(|entry| FunctionHeaderEntryFact {
+                        name: entry.static_name.clone(),
+                        word_span: entry.word.span,
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+                function_span: function.span,
+                header_span: function.header.span(),
+                body_span: function.body.span,
+                uses_function_keyword: function.uses_function_keyword(),
+                has_trailing_parens: function.has_trailing_parens(),
+                function_keyword_span: function.header.function_keyword_span,
+                trailing_parens_span: function.header.trailing_parens_span,
+                has_terminal_exit: function_body_has_terminal_exit(&function.body),
                 binding_id,
                 scope_id,
                 call_arity,
@@ -155,7 +227,7 @@ fn build_function_header_facts<'a>(
 
 fn build_function_cli_dispatch_facts(
     semantic: &SemanticModel,
-    function_headers: &[FunctionHeaderFact<'_>],
+    function_headers: &[FunctionHeaderFact],
     file: &File,
     source: &str,
 ) -> FxHashMap<ScopeId, FunctionCliDispatchFacts> {
@@ -258,7 +330,7 @@ fn build_function_parameter_fallback_spans(
 fn build_completion_registered_function_command_flags(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
-    lists: &[ListFact<'_>],
+    lists: &[ListFact],
     source: &str,
 ) -> Vec<bool> {
     let registered_scopes =
@@ -276,7 +348,7 @@ fn build_completion_registered_function_command_flags(
 fn build_completion_registered_function_scopes(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
-    lists: &[ListFact<'_>],
+    lists: &[ListFact],
     source: &str,
 ) -> FxHashSet<ScopeId> {
     let function_candidates = commands
@@ -307,19 +379,10 @@ fn build_completion_registered_function_scopes(
 }
 
 fn completion_registered_function_candidate(
-    semantic: &SemanticModel,
-    command: &CommandFact<'_>,
+    _semantic: &SemanticModel,
+    _command: &CommandFact<'_>,
 ) -> Option<CompletionRegisteredFunctionCandidate> {
-    let Command::Function(function) = command.command() else {
-        return None;
-    };
-    let (name, _) = function.static_name_entries().next()?;
-    let scope = semantic.scope_at(function.body.span.start.offset);
-
-    Some(CompletionRegisteredFunctionCandidate {
-        scope,
-        name: name.as_str().to_owned().into_boxed_str(),
-    })
+    None
 }
 
 fn command_registers_completion_function(
@@ -376,13 +439,10 @@ fn function_parameter_fallback_span(pair: &[&CommandFact<'_>], source: &str) -> 
     if !is_plausible_shell_function_name(name) || !first.normalized().body_args().is_empty() {
         return None;
     }
-    if !matches!(first.command(), Command::Simple(_)) {
+    if first.command_kind() != ArenaFileCommandKind::Simple {
         return None;
     }
-    let Command::Compound(CompoundCommand::Subshell(commands)) = second.command() else {
-        return None;
-    };
-    if commands.is_empty() {
+    if second.compound_kind() != Some(CommandFactCompoundKind::Subshell) {
         return None;
     }
     if first.span().start.line != second.span().start.line {
@@ -399,32 +459,171 @@ fn function_parameter_fallback_span(pair: &[&CommandFact<'_>], source: &str) -> 
 }
 
 fn named_coproc_subshell_fallback_span(command: &CommandFact<'_>) -> Option<Span> {
-    let Command::Compound(CompoundCommand::Coproc(coproc)) = command.command() else {
-        return None;
-    };
-    coproc.name_span?;
-    let Command::Compound(CompoundCommand::Subshell(commands)) = &coproc.body.command else {
-        return None;
-    };
-    if commands.is_empty() {
-        return None;
+    let _ = command;
+    None
+}
+
+fn function_body_has_terminal_exit(body: &Stmt) -> bool {
+    matches!(stmt_terminal_flow_kind(body), TerminalFlowKind::Exit)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TerminalFlowKind {
+    None,
+    MaybeExit,
+    MaybeStop,
+    Exit,
+    Stop,
+}
+
+fn stmt_seq_terminal_flow_kind(commands: &StmtSeq) -> TerminalFlowKind {
+    let mut saw_maybe_exit = false;
+    let mut saw_maybe_stop = false;
+
+    for stmt in commands.as_slice() {
+        match stmt_terminal_flow_kind(stmt) {
+            TerminalFlowKind::None => {}
+            TerminalFlowKind::MaybeExit => saw_maybe_exit = true,
+            TerminalFlowKind::MaybeStop => saw_maybe_stop = true,
+            TerminalFlowKind::Exit => {
+                return if saw_maybe_stop {
+                    TerminalFlowKind::Stop
+                } else {
+                    TerminalFlowKind::Exit
+                };
+            }
+            TerminalFlowKind::Stop => return TerminalFlowKind::Stop,
+        }
     }
-    let body_start = coproc.body.span.start;
-    if coproc.span.start.line != body_start.line {
-        return None;
+
+    if saw_maybe_stop {
+        TerminalFlowKind::MaybeStop
+    } else if saw_maybe_exit {
+        TerminalFlowKind::MaybeExit
+    } else {
+        TerminalFlowKind::None
     }
-    Some(Span::from_positions(body_start, body_start))
+}
+
+fn stmt_terminal_flow_kind(stmt: &Stmt) -> TerminalFlowKind {
+    if matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
+        return TerminalFlowKind::None;
+    }
+
+    command_terminal_flow_kind(&stmt.command)
+}
+
+fn command_terminal_flow_kind(command: &Command) -> TerminalFlowKind {
+    match command {
+        Command::Builtin(BuiltinCommand::Exit(_)) => TerminalFlowKind::Exit,
+        Command::Builtin(BuiltinCommand::Return(_)) => TerminalFlowKind::Stop,
+        Command::Compound(CompoundCommand::If(command)) => alternative_terminal_flow_kind(
+            std::iter::once(stmt_seq_terminal_flow_kind(&command.then_branch))
+                .chain(
+                    command
+                        .elif_branches
+                        .iter()
+                        .map(|(_, body)| stmt_seq_terminal_flow_kind(body)),
+                )
+                .chain(command.else_branch.iter().map(stmt_seq_terminal_flow_kind)),
+            command.else_branch.is_none(),
+        ),
+        Command::Compound(CompoundCommand::For(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::Repeat(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::Foreach(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::ArithmeticFor(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::While(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::Until(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::Select(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::Case(command)) => alternative_terminal_flow_kind(
+            command
+                .cases
+                .iter()
+                .map(|case| stmt_seq_terminal_flow_kind(&case.body)),
+            true,
+        ),
+        Command::Compound(CompoundCommand::BraceGroup(body)) => stmt_seq_terminal_flow_kind(body),
+        Command::Compound(CompoundCommand::Time(command)) => command
+            .command
+            .as_deref()
+            .map_or(TerminalFlowKind::None, stmt_terminal_flow_kind),
+        Command::Simple(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => TerminalFlowKind::None,
+    }
+}
+
+fn maybe_stop_terminal_flow_kind(flow: TerminalFlowKind) -> TerminalFlowKind {
+    match flow {
+        TerminalFlowKind::None => TerminalFlowKind::None,
+        TerminalFlowKind::MaybeExit | TerminalFlowKind::Exit => TerminalFlowKind::MaybeExit,
+        TerminalFlowKind::MaybeStop | TerminalFlowKind::Stop => TerminalFlowKind::MaybeStop,
+    }
+}
+
+fn alternative_terminal_flow_kind(
+    branches: impl IntoIterator<Item = TerminalFlowKind>,
+    can_skip_all: bool,
+) -> TerminalFlowKind {
+    let mut saw_none = can_skip_all;
+    let mut saw_maybe_exit = false;
+    let mut saw_maybe_stop = false;
+    let mut saw_exit = false;
+    let mut saw_stop = false;
+
+    for flow in branches {
+        match flow {
+            TerminalFlowKind::None => saw_none = true,
+            TerminalFlowKind::MaybeExit => saw_maybe_exit = true,
+            TerminalFlowKind::MaybeStop => saw_maybe_stop = true,
+            TerminalFlowKind::Exit => saw_exit = true,
+            TerminalFlowKind::Stop => saw_stop = true,
+        }
+    }
+
+    if saw_maybe_stop || ((saw_none || saw_maybe_exit) && saw_stop) {
+        return TerminalFlowKind::MaybeStop;
+    }
+    if saw_maybe_exit || (saw_none && saw_exit) {
+        return TerminalFlowKind::MaybeExit;
+    }
+    if saw_exit && !saw_stop {
+        return TerminalFlowKind::Exit;
+    }
+    if saw_exit || saw_stop {
+        return TerminalFlowKind::Stop;
+    }
+
+    TerminalFlowKind::None
 }
 fn build_function_call_arity_facts<'a>(
     semantic: &SemanticModel,
-    functions: &[&FunctionDef],
+    functions: &[(&FunctionDef, Option<AstCommandId>)],
     commands: &[CommandFact<'a>],
     source: &str,
 ) -> FxHashMap<BindingId, FunctionCallArityFacts> {
     let mut facts = FxHashMap::<BindingId, FunctionCallArityFacts>::default();
     let mut seen_names = FxHashSet::default();
 
-    for function in functions {
+    for &(function, _) in functions {
         let Some((name, _)) = function.static_name_entries().next() else {
             continue;
         };
@@ -467,23 +666,23 @@ fn function_call_diagnostic_span(
     name_span: Span,
     source: &str,
 ) -> Span {
-    if command.redirects().is_empty() {
+    if !command.has_redirects() {
         return name_span;
     }
 
-    trim_trailing_whitespace_span(command.stmt().span, source)
+    trim_trailing_whitespace_span(command.stmt_span(), source)
 }
 
 fn function_call_arg_count(command: &CommandFact<'_>, source: &str) -> usize {
     let arg_count = command.body_args().len();
-    if arg_count != 0 || !command.redirects().is_empty() || !command.is_nested_word_command() {
+    if arg_count != 0 || command.has_redirects() || !command.is_nested_word_command() {
         return arg_count;
     }
 
     let Some(name_word) = command.body_name_word() else {
         return 0;
     };
-    let stmt_span = trim_trailing_whitespace_span(command.stmt().span, source);
+    let stmt_span = trim_trailing_whitespace_span(command.stmt_span(), source);
     let tail = if stmt_span.end.offset > name_word.span.end.offset {
         trim_shell_layout_prefix(&source[name_word.span.end.offset..stmt_span.end.offset])
     } else {

@@ -30,10 +30,10 @@ pub fn ampersand_redirection(checker: &mut Checker) {
         .commands()
         .iter()
         .flat_map(|fact| fact.redirect_facts().iter())
-        .filter(|redirect| redirect.redirect().kind == RedirectKind::OutputBoth)
+        .filter(|redirect| redirect.kind() == RedirectKind::OutputBoth)
         .map(|redirect| {
             (
-                redirect.redirect().span,
+                redirect.span(),
                 ampersand_redirection_fix(redirect, checker.source()),
             )
         })
@@ -49,11 +49,10 @@ pub fn ampersand_redirection(checker: &mut Checker) {
     }
 }
 
-fn ampersand_redirection_fix(redirect: &RedirectFact<'_>, source: &str) -> Option<Fix> {
-    let redirect_data = redirect.redirect();
-    if redirect_data.kind != RedirectKind::OutputBoth
-        || redirect_data.fd.is_some()
-        || redirect_data.fd_var.is_some()
+fn ampersand_redirection_fix(redirect: &RedirectFact, source: &str) -> Option<Fix> {
+    if redirect.kind() != RedirectKind::OutputBoth
+        || redirect.fd().is_some()
+        || redirect.has_fd_var()
     {
         return None;
     }

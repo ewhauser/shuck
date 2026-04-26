@@ -1,5 +1,5 @@
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{Command, DeclOperand, Name, Span, Word, static_word_text};
+use shuck_ast::{AssignmentValueNode, DeclOperandNode, Name, Span, Word, static_word_text};
 use shuck_semantic::{
     Binding, BindingAttributes, BindingId, BindingKind, Reference, ReferenceKind,
 };
@@ -322,18 +322,18 @@ fn export_name_spans(
         .commands()
         .iter()
         .flat_map(|command| {
-            let Command::Decl(clause) = command.command() else {
+            let Some(clause) = command.arena_command().and_then(|command| command.decl()) else {
                 return Vec::new();
             };
-            if clause.variant.as_str() != "export" {
+            if clause.variant().as_str() != "export" {
                 return Vec::new();
             }
 
             clause
-                .operands
+                .operands()
                 .iter()
                 .filter_map(|operand| {
-                    let DeclOperand::Name(reference) = operand else {
+                    let DeclOperandNode::Name(reference) = operand else {
                         return None;
                     };
                     let binding = checker
@@ -441,26 +441,27 @@ fn export_assignment_root_bindings(
 
     let mut roots = FxHashSet::default();
     for command in checker.facts().commands() {
-        let Command::Decl(clause) = command.command() else {
+        let Some(clause) = command.arena_command().and_then(|command| command.decl()) else {
             continue;
         };
-        if clause.variant.as_str() != "export" {
+        if clause.variant().as_str() != "export" {
             continue;
         }
 
-        for operand in &clause.operands {
-            let DeclOperand::Assignment(assignment) = operand else {
+        for operand in clause.operands() {
+            let DeclOperandNode::Assignment(assignment) = operand else {
                 continue;
             };
             if !repeated_targets.contains(assignment.target.name.as_str()) {
                 continue;
             }
-            let shuck_ast::AssignmentValue::Scalar(word) = &assignment.value else {
+            let AssignmentValueNode::Scalar(word_id) = assignment.value else {
                 continue;
             };
+            let word = clause.store().word(word_id);
 
             for binding_id in
-                plain_scalar_reference_bindings(word.span, checker, references, reference_indices)
+                plain_scalar_reference_bindings(word.span(), checker, references, reference_indices)
             {
                 roots.extend(root_bindings_for_binding(
                     binding_id,
@@ -479,15 +480,15 @@ fn export_assignment_root_bindings(
 fn repeated_export_assignment_targets(checker: &Checker<'_>) -> FxHashSet<String> {
     let mut counts = FxHashMap::<String, usize>::default();
     for command in checker.facts().commands() {
-        let Command::Decl(clause) = command.command() else {
+        let Some(clause) = command.arena_command().and_then(|command| command.decl()) else {
             continue;
         };
-        if clause.variant.as_str() != "export" {
+        if clause.variant().as_str() != "export" {
             continue;
         }
 
-        for operand in &clause.operands {
-            let DeclOperand::Assignment(assignment) = operand else {
+        for operand in clause.operands() {
+            let DeclOperandNode::Assignment(assignment) = operand else {
                 continue;
             };
             *counts

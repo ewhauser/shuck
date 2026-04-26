@@ -586,20 +586,38 @@ fn is_comparable_parameter_name(name: &str) -> bool {
 }
 
 #[derive(Debug, Clone)]
-pub struct RedirectFact<'a> {
-    redirect: &'a Redirect,
+pub struct RedirectFact {
+    span: Span,
+    kind: RedirectKind,
+    fd: Option<i32>,
+    has_fd_var: bool,
     brace_fd_redirection_span: Option<Span>,
     operator_span: Span,
     target_span: Option<Span>,
+    target_static_text: Option<Box<str>>,
     arithmetic_update_operator_spans: Box<[Span]>,
     analysis: Option<RedirectTargetAnalysis>,
     comparable_path: Option<ComparablePath>,
     comparable_name_uses: Box<[ComparableNameUse]>,
+    comparable_heredoc_name_uses: Box<[ComparableNameUse]>,
+    read_source_word: Option<PathWordFact>,
 }
 
-impl<'a> RedirectFact<'a> {
-    pub fn redirect(&self) -> &'a Redirect {
-        self.redirect
+impl RedirectFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn kind(&self) -> RedirectKind {
+        self.kind
+    }
+
+    pub fn fd(&self) -> Option<i32> {
+        self.fd
+    }
+
+    pub fn has_fd_var(&self) -> bool {
+        self.has_fd_var
     }
 
     pub fn brace_fd_redirection_span(&self) -> Option<Span> {
@@ -612,6 +630,10 @@ impl<'a> RedirectFact<'a> {
 
     pub fn target_span(&self) -> Option<Span> {
         self.target_span
+    }
+
+    pub fn target_static_text(&self) -> Option<&str> {
+        self.target_static_text.as_deref()
     }
 
     pub fn arithmetic_update_operator_spans(&self) -> &[Span] {
@@ -628,6 +650,14 @@ impl<'a> RedirectFact<'a> {
 
     pub(crate) fn comparable_name_uses(&self) -> &[ComparableNameUse] {
         &self.comparable_name_uses
+    }
+
+    pub(crate) fn comparable_heredoc_name_uses(&self) -> &[ComparableNameUse] {
+        &self.comparable_heredoc_name_uses
+    }
+
+    pub(crate) fn read_source_word(&self) -> Option<&PathWordFact> {
+        self.read_source_word.as_ref()
     }
 }
 
@@ -682,22 +712,39 @@ pub(crate) fn analyze_redirect_target(
     })
 }
 
-fn build_redirect_facts<'a>(
-    redirects: &'a [Redirect],
+fn build_redirect_facts(
+    redirects: &[Redirect],
     semantic: Option<&SemanticModel>,
     source: &str,
     zsh_options: Option<&ZshOptionState>,
-) -> Vec<RedirectFact<'a>> {
+) -> Vec<RedirectFact> {
     redirects
         .iter()
-        .map(|redirect| RedirectFact {
-            redirect,
-            brace_fd_redirection_span: brace_fd_redirection_span(redirect, source),
-            operator_span: redirect_operator_span(redirect),
-            target_span: redirect.word_target().map(|word| word.span),
-            arithmetic_update_operator_spans: redirect
-                .word_target()
-                .map_or_else(Vec::new, |word| {
+        .map(|redirect| {
+            let read_source_word = redirect.word_target().and_then(|word| {
+                ExpansionContext::from_redirect_kind(redirect.kind).and_then(|context| {
+                    matches!(
+                        redirect.kind,
+                        RedirectKind::Input | RedirectKind::ReadWrite | RedirectKind::HereString
+                    )
+                    .then(|| PathWordFact::new(word, None, context, source, zsh_options))
+                })
+            });
+            RedirectFact {
+                span: redirect.span,
+                kind: redirect.kind,
+                fd: redirect.fd,
+                has_fd_var: redirect.fd_var.is_some(),
+                brace_fd_redirection_span: brace_fd_redirection_span(redirect, source),
+                operator_span: redirect_operator_span(redirect),
+                target_span: redirect.word_target().map(|word| word.span),
+                target_static_text: redirect
+                    .word_target()
+                    .and_then(|word| static_word_text(word, source))
+                    .map(|text| text.into_owned().into_boxed_str()),
+                arithmetic_update_operator_spans: redirect.word_target().map_or_else(
+                    Vec::new,
+                    |word| {
                     let mut spans = Vec::new();
                     if let Some(semantic) = semantic {
                         collect_arithmetic_update_operator_spans_from_parts(
@@ -708,16 +755,15 @@ fn build_redirect_facts<'a>(
                         );
                     }
                     spans
-            })
-            .into_boxed_slice(),
-            analysis: analyze_redirect_target(redirect, source, zsh_options),
-            comparable_path: redirect.word_target().and_then(|word| {
-                ExpansionContext::from_redirect_kind(redirect.kind)
-                    .and_then(|context| comparable_path(word, source, context, zsh_options))
-            }),
-            comparable_name_uses: redirect
-                .word_target()
-                .map_or_else(Vec::new, |word| match redirect.kind {
+                },
+                ).into_boxed_slice(),
+                analysis: analyze_redirect_target(redirect, source, zsh_options),
+                comparable_path: redirect.word_target().and_then(|word| {
+                    ExpansionContext::from_redirect_kind(redirect.kind)
+                        .and_then(|context| comparable_path(word, source, context, zsh_options))
+                }),
+                comparable_name_uses: redirect.word_target().map_or_else(Vec::new, |word| {
+                    match redirect.kind {
                     RedirectKind::Output
                     | RedirectKind::Clobber
                     | RedirectKind::Append
@@ -731,8 +777,17 @@ fn build_redirect_facts<'a>(
                     | RedirectKind::HereString
                     | RedirectKind::DupOutput
                     | RedirectKind::DupInput => comparable_name_uses(word, source).into_vec(),
-                })
-                .into_boxed_slice(),
+                    }
+                }).into_boxed_slice(),
+                comparable_heredoc_name_uses: redirect
+                    .heredoc()
+                    .filter(|heredoc| heredoc.delimiter.expands_body)
+                    .map_or_else(Vec::new, |heredoc| {
+                        comparable_heredoc_name_uses(&heredoc.body, source).into_vec()
+                    })
+                    .into_boxed_slice(),
+                read_source_word,
+            }
         })
         .collect()
 }

@@ -711,8 +711,8 @@ fn collect_base_prefix_spans_in_text(span: Span, source: &str, spans: &mut Vec<S
 fn build_double_paren_grouping_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
     commands
         .iter()
-        .filter_map(|fact| match fact.command() {
-            Command::Compound(CompoundCommand::Subshell(_)) => {
+        .filter_map(|fact| match fact.compound_kind() {
+            Some(CommandFactCompoundKind::Subshell) => {
                 double_paren_grouping_anchor(fact.span(), source)
             }
             _ => None,

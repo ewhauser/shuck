@@ -1,7 +1,9 @@
 use crate::context::FileContextTag;
-use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
+use crate::{
+    Checker, CommandFactRef, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation,
+};
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::static_word_text;
+use shuck_ast::{ArenaFileCommandKind, CompoundCommandNode};
 use shuck_semantic::{
     BindingKind, BindingOrigin, OverwrittenFunction as SemanticOverwrittenFunction, ScopeId,
     ScopeKind, UnreachedFunction as SemanticUnreachedFunction, UnreachedFunctionReason,
@@ -262,15 +264,12 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
         if let Some(scope) = known_scope {
             scopes_by_offset.entry(offset).or_insert(scope);
         }
-        let is_function = matches!(fact.command(), shuck_ast::Command::Function(_));
+        let is_function = fact.command_kind() == ArenaFileCommandKind::Function;
         if is_function {
             function_definition_offsets.insert(offset);
         }
 
-        if matches!(
-            fact.command(),
-            shuck_ast::Command::Builtin(shuck_ast::BuiltinCommand::Break(_))
-        ) {
+        if fact.effective_name_is("break") {
             break_offsets.push(offset);
         }
 
@@ -296,11 +295,11 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
             && unset.options_parseable()
         {
             let mut targets = Vec::new();
-            for word in unset.operand_words() {
-                let Some(text) = static_word_text(word, checker.source()) else {
+            for text in unset.operand_static_texts() {
+                let Some(text) = text.as_deref() else {
                     break;
                 };
-                let target = text.into_owned();
+                let target = text.to_owned();
                 if !targets.contains(&target) {
                     targets.push(target);
                 }
@@ -321,7 +320,7 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
             }
         }
 
-        let apparent_loop_body_span = apparent_infinite_loop_body_span(checker, fact.command());
+        let apparent_loop_body_span = apparent_infinite_loop_body_span(checker, fact);
         if is_return || apparent_loop_body_span.is_some() {
             let scope = known_scope.unwrap_or_else(|| checker.semantic().scope_at(offset));
             if scope_is_file_scope(checker, scope) {
@@ -2307,29 +2306,30 @@ fn has_apparent_infinite_loop_after(checker: &Checker<'_>, offset: usize) -> boo
                 checker,
                 checker.semantic().scope_at(fact.body_span().start.offset),
             )
-            && command_is_apparent_infinite_loop(checker, fact.command())
+            && command_is_apparent_infinite_loop(checker, fact)
     })
 }
 
-fn command_is_apparent_infinite_loop(checker: &Checker<'_>, command: &shuck_ast::Command) -> bool {
+fn command_is_apparent_infinite_loop(checker: &Checker<'_>, command: CommandFactRef<'_, '_>) -> bool {
     apparent_infinite_loop_body_span(checker, command)
         .is_some_and(|body_span| !loop_body_contains_break(checker, body_span))
 }
 
 fn apparent_infinite_loop_body_span(
     checker: &Checker<'_>,
-    command: &shuck_ast::Command,
+    command: CommandFactRef<'_, '_>,
 ) -> Option<shuck_ast::Span> {
     let source = checker.source();
-    match command {
-        shuck_ast::Command::Compound(shuck_ast::CompoundCommand::While(command)) => {
-            condition_text_is(source, command.condition.span, &["true", ":"])
-                .then_some(command.body.span)
-        }
-        shuck_ast::Command::Compound(shuck_ast::CompoundCommand::Until(command)) => {
-            condition_text_is(source, command.condition.span, &["false"])
-                .then_some(command.body.span)
-        }
+    let compound = command.arena_command()?.compound()?;
+    match compound.node() {
+        CompoundCommandNode::While {
+            condition, body, ..
+        } => condition_text_is(source, compound.store().stmt_seq(*condition).span(), &["true", ":"])
+            .then_some(compound.store().stmt_seq(*body).span()),
+        CompoundCommandNode::Until {
+            condition, body, ..
+        } => condition_text_is(source, compound.store().stmt_seq(*condition).span(), &["false"])
+            .then_some(compound.store().stmt_seq(*body).span()),
         _ => None,
     }
 }
@@ -2343,10 +2343,7 @@ fn loop_body_contains_break(checker: &Checker<'_>, body_span: shuck_ast::Span) -
     checker.facts().structural_commands().any(|fact| {
         fact.body_span().start.offset >= body_span.start.offset
             && fact.body_span().end.offset <= body_span.end.offset
-            && matches!(
-                fact.command(),
-                shuck_ast::Command::Builtin(shuck_ast::BuiltinCommand::Break(_))
-            )
+            && fact.effective_name_is("break")
     })
 }
 
@@ -2460,9 +2457,9 @@ fn has_intervening_executable_command(
     end_offset: usize,
 ) -> bool {
     checker.facts().structural_commands().any(|fact| {
-        fact.body_span().start.offset > start_offset
+            fact.body_span().start.offset > start_offset
             && fact.body_span().start.offset < end_offset
-            && !matches!(fact.command(), shuck_ast::Command::Function(_))
+            && fact.command_kind() != ArenaFileCommandKind::Function
     })
 }
 

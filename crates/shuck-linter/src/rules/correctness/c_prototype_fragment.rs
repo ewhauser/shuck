@@ -41,10 +41,10 @@ fn attached_background_ampersand_span(
     command: crate::CommandFactRef<'_, '_>,
     source: &str,
 ) -> Option<Span> {
-    if command.stmt().terminator != Some(StmtTerminator::Background(BackgroundOperator::Plain)) {
+    if command.stmt_terminator() != Some(StmtTerminator::Background(BackgroundOperator::Plain)) {
         return None;
     }
-    let terminator_span = command.stmt().terminator_span?;
+    let terminator_span = command.stmt_terminator_span()?;
     if terminator_span.slice(source) != "&" {
         return None;
     }

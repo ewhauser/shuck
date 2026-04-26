@@ -26,7 +26,7 @@ pub fn unset_associative_array_element(checker: &mut Checker) {
 
         for operand in unset.operand_facts() {
             if operand.array_subscript().is_some() {
-                spans.push(operand.word().span);
+                spans.push(operand.span());
             }
         }
     }

@@ -1,22 +1,33 @@
 #[derive(Debug, Clone)]
-pub struct PipelineSegmentFact<'a> {
-    stmt: &'a Stmt,
+pub struct PipelineSegmentFact {
+    stmt_span: Span,
+    command_span: Span,
     command_id: CommandId,
+    arena_stmt_id: Option<AstStmtId>,
+    arena_command_id: Option<AstCommandId>,
     literal_name: Option<Box<str>>,
     effective_name: Option<Box<str>>,
 }
 
-impl<'a> PipelineSegmentFact<'a> {
-    pub fn stmt(&self) -> &'a Stmt {
-        self.stmt
+impl PipelineSegmentFact {
+    pub fn stmt_span(&self) -> Span {
+        self.stmt_span
     }
 
-    pub fn command(&self) -> &'a Command {
-        &self.stmt.command
+    pub fn command_span(&self) -> Span {
+        self.command_span
     }
 
     pub fn command_id(&self) -> CommandId {
         self.command_id
+    }
+
+    pub fn arena_stmt_id(&self) -> Option<AstStmtId> {
+        self.arena_stmt_id
+    }
+
+    pub fn arena_command_id(&self) -> Option<AstCommandId> {
+        self.arena_command_id
     }
 
     pub fn literal_name(&self) -> Option<&str> {
@@ -61,27 +72,28 @@ impl PipelineOperatorFact {
 }
 
 #[derive(Debug, Clone)]
-pub struct PipelineFact<'a> {
+pub struct PipelineFact {
     key: FactSpan,
-    command: &'a BinaryCommand,
-    segments: Box<[PipelineSegmentFact<'a>]>,
+    arena_command_id: Option<AstCommandId>,
+    span: Span,
+    segments: Box<[PipelineSegmentFact]>,
     operators: Box<[PipelineOperatorFact]>,
 }
 
-impl<'a> PipelineFact<'a> {
+impl PipelineFact {
     pub fn key(&self) -> FactSpan {
         self.key
     }
 
-    pub fn command(&self) -> &'a BinaryCommand {
-        self.command
+    pub fn arena_command_id(&self) -> Option<AstCommandId> {
+        self.arena_command_id
     }
 
     pub fn span(&self) -> Span {
-        self.command.span
+        self.span
     }
 
-    pub fn segments(&self) -> &[PipelineSegmentFact<'a>] {
+    pub fn segments(&self) -> &[PipelineSegmentFact] {
         &self.segments
     }
 
@@ -89,11 +101,11 @@ impl<'a> PipelineFact<'a> {
         &self.operators
     }
 
-    pub fn first_segment(&self) -> Option<&PipelineSegmentFact<'a>> {
+    pub fn first_segment(&self) -> Option<&PipelineSegmentFact> {
         self.segments.first()
     }
 
-    pub fn last_segment(&self) -> Option<&PipelineSegmentFact<'a>> {
+    pub fn last_segment(&self) -> Option<&PipelineSegmentFact> {
         self.segments.last()
     }
 }
@@ -101,31 +113,35 @@ impl<'a> PipelineFact<'a> {
 
 pub(super) fn build_pipeline_facts<'a>(
     commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-    command_child_index: &CommandChildIndex,
-) -> Vec<PipelineFact<'a>> {
-    let command_relationships =
-        CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
+    _command_ids_by_span: &CommandLookupIndex,
+    _command_child_index: &CommandChildIndex,
+    arena_file: &ArenaFile,
+) -> Vec<PipelineFact> {
+    let command_ids_by_arena_id = commands
+        .iter()
+        .filter_map(|fact| Some((fact.arena_command_id()?.index(), fact.id())))
+        .collect::<FxHashMap<_, _>>();
     let mut nested_pipeline_commands = FxHashSet::default();
 
     for fact in commands {
-        let Command::Binary(command) = fact.command() else {
+        let Some(command) = fact.arena_command_id().map(|id| arena_file.store.command(id)) else {
             continue;
         };
-        if !matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) {
+        let Some(command) = command.binary() else {
+            continue;
+        };
+        if !matches!(command.op(), BinaryOp::Pipe | BinaryOp::PipeAll) {
             continue;
         }
 
-        record_nested_pipeline_command(
-            &command.left,
-            fact.id(),
-            command_relationships,
+        record_nested_arena_pipeline_command(
+            command.left(),
+            &command_ids_by_arena_id,
             &mut nested_pipeline_commands,
         );
-        record_nested_pipeline_command(
-            &command.right,
-            fact.id(),
-            command_relationships,
+        record_nested_arena_pipeline_command(
+            command.right(),
+            &command_ids_by_arena_id,
             &mut nested_pipeline_commands,
         );
     }
@@ -133,117 +149,90 @@ pub(super) fn build_pipeline_facts<'a>(
     commands
         .iter()
         .filter_map(|fact| {
-            let Command::Binary(command) = fact.command() else {
-                return None;
-            };
-            if !matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll)
+            let command = fact.arena_command_id().map(|id| arena_file.store.command(id))?;
+            let command = command.binary()?;
+            if !matches!(command.op(), BinaryOp::Pipe | BinaryOp::PipeAll)
                 || nested_pipeline_commands.contains(&fact.id())
             {
                 return None;
             }
 
-            let segments = pipeline_segments(fact.command())?;
+            let segments = arena_pipeline_segments(command, &command_ids_by_arena_id, commands)?;
             Some(PipelineFact {
                 key: fact.key(),
-                command,
-                segments: segments
-                    .into_iter()
-                    .map(|stmt| {
-                        build_pipeline_segment_fact(
-                            stmt,
-                            command_relationships,
-                            fact.id(),
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice(),
-                operators: pipeline_operator_facts(command),
+                arena_command_id: fact.arena_command_id(),
+                span: fact.span(),
+                segments: segments.into_boxed_slice(),
+                operators: arena_pipeline_operator_facts(command),
             })
         })
         .collect()
 }
 
-fn record_nested_pipeline_command(
-    stmt: &Stmt,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, '_>,
+fn record_nested_arena_pipeline_command(
+    sequence: StmtSeqView<'_>,
+    command_ids_by_arena_id: &FxHashMap<usize, CommandId>,
     nested_pipeline_commands: &mut FxHashSet<CommandId>,
 ) {
-    if matches!(
-        &stmt.command,
-        Command::Binary(child) if matches!(child.op, BinaryOp::Pipe | BinaryOp::PipeAll)
-    ) && let Some(child) = command_relationships.child_or_lookup_fact(parent_id, stmt)
+    let Some(command) = single_arena_stmt_command(sequence) else {
+        return;
+    };
+    if command
+        .binary()
+        .is_some_and(|binary| matches!(binary.op(), BinaryOp::Pipe | BinaryOp::PipeAll))
+        && let Some(id) = command_ids_by_arena_id.get(&command.id().index()).copied()
     {
-        nested_pipeline_commands.insert(child.id());
+        nested_pipeline_commands.insert(id);
     }
 }
 
-fn pipeline_segments(command: &Command) -> Option<Vec<&Stmt>> {
-    let Command::Binary(command) = command else {
-        return None;
-    };
-    if !matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) {
+fn arena_pipeline_segments(
+    command: BinaryCommandView<'_>,
+    command_ids_by_arena_id: &FxHashMap<usize, CommandId>,
+    commands: &[CommandFact<'_>],
+) -> Option<Vec<PipelineSegmentFact>> {
+    if !matches!(command.op(), BinaryOp::Pipe | BinaryOp::PipeAll) {
         return None;
     }
 
     let mut segments = Vec::new();
-    collect_pipeline_segments(command, &mut segments);
+    collect_arena_pipeline_segments(command, command_ids_by_arena_id, commands, &mut segments)?;
     Some(segments)
 }
 
-fn collect_pipeline_segments<'a>(command: &'a BinaryCommand, segments: &mut Vec<&'a Stmt>) {
-    match &command.left.command {
-        Command::Binary(left) if matches!(left.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
-            collect_pipeline_segments(left, segments);
-        }
-        _ => segments.push(&command.left),
-    }
-
-    match &command.right.command {
-        Command::Binary(right) if matches!(right.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
-            collect_pipeline_segments(right, segments);
-        }
-        _ => segments.push(&command.right),
-    }
+fn collect_arena_pipeline_segments(
+    command: BinaryCommandView<'_>,
+    command_ids_by_arena_id: &FxHashMap<usize, CommandId>,
+    commands: &[CommandFact<'_>],
+    segments: &mut Vec<PipelineSegmentFact>,
+) -> Option<()> {
+    collect_arena_pipeline_sequence_segment(command.left(), command_ids_by_arena_id, commands, segments)?;
+    collect_arena_pipeline_sequence_segment(command.right(), command_ids_by_arena_id, commands, segments)?;
+    Some(())
 }
 
-fn pipeline_operator_facts(command: &BinaryCommand) -> Box<[PipelineOperatorFact]> {
-    let mut operators = Vec::new();
-    collect_pipeline_operator_facts(command, &mut operators);
-    operators.into_boxed_slice()
-}
-
-fn collect_pipeline_operator_facts(command: &BinaryCommand, out: &mut Vec<PipelineOperatorFact>) {
-    if let Command::Binary(left) = &command.left.command
-        && matches!(left.op, BinaryOp::Pipe | BinaryOp::PipeAll)
+fn collect_arena_pipeline_sequence_segment(
+    sequence: StmtSeqView<'_>,
+    command_ids_by_arena_id: &FxHashMap<usize, CommandId>,
+    commands: &[CommandFact<'_>],
+    segments: &mut Vec<PipelineSegmentFact>,
+) -> Option<()> {
+    let stmt = single_arena_stmt(sequence)?;
+    let command = stmt.command();
+    if let Some(binary) = command.binary()
+        && matches!(binary.op(), BinaryOp::Pipe | BinaryOp::PipeAll)
     {
-        collect_pipeline_operator_facts(left, out);
+        return collect_arena_pipeline_segments(binary, command_ids_by_arena_id, commands, segments);
     }
 
-    out.push(PipelineOperatorFact {
-        op: command.op,
-        span: command.op_span,
-    });
-
-    if let Command::Binary(right) = &command.right.command
-        && matches!(right.op, BinaryOp::Pipe | BinaryOp::PipeAll)
-    {
-        collect_pipeline_operator_facts(right, out);
-    }
-}
-
-fn build_pipeline_segment_fact<'a>(
-    stmt: &'a Stmt,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
-    parent_id: CommandId,
-) -> PipelineSegmentFact<'a> {
-    let Some(fact) = command_relationships.child_or_lookup_fact(parent_id, stmt) else {
-        unreachable!("pipeline segment should have a corresponding command fact");
-    };
-
-    PipelineSegmentFact {
-        stmt,
-        command_id: fact.id(),
+    let command_id = command_ids_by_arena_id.get(&command.id().index()).copied()?;
+    let fact = commands.get(command_id.index())?;
+    segments.push(PipelineSegmentFact {
+        stmt_span: stmt.span(),
+        command_span: command.span(),
+        command_id,
+        arena_stmt_id: Some(stmt.id()),
+        arena_command_id: Some(command.id()),
         literal_name: fact
             .literal_name()
             .map(str::to_owned)
@@ -252,39 +241,114 @@ fn build_pipeline_segment_fact<'a>(
             .effective_name()
             .map(str::to_owned)
             .map(String::into_boxed_str),
+    });
+    Some(())
+}
+
+fn single_arena_stmt_command(sequence: StmtSeqView<'_>) -> Option<CommandView<'_>> {
+    Some(single_arena_stmt(sequence)?.command())
+}
+
+fn single_arena_stmt(sequence: StmtSeqView<'_>) -> Option<StmtView<'_>> {
+    let mut stmts = sequence.stmts();
+    let stmt = stmts.next()?;
+    if stmts.next().is_some() {
+        return None;
+    }
+    Some(stmt)
+}
+
+fn arena_pipeline_operator_facts(command: BinaryCommandView<'_>) -> Box<[PipelineOperatorFact]> {
+    let mut operators = Vec::new();
+    collect_arena_pipeline_operator_facts(command, &mut operators);
+    operators.into_boxed_slice()
+}
+
+fn collect_arena_pipeline_operator_facts(
+    command: BinaryCommandView<'_>,
+    out: &mut Vec<PipelineOperatorFact>,
+) {
+    if let Some(left) = single_arena_stmt_command(command.left()).and_then(CommandView::binary)
+        && matches!(left.op(), BinaryOp::Pipe | BinaryOp::PipeAll)
+    {
+        collect_arena_pipeline_operator_facts(left, out);
+    }
+
+    out.push(PipelineOperatorFact {
+        op: command.op(),
+        span: command.op_span(),
+    });
+
+    if let Some(right) = single_arena_stmt_command(command.right()).and_then(CommandView::binary)
+        && matches!(right.op(), BinaryOp::Pipe | BinaryOp::PipeAll)
+    {
+        collect_arena_pipeline_operator_facts(right, out);
+    }
+}
+
+#[cfg(test)]
+fn pipeline_segment_commands(command: BinaryCommandView<'_>) -> Vec<CommandView<'_>> {
+    let mut segments = Vec::new();
+    collect_pipeline_segment_commands(command, &mut segments);
+    segments
+}
+
+#[cfg(test)]
+fn collect_pipeline_segment_commands<'a>(
+    command: BinaryCommandView<'a>,
+    segments: &mut Vec<CommandView<'a>>,
+) {
+    collect_pipeline_segment_commands_from_sequence(command.left(), segments);
+    collect_pipeline_segment_commands_from_sequence(command.right(), segments);
+}
+
+#[cfg(test)]
+fn collect_pipeline_segment_commands_from_sequence<'a>(
+    sequence: StmtSeqView<'a>,
+    segments: &mut Vec<CommandView<'a>>,
+) {
+    let Some(command) = single_arena_stmt_command(sequence) else {
+        return;
+    };
+    if let Some(binary) = command.binary()
+        && matches!(binary.op(), BinaryOp::Pipe | BinaryOp::PipeAll)
+    {
+        collect_pipeline_segment_commands(binary, segments);
+    } else {
+        segments.push(command);
     }
 }
 
 #[cfg(test)]
 mod pipeline_tests {
-    use shuck_ast::{Command, StmtSeq, Word};
+    use shuck_ast::static_word_text_arena;
     use shuck_parser::parser::Parser;
 
-    use super::pipeline_segments;
-
-    fn parse_commands(source: &str) -> StmtSeq {
-        let output = Parser::new(source).parse().unwrap();
-        output.file.body
-    }
-
-    fn static_word_owned_text(word: &Word, source: &str) -> Option<String> {
-        word.try_static_text(source).map(|text| text.into_owned())
-    }
+    use super::pipeline_segment_commands;
 
     #[test]
     fn pipeline_segments_flattens_pipe_chains() {
         let source = "printf '%s\\n' a | command kill 0 | tee out.txt\n";
-        let commands = parse_commands(source);
-        let Command::Binary(command) = &commands[0].command else {
-            panic!("expected binary command");
-        };
+        let output = Parser::new(source).parse().unwrap();
+        let command = output
+            .arena_file
+            .view()
+            .body()
+            .stmts()
+            .next()
+            .unwrap()
+            .command()
+            .binary()
+            .expect("expected binary command");
 
-        let segments = pipeline_segments(&Command::Binary(command.clone()))
-            .expect("expected pipeline segments")
+        let segments = pipeline_segment_commands(command)
             .into_iter()
-            .map(|stmt| match &stmt.command {
-                Command::Simple(command) => static_word_owned_text(&command.name, source).unwrap(),
-                _ => "<non-simple>".to_owned(),
+            .map(|command| {
+                command
+                    .simple()
+                    .and_then(|simple| static_word_text_arena(simple.name(), source))
+                    .map(|text| text.into_owned())
+                    .unwrap_or_else(|| "<non-simple>".to_owned())
             })
             .collect::<Vec<_>>();
 

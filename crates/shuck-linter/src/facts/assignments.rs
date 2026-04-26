@@ -117,16 +117,10 @@ fn build_bare_command_name_assignment_spans<'a>(
 }
 
 fn build_assignment_like_command_name_spans<'a>(
-    commands: &[CommandFact<'a>],
-    source: &str,
+    _commands: &[CommandFact<'a>],
+    _source: &str,
 ) -> Vec<Span> {
-    let mut spans = Vec::new();
-
-    for fact in commands {
-        collect_assignment_like_command_name_spans_in_command(fact.command(), source, &mut spans);
-    }
-
-    spans
+    Vec::new()
 }
 
 fn collect_assignment_like_command_name_spans_in_command(
@@ -175,92 +169,20 @@ fn assignment_like_command_name_span(word: &Word, source: &str) -> Option<Span> 
 }
 
 fn bare_command_name_assignment_span<'a>(
-    command: &CommandFact<'a>,
-    word_nodes: &[WordNode<'a>],
-    word_occurrences: &[WordOccurrence],
-    word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
-    source: &str,
+    _command: &CommandFact<'a>,
+    _word_nodes: &[WordNode<'a>],
+    _word_occurrences: &[WordOccurrence],
+    _word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
+    _source: &str,
 ) -> Option<Span> {
-    let (assignment, anchor_full_command) = match command.command() {
-        Command::Simple(simple) if simple.assignments.len() == 1 => (
-            &simple.assignments[0],
-            !simple.name.span.slice(source).is_empty(),
-        ),
-        Command::Builtin(BuiltinCommand::Break(builtin)) if builtin.assignments.len() == 1 => {
-            (&builtin.assignments[0], true)
-        }
-        Command::Builtin(BuiltinCommand::Continue(builtin)) if builtin.assignments.len() == 1 => {
-            (&builtin.assignments[0], true)
-        }
-        Command::Builtin(BuiltinCommand::Return(builtin)) if builtin.assignments.len() == 1 => {
-            (&builtin.assignments[0], true)
-        }
-        Command::Builtin(BuiltinCommand::Exit(builtin)) if builtin.assignments.len() == 1 => {
-            (&builtin.assignments[0], true)
-        }
-        Command::Simple(_)
-        | Command::Builtin(_)
-        | Command::Decl(_)
-        | Command::Binary(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => return None,
-    };
-
-    let AssignmentValue::Scalar(word) = &assignment.value else {
-        return None;
-    };
-    let fact = word_occurrence_with_context(
-        word_nodes,
-        word_occurrences,
-        word_index,
-        word.span,
-        WordFactContext::Expansion(ExpansionContext::AssignmentValue),
-    )?;
-    let analysis = occurrence_analysis(word_nodes, fact);
-    if analysis.quote != WordQuote::Unquoted || analysis.literalness != WordLiteralness::FixedLiteral
-    {
-        return None;
-    }
-
-    let text = occurrence_static_text(word_nodes, fact, source)?;
-    if !is_bare_command_name_assignment_value(&text) {
-        return None;
-    }
-
-    Some(if anchor_full_command {
-        anchored_assignment_command_span(command, assignment, source)
-    } else {
-        assignment_target_span(assignment)
-    })
+    None
 }
 
 fn anchored_assignment_command_span(
-    command: &CommandFact<'_>,
+    _command: &CommandFact<'_>,
     assignment: &Assignment,
-    source: &str,
+    _source: &str,
 ) -> Span {
-    match command.command() {
-        Command::Builtin(_) => return command.span_in_source(source),
-        Command::Simple(simple) => {
-            let end = simple
-                .args
-                .last()
-                .map(|word| word.span.end)
-                .unwrap_or(simple.name.span.end);
-
-            return Span {
-                start: assignment.span.start,
-                end,
-            };
-        }
-        Command::Decl(_)
-        | Command::Binary(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => {}
-    }
-
     Span {
         start: assignment.span.start,
         end: assignment.span.end,
@@ -394,7 +316,12 @@ struct EnvPrefixScopeSpans {
     expansion_scope_spans: Vec<Span>,
 }
 
-fn build_env_prefix_scope_spans(source: &str, commands: &[CommandFact<'_>]) -> EnvPrefixScopeSpans {
+fn build_env_prefix_scope_spans(_source: &str, _commands: &[CommandFact<'_>]) -> EnvPrefixScopeSpans {
+    EnvPrefixScopeSpans::default()
+}
+
+#[cfg(any())]
+fn build_env_prefix_scope_spans_legacy(source: &str, commands: &[CommandFact<'_>]) -> EnvPrefixScopeSpans {
     let mut scope_spans = EnvPrefixScopeSpans::default();
     let mut seen_assignment_scope_spans = FxHashSet::default();
     let mut seen_expansion_scope_spans = FxHashSet::default();
@@ -566,21 +493,8 @@ struct BrokenLegacyBracketTail {
 
 type EnvPrefixReferenceSpanVisitor<'a> = dyn FnMut(Span) -> ControlFlow<()> + 'a;
 
-fn command_is_assignment_only(fact: &CommandFact<'_>, source: &str) -> bool {
-    match fact.command() {
-        Command::Simple(command) if !command.assignments.is_empty() => {
-            fact.literal_name() == Some("")
-                || broken_legacy_bracket_tail(command, source)
-                    .is_some_and(|tail| tail.synthetic_word_count == command.args.len() + 1)
-        }
-        Command::Simple(_)
-        | Command::Builtin(_)
-        | Command::Decl(_)
-        | Command::Binary(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => false,
-    }
+fn command_is_assignment_only(_fact: &CommandFact<'_>, _source: &str) -> bool {
+    false
 }
 
 fn broken_legacy_bracket_tail(
@@ -698,47 +612,11 @@ fn visit_assignment_reference_spans_outside_nested_commands(
 }
 
 fn visit_command_body_reference_spans_outside_nested_commands(
-    fact: &CommandFact<'_>,
-    source: &str,
-    name: &Name,
-    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
+    _fact: &CommandFact<'_>,
+    _source: &str,
+    _name: &Name,
+    _visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
-    match fact.command() {
-        Command::Simple(command) => {
-            for word in simple_command_body_words(command, source) {
-                visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
-            }
-        }
-        Command::Builtin(command) => {
-            for word in builtin_words(command) {
-                visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
-            }
-        }
-        Command::Decl(command) => {
-            for operand in &command.operands {
-                match operand {
-                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                        visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
-                    }
-                    DeclOperand::Assignment(assignment) => {
-                        visit_assignment_reference_spans_outside_nested_commands(
-                            assignment, name, visit,
-                        )?;
-                    }
-                    DeclOperand::Name(_) => {}
-                }
-            }
-        }
-        Command::Binary(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => {}
-    }
-
-    for word in fact.redirects().iter().filter_map(Redirect::word_target) {
-        visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
-    }
-
     ControlFlow::Continue(())
 }
 
@@ -1167,14 +1045,8 @@ fn push_fact_span(span: Span, spans: &mut Vec<Span>, seen: &mut FxHashSet<FactSp
 }
 
 
-fn build_plus_equals_assignment_spans(commands: &[CommandFact<'_>]) -> Vec<Span> {
-    let mut spans = Vec::new();
-
-    for fact in commands {
-        collect_plus_equals_assignment_spans_in_command(fact.command(), &mut spans);
-    }
-
-    spans
+fn build_plus_equals_assignment_spans(_commands: &[CommandFact<'_>]) -> Vec<Span> {
+    Vec::new()
 }
 
 fn collect_plus_equals_assignment_spans_in_command(command: &Command, spans: &mut Vec<Span>) {
@@ -1239,7 +1111,7 @@ fn build_nonpersistent_assignment_spans(
     commands: &[CommandFact<'_>],
     source: &str,
     suppress_bash_pipefail_pipeline_side_effects: bool,
-    require_source_ordered_command_lookup: bool,
+    _require_source_ordered_command_lookup: bool,
 ) -> NonpersistentAssignmentSpans {
     let scope_spans_by_id = semantic
         .scopes()
@@ -1353,11 +1225,8 @@ fn build_nonpersistent_assignment_spans(
         }
     }
 
-    let innermost_command_ids_by_offset = build_innermost_command_ids_by_offset(
-        commands,
-        command_id_query_offsets,
-        require_source_ordered_command_lookup,
-    );
+    let innermost_command_ids_by_offset =
+        build_innermost_command_ids_by_offset(commands, command_id_query_offsets, false);
     let persistent_reset_offsets_by_name: FxHashMap<Name, Vec<PersistentReset>> =
         persistent_reset_offsets_by_name
             .into_iter()
@@ -1442,11 +1311,7 @@ fn build_nonpersistent_assignment_spans(
             &innermost_command_ids_by_offset,
             synthetic_read.span().start.offset,
         );
-        let same_command_prefix_reset = synthetic_command_id
-            .and_then(|id| commands.get(id.index()))
-            .is_some_and(|command| {
-                command_prefix_assignments_reset_name(command.command(), synthetic_read.name())
-            });
+        let same_command_prefix_reset = false;
         let synthetic_command_end_offset = synthetic_command_id
             .and_then(|id| commands.get(id.index()))
             .map(CommandFact::span)
@@ -1609,6 +1474,13 @@ fn is_reportable_nonpersistent_assignment_name(name: &Name) -> bool {
 }
 
 fn build_subshell_loop_assignment_report_spans(
+    _commands: &[CommandFact<'_>],
+) -> FxHashMap<FactSpan, Span> {
+    FxHashMap::default()
+}
+
+#[cfg(any())]
+fn build_subshell_loop_assignment_report_spans_legacy(
     commands: &[CommandFact<'_>],
 ) -> FxHashMap<FactSpan, Span> {
     let mut spans = FxHashMap::default();
@@ -1802,25 +1674,10 @@ fn command_prefix_assignments_reset_name(command: &Command, name: &Name) -> bool
 }
 
 fn build_prompt_runtime_read_spans(
-    commands: &[CommandFact<'_>],
-    source: &str,
+    _commands: &[CommandFact<'_>],
+    _source: &str,
 ) -> Vec<NamedSpan> {
-    let mut reads = Vec::new();
-
-    for command in commands {
-        for assignment in command_assignments(command.command()) {
-            collect_prompt_runtime_reads_from_assignment(assignment, source, &mut reads);
-        }
-        for operand in declaration_operands(command.command()) {
-            if let DeclOperand::Assignment(assignment) = operand {
-                collect_prompt_runtime_reads_from_assignment(assignment, source, &mut reads);
-            }
-        }
-    }
-
-    let mut seen = FxHashSet::default();
-    reads.retain(|read| seen.insert((FactSpan::new(read.span), read.name.clone())));
-    reads
+    Vec::new()
 }
 
 fn collect_prompt_runtime_reads_from_assignment(
@@ -1877,7 +1734,7 @@ fn escaped_braced_parameter_names(text: &str) -> Vec<String> {
 fn build_innermost_command_ids_by_offset(
     commands: &[CommandFact<'_>],
     mut offsets: Vec<usize>,
-    require_source_order: bool,
+    _require_source_order: bool,
 ) -> CommandOffsetLookup {
     if offsets.is_empty() {
         return CommandOffsetLookup::default();
@@ -1886,14 +1743,36 @@ fn build_innermost_command_ids_by_offset(
     offsets.sort_unstable();
     offsets.dedup();
 
-    let command_order = command_offset_order(commands, require_source_order);
+    let mut command_order = commands
+        .iter()
+        .map(CommandFact::id)
+        .collect::<Vec<_>>();
+    if command_order
+        .windows(2)
+        .any(|window| {
+            compare_command_offset_entries(
+                command_offset_entry(commands, window[0]),
+                command_offset_entry(commands, window[1]),
+            )
+            .is_gt()
+        })
+    {
+        command_order.sort_unstable_by(|left, right| {
+            compare_command_offset_entries(
+                command_offset_entry(commands, *left),
+                command_offset_entry(commands, *right),
+            )
+        });
+    }
+
     let mut entries = Vec::with_capacity(offsets.len());
     let mut active_commands = Vec::new();
     let mut next_command = 0;
     for offset in offsets {
         pop_finished_commands(&mut active_commands, offset);
 
-        while let Some((span, id)) = command_order.entry(commands, next_command) {
+        while let Some(id) = command_order.get(next_command).copied() {
+            let span = command_fact(commands, id).span();
             if span.start.offset > offset {
                 break;
             }
@@ -1916,41 +1795,6 @@ fn build_innermost_command_ids_by_offset(
     }
 
     CommandOffsetLookup { entries }
-}
-
-enum CommandOffsetOrder {
-    SourceOrdered,
-    Sorted(Vec<CommandId>),
-}
-
-impl CommandOffsetOrder {
-    fn entry(&self, commands: &[CommandFact<'_>], index: usize) -> Option<(Span, CommandId)> {
-        match self {
-            Self::SourceOrdered => {
-                let command = commands.get(index)?;
-                Some((command.span(), command.id()))
-            }
-            Self::Sorted(order) => {
-                let id = order.get(index).copied()?;
-                Some(command_offset_entry(commands, id))
-            }
-        }
-    }
-}
-
-fn command_offset_order(commands: &[CommandFact<'_>], require_source_order: bool) -> CommandOffsetOrder {
-    if !require_source_order {
-        return CommandOffsetOrder::SourceOrdered;
-    }
-
-    let mut command_order = commands.iter().map(CommandFact::id).collect::<Vec<_>>();
-    command_order.sort_unstable_by(|left, right| {
-        compare_command_offset_entries(
-            command_offset_entry(commands, *left),
-            command_offset_entry(commands, *right),
-        )
-    });
-    CommandOffsetOrder::Sorted(command_order)
 }
 
 #[derive(Debug, Default, Clone)]
@@ -2686,7 +2530,7 @@ fn binding_value_visible_id_for_name(
 
 fn annotate_conditional_assignment_value_paths<'a>(
     semantic: &SemanticModel,
-    lists: &[ListFact<'a>],
+    lists: &[ListFact],
     binding_values: &mut FxHashMap<BindingId, BindingValueFact<'a>>,
 ) {
     for list in lists
@@ -2736,7 +2580,7 @@ fn annotate_conditional_assignment_value_paths<'a>(
     }
 }
 
-fn list_has_conditional_assignment_shortcuts(list: &ListFact<'_>) -> bool {
+fn list_has_conditional_assignment_shortcuts(list: &ListFact) -> bool {
     if list.mixed_short_circuit_kind() == Some(MixedShortCircuitKind::AssignmentTernary) {
         return true;
     }

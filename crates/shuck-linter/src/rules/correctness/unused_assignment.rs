@@ -338,20 +338,19 @@ fn loop_keyword_report_span(
 ) -> Option<shuck_ast::Span> {
     if let Some(header) = checker.facts().for_headers().iter().find(|header| {
         header
-            .command()
-            .targets
+            .target_spans()
             .iter()
-            .any(|target| target.span == definition_span)
+            .any(|target_span| *target_span == definition_span)
     }) {
-        return Some(keyword_span(header.command().span, "for"));
+        return Some(keyword_span(header.span(), "for"));
     }
 
     checker
         .facts()
         .select_headers()
         .iter()
-        .find(|header| header.command().variable_span == definition_span)
-        .map(|header| keyword_span(header.command().span, "select"))
+        .find(|header| header.variable_span() == definition_span)
+        .map(|header| keyword_span(header.span(), "select"))
 }
 
 fn keyword_span(command_span: shuck_ast::Span, keyword: &str) -> shuck_ast::Span {

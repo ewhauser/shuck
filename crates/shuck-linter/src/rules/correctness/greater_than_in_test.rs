@@ -85,39 +85,42 @@ fn bracket_comparison_redirect_diagnostics(
 }
 
 fn numeric_comparison_redirect_diagnostic(
-    redirect: &RedirectFact<'_>,
+    redirect: &RedirectFact,
     opening_bracket_span: Span,
     closing_bracket_span: Span,
     source: &str,
 ) -> Option<crate::Diagnostic> {
-    let (redirect_data, replacement) = match redirect.redirect().kind {
-        RedirectKind::Input => (redirect.redirect(), "-lt"),
-        RedirectKind::Output => (redirect.redirect(), "-gt"),
+    let replacement = match redirect.kind() {
+        RedirectKind::Input => "-lt",
+        RedirectKind::Output => "-gt",
         _ => return None,
     };
 
-    let target = redirect_data.word_target()?;
-    if !static_word_text(target, source).is_some_and(|text| looks_like_decimal_integer(&text)) {
+    let target_span = redirect.target_span()?;
+    if !redirect
+        .target_static_text()
+        .is_some_and(looks_like_decimal_integer)
+    {
         return None;
     }
 
-    if redirect_data.span.start.offset < opening_bracket_span.end.offset
-        || redirect_data.span.start.offset >= closing_bracket_span.start.offset
+    if redirect.span().start.offset < opening_bracket_span.end.offset
+        || redirect.span().start.offset >= closing_bracket_span.start.offset
     {
         return None;
     }
 
     let operator_span = redirect.operator_span();
-    if operator_span.start.offset != redirect_data.span.start.offset {
+    if operator_span.start.offset != redirect.span().start.offset {
         return None;
     }
 
-    let gap = source.get(operator_span.end.offset..target.span.start.offset)?;
+    let gap = source.get(operator_span.end.offset..target_span.start.offset)?;
     if !is_shell_token_gap(gap) {
         return None;
     }
 
-    let fix_span = Span::from_positions(operator_span.start, target.span.start);
+    let fix_span = Span::from_positions(operator_span.start, target_span.start);
     let leading_separator = if has_trailing_token_boundary(&source[..operator_span.start.offset]) {
         ""
     } else {

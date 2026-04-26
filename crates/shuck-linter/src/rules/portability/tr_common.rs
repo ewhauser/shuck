@@ -1,4 +1,4 @@
-use shuck_ast::{Span, static_word_text};
+use shuck_ast::Span;
 
 use crate::{Checker, ShellDialect};
 
@@ -19,9 +19,7 @@ pub(super) fn tr_exact_operand_spans(checker: &Checker<'_>, exact_text: &str) ->
             fact.options()
                 .tr()
                 .into_iter()
-                .flat_map(|tr| tr.operand_words().iter().copied())
+                .flat_map(|tr| tr.exact_operand_spans(exact_text))
         })
-        .filter(|word| static_word_text(word, checker.source()).as_deref() == Some(exact_text))
-        .map(|word| word.span)
         .collect()
 }

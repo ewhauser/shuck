@@ -1,4 +1,4 @@
-use shuck_ast::{Command, Redirect, SimpleCommand, Span};
+use shuck_ast::{ArenaFileCommandKind, RedirectNode, Span};
 
 use crate::{Checker, CommandFactRef, ShellDialect};
 
@@ -21,36 +21,37 @@ pub(super) fn source_anchor_span_for_command_fact(
     fact: CommandFactRef<'_, '_>,
     source: &str,
 ) -> Span {
-    source_anchor_span(fact.command(), fact.redirects(), fact.span(), source)
+    source_anchor_span(fact, source)
 }
 
-fn source_anchor_span(
-    command: &Command,
-    redirects: &[Redirect],
-    fallback: Span,
-    source: &str,
-) -> Span {
-    match command {
-        Command::Simple(command) => {
-            clip_first_line(simple_command_span(command, redirects), source)
-        }
-        _ => clip_first_line(fallback, source),
+fn source_anchor_span(fact: CommandFactRef<'_, '_>, source: &str) -> Span {
+    match fact.command_kind() {
+        ArenaFileCommandKind::Simple => clip_first_line(simple_command_span(fact), source),
+        _ => clip_first_line(fact.span(), source),
     }
 }
 
-fn simple_command_span(command: &SimpleCommand, redirects: &[Redirect]) -> Span {
+fn simple_command_span(fact: CommandFactRef<'_, '_>) -> Span {
+    let command = fact
+        .arena_command()
+        .and_then(|command| command.simple())
+        .expect("simple command fact should have a simple arena command");
     let start = command
-        .assignments
+        .assignments()
         .first()
-        .map_or(command.name.span.start, |assignment| assignment.span.start);
+        .map_or(command.name().span().start, |assignment| assignment.span.start);
     let mut end = command
-        .args
+        .args()
         .last()
-        .map_or(command.name.span.end, |word| word.span.end);
-    if let Some(redirect) = redirects.last() {
+        .map_or(command.name().span().end, |word| word.span().end);
+    if let Some(redirect) = fact.arena_redirects().and_then(last_redirect) {
         end = redirect.span.end;
     }
     Span::from_positions(start, end)
+}
+
+fn last_redirect(redirects: &[RedirectNode]) -> Option<&RedirectNode> {
+    redirects.last()
 }
 
 fn clip_first_line(span: Span, source: &str) -> Span {

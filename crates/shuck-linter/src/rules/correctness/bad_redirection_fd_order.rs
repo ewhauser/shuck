@@ -29,16 +29,15 @@ pub fn bad_redirection_fd_order(checker: &mut Checker) {
     checker.report_all_dedup(spans, || BadRedirectionFdOrder);
 }
 
-fn malformed_numeric_target_span(redirect: &RedirectFact<'_>, source: &str) -> Option<Span> {
+fn malformed_numeric_target_span(redirect: &RedirectFact, source: &str) -> Option<Span> {
     let target_span = redirect.target_span()?;
     let target_text = target_span.slice(source);
     if target_text.is_empty() || !target_text.chars().all(|ch| ch.is_ascii_digit()) {
         return None;
     }
 
-    let redirect_data = redirect.redirect();
     if !matches!(
-        redirect_data.kind,
+        redirect.kind(),
         RedirectKind::Output
             | RedirectKind::Clobber
             | RedirectKind::Append
@@ -47,10 +46,10 @@ fn malformed_numeric_target_span(redirect: &RedirectFact<'_>, source: &str) -> O
         return None;
     }
 
-    let redirect_text = redirect_data.span.slice(source);
+    let redirect_text = redirect.span().slice(source);
     let operator_offset = redirect_text.find('>')?;
-    let start = redirect_data
-        .span
+    let start = redirect
+        .span()
         .start
         .advanced_by(&redirect_text[..operator_offset]);
     Some(Span::from_positions(start, target_span.end))

@@ -31,7 +31,7 @@ pub fn printf_q_format_in_sh(checker: &mut Checker) {
             let printf = fact.options().printf()?;
             printf
                 .uses_q_format
-                .then_some(printf.format_word.map(|word| word.span))
+                .then_some(printf.format_word_span)
                 .flatten()
         })
         .collect::<Vec<_>>();

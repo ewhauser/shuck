@@ -153,11 +153,12 @@ fn populate_substitution_fact_ranges<'a>(
     fact_store: &mut FactStore<'a>,
     command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
+    arena_file: &ArenaFile,
     source: &str,
 ) {
     for index in 0..commands.len() {
         let substitutions = {
-            let command_facts = CommandFacts::new(commands, fact_store);
+            let command_facts = CommandFacts::new(commands, fact_store, arena_file);
             let fact = command_facts
                 .get(index)
                 .expect("command index should resolve while populating substitution facts");
@@ -180,80 +181,414 @@ fn build_command_substitution_facts<'a>(
     command_child_index: &CommandChildIndex,
     source: &str,
 ) -> Vec<SubstitutionFact> {
-    let mut substitutions = Vec::new();
-    let mut substitution_index = FxHashMap::default();
-    let context = SubstitutionFactBuildContext {
+    let relationships = CommandRelationshipContext::new(
+        commands.commands,
+        command_ids_by_span,
+        command_child_index,
+    );
+    let context = ArenaSubstitutionFactBuildContext {
         commands,
-        command_relationships: CommandRelationshipContext::new(
-            commands.commands,
-            command_ids_by_span,
-            command_child_index,
-        ),
+        command_relationships: relationships,
         host_command_id: fact.id(),
+        arena_file: fact.arena_file,
         source,
     };
+    let mut substitutions = Vec::new();
+    let mut substitution_index = FxHashMap::default();
 
-    visit_command_words_for_substitutions(fact.command(), fact.redirects(), source, &mut |word| {
-        collect_or_update_word_substitution_facts(
-            word,
-            SubstitutionHostKind::Other,
-            context,
-            &mut substitutions,
-            &mut substitution_index,
-        );
-    });
+    if let Some(command) = fact.arena_command() {
+        for word_id in command.word_ids() {
+            collect_or_update_arena_word_substitution_facts(
+                fact.arena_file.store.word(*word_id),
+                SubstitutionHostKind::Other,
+                context,
+                &mut substitutions,
+                &mut substitution_index,
+            );
+        }
+    }
 
-    visit_heredoc_bodies_for_substitutions(fact.redirects(), &mut |body| {
-        collect_or_update_heredoc_body_substitution_facts(
-            body,
-            SubstitutionHostKind::Other,
-            context,
-            &mut substitutions,
-            &mut substitution_index,
-        );
-    });
-
-    visit_command_argument_words_for_substitutions(fact.command(), source, &mut |word| {
-        collect_or_update_word_substitution_facts(
-            word,
-            SubstitutionHostKind::CommandArgument,
-            context,
-            &mut substitutions,
-            &mut substitution_index,
-        );
-    });
-
-    visit_here_string_words_for_substitutions(fact.redirects(), &mut |word| {
-        collect_or_update_word_substitution_facts(
-            word,
-            SubstitutionHostKind::HereStringOperand,
-            context,
-            &mut substitutions,
-            &mut substitution_index,
-        );
-    });
-
-    visit_declaration_assignment_words_for_substitutions(fact.command(), &mut |word| {
-        collect_or_update_word_substitution_facts(
-            word,
-            SubstitutionHostKind::DeclarationAssignmentValue,
-            context,
-            &mut substitutions,
-            &mut substitution_index,
-        );
-    });
-
-    visit_command_subscript_words_for_substitutions(fact.command(), source, &mut |kind, word| {
-        collect_or_update_word_substitution_facts(
-            word,
-            kind,
-            context,
-            &mut substitutions,
-            &mut substitution_index,
-        );
-    });
+    if let Some(stmt) = fact.arena_stmt() {
+        for redirect in stmt.redirects() {
+            match &redirect.target {
+                RedirectTargetNode::Word(word_id) => {
+                    let host_kind = if redirect.kind == RedirectKind::HereString {
+                        SubstitutionHostKind::HereStringOperand
+                    } else {
+                        SubstitutionHostKind::Other
+                    };
+                    collect_or_update_arena_word_substitution_facts(
+                        fact.arena_file.store.word(*word_id),
+                        host_kind,
+                        context,
+                        &mut substitutions,
+                        &mut substitution_index,
+                    );
+                }
+                RedirectTargetNode::Heredoc(heredoc) => {
+                    collect_or_update_arena_heredoc_body_substitution_facts(
+                        &heredoc.body,
+                        fact.arena_file,
+                        SubstitutionHostKind::Other,
+                        context,
+                        &mut substitutions,
+                        &mut substitution_index,
+                    );
+                }
+            }
+        }
+    }
 
     substitutions
+}
+
+#[derive(Clone, Copy)]
+struct ArenaSubstitutionFactBuildContext<'facts, 'a> {
+    commands: CommandFacts<'facts, 'a>,
+    command_relationships: CommandRelationshipContext<'facts, 'a>,
+    host_command_id: CommandId,
+    arena_file: &'facts ArenaFile,
+    source: &'facts str,
+}
+
+fn collect_or_update_arena_word_substitution_facts<'a>(
+    word: WordView<'_>,
+    host_kind: SubstitutionHostKind,
+    context: ArenaSubstitutionFactBuildContext<'_, 'a>,
+    substitutions: &mut Vec<SubstitutionFact>,
+    substitution_index: &mut FxHashMap<FactSpan, usize>,
+) {
+    let mut occurrences = Vec::new();
+    collect_arena_word_substitution_occurrences(
+        word.store(),
+        word.parts(),
+        false,
+        &mut occurrences,
+    );
+    collect_or_update_arena_substitution_facts_from_occurrences(
+        word.span(),
+        host_kind,
+        occurrences,
+        context,
+        substitutions,
+        substitution_index,
+    );
+}
+
+fn collect_or_update_arena_heredoc_body_substitution_facts<'a>(
+    body: &shuck_ast::HeredocBodyNode,
+    arena_file: &ArenaFile,
+    host_kind: SubstitutionHostKind,
+    context: ArenaSubstitutionFactBuildContext<'_, 'a>,
+    substitutions: &mut Vec<SubstitutionFact>,
+    substitution_index: &mut FxHashMap<FactSpan, usize>,
+) {
+    let mut occurrences = Vec::new();
+    for part in arena_file.store.heredoc_body_parts(body.parts) {
+        match &part.kind {
+            ArenaHeredocBodyPart::CommandSubstitution { body, syntax } => {
+                occurrences.push(ArenaSubstitutionOccurrence {
+                    span: part.span,
+                    kind: CommandSubstitutionKind::Command,
+                    command_syntax: Some(*syntax),
+                    body: *body,
+                    unquoted_in_host: true,
+                });
+            }
+            ArenaHeredocBodyPart::ArithmeticExpansion {
+                expression_word_ast, ..
+            } => collect_arena_word_substitution_occurrences(
+                &arena_file.store,
+                arena_file.store.word(*expression_word_ast).parts(),
+                false,
+                &mut occurrences,
+            ),
+            ArenaHeredocBodyPart::Parameter(_) => {}
+            ArenaHeredocBodyPart::Literal(_) | ArenaHeredocBodyPart::Variable(_) => {}
+        }
+    }
+    collect_or_update_arena_substitution_facts_from_occurrences(
+        body.span,
+        host_kind,
+        occurrences,
+        context,
+        substitutions,
+        substitution_index,
+    );
+}
+
+fn collect_or_update_arena_substitution_facts_from_occurrences<'a>(
+    host_span: Span,
+    host_kind: SubstitutionHostKind,
+    occurrences: Vec<ArenaSubstitutionOccurrence>,
+    context: ArenaSubstitutionFactBuildContext<'_, 'a>,
+    substitutions: &mut Vec<SubstitutionFact>,
+    substitution_index: &mut FxHashMap<FactSpan, usize>,
+) {
+    for occurrence in occurrences {
+        let key = FactSpan::new(occurrence.span);
+        if let Some(&index) = substitution_index.get(&key) {
+            substitutions[index].host_word_span = host_span;
+            substitutions[index].host_kind = host_kind;
+            substitutions[index].unquoted_in_host = occurrence.unquoted_in_host;
+            continue;
+        }
+
+        let body_facts = classify_arena_substitution_body(
+            occurrence.body,
+            context.arena_file,
+            context.commands,
+            context.command_relationships,
+            context.host_command_id,
+            context.source,
+        );
+        substitution_index.insert(key, substitutions.len());
+        substitutions.push(SubstitutionFact {
+            span: occurrence.span,
+            kind: occurrence.kind,
+            command_syntax: occurrence.command_syntax,
+            stdout_intent: body_facts.stdout_intent,
+            terminal_stdout_intent: body_facts.terminal_stdout_intent,
+            has_stdout_redirect: body_facts.has_stdout_redirect,
+            stdout_redirect_spans: body_facts.stdout_redirect_spans,
+            stdout_dev_null_redirect_spans: body_facts.stdout_dev_null_redirect_spans,
+            body_contains_ls: body_facts.body_contains_ls,
+            body_processed_ls_pipeline_spans: body_facts.body_processed_ls_pipeline_spans,
+            body_contains_echo: body_facts.body_contains_echo,
+            body_contains_grep: body_facts.body_contains_grep,
+            body_has_multiple_statements: body_facts.body_has_multiple_statements,
+            body_is_negated: body_facts.body_is_negated,
+            body_is_pgrep_lookup: body_facts.body_is_pgrep_lookup,
+            body_is_seq_utility: body_facts.body_is_seq_utility,
+            body_has_commands: body_facts.body_has_commands,
+            bash_file_slurp: body_facts.bash_file_slurp,
+            host_word_span: host_span,
+            host_kind,
+            unquoted_in_host: occurrence.unquoted_in_host,
+        });
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ArenaSubstitutionOccurrence {
+    span: Span,
+    kind: CommandSubstitutionKind,
+    command_syntax: Option<CommandSubstitutionSyntax>,
+    body: shuck_ast::StmtSeqId,
+    unquoted_in_host: bool,
+}
+
+fn collect_arena_word_substitution_occurrences(
+    store: &AstStore,
+    parts: &[WordPartArenaNode],
+    quoted: bool,
+    occurrences: &mut Vec<ArenaSubstitutionOccurrence>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPartArena::CommandSubstitution { body, syntax } => {
+                occurrences.push(ArenaSubstitutionOccurrence {
+                    span: part.span,
+                    kind: CommandSubstitutionKind::Command,
+                    command_syntax: Some(*syntax),
+                    body: *body,
+                    unquoted_in_host: !quoted,
+                });
+            }
+            WordPartArena::ProcessSubstitution { body, is_input } => {
+                occurrences.push(ArenaSubstitutionOccurrence {
+                    span: part.span,
+                    kind: if *is_input {
+                        CommandSubstitutionKind::ProcessInput
+                    } else {
+                        CommandSubstitutionKind::ProcessOutput
+                    },
+                    command_syntax: None,
+                    body: *body,
+                    unquoted_in_host: !quoted,
+                });
+            }
+            WordPartArena::DoubleQuoted { parts, .. } => {
+                collect_arena_word_substitution_occurrences(
+                    store,
+                    store.word_parts(*parts),
+                    true,
+                    occurrences,
+                );
+            }
+            WordPartArena::ArithmeticExpansion {
+                expression_word_ast, ..
+            } => {
+                // The arithmetic expression word was lowered into the same arena.
+                // It is visited by command.word_ids(); avoid duplicating it here.
+                let _ = expression_word_ast;
+            }
+            WordPartArena::Parameter(_) => {}
+            WordPartArena::ParameterExpansion {
+                operand_word_ast, ..
+            }
+            | WordPartArena::IndirectExpansion {
+                operand_word_ast, ..
+            } => {
+                let _ = operand_word_ast;
+            }
+            WordPartArena::Substring { .. }
+            | WordPartArena::ArraySlice { .. }
+            | WordPartArena::Literal(_)
+            | WordPartArena::Variable(_)
+            | WordPartArena::SingleQuoted { .. }
+            | WordPartArena::Length(_)
+            | WordPartArena::ArrayAccess(_)
+            | WordPartArena::ArrayLength(_)
+            | WordPartArena::ArrayIndices(_)
+            | WordPartArena::PrefixMatch { .. }
+            | WordPartArena::Transformation { .. }
+            | WordPartArena::ZshQualifiedGlob(_) => {}
+        }
+    }
+}
+
+fn classify_arena_substitution_body<'a>(
+    body: shuck_ast::StmtSeqId,
+    arena_file: &ArenaFile,
+    commands: CommandFacts<'_, 'a>,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
+    parent_id: CommandId,
+    source: &str,
+) -> SubstitutionBodyFacts {
+    if commands.get(parent_id.index()).is_none() {
+        return empty_substitution_body_facts();
+    }
+    let body = arena_file.store.stmt_seq(body);
+    let stmt_count = body.stmts().len();
+    let mut body_contains_ls = false;
+    let mut body_contains_echo = false;
+    let mut body_contains_grep = false;
+    let mut body_is_pgrep_lookup = false;
+    let mut body_is_seq_utility = false;
+    let mut body_has_commands = false;
+    let mut bash_file_slurp = false;
+    let mut redirect_summary = RedirectSummary {
+        stdout_intent: SubstitutionOutputIntent::Captured,
+        terminal_stdout_intent: SubstitutionOutputIntent::Captured,
+        has_stdout_redirect: false,
+        stdout_redirect_spans: Vec::new(),
+        stdout_dev_null_redirect_spans: Vec::new(),
+    };
+
+    for (index, stmt) in body.stmts().enumerate() {
+        body_has_commands = true;
+        let fact = command_relationships
+            .child_or_lookup_arena_fact(parent_id, stmt)
+            .map(CommandFact::id)
+            .and_then(|id| commands.get(id.index()));
+        if let Some(fact) = fact {
+            let name = fact.effective_or_literal_name();
+            body_contains_ls |= name == Some("ls");
+            body_contains_echo |= name == Some("echo");
+            body_contains_grep |= name.is_some_and(command_name_is_grep_family);
+            body_is_pgrep_lookup |= name == Some("pgrep");
+            body_is_seq_utility |= name == Some("seq");
+            bash_file_slurp |= name == Some("mapfile") || name == Some("readarray");
+        }
+        let stmt_summary = summarize_arena_stmt_redirects(stmt, source);
+        redirect_summary = merge_redirect_summaries(redirect_summary, stmt_summary, index > 0);
+    }
+
+    SubstitutionBodyFacts {
+        stdout_intent: redirect_summary.stdout_intent,
+        terminal_stdout_intent: redirect_summary.terminal_stdout_intent,
+        has_stdout_redirect: redirect_summary.has_stdout_redirect,
+        stdout_redirect_spans: redirect_summary.stdout_redirect_spans.into_boxed_slice(),
+        stdout_dev_null_redirect_spans: redirect_summary
+            .stdout_dev_null_redirect_spans
+            .into_boxed_slice(),
+        body_contains_ls,
+        body_processed_ls_pipeline_spans: Box::new([]),
+        body_contains_echo,
+        body_contains_grep,
+        body_has_multiple_statements: stmt_count > 1,
+        body_is_negated: matches!(body.stmts().next(), Some(stmt) if stmt_count == 1 && stmt.negated()),
+        body_is_pgrep_lookup,
+        body_is_seq_utility,
+        body_has_commands,
+        bash_file_slurp,
+    }
+}
+
+fn empty_substitution_body_facts() -> SubstitutionBodyFacts {
+    SubstitutionBodyFacts {
+        stdout_intent: SubstitutionOutputIntent::Captured,
+        terminal_stdout_intent: SubstitutionOutputIntent::Captured,
+        has_stdout_redirect: false,
+        stdout_redirect_spans: Box::new([]),
+        stdout_dev_null_redirect_spans: Box::new([]),
+        body_contains_ls: false,
+        body_processed_ls_pipeline_spans: Box::new([]),
+        body_contains_echo: false,
+        body_contains_grep: false,
+        body_has_multiple_statements: false,
+        body_is_negated: false,
+        body_is_pgrep_lookup: false,
+        body_is_seq_utility: false,
+        body_has_commands: false,
+        bash_file_slurp: false,
+    }
+}
+
+fn summarize_arena_stmt_redirects(stmt: StmtView<'_>, source: &str) -> RedirectSummary {
+    let mut summary = RedirectSummary {
+        stdout_intent: SubstitutionOutputIntent::Captured,
+        terminal_stdout_intent: SubstitutionOutputIntent::Captured,
+        has_stdout_redirect: false,
+        stdout_redirect_spans: Vec::new(),
+        stdout_dev_null_redirect_spans: Vec::new(),
+    };
+
+    for redirect in stmt.redirects() {
+        if !arena_redirect_affects_stdout(redirect) {
+            continue;
+        }
+        summary.has_stdout_redirect = true;
+        summary.stdout_redirect_spans.push(redirect.span);
+        if arena_redirect_targets_stdout_dev_null(redirect, stmt.command().store(), source) {
+            summary.stdout_dev_null_redirect_spans.push(redirect.span);
+            summary.stdout_intent = SubstitutionOutputIntent::Discarded;
+            summary.terminal_stdout_intent = SubstitutionOutputIntent::Discarded;
+        } else {
+            summary.stdout_intent = SubstitutionOutputIntent::Rerouted;
+            summary.terminal_stdout_intent = SubstitutionOutputIntent::Rerouted;
+        }
+    }
+
+    summary
+}
+
+fn arena_redirect_affects_stdout(redirect: &RedirectNode) -> bool {
+    match redirect.kind {
+        RedirectKind::Output
+        | RedirectKind::Append
+        | RedirectKind::Clobber
+        | RedirectKind::DupOutput
+        | RedirectKind::ReadWrite => redirect.fd.unwrap_or(1) == 1,
+        RedirectKind::OutputBoth => true,
+        RedirectKind::Input
+        | RedirectKind::HereString
+        | RedirectKind::HereDoc
+        | RedirectKind::HereDocStrip
+        | RedirectKind::DupInput => false,
+    }
+}
+
+fn arena_redirect_targets_stdout_dev_null(
+    redirect: &RedirectNode,
+    store: &AstStore,
+    source: &str,
+) -> bool {
+    let RedirectTargetNode::Word(word_id) = redirect.target else {
+        return false;
+    };
+    static_word_text_arena(store.word(word_id), source).as_deref() == Some("/dev/null")
 }
 
 fn collect_or_update_word_substitution_facts<'a>(
@@ -704,7 +1039,7 @@ fn summarize_command_redirects<'a>(
     }
 }
 
-fn summarize_redirect_facts(redirects: &[RedirectFact<'_>], source: &str) -> RedirectSummary {
+fn summarize_redirect_facts(redirects: &[RedirectFact], source: &str) -> RedirectSummary {
     let state = classify_redirect_facts(redirects);
     RedirectSummary {
         stdout_intent: state.stdout_intent,
@@ -751,15 +1086,15 @@ struct RedirectState {
     has_stdout_redirect: bool,
 }
 
-fn classify_redirect_facts(redirects: &[RedirectFact<'_>]) -> RedirectState {
+fn classify_redirect_facts(redirects: &[RedirectFact]) -> RedirectState {
     let mut fds = FxHashMap::from_iter([(1, OutputSink::Captured), (2, OutputSink::Other)]);
     let mut has_stdout_redirect = false;
 
     for redirect in redirects {
-        match redirect.redirect().kind {
+        match redirect.kind() {
             RedirectKind::Output | RedirectKind::Clobber | RedirectKind::Append => {
                 let sink = redirect_file_sink(redirect);
-                let fd = redirect.redirect().fd.unwrap_or(1);
+                let fd = redirect.fd().unwrap_or(1);
                 has_stdout_redirect |= fd == 1;
                 fds.insert(fd, sink);
             }
@@ -770,7 +1105,7 @@ fn classify_redirect_facts(redirects: &[RedirectFact<'_>]) -> RedirectState {
                 fds.insert(2, sink);
             }
             RedirectKind::DupOutput => {
-                let fd = redirect.redirect().fd.unwrap_or(1);
+                let fd = redirect.fd().unwrap_or(1);
                 let sink = redirect_dup_output_sink(redirect, &fds);
                 has_stdout_redirect |= fd == 1;
                 fds.insert(fd, sink);
@@ -802,16 +1137,16 @@ fn classify_redirect_facts(redirects: &[RedirectFact<'_>]) -> RedirectState {
     }
 }
 
-fn stdout_redirect_spans_for_fix(redirects: &[RedirectFact<'_>], source: &str) -> Vec<Span> {
+fn stdout_redirect_spans_for_fix(redirects: &[RedirectFact], source: &str) -> Vec<Span> {
     redirects
         .iter()
         .filter(|redirect| redirect_matches_substitution_warning(redirect, source))
-        .map(|redirect| redirect.redirect().span)
+        .map(|redirect| redirect.span())
         .collect()
 }
 
 fn stdout_dev_null_redirect_spans_for_fix(
-    redirects: &[RedirectFact<'_>],
+    redirects: &[RedirectFact],
     source: &str,
 ) -> Vec<Span> {
     redirects
@@ -819,16 +1154,16 @@ fn stdout_dev_null_redirect_spans_for_fix(
         .filter(|redirect| {
             redirect_targets_stdout_dev_null_for_substitution_warning(redirect, source)
         })
-        .map(|redirect| redirect.redirect().span)
+        .map(|redirect| redirect.span())
         .collect()
 }
 
-fn redirect_affects_stdout(redirect: &RedirectFact<'_>) -> bool {
-    match redirect.redirect().kind {
+fn redirect_affects_stdout(redirect: &RedirectFact) -> bool {
+    match redirect.kind() {
         RedirectKind::Output
         | RedirectKind::Clobber
         | RedirectKind::Append
-        | RedirectKind::DupOutput => redirect.redirect().fd.unwrap_or(1) == 1,
+        | RedirectKind::DupOutput => redirect.fd().unwrap_or(1) == 1,
         RedirectKind::OutputBoth => true,
         RedirectKind::Input
         | RedirectKind::ReadWrite
@@ -839,26 +1174,26 @@ fn redirect_affects_stdout(redirect: &RedirectFact<'_>) -> bool {
     }
 }
 
-fn redirect_targets_stdout_dev_null(redirect: &RedirectFact<'_>) -> bool {
+fn redirect_targets_stdout_dev_null(redirect: &RedirectFact) -> bool {
     redirect_affects_stdout(redirect) && redirect_file_sink(redirect) == OutputSink::DevNull
 }
 
 fn redirect_targets_stdout_dev_null_for_substitution_warning(
-    redirect: &RedirectFact<'_>,
+    redirect: &RedirectFact,
     source: &str,
 ) -> bool {
     redirect_matches_substitution_warning(redirect, source)
         && redirect_targets_stdout_dev_null(redirect)
 }
 
-fn redirect_matches_substitution_warning(redirect: &RedirectFact<'_>, source: &str) -> bool {
-    match redirect.redirect().kind {
+fn redirect_matches_substitution_warning(redirect: &RedirectFact, source: &str) -> bool {
+    match redirect.kind() {
         RedirectKind::Output | RedirectKind::Clobber | RedirectKind::Append => {
-            redirect.redirect().fd.unwrap_or(1) == 1
+            redirect.fd().unwrap_or(1) == 1
         }
         RedirectKind::DupOutput => {
-            redirect.redirect().fd.unwrap_or(1) == 1
-                && redirect.redirect().span.slice(source).trim_start().starts_with(">&")
+            redirect.fd().unwrap_or(1) == 1
+                && redirect.span().slice(source).trim_start().starts_with(">&")
                 && dup_stdout_target_redirects_capture_away(redirect, source)
         }
         RedirectKind::Input
@@ -871,7 +1206,7 @@ fn redirect_matches_substitution_warning(redirect: &RedirectFact<'_>, source: &s
     }
 }
 
-fn dup_stdout_target_redirects_capture_away(redirect: &RedirectFact<'_>, source: &str) -> bool {
+fn dup_stdout_target_redirects_capture_away(redirect: &RedirectFact, source: &str) -> bool {
     let Some(target) = redirect.target_span().map(|span| span.slice(source).trim()) else {
         return false;
     };
@@ -1405,7 +1740,7 @@ fn word_parts_contain_unquoted_glob_or_brace(
     false
 }
 
-fn redirect_file_sink(redirect: &RedirectFact<'_>) -> OutputSink {
+fn redirect_file_sink(redirect: &RedirectFact) -> OutputSink {
     match redirect.analysis() {
         Some(analysis) if analysis.is_definitely_dev_null() => OutputSink::DevNull,
         Some(_) => OutputSink::Other,
@@ -1414,7 +1749,7 @@ fn redirect_file_sink(redirect: &RedirectFact<'_>) -> OutputSink {
 }
 
 fn redirect_dup_output_sink(
-    redirect: &RedirectFact<'_>,
+    redirect: &RedirectFact,
     fds: &FxHashMap<i32, OutputSink>,
 ) -> OutputSink {
     let Some(fd) = redirect

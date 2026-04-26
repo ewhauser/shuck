@@ -1,5 +1,5 @@
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{Command, Name, Span};
+use shuck_ast::{ArenaFileCommandKind, Name, Span};
 use shuck_semantic::{
     Binding, BindingAttributes, BindingId, BindingKind, DeclarationBuiltin, DeclarationOperand,
     Reference, ReferenceId, ScopeId,
@@ -320,7 +320,7 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
                     .flatten();
                 while let Some(command_id) = current {
                     let command = self.facts.command(command_id);
-                    if matches!(command.command(), Command::Simple(_)) {
+                    if command.command_kind() == ArenaFileCommandKind::Simple {
                         ancestors.push(SimpleCommandAncestor {
                             id: command_id,
                             assignment_only: command.literal_name() == Some(""),

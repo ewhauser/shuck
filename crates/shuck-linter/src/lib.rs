@@ -58,11 +58,12 @@ pub use diagnostic::{Diagnostic, Severity};
 pub use facts::CommandSubstitutionKind;
 /// Extracted structural facts available to rules and callers.
 pub use facts::{
-    BacktickFragmentFact, CommandFact, CommandFactRef, CommandFacts, CommandOptionFacts,
-    ConditionalBareWordFact, ConditionalBinaryFact, ConditionalFact,
-    ConditionalMixedLogicalOperatorFact, ConditionalNodeFact, ConditionalOperandFact,
-    ConditionalOperatorFamily, ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts,
-    ExpansionAnalysis, ExpansionContext, ExpansionHazards, ExpansionValueShape, FindCommandFacts,
+    ArenaNormalizedCommand, ArenaNormalizedDeclaration, BacktickFragmentFact, CommandFact,
+    CommandFactCompoundKind, CommandFactRef, CommandFacts, CommandOptionFacts, ConditionalBareWordFact,
+    ConditionalBinaryFact, ConditionalFact, ConditionalMixedLogicalOperatorFact,
+    ConditionalNodeFact, ConditionalOperandFact, ConditionalOperatorFamily,
+    ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts, ExpansionAnalysis,
+    ExpansionContext, ExpansionHazards, ExpansionValueShape, FactWordRef, FindCommandFacts,
     FindExecCommandFacts, FindExecShellCommandFacts, ForHeaderFact, FunctionCallArityFacts,
     FunctionHeaderFact, GrepPatternSourceKind, LegacyArithmeticFragmentFact, ListFact,
     ListOperatorFact, LoopHeaderWordFact, PathWordFact, PipelineFact, PipelineOperatorFact,
@@ -315,6 +316,7 @@ fn analyze_file_at_path_with_resolver_and_shell(
     );
     let checker = Checker::new(
         file,
+        &ast,
         source,
         &semantic,
         indexer,
@@ -372,7 +374,7 @@ fn analyze_arena_file_at_path_with_resolver_and_shell(
         .or(analyzed_paths_fallback.as_ref());
 
     let mut observer = LintTraversalObserver::default();
-    let shell_profile = inferred_shell_profile(shell);
+    let shell_profile = shell.shell_profile();
     let semantic = build_with_observer_arena_with_options(
         ast,
         source,
@@ -389,6 +391,7 @@ fn analyze_arena_file_at_path_with_resolver_and_shell(
     );
     let checker = Checker::new(
         &file,
+        ast,
         source,
         &semantic,
         indexer,

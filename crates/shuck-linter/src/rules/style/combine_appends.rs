@@ -21,7 +21,7 @@ pub fn combine_appends(checker: &mut Checker) {
         .facts()
         .case_items()
         .iter()
-        .map(|item| FactSpan::new(item.item().body.span))
+        .map(|item| FactSpan::new(item.body_span()))
         .collect::<FxHashSet<_>>();
 
     for fact in checker.facts().statement_facts() {
@@ -100,7 +100,7 @@ fn append_target_for_statement(
 
     for command in statement_commands {
         for redirect in command.redirect_facts() {
-            if redirect.redirect().kind != RedirectKind::Append {
+            if redirect.kind() != RedirectKind::Append {
                 continue;
             }
 
@@ -121,7 +121,7 @@ fn append_target_for_statement(
                 let redirect_end = command
                     .redirect_facts()
                     .iter()
-                    .map(|redirect| redirect.redirect().span.end)
+                    .map(|redirect| redirect.span().end)
                     .max_by_key(|position| position.offset)
                     .unwrap_or(command_end);
                 anchor_start = Some(command.body_span().start);

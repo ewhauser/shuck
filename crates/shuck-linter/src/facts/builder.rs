@@ -34,10 +34,10 @@ struct HeredocFactSummary {
     spaced_tabstrip_close_spans: Vec<Span>,
 }
 
-fn estimate_fact_build_capacity(file: &File) -> FactBuildCapacity {
+fn estimate_fact_build_capacity(arena_file: &ArenaFile) -> FactBuildCapacity {
     let mut capacity = FactBuildCapacity::default();
-    walk_commands(
-        &file.body,
+    walk_arena_commands(
+        arena_file.view().body(),
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
@@ -46,12 +46,21 @@ fn estimate_fact_build_capacity(file: &File) -> FactBuildCapacity {
             if !context.nested_word_command {
                 capacity.structural_commands += 1;
             }
-            if matches!(visit.command, Command::Function(_)) {
+            if visit.command.kind() == ArenaFileCommandKind::Function {
                 capacity.functions += 1;
             }
         },
     );
     capacity
+}
+
+fn arena_word_ids_by_span(arena_file: &ArenaFile) -> FxHashMap<FactSpan, WordId> {
+    let mut ids = FxHashMap::with_capacity_and_hasher(arena_file.store.word_count(), Default::default());
+    for index in 0..arena_file.store.word_count() {
+        let id = WordId::new(index);
+        ids.insert(FactSpan::new(arena_file.store.word(id).span()), id);
+    }
+    ids
 }
 
 impl<'a> LinterFactsBuilder<'a> {
@@ -77,7 +86,8 @@ impl<'a> LinterFactsBuilder<'a> {
 
     fn build(self) -> LinterFacts<'a> {
         let source = self.source;
-        let capacity = estimate_fact_build_capacity(self.file);
+        let arena_file = ArenaFile::from_file(self.file);
+        let capacity = estimate_fact_build_capacity(&arena_file);
         let estimated_word_nodes = capacity.commands.saturating_mul(2);
         let estimated_word_occurrences = capacity.commands.saturating_mul(3);
 
@@ -103,6 +113,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut word_span_scratch = Vec::new();
         let mut word_node_ids_by_span =
             FxHashMap::with_capacity_and_hasher(estimated_word_nodes, Default::default());
+        let arena_word_ids_by_span = arena_word_ids_by_span(&arena_file);
         let mut word_occurrences = Vec::with_capacity(estimated_word_occurrences);
         let mut pending_arithmetic_word_occurrences =
             Vec::with_capacity(capacity.commands.saturating_div(4));
@@ -126,6 +137,17 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut command_substitution_command_spans = Vec::new();
         let mut arithmetic_update_operator_spans = Vec::new();
         let mut base_prefix_arithmetic_spans = Vec::new();
+        let mut arena_visits = Vec::with_capacity(capacity.commands);
+        walk_arena_commands(
+            arena_file.view().body(),
+            CommandWalkOptions {
+                descend_nested_word_commands: true,
+            },
+            &mut |visit, _| {
+                arena_visits.push((visit.command.span(), visit.stmt.id(), visit.command.id()));
+            },
+        );
+        let mut arena_visits = arena_visits.into_iter().peekable();
 
         walk_commands(
             &self.file.body,
@@ -136,6 +158,18 @@ impl<'a> LinterFactsBuilder<'a> {
                 let key = FactSpan::new(command_span(visit.command));
                 let id = CommandId::new(commands.len());
                 let span = command_span(visit.command);
+                let (arena_stmt_id, arena_command_id) = match arena_visits.peek().copied() {
+                    Some((arena_span, _, _))
+                        if arena_span.start.offset == span.start.offset
+                            && arena_span.end.offset == span.end.offset =>
+                    {
+                        let (_, stmt_id, command_id) = arena_visits
+                            .next()
+                            .expect("peeked arena command should still be present");
+                        (Some(stmt_id), Some(command_id))
+                    }
+                    _ => (None, None),
+                };
                 while active_parent_commands
                     .last()
                     .is_some_and(|candidate| candidate.end_offset < span.end.offset)
@@ -194,6 +228,12 @@ impl<'a> LinterFactsBuilder<'a> {
                     &mut ifs_literal_backslash_assignment_value_spans,
                 );
                 let normalized = command::normalize_command(visit.command, self.source);
+                let arena_normalized = arena_command_id.map(|command_id| {
+                    ArenaCommandNameFacts::from_normalized(command::normalize_arena_command(
+                        arena_file.store.command(command_id),
+                        self.source,
+                    ))
+                });
                 let command_zsh_options = effective_command_zsh_options(
                     self.semantic,
                     command_span(visit.command).start.offset,
@@ -218,6 +258,7 @@ impl<'a> LinterFactsBuilder<'a> {
                         word_spans: &mut word_spans,
                         word_span_scratch: &mut word_span_scratch,
                         word_node_ids_by_span: &mut word_node_ids_by_span,
+                        arena_word_ids_by_span: &arena_word_ids_by_span,
                         word_occurrences: &mut word_occurrences,
                         pending_arithmetic_word_occurrences:
                             &mut pending_arithmetic_word_occurrences,
@@ -276,7 +317,13 @@ impl<'a> LinterFactsBuilder<'a> {
                     command_zsh_options.as_ref(),
                 );
                 let redirect_fact_range = redirect_fact_store.push_many(redirect_facts);
-                let options = CommandOptionFacts::build(visit.command, &normalized, self.source);
+                let options = CommandOptionFacts::build(
+                    visit.command,
+                    &normalized,
+                    self.source,
+                    &arena_word_ids_by_span,
+                    command_zsh_options.as_ref(),
+                );
                 let scope =
                     (!nested_word_command).then(|| self.semantic.scope_at(normalized.body_span.start.offset));
                 let declaration_assignment_probes = build_declaration_assignment_probes(
@@ -291,16 +338,33 @@ impl<'a> LinterFactsBuilder<'a> {
                     build_glued_closing_bracket_operand_span(visit.command, self.source);
                 let glued_closing_bracket_insert_offset =
                     build_glued_closing_bracket_insert_offset(visit.command, self.source);
-                let simple_test =
-                    build_simple_test_fact(visit.command, self.source, self._file_context);
+                let simple_test = build_simple_test_fact(
+                    visit.command,
+                    self.source,
+                    self._file_context,
+                    &arena_word_ids_by_span,
+                );
                 let conditional = build_conditional_fact(visit.command, self.source);
+                let shape = arena_command_id
+                    .map(|id| CommandFactShape::from_arena(arena_file.store.command(id)))
+                    .unwrap_or_else(|| CommandFactShape::from_recursive(visit.command));
                 commands.push(CommandFact {
                     id,
                     key,
-                    visit,
+                    span,
+                    arena_stmt_id,
+                    arena_command_id,
+                    shape,
+                    stmt_span: visit.stmt.span,
+                    stmt_negated: visit.stmt.negated,
+                    stmt_terminator: visit.stmt.terminator,
+                    stmt_terminator_span: visit.stmt.terminator_span,
+                    has_redirects: !visit.redirects.is_empty(),
+                    has_assignments: !command_assignments(visit.command).is_empty(),
                     nested_word_command,
                     scope,
                     normalized,
+                    arena_normalized,
                     zsh_options: command_zsh_options,
                     redirect_facts: redirect_fact_range,
                     substitution_facts: IdRange::empty(),
@@ -319,7 +383,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 });
 
                 if let Command::Function(function) = visit.command {
-                    functions.push(function);
+                    functions.push((function, arena_command_id));
                     if let Some(span) = function_body_without_braces_span(function) {
                         function_body_without_braces_spans.push(span);
                     }
@@ -441,12 +505,13 @@ impl<'a> LinterFactsBuilder<'a> {
             )
         };
 
-        populate_linebreak_in_test_facts(&mut commands, self.source);
+        populate_linebreak_in_test_facts(&mut commands, &arena_file, self.source);
         populate_substitution_fact_ranges(
             &mut commands,
             &mut fact_store,
             &command_ids_by_span,
             &command_child_index,
+            &arena_file,
             self.source,
         );
 
@@ -486,25 +551,43 @@ impl<'a> LinterFactsBuilder<'a> {
             &structural_command_ids,
             self.source,
         );
-        let for_headers = build_for_header_facts(&commands, &command_ids_by_span, self.source);
-        let select_headers =
-            build_select_header_facts(&commands, &command_ids_by_span, self.source);
-        let case_items = build_case_item_facts(&commands, self.source);
+        let for_headers = build_for_header_facts(
+            &commands,
+            &arena_file,
+            &command_ids_by_span,
+            &arena_word_ids_by_span,
+            self.source,
+        );
+        let select_headers = build_select_header_facts(
+            &commands,
+            &arena_file,
+            &command_ids_by_span,
+            &arena_word_ids_by_span,
+            self.source,
+        );
+        let case_items = build_case_item_facts(&commands, &arena_file, self.source);
         let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
         let case_pattern_impossible_spans =
             build_case_pattern_impossible_spans(&commands, self.source);
-        let pipelines = build_pipeline_facts(&commands, &command_ids_by_span, &command_child_index);
+        let pipelines = build_pipeline_facts(
+            &commands,
+            &command_ids_by_span,
+            &command_child_index,
+            &arena_file,
+        );
         populate_scope_fact_ranges(
             &mut commands,
             &mut fact_store,
             &pipelines,
             &if_condition_command_ids,
+            &arena_file,
             source,
         );
         let lists = build_list_facts(
             &commands,
             &command_ids_by_span,
             &command_child_index,
+            &arena_file,
             self.source,
         );
         let completion_registered_function_command_flags =
@@ -524,6 +607,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 &commands,
                 &command_ids_by_span,
                 &command_child_index,
+                &arena_file,
                 self.source,
             );
         let subshell_test_group_spans =
@@ -531,6 +615,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 &commands,
                 &command_ids_by_span,
                 &command_child_index,
+                &arena_file,
                 self.source,
             );
         let shebang_header_facts = build_shebang_header_facts(self.source);
@@ -555,7 +640,7 @@ impl<'a> LinterFactsBuilder<'a> {
             self.source,
             self._indexer,
         );
-        let backtick_command_name_spans = build_backtick_command_name_spans(&commands);
+        let backtick_command_name_spans = build_backtick_command_name_spans(&commands, &arena_file);
         let dollar_question_after_command_spans =
             build_dollar_question_after_command_spans(&self.file.body, self.source);
         let nonpersistent_assignment_spans = build_nonpersistent_assignment_spans(
@@ -566,12 +651,12 @@ impl<'a> LinterFactsBuilder<'a> {
             command_facts_require_source_order,
         );
         let heredoc_summary =
-            build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
+            build_heredoc_fact_summary(&commands, &arena_file, self.source, self.file.span.end.offset);
         let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);
         let literal_brace_spans = build_literal_brace_spans(
             &word_nodes,
             &word_occurrences,
-            CommandFacts::new(&commands, &fact_store),
+            CommandFacts::new(&commands, &fact_store, &arena_file),
             &fact_store,
             source,
             self._indexer.region_index().heredoc_ranges(),
@@ -723,7 +808,7 @@ impl<'a> LinterFactsBuilder<'a> {
             &array_assignment_split_word_ids,
         );
         let echo_to_sed_substitution_spans = build_echo_to_sed_substitution_spans(
-            CommandFacts::new(&commands, &fact_store),
+            CommandFacts::new(&commands, &fact_store, &arena_file),
             &pipelines,
             &backticks,
             WordFactLookup {
@@ -798,8 +883,10 @@ impl<'a> LinterFactsBuilder<'a> {
                 source,
                 &backtick_substitution_spans,
             );
+
         LinterFacts {
             source,
+            arena_file,
             commands,
             structural_command_ids,
             command_ids_by_span,
@@ -825,7 +912,6 @@ impl<'a> LinterFactsBuilder<'a> {
             presence_test_names_by_name: presence_tested_names.names_by_name,
             possible_variable_misspelling_use_scan: OnceLock::new(),
             possible_variable_misspelling_index: OnceLock::new(),
-            possible_variable_misspelling_scope_compat_name_uses: OnceLock::new(),
             suppressed_subscript_reference_spans,
             subscript_later_suppression_reference_spans,
             compound_assignment_value_word_spans,
@@ -1036,13 +1122,17 @@ fn stmt_contains_nested_control_flow(stmt: &Stmt) -> bool {
     }
 }
 
-fn populate_linebreak_in_test_facts(commands: &mut [CommandFact<'_>], source: &str) {
+fn populate_linebreak_in_test_facts(
+    commands: &mut [CommandFact<'_>],
+    arena_file: &ArenaFile,
+    source: &str,
+) {
     for index in 0..commands.len().saturating_sub(1) {
         let (current_slice, next_slice) = commands.split_at_mut(index + 1);
         let current = &mut current_slice[index];
         let next = &next_slice[0];
         let Some((anchor_span, insert_offset)) =
-            build_linebreak_in_test_site(current, next, source)
+            build_linebreak_in_test_site(current, next, arena_file, source)
         else {
             continue;
         };
@@ -1055,19 +1145,21 @@ fn populate_linebreak_in_test_facts(commands: &mut [CommandFact<'_>], source: &s
 fn build_linebreak_in_test_site(
     current: &CommandFact<'_>,
     next: &CommandFact<'_>,
+    arena_file: &ArenaFile,
     source: &str,
 ) -> Option<(Span, usize)> {
+    let next_args = next.arena_body_args(arena_file, source);
     if !current.static_utility_name_is("[")
         || !next.static_utility_name_is("]")
-        || !next.body_args().is_empty()
+        || !next_args.is_empty()
     {
         return None;
     }
 
     let last_arg_is_closing_bracket = current
-        .body_args()
+        .arena_body_args(arena_file, source)
         .last()
-        .and_then(|word| static_word_text(word, source))
+        .and_then(|word| word.static_text(source))
         .as_deref()
         == Some("]");
     let current_span = current.span();
@@ -1082,10 +1174,14 @@ fn build_linebreak_in_test_site(
     }
 
     let anchor_span = current
-        .body_args()
+        .arena_body_args(arena_file, source)
         .last()
-        .map(|word| word.span)
-        .or_else(|| current.body_name_word().map(|word| word.span))
+        .map(|word| word.span())
+        .or_else(|| {
+            current
+                .arena_body_name_word(arena_file, source)
+                .map(|word| word.span())
+        })
         .map(|span| Span::from_positions(span.end, span.end))
         .unwrap_or_else(|| Span::from_positions(current_span.end, current_span.end));
     Some((anchor_span, insert_offset))

@@ -1,8 +1,10 @@
 use rustc_hash::FxHashSet;
-use shuck_ast::{Assignment, AssignmentValue, Command, Span, static_word_text};
+use shuck_ast::{
+    ArenaFileCommandKind, AssignmentNode, AssignmentValueNode, Span, static_word_text_arena,
+};
 use shuck_semantic::{Binding, BindingAttributes, BindingKind};
 
-use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext, WordQuote};
+use crate::{Checker, CommandFactRef, ExpansionContext, Rule, Violation, WordFactContext, WordQuote};
 
 pub struct AssignmentLooksLikeComparison;
 
@@ -30,7 +32,7 @@ pub fn assignment_looks_like_comparison(checker: &mut Checker) {
         .commands()
         .iter()
         .filter(|fact| fact.literal_name() == Some(""))
-        .flat_map(|fact| command_assignment_spans(checker, fact.command(), source, &known_names))
+        .flat_map(|fact| command_assignment_spans(checker, fact, source, &known_names))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || AssignmentLooksLikeComparison);
@@ -38,13 +40,13 @@ pub fn assignment_looks_like_comparison(checker: &mut Checker) {
 
 fn command_assignment_spans(
     checker: &Checker<'_>,
-    command: &Command,
+    command: CommandFactRef<'_, '_>,
     source: &str,
     known_names: &FxHashSet<String>,
 ) -> Vec<Span> {
-    match command {
-        Command::Simple(command) => command
-            .assignments
+    match command.command_kind() {
+        ArenaFileCommandKind::Simple => command
+            .arena_assignments()
             .iter()
             .filter_map(|assignment| {
                 assignment_value_looks_like_comparison(
@@ -56,40 +58,41 @@ fn command_assignment_spans(
                 )
             })
             .collect(),
-        Command::Builtin(_)
-        | Command::Decl(_)
-        | Command::Binary(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => Vec::new(),
+        ArenaFileCommandKind::Builtin
+        | ArenaFileCommandKind::Decl
+        | ArenaFileCommandKind::Binary
+        | ArenaFileCommandKind::Compound
+        | ArenaFileCommandKind::Function
+        | ArenaFileCommandKind::AnonymousFunction => Vec::new(),
     }
 }
 
 fn assignment_value_looks_like_comparison(
     checker: &Checker<'_>,
-    assignment: &Assignment,
+    assignment: &AssignmentNode,
     source: &str,
     known_names: &FxHashSet<String>,
     context: WordFactContext,
 ) -> Option<Span> {
-    let AssignmentValue::Scalar(word) = &assignment.value else {
+    let AssignmentValueNode::Scalar(word_id) = assignment.value else {
         return None;
     };
+    let word = checker.facts().arena_file().store.word(word_id);
 
-    let fact = checker.facts().word_fact(word.span, context)?;
+    let fact = checker.facts().word_fact(word.span(), context)?;
     if fact.classification().quote != WordQuote::Unquoted {
         return None;
     }
 
     let target = assignment.target.name.as_str();
-    let value = static_word_text(word, source)?;
+    let value = static_word_text_arena(word, source)?;
     let (prefix, remainder) = value.split_once('-')?;
     if remainder.is_empty() {
         return None;
     }
 
     if prefix == target || known_names.contains(prefix) {
-        Some(word.span)
+        Some(word.span())
     } else {
         None
     }

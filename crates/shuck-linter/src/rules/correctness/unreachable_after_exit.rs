@@ -1,6 +1,6 @@
 use crate::{Checker, CommandFact, CommandFacts, ListFact, Rule, Violation, WrapperKind};
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{Command as AstCommand, Name, Span};
+use shuck_ast::{Name, Span};
 use shuck_semantic::{
     BindingId, BindingOrigin, ScopeId, ScopeKind, SemanticAnalysis, UnreachableCauseKind,
 };
@@ -221,7 +221,7 @@ fn file_has_file_scope_exit(checker: &Checker<'_>) -> bool {
         command.effective_or_literal_name() == Some("exit")
             && checker
                 .semantic()
-                .flow_context_at(&command.stmt().span)
+                .flow_context_at(&command.stmt_span())
                 .is_some_and(|context| !context.in_function && !context.in_subshell)
     })
 }
@@ -232,7 +232,7 @@ fn file_has_top_level_exit_command(checker: &Checker<'_>) -> bool {
             && checker.facts().command_parent_id(command.id()).is_none()
             && checker
                 .semantic()
-                .flow_context_at(&command.stmt().span)
+                .flow_context_at(&command.stmt_span())
                 .is_some_and(|context| !context.in_function && !context.in_subshell)
     })
 }
@@ -245,7 +245,7 @@ fn span_is_inside_unreached_function(span: Span, function_spans: &[Span]) -> boo
 
 fn span_matches_short_circuit_skip(
     span: Span,
-    short_circuit_lists: &[ListFact<'_>],
+    short_circuit_lists: &[ListFact],
     commands: CommandFacts<'_, '_>,
     semantic_analysis: &SemanticAnalysis<'_>,
 ) -> bool {
@@ -270,7 +270,7 @@ fn span_matches_short_circuit_skip(
 }
 
 fn list_starts_with_condition(
-    list: &ListFact<'_>,
+    list: &ListFact,
     commands: CommandFacts<'_, '_>,
     semantic_analysis: &SemanticAnalysis<'_>,
 ) -> bool {
@@ -329,12 +329,12 @@ fn wrapper_name_resolves_to_function(
     let Some(name) = command.literal_name() else {
         return false;
     };
-    let AstCommand::Simple(simple) = command.command() else {
+    let Some(name_span) = command.body_word_span() else {
         return false;
     };
 
     semantic_analysis
-        .visible_function_binding_at_call(&Name::from(name), simple.name.span)
+        .visible_function_binding_at_call(&Name::from(name), name_span)
         .is_some()
 }
 

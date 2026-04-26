@@ -56,7 +56,7 @@ fn span_strictly_contains(outer: shuck_ast::Span, inner: shuck_ast::Span) -> boo
         && (outer.start.offset < inner.start.offset || inner.end.offset < outer.end.offset)
 }
 
-fn matches_mixed_short_circuit(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
+fn matches_mixed_short_circuit(checker: &Checker<'_>, list: &ListFact) -> bool {
     if !matches_and_then_or_chain(list) || list_runs_as_if_or_elif_condition(checker, list) {
         return false;
     }
@@ -68,7 +68,7 @@ fn matches_mixed_short_circuit(checker: &Checker<'_>, list: &ListFact<'_>) -> bo
     }
 }
 
-fn matches_and_then_or_chain(list: &ListFact<'_>) -> bool {
+fn matches_and_then_or_chain(list: &ListFact) -> bool {
     let mut saw_and = false;
     let mut saw_or = false;
 
@@ -83,7 +83,7 @@ fn matches_and_then_or_chain(list: &ListFact<'_>) -> bool {
     saw_and && saw_or
 }
 
-fn list_runs_as_if_or_elif_condition(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
+fn list_runs_as_if_or_elif_condition(checker: &Checker<'_>, list: &ListFact) -> bool {
     list.segments().iter().all(|segment| {
         checker
             .facts()
@@ -94,7 +94,7 @@ fn list_runs_as_if_or_elif_condition(checker: &Checker<'_>, list: &ListFact<'_>)
     })
 }
 
-fn list_exempts_warning(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
+fn list_exempts_warning(checker: &Checker<'_>, list: &ListFact) -> bool {
     if list.segments().iter().all(|segment| {
         checker
             .facts()
@@ -118,7 +118,7 @@ fn list_exempts_warning(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
     false
 }
 
-fn matches_status_propagation_assignment(list: &ListFact<'_>) -> bool {
+fn matches_status_propagation_assignment(list: &ListFact) -> bool {
     if !matches_and_or_ternary(list) {
         return false;
     }
@@ -134,7 +134,7 @@ fn matches_status_propagation_assignment(list: &ListFact<'_>) -> bool {
         && first.assignment_target() == last.assignment_target()
 }
 
-fn matches_exempt_fallback_branch(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
+fn matches_exempt_fallback_branch(checker: &Checker<'_>, list: &ListFact) -> bool {
     let Some(last_operator) = list.operators().last() else {
         return false;
     };
@@ -160,7 +160,7 @@ fn matches_exempt_fallback_branch(checker: &Checker<'_>, list: &ListFact<'_>) ->
     )
 }
 
-fn matches_condition_guard_fallback(list: &ListFact<'_>) -> bool {
+fn matches_condition_guard_fallback(list: &ListFact) -> bool {
     let Some(first_or_index) = list
         .operators()
         .iter()
@@ -184,7 +184,7 @@ fn command_basename(name: &str) -> &str {
     name.rsplit('/').next().unwrap_or(name)
 }
 
-fn matches_and_or_ternary(list: &ListFact<'_>) -> bool {
+fn matches_and_or_ternary(list: &ListFact) -> bool {
     list.segments().len() == 3 && matches_and_then_or_chain(list)
 }
 

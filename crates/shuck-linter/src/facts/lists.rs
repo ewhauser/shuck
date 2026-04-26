@@ -66,26 +66,27 @@ pub enum MixedShortCircuitKind {
 
 
 #[derive(Debug, Clone)]
-pub struct ListFact<'a> {
+pub struct ListFact {
     key: FactSpan,
-    command: &'a BinaryCommand,
+    arena_command_id: Option<AstCommandId>,
+    span: Span,
     operators: Box<[ListOperatorFact]>,
     segments: Box<[ListSegmentFact]>,
     mixed_short_circuit_span: Option<Span>,
     mixed_short_circuit_kind: Option<MixedShortCircuitKind>,
 }
 
-impl<'a> ListFact<'a> {
+impl ListFact {
     pub fn key(&self) -> FactSpan {
         self.key
     }
 
-    pub fn command(&self) -> &'a BinaryCommand {
-        self.command
+    pub fn arena_command_id(&self) -> Option<AstCommandId> {
+        self.arena_command_id
     }
 
     pub fn span(&self) -> Span {
-        self.command.span
+        self.span
     }
 
     pub fn operators(&self) -> &[ListOperatorFact] {
@@ -109,28 +110,32 @@ pub(super) fn build_list_facts<'a>(
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
+    arena_file: &ArenaFile,
     source: &str,
-) -> Vec<ListFact<'a>> {
+) -> Vec<ListFact> {
     let command_relationships =
         CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
     let mut nested_list_commands = FxHashSet::default();
 
     for fact in commands {
-        let Command::Binary(command) = fact.command() else {
+        let Some(command) = fact
+            .arena_command_id()
+            .and_then(|id| arena_file.store.command(id).binary())
+        else {
             continue;
         };
-        if !matches!(command.op, BinaryOp::And | BinaryOp::Or) {
+        if !matches!(command.op(), BinaryOp::And | BinaryOp::Or) {
             continue;
         }
 
         record_nested_list_command(
-            &command.left,
+            command.left(),
             fact.id(),
             command_relationships,
             &mut nested_list_commands,
         );
         record_nested_list_command(
-            &command.right,
+            command.right(),
             fact.id(),
             command_relationships,
             &mut nested_list_commands,
@@ -140,21 +145,22 @@ pub(super) fn build_list_facts<'a>(
     commands
         .iter()
         .filter_map(|fact| {
-            let Command::Binary(command) = fact.command() else {
-                return None;
-            };
-            if !matches!(command.op, BinaryOp::And | BinaryOp::Or)
+            let command = fact
+                .arena_command_id()
+                .and_then(|id| arena_file.store.command(id).binary())?;
+            if !matches!(command.op(), BinaryOp::And | BinaryOp::Or)
                 || nested_list_commands.contains(&fact.id())
             {
                 return None;
-            }
+            };
 
             let mut operators = Vec::new();
-            collect_short_circuit_operators(command, &mut operators);
+            collect_arena_short_circuit_operators(command, &mut operators);
             let segments = build_list_segment_facts(
                 command,
                 command_relationships,
                 fact.id(),
+                arena_file,
                 source,
             )?;
             let mixed_short_circuit_span = mixed_short_circuit_operator_span(&operators);
@@ -163,7 +169,8 @@ pub(super) fn build_list_facts<'a>(
 
             Some(ListFact {
                 key: fact.key(),
-                command,
+                arena_command_id: fact.arena_command_id(),
+                span: fact.span(),
                 operators: operators.into_boxed_slice(),
                 segments,
                 mixed_short_circuit_span,
@@ -174,24 +181,28 @@ pub(super) fn build_list_facts<'a>(
 }
 
 fn record_nested_list_command(
-    stmt: &Stmt,
+    seq: StmtSeqView<'_>,
     parent_id: CommandId,
     command_relationships: CommandRelationshipContext<'_, '_>,
     nested_list_commands: &mut FxHashSet<CommandId>,
 ) {
-    if matches!(
-        &stmt.command,
-        Command::Binary(child) if matches!(child.op, BinaryOp::And | BinaryOp::Or)
-    ) && let Some(child) = command_relationships.child_or_lookup_fact(parent_id, stmt)
-    {
-        nested_list_commands.insert(child.id());
+    for stmt in seq.stmts() {
+        if stmt
+            .command()
+            .binary()
+            .is_some_and(|child| matches!(child.op(), BinaryOp::And | BinaryOp::Or))
+            && let Some(child) = command_relationships.child_or_lookup_arena_fact(parent_id, stmt)
+        {
+            nested_list_commands.insert(child.id());
+        }
     }
 }
 
 fn build_list_segment_facts<'a>(
-    command: &BinaryCommand,
+    command: BinaryCommandView<'_>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
     parent_id: CommandId,
+    arena_file: &ArenaFile,
     source: &str,
 ) -> Option<Box<[ListSegmentFact]>> {
     let mut segments = Vec::new();
@@ -199,6 +210,7 @@ fn build_list_segment_facts<'a>(
         command,
         command_relationships,
         parent_id,
+        arena_file,
         source,
         &mut segments,
     )?;
@@ -206,23 +218,26 @@ fn build_list_segment_facts<'a>(
 }
 
 fn collect_list_segment_facts<'a>(
-    command: &BinaryCommand,
+    command: BinaryCommandView<'_>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
     parent_id: CommandId,
+    arena_file: &ArenaFile,
     source: &str,
     segments: &mut Vec<ListSegmentFact>,
 ) -> Option<()> {
     collect_list_stmt_segment_facts(
-        &command.left,
+        command.left(),
         command_relationships,
         parent_id,
+        arena_file,
         source,
         segments,
     )?;
     collect_list_stmt_segment_facts(
-        &command.right,
+        command.right(),
         command_relationships,
         parent_id,
+        arena_file,
         source,
         segments,
     )?;
@@ -230,54 +245,59 @@ fn collect_list_segment_facts<'a>(
 }
 
 fn collect_list_stmt_segment_facts<'a>(
-    stmt: &Stmt,
+    seq: StmtSeqView<'_>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
     parent_id: CommandId,
+    arena_file: &ArenaFile,
     source: &str,
     segments: &mut Vec<ListSegmentFact>,
 ) -> Option<()> {
-    if let Command::Binary(binary) = &stmt.command
-        && matches!(binary.op, BinaryOp::And | BinaryOp::Or)
-    {
-        let nested_parent_id = command_relationships
-            .child_or_lookup_fact(parent_id, stmt)?
-            .id();
-        return collect_list_segment_facts(
-            binary,
-            command_relationships,
-            nested_parent_id,
-            source,
-            segments,
-        );
+    for stmt in seq.stmts() {
+        if let Some(binary) = stmt.command().binary()
+            && matches!(binary.op(), BinaryOp::And | BinaryOp::Or)
+        {
+            let nested_parent_id = command_relationships
+                .child_or_lookup_arena_fact(parent_id, stmt)?
+                .id();
+            collect_list_segment_facts(
+                binary,
+                command_relationships,
+                nested_parent_id,
+                arena_file,
+                source,
+                segments,
+            )?;
+            continue;
+        }
+
+        let fact = command_relationships.child_or_lookup_arena_fact(parent_id, stmt)?;
+        let id = fact.id();
+        let assignment_info = list_segment_assignment_info(fact, arena_file);
+        let assignment_target = assignment_info
+            .as_ref()
+            .map(|info| info.target)
+            .map(str::to_owned)
+            .map(String::into_boxed_str);
+        let assignment_is_declaration = assignment_info
+            .as_ref()
+            .is_some_and(|info| info.is_declaration);
+
+        segments.push(ListSegmentFact {
+            command_id: id,
+            span: fact.span_in_source(source),
+            kind: list_segment_kind(fact, arena_file),
+            assignment_target,
+            assignment_span: assignment_info.map(|info| info.span),
+            assignment_is_declaration,
+        });
     }
-
-    let fact = command_relationships.child_or_lookup_fact(parent_id, stmt)?;
-    let id = fact.id();
-    let assignment_info = list_segment_assignment_info(fact);
-    let assignment_target = assignment_info
-        .as_ref()
-        .map(|info| info.target)
-        .map(str::to_owned)
-        .map(String::into_boxed_str);
-    let assignment_is_declaration = assignment_info
-        .as_ref()
-        .is_some_and(|info| info.is_declaration);
-
-    segments.push(ListSegmentFact {
-        command_id: id,
-        span: fact.span_in_source(source),
-        kind: list_segment_kind(fact),
-        assignment_target,
-        assignment_span: assignment_info.map(|info| info.span),
-        assignment_is_declaration,
-    });
     Some(())
 }
 
-fn list_segment_kind(fact: &CommandFact<'_>) -> ListSegmentKind {
+fn list_segment_kind(fact: &CommandFact<'_>, arena_file: &ArenaFile) -> ListSegmentKind {
     if list_segment_is_condition(fact) {
         ListSegmentKind::Condition
-    } else if list_segment_assignment_target(fact).is_some() {
+    } else if list_segment_assignment_info(fact, arena_file).is_some() {
         ListSegmentKind::AssignmentOnly
     } else {
         ListSegmentKind::Other
@@ -290,10 +310,6 @@ fn list_segment_is_condition(fact: &CommandFact<'_>) -> bool {
         || matches!(fact.effective_or_literal_name(), Some("true" | "false"))
 }
 
-fn list_segment_assignment_target<'a>(fact: &'a CommandFact<'a>) -> Option<&'a str> {
-    list_segment_assignment_info(fact).map(|info| info.target)
-}
-
 #[derive(Clone, Copy)]
 struct ListSegmentAssignmentInfo<'a> {
     target: &'a str,
@@ -303,22 +319,30 @@ struct ListSegmentAssignmentInfo<'a> {
 
 fn list_segment_assignment_info<'a>(
     fact: &'a CommandFact<'a>,
+    arena_file: &'a ArenaFile,
 ) -> Option<ListSegmentAssignmentInfo<'a>> {
-    match fact.command() {
-        Command::Simple(command)
-            if command.args.is_empty()
-                && !command.assignments.is_empty()
-                && fact.literal_name() == Some("") =>
+    let command = arena_file.store.command(fact.arena_command_id()?);
+    match command.kind() {
+        ArenaFileCommandKind::Simple
+            if command.simple().is_some_and(|command| {
+                command.arg_ids().is_empty() && !command.assignments().is_empty()
+            }) && fact.literal_name() == Some("") =>
         {
-            single_assignment_info(&command.assignments)
+            single_assignment_info(command.simple()?.assignments())
         }
-        Command::Decl(command) => declaration_assignment_info(command),
+        ArenaFileCommandKind::Decl => fact.single_declaration_assignment_info().map(|(target, span)| {
+            ListSegmentAssignmentInfo {
+                target,
+                span,
+                is_declaration: true,
+            }
+        }),
         _ => None,
     }
 }
 
 fn single_assignment_info<'a>(
-    assignments: &'a [Assignment],
+    assignments: &'a [AssignmentNode],
 ) -> Option<ListSegmentAssignmentInfo<'a>> {
     (assignments.len() == 1).then(|| ListSegmentAssignmentInfo {
         target: assignments[0].target.name.as_str(),
@@ -327,32 +351,37 @@ fn single_assignment_info<'a>(
     })
 }
 
-fn declaration_assignment_info<'a>(
-    command: &'a DeclClause,
-) -> Option<ListSegmentAssignmentInfo<'a>> {
-    if !command.assignments.is_empty() {
+fn collect_arena_short_circuit_operators(
+    command: BinaryCommandView<'_>,
+    operators: &mut Vec<ListOperatorFact>,
+) {
+    if let Some(left) = single_binary_stmt(command.left())
+        && matches!(left.op(), BinaryOp::And | BinaryOp::Or)
+    {
+        collect_arena_short_circuit_operators(left, operators);
+    }
+
+    if matches!(command.op(), BinaryOp::And | BinaryOp::Or) {
+        operators.push(ListOperatorFact {
+            op: command.op(),
+            span: command.op_span(),
+        });
+    }
+
+    if let Some(right) = single_binary_stmt(command.right())
+        && matches!(right.op(), BinaryOp::And | BinaryOp::Or)
+    {
+        collect_arena_short_circuit_operators(right, operators);
+    }
+}
+
+fn single_binary_stmt(seq: StmtSeqView<'_>) -> Option<BinaryCommandView<'_>> {
+    let mut stmts = seq.stmts();
+    let stmt = stmts.next()?;
+    if stmts.next().is_some() {
         return None;
     }
-
-    let mut assignment = None;
-
-    for operand in &command.operands {
-        match operand {
-            DeclOperand::Flag(_) => {}
-            DeclOperand::Assignment(candidate) => {
-                if assignment.replace(candidate).is_some() {
-                    return None;
-                }
-            }
-            DeclOperand::Name(_) | DeclOperand::Dynamic(_) => return None,
-        }
-    }
-
-    assignment.map(|assignment| ListSegmentAssignmentInfo {
-        target: assignment.target.name.as_str(),
-        span: assignment.span,
-        is_declaration: true,
-    })
+    stmt.command().binary()
 }
 
 fn classify_mixed_short_circuit_kind(

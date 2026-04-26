@@ -284,8 +284,8 @@ fn is_find_exec_placeholder_word(
     }
 
     commands.iter().any(|command| {
-        command.stmt().span.start.offset <= occurrence_span(nodes, fact).start.offset
-            && command.stmt().span.end.offset >= occurrence_span(nodes, fact).end.offset
+        command.stmt_span().start.offset <= occurrence_span(nodes, fact).start.offset
+            && command.stmt_span().end.offset >= occurrence_span(nodes, fact).end.offset
             && is_find_exec_command(command, source)
     }) || line_has_find_exec_placeholder_context(source, occurrence_span(nodes, fact))
 }
@@ -717,48 +717,48 @@ fn collect_uncovered_command_brace_spans(
     scratch: &mut LiteralBraceScratch,
 ) {
     for command in commands {
-        let Command::Simple(simple) = command.command() else {
+        let Some(simple) = command.arena_command().and_then(|command| command.simple()) else {
             continue;
         };
         let command_span = command.span();
         scratch.covered_spans.clear();
 
-        if !simple.name.span.slice(source).is_empty() {
-            scratch.covered_spans.push(simple.name.span);
+        if !simple.name().span().slice(source).is_empty() {
+            scratch.covered_spans.push(simple.name().span());
         }
         scratch
             .covered_spans
-            .extend(simple.args.iter().map(|word| word.span));
+            .extend(simple.args().map(|word| word.span()));
         scratch
             .covered_spans
-            .extend(simple.assignments.iter().map(|assignment| assignment.span));
+            .extend(simple.assignments().iter().map(|assignment| assignment.span));
+        let redirects = command.arena_redirects().unwrap_or(&[]);
         scratch
             .covered_spans
-            .extend(command.redirects().iter().map(|redirect| redirect.span));
+            .extend(redirects.iter().map(|redirect| redirect.span));
         scratch
             .covered_spans
             .extend(command.substitution_facts().iter().map(|fact| fact.span()));
         scratch.covered_spans.extend(
-            command
-                .redirects()
+            redirects
                 .iter()
                 .filter_map(|redirect| redirect.fd_var_span),
         );
         scratch.covered_spans.extend(
-            command
-                .redirects()
+            redirects
                 .iter()
-                .filter_map(|redirect| redirect_fd_var_brace_span(redirect, source)),
+                .filter_map(|redirect| redirect_node_fd_var_brace_span(redirect, source)),
         );
         scratch.covered_spans.extend(
-            command
-                .redirects()
+            redirects
                 .iter()
-                .filter_map(|redirect| redirect.heredoc().map(|heredoc| heredoc.body.span)),
+                .filter_map(|redirect| match &redirect.target {
+                    RedirectTargetNode::Heredoc(heredoc) => Some(heredoc.body.span),
+                    RedirectTargetNode::Word(_) => None,
+                }),
         );
         scratch.covered_spans.extend(
-            command
-                .redirects()
+            redirects
                 .iter()
                 .filter_map(|redirect| redirect.fd_var_span),
         );
@@ -807,6 +807,22 @@ fn collect_uncovered_command_brace_spans(
             );
         }
     }
+}
+
+fn redirect_node_fd_var_brace_span(redirect: &RedirectNode, source: &str) -> Option<Span> {
+    let fd_var_span = redirect.fd_var_span?;
+    let start_offset = fd_var_span.start.offset.checked_sub('{'.len_utf8())?;
+    let end_offset = fd_var_span.end.offset.checked_add('}'.len_utf8())?;
+    if source.get(start_offset..fd_var_span.start.offset)? != "{" {
+        return None;
+    }
+    if source.get(fd_var_span.end.offset..end_offset)? != "}" {
+        return None;
+    }
+    Some(Span::from_positions(
+        position_at_offset_strict(source, start_offset),
+        position_at_offset_strict(source, end_offset),
+    ))
 }
 
 fn redirect_fd_var_brace_span(redirect: &Redirect, source: &str) -> Option<Span> {

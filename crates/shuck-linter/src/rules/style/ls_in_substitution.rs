@@ -76,7 +76,7 @@ fn left_segment_is_s047_ls_candidate(
 
 fn pipeline_ls_command_span(
     checker: &Checker,
-    pipeline: &crate::PipelineFact<'_>,
+    pipeline: &crate::PipelineFact,
     segment_index: usize,
 ) -> Span {
     let command = checker

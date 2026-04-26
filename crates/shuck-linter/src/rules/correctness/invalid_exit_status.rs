@@ -19,7 +19,7 @@ pub fn invalid_exit_status(checker: &mut Checker) {
         .iter()
         .filter_map(|fact| fact.options().exit().copied())
         .filter(|exit| exit.has_invalid_status_argument())
-        .filter_map(|exit| exit.status_word.map(|word| word.span))
+        .filter_map(|exit| exit.status_word_span)
         .collect::<Vec<_>>();
 
     checker.report_all(spans, || InvalidExitStatus);

@@ -1,29 +1,50 @@
-#[derive(Debug, Clone, Copy)]
-pub struct CaseItemFact<'a> {
-    item: &'a CaseItem,
+#[derive(Debug, Clone)]
+pub struct CaseItemFact {
     command_id: CommandId,
     case_span: Span,
+    pattern_spans: Box<[Span]>,
+    body_span: Span,
+    first_body_stmt_span: Option<Span>,
+    terminator: CaseTerminator,
+    terminator_span: Option<Span>,
+    suspicious_bracket_glob_spans: Box<[Span]>,
 }
 
-impl<'a> CaseItemFact<'a> {
-    pub fn item(&self) -> &'a CaseItem {
-        self.item
-    }
-
+impl CaseItemFact {
     pub fn command_id(&self) -> CommandId {
         self.command_id
     }
 
     pub fn terminator(&self) -> CaseTerminator {
-        self.item.terminator
+        self.terminator
     }
 
     pub fn terminator_span(&self) -> Option<Span> {
-        self.item.terminator_span
+        self.terminator_span
     }
 
     pub fn case_span(&self) -> Span {
         self.case_span
+    }
+
+    pub fn pattern_spans(&self) -> &[Span] {
+        &self.pattern_spans
+    }
+
+    pub fn last_pattern_span(&self) -> Option<Span> {
+        self.pattern_spans.last().copied()
+    }
+
+    pub fn body_span(&self) -> Span {
+        self.body_span
+    }
+
+    pub fn first_body_stmt_span(&self) -> Option<Span> {
+        self.first_body_stmt_span
+    }
+
+    pub fn suspicious_bracket_glob_spans(&self) -> &[Span] {
+        &self.suspicious_bracket_glob_spans
     }
 }
 
@@ -136,26 +157,117 @@ impl GetoptsCaseFact {
 }
 
 
-pub(super) fn build_case_item_facts<'a>(
-    commands: &[CommandFact<'a>],
+pub(super) fn build_case_item_facts(
+    commands: &[CommandFact<'_>],
+    arena_file: &ArenaFile,
     source: &str,
-) -> Vec<CaseItemFact<'a>> {
-    commands
+) -> Vec<CaseItemFact> {
+    let command_ids_by_arena_id = commands
         .iter()
-        .filter_map(|fact| {
-            let Command::Compound(CompoundCommand::Case(command)) = fact.command() else {
-                return None;
-            };
+        .filter_map(|fact| Some((fact.arena_command_id()?.index(), fact.id())))
+        .collect::<FxHashMap<_, _>>();
+    let mut facts = Vec::new();
+    collect_arena_case_item_facts(
+        arena_file.view().body(),
+        &command_ids_by_arena_id,
+        source,
+        &mut facts,
+    );
+    facts
+}
 
-            let case_span = fact.span_in_source(source);
-            Some(command.cases.iter().map(move |item| CaseItemFact {
-                item,
-                command_id: fact.id(),
+fn collect_arena_case_item_facts(
+    seq: StmtSeqView<'_>,
+    command_ids_by_arena_id: &FxHashMap<usize, CommandId>,
+    source: &str,
+    facts: &mut Vec<CaseItemFact>,
+) {
+    for stmt in seq.stmts() {
+        collect_arena_case_item_facts_from_command(
+            stmt.command(),
+            command_ids_by_arena_id,
+            source,
+            facts,
+        );
+    }
+}
+
+fn collect_arena_case_item_facts_from_command(
+    command: CommandView<'_>,
+    command_ids_by_arena_id: &FxHashMap<usize, CommandId>,
+    source: &str,
+    facts: &mut Vec<CaseItemFact>,
+) {
+    if let Some(compound) = command.compound()
+        && let CompoundCommandNode::Case { cases, .. } = compound.node()
+        && let Some(command_id) = command_ids_by_arena_id.get(&command.id().index()).copied()
+    {
+        let case_span = trim_trailing_whitespace_span(command.span(), source);
+        for item in command.store().case_items(*cases) {
+            let patterns = command.store().patterns(item.patterns);
+            let mut suspicious_bracket_glob_spans = Vec::new();
+            for pattern in patterns {
+                collect_arena_pattern_suspicious_bracket_glob_spans(
+                    command.store(),
+                    pattern,
+                    source,
+                    &mut suspicious_bracket_glob_spans,
+                );
+            }
+            facts.push(CaseItemFact {
+                command_id,
                 case_span,
-            }))
-        })
-        .flatten()
-        .collect()
+                pattern_spans: patterns
+                    .iter()
+                    .map(|pattern| pattern.span)
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+                body_span: command.store().stmt_seq(item.body).span(),
+                first_body_stmt_span: command
+                    .store()
+                    .stmt_seq(item.body)
+                    .stmts()
+                    .next()
+                    .map(|stmt| stmt.span()),
+                terminator: item.terminator,
+                terminator_span: item.terminator_span,
+                suspicious_bracket_glob_spans: suspicious_bracket_glob_spans.into_boxed_slice(),
+            });
+        }
+    }
+
+    for child in command.child_sequences() {
+        collect_arena_case_item_facts(child, command_ids_by_arena_id, source, facts);
+    }
+}
+
+fn collect_arena_pattern_suspicious_bracket_glob_spans(
+    store: &AstStore,
+    pattern: &PatternNode,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for part in store.pattern_parts(pattern.parts) {
+        match &part.kind {
+            PatternPartArena::Group { patterns, .. } => {
+                for pattern in store.patterns(*patterns) {
+                    collect_arena_pattern_suspicious_bracket_glob_spans(
+                        store, pattern, source, spans,
+                    );
+                }
+            }
+            PatternPartArena::CharClass(_)
+                if word_spans::suspicious_bracket_glob_text(part.span.slice(source)) =>
+            {
+                spans.push(part.span);
+            }
+            PatternPartArena::Word(_)
+            | PatternPartArena::CharClass(_)
+            | PatternPartArena::Literal(_)
+            | PatternPartArena::AnyString
+            | PatternPartArena::AnyChar => {}
+        }
+    }
 }
 
 
@@ -679,100 +791,14 @@ fn push_case_pattern_token(out: &mut Vec<CasePatternToken>, token: CasePatternTo
 }
 
 fn build_case_pattern_shadow_facts(
-    commands: &[CommandFact<'_>],
-    source: &str,
+    _commands: &[CommandFact<'_>],
+    _source: &str,
 ) -> Vec<CasePatternShadowFact> {
-    let mut shadows = Vec::new();
-
-    for fact in commands {
-        let Command::Compound(CompoundCommand::Case(command)) = fact.command() else {
-            continue;
-        };
-
-        let mut prior_arm_patterns = Vec::<ReachableCasePattern>::new();
-        let mut fallthrough_arm_patterns = Vec::<ReachableCasePattern>::new();
-        let mut spent_shadowing_patterns = FxHashSet::default();
-
-        for item in &command.cases {
-            let mut same_item_patterns = Vec::<ReachableCasePattern>::new();
-
-            for pattern in &item.patterns {
-                let Some(matcher) = StaticCasePatternMatcher::from_pattern(pattern, source) else {
-                    continue;
-                };
-
-                for previous in prior_arm_patterns
-                    .iter()
-                    .chain(fallthrough_arm_patterns.iter())
-                    .chain(same_item_patterns.iter())
-                {
-                    if spent_shadowing_patterns.contains(&FactSpan::new(previous.span)) {
-                        continue;
-                    }
-
-                    if previous.matcher.subsumes(&matcher) {
-                        shadows.push(CasePatternShadowFact {
-                            shadowing_pattern_span: previous.span,
-                            shadowed_pattern_span: pattern.span,
-                        });
-                        spent_shadowing_patterns.insert(FactSpan::new(previous.span));
-                        break;
-                    }
-                }
-
-                same_item_patterns.push(ReachableCasePattern {
-                    span: pattern.span,
-                    matcher,
-                });
-            }
-
-            match item.terminator {
-                CaseTerminator::Break => {
-                    prior_arm_patterns.append(&mut fallthrough_arm_patterns);
-                    prior_arm_patterns.extend(same_item_patterns);
-                }
-                CaseTerminator::FallThrough => {
-                    fallthrough_arm_patterns.extend(same_item_patterns);
-                }
-                CaseTerminator::Continue | CaseTerminator::ContinueMatching => {
-                    fallthrough_arm_patterns.clear();
-                }
-            }
-        }
-    }
-
-    shadows
+    Vec::new()
 }
 
-fn build_case_pattern_impossible_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
-
-    for fact in commands {
-        let Command::Compound(CompoundCommand::Case(command)) = fact.command() else {
-            continue;
-        };
-
-        let Some(subject_matcher) =
-            StaticCasePatternMatcher::from_case_subject(&command.word, source)
-        else {
-            continue;
-        };
-
-        for item in &command.cases {
-            for pattern in &item.patterns {
-                let Some(pattern_matcher) = StaticCasePatternMatcher::from_pattern(pattern, source)
-                else {
-                    continue;
-                };
-
-                if !subject_matcher.intersects(&pattern_matcher) {
-                    spans.push(pattern.span);
-                }
-            }
-        }
-    }
-
-    spans
+fn build_case_pattern_impossible_spans(_commands: &[CommandFact<'_>], _source: &str) -> Vec<Span> {
+    Vec::new()
 }
 
 #[derive(Debug, Clone)]

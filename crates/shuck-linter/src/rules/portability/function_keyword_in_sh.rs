@@ -45,7 +45,7 @@ pub fn function_keyword_in_sh(checker: &mut Checker) {
     }
 }
 
-fn function_keyword_in_sh_fix(header: &FunctionHeaderFact<'_>) -> Option<Fix> {
+fn function_keyword_in_sh_fix(header: &FunctionHeaderFact) -> Option<Fix> {
     let keyword_span = header.function_keyword_span()?;
     let (_, name_span) = header.static_name_entry()?;
 

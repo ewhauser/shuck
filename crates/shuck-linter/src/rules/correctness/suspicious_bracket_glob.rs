@@ -22,9 +22,13 @@ pub fn suspicious_bracket_glob(checker: &mut Checker) {
         .filter_map(|fact| fact.body_name_word())
         .filter(|word| !bare_bracket_test_name(word.span.slice(source)))
         .flat_map(|word| word_spans::word_suspicious_bracket_glob_spans(word, source))
-        .chain(checker.facts().case_items().iter().flat_map(|item| {
-            word_spans::case_item_suspicious_bracket_glob_spans(item.item(), source)
-        }))
+        .chain(
+            checker
+                .facts()
+                .case_items()
+                .iter()
+                .flat_map(|item| item.suspicious_bracket_glob_spans().iter().copied()),
+        )
         .chain(
             checker
                 .facts()

@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use rustc_hash::FxHashSet;
 use shuck_ast::TextSize;
-use shuck_ast::{File, Span};
+use shuck_ast::{ArenaFile, File, Span};
 use shuck_indexer::Indexer;
 use shuck_semantic::{SemanticAnalysis, SemanticModel};
 
@@ -16,6 +16,7 @@ pub struct Checker<'a> {
     semantic_analysis: SemanticAnalysis<'a>,
     indexer: &'a Indexer,
     file: &'a File,
+    ast: &'a ArenaFile,
     source: &'a str,
     facts: OnceLock<LinterFacts<'a>>,
     rules: &'a RuleSet,
@@ -51,6 +52,7 @@ impl<'a> Checker<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         file: &'a File,
+        ast: &'a ArenaFile,
         source: &'a str,
         semantic: &'a SemanticModel,
         indexer: &'a Indexer,
@@ -68,6 +70,7 @@ impl<'a> Checker<'a> {
             semantic_analysis: semantic.analysis(),
             indexer,
             file,
+            ast,
             source,
             facts: OnceLock::new(),
             rules,
@@ -95,8 +98,8 @@ impl<'a> Checker<'a> {
         self.indexer
     }
 
-    pub fn ast(&self) -> &'a File {
-        self.file
+    pub fn ast(&self) -> &'a ArenaFile {
+        self.ast
     }
 
     pub fn source(&self) -> &'a str {
