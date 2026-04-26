@@ -35,6 +35,7 @@ pub fn unquoted_expansion(checker: &mut Checker) {
     );
     let array_assignment_split_spans = collect_array_assignment_split_candidate_spans(checker);
     let numeric_test_operand_spans = collect_numeric_test_operand_spans(checker, source);
+    let plain_run_first_arg_spans = collect_plain_run_first_arg_spans(checker);
 
     let mut spans = Vec::new();
     for fact in checker.facts().word_facts() {
@@ -46,6 +47,7 @@ pub fn unquoted_expansion(checker: &mut Checker) {
             source,
             fact,
             &numeric_test_operand_spans,
+            &plain_run_first_arg_spans,
         );
         collect_array_assignment_split_reports(
             &mut safe_values,
@@ -91,6 +93,7 @@ fn collect_word_fact_reports(
     source: &str,
     fact: WordOccurrenceRef<'_, '_>,
     numeric_test_operand_spans: &[Span],
+    plain_run_first_arg_spans: &FxHashSet<FactSpan>,
 ) {
     let Some(context) = fact.host_expansion_context() else {
         return;
@@ -107,6 +110,7 @@ fn collect_word_fact_reports(
             context,
             in_colon_command: colon_command_ids.contains(&fact.command_id()),
             numeric_test_operand_spans,
+            plain_run_first_arg_spans,
             part_filter: |_| true,
         },
     );
@@ -128,6 +132,7 @@ fn collect_arithmetic_word_fact_reports(
         return;
     }
     let fact_command_substitution_spans = fact.command_substitution_spans();
+    let plain_run_first_arg_spans = FxHashSet::default();
     report_word_expansions(
         spans,
         safe_values,
@@ -137,6 +142,7 @@ fn collect_arithmetic_word_fact_reports(
             context,
             in_colon_command: colon_command_ids.contains(&fact.command_id()),
             numeric_test_operand_spans: &[],
+            plain_run_first_arg_spans: &plain_run_first_arg_spans,
             part_filter: |part_span| {
                 arithmetic_word_follows_command_substitution(
                     part_span,
@@ -168,6 +174,20 @@ fn collect_numeric_test_operand_spans(checker: &Checker, source: &str) -> Vec<Sp
     spans.sort_by_key(|span| (span.start.offset, span.end.offset));
     spans.dedup_by_key(|span| FactSpan::new(*span));
     spans
+}
+
+fn collect_plain_run_first_arg_spans(checker: &Checker) -> FxHashSet<FactSpan> {
+    checker
+        .facts()
+        .commands()
+        .iter()
+        .filter(|fact| fact.effective_name_is("run") && fact.wrappers().is_empty())
+        .filter_map(|fact| {
+            fact.body_args()
+                .first()
+                .map(|word| FactSpan::new(word.span))
+        })
+        .collect()
 }
 
 fn collect_array_assignment_split_candidate_spans(checker: &Checker) -> Vec<Span> {
@@ -276,6 +296,7 @@ struct WordReportOptions<'a, F> {
     context: ExpansionContext,
     in_colon_command: bool,
     numeric_test_operand_spans: &'a [Span],
+    plain_run_first_arg_spans: &'a FxHashSet<FactSpan>,
     part_filter: F,
 }
 
@@ -292,6 +313,7 @@ fn report_word_expansions<F>(
         context,
         in_colon_command,
         numeric_test_operand_spans,
+        plain_run_first_arg_spans,
         part_filter,
     } = options;
 
@@ -313,6 +335,11 @@ fn report_word_expansions<F>(
     if context == ExpansionContext::CommandName
         && !fact.has_literal_affixes()
         && fact.parts_len() == 1
+    {
+        return;
+    }
+    if context == ExpansionContext::CommandArgument
+        && plain_run_first_arg_spans.contains(&FactSpan::new(fact.span()))
     {
         return;
     }
@@ -3683,6 +3710,54 @@ if [ ${actual_status} -ne ${expected_status} ]; then :; fi
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["${actual_status}"]
+        );
+    }
+
+    #[test]
+    fn skips_plain_run_first_argument() {
+        let source = "\
+#!/bin/bash
+target=$1
+run $target
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_plain_run_later_arguments() {
+        let source = "\
+#!/bin/bash
+target=$1
+run echo $target
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$target"]
+        );
+    }
+
+    #[test]
+    fn reports_wrapped_run_first_arguments() {
+        let source = "\
+#!/bin/bash
+target=$1
+command run $target
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$target"]
         );
     }
 

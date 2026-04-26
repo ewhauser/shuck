@@ -189,13 +189,6 @@ reviewed_divergences:
     end_column: 39
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "kward__shunit2__.githooks__generic"
-    line: 30
-    end_line: 30
-    column: 11
-    end_column: 22
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "masonr__yet-another-bench-script__yabs.sh"
     line: 991
     end_line: 991

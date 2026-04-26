@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=36`
-- Individual reviewed records classified below: 47 total (`shellcheck-only=23`, `shuck-only=24`).
+- `reviewed_divergences=35`
+- Individual reviewed records classified below: 46 total (`shellcheck-only=23`, `shuck-only=23`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -60,7 +60,7 @@ Resolved records should not remain as reviewed divergences.
 
 - `bittorf__kalua__openwrt-addons__etc__init.d__override_uci_vars:418:29-31` `$i`
 
-## [ ] Shuck-only: simple command argument ShellCheck suppresses (12)
+## [ ] Shuck-only: simple command argument ShellCheck suppresses (11)
 
 - `awslabs__git-secrets__git-secrets:124:5-17` `${RECURSIVE}`
 - `bats-core__bats-core__libexec__bats-core__bats-format-pretty:67:16-34` `$count_column_left`
@@ -70,7 +70,6 @@ Resolved records should not remain as reviewed divergences.
 - `google__oss-fuzz__projects__threetenbp__build.sh:56:89-99` `LD_LIBRARY_PATH`
 - `ko1nksm__shellspec__lib__general.sh:442:15-39` `$shellspec_readfile_data`
 - `ko1nksm__shellspec__lib__libexec__shellspec.sh:94:37-39` `$c`
-- `kward__shunit2__.githooks__generic:30:11-22` `${basename}`
 - `masonr__yet-another-bench-script__yabs.sh:991:12-19` `$GB_URL`
 - `pi-hole__pi-hole__automated install__basic-install.sh:1833:21-39` `${webInterfaceDir}`
 - `termux__termux-packages__packages__lazygit__build.sh:25:41-61` `-ldflags`
