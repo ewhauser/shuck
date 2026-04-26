@@ -62,13 +62,6 @@ reviewed_divergences:
     column: 6
     end_column: 27
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-monitoring__ping_counter.sh"
-    line: 110
-    end_line: 110
-    column: 7
-    end_column: 15
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "community-scripts__ProxmoxVE__vm__haos-vm.sh"
     line: 636

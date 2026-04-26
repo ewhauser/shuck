@@ -379,6 +379,9 @@ fn report_word_expansions<F>(
             if safe_values.part_is_safe(part, part_span, SafeValueQuery::NumericTestOperand) {
                 continue;
             }
+            if safe_values.part_has_s001_arithmetic_numeric_operand_exposure(part, part_span) {
+                continue;
+            }
         } else if context == ExpansionContext::CommandArgument
             && !fact.has_literal_affixes()
             && fact.parts_len() == 1
@@ -3100,6 +3103,27 @@ dynamic_test() {
   quiet=${1:-0}
   if [ ${quiet} -eq 0 ]; then :; fi
 }
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${quiet}"]
+        );
+    }
+
+    #[test]
+    fn skips_arithmetic_numeric_test_operands_without_static_flag_broadening() {
+        let source = "\
+#!/bin/sh
+filetime=$(date +%s -r \"$file\")
+fileage=$(( unixtime - filetime ))
+[ $fileage -lt 86400 ] && :
+quiet=${1:-0}
+[ ${quiet} -eq 0 ] && :
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 

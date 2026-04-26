@@ -396,6 +396,18 @@ impl<'a> SafeValueIndex<'a> {
         self.s001_name_has_only_numeric_value_bindings(&name, span)
     }
 
+    pub fn part_has_s001_arithmetic_numeric_operand_exposure(
+        &mut self,
+        part: &WordPart,
+        span: Span,
+    ) -> bool {
+        let Some(name) = plain_scalar_reference_name_from_part(part) else {
+            return false;
+        };
+
+        self.s001_name_has_only_arithmetic_numeric_bindings(&name, span)
+    }
+
     pub fn part_is_safe_initializer_command_substitution_self_reference(
         &mut self,
         part: &WordPart,
@@ -4090,6 +4102,52 @@ impl<'a> SafeValueIndex<'a> {
         };
 
         word_static_text_is_shell_integer(word, self.source) || word_is_arithmetic_expansion(word)
+    }
+
+    fn s001_name_has_only_arithmetic_numeric_bindings(&mut self, name: &Name, at: Span) -> bool {
+        let mut bindings = self.safe_bindings_for_name(name, at);
+        self.drop_declarations_shadowed_by_covering_loop_bindings(&mut bindings, at);
+        self.drop_outer_bindings_shadowed_by_covering_loop_bindings(&mut bindings, at);
+        self.retain_value_bindings(&mut bindings);
+        if bindings.is_empty()
+            || bindings.iter().copied().any(|binding_id| {
+                self.binding_is_one_sided_short_circuit_assignment(binding_id)
+                    || self.facts.binding_value(binding_id).is_some_and(|value| {
+                        value.conditional_assignment_shortcut()
+                            || value.scalar_word().is_some_and(|word| {
+                                static_word_text(word, self.source)
+                                    .is_some_and(|text| text.is_empty())
+                            })
+                    })
+            })
+        {
+            return false;
+        }
+
+        let has_covering_binding = self.bindings_cover_all_paths_to_reference(&bindings, name, at)
+            || bindings.iter().copied().any(|binding_id| {
+                let binding = self.semantic.binding(binding_id);
+                binding.span.end.offset <= at.start.offset
+                    && self.binding_dominates_reference(binding_id, name, at)
+            });
+        has_covering_binding
+            && bindings
+                .into_iter()
+                .all(|binding_id| self.binding_assigns_s001_arithmetic_numeric_value(binding_id))
+    }
+
+    fn binding_assigns_s001_arithmetic_numeric_value(&self, binding_id: BindingId) -> bool {
+        let binding = self.semantic.binding(binding_id);
+        if self.binding_has_effective_integer_attribute(binding_id)
+            || matches!(binding.kind, BindingKind::ArithmeticAssignment)
+        {
+            return true;
+        }
+
+        self.facts
+            .binding_value(binding_id)
+            .and_then(|value| value.scalar_word())
+            .is_some_and(word_is_arithmetic_expansion)
     }
 
     fn enclosing_while_body_for_condition_span(&self, at: Span) -> Option<Span> {
