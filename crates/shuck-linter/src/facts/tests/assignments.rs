@@ -40,6 +40,31 @@ fn indexes_scalar_bindings_from_assignments_and_declarations() {
 }
 
 #[test]
+fn marks_status_capture_binding_values() {
+    let source = "\
+#!/bin/bash
+status=$?
+pid=$!
+\\typeset ret=$?
+\\local child=$!
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+
+    for name in ["status", "pid", "ret", "child"] {
+        let binding_id = semantic.bindings_for(&Name::from(name))[0];
+        assert!(
+            facts
+                .binding_value(binding_id)
+                .is_some_and(|value| value.standalone_status_or_pid_capture()),
+            "expected {name} binding value to be a status or pid capture"
+        );
+    }
+}
+
+#[test]
 fn indexes_loop_bindings_from_for_words() {
     let source = "#!/bin/bash\nfor i in 16 32 64; do printf '%s\\n' \"$i\"; done\n";
     let output = Parser::new(source).parse().unwrap();

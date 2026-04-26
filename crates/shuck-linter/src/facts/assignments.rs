@@ -37,6 +37,7 @@ impl DeclarationAssignmentProbe {
 #[derive(Debug, Clone)]
 pub struct BindingValueFact<'a> {
     kind: BindingValueKind<'a>,
+    standalone_status_or_pid_capture: bool,
     conditional_assignment_shortcut: bool,
     one_sided_short_circuit_assignment: bool,
 }
@@ -49,8 +50,16 @@ enum BindingValueKind<'a> {
 
 impl<'a> BindingValueFact<'a> {
     fn scalar(word: &'a Word) -> Self {
+        Self::scalar_with_status_or_pid_capture(word, word_is_standalone_status_or_pid_capture(word))
+    }
+
+    fn scalar_with_status_or_pid_capture(
+        word: &'a Word,
+        standalone_status_or_pid_capture: bool,
+    ) -> Self {
         Self {
             kind: BindingValueKind::Scalar(word),
+            standalone_status_or_pid_capture,
             conditional_assignment_shortcut: false,
             one_sided_short_circuit_assignment: false,
         }
@@ -59,6 +68,7 @@ impl<'a> BindingValueFact<'a> {
     fn from_loop_words(words: Box<[&'a Word]>) -> Self {
         Self {
             kind: BindingValueKind::Loop(words),
+            standalone_status_or_pid_capture: false,
             conditional_assignment_shortcut: false,
             one_sided_short_circuit_assignment: false,
         }
@@ -84,6 +94,10 @@ impl<'a> BindingValueFact<'a> {
 
     pub fn one_sided_short_circuit_assignment(&self) -> bool {
         self.one_sided_short_circuit_assignment
+    }
+
+    pub fn standalone_status_or_pid_capture(&self) -> bool {
+        self.standalone_status_or_pid_capture
     }
 
     fn mark_conditional_assignment_shortcut(&mut self) {
@@ -2355,6 +2369,35 @@ fn assignment_value_text_is_standalone_status_capture(text: &str) -> bool {
     matches!(text, "$?" | "${?}" | "\"$?\"" | "\"${?}\"")
 }
 
+fn assignment_value_text_is_standalone_status_or_pid_capture(text: &str) -> bool {
+    matches!(
+        text,
+        "$?" | "${?}" | "\"$?\"" | "\"${?}\"" | "$!" | "${!}" | "\"$!\"" | "\"${!}\""
+    )
+}
+
+fn word_is_standalone_status_or_pid_capture(word: &Word) -> bool {
+    matches!(word.parts.as_slice(), [part] if part_is_standalone_status_or_pid_capture(&part.kind))
+}
+
+fn part_is_standalone_status_or_pid_capture(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(name) => matches!(name.as_str(), "?" | "!"),
+        WordPart::DoubleQuoted { parts, .. } => {
+            matches!(
+                parts.as_slice(),
+                [part] if part_is_standalone_status_or_pid_capture(&part.kind)
+            )
+        }
+        WordPart::Parameter(parameter) => matches!(
+            parameter.bourne(),
+            Some(BourneParameterExpansion::Access { reference })
+                if matches!(reference.name.as_str(), "?" | "!") && reference.subscript.is_none()
+        ),
+        _ => false,
+    }
+}
+
 fn contiguous_word_groups<'a>(words: &'a [&'a Word]) -> Vec<&'a [&'a Word]> {
     let mut groups = Vec::new();
     let mut start = 0usize;
@@ -2622,11 +2665,19 @@ fn collect_binding_values<'a>(
         }
     }
 
-    for (name, name_span, word) in simple_declaration_assignment_value_words(command, source) {
+    for (name, name_span, word, standalone_status_or_pid_capture) in
+        simple_declaration_assignment_value_words(command, source)
+    {
         if let Some(binding_id) =
             binding_value_definition_id_for_name(semantic, &name, name_span)
         {
-            binding_values.insert(binding_id, BindingValueFact::scalar(word));
+            binding_values.insert(
+                binding_id,
+                BindingValueFact::scalar_with_status_or_pid_capture(
+                    word,
+                    standalone_status_or_pid_capture,
+                ),
+            );
         }
     }
 
@@ -2683,7 +2734,7 @@ fn collect_binding_values<'a>(
 fn simple_declaration_assignment_value_words<'a>(
     command: &'a Command,
     source: &str,
-) -> Vec<(Name, Span, &'a Word)> {
+) -> Vec<(Name, Span, &'a Word, bool)> {
     let Command::Simple(command) = command else {
         return Vec::new();
     };
@@ -2701,10 +2752,10 @@ fn simple_declaration_assignment_value_words<'a>(
     let mut values = Vec::new();
     let mut parsing_options = true;
     for word in &command.args {
-        let Some(text) = static_word_text(word, source) else {
-            parsing_options = false;
-            continue;
-        };
+        let static_text = static_word_text(word, source);
+        let text = static_text
+            .as_deref()
+            .unwrap_or_else(|| word.span.slice(source));
 
         if parsing_options {
             if text == "--" {
@@ -2720,11 +2771,22 @@ fn simple_declaration_assignment_value_words<'a>(
         let Some(parsed) = parse_assignment_word(&text) else {
             continue;
         };
+        let value_text = &text[parsed.value_offset..];
+        let standalone_status_or_pid_capture =
+            assignment_value_text_is_standalone_status_or_pid_capture(value_text);
+        if static_text.is_none() && !standalone_status_or_pid_capture {
+            continue;
+        }
         let name_span = Span::from_positions(
             word.span.start,
             word.span.start.advanced_by(parsed.name),
         );
-        values.push((Name::from(parsed.name), name_span, word));
+        values.push((
+            Name::from(parsed.name),
+            name_span,
+            word,
+            standalone_status_or_pid_capture,
+        ));
     }
 
     values
