@@ -3601,7 +3601,6 @@ impl<'a> Parser<'a> {
                     );
                 } else {
                     let inner_start = cursor;
-                    let had_prefix = current_start != part_start;
                     let prefix = Span::from_positions(current_start, part_start).slice(self.input);
                     let nested_source_base = if source_backed
                         && (source_prefix_ends_inside_double_quotes(prefix)
@@ -3672,11 +3671,7 @@ impl<'a> Parser<'a> {
                                 cmd_str.push(c);
                             }
                         }
-                        if had_prefix {
-                            self.nested_stmt_seq_from_source(&cmd_str, inner_start)
-                        } else {
-                            self.nested_stmt_seq_from_source(&cmd_str, inner_start)
-                        }
+                        self.nested_stmt_seq_from_source(&cmd_str, inner_start)
                     };
                     Self::push_word_part(
                         parts,

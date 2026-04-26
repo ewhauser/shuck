@@ -145,7 +145,7 @@ pub fn collect_direct_all_elements_array_expansion_part_spans(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    collect_direct_all_elements_array_expansion_spans(&word.parts, source, spans);
+    collect_direct_all_elements_array_expansion_spans(&word.parts, word.span, source, spans);
 }
 
 pub fn unquoted_all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
@@ -1261,14 +1261,18 @@ fn collect_all_elements_array_slice_spans(
 
 fn collect_direct_all_elements_array_expansion_spans(
     parts: &[WordPartNode],
+    word_span: Span,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
     for part in parts {
+        if span_inside_escaped_parameter_template(word_span, part.span, source) {
+            continue;
+        }
         match &part.kind {
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
-                collect_direct_all_elements_array_expansion_spans(parts, source, spans)
+                collect_direct_all_elements_array_expansion_spans(parts, word_span, source, spans)
             }
             _ if part_uses_direct_all_elements_array_expansion(&part.kind) => {
                 if let Some(span) =
@@ -1291,6 +1295,111 @@ fn collect_direct_all_elements_array_expansion_spans(
             _ => {}
         }
     }
+}
+
+fn span_inside_escaped_parameter_template(word_span: Span, span: Span, source: &str) -> bool {
+    if span.start.offset < word_span.start.offset || span.start.offset >= word_span.end.offset {
+        return false;
+    }
+
+    let text = word_span.slice(source);
+    let relative_offset = span.start.offset - word_span.start.offset;
+    let mut index = 0usize;
+
+    while index < text.len() {
+        if text[index..].starts_with("\\${") {
+            let dollar_offset = index + '\\'.len_utf8();
+            if offset_is_backslash_escaped(word_span.start.offset + dollar_offset, source)
+                && let Some(end_offset) = escaped_parameter_template_end(text, dollar_offset)
+            {
+                let body_start = dollar_offset + "${".len();
+                let body_end = end_offset.saturating_sub('}'.len_utf8());
+                if relative_offset >= body_start && relative_offset < body_end {
+                    return true;
+                }
+                index = end_offset;
+                continue;
+            }
+        }
+
+        let Some(ch) = text[index..].chars().next() else {
+            break;
+        };
+        index += ch.len_utf8();
+    }
+
+    false
+}
+
+fn escaped_parameter_template_end(text: &str, dollar_offset: usize) -> Option<usize> {
+    if dollar_offset >= text.len() || !text[dollar_offset..].starts_with("${") {
+        return None;
+    }
+
+    let bytes = text.as_bytes();
+    let mut index = dollar_offset + "${".len();
+    let mut depth = 1usize;
+    let mut quote_state = EscapedTemplateQuote::None;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        match quote_state {
+            EscapedTemplateQuote::Single => {
+                if byte == b'\'' {
+                    quote_state = EscapedTemplateQuote::None;
+                }
+                index += 1;
+                continue;
+            }
+            EscapedTemplateQuote::Double => {
+                if byte == b'\\' {
+                    index += usize::from(index + 1 < bytes.len()) + 1;
+                    continue;
+                }
+                if byte == b'"' {
+                    quote_state = EscapedTemplateQuote::None;
+                }
+                index += 1;
+                continue;
+            }
+            EscapedTemplateQuote::None => {}
+        }
+
+        match byte {
+            b'\\' => {
+                index += usize::from(index + 1 < bytes.len()) + 1;
+            }
+            b'\'' => {
+                quote_state = EscapedTemplateQuote::Single;
+                index += 1;
+            }
+            b'"' => {
+                quote_state = EscapedTemplateQuote::Double;
+                index += 1;
+            }
+            b'$' if bytes.get(index + 1) == Some(&b'{') => {
+                depth += 1;
+                index += "${".len();
+            }
+            b'}' => {
+                depth -= 1;
+                index += '}'.len_utf8();
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => index = advance_shell_char(text, index),
+        }
+    }
+
+    None
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EscapedTemplateQuote {
+    None,
+    Single,
+    Double,
 }
 
 fn collect_quoted_unindexed_bash_source_spans(
@@ -1879,6 +1988,46 @@ pub(crate) fn backtick_escaped_parameters(
             parameter.reference_span.end.offset,
         )
     });
+    spans.dedup();
+    spans
+}
+
+pub(crate) fn backtick_escaped_parameter_reference_spans(
+    source: &str,
+    backtick_spans: &[Span],
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    for backtick_span in backtick_spans {
+        let base_offset = backtick_span.start.offset.saturating_add('`'.len_utf8());
+        let end = backtick_span.end.offset.saturating_sub('`'.len_utf8());
+        let Some(text) = source.get(base_offset..end) else {
+            continue;
+        };
+        let mut index = 0usize;
+
+        while index < text.len() {
+            if text[index..].starts_with("\\${") {
+                let dollar_offset = index + '\\'.len_utf8();
+                if offset_is_backslash_escaped(base_offset + dollar_offset, source)
+                    && let Some(end_offset) = escaped_parameter_template_end(text, dollar_offset)
+                    && let Some(start) = position_at_offset(source, base_offset + dollar_offset)
+                    && let Some(end_position) = position_at_offset(source, base_offset + end_offset)
+                {
+                    spans.push(Span::from_positions(start, end_position));
+                    index = end_offset;
+                    continue;
+                }
+            }
+
+            let Some(ch) = text[index..].chars().next() else {
+                break;
+            };
+            index += ch.len_utf8();
+        }
+    }
+
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
     spans.dedup();
     spans
 }

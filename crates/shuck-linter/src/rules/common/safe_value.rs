@@ -4302,10 +4302,10 @@ fn source_text_literal_value(text: &str) -> Option<SourceTextLiteral<'_>> {
 }
 
 fn source_text_plain_scalar_name(text: &str) -> Option<Name> {
-    if let Some(name) = text.strip_prefix('$') {
-        if shell_name_is_plain_scalar(name) {
-            return Some(Name::new(name));
-        }
+    if let Some(name) = text.strip_prefix('$')
+        && shell_name_is_plain_scalar(name)
+    {
+        return Some(Name::new(name));
     }
 
     let inner = text

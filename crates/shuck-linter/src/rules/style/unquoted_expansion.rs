@@ -36,19 +36,20 @@ pub fn unquoted_expansion(checker: &mut Checker) {
     let array_assignment_split_spans = collect_array_assignment_split_candidate_spans(checker);
     let numeric_test_operand_spans = collect_numeric_test_operand_spans(checker, source);
     let plain_run_first_arg_spans = collect_plain_run_first_arg_spans(checker);
+    let backtick_escaped_parameter_spans =
+        checker.facts().backtick_escaped_parameter_reference_spans();
 
     let mut spans = Vec::new();
+    let report_context = ReportContext {
+        source,
+        shell: checker.shell(),
+        colon_command_ids: &colon_command_ids,
+        numeric_test_operand_spans: &numeric_test_operand_spans,
+        plain_run_first_arg_spans: &plain_run_first_arg_spans,
+        backtick_escaped_parameter_spans,
+    };
     for fact in checker.facts().word_facts() {
-        collect_word_fact_reports(
-            checker,
-            &colon_command_ids,
-            &mut safe_values,
-            &mut spans,
-            source,
-            fact,
-            &numeric_test_operand_spans,
-            &plain_run_first_arg_spans,
-        );
+        collect_word_fact_reports(&report_context, &mut safe_values, &mut spans, fact);
         collect_array_assignment_split_reports(
             &mut safe_values,
             &mut spans,
@@ -61,11 +62,9 @@ pub fn unquoted_expansion(checker: &mut Checker) {
         checker.facts().arithmetic_command_substitution_spans();
     for fact in checker.facts().arithmetic_command_word_facts() {
         collect_arithmetic_word_fact_reports(
-            checker,
-            &colon_command_ids,
+            &report_context,
             &mut safe_values,
             &mut spans,
-            source,
             fact,
             arithmetic_command_substitution_spans,
         );
@@ -85,50 +84,54 @@ pub fn unquoted_expansion(checker: &mut Checker) {
     }
 }
 
+struct ReportContext<'a> {
+    source: &'a str,
+    shell: ShellDialect,
+    colon_command_ids: &'a FxHashSet<crate::facts::core::CommandId>,
+    numeric_test_operand_spans: &'a [Span],
+    plain_run_first_arg_spans: &'a FxHashSet<FactSpan>,
+    backtick_escaped_parameter_spans: &'a [Span],
+}
+
 fn collect_word_fact_reports(
-    checker: &Checker,
-    colon_command_ids: &FxHashSet<crate::facts::core::CommandId>,
+    context: &ReportContext<'_>,
     safe_values: &mut SafeValueIndex<'_>,
     spans: &mut Vec<shuck_ast::Span>,
-    source: &str,
     fact: WordOccurrenceRef<'_, '_>,
-    numeric_test_operand_spans: &[Span],
-    plain_run_first_arg_spans: &FxHashSet<FactSpan>,
 ) {
-    let Some(context) = fact.host_expansion_context() else {
+    let Some(expansion_context) = fact.host_expansion_context() else {
         return;
     };
-    if !should_check_context(context, checker.shell()) {
+    if !should_check_context(expansion_context, context.shell) {
         return;
     }
     report_word_expansions(
         spans,
         safe_values,
-        source,
+        context.source,
         fact,
         WordReportOptions {
-            context,
-            in_colon_command: colon_command_ids.contains(&fact.command_id()),
-            numeric_test_operand_spans,
-            plain_run_first_arg_spans,
+            context: expansion_context,
+            in_colon_command: context.colon_command_ids.contains(&fact.command_id()),
+            numeric_test_operand_spans: context.numeric_test_operand_spans,
+            plain_run_first_arg_spans: context.plain_run_first_arg_spans,
+            backtick_escaped_parameter_spans: context.backtick_escaped_parameter_spans,
             part_filter: |_| true,
         },
     );
 }
 
 fn collect_arithmetic_word_fact_reports(
-    checker: &Checker,
-    colon_command_ids: &FxHashSet<crate::facts::core::CommandId>,
+    context: &ReportContext<'_>,
     safe_values: &mut SafeValueIndex<'_>,
     spans: &mut Vec<shuck_ast::Span>,
-    source: &str,
     fact: WordOccurrenceRef<'_, '_>,
     arithmetic_command_substitution_spans: &[Span],
 ) {
-    let Some(context) = fact.host_expansion_context() else {
+    let Some(expansion_context) = fact.host_expansion_context() else {
         return;
     };
-    if !should_check_context(context, checker.shell()) {
+    if !should_check_context(expansion_context, context.shell) {
         return;
     }
     let fact_command_substitution_spans = fact.command_substitution_spans();
@@ -136,21 +139,22 @@ fn collect_arithmetic_word_fact_reports(
     report_word_expansions(
         spans,
         safe_values,
-        source,
+        context.source,
         fact,
         WordReportOptions {
-            context,
-            in_colon_command: colon_command_ids.contains(&fact.command_id()),
+            context: expansion_context,
+            in_colon_command: context.colon_command_ids.contains(&fact.command_id()),
             numeric_test_operand_spans: &[],
             plain_run_first_arg_spans: &plain_run_first_arg_spans,
+            backtick_escaped_parameter_spans: context.backtick_escaped_parameter_spans,
             part_filter: |part_span| {
                 arithmetic_word_follows_command_substitution(
                     part_span,
-                    source,
+                    context.source,
                     fact_command_substitution_spans,
                 ) || arithmetic_word_follows_command_substitution(
                     part_span,
-                    source,
+                    context.source,
                     arithmetic_command_substitution_spans,
                 )
             },
@@ -297,6 +301,7 @@ struct WordReportOptions<'a, F> {
     in_colon_command: bool,
     numeric_test_operand_spans: &'a [Span],
     plain_run_first_arg_spans: &'a FxHashSet<FactSpan>,
+    backtick_escaped_parameter_spans: &'a [Span],
     part_filter: F,
 }
 
@@ -314,6 +319,7 @@ fn report_word_expansions<F>(
         in_colon_command,
         numeric_test_operand_spans,
         plain_run_first_arg_spans,
+        backtick_escaped_parameter_spans,
         part_filter,
     } = options;
 
@@ -361,6 +367,13 @@ fn report_word_expansions<F>(
             continue;
         }
         if fact.part_is_inside_backtick_escaped_double_quotes(part_span, source) {
+            continue;
+        }
+        if backtick_escaped_parameter_spans
+            .iter()
+            .copied()
+            .any(|span| span_contains(span, part_span))
+        {
             continue;
         }
         if safe_values
@@ -1279,7 +1292,7 @@ exit $?
         let source = "\
 #!/bin/sh
 start() {
-  local n=0
+  local n=\"$name\"
   echo $n
 }
 
@@ -1304,7 +1317,7 @@ exit $?
         let source = "\
 #!/bin/sh
 start() {
-  local n=0
+  local n=\"$name\"
   echo $n
 }
 
@@ -1329,7 +1342,7 @@ exit 0
         let source = "\
 #!/bin/sh
 foo() {
-  local n=0
+  local n=\"$name\"
   echo $n
 }
 
@@ -1358,7 +1371,7 @@ exit $?
         let source = "\
 #!/bin/sh
 foo() {
-  local n=0
+  local n=\"$name\"
   echo $n
 }
 
@@ -1406,7 +1419,7 @@ esac
         let source = "\
 #!/bin/sh
 start() {
-  local n=0
+  local n=\"$name\"
   echo $n
 }
 exit 0
