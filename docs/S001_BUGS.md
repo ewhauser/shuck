@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=55`
-- Individual reviewed records classified below: 90 total (`shellcheck-only=23`, `shuck-only=67`).
+- `reviewed_divergences=54`
+- Individual reviewed records classified below: 71 total (`shellcheck-only=23`, `shuck-only=48`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -56,44 +56,25 @@ Resolved records should not remain as reviewed divergences.
 - `rvm__rvm__binscripts__rvm-installer:89:24-48` `${rvm_tar_command:-gtar}`
 - `tteck__Proxmox__vm__nextcloud-vm.sh:210:96-99` `$HN`
 
-## [ ] Shuck-only: embedded safe literal/composite word (36)
+## [ ] Shuck-only: embedded safe literal/composite word (17)
 
 - `bittorf__kalua__openwrt-addons__etc__init.d__override_uci_vars:418:29-31` `$i`
-- `community-scripts__ProxmoxVE__vm__archlinux-vm.sh:547:31-44` `${DISK_CACHE}`
 - `community-scripts__ProxmoxVE__vm__debian-13-vm.sh:615:27-36` `${FORMAT}`
-- `community-scripts__ProxmoxVE__vm__debian-13-vm.sh:616:25-38` `${DISK_CACHE}`
 - `community-scripts__ProxmoxVE__vm__debian-13-vm.sh:622:27-36` `${FORMAT}`
-- `community-scripts__ProxmoxVE__vm__debian-13-vm.sh:623:25-38` `${DISK_CACHE}`
 - `community-scripts__ProxmoxVE__vm__debian-vm.sh:556:27-36` `${FORMAT}`
-- `community-scripts__ProxmoxVE__vm__debian-vm.sh:557:25-38` `${DISK_CACHE}`
 - `community-scripts__ProxmoxVE__vm__debian-vm.sh:563:27-36` `${FORMAT}`
-- `community-scripts__ProxmoxVE__vm__debian-vm.sh:564:25-38` `${DISK_CACHE}`
 - `community-scripts__ProxmoxVE__vm__nextcloud-vm.sh:542:25-34` `${FORMAT}`
-- `community-scripts__ProxmoxVE__vm__nextcloud-vm.sh:543:23-36` `${DISK_CACHE}`
-- `community-scripts__ProxmoxVE__vm__nextcloud-vm.sh:544:23-36` `${DISK_CACHE}`
 - `community-scripts__ProxmoxVE__vm__opnsense-vm.sh:744:25-34` `${FORMAT}`
-- `community-scripts__ProxmoxVE__vm__opnsense-vm.sh:745:23-36` `${DISK_CACHE}`
 - `community-scripts__ProxmoxVE__vm__owncloud-vm.sh:555:25-34` `${FORMAT}`
-- `community-scripts__ProxmoxVE__vm__owncloud-vm.sh:556:23-36` `${DISK_CACHE}`
-- `community-scripts__ProxmoxVE__vm__owncloud-vm.sh:557:23-36` `${DISK_CACHE}`
 - `community-scripts__ProxmoxVE__vm__ubuntu2204-vm.sh:537:25-34` `${FORMAT}`
-- `community-scripts__ProxmoxVE__vm__ubuntu2204-vm.sh:538:23-36` `${DISK_CACHE}`
 - `community-scripts__ProxmoxVE__vm__ubuntu2404-vm.sh:539:25-34` `${FORMAT}`
-- `community-scripts__ProxmoxVE__vm__ubuntu2404-vm.sh:540:23-36` `${DISK_CACHE}`
 - `community-scripts__ProxmoxVE__vm__ubuntu2504-vm.sh:538:25-34` `${FORMAT}`
-- `community-scripts__ProxmoxVE__vm__ubuntu2504-vm.sh:539:23-36` `${DISK_CACHE}`
 - `tteck__Proxmox__vm__debian-vm.sh:409:25-34` `${FORMAT}`
-- `tteck__Proxmox__vm__debian-vm.sh:410:23-36` `${DISK_CACHE}`
 - `tteck__Proxmox__vm__haos-vm.sh:451:25-34` `${FORMAT}`
-- `tteck__Proxmox__vm__haos-vm.sh:452:23-36` `${DISK_CACHE}`
 - `tteck__Proxmox__vm__nextcloud-vm.sh:408:25-34` `${FORMAT}`
-- `tteck__Proxmox__vm__nextcloud-vm.sh:409:23-36` `${DISK_CACHE}`
 - `tteck__Proxmox__vm__owncloud-vm.sh:408:25-34` `${FORMAT}`
-- `tteck__Proxmox__vm__owncloud-vm.sh:409:23-36` `${DISK_CACHE}`
 - `tteck__Proxmox__vm__ubuntu2204-vm.sh:409:25-34` `${FORMAT}`
-- `tteck__Proxmox__vm__ubuntu2204-vm.sh:410:23-36` `${DISK_CACHE}`
 - `tteck__Proxmox__vm__ubuntu2404-vm.sh:399:25-34` `${FORMAT}`
-- `tteck__Proxmox__vm__ubuntu2404-vm.sh:400:23-36` `${DISK_CACHE}`
 
 ## [ ] Shuck-only: simple command argument ShellCheck suppresses (12)
 

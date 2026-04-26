@@ -35,6 +35,13 @@ enum FieldSafeBindingClass {
     NonEmpty,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum S001QuoteExposure {
+    Unsafe,
+    Empty,
+    QuoteInertNonEmpty,
+}
+
 impl SafeValueQuery {
     pub fn from_context(context: ExpansionContext) -> Option<Self> {
         match context {
@@ -287,6 +294,83 @@ impl<'a> SafeValueIndex<'a> {
         self.name_is_safe(name, at, query)
     }
 
+    pub fn part_s001_quote_exposure(
+        &mut self,
+        part: &WordPart,
+        span: Span,
+        query: SafeValueQuery,
+    ) -> S001QuoteExposure {
+        if !query.is_field_context() {
+            return if self.part_is_safe(part, span, query) {
+                S001QuoteExposure::QuoteInertNonEmpty
+            } else {
+                S001QuoteExposure::Unsafe
+            };
+        }
+        if self.span_is_after_unconditional_inline_terminator(span) {
+            return S001QuoteExposure::Unsafe;
+        }
+
+        match part {
+            WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {
+                self.literal_part_s001_quote_exposure(part, span, query)
+            }
+            WordPart::DoubleQuoted { parts, .. } => {
+                let mut saw_empty = false;
+                for part in parts {
+                    match self.part_s001_quote_exposure(&part.kind, part.span, query) {
+                        S001QuoteExposure::QuoteInertNonEmpty => {
+                            return S001QuoteExposure::QuoteInertNonEmpty;
+                        }
+                        S001QuoteExposure::Empty => saw_empty = true,
+                        S001QuoteExposure::Unsafe => return S001QuoteExposure::Unsafe,
+                    }
+                }
+                if saw_empty {
+                    S001QuoteExposure::Empty
+                } else {
+                    S001QuoteExposure::QuoteInertNonEmpty
+                }
+            }
+            WordPart::Variable(name) => self.name_s001_quote_exposure(name, span, query),
+            WordPart::Parameter(parameter) => {
+                self.parameter_part_s001_quote_exposure(parameter, span, query)
+            }
+            WordPart::ArrayAccess(reference) => {
+                if reference.has_array_selector() {
+                    S001QuoteExposure::Unsafe
+                } else {
+                    self.name_s001_quote_exposure(&reference.name, span, query)
+                }
+            }
+            WordPart::Substring { reference, .. } => {
+                self.name_s001_quote_exposure(&reference.name, span, query)
+            }
+            WordPart::Transformation { reference, .. } => {
+                self.name_s001_quote_exposure(&reference.name, span, query)
+            }
+            WordPart::IndirectExpansion { reference, .. } => {
+                self.name_s001_quote_exposure(&reference.name, span, query)
+            }
+            WordPart::ArithmeticExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayLength(_) => S001QuoteExposure::QuoteInertNonEmpty,
+            WordPart::ZshQualifiedGlob(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArrayIndices(_)
+            | WordPart::ArraySlice { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::ParameterExpansion { .. } => {
+                if self.part_is_safe(part, span, query) {
+                    S001QuoteExposure::QuoteInertNonEmpty
+                } else {
+                    S001QuoteExposure::Unsafe
+                }
+            }
+        }
+    }
+
     pub fn part_is_safe_initializer_command_substitution_self_reference(
         &mut self,
         part: &WordPart,
@@ -405,6 +489,34 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         static_word_text(&word, self.source).is_some_and(|text| query.literal_is_safe(&text))
+    }
+
+    fn literal_part_s001_quote_exposure(
+        &self,
+        part: &WordPart,
+        span: Span,
+        query: SafeValueQuery,
+    ) -> S001QuoteExposure {
+        let word = Word {
+            parts: vec![WordPartNode::new(part.clone(), span)],
+            span,
+            brace_syntax: Vec::new(),
+        };
+        if let Some(context) = query.operand_context()
+            && self.literal_runtime_is_unsafe_for_safe_value(&word, context)
+        {
+            return S001QuoteExposure::Unsafe;
+        }
+
+        static_word_text(&word, self.source).map_or(S001QuoteExposure::Unsafe, |text| {
+            if !query.literal_is_safe(&text) {
+                S001QuoteExposure::Unsafe
+            } else if text.is_empty() {
+                S001QuoteExposure::Empty
+            } else {
+                S001QuoteExposure::QuoteInertNonEmpty
+            }
+        })
     }
 
     fn literal_runtime_is_unsafe_for_safe_value(
@@ -617,6 +729,40 @@ impl<'a> SafeValueIndex<'a> {
         bindings
             .into_iter()
             .all(|binding_id| self.binding_is_safe(binding_id, at, query, case_cli_scope))
+    }
+
+    fn name_s001_quote_exposure(
+        &mut self,
+        name: &Name,
+        at: Span,
+        query: SafeValueQuery,
+    ) -> S001QuoteExposure {
+        if safe_special_parameter(name) {
+            return S001QuoteExposure::QuoteInertNonEmpty;
+        }
+        if self.name_is_safe(name, at, query) {
+            return S001QuoteExposure::QuoteInertNonEmpty;
+        }
+        if !query.is_field_context() {
+            return S001QuoteExposure::Unsafe;
+        }
+
+        let mut bindings = self.safe_bindings_for_name(name, at);
+        self.drop_declarations_shadowed_by_covering_loop_bindings(&mut bindings, at);
+        self.drop_outer_bindings_shadowed_by_covering_loop_bindings(&mut bindings, at);
+        bindings.retain(|binding_id| {
+            !self.binding_is_cleared_by_dominating_unset(*binding_id, name, at)
+        });
+        bindings.retain(|binding_id| {
+            !self.binding_is_blocked_by_exit_like_function_call(*binding_id, at)
+        });
+        if !bindings.is_empty() {
+            return S001QuoteExposure::Unsafe;
+        }
+
+        let dispatch_bindings = self.s001_top_level_dispatch_helper_bindings_before(name, at);
+        self.s001_field_safe_binding_group_exposure(&dispatch_bindings, at, query)
+            .unwrap_or(S001QuoteExposure::Unsafe)
     }
 
     fn case_cli_dispatch_scope_at(&self, offset: usize) -> Option<ScopeId> {
@@ -1088,14 +1234,19 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         saw_conditional_literal
-            && self.semantic.bindings_for(name).iter().copied().any(|binding_id| {
-                let binding = self.semantic.binding(binding_id);
-                binding.span.end.offset <= first_binding_start
-                    && self.semantic.binding_visible_at(binding_id, at)
-                    && self.binding_is_in_scope_or_descendant(binding_id, function_scope)
-                    && self.binding_is_name_only_declaration(binding_id)
-                    && binding.attributes.contains(BindingAttributes::LOCAL)
-            })
+            && self
+                .semantic
+                .bindings_for(name)
+                .iter()
+                .copied()
+                .any(|binding_id| {
+                    let binding = self.semantic.binding(binding_id);
+                    binding.span.end.offset <= first_binding_start
+                        && self.semantic.binding_visible_at(binding_id, at)
+                        && self.binding_is_in_scope_or_descendant(binding_id, function_scope)
+                        && self.binding_is_name_only_declaration(binding_id)
+                        && binding.attributes.contains(BindingAttributes::LOCAL)
+                })
     }
 
     fn field_safe_binding_group_class(
@@ -1168,6 +1319,109 @@ impl<'a> SafeValueIndex<'a> {
             } => self.plain_scalar_field_safe_binding_class(binding_id, query, visiting),
             _ => None,
         }
+    }
+
+    fn s001_field_safe_binding_group_exposure(
+        &mut self,
+        bindings: &[BindingId],
+        at: Span,
+        query: SafeValueQuery,
+    ) -> Option<S001QuoteExposure> {
+        if bindings.is_empty() || !query.is_field_context() {
+            return None;
+        }
+
+        let mut saw_empty = false;
+        let mut saw_non_empty = false;
+        let mut saw_value = false;
+        let mut visiting = FxHashSet::default();
+        for binding_id in bindings.iter().copied() {
+            match self.field_safe_binding_class(binding_id, query, &mut visiting) {
+                Some(FieldSafeBindingClass::Empty) => {
+                    saw_empty = true;
+                    saw_value = true;
+                }
+                Some(FieldSafeBindingClass::NonEmpty) => {
+                    saw_non_empty = true;
+                    saw_value = true;
+                }
+                None if self
+                    .s001_transient_guard_binding_is_overwritten_by_field_safe_bindings(
+                        binding_id, bindings, at, query,
+                    ) => {}
+                None => return None,
+            }
+        }
+
+        if !saw_value {
+            return None;
+        }
+        Some(if saw_non_empty {
+            S001QuoteExposure::QuoteInertNonEmpty
+        } else if saw_empty {
+            S001QuoteExposure::Empty
+        } else {
+            return None;
+        })
+    }
+
+    fn s001_transient_guard_binding_is_overwritten_by_field_safe_bindings(
+        &mut self,
+        binding_id: BindingId,
+        bindings: &[BindingId],
+        _at: Span,
+        query: SafeValueQuery,
+    ) -> bool {
+        let binding = self.semantic.binding(binding_id);
+        if !matches!(
+            binding.origin,
+            BindingOrigin::Assignment { .. } | BindingOrigin::Declaration { .. }
+        ) {
+            return false;
+        }
+        if self
+            .facts
+            .binding_value(binding_id)
+            .and_then(|value| value.scalar_word())
+            .and_then(|word| static_word_text(word, self.source))
+            .is_some_and(|text| query.literal_is_safe(&text))
+        {
+            return false;
+        }
+        let Some(function_end_span) = self.function_scope_end_span(binding.scope) else {
+            return false;
+        };
+
+        let mut later_field_safe_bindings = Vec::new();
+        let mut visiting = FxHashSet::default();
+        for candidate_id in bindings.iter().copied() {
+            let candidate = self.semantic.binding(candidate_id);
+            if candidate_id == binding_id
+                || candidate.scope != binding.scope
+                || candidate.name != binding.name
+                || candidate.span.start.offset <= binding.span.start.offset
+            {
+                continue;
+            }
+            if self
+                .field_safe_binding_class(candidate_id, query, &mut visiting)
+                .is_some()
+            {
+                later_field_safe_bindings.push(candidate_id);
+            } else {
+                return false;
+            }
+        }
+        if later_field_safe_bindings.is_empty() {
+            return false;
+        }
+
+        self.bindings_cover_all_paths_to_reference(
+            &later_field_safe_bindings,
+            &binding.name,
+            function_end_span,
+        ) || (later_field_safe_bindings.len() >= 2
+            && self.span_is_inside_if_condition(binding.span))
     }
 
     fn static_field_safe_binding_class(
@@ -2378,6 +2632,71 @@ impl<'a> SafeValueIndex<'a> {
         bindings
     }
 
+    fn s001_top_level_dispatch_helper_bindings_before(
+        &mut self,
+        name: &Name,
+        at: Span,
+    ) -> Vec<BindingId> {
+        if self.enclosing_function_scope_at(at.start.offset).is_some() {
+            return Vec::new();
+        }
+
+        let mut bindings = Vec::new();
+        let scope = self.semantic.scope_at(at.start.offset);
+        for dispatcher_scope in self.direct_called_function_scopes_before(scope, at.start.offset) {
+            bindings.extend(self.s001_branch_helper_bindings_in_scope(name, dispatcher_scope));
+        }
+        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+        bindings.dedup();
+        bindings
+    }
+
+    fn s001_branch_helper_bindings_in_scope(
+        &mut self,
+        name: &Name,
+        scope: ScopeId,
+    ) -> Vec<BindingId> {
+        let helper_scopes = self.helper_scopes_providing_name(name);
+        if helper_scopes.is_empty() {
+            return Vec::new();
+        }
+
+        let helper_scope_set = helper_scopes.iter().copied().collect::<FxHashSet<_>>();
+        let mut call_sites = Vec::new();
+        for callee_scope in helper_scopes {
+            let Some(function_kind) = self.named_function_kind(callee_scope) else {
+                continue;
+            };
+            for function_name in function_kind.static_names() {
+                for site in self.semantic.call_sites_for(function_name) {
+                    if site.scope == scope {
+                        call_sites.push((callee_scope, site.span));
+                    }
+                }
+            }
+        }
+        call_sites.sort_by_key(|(_, span)| (span.start.offset, span.end.offset));
+        call_sites.dedup_by_key(|(callee_scope, span)| {
+            (*callee_scope, span.start.offset, span.end.offset)
+        });
+        if call_sites.len() < 2 {
+            return Vec::new();
+        }
+
+        let mut bindings = Vec::new();
+        for (callee_scope, _) in call_sites {
+            bindings.extend(self.semantic.bindings_for(name).iter().copied().filter(
+                |binding_id| {
+                    let binding = self.semantic.binding(*binding_id);
+                    binding.scope == callee_scope
+                        && helper_scope_set.contains(&binding.scope)
+                        && !binding.attributes.contains(BindingAttributes::LOCAL)
+                },
+            ));
+        }
+        bindings
+    }
+
     fn top_level_transitive_helper_bindings_before(&self, name: &Name, at: Span) -> Vec<BindingId> {
         if self.enclosing_function_scope_at(at.start.offset).is_some() {
             return Vec::new();
@@ -2700,11 +3019,16 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn function_scope_end_offset(&self, scope: ScopeId) -> Option<usize> {
+        self.function_scope_end_span(scope)
+            .map(|span| span.end.offset)
+    }
+
+    fn function_scope_end_span(&self, scope: ScopeId) -> Option<Span> {
         self.facts
             .function_headers()
             .iter()
             .find(|header| header.function_scope() == Some(scope))
-            .map(|header| header.function().span.end.offset)
+            .map(|header| Span::at(header.function().span.end))
     }
 
     fn call_site_dominates_use(&self, call_span: Span, name: &Name, at: Span) -> bool {
@@ -3217,6 +3541,36 @@ impl<'a> SafeValueIndex<'a> {
                 } => self.transformation_is_safe(reference, *operator, at, query),
             },
             ParameterExpansionSyntax::Zsh(_) => false,
+        }
+    }
+
+    fn parameter_part_s001_quote_exposure(
+        &mut self,
+        parameter: &ParameterExpansion,
+        at: Span,
+        query: SafeValueQuery,
+    ) -> S001QuoteExposure {
+        match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+                if !reference.has_array_selector() =>
+            {
+                self.name_s001_quote_exposure(&reference.name, at, query)
+            }
+            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Slice {
+                reference, ..
+            }) if !reference.has_array_selector() => {
+                self.name_s001_quote_exposure(&reference.name, at, query)
+            }
+            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { .. }) => {
+                S001QuoteExposure::QuoteInertNonEmpty
+            }
+            _ => {
+                if self.parameter_part_is_safe(parameter, at, query) {
+                    S001QuoteExposure::QuoteInertNonEmpty
+                } else {
+                    S001QuoteExposure::Unsafe
+                }
+            }
         }
     }
 

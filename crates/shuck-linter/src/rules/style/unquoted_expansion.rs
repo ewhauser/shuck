@@ -2,8 +2,8 @@ use rustc_hash::FxHashSet;
 use shuck_ast::Span;
 
 use crate::{
-    Checker, ExpansionContext, FactSpan, Rule, SafeValueIndex, SafeValueQuery, ShellDialect,
-    Violation, WordOccurrenceRef,
+    Checker, ExpansionContext, FactSpan, Rule, S001QuoteExposure, SafeValueIndex, SafeValueQuery,
+    ShellDialect, Violation, WordOccurrenceRef,
 };
 
 pub struct UnquotedExpansion;
@@ -319,7 +319,6 @@ fn report_word_expansions<F>(
     let Some(query) = SafeValueQuery::from_context(context) else {
         return;
     };
-
     for (part, part_span) in fact.parts_with_spans() {
         let report_unquoted_star = star_spans.contains(&part_span);
         if !scalar_spans.contains(&part_span) && !report_unquoted_star {
@@ -345,6 +344,10 @@ fn report_word_expansions<F>(
         if part_is_in_numeric_test_operand(part_span, numeric_test_operand_spans)
             && safe_values.part_is_safe(part, part_span, SafeValueQuery::NumericTestOperand)
         {
+            continue;
+        }
+        let exposure = safe_values.part_s001_quote_exposure(part, part_span, query);
+        if matches!(exposure, S001QuoteExposure::QuoteInertNonEmpty) {
             continue;
         }
         if safe_values.part_is_safe(part, part_span, query) {
@@ -2678,6 +2681,89 @@ config_blacklist \"$1\"
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$NEW"]
+        );
+    }
+
+    #[test]
+    fn skips_transitive_helper_composite_quote_inert_values() {
+        let source = "\
+#!/bin/bash
+exit_script() { exit 1; }
+default_settings() {
+  FORMAT=\",efitype=4m\"
+  DISK_CACHE=\"\"
+}
+advanced_settings() {
+  if MACH=$(choose); then
+    if [ \"$MACH\" = q35 ]; then
+      FORMAT=\"\"
+    else
+      FORMAT=\",efitype=4m\"
+    fi
+  else
+    exit_script
+  fi
+  if DISK_CACHE=$(choose); then
+    if [ \"$DISK_CACHE\" = \"1\" ]; then
+      DISK_CACHE=\"cache=writethrough,\"
+    else
+      DISK_CACHE=\"\"
+    fi
+  else
+    exit_script
+  fi
+}
+start_script() {
+  if choose; then
+    default_settings
+  else
+    advanced_settings
+  fi
+}
+start_script
+VMID=100
+STORAGE=local
+THIN=\"discard=on,ssd=1,\"
+DISK0_REF=${STORAGE}:vm-${VMID}-disk-0
+DISK1_REF=${STORAGE}:vm-${VMID}-disk-1
+qm set $VMID \\
+  -efidisk0 ${DISK0_REF}${FORMAT} \\
+  -scsi0 ${DISK1_REF},${DISK_CACHE}${THIN}size=12G
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_transitive_helper_dynamic_composite_values() {
+        let source = "\
+#!/bin/bash
+default_settings() {
+  DISK_CACHE=$1
+}
+advanced_settings() {
+  DISK_CACHE=\"cache=writethrough,\"
+}
+start_script() {
+  if choose; then
+    default_settings \"$1\"
+  else
+    advanced_settings
+  fi
+}
+start_script \"$1\"
+DISK1_REF=local:vm-100-disk-1
+qm set 100 -scsi0 ${DISK1_REF},${DISK_CACHE}size=12G
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${DISK_CACHE}"]
         );
     }
 

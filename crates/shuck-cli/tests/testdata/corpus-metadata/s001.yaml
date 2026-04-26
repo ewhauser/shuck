@@ -112,13 +112,6 @@ reviewed_divergences:
     end_column: 19
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "community-scripts__ProxmoxVE__vm__archlinux-vm.sh"
-    line: 547
-    end_line: 547
-    column: 31
-    end_column: 44
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "community-scripts__ProxmoxVE__vm__debian-13-vm.sh"
     line: 615
     end_line: 615
@@ -127,24 +120,10 @@ reviewed_divergences:
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "community-scripts__ProxmoxVE__vm__debian-13-vm.sh"
-    line: 616
-    end_line: 616
-    column: 25
-    end_column: 38
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "community-scripts__ProxmoxVE__vm__debian-13-vm.sh"
     line: 622
     end_line: 622
     column: 27
     end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "community-scripts__ProxmoxVE__vm__debian-13-vm.sh"
-    line: 623
-    end_line: 623
-    column: 25
-    end_column: 38
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "community-scripts__ProxmoxVE__vm__debian-vm.sh"
@@ -155,24 +134,10 @@ reviewed_divergences:
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "community-scripts__ProxmoxVE__vm__debian-vm.sh"
-    line: 557
-    end_line: 557
-    column: 25
-    end_column: 38
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "community-scripts__ProxmoxVE__vm__debian-vm.sh"
     line: 563
     end_line: 563
     column: 27
     end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "community-scripts__ProxmoxVE__vm__debian-vm.sh"
-    line: 564
-    end_line: 564
-    column: 25
-    end_column: 38
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "community-scripts__ProxmoxVE__vm__haos-vm.sh"
@@ -196,32 +161,11 @@ reviewed_divergences:
     end_column: 34
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "community-scripts__ProxmoxVE__vm__nextcloud-vm.sh"
-    line: 543
-    end_line: 543
-    column: 23
-    end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "community-scripts__ProxmoxVE__vm__nextcloud-vm.sh"
-    line: 544
-    end_line: 544
-    column: 23
-    end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "community-scripts__ProxmoxVE__vm__opnsense-vm.sh"
     line: 744
     end_line: 744
     column: 25
     end_column: 34
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "community-scripts__ProxmoxVE__vm__opnsense-vm.sh"
-    line: 745
-    end_line: 745
-    column: 23
-    end_column: 36
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "community-scripts__ProxmoxVE__vm__owncloud-vm.sh"
@@ -231,20 +175,6 @@ reviewed_divergences:
     end_column: 34
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "community-scripts__ProxmoxVE__vm__owncloud-vm.sh"
-    line: 556
-    end_line: 556
-    column: 23
-    end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "community-scripts__ProxmoxVE__vm__owncloud-vm.sh"
-    line: 557
-    end_line: 557
-    column: 23
-    end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "community-scripts__ProxmoxVE__vm__ubuntu2204-vm.sh"
     line: 537
     end_line: 537
@@ -252,13 +182,6 @@ reviewed_divergences:
     end_column: 34
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "community-scripts__ProxmoxVE__vm__ubuntu2204-vm.sh"
-    line: 538
-    end_line: 538
-    column: 23
-    end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "community-scripts__ProxmoxVE__vm__ubuntu2404-vm.sh"
     line: 539
     end_line: 539
@@ -266,25 +189,11 @@ reviewed_divergences:
     end_column: 34
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "community-scripts__ProxmoxVE__vm__ubuntu2404-vm.sh"
-    line: 540
-    end_line: 540
-    column: 23
-    end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "community-scripts__ProxmoxVE__vm__ubuntu2504-vm.sh"
     line: 538
     end_line: 538
     column: 25
     end_column: 34
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "community-scripts__ProxmoxVE__vm__ubuntu2504-vm.sh"
-    line: 539
-    end_line: 539
-    column: 23
-    end_column: 36
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "dehydrated-io__dehydrated__dehydrated"
@@ -539,25 +448,11 @@ reviewed_divergences:
     end_column: 34
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "tteck__Proxmox__vm__debian-vm.sh"
-    line: 410
-    end_line: 410
-    column: 23
-    end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "tteck__Proxmox__vm__haos-vm.sh"
     line: 451
     end_line: 451
     column: 25
     end_column: 34
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "tteck__Proxmox__vm__haos-vm.sh"
-    line: 452
-    end_line: 452
-    column: 23
-    end_column: 36
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "tteck__Proxmox__vm__nextcloud-vm.sh"
@@ -574,13 +469,6 @@ reviewed_divergences:
     end_column: 34
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "tteck__Proxmox__vm__nextcloud-vm.sh"
-    line: 409
-    end_line: 409
-    column: 23
-    end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "tteck__Proxmox__vm__owncloud-vm.sh"
     line: 408
     end_line: 408
@@ -588,25 +476,11 @@ reviewed_divergences:
     end_column: 34
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "tteck__Proxmox__vm__owncloud-vm.sh"
-    line: 409
-    end_line: 409
-    column: 23
-    end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "tteck__Proxmox__vm__ubuntu2204-vm.sh"
     line: 409
     end_line: 409
     column: 25
     end_column: 34
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "tteck__Proxmox__vm__ubuntu2204-vm.sh"
-    line: 410
-    end_line: 410
-    column: 23
-    end_column: 36
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "tteck__Proxmox__vm__ubuntu2404-vm.sh"
@@ -614,13 +488,6 @@ reviewed_divergences:
     end_line: 399
     column: 25
     end_column: 34
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "tteck__Proxmox__vm__ubuntu2404-vm.sh"
-    line: 400
-    end_line: 400
-    column: 23
-    end_column: 36
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "v1s1t0r1sh3r3__airgeddon__airgeddon.sh"
