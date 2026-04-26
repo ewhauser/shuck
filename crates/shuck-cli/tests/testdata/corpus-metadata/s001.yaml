@@ -287,13 +287,6 @@ reviewed_divergences:
     end_column: 51
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "super-linter__super-linter__test__run-super-linter-tests.sh"
-    line: 724
-    end_line: 724
-    column: 36
-    end_column: 57
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "swoodford__aws__vpc-sg-import-rules-cloudflare.sh"
     line: 281
     end_line: 281

@@ -3667,6 +3667,26 @@ f() {
     }
 
     #[test]
+    fn skips_declared_integer_default_numeric_test_operands() {
+        let source = "\
+#!/bin/bash
+declare -i expected_status
+expected_status=${expected_status:-0}
+actual_status=$1
+if [ ${actual_status} -ne ${expected_status} ]; then :; fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${actual_status}"]
+        );
+    }
+
+    #[test]
     fn reports_conditionally_initialized_bindings_with_unknown_fallbacks() {
         let source = "\
 #!/bin/bash

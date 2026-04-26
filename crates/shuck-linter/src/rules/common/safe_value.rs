@@ -1497,9 +1497,7 @@ impl<'a> SafeValueIndex<'a> {
     ) -> bool {
         let binding = self.semantic.binding(binding_id);
         let binding_key = FactSpan::new(binding.span);
-        if binding.attributes.contains(BindingAttributes::INTEGER)
-            || matches!(binding.kind, BindingKind::ArithmeticAssignment)
-        {
+        if self.binding_has_effective_integer_attribute(binding_id) {
             return true;
         }
         if matches!(
@@ -1598,6 +1596,33 @@ impl<'a> SafeValueIndex<'a> {
         self.visiting.remove(&key);
         self.memo.insert(key, result);
         result
+    }
+
+    fn binding_has_effective_integer_attribute(&self, binding_id: BindingId) -> bool {
+        let binding = self.semantic.binding(binding_id);
+        if binding.attributes.contains(BindingAttributes::INTEGER)
+            || matches!(binding.kind, BindingKind::ArithmeticAssignment)
+        {
+            return true;
+        }
+        if !matches!(
+            binding.kind,
+            BindingKind::Assignment
+                | BindingKind::AppendAssignment
+                | BindingKind::Declaration(_)
+                | BindingKind::ParameterDefaultAssignment
+        ) {
+            return false;
+        }
+
+        self.semantic
+            .previous_visible_binding(&binding.name, binding.span, Some(binding.span))
+            .is_some_and(|previous| {
+                previous.attributes.contains(BindingAttributes::INTEGER)
+                    && !self
+                        .semantic
+                        .binding_cleared_before(previous.id, binding.span)
+            })
     }
 
     fn conditional_assignment_shortcut_value_can_stay_safe(
