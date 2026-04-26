@@ -1288,6 +1288,7 @@ fn summarize_helper_uncached(
         &mut observer,
         Some(path),
         Some(shell_profile.clone()),
+        None,
     );
     let collected = collect_source_closure_contracts_with_cache(
         &semantic,

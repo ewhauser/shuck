@@ -1,5 +1,5 @@
 use rustc_hash::FxHashMap;
-use shuck_ast::Name;
+use shuck_ast::{Name, NormalizedCommand};
 use shuck_parser::ShellProfile;
 use std::path::{Path, PathBuf};
 
@@ -171,6 +171,19 @@ pub struct FileContract {
     pub externally_consumed_bindings: bool,
 }
 
+/// Build-time collector for file-entry contracts discovered during semantic traversal.
+///
+/// Implementors can observe the normalized command stream while the semantic
+/// builder is already walking the file, then return a contract that should be
+/// applied before final reference resolution, dataflow, and call-graph use.
+pub trait FileEntryContractCollector {
+    /// Observe one simple command after semantic command normalization.
+    fn observe_simple_command(&mut self, command: &NormalizedCommand<'_>);
+
+    /// Return the collected file-entry contract, when this file needs one.
+    fn finish(&self) -> Option<FileContract>;
+}
+
 impl FileContract {
     pub fn add_required_read(&mut self, name: Name) {
         if !self.required_reads.contains(&name) {
@@ -274,11 +287,11 @@ impl FileContract {
     }
 }
 
-#[derive(Clone)]
 pub struct SemanticBuildOptions<'a> {
     pub source_path: Option<&'a Path>,
     pub source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
     pub file_entry_contract: Option<FileContract>,
+    pub file_entry_contract_collector: Option<&'a mut dyn FileEntryContractCollector>,
     pub analyzed_paths: Option<&'a rustc_hash::FxHashSet<PathBuf>>,
     pub shell_profile: Option<ShellProfile>,
     pub resolve_source_closure: bool,
@@ -290,6 +303,7 @@ impl Default for SemanticBuildOptions<'_> {
             source_path: None,
             source_path_resolver: None,
             file_entry_contract: None,
+            file_entry_contract_collector: None,
             analyzed_paths: None,
             shell_profile: None,
             resolve_source_closure: true,

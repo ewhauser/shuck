@@ -45,8 +45,8 @@ pub use call_graph::{
 pub use cfg::{BasicBlock, BlockId, ControlFlowGraph, EdgeKind, FlowContext, UnreachableCauseKind};
 /// Contract and build-option types used when constructing semantic models.
 pub use contract::{
-    ContractCertainty, FileContract, FileEntryBindingInitialization, FunctionContract,
-    ProvidedBinding, ProvidedBindingKind, SemanticBuildOptions,
+    ContractCertainty, FileContract, FileEntryBindingInitialization, FileEntryContractCollector,
+    FunctionContract, ProvidedBinding, ProvidedBindingKind, SemanticBuildOptions,
 };
 /// Dataflow results surfaced by the semantic analysis layer.
 pub use dataflow::{
@@ -2871,6 +2871,7 @@ pub fn build_with_observer_at_path_with_resolver(
             source_path,
             source_path_resolver,
             file_entry_contract: None,
+            file_entry_contract_collector: None,
             analyzed_paths: None,
             shell_profile: None,
             resolve_source_closure: true,
@@ -2885,40 +2886,58 @@ fn build_semantic_model(
     observer: &mut dyn TraversalObserver,
     options: SemanticBuildOptions<'_>,
 ) -> SemanticModel {
+    let SemanticBuildOptions {
+        source_path,
+        source_path_resolver,
+        file_entry_contract,
+        mut file_entry_contract_collector,
+        analyzed_paths,
+        shell_profile,
+        resolve_source_closure,
+    } = options;
     let mut model = build_semantic_model_base(
         file,
         source,
         indexer,
         observer,
-        options.source_path,
-        options.shell_profile.clone(),
+        source_path,
+        shell_profile.clone(),
+        file_entry_contract_collector
+            .as_mut()
+            .map(|collector| &mut **collector as &mut dyn FileEntryContractCollector),
     );
-    if let Some(contract) = options.file_entry_contract {
+    if let Some(contract) = file_entry_contract {
         model.apply_file_entry_contract(contract, file);
     }
-    if let Some(source_path) = options.source_path {
+    if let Some(contract) = file_entry_contract_collector
+        .as_ref()
+        .and_then(|collector| collector.finish())
+    {
+        model.apply_file_entry_contract(contract, file);
+    }
+    if let Some(source_path) = source_path {
         let (
             synthetic_reads,
             imported_bindings,
             source_ref_resolutions,
             source_ref_explicitness,
             source_ref_diagnostic_classes,
-        ) = if options.resolve_source_closure {
+        ) = if resolve_source_closure {
             source_closure::collect_source_closure_contracts(
                 &model,
                 file,
                 source,
                 source_path,
-                options.source_path_resolver,
-                options.analyzed_paths,
+                source_path_resolver,
+                analyzed_paths,
             )
         } else {
             let (source_ref_resolutions, source_ref_explicitness, source_ref_diagnostic_classes) =
                 source_closure::collect_source_ref_metadata(
                     &model,
                     source_path,
-                    options.source_path_resolver,
-                    options.analyzed_paths,
+                    source_path_resolver,
+                    analyzed_paths,
                 );
             (
                 Vec::new(),
@@ -2939,13 +2958,14 @@ fn build_semantic_model(
     model
 }
 
-pub(crate) fn build_semantic_model_base(
+pub(crate) fn build_semantic_model_base<'a>(
     file: &File,
     source: &str,
     indexer: &Indexer,
-    observer: &mut dyn TraversalObserver,
+    observer: &'a mut dyn TraversalObserver,
     source_path: Option<&Path>,
     shell_profile: Option<ShellProfile>,
+    file_entry_contract_collector: Option<&'a mut dyn FileEntryContractCollector>,
 ) -> SemanticModel {
     let shell_profile = shell_profile.unwrap_or_else(|| infer_shell_profile(source, source_path));
     let built = SemanticModelBuilder::build(
@@ -2953,6 +2973,7 @@ pub(crate) fn build_semantic_model_base(
         source,
         indexer,
         observer,
+        file_entry_contract_collector,
         bash_runtime_vars_enabled(source, source_path),
         shell_profile,
     );

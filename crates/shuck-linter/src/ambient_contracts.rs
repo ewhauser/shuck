@@ -2,37 +2,62 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use shuck_ast::{
-    BuiltinCommand, Command, CompoundCommand, File, Name, SimpleCommand,
-    StaticCommandWrapperTarget, Stmt, StmtSeq, Word, static_command_name_text,
-    static_command_wrapper_target_index, static_word_text,
+    Name, NormalizedCommand, Word, WrapperKind, normalize_command_words, static_word_text,
 };
-use shuck_semantic::{ContractCertainty, FileContract, ProvidedBinding, ProvidedBindingKind};
+use shuck_semantic::{
+    ContractCertainty, FileContract, FileEntryContractCollector, ProvidedBinding,
+    ProvidedBindingKind,
+};
 
 use crate::ShellDialect;
 
 struct AmbientContractProvider {
-    matches: fn(file: &File, source: &str, path: &Path, shell: ShellDialect) -> bool,
-    build: fn(file: &File, source: &str, path: &Path, shell: ShellDialect) -> FileContract,
+    matches: fn(&AmbientContractCollector<'_>, &Path, ShellDialect) -> bool,
+    build: fn(&AmbientContractCollector<'_>, &Path, ShellDialect) -> FileContract,
 }
 
-pub(crate) fn file_entry_contract(
-    file: &File,
-    source: &str,
-    path: Option<&Path>,
+pub(crate) struct AmbientContractCollector<'a> {
+    source: &'a str,
+    path: Option<&'a Path>,
     shell: ShellDialect,
-) -> Option<FileContract> {
-    let path = path?;
-    let mut merged = FileContract::default();
-    let mut matched = false;
+    completion_initializer_invoked: bool,
+}
 
-    for provider in providers() {
-        if (provider.matches)(file, source, path, shell) {
-            matched = true;
-            merge_contract(&mut merged, (provider.build)(file, source, path, shell));
+impl<'a> AmbientContractCollector<'a> {
+    pub(crate) fn new(source: &'a str, path: Option<&'a Path>, shell: ShellDialect) -> Self {
+        Self {
+            source,
+            path,
+            shell,
+            completion_initializer_invoked: false,
         }
     }
 
-    matched.then_some(merged)
+    fn file_entry_contract(&self) -> Option<FileContract> {
+        let path = self.path?;
+        let mut merged = FileContract::default();
+        let mut matched = false;
+
+        for provider in providers() {
+            if (provider.matches)(self, path, self.shell) {
+                matched = true;
+                merge_contract(&mut merged, (provider.build)(self, path, self.shell));
+            }
+        }
+
+        matched.then_some(merged)
+    }
+}
+
+impl FileEntryContractCollector for AmbientContractCollector<'_> {
+    fn observe_simple_command(&mut self, command: &NormalizedCommand<'_>) {
+        self.completion_initializer_invoked |=
+            normalized_command_invokes_completion_initializer(command, self.source);
+    }
+
+    fn finish(&self) -> Option<FileContract> {
+        self.file_entry_contract()
+    }
 }
 
 fn providers() -> &'static [AmbientContractProvider] {
@@ -56,25 +81,23 @@ fn merge_contract(merged: &mut FileContract, contract: FileContract) {
 }
 
 fn matches_sourced_runtime_contract(
-    file: &File,
-    source: &str,
+    collector: &AmbientContractCollector<'_>,
     path: &Path,
     _shell: ShellDialect,
 ) -> bool {
     let lower = lower_path(path);
-    sourced_runtime_path_shape(&lower) && sourced_runtime_source_shape(file, source, &lower)
+    sourced_runtime_path_shape(&lower) && sourced_runtime_source_shape(collector, &lower)
 }
 
 fn build_sourced_runtime_contract(
-    file: &File,
-    source: &str,
+    collector: &AmbientContractCollector<'_>,
     path: &Path,
     _shell: ShellDialect,
 ) -> FileContract {
     let lower = lower_path(path);
     let mut names = BTreeSet::new();
 
-    for name in runtime_names_for_source_path(file, source, &lower) {
+    for name in runtime_names_for_source_path(collector, &lower) {
         names.insert((*name).to_owned());
     }
 
@@ -116,21 +139,25 @@ fn sourced_runtime_path_shape(lower: &str) -> bool {
     )
 }
 
-fn sourced_runtime_source_shape(file: &File, source: &str, lower_path: &str) -> bool {
+fn sourced_runtime_source_shape(
+    collector: &AmbientContractCollector<'_>,
+    lower_path: &str,
+) -> bool {
+    let source = collector.source;
     has_probable_function_definition(source)
         || has_source_command(source)
         || source.contains("PROMPT_COMMAND")
         || source.contains("COMPREPLY")
         || source.contains("about-completion")
         || (lower_path.contains("termux-packages") && source.contains("TERMUX_"))
-        || completion_runtime_source_shape(file, source)
+        || collector.completion_initializer_invoked
 }
 
 fn runtime_names_for_source_path(
-    file: &File,
-    source: &str,
+    collector: &AmbientContractCollector<'_>,
     lower: &str,
 ) -> &'static [&'static str] {
+    let source = collector.source;
     if bash_it_theme_runtime_shape(source, lower) {
         return &[
             "black",
@@ -156,7 +183,7 @@ fn runtime_names_for_source_path(
         ];
     }
 
-    if completion_runtime_shape(file, source, lower) {
+    if completion_runtime_shape(collector, lower) {
         return &["cur", "prev", "words", "cword", "comp_args", "split"];
     }
 
@@ -194,8 +221,8 @@ fn bash_it_theme_runtime_shape(source: &str, lower: &str) -> bool {
             ))
 }
 
-fn completion_runtime_shape(file: &File, source: &str, lower: &str) -> bool {
-    completion_runtime_path_shape(lower) && completion_runtime_source_shape(file, source)
+fn completion_runtime_shape(collector: &AmbientContractCollector<'_>, lower: &str) -> bool {
+    completion_runtime_path_shape(lower) && collector.completion_initializer_invoked
 }
 
 fn completion_runtime_path_shape(lower: &str) -> bool {
@@ -212,151 +239,56 @@ fn completion_runtime_path_shape(lower: &str) -> bool {
     )
 }
 
-fn completion_runtime_source_shape(file: &File, source: &str) -> bool {
-    stmt_seq_invokes_completion_initializer(&file.body, source)
-}
-
-fn stmt_seq_invokes_completion_initializer(sequence: &StmtSeq, source: &str) -> bool {
-    sequence
-        .iter()
-        .any(|stmt| stmt_invokes_completion_initializer(stmt, source))
-}
-
-fn stmt_invokes_completion_initializer(stmt: &Stmt, source: &str) -> bool {
-    command_invokes_completion_initializer(&stmt.command, source)
-}
-
-fn command_invokes_completion_initializer(command: &Command, source: &str) -> bool {
-    match command {
-        Command::Simple(command) => simple_command_invokes_completion_initializer(command, source),
-        Command::Builtin(command) => builtin_invokes_completion_initializer(command, source),
-        Command::Decl(_) => false,
-        Command::Binary(command) => {
-            stmt_invokes_completion_initializer(&command.left, source)
-                || stmt_invokes_completion_initializer(&command.right, source)
-        }
-        Command::Compound(command) => compound_invokes_completion_initializer(command, source),
-        Command::Function(function) => stmt_invokes_completion_initializer(&function.body, source),
-        Command::AnonymousFunction(function) => {
-            stmt_invokes_completion_initializer(&function.body, source)
-        }
-    }
-}
-
-fn simple_command_invokes_completion_initializer(command: &SimpleCommand, source: &str) -> bool {
-    let words = std::iter::once(&command.name)
-        .chain(command.args.iter())
-        .collect::<Vec<_>>();
-    word_chain_invokes_completion_initializer(&words, source)
-}
-
-fn builtin_invokes_completion_initializer(_command: &BuiltinCommand, _source: &str) -> bool {
-    false
-}
-
-fn word_chain_invokes_completion_initializer(words: &[&Word], source: &str) -> bool {
-    let mut index = 0;
-
-    while let Some(word) = words.get(index) {
-        let Some(name) = static_command_name_text(word, source) else {
-            return false;
-        };
-
-        if is_completion_initializer_command(name.as_ref()) {
-            return true;
-        }
-
-        if name == "env" {
-            let Some(target_index) = env_wrapper_target_index(words, source, index) else {
-                return false;
-            };
-            index = target_index;
-            continue;
-        }
-
-        match static_command_wrapper_target_index(words.len(), index, name.as_ref(), |index| {
-            static_word_text(words[index], source)
-        }) {
-            StaticCommandWrapperTarget::Wrapper {
-                target_index: Some(target_index),
-            } => index = target_index,
-            StaticCommandWrapperTarget::Wrapper { target_index: None }
-            | StaticCommandWrapperTarget::NotWrapper => return false,
-        }
+fn normalized_command_invokes_completion_initializer(
+    command: &NormalizedCommand<'_>,
+    source: &str,
+) -> bool {
+    if command
+        .effective_name
+        .as_deref()
+        .is_some_and(is_completion_initializer_command)
+        && command
+            .wrappers
+            .iter()
+            .all(wrapper_can_affect_current_shell)
+    {
+        return true;
     }
 
-    false
-}
+    if command.effective_name.as_deref() != Some("env")
+        || !command
+            .wrappers
+            .iter()
+            .all(wrapper_can_affect_current_shell)
+    {
+        return false;
+    }
 
-fn env_wrapper_target_index(words: &[&Word], source: &str, current_index: usize) -> Option<usize> {
-    current_index
-        .checked_add(1)
-        .and_then(|start| words.get(start..))?
+    command
+        .body_args()
         .iter()
         .enumerate()
-        .find_map(|(relative_index, word)| {
+        .find_map(|(index, word)| {
             let text = static_word_text(word, source)?;
-            (!shell_assignment_token(text.as_ref())).then_some(current_index + 1 + relative_index)
+            (!shell_assignment_token(text.as_ref())).then_some(index)
         })
+        .and_then(|index| command.body_args().get(index..))
+        .and_then(|words| normalized_words_invoke_completion_initializer(words, source))
+        .unwrap_or(false)
 }
 
-fn compound_invokes_completion_initializer(command: &CompoundCommand, source: &str) -> bool {
-    match command {
-        CompoundCommand::If(command) => {
-            stmt_seq_invokes_completion_initializer(&command.condition, source)
-                || stmt_seq_invokes_completion_initializer(&command.then_branch, source)
-                || command.elif_branches.iter().any(|(condition, body)| {
-                    stmt_seq_invokes_completion_initializer(condition, source)
-                        || stmt_seq_invokes_completion_initializer(body, source)
-                })
-                || command
-                    .else_branch
-                    .as_ref()
-                    .is_some_and(|branch| stmt_seq_invokes_completion_initializer(branch, source))
-        }
-        CompoundCommand::For(command) => {
-            stmt_seq_invokes_completion_initializer(&command.body, source)
-        }
-        CompoundCommand::Repeat(command) => {
-            stmt_seq_invokes_completion_initializer(&command.body, source)
-        }
-        CompoundCommand::Foreach(command) => {
-            stmt_seq_invokes_completion_initializer(&command.body, source)
-        }
-        CompoundCommand::ArithmeticFor(command) => {
-            stmt_seq_invokes_completion_initializer(&command.body, source)
-        }
-        CompoundCommand::While(command) => {
-            stmt_seq_invokes_completion_initializer(&command.condition, source)
-                || stmt_seq_invokes_completion_initializer(&command.body, source)
-        }
-        CompoundCommand::Until(command) => {
-            stmt_seq_invokes_completion_initializer(&command.condition, source)
-                || stmt_seq_invokes_completion_initializer(&command.body, source)
-        }
-        CompoundCommand::Case(command) => command
-            .cases
-            .iter()
-            .any(|case| stmt_seq_invokes_completion_initializer(&case.body, source)),
-        CompoundCommand::Select(command) => {
-            stmt_seq_invokes_completion_initializer(&command.body, source)
-        }
-        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            stmt_seq_invokes_completion_initializer(commands, source)
-        }
-        CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => false,
-        CompoundCommand::Time(command) => command
-            .command
-            .as_ref()
-            .is_some_and(|stmt| stmt_invokes_completion_initializer(stmt, source)),
-        CompoundCommand::Coproc(command) => {
-            stmt_invokes_completion_initializer(&command.body, source)
-        }
-        CompoundCommand::Always(command) => {
-            stmt_seq_invokes_completion_initializer(&command.body, source)
-                || stmt_seq_invokes_completion_initializer(&command.always_body, source)
-        }
-    }
+fn normalized_words_invoke_completion_initializer(words: &[&Word], source: &str) -> Option<bool> {
+    let command = normalize_command_words(words, source)?;
+    Some(normalized_command_invokes_completion_initializer(
+        &command, source,
+    ))
+}
+
+fn wrapper_can_affect_current_shell(wrapper: &WrapperKind) -> bool {
+    matches!(
+        wrapper,
+        WrapperKind::Command | WrapperKind::Builtin | WrapperKind::Exec | WrapperKind::Noglob
+    )
 }
 
 fn is_completion_initializer_command(token: &str) -> bool {
@@ -428,11 +360,29 @@ fn source_mentions_name(source: &str, name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shuck_indexer::Indexer;
     use shuck_parser::parser::Parser;
+    use shuck_semantic::{
+        FileEntryContractCollector, NoopTraversalObserver, SemanticBuildOptions,
+        build_with_observer_with_options,
+    };
 
     fn contract_for(path: &Path, source: &str) -> Option<FileContract> {
         let output = Parser::new(source).parse().unwrap();
-        file_entry_contract(&output.file, source, Some(path), ShellDialect::Sh)
+        let indexer = Indexer::new(source, &output);
+        let mut observer = NoopTraversalObserver;
+        let mut collector = AmbientContractCollector::new(source, Some(path), ShellDialect::Sh);
+        let _semantic = build_with_observer_with_options(
+            &output.file,
+            source,
+            &indexer,
+            &mut observer,
+            SemanticBuildOptions {
+                file_entry_contract_collector: Some(&mut collector),
+                ..SemanticBuildOptions::default()
+            },
+        );
+        collector.finish()
     }
 
     fn has_initialized_binding(contract: &FileContract, name: &str) -> bool {
@@ -589,6 +539,66 @@ _example() {
 
         assert!(has_ambient_binding(&contract, "cur"));
         assert!(has_ambient_binding(&contract, "cword"));
+        assert!(!has_initialized_binding(&contract, "cur"));
+        assert!(!has_initialized_binding(&contract, "cword"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn bash_completion_paths_with_env_then_shell_wrapper_get_ambient_completion_contracts() {
+        let path = Path::new("/tmp/bash-completion/completions/example.bash");
+        let source = "\
+_example() {
+  env LC_ALL=C command _init_completion || return
+  env LC_ALL=\"$locale\" _get_comp_words_by_ref cur || return
+  env LC_ALL=C env _comp_initialize || return
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+";
+
+        let contract = contract_for(path, source).unwrap();
+
+        assert!(has_ambient_binding(&contract, "cur"));
+        assert!(has_ambient_binding(&contract, "cword"));
+        assert!(!has_initialized_binding(&contract, "cur"));
+        assert!(!has_initialized_binding(&contract, "cword"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn bash_completion_paths_with_external_initializer_wrappers_do_not_initialize_contracts() {
+        let path = Path::new("/tmp/bash-completion/completions/example.bash");
+        let source = "\
+_example() {
+  sudo _init_completion || return
+  sudo env _init_completion || return
+  env LC_ALL=C sudo _get_comp_words_by_ref || return
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+";
+
+        let contract = contract_for(path, source).unwrap();
+
+        assert!(!has_ambient_binding(&contract, "cur"));
+        assert!(!has_ambient_binding(&contract, "cword"));
+        assert!(!has_initialized_binding(&contract, "cur"));
+        assert!(!has_initialized_binding(&contract, "cword"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn bash_completion_paths_with_subshell_initializer_do_not_initialize_contracts() {
+        let path = Path::new("/tmp/bash-completion/completions/example.bash");
+        let source = "\
+_example() {
+  printf '%s\\n' \"$(_init_completion)\" \"$cur\" \"$cword\"
+}
+";
+
+        let contract = contract_for(path, source).unwrap();
+
+        assert!(!has_ambient_binding(&contract, "cur"));
+        assert!(!has_ambient_binding(&contract, "cword"));
         assert!(!has_initialized_binding(&contract, "cur"));
         assert!(!has_initialized_binding(&contract, "cword"));
         assert!(!contract.externally_consumed_bindings);

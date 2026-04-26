@@ -222,8 +222,8 @@ fn analyze_file_at_path_with_resolver_and_shell(
     shell: ShellDialect,
     first_parse_error: Option<(usize, usize)>,
 ) -> AnalysisResult {
-    let file_entry_contract =
-        ambient_contracts::file_entry_contract(file, source, source_path, shell);
+    let mut file_entry_contract_collector =
+        ambient_contracts::AmbientContractCollector::new(source, source_path, shell);
     let analyzed_paths_fallback =
         source_path.map(|path| FxHashSet::from_iter([path.to_path_buf()]));
     let analyzed_paths = settings
@@ -241,7 +241,8 @@ fn analyze_file_at_path_with_resolver_and_shell(
         SemanticBuildOptions {
             source_path,
             source_path_resolver,
-            file_entry_contract,
+            file_entry_contract: None,
+            file_entry_contract_collector: Some(&mut file_entry_contract_collector),
             analyzed_paths,
             shell_profile: Some(shell_profile),
             resolve_source_closure: settings.resolve_source_closure,
