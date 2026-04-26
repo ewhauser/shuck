@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=29`
-- Individual reviewed records classified below: 37 total (`shellcheck-only=19`, `shuck-only=18`).
+- `reviewed_divergences=28`
+- Individual reviewed records classified below: 36 total (`shellcheck-only=18`, `shuck-only=18`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -28,12 +28,11 @@ Resolved records should not remain as reviewed divergences.
 - `rvm__rvm__scripts__functions__requirements__osx_brew:485:55-74` `$homebrew_installer`
 - `rvm__rvm__scripts__functions__requirements__osx_brew:486:32-51` `$homebrew_installer`
 
-## [ ] ShellCheck-only: embedded path/URL/composite word (5)
+## [ ] ShellCheck-only: embedded path/URL/composite word (4)
 
 - `233boy__v2ray__src__core.sh:1254:39-43` `$net`
 - `juewuy__ShellCrash__scripts__menus__9_upgrade.sh:651:70-80` `${project}`
 - `juewuy__ShellCrash__scripts__menus__9_upgrade.sh:867:52-62` `${db_type}`
-- `megastep__makeself__test__variabletest:15:56-60` `${1}`
 - `rvm__rvm__scripts__functions__requirements__osx_brew:491:35-51` `${homebrew_repo}`
 
 ## [ ] ShellCheck-only: plain command argument (5)
@@ -65,7 +64,7 @@ Resolved records should not remain as reviewed divergences.
 - `masonr__yet-another-bench-script__yabs.sh:991:12-19` `$GB_URL`
 - `pi-hole__pi-hole__automated install__basic-install.sh:1833:21-39` `${webInterfaceDir}`
 
-## [ ] Shuck-only: command-substitution initializer argument (4 remaining)
+## [ ] Shuck-only: command-substitution initializer argument (3 remaining)
 
 - `alexanderepstein__Bash-Snippets__bak2dvd__bak2dvd:245:36-43` `$tarpid`
 - `alexanderepstein__Bash-Snippets__bak2dvd__bak2dvd:259:36-43` `$tarpid`

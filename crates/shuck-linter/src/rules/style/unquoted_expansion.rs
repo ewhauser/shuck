@@ -2305,6 +2305,25 @@ json=\"$(echo \\\"${items[*]}\\\")\"
     }
 
     #[test]
+    fn reports_inner_parameter_inside_escaped_indirect_template() {
+        let source = "\
+#!/bin/sh
+tool=pack
+archive=out
+$tool archive \"${archive}\" \"Test $1\" echo \\\"\\${${1}}\\\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${1}"]
+        );
+    }
+
+    #[test]
     fn reports_nested_substitution_arguments_after_escaped_quote_default_segments() {
         let source = "\
 #!/bin/sh

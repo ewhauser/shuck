@@ -274,24 +274,29 @@ fn test_parse_escaped_dollar_expansions_stay_literal_in_script_words() {
 }
 
 #[test]
-fn test_parse_escaped_braced_parameter_with_nested_default_stays_literal() {
-    let input = r#"echo \${x:-$HOME}"#;
+fn test_parse_escaped_braced_parameter_keeps_inner_expansions_live() {
+    let input = r#"echo \${x:-$HOME} \${${1}}"#;
     let script = Parser::new(input).parse().unwrap().file;
 
     let AstCommand::Simple(command) = &script.body[0].command else {
         panic!("expected simple command");
     };
-    let word = &command.args[0];
+    assert_eq!(command.args.len(), 2);
 
-    assert_eq!(word.render(input), "${x:-$HOME}");
-    assert_eq!(word.render_syntax(input), r#"\${x:-$HOME}"#);
-    assert!(matches!(
-        word.parts.as_slice(),
-        [WordPartNode {
-            kind: WordPart::Literal(text),
-            ..
-        }] if text.is_source_backed() && text.as_str(input, word.parts[0].span) == "${x:-$HOME}"
+    let default_template = &command.args[0];
+    assert_eq!(default_template.render(input), "${x:-$HOME}");
+    assert_eq!(default_template.render_syntax(input), r#"\${x:-$HOME}"#);
+    assert!(word_part_tree_contains_variable(
+        &default_template.parts,
+        "HOME"
     ));
+
+    let indirect_template = &command.args[1];
+    assert_eq!(indirect_template.render(input), "${${1}}");
+    assert_eq!(indirect_template.render_syntax(input), r#"\${${1}}"#);
+    let mut names = Vec::new();
+    collect_bourne_parameter_names(&indirect_template.parts, &mut names);
+    assert_eq!(names, vec!["1"]);
 }
 
 #[test]
