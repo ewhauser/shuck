@@ -538,6 +538,11 @@ fn analyze_unused_assignments_exact(
         context.bindings.len(),
         &reaching_definitions.reaching_out,
     );
+    let mut scope_exit_name_cache = ScopeExitNameCache::new(
+        &scope_component_cache,
+        &exact.binding_data.bindings_for_name_list,
+        &exact.binding_data.bindings_in_scope,
+    );
     let mut reaching_name_cache = ReachingNameCache::new(
         &reaching_definitions.reaching_in,
         &exact.binding_data.bindings_for_name,
@@ -622,11 +627,10 @@ fn analyze_unused_assignments_exact(
         };
         let resolved_binding = &context.bindings[resolved_binding_id.index()];
         if !scope_component_cache.contains_block(resolved_binding.scope, block_id) {
-            let exit_defs = scope_component_cache.exit_defs(resolved_binding.scope);
-            used_bindings.or_intersection3_with(
-                exit_defs,
-                &exact.binding_data.bindings_for_name[name_id.index()],
-                &exact.binding_data.bindings_in_scope[resolved_binding.scope.index()],
+            scope_exit_name_cache.mark_exit_defs_for_scope_name(
+                &mut used_bindings,
+                resolved_binding.scope,
+                name_id,
             );
         }
 
@@ -701,23 +705,16 @@ fn analyze_unused_assignments_exact(
             }
         }
 
-        for binding in context.bindings {
-            if is_function_escape_candidate(binding, context.scopes)
-                && binding_has_future_reads_before_local_shadow(
-                    binding,
-                    exact.binding_data.binding_name_ids[binding.id.index()],
-                    context.bindings,
-                    context.cfg,
-                    &exact.binding_blocks,
-                    read_plans,
-                    &interprocedural.transitive_reads,
-                    &interprocedural.future_reads,
-                    &interprocedural.escape_reads,
-                )
-            {
-                used_bindings.insert(binding.id.index());
-            }
-        }
+        mark_function_escape_bindings_with_future_reads(
+            &mut used_bindings,
+            context,
+            exact,
+            &scope_component_cache,
+            read_plans,
+            &interprocedural.transitive_reads,
+            &interprocedural.future_reads,
+            &interprocedural.escape_reads,
+        );
     }
 
     let mut unused_assignments = Vec::new();
@@ -1054,6 +1051,12 @@ impl DenseBitSet {
         self.words[word] |= 1usize << bit;
     }
 
+    fn remove(&mut self, index: usize) {
+        let word = index / Self::WORD_BITS;
+        let bit = index % Self::WORD_BITS;
+        self.words[word] &= !(1usize << bit);
+    }
+
     fn contains(&self, index: usize) -> bool {
         let word = index / Self::WORD_BITS;
         let bit = index % Self::WORD_BITS;
@@ -1099,21 +1102,6 @@ impl DenseBitSet {
         debug_assert_eq!(self.words.len(), other.words.len());
         for (word, other_word) in self.words.iter_mut().zip(&other.words) {
             *word &= *other_word;
-        }
-    }
-
-    fn or_intersection3_with(&mut self, first: &Self, second: &Self, third: &Self) {
-        debug_assert_eq!(self.words.len(), first.words.len());
-        debug_assert_eq!(self.words.len(), second.words.len());
-        debug_assert_eq!(self.words.len(), third.words.len());
-        for (((word, first_word), second_word), third_word) in self
-            .words
-            .iter_mut()
-            .zip(&first.words)
-            .zip(&second.words)
-            .zip(&third.words)
-        {
-            *word |= *first_word & *second_word & *third_word;
         }
     }
 
@@ -1430,6 +1418,60 @@ impl<'a> ScopeComponentCache<'a> {
             }
         }
         exit_defs
+    }
+}
+
+struct ScopeExitNameCache<'a, 'data> {
+    components: &'a ScopeComponentCache<'data>,
+    bindings_for_name_list: &'data [Vec<BindingId>],
+    bindings_in_scope: &'data [DenseBitSet],
+    memo: FxHashMap<(u32, u32), SmallVec<[BindingId; 4]>>,
+}
+
+impl<'a, 'data> ScopeExitNameCache<'a, 'data> {
+    fn new(
+        components: &'a ScopeComponentCache<'data>,
+        bindings_for_name_list: &'data [Vec<BindingId>],
+        bindings_in_scope: &'data [DenseBitSet],
+    ) -> Self {
+        Self {
+            components,
+            bindings_for_name_list,
+            bindings_in_scope,
+            memo: FxHashMap::default(),
+        }
+    }
+
+    fn exit_defs_for_scope_name(&mut self, scope: ScopeId, name: NameId) -> &[BindingId] {
+        let key = (scope.index() as u32, name.index() as u32);
+        if !self.memo.contains_key(&key) {
+            let exit_defs = self.components.exit_defs(scope);
+            let in_scope = &self.bindings_in_scope[scope.index()];
+            let defs = self.bindings_for_name_list[name.index()]
+                .iter()
+                .copied()
+                .filter(|binding| {
+                    exit_defs.contains(binding.index()) && in_scope.contains(binding.index())
+                })
+                .collect();
+            self.memo.insert(key, defs);
+        }
+
+        self.memo
+            .get(&key)
+            .expect("cached scope exit defs")
+            .as_slice()
+    }
+
+    fn mark_exit_defs_for_scope_name(
+        &mut self,
+        used: &mut DenseBitSet,
+        scope: ScopeId,
+        name: NameId,
+    ) {
+        for binding in self.exit_defs_for_scope_name(scope, name) {
+            used.insert(binding.index());
+        }
     }
 }
 
@@ -2293,6 +2335,278 @@ fn future_reads_contain_after(
     let index = plan.events.partition_point(|event| event.offset <= offset);
     future_reads[scope.index()].suffix_reads[index].contains(name_id.index())
         || (plan.is_function && escape_reads[scope.index()].contains(name_id.index()))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FutureLiveEventKind {
+    LocalShadow(NameId),
+    DirectRead(NameId),
+    CallRead(ScopeId),
+    Binding(BindingId, NameId),
+}
+
+impl FutureLiveEventKind {
+    fn order(self) -> u8 {
+        match self {
+            FutureLiveEventKind::LocalShadow(_) => 0,
+            FutureLiveEventKind::DirectRead(_) | FutureLiveEventKind::CallRead(_) => 1,
+            FutureLiveEventKind::Binding(_, _) => 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FutureLiveEvent {
+    offset: usize,
+    block: BlockId,
+    kind: FutureLiveEventKind,
+}
+
+impl FutureLiveEvent {
+    fn sort_key(self) -> (usize, u8) {
+        (self.offset, self.kind.order())
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn mark_function_escape_bindings_with_future_reads(
+    used_bindings: &mut DenseBitSet,
+    context: &DataflowContext<'_>,
+    exact: &ExactVariableDataflow,
+    scope_components: &ScopeComponentCache<'_>,
+    read_plans: &[ScopeReadPlan],
+    transitive_reads: &[DenseBitSet],
+    future_reads: &[ScopeFutureReads],
+    escape_reads: &[DenseBitSet],
+) {
+    let scope_count = context.scopes.len();
+    let name_count = exact.names.len();
+    let block_count = context.cfg.blocks().len();
+    let mut events_by_scope = vec![Vec::<FutureLiveEvent>::new(); scope_count];
+    let mut candidate_scopes = DenseBitSet::new(scope_count);
+    let mut fallback_scopes = DenseBitSet::new(scope_count);
+
+    for binding in context.bindings {
+        if !is_function_escape_candidate(binding, context.scopes) {
+            continue;
+        }
+
+        let scope = binding.scope;
+        let name_id = exact.binding_data.binding_name_ids[binding.id.index()];
+        if read_plans[scope.index()].is_function
+            && escape_reads[scope.index()].contains(name_id.index())
+        {
+            used_bindings.insert(binding.id.index());
+        }
+
+        candidate_scopes.insert(scope.index());
+        let Some(block) = exact.binding_blocks[binding.id.index()] else {
+            fallback_scopes.insert(scope.index());
+            continue;
+        };
+        events_by_scope[scope.index()].push(FutureLiveEvent {
+            offset: binding.span.start.offset,
+            block,
+            kind: FutureLiveEventKind::Binding(binding.id, name_id),
+        });
+    }
+
+    for scope_index in candidate_scopes.iter_ones() {
+        let scope = ScopeId(scope_index as u32);
+        for event in &read_plans[scope_index].events {
+            let Some(block) = event.block else {
+                fallback_scopes.insert(scope_index);
+                continue;
+            };
+            let kind = match event.kind {
+                ScopeReadEventKind::Direct(name_id) => FutureLiveEventKind::DirectRead(name_id),
+                ScopeReadEventKind::Call(callee_scope) => {
+                    FutureLiveEventKind::CallRead(callee_scope)
+                }
+            };
+            events_by_scope[scope_index].push(FutureLiveEvent {
+                offset: event.offset,
+                block,
+                kind,
+            });
+        }
+
+        for binding in context.bindings {
+            if binding.scope != scope
+                || !matches!(binding.kind, BindingKind::Declaration(_))
+                || !binding.attributes.contains(BindingAttributes::LOCAL)
+            {
+                continue;
+            }
+            let name_id = exact.binding_data.binding_name_ids[binding.id.index()];
+            let Some(block) = exact.binding_blocks[binding.id.index()] else {
+                fallback_scopes.insert(scope_index);
+                continue;
+            };
+            events_by_scope[scope_index].push(FutureLiveEvent {
+                offset: binding.span.start.offset,
+                block,
+                kind: FutureLiveEventKind::LocalShadow(name_id),
+            });
+        }
+    }
+
+    for scope_index in candidate_scopes.iter_ones() {
+        let scope = ScopeId(scope_index as u32);
+        if fallback_scopes.contains(scope_index) {
+            mark_function_escape_bindings_with_future_reads_fallback(
+                used_bindings,
+                context,
+                exact,
+                scope,
+                read_plans,
+                transitive_reads,
+                future_reads,
+                escape_reads,
+            );
+            continue;
+        }
+
+        mark_function_escape_bindings_with_future_live_scope(
+            used_bindings,
+            context.cfg,
+            context.bindings,
+            context.scopes,
+            scope_components.blocks(scope),
+            &mut events_by_scope[scope_index],
+            transitive_reads,
+            name_count,
+            block_count,
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn mark_function_escape_bindings_with_future_reads_fallback(
+    used_bindings: &mut DenseBitSet,
+    context: &DataflowContext<'_>,
+    exact: &ExactVariableDataflow,
+    scope: ScopeId,
+    read_plans: &[ScopeReadPlan],
+    transitive_reads: &[DenseBitSet],
+    future_reads: &[ScopeFutureReads],
+    escape_reads: &[DenseBitSet],
+) {
+    for binding in context.bindings {
+        if binding.scope == scope
+            && is_function_escape_candidate(binding, context.scopes)
+            && binding_has_future_reads_before_local_shadow(
+                binding,
+                exact.binding_data.binding_name_ids[binding.id.index()],
+                context.bindings,
+                context.cfg,
+                &exact.binding_blocks,
+                read_plans,
+                transitive_reads,
+                future_reads,
+                escape_reads,
+            )
+        {
+            used_bindings.insert(binding.id.index());
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn mark_function_escape_bindings_with_future_live_scope(
+    used_bindings: &mut DenseBitSet,
+    cfg: &ControlFlowGraph,
+    bindings: &[Binding],
+    scopes: &[Scope],
+    scope_blocks: &DenseBitSet,
+    events: &mut [FutureLiveEvent],
+    transitive_reads: &[DenseBitSet],
+    name_count: usize,
+    block_count: usize,
+) {
+    events.sort_by_key(|event| event.sort_key());
+    let mut events_by_block = vec![Vec::<FutureLiveEvent>::new(); block_count];
+    for event in events.iter().copied() {
+        events_by_block[event.block.index()].push(event);
+    }
+
+    let mut future_live_in = vec![DenseBitSet::new(name_count); block_count];
+    let mut future_live_out = vec![DenseBitSet::new(name_count); block_count];
+    let mut outgoing = DenseBitSet::new(name_count);
+    let mut incoming = DenseBitSet::new(name_count);
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for block_index in scope_blocks.iter_ones() {
+            let block_id = BlockId(block_index as u32);
+            outgoing.clear();
+            for (successor, _) in cfg.successors(block_id) {
+                if scope_blocks.contains(successor.index()) {
+                    outgoing.union_with(&future_live_in[successor.index()]);
+                }
+            }
+
+            incoming.copy_from(&outgoing);
+            apply_future_live_events(
+                &mut incoming,
+                &events_by_block[block_index],
+                transitive_reads,
+            );
+
+            if future_live_out[block_index].replace_if_changed(&outgoing) {
+                changed = true;
+            }
+            if future_live_in[block_index].replace_if_changed(&incoming) {
+                changed = true;
+            }
+        }
+    }
+
+    for block_index in scope_blocks.iter_ones() {
+        let mut live = future_live_out[block_index].clone();
+        for event in events_by_block[block_index].iter().rev() {
+            match event.kind {
+                FutureLiveEventKind::Binding(binding_id, name_id) => {
+                    let binding = &bindings[binding_id.index()];
+                    if is_function_escape_candidate(binding, scopes)
+                        && live.contains(name_id.index())
+                    {
+                        used_bindings.insert(binding_id.index());
+                    }
+                }
+                FutureLiveEventKind::LocalShadow(name_id) => {
+                    live.remove(name_id.index());
+                }
+                FutureLiveEventKind::DirectRead(name_id) => {
+                    live.insert(name_id.index());
+                }
+                FutureLiveEventKind::CallRead(callee_scope) => {
+                    live.union_with(&transitive_reads[callee_scope.index()]);
+                }
+            }
+        }
+    }
+}
+
+fn apply_future_live_events(
+    live: &mut DenseBitSet,
+    events: &[FutureLiveEvent],
+    transitive_reads: &[DenseBitSet],
+) {
+    for event in events.iter().rev() {
+        match event.kind {
+            FutureLiveEventKind::LocalShadow(name_id) => {
+                live.remove(name_id.index());
+            }
+            FutureLiveEventKind::DirectRead(name_id) => {
+                live.insert(name_id.index());
+            }
+            FutureLiveEventKind::CallRead(callee_scope) => {
+                live.union_with(&transitive_reads[callee_scope.index()]);
+            }
+            FutureLiveEventKind::Binding(_, _) => {}
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
