@@ -34,6 +34,8 @@ const CONFIG_OVERRIDE_LINT_KEYS: &[&str] = &[
     "extend-select",
     "per-file-ignores",
     "extend-per-file-ignores",
+    "per-file-shell",
+    "extend-per-file-shell",
     "fixable",
     "unfixable",
     "extend-fixable",
@@ -80,6 +82,8 @@ pub(crate) struct LintConfig {
     pub extend_select: Option<Vec<String>>,
     pub per_file_ignores: Option<BTreeMap<String, Vec<String>>>,
     pub extend_per_file_ignores: Option<BTreeMap<String, Vec<String>>>,
+    pub per_file_shell: Option<BTreeMap<String, String>>,
+    pub extend_per_file_shell: Option<BTreeMap<String, String>>,
     pub fixable: Option<Vec<String>>,
     pub unfixable: Option<Vec<String>>,
     pub extend_fixable: Option<Vec<String>>,
@@ -387,6 +391,12 @@ impl LintConfig {
         }
         if overrides.extend_per_file_ignores.is_some() {
             self.extend_per_file_ignores = overrides.extend_per_file_ignores;
+        }
+        if overrides.per_file_shell.is_some() {
+            self.per_file_shell = overrides.per_file_shell;
+        }
+        if overrides.extend_per_file_shell.is_some() {
+            self.extend_per_file_shell = overrides.extend_per_file_shell;
         }
         if overrides.fixable.is_some() {
             self.fixable = overrides.fixable;

@@ -390,6 +390,43 @@ impl std::str::FromStr for PatternRuleSelectorPair {
     }
 }
 
+/// A `<pattern>:<shell>` mapping from the CLI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatternShellPair {
+    /// Glob-style file pattern.
+    pub pattern: String,
+    /// Shell dialect applied to matching files.
+    pub shell: shuck_linter::ShellDialect,
+}
+
+impl std::str::FromStr for PatternShellPair {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let (pattern, shell) = value
+            .rsplit_once(':')
+            .ok_or_else(|| "expected <FilePattern>:<Shell>".to_owned())?;
+        let pattern = pattern.trim();
+        let shell = shell.trim();
+
+        if pattern.is_empty() || shell.is_empty() {
+            return Err("expected <FilePattern>:<Shell>".to_owned());
+        }
+
+        let shell = shuck_linter::ShellDialect::from_name(shell);
+        if shell == shuck_linter::ShellDialect::Unknown {
+            return Err(
+                "expected shell dialect to be one of sh, bash, dash, ksh, mksh, zsh".to_owned(),
+            );
+        }
+
+        Ok(Self {
+            pattern: pattern.to_owned(),
+            shell,
+        })
+    }
+}
+
 fn parse_cli_rule_selector(value: &str) -> Result<RuleSelector, String> {
     let value = value.trim();
     if value.is_empty() {
@@ -448,6 +485,22 @@ pub struct RuleSelectionArgs {
         help_heading = "Rule selection"
     )]
     pub extend_per_file_ignores: Vec<PatternRuleSelectorPair>,
+    /// List of mappings from file pattern to shell dialect.
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_name = "PER_FILE_SHELL",
+        help_heading = "Rule selection"
+    )]
+    pub per_file_shell: Option<Vec<PatternShellPair>>,
+    /// Like `--per-file-shell`, but adds additional shell mappings on top of those already specified.
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_name = "EXTEND_PER_FILE_SHELL",
+        help_heading = "Rule selection"
+    )]
+    pub extend_per_file_shell: Vec<PatternShellPair>,
     /// List of rule codes to treat as eligible for fix. Only applicable when fix itself is enabled (e.g., via `--fix`).
     #[arg(
         long,
@@ -990,6 +1043,33 @@ mod tests {
                 pattern: r"C:\repo\*.sh".to_owned(),
                 selector: RuleSelector::Rule(Rule::UnusedAssignment),
             }])
+        );
+    }
+
+    #[test]
+    fn parses_per_file_shell_pairs() {
+        let command = parse_check([
+            "shuck",
+            "check",
+            "--per-file-shell",
+            "tests/*.sh:bash",
+            "--extend-per-file-shell",
+            "!src/*.sh:zsh",
+        ]);
+
+        assert_eq!(
+            command.rule_selection.per_file_shell,
+            Some(vec![PatternShellPair {
+                pattern: "tests/*.sh".to_owned(),
+                shell: shuck_linter::ShellDialect::Bash,
+            }])
+        );
+        assert_eq!(
+            command.rule_selection.extend_per_file_shell,
+            vec![PatternShellPair {
+                pattern: "!src/*.sh".to_owned(),
+                shell: shuck_linter::ShellDialect::Zsh,
+            }]
         );
     }
 

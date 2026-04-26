@@ -211,6 +211,12 @@ fn check_help_shows_rule_selection_options() {
         .stdout(predicate::str::contains(
             "--extend-per-file-ignores <EXTEND_PER_FILE_IGNORES>",
         ))
+        .stdout(predicate::str::contains(
+            "--per-file-shell <PER_FILE_SHELL>",
+        ))
+        .stdout(predicate::str::contains(
+            "--extend-per-file-shell <EXTEND_PER_FILE_SHELL>",
+        ))
         .stdout(predicate::str::contains("--fixable <RULE_CODE>"))
         .stdout(predicate::str::contains("--unfixable <RULE_CODE>"))
         .stdout(predicate::str::contains("--extend-fixable <RULE_CODE>"));
