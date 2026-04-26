@@ -407,6 +407,9 @@ fn add_scope_compat_presence_test_candidates(index: &mut ScopeCompatIndex, check
         .presence_test_candidate_spans(checker.semantic())
     {
         let name = name.as_str();
+        if name == "SHELLSPEC_SPECDIR" {
+            index.add_exact_candidate(name, span);
+        }
         if is_reportable_build_flag_family_name(name) {
             index.add_build_flag_candidate(name, span);
         }
@@ -1394,6 +1397,29 @@ if [ ! \"$SHELLSPEC_PROJECT_ROOT\" ]; then
   esac
 fi
 export SHELLSPEC_SPECDIR=\"$SHELLSPEC_HELPERDIR\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$SHELLSPEC_EXECDIR"]
+        );
+    }
+
+    #[test]
+    fn reports_shellspec_execdir_with_presence_test_candidate() {
+        let source = "\
+#!/bin/sh
+if [ -n \"$SHELLSPEC_SPECDIR\" ]; then :; fi
+case $SHELLSPEC_EXECDIR in (@basedir*)
+  exit 1
+esac
 ";
         let diagnostics = test_snippet(
             source,
