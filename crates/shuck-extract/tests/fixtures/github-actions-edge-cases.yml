@@ -7,6 +7,9 @@ env: &workflow_env
   WORKFLOW_VALUE: from-env
   EXPRESSION_VALUE: ${{ github.ref }}
 
+x-shells:
+  posix: &posix_shell sh
+
 defaults:
   run:
     shell: bash
@@ -23,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        shell: sh
+        shell: *posix_shell
     steps:
       - name: Job default shell
         env: *workflow_env

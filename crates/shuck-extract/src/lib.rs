@@ -2,7 +2,7 @@
 
 //! Extract embedded shell scripts from non-shell host files.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::path::Path;
 
@@ -220,6 +220,7 @@ fn source_has_yaml_anchors_or_aliases(source: &str) -> bool {
 }
 
 fn sanitize_yaml_anchors_and_aliases(source: &str) -> String {
+    let anchor_values = collect_yaml_scalar_anchors(source);
     let mut output = source.as_bytes().to_vec();
     let mut offset = 0;
     let mut block_parent_indent = None;
@@ -239,20 +240,51 @@ fn sanitize_yaml_anchors_and_aliases(source: &str) -> String {
             block_parent_indent = None;
         }
 
-        sanitize_yaml_anchor_or_alias_line(&mut output, offset, line_content);
+        let delta =
+            sanitize_yaml_anchor_or_alias_line(&mut output, offset, line_content, &anchor_values);
         if line_starts_block_scalar(line_content) {
             block_parent_indent = Some(indent);
         }
 
-        offset += line.len();
+        offset = offset.saturating_add_signed(line.len() as isize + delta);
     }
 
     String::from_utf8(output).expect("YAML anchor sanitization preserved UTF-8")
 }
 
-fn sanitize_yaml_anchor_or_alias_line(output: &mut [u8], line_start: usize, line: &str) {
+fn collect_yaml_scalar_anchors(source: &str) -> HashMap<String, String> {
+    let mut anchors = HashMap::new();
+    let mut block_parent_indent = None;
+
+    for line in source.lines() {
+        let indent = leading_space_count(line);
+        if let Some(parent_indent) = block_parent_indent {
+            if line.trim().is_empty() || indent > parent_indent {
+                continue;
+            }
+            block_parent_indent = None;
+        }
+
+        if let Some((name, value)) = yaml_scalar_anchor_definition(line) {
+            anchors.insert(name.to_owned(), value.to_owned());
+        }
+        if line_starts_block_scalar(line) {
+            block_parent_indent = Some(indent);
+        }
+    }
+
+    anchors
+}
+
+fn sanitize_yaml_anchor_or_alias_line(
+    output: &mut Vec<u8>,
+    line_start: usize,
+    line: &str,
+    anchor_values: &HashMap<String, String>,
+) -> isize {
     let bytes = line.as_bytes();
     let mut index = 0;
+    let mut delta = 0isize;
     let mut quote = YamlLineQuote::Unquoted;
 
     while index < bytes.len() {
@@ -263,10 +295,16 @@ fn sanitize_yaml_anchor_or_alias_line(output: &mut [u8], line_start: usize, line
                 b'&' | b'*' if yaml_anchor_token_starts(bytes, index) => {
                     let token_len = yaml_anchor_token_len(bytes, index);
                     if bytes[index] == b'&' {
-                        output[line_start + index..line_start + index + token_len].fill(b' ');
+                        let output_index = line_start.saturating_add_signed(index as isize + delta);
+                        output[output_index..output_index + token_len].fill(b' ');
                     } else {
-                        output[line_start + index] = b'~';
-                        output[line_start + index + 1..line_start + index + token_len].fill(b' ');
+                        let alias_name = &line[index + 1..index + token_len];
+                        let output_index = line_start.saturating_add_signed(index as isize + delta);
+                        let replacement = anchor_values
+                            .get(alias_name)
+                            .map(String::as_str)
+                            .unwrap_or("~");
+                        delta += replace_yaml_token(output, output_index, token_len, replacement);
                     }
                     index += token_len;
                     continue;
@@ -289,6 +327,75 @@ fn sanitize_yaml_anchor_or_alias_line(output: &mut [u8], line_start: usize, line
 
         index += 1;
     }
+
+    delta
+}
+
+fn yaml_scalar_anchor_definition(line: &str) -> Option<(&str, &str)> {
+    let bytes = line.as_bytes();
+    let mut index = 0;
+    let mut quote = YamlLineQuote::Unquoted;
+
+    while index < bytes.len() {
+        match quote {
+            YamlLineQuote::Unquoted => match bytes[index] {
+                b'\'' => quote = YamlLineQuote::Single,
+                b'"' => quote = YamlLineQuote::Double,
+                b'&' if yaml_anchor_token_starts(bytes, index) => {
+                    let token_len = yaml_anchor_token_len(bytes, index);
+                    let value = line[index + token_len..].trim();
+                    if !yaml_anchor_value_is_aliasable_scalar(value) {
+                        return None;
+                    }
+                    return Some((&line[index + 1..index + token_len], value));
+                }
+                _ => {}
+            },
+            YamlLineQuote::Single => {
+                if bytes[index] == b'\'' {
+                    quote = YamlLineQuote::Unquoted;
+                }
+            }
+            YamlLineQuote::Double => match bytes[index] {
+                b'"' => quote = YamlLineQuote::Unquoted,
+                b'\\' => {
+                    index += 1;
+                }
+                _ => {}
+            },
+        }
+
+        index += 1;
+    }
+
+    None
+}
+
+fn yaml_anchor_value_is_aliasable_scalar(value: &str) -> bool {
+    value
+        .as_bytes()
+        .first()
+        .is_some_and(|byte| !matches!(byte, b'&' | b'*' | b'|' | b'>' | b'#'))
+}
+
+fn replace_yaml_token(
+    output: &mut Vec<u8>,
+    output_index: usize,
+    token_len: usize,
+    replacement: &str,
+) -> isize {
+    let replacement = replacement.as_bytes();
+    if replacement.len() <= token_len {
+        output[output_index..output_index + replacement.len()].copy_from_slice(replacement);
+        output[output_index + replacement.len()..output_index + token_len].fill(b' ');
+        return 0;
+    }
+
+    output.splice(
+        output_index..output_index + token_len,
+        replacement.iter().copied(),
+    );
+    replacement.len() as isize - token_len as isize
 }
 
 fn line_has_yaml_anchor_or_alias(line: &str) -> bool {
