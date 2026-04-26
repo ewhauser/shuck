@@ -9,7 +9,7 @@ Current summary from `target/large-corpus-report/latest.log`:
 - `implementation_diffs=0`
 - `mapping_issues=0`
 - `reviewed_divergences=64`
-- Individual reviewed records classified below: 103 total (`shellcheck-only=23`, `shuck-only=80`).
+- Individual reviewed records classified below: 102 total (`shellcheck-only=23`, `shuck-only=79`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -140,13 +140,12 @@ Resolved records should not remain as reviewed divergences.
 - `tteck__Proxmox__misc__glances.sh:100:37-49` `$SPINNER_PID`
 - `tteck__Proxmox__misc__glances.sh:100:73-85` `$SPINNER_PID`
 
-## [ ] Shuck-only: status/return/exit operand (8)
+## [ ] Shuck-only: status/return/exit operand (7)
 
 - `bittorf__kalua__openwrt-addons__etc__kalua__net:2620:79-81` `$?`
 - `bittorf__kalua__openwrt-addons__etc__profile.d__kalua.sh:11:33-36` `$rc`
 - `rvm__rvm__scripts__extras__chruby.sh:31:10-21` `${__result}`
 - `rvm__rvm__scripts__functions__build_requirements:160:10-29` `${__summary_status}`
-- `rvm__rvm__scripts__functions__manage__base_fetch:45:12-24` `${result:-0}`
 - `rvm__rvm__scripts__functions__manage__macruby:23:10-21` `${__result}`
 - `rvm__rvm__scripts__functions__requirements__openbsd:35:12-23` `${__result}`
 - `v1s1t0r1sh3r3__airgeddon__airgeddon.sh:16442:11-23` `${exit_code}`

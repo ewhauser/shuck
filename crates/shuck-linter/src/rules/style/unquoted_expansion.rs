@@ -2716,6 +2716,46 @@ cleanup() {
     }
 
     #[test]
+    fn skips_default_expansion_after_escaped_field_safe_declaration_initializers() {
+        let source = "\
+#!/bin/bash
+cleanup() {
+  \\typeset result=0
+  return ${result:-0}
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion).with_resolve_source_closure(false),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_plain_reads_after_escaped_field_safe_declaration_initializers() {
+        let source = "\
+#!/bin/bash
+cleanup() {
+  \\typeset result=0
+  return $result
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion).with_resolve_source_closure(false),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$result"]
+        );
+    }
+
+    #[test]
     fn skips_status_capture_after_escaped_name_only_declarations() {
         let source = "\
 #!/bin/bash

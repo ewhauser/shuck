@@ -3055,11 +3055,33 @@ demo() {
                     probe.target_name(),
                     probe.readonly_flag(),
                     probe.has_command_substitution(),
+                    probe.field_safe_literal(),
                 )
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(probes, vec![("out", false, true)]);
+        assert_eq!(probes, vec![("out", false, true, false)]);
+    });
+}
+
+#[test]
+fn marks_escaped_declaration_literal_assignment_probes_as_field_safe() {
+    let source = "\
+#!/bin/bash
+demo() {
+  \\typeset result=0
+  local empty=
+}
+";
+
+    with_facts(source, None, |_, facts| {
+        let probes = facts
+            .structural_commands()
+            .flat_map(|fact| fact.declaration_assignment_probes().iter())
+            .map(|probe| (probe.target_name(), probe.field_safe_literal()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(probes, vec![("result", true), ("empty", false)]);
     });
 }
 

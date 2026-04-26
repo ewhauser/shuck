@@ -496,13 +496,6 @@ reviewed_divergences:
     column: 10
     end_column: 29
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__base_fetch"
-    line: 45
-    end_line: 45
-    column: 12
-    end_column: 24
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__base_fetch"
     line: 223

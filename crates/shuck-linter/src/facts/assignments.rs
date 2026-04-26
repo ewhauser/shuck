@@ -6,6 +6,7 @@ pub struct DeclarationAssignmentProbe {
     target_name_span: Span,
     has_command_substitution: bool,
     status_capture: bool,
+    field_safe_literal: bool,
 }
 
 impl DeclarationAssignmentProbe {
@@ -31,6 +32,10 @@ impl DeclarationAssignmentProbe {
 
     pub fn status_capture(&self) -> bool {
         self.status_capture
+    }
+
+    pub fn field_safe_literal(&self) -> bool {
+        self.field_safe_literal
     }
 }
 
@@ -2281,6 +2286,8 @@ fn build_declaration_assignment_probes<'a>(
                         zsh_options,
                     ),
                     status_capture: word_is_standalone_status_capture(word),
+                    field_safe_literal: static_word_text(word, source)
+                        .is_some_and(|text| literal_is_field_safe(&text)),
                 })
             })
             .collect();
@@ -2335,6 +2342,7 @@ fn build_simple_command_declaration_assignment_probes<'a>(
                     zsh_options,
                 ),
                 status_capture: assignment_value_text_is_standalone_status_capture(value_text),
+                field_safe_literal: assignment_value_text_is_field_safe_literal(value_text),
             })
         })
         .collect()
@@ -2342,6 +2350,42 @@ fn build_simple_command_declaration_assignment_probes<'a>(
 
 fn assignment_value_text_is_standalone_status_capture(text: &str) -> bool {
     matches!(text, "$?" | "${?}" | "\"$?\"" | "\"${?}\"")
+}
+
+fn assignment_value_text_is_field_safe_literal(text: &str) -> bool {
+    let Some(value) = assignment_literal_value(text) else {
+        return false;
+    };
+    literal_is_field_safe(value)
+}
+
+fn assignment_literal_value(text: &str) -> Option<&str> {
+    if !text
+        .chars()
+        .any(|character| matches!(character, '$' | '`' | '\\' | '\'' | '"'))
+    {
+        return Some(text);
+    }
+    if let Some(inner) = text.strip_prefix('"').and_then(|text| text.strip_suffix('"'))
+        && !inner
+            .chars()
+            .any(|character| matches!(character, '$' | '`' | '\\' | '"'))
+    {
+        return Some(inner);
+    }
+    if let Some(inner) = text.strip_prefix('\'').and_then(|text| text.strip_suffix('\''))
+        && !inner.contains('\'')
+    {
+        return Some(inner);
+    }
+    None
+}
+
+fn literal_is_field_safe(text: &str) -> bool {
+    !text.is_empty()
+        && !text
+            .chars()
+            .any(|character| character.is_whitespace() || matches!(character, '*' | '?' | '['))
 }
 
 fn contiguous_word_groups<'a>(words: &'a [&'a Word]) -> Vec<&'a [&'a Word]> {

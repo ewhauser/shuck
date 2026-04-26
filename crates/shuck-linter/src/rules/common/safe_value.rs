@@ -219,6 +219,7 @@ impl<'a> SafeValueIndex<'a> {
                             &reference.name,
                             operator,
                             operand.as_ref(),
+                            reference.name_span,
                             span,
                             query,
                         )
@@ -1430,6 +1431,26 @@ impl<'a> SafeValueIndex<'a> {
                     .declaration_assignment_probes()
                     .iter()
                     .any(|probe| probe.status_capture() && probe.target_name() == name.as_str())
+        })
+    }
+
+    fn field_safe_declaration_probe_covers_reference(
+        &self,
+        name: &Name,
+        at: Span,
+        query: SafeValueQuery,
+    ) -> bool {
+        if !query.is_field_context() {
+            return false;
+        }
+
+        self.facts.structural_commands().any(|command| {
+            command.span().end.offset <= at.start.offset
+                && self.command_blocks_cover_all_paths_to_reference(command, name, at)
+                && command
+                    .declaration_assignment_probes()
+                    .iter()
+                    .any(|probe| probe.field_safe_literal() && probe.target_name() == name.as_str())
         })
     }
 
@@ -3063,6 +3084,7 @@ impl<'a> SafeValueIndex<'a> {
                                 &reference.name,
                                 operator,
                                 operand.as_ref(),
+                                reference.name_span,
                                 at,
                                 query,
                             )
@@ -3101,7 +3123,7 @@ impl<'a> SafeValueIndex<'a> {
         reference: &VarRef,
         operator: &ParameterOp,
         operand: Option<&SourceText>,
-        _at: Span,
+        at: Span,
         query: SafeValueQuery,
     ) -> bool {
         if query != SafeValueQuery::Quoted && reference.has_array_selector() {
@@ -3113,6 +3135,7 @@ impl<'a> SafeValueIndex<'a> {
             operator,
             operand,
             reference.name_span,
+            at,
             query,
         )
     }
@@ -3122,7 +3145,8 @@ impl<'a> SafeValueIndex<'a> {
         name: &Name,
         operator: &ParameterOp,
         operand: Option<&SourceText>,
-        at: Span,
+        name_span: Span,
+        expansion_span: Span,
         query: SafeValueQuery,
     ) -> bool {
         match operator {
@@ -3133,16 +3157,25 @@ impl<'a> SafeValueIndex<'a> {
             | ParameterOp::RemovePrefixShort { .. }
             | ParameterOp::RemovePrefixLong { .. }
             | ParameterOp::RemoveSuffixShort { .. }
-            | ParameterOp::RemoveSuffixLong { .. } => self.name_is_safe(name, at, query),
-            ParameterOp::UseDefault | ParameterOp::AssignDefault | ParameterOp::Error => {
-                self.name_is_safe(name, at, query)
+            | ParameterOp::RemoveSuffixLong { .. } => self.name_is_safe(name, name_span, query),
+            ParameterOp::UseDefault | ParameterOp::AssignDefault => {
+                self.name_is_safe(name, name_span, query)
+                    || operand.is_some_and(|operand| {
+                        self.source_text_is_safe_literal(operand, query)
+                            && self.field_safe_declaration_probe_covers_reference(
+                                name,
+                                expansion_span,
+                                query,
+                            )
+                    })
             }
+            ParameterOp::Error => self.name_is_safe(name, name_span, query),
             ParameterOp::UseReplacement => {
                 operand.is_some_and(|operand| self.source_text_is_safe_literal(operand, query))
             }
             ParameterOp::ReplaceFirst { replacement, .. }
             | ParameterOp::ReplaceAll { replacement, .. } => {
-                self.name_is_safe(name, at, query)
+                self.name_is_safe(name, name_span, query)
                     && self.source_text_is_safe_literal(replacement, query)
             }
         }
