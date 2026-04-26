@@ -13,6 +13,8 @@ pub mod args;
 mod cache;
 mod commands;
 mod config;
+#[doc(hidden)]
+pub mod config_docs;
 mod discover;
 mod format_settings;
 #[doc(hidden)]
