@@ -1791,7 +1791,7 @@ impl<'a> SafeValueIndex<'a> {
         let definition_span = match &binding.origin {
             BindingOrigin::Assignment {
                 definition_span,
-                value: AssignmentValueOrigin::Unknown,
+                value: AssignmentValueOrigin::PlainScalarAccess | AssignmentValueOrigin::Unknown,
             }
             | BindingOrigin::Declaration { definition_span } => *definition_span,
             _ => return false,

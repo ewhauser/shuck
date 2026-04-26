@@ -15,7 +15,7 @@ use shuck_ast::{
     static_word_text, try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;
-use shuck_parser::{ShellProfile, ZshEmulationMode};
+use shuck_parser::{ShellProfile, ZshEmulationMode, parser::Parser};
 use smallvec::SmallVec;
 
 use crate::binding::{
@@ -4841,10 +4841,12 @@ fn parse_simple_declaration_assignment(
     let target_span =
         word_text_offset_span(word.span, source, 0, if append { index - 1 } else { index });
     let value_span = word_text_offset_span(word.span, source, value_start, text.len());
-    let value_origin = if text[value_start..].trim_start().starts_with('(') {
+    let value_text = &text[value_start..];
+    let value_origin = if value_text.trim_start().starts_with('(') {
         AssignmentValueOrigin::ArrayOrCompound
     } else {
-        AssignmentValueOrigin::Unknown
+        let word = Parser::parse_word_string(value_text);
+        assignment_value_origin_for_word(&word)
     };
 
     Some(SimpleDeclarationAssignment {

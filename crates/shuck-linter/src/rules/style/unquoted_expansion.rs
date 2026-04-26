@@ -2966,6 +2966,41 @@ cleanup() {
     }
 
     #[test]
+    fn skips_escaped_declaration_literal_return_operands() {
+        let source = "\
+#!/bin/bash
+cleanup() {
+  \\typeset __result=0
+  run_task \"$@\" || __result=$?
+  return ${__result}
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_escaped_declaration_dynamic_return_operands() {
+        let source = "\
+#!/bin/bash
+cleanup() {
+  \\typeset __result=$1
+  return ${__result}
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${__result}"]
+        );
+    }
+
+    #[test]
     fn skips_pid_capture_bindings() {
         let source = "\
 #!/bin/bash
