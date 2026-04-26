@@ -962,6 +962,7 @@ echo $PACKAGE_NAME | sed 's/\\./\\//g'
 echo \"$value\" | sed \\\"s/foo/bar/\\\"
 echo \"$key\" | sed 's/[]\\[^$.*/]/\\\\&/g'
 echo \"${ENTRY}\" | sed 's/\\([/&]\\)/\\\\\\1/g'
+echo \\\"$value\\\" | sed 's/foo/bar/'
 sed 's/[]\\[^$.*/]/\\\\&/g' <<<\"$key\"
 sed 's/\\([/&]\\)/\\\\\\1/g' <<<\"${ENTRY}\"
 printf '%s\\n' \"$value\" | sed 's/foo/bar/'
