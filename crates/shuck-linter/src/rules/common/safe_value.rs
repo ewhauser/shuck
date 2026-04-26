@@ -483,6 +483,9 @@ impl<'a> SafeValueIndex<'a> {
         if self.covering_optional_field_safe_bindings_can_stay_safe(&bindings, name, at, query) {
             return true;
         }
+        if self.local_conditional_literal_bindings_can_stay_safe(&bindings, name, at, query) {
+            return true;
+        }
         if self.optional_field_safe_bindings_can_stay_safe(&bindings, query) {
             return true;
         }
@@ -1007,6 +1010,60 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         saw_empty && saw_non_empty
+    }
+
+    fn local_conditional_literal_bindings_can_stay_safe(
+        &self,
+        bindings: &[BindingId],
+        name: &Name,
+        at: Span,
+        query: SafeValueQuery,
+    ) -> bool {
+        if !query.is_field_context() || bindings.is_empty() {
+            return false;
+        }
+        let Some(function_scope) = self.enclosing_function_scope_at(at.start.offset) else {
+            return false;
+        };
+
+        let mut saw_conditional_literal = false;
+        let mut first_binding_start = at.start.offset;
+        for binding_id in bindings.iter().copied() {
+            let binding = self.semantic.binding(binding_id);
+            if binding.span.end.offset > at.start.offset
+                || !self.binding_is_in_scope_or_descendant(binding_id, function_scope)
+            {
+                return false;
+            }
+            first_binding_start = first_binding_start.min(binding.span.start.offset);
+
+            let Some(value) = self.facts.binding_value(binding_id) else {
+                return false;
+            };
+            if !value.conditional_assignment_shortcut() {
+                return false;
+            }
+            let Some(text) = value
+                .scalar_word()
+                .and_then(|word| static_word_text(word, self.source))
+            else {
+                return false;
+            };
+            if text.is_empty() || !query.literal_is_safe(&text) {
+                return false;
+            }
+            saw_conditional_literal = true;
+        }
+
+        saw_conditional_literal
+            && self.semantic.bindings_for(name).iter().copied().any(|binding_id| {
+                let binding = self.semantic.binding(binding_id);
+                binding.span.end.offset <= first_binding_start
+                    && self.semantic.binding_visible_at(binding_id, at)
+                    && self.binding_is_in_scope_or_descendant(binding_id, function_scope)
+                    && self.binding_is_name_only_declaration(binding_id)
+                    && binding.attributes.contains(BindingAttributes::LOCAL)
+            })
     }
 
     fn field_safe_binding_group_class(

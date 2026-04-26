@@ -2746,6 +2746,42 @@ request() {
     }
 
     #[test]
+    fn skips_local_conditional_literal_option_letters() {
+        let source = "\
+#!/bin/bash
+read_char() {
+  local read_flag anykey
+  [[ -n ${ZSH_VERSION:-} ]] && read_flag=k || read_flag=n
+  builtin read -${read_flag} 1 -s -r anykey
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_local_conditional_dynamic_option_letters() {
+        let source = "\
+#!/bin/bash
+read_char() {
+  local read_flag anykey
+  [[ -n ${ZSH_VERSION:-} ]] && read_flag=$1 || read_flag=n
+  builtin read -${read_flag} 1 -s -r anykey
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${read_flag}"]
+        );
+    }
+
+    #[test]
     fn skips_status_capture_declarations_with_initializers() {
         let source = "\
 #!/bin/bash

@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=61`
-- Individual reviewed records classified below: 97 total (`shellcheck-only=23`, `shuck-only=74`).
+- `reviewed_divergences=58`
+- Individual reviewed records classified below: 96 total (`shellcheck-only=23`, `shuck-only=73`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -56,7 +56,7 @@ Resolved records should not remain as reviewed divergences.
 - `rvm__rvm__binscripts__rvm-installer:89:24-48` `${rvm_tar_command:-gtar}`
 - `tteck__Proxmox__vm__nextcloud-vm.sh:210:96-99` `$HN`
 
-## [ ] Shuck-only: embedded safe literal/composite word (38)
+## [ ] Shuck-only: embedded safe literal/composite word (36)
 
 - `bittorf__kalua__openwrt-addons__etc__init.d__override_uci_vars:418:29-31` `$i`
 - `community-scripts__ProxmoxVE__vm__archlinux-vm.sh:547:31-44` `${DISK_CACHE}`
@@ -82,8 +82,6 @@ Resolved records should not remain as reviewed divergences.
 - `community-scripts__ProxmoxVE__vm__ubuntu2404-vm.sh:540:23-36` `${DISK_CACHE}`
 - `community-scripts__ProxmoxVE__vm__ubuntu2504-vm.sh:538:25-34` `${FORMAT}`
 - `community-scripts__ProxmoxVE__vm__ubuntu2504-vm.sh:539:23-36` `${DISK_CACHE}`
-- `rvm__rvm__scripts__functions__requirements__rvm_pkg:17:17-35` `${_read_char_flag}`
-- `rvm__rvm__scripts__functions__requirements__unknown:74:17-35` `${_read_char_flag}`
 - `tteck__Proxmox__vm__debian-vm.sh:409:25-34` `${FORMAT}`
 - `tteck__Proxmox__vm__debian-vm.sh:410:23-36` `${DISK_CACHE}`
 - `tteck__Proxmox__vm__haos-vm.sh:451:25-34` `${FORMAT}`
@@ -97,7 +95,7 @@ Resolved records should not remain as reviewed divergences.
 - `tteck__Proxmox__vm__ubuntu2404-vm.sh:399:25-34` `${FORMAT}`
 - `tteck__Proxmox__vm__ubuntu2404-vm.sh:400:23-36` `${DISK_CACHE}`
 
-## [ ] Shuck-only: simple command argument ShellCheck suppresses (18)
+## [ ] Shuck-only: simple command argument ShellCheck suppresses (17)
 
 - `SlackBuildsOrg__slackbuilds__system__sboui__doinst.sh:19:8-12` `$OLD`
 - `SlackBuildsOrg__slackbuilds__system__sboui__doinst.sh:19:13-17` `$NEW`
@@ -115,7 +113,6 @@ Resolved records should not remain as reviewed divergences.
 - `kward__shunit2__.githooks__generic:30:11-22` `${basename}`
 - `masonr__yet-another-bench-script__yabs.sh:991:12-19` `$GB_URL`
 - `pi-hole__pi-hole__automated install__basic-install.sh:1833:21-39` `${webInterfaceDir}`
-- `scop__bash-completion__completions-core__geoiplookup.bash:29:31-36` `$ipvx`
 - `termux__termux-packages__packages__lazygit__build.sh:25:41-61` `-ldflags`
 
 ## [ ] Shuck-only: command-substitution initializer argument (4 remaining)

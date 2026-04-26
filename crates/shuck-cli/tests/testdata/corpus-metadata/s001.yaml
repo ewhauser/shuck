@@ -539,27 +539,6 @@ reviewed_divergences:
     end_column: 51
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__rvm_pkg"
-    line: 17
-    end_line: 17
-    column: 17
-    end_column: 35
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__requirements__unknown"
-    line: 74
-    end_line: 74
-    column: 17
-    end_column: 35
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "scop__bash-completion__completions-core__geoiplookup.bash"
-    line: 29
-    end_line: 29
-    column: 31
-    end_column: 36
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "super-linter__super-linter__test__run-super-linter-tests.sh"
     line: 724
     end_line: 724
