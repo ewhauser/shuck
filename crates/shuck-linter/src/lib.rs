@@ -222,7 +222,8 @@ fn analyze_file_at_path_with_resolver_and_shell(
     shell: ShellDialect,
     first_parse_error: Option<(usize, usize)>,
 ) -> AnalysisResult {
-    let file_entry_contract = ambient_contracts::file_entry_contract(source, source_path, shell);
+    let file_entry_contract =
+        ambient_contracts::file_entry_contract(file, source, source_path, shell);
     let analyzed_paths_fallback =
         source_path.map(|path| FxHashSet::from_iter([path.to_path_buf()]));
     let analyzed_paths = settings
