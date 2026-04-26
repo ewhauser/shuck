@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.0.24](https://github.com/ewhauser/shuck/compare/v0.0.23...v0.0.24) (2026-04-26)
+
+
+### Bug Fixes
+
+* **extract:** handle GitHub Actions workflow anchors ([#609](https://github.com/ewhauser/shuck/issues/609)) ([81d3e99](https://github.com/ewhauser/shuck/commit/81d3e9933c9018f23dd7682598fb9f55607c9c48))
+* **extract:** parse GitHub Actions YAML with saphyr ([#615](https://github.com/ewhauser/shuck/issues/615)) ([2029aa5](https://github.com/ewhauser/shuck/commit/2029aa537d2a926518735083890f4cb74768bdc9))
+* **linter:** ratchet S001 quote exposure parity ([#616](https://github.com/ewhauser/shuck/issues/616)) ([02f0b02](https://github.com/ewhauser/shuck/commit/02f0b02e2940b91d525284b7049b62b611de7640))
+
+
+### Performance
+
+* **indexer:** fold continuation discovery into line scan ([#623](https://github.com/ewhauser/shuck/issues/623)) ([b607123](https://github.com/ewhauser/shuck/commit/b607123f02b86c0a4739bcc86d18aa769796037e))
+* **linter:** cache command scope to elide per-iteration scope_at ([#625](https://github.com/ewhauser/shuck/issues/625)) ([e3c9152](https://github.com/ewhauser/shuck/commit/e3c9152192a5f9ecf0eb37c4c14c9409babaf39a))
+* **linter:** index unset commands for safe values ([#633](https://github.com/ewhauser/shuck/issues/633)) ([0d532ee](https://github.com/ewhauser/shuck/commit/0d532eece6c3a4c77f2c9323698525608db1a37b))
+* **linter:** specialize scope compat misspelling scan ([#631](https://github.com/ewhauser/shuck/issues/631)) ([4e71dba](https://github.com/ewhauser/shuck/commit/4e71dbac4bb4ecf8da6b54bc730368ea8d1bb24c))
+* **linter:** speed up misspelling lookup ([#629](https://github.com/ewhauser/shuck/issues/629)) ([59d676d](https://github.com/ewhauser/shuck/commit/59d676db222ffffbe024771973eb917742d47136))
+
+
+### Documentation
+
+* **website:** show rule autofix status ([#627](https://github.com/ewhauser/shuck/issues/627)) ([7b36f95](https://github.com/ewhauser/shuck/commit/7b36f95dc97ba4fa9102b83e3972cd033a6df06c))
+
+
+### Refactor
+
+* **linter:** move status capture values into facts ([#630](https://github.com/ewhauser/shuck/issues/630)) ([1e9c0dc](https://github.com/ewhauser/shuck/commit/1e9c0dceaa9d383001d0b7b9fe770ea545b2f920))
+* **linter:** remove file context plumbing ([#622](https://github.com/ewhauser/shuck/issues/622)) ([4a84cfb](https://github.com/ewhauser/shuck/commit/4a84cfbd17723c6b04fa3613403ac4ea1af77cb4))
+* **linter:** remove helper library context ([#620](https://github.com/ewhauser/shuck/issues/620)) ([8d2700a](https://github.com/ewhauser/shuck/commit/8d2700a04f1d9613741e72e59b8b969c9e4cbbe8))
+* **linter:** remove shellspec context ([#621](https://github.com/ewhauser/shuck/issues/621)) ([3edae43](https://github.com/ewhauser/shuck/commit/3edae43e35e570659a378fe1f3156dea65efbfd9))
+* **linter:** remove test harness context ([#618](https://github.com/ewhauser/shuck/issues/618)) ([ed5d84f](https://github.com/ewhauser/shuck/commit/ed5d84f91948bd19d0ca42461536cf4e64f782f1))
+* **linter:** remove unused file context tags ([#617](https://github.com/ewhauser/shuck/issues/617)) ([8e8c803](https://github.com/ewhauser/shuck/commit/8e8c803a1dfbee67959083d520871ad8e29a7491))
+* **linter:** use AST for ambient completion contracts ([#624](https://github.com/ewhauser/shuck/issues/624)) ([832c61c](https://github.com/ewhauser/shuck/commit/832c61c02fbf972714e56e62fa43cee986746c28))
+* **linter:** use AST operands in safe value ([#628](https://github.com/ewhauser/shuck/issues/628)) ([b4b8923](https://github.com/ewhauser/shuck/commit/b4b89234c5b5b9934a082ca000f2f896d44f3f40))
+* **linter:** use semantic declaration operands ([#632](https://github.com/ewhauser/shuck/issues/632)) ([a7cf8ce](https://github.com/ewhauser/shuck/commit/a7cf8ce3623ebc4ceb5d1bfd889a1bc9c24f252f))
+* **semantic:** collect file-entry contracts during traversal ([#626](https://github.com/ewhauser/shuck/issues/626)) ([462ee56](https://github.com/ewhauser/shuck/commit/462ee5614005c1d60b024bf2584457ebaa179267))
+
 ## [0.0.23](https://github.com/ewhauser/shuck/compare/v0.0.22...v0.0.23) (2026-04-26)
 
 
