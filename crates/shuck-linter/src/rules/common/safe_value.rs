@@ -474,7 +474,7 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         }
 
-        let mut saw_setup_binding = false;
+        let mut setup_bindings = Vec::new();
         for binding_id in self.semantic.bindings_for(&name).iter().copied() {
             let binding = self.semantic.binding(binding_id);
             if binding.span.start.offset >= span.start.offset {
@@ -498,10 +498,16 @@ impl<'a> SafeValueIndex<'a> {
             if !setup_atom {
                 return false;
             }
-            saw_setup_binding = true;
+            setup_bindings.push(binding_id);
         }
 
-        saw_setup_binding
+        !setup_bindings.is_empty()
+            && (self.bindings_cover_all_paths_to_reference(&setup_bindings, &name, span)
+                || setup_bindings.iter().copied().any(|binding_id| {
+                    let binding = self.semantic.binding(binding_id);
+                    binding.span.end.offset <= span.start.offset
+                        && self.binding_dominates_reference(binding_id, &name, span)
+                }))
     }
 
     fn span_is_inside_initializer_command_substitution(&self, span: Span) -> bool {
@@ -4068,14 +4074,7 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         }
 
-        let mut helper_bindings = self.called_helper_bindings_for_name(name, at);
-        self.retain_value_bindings(&mut helper_bindings);
-        let has_dominating_helper_binding = helper_bindings
-            .iter()
-            .chain(transitive_helper_bindings.iter())
-            .any(|binding_id| bindings.contains(binding_id));
-        let has_covering_binding = has_dominating_helper_binding
-            || self.bindings_cover_all_paths_to_reference(&bindings, name, at)
+        let has_covering_binding = self.bindings_cover_all_paths_to_reference(&bindings, name, at)
             || bindings.iter().copied().any(|binding_id| {
                 let binding = self.semantic.binding(binding_id);
                 binding.span.end.offset <= at.start.offset
@@ -6495,6 +6494,42 @@ render() {
             .expect("expected conditionally helper-initialized argument fact");
 
         assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn guarded_numeric_helper_bindings_do_not_count_as_definite_values() {
+        let source = "\
+#!/bin/bash
+init_count() {
+  if [ \"$1\" = yes ]; then
+    count=0
+  fi
+}
+init_count
+move_up $count
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$count"
+            })
+            .expect("expected numeric helper argument fact");
+        let (part, part_span) = word_fact
+            .parts_with_spans()
+            .find(|(_, span)| span.slice(source) == "$count")
+            .expect("expected count expansion part");
+
+        assert!(!safe_values.part_has_s001_standalone_numeric_argv_exposure(part, part_span));
     }
 
     #[test]

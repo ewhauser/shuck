@@ -1836,6 +1836,26 @@ main
     }
 
     #[test]
+    fn reports_static_setup_references_without_path_coverage() {
+        let source = "\
+#!/bin/bash
+if [ \"$scope\" = global ]; then
+  WAFSCOPE=CLOUDFRONT
+fi
+result=$(aws waf get --scope $WAFSCOPE)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$WAFSCOPE"]
+        );
+    }
+
+    #[test]
     fn reports_dynamic_values_inside_parameter_replacement_command_substitutions() {
         let source = "\
 #!/bin/bash
