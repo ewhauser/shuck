@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=33`
-- Individual reviewed records classified below: 44 total (`shellcheck-only=21`, `shuck-only=23`).
+- `reviewed_divergences=31`
+- Individual reviewed records classified below: 42 total (`shellcheck-only=20`, `shuck-only=22`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -45,10 +45,6 @@ Resolved records should not remain as reviewed divergences.
 - `gentoo__gentoo__eclass__tests__toolchain.sh:155:7-13` `${ret}`
 - `nvm-sh__nvm__test__slow__nvm_get_latest__nvm_get_latest:26:10-14` `$URL`
 
-## [ ] ShellCheck-only: nested command substitution / here-string argument (1)
-
-- `google__oss-fuzz__projects__threetenbp__build.sh:57:37-47` `$JAVA_HOME`
-
 ## [ ] ShellCheck-only: test/probe command operand (2)
 
 - `rvm__rvm__binscripts__rvm-installer:89:24-48` `${rvm_tar_command:-gtar}`
@@ -58,14 +54,13 @@ Resolved records should not remain as reviewed divergences.
 
 - `bittorf__kalua__openwrt-addons__etc__init.d__override_uci_vars:418:29-31` `$i`
 
-## [ ] Shuck-only: simple command argument ShellCheck suppresses (11)
+## [ ] Shuck-only: simple command argument ShellCheck suppresses (10)
 
 - `awslabs__git-secrets__git-secrets:124:5-17` `${RECURSIVE}`
 - `bats-core__bats-core__libexec__bats-core__bats-format-pretty:67:16-34` `$count_column_left`
 - `bats-core__bats-core__libexec__bats-core__bats-format-pretty:78:13-32` `$line_backoff_count`
 - `bittorf__kalua__openwrt-monitoring__ping_counter.sh:110:7-15` `$fileage`
 - `gentoo__gentoo__eclass__tests__toolchain-funcs.sh:61:6-12` `${ret}`
-- `google__oss-fuzz__projects__threetenbp__build.sh:56:89-99` `LD_LIBRARY_PATH`
 - `ko1nksm__shellspec__lib__general.sh:442:15-39` `$shellspec_readfile_data`
 - `ko1nksm__shellspec__lib__libexec__shellspec.sh:94:37-39` `$c`
 - `masonr__yet-another-bench-script__yabs.sh:991:12-19` `$GB_URL`

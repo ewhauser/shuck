@@ -81,6 +81,14 @@ fn collect_bourne_parameter_trim_patterns(
     }
 }
 
+fn first_command_substitution_body(parts: &[WordPartNode]) -> Option<&StmtSeq> {
+    parts.iter().find_map(|part| match &part.kind {
+        WordPart::CommandSubstitution { body, .. } => Some(body),
+        WordPart::DoubleQuoted { parts, .. } => first_command_substitution_body(parts),
+        _ => None,
+    })
+}
+
 #[test]
 fn test_current_word_cache_tracks_token_changes() {
     let input = "\"$foo\" bar\n";
@@ -1867,6 +1875,31 @@ fn test_dollar_paren_command_substitution_inside_quoted_prefix_with_pipeline_kee
     assert_eq!(right.name.span.slice(input), "tr");
     assert_eq!(right.args[0].render(input), "A-Z");
     assert_eq!(right.args[1].render(input), "a-z");
+}
+
+#[test]
+fn test_dollar_paren_command_substitution_after_multiline_escaped_quote_keeps_nested_spans_absolute()
+ {
+    let input = "\
+echo \"script
+  LEFT=\"$left\":\\$base \\
+    CHILD=\\$base/$(basename $child) \\
+    PATH=$path
+    run\" > out
+";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let body = first_command_substitution_body(&command.args[0].parts)
+        .expect("expected nested command substitution");
+    let inner = expect_simple(&body[0]);
+
+    assert_eq!(inner.name.span.slice(input), "basename");
+    assert_eq!(inner.args[0].span.slice(input), "$child");
+    assert_eq!(inner.args[0].span.start.line, 3);
+    assert_eq!(inner.args[0].span.start.column, 29);
 }
 
 #[test]

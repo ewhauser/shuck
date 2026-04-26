@@ -132,20 +132,6 @@ reviewed_divergences:
     column: 7
     end_column: 13
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "google__oss-fuzz__projects__threetenbp__build.sh"
-    line: 56
-    end_line: 56
-    column: 89
-    end_column: 99
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shellcheck-only
-    path_suffix: "google__oss-fuzz__projects__threetenbp__build.sh"
-    line: 57
-    end_line: 57
-    column: 37
-    end_column: 47
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "juewuy__ShellCrash__scripts__menus__9_upgrade.sh"
     line: 651

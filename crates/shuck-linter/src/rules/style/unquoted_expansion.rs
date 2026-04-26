@@ -2280,6 +2280,33 @@ label=\",label=\\\"${fallback:=value}$(render value $line)\\\"\"
     }
 
     #[test]
+    fn anchors_nested_substitution_arguments_to_physical_lines_after_escaped_continuations() {
+        let source = "\
+#!/bin/bash
+echo \"script
+  LEFT=\"$left\":\\$base \\
+    CHILD=\\$base/$(basename $child) \\
+    PATH=$path
+    run\" > out
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| (
+                    diagnostic.span.start.line,
+                    diagnostic.span.start.column,
+                    diagnostic.span.end.line,
+                    diagnostic.span.end.column,
+                    diagnostic.span.slice(source),
+                ))
+                .collect::<Vec<_>>(),
+            vec![(3, 9, 3, 14, "$left"), (4, 29, 4, 35, "$child")]
+        );
+    }
+
+    #[test]
     fn reports_decl_assignment_values_in_sh_mode() {
         let source = "\
 local _patch=$TERMUX_PKG_BUILDER_DIR/file.diff

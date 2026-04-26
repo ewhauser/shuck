@@ -3638,7 +3638,11 @@ impl<'a> Parser<'a> {
                                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             }
                             let inner_text = consumed_text.strip_suffix(')').unwrap_or_default();
-                            self.nested_stmt_seq_from_source(inner_text, nested_source_base)
+                            self.nested_dollar_paren_stmt_seq_from_source_or_text(
+                                inner_text,
+                                part_start,
+                                nested_source_base,
+                            )
                         } else {
                             let mut cmd_str = String::new();
                             let mut depth = 1;
@@ -3659,7 +3663,11 @@ impl<'a> Parser<'a> {
                                     _ => cmd_str.push(c),
                                 }
                             }
-                            self.nested_stmt_seq_from_source(&cmd_str, nested_source_base)
+                            self.nested_dollar_paren_stmt_seq_from_source_or_text(
+                                &cmd_str,
+                                part_start,
+                                nested_source_base,
+                            )
                         }
                     } else {
                         let mut cmd_str = String::new();
@@ -4600,6 +4608,52 @@ impl<'a> Parser<'a> {
                 cursor,
             );
         }
+    }
+
+    fn nested_dollar_paren_stmt_seq_from_source_or_text(
+        &mut self,
+        inner_text: &str,
+        approximate_dollar_start: Position,
+        fallback_base: Position,
+    ) -> StmtSeq {
+        if let Some((body_start, body_end)) =
+            self.source_dollar_paren_body_span(inner_text, approximate_dollar_start)
+        {
+            return self.nested_stmt_seq_from_current_input(body_start, body_end);
+        }
+
+        self.nested_stmt_seq_from_source(inner_text, fallback_base)
+    }
+
+    fn source_dollar_paren_body_span(
+        &self,
+        inner_text: &str,
+        approximate_dollar_start: Position,
+    ) -> Option<(Position, Position)> {
+        let needle = format!("$({inner_text})");
+        let search_start = floor_char_boundary(
+            self.input,
+            approximate_dollar_start.offset.saturating_sub(512),
+        );
+        let search_end = ceil_char_boundary(
+            self.input,
+            (approximate_dollar_start.offset + needle.len() + 4096).min(self.input.len()),
+        );
+        let haystack = self.input.get(search_start..search_end)?;
+        let (relative_start, _) =
+            haystack
+                .match_indices(&needle)
+                .min_by_key(|(relative_start, _)| {
+                    (search_start + relative_start).abs_diff(approximate_dollar_start.offset)
+                })?;
+        let subst_start = search_start + relative_start;
+        let body_start_offset = subst_start + "$(".len();
+        let body_end_offset = subst_start + needle.len() - ")".len();
+
+        Some((
+            Position::new().advanced_by(&self.input[..body_start_offset]),
+            Position::new().advanced_by(&self.input[..body_end_offset]),
+        ))
     }
 
     fn consume_escaped_braced_parameter_literal(
@@ -5710,4 +5764,20 @@ fn source_prefix_has_same_line_escaped_double_quote_fragment(
     }
 
     false
+}
+
+fn floor_char_boundary(source: &str, mut offset: usize) -> usize {
+    offset = offset.min(source.len());
+    while offset > 0 && !source.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    offset
+}
+
+fn ceil_char_boundary(source: &str, mut offset: usize) -> usize {
+    offset = offset.min(source.len());
+    while offset < source.len() && !source.is_char_boundary(offset) {
+        offset += 1;
+    }
+    offset
 }
