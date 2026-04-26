@@ -417,6 +417,43 @@ impl<'a> LinterFacts<'a> {
             .unwrap_or(&[])
     }
 
+    pub(crate) fn presence_test_candidate_spans(
+        &self,
+        semantic: &SemanticModel,
+    ) -> Vec<(Name, Span)> {
+        let mut names = FxHashSet::<Name>::default();
+        names.extend(self.presence_test_references_by_name.keys().cloned());
+        names.extend(self.presence_test_names_by_name.keys().cloned());
+
+        names
+            .into_iter()
+            .filter_map(|name| {
+                let span = self.first_presence_test_candidate_span(semantic, &name)?;
+                Some((name, span))
+            })
+            .collect()
+    }
+
+    fn first_presence_test_candidate_span(
+        &self,
+        semantic: &SemanticModel,
+        candidate_name: &Name,
+    ) -> Option<Span> {
+        self.presence_test_references_by_name
+            .get(candidate_name)
+            .into_iter()
+            .flatten()
+            .map(|presence| semantic.reference(presence.reference_id()).span)
+            .chain(
+                self.presence_test_names_by_name
+                    .get(candidate_name)
+                    .into_iter()
+                    .flatten()
+                    .map(|presence| presence.tested_span()),
+            )
+            .min_by_key(|span| (span.start.offset, span.end.offset))
+    }
+
     pub fn is_suppressed_subscript_reference(&self, span: Span) -> bool {
         self.suppressed_subscript_reference_spans
             .contains(&FactSpan::new(span))
@@ -882,18 +919,19 @@ impl<'a> LinterFacts<'a> {
 fn build_possible_variable_misspelling_scope_compat_name_uses(
     facts: &LinterFacts<'_>,
 ) -> Vec<ComparableNameUse> {
+    if !source_may_have_scope_compat_misspelling(facts.source) {
+        return Vec::new();
+    }
+
     let mut uses = Vec::new();
     for word_fact in facts
         .expansion_word_facts(ExpansionContext::DeclarationAssignmentValue)
         .chain(facts.expansion_word_facts(ExpansionContext::AssignmentValue))
         .chain(facts.case_subject_facts())
     {
-        uses.extend(
-            comparable_name_uses(word_fact.word(), facts.source)
-                .into_vec()
-                .into_iter()
-                .filter(|name_use| name_use.kind() == ComparableNameUseKind::Parameter),
-        );
+        if let Some(name_use) = scope_compat_standalone_parameter_name_use(word_fact.word()) {
+            uses.push(name_use);
+        }
     }
     for command in facts.commands() {
         visit_command_words_for_substitutions(
@@ -901,12 +939,7 @@ fn build_possible_variable_misspelling_scope_compat_name_uses(
             command.redirects(),
             facts.source,
             &mut |word| {
-                uses.extend(
-                    comparable_name_uses(word, facts.source)
-                        .into_vec()
-                        .into_iter()
-                        .filter(|name_use| name_use.kind() == ComparableNameUseKind::Derived),
-                );
+                collect_scope_compat_derived_name_uses(word, facts.source, &mut uses);
             },
         );
     }
@@ -916,22 +949,238 @@ fn build_possible_variable_misspelling_scope_compat_name_uses(
         .flat_map(|header| header.words())
         .chain(facts.select_headers().iter().flat_map(|header| header.words()))
     {
-        uses.extend(
-            comparable_name_uses(word.word(), facts.source)
-                .into_vec()
-                .into_iter()
-                .filter_map(|mut name_use| {
-                    if name_use.kind() == ComparableNameUseKind::Parameter {
-                        name_use.mark_derived();
-                        Some(name_use)
-                    } else {
-                        None
-                    }
-                }),
-        );
+        if let Some(mut name_use) = scope_compat_standalone_parameter_name_use(word.word()) {
+            name_use.mark_derived();
+            if is_interesting_scope_compat_name_use(
+                facts.source,
+                name_use.key().as_str(),
+                name_use.kind(),
+                name_use.span(),
+            ) {
+                uses.push(name_use);
+            }
+        }
     }
-    uses.extend(build_flag_for_loop_source_name_uses(facts.source));
+    uses.extend(build_flag_for_loop_source_name_uses(facts.source).into_iter().filter(|name_use| {
+        is_interesting_scope_compat_name_use(
+            facts.source,
+            name_use.key().as_str(),
+            name_use.kind(),
+            name_use.span(),
+        )
+    }));
+    dedup_comparable_name_uses(&mut uses);
     uses
+}
+
+fn source_may_have_scope_compat_misspelling(source: &str) -> bool {
+    source.contains("SHELLSPEC_EXECDIR")
+        || source.contains("CFLAGS")
+        || source.contains("CPPFLAGS")
+        || source.contains("CXXFLAGS")
+}
+
+fn scope_compat_standalone_parameter_name_use(word: &Word) -> Option<ComparableNameUse> {
+    let name = standalone_comparable_parameter_name(&word.parts)?;
+    Some(ComparableNameUse {
+        span: word.span,
+        key: ComparableNameKey(name.into()),
+        kind: ComparableNameUseKind::Parameter,
+    })
+}
+
+fn collect_scope_compat_derived_name_uses(
+    word: &Word,
+    source: &str,
+    uses: &mut Vec<ComparableNameUse>,
+) {
+    let allow_quoted_derived_words =
+        analyze_word(word, source, None).quote == WordQuote::FullyQuoted;
+    collect_scope_compat_command_substitution_name_uses_in_parts(
+        &word.parts,
+        source,
+        allow_quoted_derived_words,
+        uses,
+    );
+}
+
+fn collect_scope_compat_command_substitution_name_uses_in_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    allow_quoted_derived_words: bool,
+    uses: &mut Vec<ComparableNameUse>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_scope_compat_command_substitution_name_uses_in_parts(
+                    parts,
+                    source,
+                    allow_quoted_derived_words,
+                    uses,
+                );
+            }
+            WordPart::CommandSubstitution { body, .. } => {
+                collect_scope_compat_command_substitution_name_uses(
+                    body,
+                    source,
+                    allow_quoted_derived_words,
+                    uses,
+                );
+            }
+            WordPart::ParameterExpansion {
+                operand_word_ast, ..
+            }
+            | WordPart::IndirectExpansion {
+                operand_word_ast, ..
+            } => {
+                if let Some(word) = operand_word_ast {
+                    collect_scope_compat_command_substitution_name_uses_in_parts(
+                        &word.parts,
+                        source,
+                        allow_quoted_derived_words,
+                        uses,
+                    );
+                }
+            }
+            WordPart::Substring {
+                offset_word_ast,
+                length_word_ast,
+                ..
+            }
+            | WordPart::ArraySlice {
+                offset_word_ast,
+                length_word_ast,
+                ..
+            } => {
+                collect_scope_compat_arithmetic_name_use(offset_word_ast, source, uses);
+                if let Some(word) = length_word_ast {
+                    collect_scope_compat_arithmetic_name_use(word, source, uses);
+                }
+            }
+            WordPart::ArithmeticExpansion {
+                expression_word_ast,
+                ..
+            } => {
+                collect_scope_compat_arithmetic_name_use(expression_word_ast, source, uses);
+            }
+            WordPart::Literal(_)
+            | WordPart::ZshQualifiedGlob(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::Parameter(_)
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. } => {}
+        }
+    }
+}
+
+fn collect_scope_compat_command_substitution_name_uses(
+    body: &StmtSeq,
+    source: &str,
+    allow_quoted_derived_words: bool,
+    uses: &mut Vec<ComparableNameUse>,
+) {
+    for visit in iter_commands(
+        body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    ) {
+        visit_command_substitution_loop_header_words(visit.command, &mut |word| {
+            push_scope_compat_command_substitution_word_use(
+                word,
+                source,
+                allow_quoted_derived_words,
+                uses,
+            );
+        });
+        visit_command_argument_words_for_substitutions(visit.command, source, &mut |word| {
+            push_scope_compat_command_substitution_word_use(
+                word,
+                source,
+                allow_quoted_derived_words,
+                uses,
+            );
+        });
+    }
+}
+
+fn push_scope_compat_command_substitution_word_use(
+    word: &Word,
+    source: &str,
+    allow_quoted_derived_words: bool,
+    uses: &mut Vec<ComparableNameUse>,
+) {
+    if !allow_quoted_derived_words && analyze_word(word, source, None).quote == WordQuote::FullyQuoted
+    {
+        return;
+    }
+    if let Some(name_use) = scope_compat_standalone_derived_name_use(word, source) {
+        uses.push(name_use);
+    }
+}
+
+fn collect_scope_compat_arithmetic_name_use(
+    word: &Word,
+    source: &str,
+    uses: &mut Vec<ComparableNameUse>,
+) {
+    if let Some(name_use) = scope_compat_standalone_derived_name_use(word, source) {
+        uses.push(name_use);
+    }
+}
+
+fn scope_compat_standalone_derived_name_use(
+    word: &Word,
+    source: &str,
+) -> Option<ComparableNameUse> {
+    let mut name_use = scope_compat_standalone_parameter_name_use(word)?;
+    name_use.mark_derived();
+    is_interesting_scope_compat_name_use(
+        source,
+        name_use.key().as_str(),
+        name_use.kind(),
+        name_use.span(),
+    )
+    .then_some(name_use)
+}
+
+fn is_interesting_scope_compat_name_use(
+    _source: &str,
+    name: &str,
+    kind: ComparableNameUseKind,
+    _span: Span,
+) -> bool {
+    name == "SHELLSPEC_EXECDIR"
+        || name == "SHELLSPEC_SPECDIR"
+        || kind == ComparableNameUseKind::Derived && is_reportable_build_flag_family_name(name)
+}
+
+fn is_reportable_build_flag_family_name(name: &str) -> bool {
+    let Some((_, suffix)) = split_scope_compat_build_flag_family_name(name) else {
+        return false;
+    };
+    matches!(suffix, "CFLAGS" | "CPPFLAGS" | "CXXFLAGS")
+}
+
+fn split_scope_compat_build_flag_family_name(name: &str) -> Option<(&str, &'static str)> {
+    ["CXXFLAGS", "CPPFLAGS", "CFLAGS"]
+        .into_iter()
+        .find_map(|suffix| {
+            if name == suffix {
+                Some(("", suffix))
+            } else {
+                name.strip_suffix(suffix)
+                    .filter(|prefix| prefix.ends_with('_'))
+                    .map(|prefix| (prefix, suffix))
+            }
+        })
 }
 
 fn populate_array_assignment_split_scalar_expansion_spans(

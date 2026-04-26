@@ -147,12 +147,13 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
         &suppressed_reference_spans,
         &mut candidate_cache,
     ));
-    findings.extend(scope_compat_findings(
-        checker,
-        &guarded_name_offsets,
-        &suppressed_reference_spans,
-        &mut candidate_cache,
-    ));
+    if source_may_have_scope_compat_misspelling(checker.source()) {
+        findings.extend(scope_compat_findings(
+            checker,
+            &guarded_name_offsets,
+            &suppressed_reference_spans,
+        ));
+    }
 
     findings.sort_by_key(|(span, _, _)| (span.start.offset, span.end.offset));
     let mut reported_names = FxHashSet::default();
@@ -254,26 +255,17 @@ fn scope_compat_findings(
     checker: &Checker<'_>,
     guarded_name_offsets: &FxHashMap<String, Vec<usize>>,
     suppressed_reference_spans: &FxHashMap<String, Vec<Span>>,
-    candidate_cache: &mut FxHashMap<String, Option<String>>,
 ) -> Vec<(Span, String, String)> {
     let mut findings = Vec::new();
     let mut seen = FxHashSet::default();
+    let mut index = ScopeCompatIndex::default();
+    add_scope_compat_binding_candidates(&mut index, checker);
+    add_scope_compat_presence_test_candidates(&mut index, checker);
+    add_scope_compat_name_uses(&mut index, checker);
 
-    for name_use in checker
-        .facts()
-        .possible_variable_misspelling_scope_compat_name_uses()
-    {
-        let reference_name = name_use.key().as_str();
-        if !seen.insert((reference_name.to_owned(), name_use.span().start.offset)) {
-            continue;
-        }
-        if !is_scope_compat_reference_name(reference_name, name_use.kind()) {
-            continue;
-        }
-        if name_use.kind() == ComparableNameUseKind::Derived
-            && is_build_flag_family_name(reference_name)
-            && !is_braced_parameter_use(checker.source(), name_use.span())
-        {
+    for name_use in index.references() {
+        let reference_name = name_use.name.as_str();
+        if !seen.insert((name_use.name.clone(), name_use.span.start.offset)) {
             continue;
         }
         if !looks_like_case_mismatch_reference(reference_name) {
@@ -282,41 +274,31 @@ fn scope_compat_findings(
         if is_known_runtime_name(reference_name) || is_internal_placeholder_name(reference_name) {
             continue;
         }
-        if has_prior_guarded_reference(guarded_name_offsets, reference_name, name_use.span()) {
+        if has_prior_guarded_reference(guarded_name_offsets, reference_name, name_use.span) {
             continue;
         }
-        if has_suppressed_reference_span(
-            suppressed_reference_spans,
-            reference_name,
-            name_use.span(),
-        ) {
+        if has_suppressed_reference_span(suppressed_reference_spans, reference_name, name_use.span)
+        {
             continue;
         }
         if has_same_name_defining_bindings(checker, &Name::from(reference_name)) {
             continue;
         }
-        if is_presence_tested_reference_name(checker, reference_name, name_use.span()) {
+        if is_presence_tested_reference_name(checker, reference_name, name_use.span) {
             continue;
         }
 
-        let candidate =
-            match preferred_scope_compat_candidate_name(checker, candidate_cache, reference_name) {
-                Some(candidate) => candidate,
-                None => continue,
-            };
-        if !is_scope_compat_pair(checker, reference_name, name_use.span(), candidate.as_str()) {
+        let Some(candidate) = preferred_scope_compat_candidate_name_fast(&index, reference_name)
+        else {
             continue;
-        }
-        if is_build_flag_family_non_report_pair(reference_name, candidate.as_str()) {
-            continue;
-        }
-        if is_hostid_label_echo(reference_name, name_use.span(), checker.source()) {
+        };
+        if is_hostid_label_echo(reference_name, name_use.span, checker.source()) {
             continue;
         }
         if is_parallel_c_and_cxx_flag_use(
             checker,
             reference_name,
-            name_use.span(),
+            name_use.span,
             candidate.as_str(),
         ) {
             continue;
@@ -324,14 +306,14 @@ fn scope_compat_findings(
         if is_literal_numbered_suffix_variant(
             checker.source(),
             reference_name,
-            name_use.span(),
+            name_use.span,
             candidate.as_str(),
         ) {
             continue;
         }
 
         findings.push((
-            parameter_reference_span(checker.source(), name_use.span()),
+            parameter_reference_span(checker.source(), name_use.span),
             reference_name.to_owned(),
             candidate,
         ));
@@ -340,9 +322,174 @@ fn scope_compat_findings(
     findings
 }
 
-fn is_scope_compat_reference_name(reference_name: &str, kind: ComparableNameUseKind) -> bool {
-    reference_name == "SHELLSPEC_EXECDIR"
-        || kind == ComparableNameUseKind::Derived && is_build_flag_family_name(reference_name)
+#[derive(Default)]
+struct ScopeCompatIndex {
+    exact_candidates: FxHashMap<String, ScopeCompatCandidate>,
+    build_flag_candidates: FxHashMap<String, ScopeCompatCandidate>,
+    shellspec_execdir_references: Vec<ScopeCompatUse>,
+    build_flag_references: Vec<ScopeCompatUse>,
+}
+
+#[derive(Clone)]
+struct ScopeCompatCandidate {
+    name: String,
+    span: Span,
+}
+
+struct ScopeCompatUse {
+    name: String,
+    span: Span,
+}
+
+impl ScopeCompatIndex {
+    fn references(&self) -> impl Iterator<Item = &ScopeCompatUse> {
+        self.shellspec_execdir_references
+            .iter()
+            .chain(self.build_flag_references.iter())
+    }
+
+    fn add_exact_candidate(&mut self, name: &str, span: Span) {
+        insert_earliest_candidate(&mut self.exact_candidates, name.to_owned(), name, span);
+    }
+
+    fn add_build_flag_candidate(&mut self, name: &str, span: Span) {
+        insert_earliest_candidate(&mut self.build_flag_candidates, name.to_owned(), name, span);
+    }
+
+    fn best_exact_candidate(&self, name: &str) -> Option<String> {
+        self.exact_candidates
+            .get(name)
+            .map(|candidate| candidate.name.clone())
+    }
+
+    fn best_candidate_by_name(&self, name: &str) -> Option<&ScopeCompatCandidate> {
+        self.build_flag_candidates.get(name)
+    }
+}
+
+fn insert_earliest_candidate(
+    candidates: &mut FxHashMap<String, ScopeCompatCandidate>,
+    key: String,
+    name: &str,
+    span: Span,
+) {
+    let candidate = ScopeCompatCandidate {
+        name: name.to_owned(),
+        span,
+    };
+    candidates
+        .entry(key)
+        .and_modify(|current| {
+            if (span.start.offset, span.end.offset)
+                < (current.span.start.offset, current.span.end.offset)
+            {
+                *current = candidate.clone();
+            }
+        })
+        .or_insert(candidate);
+}
+
+fn add_scope_compat_binding_candidates(index: &mut ScopeCompatIndex, checker: &Checker<'_>) {
+    for binding in checker.semantic().bindings() {
+        let name = binding.name.as_str();
+        if name == "SHELLSPEC_SPECDIR" {
+            index.add_exact_candidate(name, binding.span);
+        }
+        if is_reportable_build_flag_family_name(name) {
+            index.add_build_flag_candidate(name, binding.span);
+        }
+    }
+}
+
+fn add_scope_compat_presence_test_candidates(index: &mut ScopeCompatIndex, checker: &Checker<'_>) {
+    for (name, span) in checker
+        .facts()
+        .presence_test_candidate_spans(checker.semantic())
+    {
+        let name = name.as_str();
+        if name == "SHELLSPEC_SPECDIR" {
+            index.add_exact_candidate(name, span);
+        }
+        if is_reportable_build_flag_family_name(name) {
+            index.add_build_flag_candidate(name, span);
+        }
+    }
+}
+
+fn add_scope_compat_name_uses(index: &mut ScopeCompatIndex, checker: &Checker<'_>) {
+    for name_use in checker
+        .facts()
+        .possible_variable_misspelling_scope_compat_name_uses()
+    {
+        let name = name_use.key().as_str();
+        if name == "SHELLSPEC_EXECDIR" {
+            index.shellspec_execdir_references.push(ScopeCompatUse {
+                name: name.to_owned(),
+                span: name_use.span(),
+            });
+            continue;
+        }
+        if name == "SHELLSPEC_SPECDIR" {
+            index.add_exact_candidate(name, name_use.span());
+            continue;
+        }
+        if !is_reportable_build_flag_family_name(name) {
+            continue;
+        }
+
+        index.add_build_flag_candidate(name, name_use.span());
+        if name_use.kind() != ComparableNameUseKind::Derived
+            || !is_braced_parameter_use(checker.source(), name_use.span())
+        {
+            continue;
+        }
+        index.build_flag_references.push(ScopeCompatUse {
+            name: name.to_owned(),
+            span: name_use.span(),
+        });
+    }
+}
+
+fn preferred_scope_compat_candidate_name_fast(
+    index: &ScopeCompatIndex,
+    reference_name: &str,
+) -> Option<String> {
+    if reference_name == "SHELLSPEC_EXECDIR" {
+        return index.best_exact_candidate("SHELLSPEC_SPECDIR");
+    }
+    best_build_flag_candidate(index, reference_name)
+}
+
+fn best_build_flag_candidate(index: &ScopeCompatIndex, reference_name: &str) -> Option<String> {
+    let (prefix, reference_suffix) = split_build_flag_family_name(reference_name)?;
+    compatible_build_flag_candidate_suffixes(reference_suffix)
+        .iter()
+        .filter_map(|candidate_suffix| {
+            let candidate_name = if prefix.is_empty() {
+                (*candidate_suffix).to_owned()
+            } else {
+                format!("{prefix}{candidate_suffix}")
+            };
+            index.best_candidate_by_name(&candidate_name)
+        })
+        .min_by_key(|candidate| (candidate.span.start.offset, candidate.span.end.offset))
+        .map(|candidate| candidate.name.clone())
+}
+
+fn compatible_build_flag_candidate_suffixes(reference_suffix: &str) -> &'static [&'static str] {
+    match reference_suffix {
+        "CFLAGS" => &["CXXFLAGS", "CPPFLAGS"],
+        "CPPFLAGS" => &["CXXFLAGS"],
+        "CXXFLAGS" => &["CPPFLAGS"],
+        _ => &[],
+    }
+}
+
+fn source_may_have_scope_compat_misspelling(source: &str) -> bool {
+    source.contains("SHELLSPEC_EXECDIR")
+        || source.contains("CFLAGS")
+        || source.contains("CPPFLAGS")
+        || source.contains("CXXFLAGS")
 }
 
 fn is_braced_parameter_use(source: &str, span: Span) -> bool {
@@ -350,72 +497,6 @@ fn is_braced_parameter_use(source: &str, span: Span) -> bool {
         .as_bytes()
         .get(span.start.offset..span.start.offset + 2)
         .is_some_and(|prefix| prefix == b"${")
-}
-
-fn preferred_scope_compat_candidate_name(
-    checker: &Checker<'_>,
-    candidate_cache: &mut FxHashMap<String, Option<String>>,
-    reference_name: &str,
-) -> Option<String> {
-    cached_candidate_name(candidate_cache, checker, reference_name)
-        .or_else(|| build_flag_scope_candidate_name(checker, reference_name))
-}
-
-fn build_flag_scope_candidate_name(checker: &Checker<'_>, reference_name: &str) -> Option<String> {
-    if !is_build_flag_family_name(reference_name) {
-        return None;
-    }
-
-    checker
-        .semantic()
-        .bindings()
-        .iter()
-        .filter_map(|binding| {
-            let candidate_name = binding.name.as_str();
-            if candidate_name == reference_name
-                || !is_build_flag_misspelling_report_pair(reference_name, candidate_name)
-            {
-                return None;
-            }
-            Some((
-                binding.span.start.offset,
-                binding.span.end.offset,
-                candidate_name.to_owned(),
-            ))
-        })
-        .chain(
-            checker
-                .facts()
-                .possible_variable_misspelling_scope_compat_name_uses()
-                .iter()
-                .filter_map(|name_use| {
-                    let candidate_name = name_use.key().as_str();
-                    if candidate_name == reference_name
-                        || !is_build_flag_misspelling_report_pair(reference_name, candidate_name)
-                    {
-                        return None;
-                    }
-                    Some((
-                        name_use.span().start.offset,
-                        name_use.span().end.offset,
-                        candidate_name.to_owned(),
-                    ))
-                }),
-        )
-        .min_by_key(|(start, end, _)| (*start, *end))
-        .map(|(_, _, name)| name)
-}
-
-fn is_scope_compat_pair(
-    _checker: &Checker<'_>,
-    reference_name: &str,
-    _reference_span: Span,
-    candidate_name: &str,
-) -> bool {
-    match (reference_name, candidate_name) {
-        ("SHELLSPEC_EXECDIR", "SHELLSPEC_SPECDIR") => true,
-        _ => is_build_flag_misspelling_report_pair(reference_name, candidate_name),
-    }
 }
 
 fn has_prior_guarded_reference(
@@ -591,6 +672,13 @@ fn split_build_flag_family_name(name: &str) -> Option<(&str, &'static str)> {
                     .map(|prefix| (prefix, suffix))
             }
         })
+}
+
+fn is_reportable_build_flag_family_name(name: &str) -> bool {
+    let Some((_, suffix)) = split_build_flag_family_name(name) else {
+        return false;
+    };
+    matches!(suffix, "CFLAGS" | "CPPFLAGS" | "CXXFLAGS")
 }
 
 fn is_build_flag_family_name(name: &str) -> bool {
@@ -1226,6 +1314,105 @@ done
     }
 
     #[test]
+    fn reports_build_flag_scope_compat_with_presence_test_candidate() {
+        let source = "\
+#!/bin/bash
+if [ -n \"${CXXFLAGS}\" ]; then :; fi
+for f in ${CFLAGS}; do
+  echo \"c flag: ${f}\"
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CFLAGS}"]
+        );
+    }
+
+    #[test]
+    fn reports_build_flag_scope_compat_with_unbraced_derived_candidate() {
+        let source = "\
+#!/bin/bash
+for f in $CXXFLAGS; do
+  echo \"cxx flag: ${f}\"
+done
+for f in ${CFLAGS}; do
+  echo \"c flag: ${f}\"
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CFLAGS}"]
+        );
+    }
+
+    #[test]
+    fn reports_build_flag_scope_compat_with_parameter_candidate() {
+        let source = "\
+#!/bin/bash
+tmp=\"${CXXFLAGS}\"
+for f in ${CFLAGS}; do
+  echo \"c flag: ${f}\"
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CFLAGS}"]
+        );
+    }
+
+    #[test]
+    fn reports_build_flag_scope_compat_with_quoted_derived_candidate() {
+        let source = "\
+#!/bin/bash
+declare -r EXTRA_FLAGS=\"\\
+$(
+for f in \"${CXXFLAGS}\"; do
+  echo \"cxx flag: ${f}\"
+done
+for f in ${CFLAGS}; do
+  echo \"c flag: ${f}\"
+done
+)\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CFLAGS}"]
+        );
+    }
+
+    #[test]
     fn reports_build_flag_family_references_in_declaration_command_substitution_loop_headers() {
         let source = "\
 #!/bin/bash
@@ -1261,6 +1448,29 @@ if [ ! \"$SHELLSPEC_PROJECT_ROOT\" ]; then
   esac
 fi
 export SHELLSPEC_SPECDIR=\"$SHELLSPEC_HELPERDIR\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$SHELLSPEC_EXECDIR"]
+        );
+    }
+
+    #[test]
+    fn reports_shellspec_execdir_with_presence_test_candidate() {
+        let source = "\
+#!/bin/sh
+if [ -n \"$SHELLSPEC_SPECDIR\" ]; then :; fi
+case $SHELLSPEC_EXECDIR in (@basedir*)
+  exit 1
+esac
 ";
         let diagnostics = test_snippet(
             source,
