@@ -1,17 +1,22 @@
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::BTreeSet;
 use std::path::Path;
 
-use shuck_ast::Name;
+use shuck_ast::{
+    BuiltinCommand, Command, CompoundCommand, File, Name, SimpleCommand,
+    StaticCommandWrapperTarget, Stmt, StmtSeq, Word, static_command_name_text,
+    static_command_wrapper_target_index, static_word_text,
+};
 use shuck_semantic::{ContractCertainty, FileContract, ProvidedBinding, ProvidedBindingKind};
 
 use crate::ShellDialect;
 
 struct AmbientContractProvider {
-    matches: fn(source: &str, path: &Path, shell: ShellDialect) -> bool,
-    build: fn(source: &str, path: &Path, shell: ShellDialect) -> FileContract,
+    matches: fn(file: &File, source: &str, path: &Path, shell: ShellDialect) -> bool,
+    build: fn(file: &File, source: &str, path: &Path, shell: ShellDialect) -> FileContract,
 }
 
 pub(crate) fn file_entry_contract(
+    file: &File,
     source: &str,
     path: Option<&Path>,
     shell: ShellDialect,
@@ -21,9 +26,9 @@ pub(crate) fn file_entry_contract(
     let mut matched = false;
 
     for provider in providers() {
-        if (provider.matches)(source, path, shell) {
+        if (provider.matches)(file, source, path, shell) {
             matched = true;
-            merge_contract(&mut merged, (provider.build)(source, path, shell));
+            merge_contract(&mut merged, (provider.build)(file, source, path, shell));
         }
     }
 
@@ -50,16 +55,26 @@ fn merge_contract(merged: &mut FileContract, contract: FileContract) {
     }
 }
 
-fn matches_sourced_runtime_contract(source: &str, path: &Path, _shell: ShellDialect) -> bool {
+fn matches_sourced_runtime_contract(
+    file: &File,
+    source: &str,
+    path: &Path,
+    _shell: ShellDialect,
+) -> bool {
     let lower = lower_path(path);
-    sourced_runtime_path_shape(&lower) && sourced_runtime_source_shape(source, &lower)
+    sourced_runtime_path_shape(&lower) && sourced_runtime_source_shape(file, source, &lower)
 }
 
-fn build_sourced_runtime_contract(source: &str, path: &Path, _shell: ShellDialect) -> FileContract {
+fn build_sourced_runtime_contract(
+    file: &File,
+    source: &str,
+    path: &Path,
+    _shell: ShellDialect,
+) -> FileContract {
     let lower = lower_path(path);
     let mut names = BTreeSet::new();
 
-    for name in runtime_names_for_source_path(source, &lower) {
+    for name in runtime_names_for_source_path(file, source, &lower) {
         names.insert((*name).to_owned());
     }
 
@@ -101,16 +116,21 @@ fn sourced_runtime_path_shape(lower: &str) -> bool {
     )
 }
 
-fn sourced_runtime_source_shape(source: &str, lower_path: &str) -> bool {
+fn sourced_runtime_source_shape(file: &File, source: &str, lower_path: &str) -> bool {
     has_probable_function_definition(source)
         || has_source_command(source)
         || source.contains("PROMPT_COMMAND")
         || source.contains("COMPREPLY")
         || source.contains("about-completion")
         || (lower_path.contains("termux-packages") && source.contains("TERMUX_"))
+        || completion_runtime_source_shape(file, source)
 }
 
-fn runtime_names_for_source_path(source: &str, lower: &str) -> &'static [&'static str] {
+fn runtime_names_for_source_path(
+    file: &File,
+    source: &str,
+    lower: &str,
+) -> &'static [&'static str] {
     if bash_it_theme_runtime_shape(source, lower) {
         return &[
             "black",
@@ -136,7 +156,7 @@ fn runtime_names_for_source_path(source: &str, lower: &str) -> &'static [&'stati
         ];
     }
 
-    if completion_runtime_shape(source, lower) {
+    if completion_runtime_shape(file, source, lower) {
         return &["cur", "prev", "words", "cword", "comp_args", "split"];
     }
 
@@ -174,8 +194,8 @@ fn bash_it_theme_runtime_shape(source: &str, lower: &str) -> bool {
             ))
 }
 
-fn completion_runtime_shape(source: &str, lower: &str) -> bool {
-    completion_runtime_path_shape(lower) && completion_runtime_source_shape(source)
+fn completion_runtime_shape(file: &File, source: &str, lower: &str) -> bool {
+    completion_runtime_path_shape(lower) && completion_runtime_source_shape(file, source)
 }
 
 fn completion_runtime_path_shape(lower: &str) -> bool {
@@ -192,297 +212,151 @@ fn completion_runtime_path_shape(lower: &str) -> bool {
     )
 }
 
-fn completion_runtime_source_shape(source: &str) -> bool {
-    let mut pending_heredocs = VecDeque::new();
+fn completion_runtime_source_shape(file: &File, source: &str) -> bool {
+    stmt_seq_invokes_completion_initializer(&file.body, source)
+}
 
-    for line in source.lines() {
-        if skip_heredoc_body_line(line, &mut pending_heredocs) {
-            continue;
+fn stmt_seq_invokes_completion_initializer(sequence: &StmtSeq, source: &str) -> bool {
+    sequence
+        .iter()
+        .any(|stmt| stmt_invokes_completion_initializer(stmt, source))
+}
+
+fn stmt_invokes_completion_initializer(stmt: &Stmt, source: &str) -> bool {
+    command_invokes_completion_initializer(&stmt.command, source)
+}
+
+fn command_invokes_completion_initializer(command: &Command, source: &str) -> bool {
+    match command {
+        Command::Simple(command) => simple_command_invokes_completion_initializer(command, source),
+        Command::Builtin(command) => builtin_invokes_completion_initializer(command, source),
+        Command::Decl(_) => false,
+        Command::Binary(command) => {
+            stmt_invokes_completion_initializer(&command.left, source)
+                || stmt_invokes_completion_initializer(&command.right, source)
         }
-
-        if line_invokes_completion_initializer_command(line) {
-            return true;
+        Command::Compound(command) => compound_invokes_completion_initializer(command, source),
+        Command::Function(function) => stmt_invokes_completion_initializer(&function.body, source),
+        Command::AnonymousFunction(function) => {
+            stmt_invokes_completion_initializer(&function.body, source)
         }
-
-        pending_heredocs.extend(heredoc_delimiters_in_code_line(line));
     }
+}
 
+fn simple_command_invokes_completion_initializer(command: &SimpleCommand, source: &str) -> bool {
+    let words = std::iter::once(&command.name)
+        .chain(command.args.iter())
+        .collect::<Vec<_>>();
+    word_chain_invokes_completion_initializer(&words, source)
+}
+
+fn builtin_invokes_completion_initializer(_command: &BuiltinCommand, _source: &str) -> bool {
     false
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PendingHeredocDelimiter {
-    text: String,
-    strip_tabs: bool,
-}
-
-fn skip_heredoc_body_line(
-    line: &str,
-    pending_heredocs: &mut VecDeque<PendingHeredocDelimiter>,
-) -> bool {
-    let Some(delimiter) = pending_heredocs.front() else {
-        return false;
-    };
-
-    if heredoc_line_matches_delimiter(line, delimiter) {
-        pending_heredocs.pop_front();
-    }
-    true
-}
-
-fn heredoc_line_matches_delimiter(line: &str, delimiter: &PendingHeredocDelimiter) -> bool {
-    let candidate = if delimiter.strip_tabs {
-        line.trim_start_matches('\t')
-    } else {
-        line
-    };
-    candidate == delimiter.text
-}
-
-fn heredoc_delimiters_in_code_line(line: &str) -> Vec<PendingHeredocDelimiter> {
-    let mut delimiters = Vec::new();
+fn word_chain_invokes_completion_initializer(words: &[&Word], source: &str) -> bool {
     let mut index = 0;
-    let mut escaped = false;
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut previous = None;
 
-    while index < line.len() {
-        let ch = line[index..].chars().next().expect("index is in bounds");
-        let next_index = index + ch.len_utf8();
+    while let Some(word) = words.get(index) {
+        let Some(name) = static_command_name_text(word, source) else {
+            return false;
+        };
 
-        if in_single_quote {
-            in_single_quote = ch != '\'';
-            previous = Some(ch);
-            index = next_index;
-            continue;
-        }
-
-        if in_double_quote {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_double_quote = false;
-            }
-            previous = Some(ch);
-            index = next_index;
-            continue;
-        }
-
-        if escaped {
-            escaped = false;
-            previous = Some(ch);
-            index = next_index;
-            continue;
-        }
-
-        if ch == '#' && shell_comment_can_start_after(previous) {
-            break;
-        }
-
-        if ch == '<' && line[index..].starts_with("<<") && !line[index..].starts_with("<<<") {
-            let strip_tabs = line[index..].starts_with("<<-");
-            let delimiter_start = index + if strip_tabs { 3 } else { 2 };
-            if let Some((delimiter, delimiter_end)) =
-                parse_heredoc_delimiter(line, delimiter_start, strip_tabs)
-            {
-                delimiters.push(delimiter);
-                previous = None;
-                index = delimiter_end;
-                continue;
-            }
-        }
-
-        match ch {
-            '\\' => escaped = true,
-            '\'' => in_single_quote = true,
-            '"' => in_double_quote = true,
-            _ => {}
-        }
-
-        previous = Some(ch);
-        index = next_index;
-    }
-
-    delimiters
-}
-
-fn parse_heredoc_delimiter(
-    line: &str,
-    mut index: usize,
-    strip_tabs: bool,
-) -> Option<(PendingHeredocDelimiter, usize)> {
-    let mut skipped_spacing = false;
-    while index < line.len() {
-        let ch = line[index..].chars().next().expect("index is in bounds");
-        if !matches!(ch, ' ' | '\t') {
-            break;
-        }
-        skipped_spacing = true;
-        index += ch.len_utf8();
-    }
-
-    if skipped_spacing && line[index..].starts_with('#') {
-        return None;
-    }
-
-    let mut text = String::new();
-    let mut escaped = false;
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-
-    while index < line.len() {
-        let ch = line[index..].chars().next().expect("index is in bounds");
-        let next_index = index + ch.len_utf8();
-
-        if escaped {
-            text.push(ch);
-            escaped = false;
-            index = next_index;
-            continue;
-        }
-
-        if in_single_quote {
-            if ch == '\'' {
-                in_single_quote = false;
-            } else {
-                text.push(ch);
-            }
-            index = next_index;
-            continue;
-        }
-
-        if in_double_quote {
-            if ch == '"' {
-                in_double_quote = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else {
-                text.push(ch);
-            }
-            index = next_index;
-            continue;
-        }
-
-        match ch {
-            '\\' => escaped = true,
-            '\'' => in_single_quote = true,
-            '"' => in_double_quote = true,
-            _ if heredoc_delimiter_terminator(ch) => break,
-            _ => text.push(ch),
-        }
-
-        index = next_index;
-    }
-
-    (!text.is_empty()).then_some((PendingHeredocDelimiter { text, strip_tabs }, index))
-}
-
-fn heredoc_delimiter_terminator(ch: char) -> bool {
-    ch.is_whitespace() || matches!(ch, ';' | '&' | '|' | '<' | '>' | '(' | ')' | '{' | '}')
-}
-
-fn line_invokes_completion_initializer_command(line: &str) -> bool {
-    let mut command_position = true;
-    let mut escaped = false;
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut previous = None;
-    let mut token_start = None;
-
-    for (index, ch) in line.char_indices() {
-        if in_single_quote {
-            in_single_quote = ch != '\'';
-            previous = Some(ch);
-            continue;
-        }
-
-        if in_double_quote {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_double_quote = false;
-            }
-            previous = Some(ch);
-            continue;
-        }
-
-        if escaped {
-            escaped = false;
-            previous = Some(ch);
-            continue;
-        }
-
-        if ch == '#' && shell_comment_can_start_after(previous) {
-            if let Some(start) = token_start.take()
-                && completion_initializer_token(
-                    &line[start..index],
-                    &line[index..],
-                    &mut command_position,
-                )
-            {
-                return true;
-            }
-            break;
-        }
-
-        if is_completion_runtime_token_char(ch) {
-            token_start.get_or_insert(index);
-            previous = Some(ch);
-            continue;
-        }
-
-        if let Some(start) = token_start.take()
-            && completion_initializer_token(
-                &line[start..index],
-                &line[index..],
-                &mut command_position,
-            )
-        {
+        if is_completion_initializer_command(name.as_ref()) {
             return true;
         }
 
-        match ch {
-            '\\' => escaped = true,
-            '\'' => in_single_quote = true,
-            '"' => in_double_quote = true,
-            ';' | '&' | '|' | '(' | '{' | '!' => command_position = true,
-            _ => {}
+        if name == "env" {
+            let Some(target_index) = env_wrapper_target_index(words, source, index) else {
+                return false;
+            };
+            index = target_index;
+            continue;
         }
-        previous = Some(ch);
+
+        match static_command_wrapper_target_index(words.len(), index, name.as_ref(), |index| {
+            static_word_text(words[index], source)
+        }) {
+            StaticCommandWrapperTarget::Wrapper {
+                target_index: Some(target_index),
+            } => index = target_index,
+            StaticCommandWrapperTarget::Wrapper { target_index: None }
+            | StaticCommandWrapperTarget::NotWrapper => return false,
+        }
     }
 
-    token_start.is_some_and(|start| {
-        completion_initializer_token(&line[start..], "", &mut command_position)
-    })
-}
-
-fn completion_initializer_token(token: &str, following: &str, command_position: &mut bool) -> bool {
-    if *command_position
-        && is_completion_initializer_command(token)
-        && !starts_function_definition_suffix(following)
-    {
-        return true;
-    }
-
-    if shell_assignment_token(token) {
-        return false;
-    }
-
-    *command_position = shell_control_token_keeps_command_position(token);
     false
 }
 
-fn shell_comment_can_start_after(previous: Option<char>) -> bool {
-    previous.is_none_or(|ch| ch.is_whitespace() || matches!(ch, ';' | '&' | '|' | '(' | '{'))
+fn env_wrapper_target_index(words: &[&Word], source: &str, current_index: usize) -> Option<usize> {
+    current_index
+        .checked_add(1)
+        .and_then(|start| words.get(start..))?
+        .iter()
+        .enumerate()
+        .find_map(|(relative_index, word)| {
+            let text = static_word_text(word, source)?;
+            (!shell_assignment_token(text.as_ref())).then_some(current_index + 1 + relative_index)
+        })
 }
 
-fn starts_function_definition_suffix(following: &str) -> bool {
-    following.trim_start().starts_with("()")
+fn compound_invokes_completion_initializer(command: &CompoundCommand, source: &str) -> bool {
+    match command {
+        CompoundCommand::If(command) => {
+            stmt_seq_invokes_completion_initializer(&command.condition, source)
+                || stmt_seq_invokes_completion_initializer(&command.then_branch, source)
+                || command.elif_branches.iter().any(|(condition, body)| {
+                    stmt_seq_invokes_completion_initializer(condition, source)
+                        || stmt_seq_invokes_completion_initializer(body, source)
+                })
+                || command
+                    .else_branch
+                    .as_ref()
+                    .is_some_and(|branch| stmt_seq_invokes_completion_initializer(branch, source))
+        }
+        CompoundCommand::For(command) => {
+            stmt_seq_invokes_completion_initializer(&command.body, source)
+        }
+        CompoundCommand::Repeat(command) => {
+            stmt_seq_invokes_completion_initializer(&command.body, source)
+        }
+        CompoundCommand::Foreach(command) => {
+            stmt_seq_invokes_completion_initializer(&command.body, source)
+        }
+        CompoundCommand::ArithmeticFor(command) => {
+            stmt_seq_invokes_completion_initializer(&command.body, source)
+        }
+        CompoundCommand::While(command) => {
+            stmt_seq_invokes_completion_initializer(&command.condition, source)
+                || stmt_seq_invokes_completion_initializer(&command.body, source)
+        }
+        CompoundCommand::Until(command) => {
+            stmt_seq_invokes_completion_initializer(&command.condition, source)
+                || stmt_seq_invokes_completion_initializer(&command.body, source)
+        }
+        CompoundCommand::Case(command) => command
+            .cases
+            .iter()
+            .any(|case| stmt_seq_invokes_completion_initializer(&case.body, source)),
+        CompoundCommand::Select(command) => {
+            stmt_seq_invokes_completion_initializer(&command.body, source)
+        }
+        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
+            stmt_seq_invokes_completion_initializer(commands, source)
+        }
+        CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => false,
+        CompoundCommand::Time(command) => command
+            .command
+            .as_ref()
+            .is_some_and(|stmt| stmt_invokes_completion_initializer(stmt, source)),
+        CompoundCommand::Coproc(command) => {
+            stmt_invokes_completion_initializer(&command.body, source)
+        }
+        CompoundCommand::Always(command) => {
+            stmt_seq_invokes_completion_initializer(&command.body, source)
+                || stmt_seq_invokes_completion_initializer(&command.always_body, source)
+        }
+    }
 }
 
 fn is_completion_initializer_command(token: &str) -> bool {
@@ -503,26 +377,6 @@ fn shell_assignment_token(token: &str) -> bool {
     };
     (first == '_' || first.is_ascii_alphabetic())
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-}
-
-fn shell_control_token_keeps_command_position(token: &str) -> bool {
-    matches!(
-        token,
-        "if" | "then"
-            | "do"
-            | "else"
-            | "elif"
-            | "while"
-            | "until"
-            | "time"
-            | "command"
-            | "builtin"
-            | "env"
-    )
-}
-
-fn is_completion_runtime_token_char(ch: char) -> bool {
-    ch == '_' || ch == '-' || ch == '=' || ch.is_ascii_alphanumeric()
 }
 
 fn lower_path(path: &Path) -> String {
@@ -574,9 +428,11 @@ fn source_mentions_name(source: &str, name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shuck_parser::parser::Parser;
 
     fn contract_for(path: &Path, source: &str) -> Option<FileContract> {
-        file_entry_contract(source, Some(path), ShellDialect::Sh)
+        let output = Parser::new(source).parse().unwrap();
+        file_entry_contract(&output.file, source, Some(path), ShellDialect::Sh)
     }
 
     fn has_initialized_binding(contract: &FileContract, name: &str) -> bool {
@@ -716,6 +572,25 @@ _example() {
         assert!(!has_initialized_binding(&contract, "cur"));
         assert!(!has_initialized_binding(&contract, "cword"));
         assert!(!has_initialized_binding(&contract, "comp_args"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn bash_completion_paths_with_chained_initializer_wrappers_get_ambient_completion_contracts() {
+        let path = Path::new("/tmp/bash-completion/completions/example.bash");
+        let source = "\
+_example() {
+  command env LC_ALL=C _init_completion || return
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+";
+
+        let contract = contract_for(path, source).unwrap();
+
+        assert!(has_ambient_binding(&contract, "cur"));
+        assert!(has_ambient_binding(&contract, "cword"));
+        assert!(!has_initialized_binding(&contract, "cur"));
+        assert!(!has_initialized_binding(&contract, "cword"));
         assert!(!contract.externally_consumed_bindings);
     }
 
