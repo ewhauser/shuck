@@ -892,7 +892,10 @@ fn skip_ascii_whitespace(source: &str, mut offset: usize) -> usize {
 }
 
 fn is_yaml_anchor_name_char(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.')
+    !matches!(
+        ch,
+        '\0' | '\n' | '\r' | '\u{feff}' | ' ' | '\t' | ',' | '[' | ']' | '{' | '}'
+    )
 }
 
 struct SourceMapping {
@@ -2013,6 +2016,25 @@ jobs:
                 },
             ]
         );
+    }
+
+    #[test]
+    fn remaps_aliased_quoted_run_scalars_after_non_alpha_anchor_token() {
+        let source = r#"
+on: push
+x-run: &run/name "echo\t\"hi\""
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: *run/name
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "echo\t\"hi\"");
+        assert_eq!(scripts[0].host_start_line, 3);
+        assert_eq!(scripts[0].host_start_column, 19);
     }
 
     #[test]
