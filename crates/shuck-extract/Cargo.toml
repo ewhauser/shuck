@@ -11,4 +11,5 @@ readme = "README.md"
 
 [dependencies]
 anyhow = { workspace = true }
-marked-yaml = { workspace = true }
+saphyr = { workspace = true }
+saphyr-parser = { workspace = true }

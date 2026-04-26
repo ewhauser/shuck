@@ -7,10 +7,16 @@ use std::ops::Range;
 use std::path::Path;
 
 use anyhow::{Result, anyhow};
-use marked_yaml::{Node, parse_yaml};
+use saphyr::{
+    AnnotatedMapping, AnnotatedSequence, MarkedYaml, Scalar, ScanError, YamlData, YamlLoader,
+};
+use saphyr_parser::{BufferedInput, Event, Marker, Parser, Span, SpannedEventReceiver};
 
-const GITHUB_ACTIONS_SOURCE_ID: usize = 0;
 const GITHUB_ACTIONS_PLACEHOLDER_PREFIX: &str = "_SHUCK_GHA_";
+
+type YamlNode<'a> = MarkedYaml<'a>;
+type YamlMapping<'a> = AnnotatedMapping<'a, YamlNode<'a>>;
+type YamlSequence<'a> = AnnotatedSequence<YamlNode<'a>>;
 
 /// A shell snippet extracted from a host file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,14 +169,14 @@ impl Extractor for GitHubActionsExtractor {
     fn probe(&self, source: &str) -> bool {
         parse_github_actions_yaml(source)
             .ok()
-            .and_then(|node| node.as_mapping().cloned())
-            .is_some_and(|mapping| is_github_actions_mapping(&mapping))
+            .and_then(|parsed| yaml_as_mapping(&parsed.root).map(is_github_actions_mapping))
+            .unwrap_or(false)
     }
 
     fn extract(&self, source: &str) -> Result<Vec<EmbeddedScript>> {
-        let root = parse_github_actions_yaml(source)
+        let parsed = parse_github_actions_yaml(source)
             .map_err(|err| anyhow!("parse GitHub Actions YAML: {err}"))?;
-        let Some(root) = root.as_mapping() else {
+        let Some(root) = yaml_as_mapping(&parsed.root) else {
             return Ok(Vec::new());
         };
         if !is_github_actions_mapping(root) {
@@ -178,633 +184,143 @@ impl Extractor for GitHubActionsExtractor {
         }
 
         if is_composite_action(root) {
-            extract_composite_action(root, source)
+            extract_composite_action(root, source, &parsed.alias_spans)
         } else {
-            extract_workflow(root, source)
+            extract_workflow(root, source, &parsed.alias_spans)
         }
     }
 }
 
-fn parse_github_actions_yaml(source: &str) -> std::result::Result<Node, marked_yaml::LoadError> {
-    if source_has_yaml_anchors_or_aliases(source) {
-        let sanitized = sanitize_yaml_anchors_and_aliases(source);
-        parse_yaml(GITHUB_ACTIONS_SOURCE_ID, sanitized)
-    } else {
-        parse_yaml(GITHUB_ACTIONS_SOURCE_ID, source)
+struct ParsedGithubActionsYaml<'a> {
+    root: YamlNode<'a>,
+    alias_spans: HashMap<YamlMarkerKey, Span>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct YamlMarkerKey {
+    index: usize,
+    line: usize,
+    column: usize,
+}
+
+impl From<Marker> for YamlMarkerKey {
+    fn from(marker: Marker) -> Self {
+        Self {
+            index: marker.index(),
+            line: marker.line(),
+            column: marker.col(),
+        }
     }
 }
 
-// marked-yaml rejects anchors and aliases, but GHA workflows often use them
-// around env maps, shells, or shared steps. Remove only the YAML metadata
-// outside block scalars; aliases become null when we cannot preserve the
-// referenced scalar in place.
-fn source_has_yaml_anchors_or_aliases(source: &str) -> bool {
-    let mut block_parent_indent = None;
-    let mut quote = YamlLineQuote::Unquoted;
-    for line in source.lines() {
-        let indent = leading_space_count(line);
-        if let Some(parent_indent) = block_parent_indent {
-            if line.trim().is_empty() || indent > parent_indent {
-                continue;
+struct GithubActionsYamlReceiver<'a> {
+    loader: YamlLoader<'a, YamlNode<'a>>,
+    anchor_spans: HashMap<usize, Span>,
+    alias_spans: HashMap<YamlMarkerKey, Span>,
+}
+
+impl<'a> GithubActionsYamlReceiver<'a> {
+    fn new() -> Self {
+        let mut loader = YamlLoader::default();
+        loader.early_parse(false);
+        Self {
+            loader,
+            anchor_spans: HashMap::new(),
+            alias_spans: HashMap::new(),
+        }
+    }
+}
+
+impl<'a> SpannedEventReceiver<'a> for GithubActionsYamlReceiver<'a> {
+    fn on_event(&mut self, event: Event<'a>, span: Span) {
+        match &event {
+            Event::Scalar(_, _, anchor_id, _)
+            | Event::SequenceStart(anchor_id, _)
+            | Event::MappingStart(anchor_id, _)
+                if *anchor_id > 0 =>
+            {
+                self.anchor_spans.insert(*anchor_id, span);
             }
-            block_parent_indent = None;
-        }
-
-        if line_has_yaml_anchor_or_alias(line, &mut quote) {
-            return true;
-        }
-        if quote == YamlLineQuote::Unquoted && line_starts_block_scalar(line) {
-            block_parent_indent = Some(indent);
-        }
-    }
-    false
-}
-
-fn sanitize_yaml_anchors_and_aliases(source: &str) -> String {
-    let mut anchor_values = HashMap::new();
-    let mut output = String::with_capacity(source.len());
-    let mut block_parent_indent = None;
-    let mut quote = YamlLineQuote::Unquoted;
-
-    for line in source.split_inclusive('\n') {
-        let line_without_newline = line.strip_suffix('\n').unwrap_or(line);
-        let newline = if line.ends_with('\n') { "\n" } else { "" };
-        let line_content = line_without_newline
-            .strip_suffix('\r')
-            .unwrap_or(line_without_newline);
-        let carriage_return = if line_without_newline.ends_with('\r') {
-            "\r"
-        } else {
-            ""
-        };
-        let indent = leading_space_count(line_content);
-
-        if let Some(parent_indent) = block_parent_indent {
-            if line_content.trim().is_empty() || indent > parent_indent {
-                output.push_str(line);
-                continue;
-            }
-            block_parent_indent = None;
-        }
-
-        output.push_str(&sanitize_yaml_anchor_or_alias_line(
-            line_content,
-            &mut anchor_values,
-            &mut quote,
-        ));
-        output.push_str(carriage_return);
-        output.push_str(newline);
-        if quote == YamlLineQuote::Unquoted && line_starts_block_scalar(line_content) {
-            block_parent_indent = Some(indent);
-        }
-    }
-
-    output
-}
-
-fn sanitize_yaml_anchor_or_alias_line(
-    line: &str,
-    anchor_values: &mut HashMap<String, String>,
-    quote: &mut YamlLineQuote,
-) -> String {
-    let bytes = line.as_bytes();
-    let mut output = String::with_capacity(line.len());
-    let mut index = 0;
-    let mut copied_until = 0;
-
-    while index < bytes.len() {
-        match *quote {
-            YamlLineQuote::Unquoted => match bytes[index] {
-                b'\'' => *quote = YamlLineQuote::Single,
-                b'"' => *quote = YamlLineQuote::Double,
-                b'&' | b'*' if yaml_anchor_token_starts(bytes, index) => {
-                    let token_len = yaml_anchor_token_len(bytes, index);
-                    output.push_str(&line[copied_until..index]);
-                    if bytes[index] == b'&' {
-                        if let Some((name, value)) =
-                            yaml_scalar_anchor_definition_at(line, index, token_len)
-                        {
-                            anchor_values.insert(name.to_owned(), value.to_owned());
-                        }
-                        push_padded_replacement(&mut output, "", token_len);
-                    } else {
-                        let alias_name = &line[index + 1..index + token_len];
-                        let replacement = anchor_values
-                            .get(alias_name)
-                            .map(String::as_str)
-                            .unwrap_or("~");
-                        push_yaml_alias_replacement(
-                            &mut output,
-                            line,
-                            index,
-                            token_len,
-                            replacement,
-                        );
-                    }
-                    copied_until = index + token_len;
-                    index += token_len;
-                    continue;
+            Event::Alias(anchor_id) => {
+                if let Some(anchor_span) = self.anchor_spans.get(anchor_id).copied() {
+                    self.alias_spans.insert(span.start.into(), anchor_span);
                 }
-                _ => {}
-            },
-            YamlLineQuote::Single => {
-                if bytes[index] == b'\'' {
-                    *quote = YamlLineQuote::Unquoted;
-                }
-            }
-            YamlLineQuote::Double => match bytes[index] {
-                b'"' => *quote = YamlLineQuote::Unquoted,
-                b'\\' => {
-                    index += 1;
-                }
-                _ => {}
-            },
-        }
-
-        index += 1;
-    }
-
-    output.push_str(&line[copied_until..]);
-    output
-}
-
-fn yaml_anchor_value_is_aliasable_scalar(value: &str) -> bool {
-    value
-        .as_bytes()
-        .first()
-        .is_some_and(|byte| !matches!(byte, b'&' | b'*' | b'|' | b'>' | b'#'))
-}
-
-fn yaml_scalar_anchor_definition_at(
-    line: &str,
-    anchor_start: usize,
-    token_len: usize,
-) -> Option<(&str, &str)> {
-    let value_start = line[anchor_start + token_len..]
-        .bytes()
-        .position(|byte| !byte.is_ascii_whitespace())
-        .map(|offset| anchor_start + token_len + offset)?;
-    let value_end = yaml_anchor_scalar_value_end(line, value_start);
-    let value = line[value_start..value_end].trim_end();
-    if !yaml_anchor_value_is_aliasable_scalar(value) {
-        return None;
-    }
-    Some((&line[anchor_start + 1..anchor_start + token_len], value))
-}
-
-fn yaml_anchor_scalar_value_end(line: &str, value_start: usize) -> usize {
-    let bytes = line.as_bytes();
-    if matches!(bytes[value_start], b'\'' | b'"') {
-        return yaml_quoted_scalar_end(bytes, value_start);
-    }
-
-    let in_flow = yaml_index_is_inside_flow_collection(bytes, value_start);
-    let mut index = value_start;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' if yaml_hash_starts_comment(bytes, index) => return index,
-            b',' | b']' | b'}' if in_flow => return index,
-            _ => {}
-        }
-        index += 1;
-    }
-    bytes.len()
-}
-
-fn yaml_quoted_scalar_end(bytes: &[u8], quote_start: usize) -> usize {
-    let quote = bytes[quote_start];
-    let mut index = quote_start + 1;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\'' if quote == b'\'' && bytes.get(index + 1) == Some(&b'\'') => {
-                index += 1;
-            }
-            byte if byte == quote => return index + 1,
-            b'\\' if quote == b'"' => {
-                index += 1;
             }
             _ => {}
         }
-        index += 1;
-    }
-    bytes.len()
-}
 
-fn yaml_hash_starts_comment(bytes: &[u8], index: usize) -> bool {
-    index == 0 || bytes[index - 1].is_ascii_whitespace()
-}
-
-fn push_yaml_alias_replacement(
-    output: &mut String,
-    line: &str,
-    token_start: usize,
-    token_len: usize,
-    replacement: &str,
-) {
-    if replacement.len() <= token_len {
-        push_padded_replacement(output, replacement, token_len);
-    } else if line_has_run_key_after(line, token_start + token_len) {
-        push_padded_replacement(output, "~", token_len);
-    } else {
-        output.push_str(replacement);
+        self.loader.on_event(event, span);
     }
 }
 
-fn push_padded_replacement(output: &mut String, replacement: &str, token_len: usize) {
-    output.push_str(replacement);
-    for _ in replacement.len()..token_len {
-        output.push(' ');
+fn parse_github_actions_yaml(
+    source: &str,
+) -> std::result::Result<ParsedGithubActionsYaml<'_>, ScanError> {
+    let mut parser = Parser::new(BufferedInput::new(source.chars()));
+    let mut receiver = GithubActionsYamlReceiver::new();
+    parser.load(&mut receiver, true)?;
+    let mut documents = receiver.loader.into_documents();
+    let root = documents
+        .drain(..)
+        .next()
+        .unwrap_or_else(|| YamlNode::from(YamlData::BadValue));
+    Ok(ParsedGithubActionsYaml {
+        root,
+        alias_spans: receiver.alias_spans,
+    })
+}
+
+fn yaml_as_mapping<'a>(node: &'a YamlNode<'a>) -> Option<&'a YamlMapping<'a>> {
+    match &node.data {
+        YamlData::Mapping(mapping) => Some(mapping),
+        YamlData::Tagged(_, inner) => yaml_as_mapping(inner),
+        _ => None,
     }
 }
 
-fn line_has_run_key_after(line: &str, start: usize) -> bool {
-    let bytes = line.as_bytes();
-    let mut index = start;
-    let mut quote = YamlLineQuote::Unquoted;
-
-    while index < bytes.len() {
-        match quote {
-            YamlLineQuote::Unquoted => match bytes[index] {
-                b'\'' | b'"' if yaml_quoted_key_starts_at(line, index, "run") => return true,
-                b'\'' => quote = YamlLineQuote::Single,
-                b'"' => quote = YamlLineQuote::Double,
-                b'#' if yaml_hash_starts_comment(bytes, index) => return false,
-                b'r' if yaml_key_starts_at(line, index, "run") => return true,
-                _ => {}
-            },
-            YamlLineQuote::Single => {
-                if bytes[index] == b'\'' {
-                    quote = YamlLineQuote::Unquoted;
-                }
-            }
-            YamlLineQuote::Double => match bytes[index] {
-                b'"' => quote = YamlLineQuote::Unquoted,
-                b'\\' => {
-                    index += 1;
-                }
-                _ => {}
-            },
-        }
-
-        index += 1;
+fn yaml_as_sequence<'a>(node: &'a YamlNode<'a>) -> Option<&'a YamlSequence<'a>> {
+    match &node.data {
+        YamlData::Sequence(sequence) => Some(sequence),
+        YamlData::Tagged(_, inner) => yaml_as_sequence(inner),
+        _ => None,
     }
-
-    false
 }
 
-fn yaml_key_starts_at(line: &str, index: usize, key: &str) -> bool {
-    let bytes = line.as_bytes();
-    let key_bytes = key.as_bytes();
-    if bytes.get(index..index + key_bytes.len()) != Some(key_bytes) {
-        return false;
+fn yaml_as_str<'a>(node: &'a YamlNode<'a>) -> Option<&'a str> {
+    match &node.data {
+        YamlData::Value(Scalar::String(value)) => Some(value.as_ref()),
+        YamlData::Representation(value, _, _) => Some(value.as_ref()),
+        YamlData::Tagged(_, inner) => yaml_as_str(inner),
+        _ => None,
     }
-    if index > 0 && is_yaml_anchor_name_byte(bytes[index - 1]) {
-        return false;
-    }
-    let after_key = index + key_bytes.len();
-    if bytes
-        .get(after_key)
-        .is_none_or(|byte| is_yaml_anchor_name_byte(*byte))
-    {
-        return false;
-    }
-    bytes[after_key..]
+}
+
+fn yaml_mapping_get_node<'a>(mapping: &'a YamlMapping<'a>, key: &str) -> Option<&'a YamlNode<'a>> {
+    mapping
         .iter()
-        .position(|byte| !byte.is_ascii_whitespace())
-        .is_some_and(|offset| bytes[after_key + offset] == b':')
+        .find(|(candidate, _)| yaml_as_str(candidate) == Some(key))
+        .map(|(_, value)| value)
 }
 
-fn yaml_quoted_key_starts_at(line: &str, index: usize, key: &str) -> bool {
-    let bytes = line.as_bytes();
-    let quote_end = yaml_quoted_scalar_end(bytes, index);
-    if quote_end <= index + 1 || quote_end > bytes.len() {
-        return false;
-    }
-    if &line[index + 1..quote_end - 1] != key {
-        return false;
-    }
-    bytes[quote_end..]
-        .iter()
-        .position(|byte| !byte.is_ascii_whitespace())
-        .is_some_and(|offset| bytes[quote_end + offset] == b':')
+fn yaml_mapping_get_mapping<'a>(
+    mapping: &'a YamlMapping<'a>,
+    key: &str,
+) -> Option<&'a YamlMapping<'a>> {
+    yaml_mapping_get_node(mapping, key).and_then(yaml_as_mapping)
 }
 
-fn line_has_yaml_anchor_or_alias(line: &str, quote: &mut YamlLineQuote) -> bool {
-    let bytes = line.as_bytes();
-    let mut index = 0;
-
-    while index < bytes.len() {
-        match *quote {
-            YamlLineQuote::Unquoted => match bytes[index] {
-                b'\'' => *quote = YamlLineQuote::Single,
-                b'"' => *quote = YamlLineQuote::Double,
-                b'&' | b'*' if yaml_anchor_token_starts(bytes, index) => return true,
-                _ => {}
-            },
-            YamlLineQuote::Single => {
-                if bytes[index] == b'\'' {
-                    *quote = YamlLineQuote::Unquoted;
-                }
-            }
-            YamlLineQuote::Double => match bytes[index] {
-                b'"' => *quote = YamlLineQuote::Unquoted,
-                b'\\' => {
-                    index += 1;
-                }
-                _ => {}
-            },
-        }
-
-        index += 1;
-    }
-
-    false
+fn yaml_mapping_get_sequence<'a>(
+    mapping: &'a YamlMapping<'a>,
+    key: &str,
+) -> Option<&'a YamlSequence<'a>> {
+    yaml_mapping_get_node(mapping, key).and_then(yaml_as_sequence)
 }
 
-fn yaml_anchor_token_starts(bytes: &[u8], index: usize) -> bool {
-    yaml_anchor_token_boundary_before(bytes, index) && yaml_anchor_token_len(bytes, index) > 1
-}
-
-fn yaml_anchor_token_boundary_before(bytes: &[u8], index: usize) -> bool {
-    let Some(previous_index) = previous_non_space_index(bytes, index) else {
-        return true;
-    };
-
-    match bytes[previous_index] {
-        b':' => yaml_colon_is_value_indicator(bytes, previous_index),
-        b'[' | b'{' | b',' => yaml_index_is_inside_flow_collection(bytes, index),
-        b'-' => yaml_dash_is_sequence_indicator(bytes, previous_index),
-        _ => false,
-    }
-}
-
-fn yaml_colon_is_value_indicator(bytes: &[u8], colon_index: usize) -> bool {
-    if yaml_index_is_inside_flow_collection(bytes, colon_index) {
-        return yaml_flow_key_before_colon(bytes, colon_index);
-    }
-
-    !yaml_has_unquoted_colon_before(bytes, colon_index)
-}
-
-fn yaml_has_unquoted_colon_before(bytes: &[u8], colon_index: usize) -> bool {
-    let mut index = 0;
-    let mut quote = YamlLineQuote::Unquoted;
-
-    while index < colon_index {
-        match quote {
-            YamlLineQuote::Unquoted => match bytes[index] {
-                b'\'' => quote = YamlLineQuote::Single,
-                b'"' => quote = YamlLineQuote::Double,
-                b':' => return true,
-                _ => {}
-            },
-            YamlLineQuote::Single => {
-                if bytes[index] == b'\'' {
-                    quote = YamlLineQuote::Unquoted;
-                }
-            }
-            YamlLineQuote::Double => match bytes[index] {
-                b'"' => quote = YamlLineQuote::Unquoted,
-                b'\\' => {
-                    index += 1;
-                }
-                _ => {}
-            },
-        }
-
-        index += 1;
-    }
-
-    false
-}
-
-fn yaml_flow_key_before_colon(bytes: &[u8], colon_index: usize) -> bool {
-    let entry_start = yaml_flow_entry_start(bytes, colon_index);
-    let key = trim_ascii(&bytes[entry_start..colon_index]);
-    yaml_flow_key_is_plain(key) || yaml_flow_key_is_quoted(key)
-}
-
-fn yaml_flow_key_is_plain(key: &[u8]) -> bool {
-    !key.is_empty() && key.iter().all(|byte| is_yaml_anchor_name_byte(*byte))
-}
-
-fn yaml_flow_key_is_quoted(key: &[u8]) -> bool {
-    if key.len() < 2 || !matches!(key[0], b'\'' | b'"') {
-        return false;
-    }
-    key.last() == Some(&key[0]) && yaml_quoted_scalar_end(key, 0) == key.len()
-}
-
-fn yaml_flow_entry_start(bytes: &[u8], target_index: usize) -> usize {
-    let mut index = 0;
-    let mut entry_start = 0;
-    let mut quote = YamlLineQuote::Unquoted;
-    let mut flow_depth = 0usize;
-
-    while index < target_index {
-        match quote {
-            YamlLineQuote::Unquoted => match bytes[index] {
-                b'\'' => quote = YamlLineQuote::Single,
-                b'"' => quote = YamlLineQuote::Double,
-                b'[' | b'{' if yaml_flow_collection_can_start(bytes, index, flow_depth) => {
-                    flow_depth += 1;
-                    entry_start = index + 1;
-                }
-                b',' if flow_depth > 0 => {
-                    entry_start = index + 1;
-                }
-                b']' | b'}' if flow_depth > 0 => {
-                    flow_depth -= 1;
-                }
-                _ => {}
-            },
-            YamlLineQuote::Single => {
-                if bytes[index] == b'\'' {
-                    quote = YamlLineQuote::Unquoted;
-                }
-            }
-            YamlLineQuote::Double => match bytes[index] {
-                b'"' => quote = YamlLineQuote::Unquoted,
-                b'\\' => {
-                    index += 1;
-                }
-                _ => {}
-            },
-        }
-
-        index += 1;
-    }
-
-    entry_start
-}
-
-fn trim_ascii(bytes: &[u8]) -> &[u8] {
-    let start = bytes
-        .iter()
-        .position(|byte| !byte.is_ascii_whitespace())
-        .unwrap_or(bytes.len());
-    let end = bytes
-        .iter()
-        .rposition(|byte| !byte.is_ascii_whitespace())
-        .map_or(start, |index| index + 1);
-    &bytes[start..end]
-}
-
-fn yaml_index_is_inside_flow_collection(bytes: &[u8], target_index: usize) -> bool {
-    let mut index = 0;
-    let mut quote = YamlLineQuote::Unquoted;
-    let mut flow_depth = 0usize;
-
-    while index < target_index {
-        match quote {
-            YamlLineQuote::Unquoted => match bytes[index] {
-                b'\'' => quote = YamlLineQuote::Single,
-                b'"' => quote = YamlLineQuote::Double,
-                b'[' | b'{' if yaml_flow_collection_can_start(bytes, index, flow_depth) => {
-                    flow_depth += 1;
-                }
-                b']' | b'}' if flow_depth > 0 => {
-                    flow_depth -= 1;
-                }
-                _ => {}
-            },
-            YamlLineQuote::Single => {
-                if bytes[index] == b'\'' {
-                    quote = YamlLineQuote::Unquoted;
-                }
-            }
-            YamlLineQuote::Double => match bytes[index] {
-                b'"' => quote = YamlLineQuote::Unquoted,
-                b'\\' => {
-                    index += 1;
-                }
-                _ => {}
-            },
-        }
-
-        index += 1;
-    }
-
-    flow_depth > 0
-}
-
-fn yaml_flow_collection_can_start(bytes: &[u8], index: usize, flow_depth: usize) -> bool {
-    if flow_depth > 0 {
-        return true;
-    }
-
-    let Some(previous_index) = previous_non_space_index(bytes, index) else {
-        return true;
-    };
-
-    match bytes[previous_index] {
-        b':' => yaml_colon_is_value_indicator(bytes, previous_index),
-        b'-' => yaml_dash_is_sequence_indicator(bytes, previous_index),
-        _ => false,
-    }
-}
-
-fn yaml_anchor_token_len(bytes: &[u8], index: usize) -> usize {
-    let mut len = 1;
-    while bytes
-        .get(index + len)
-        .is_some_and(|byte| is_yaml_anchor_name_byte(*byte))
-    {
-        len += 1;
-    }
-    len
-}
-
-fn is_yaml_anchor_name_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.')
-}
-
-fn line_starts_block_scalar(line: &str) -> bool {
-    let bytes = line.as_bytes();
-    let mut quote = YamlLineQuote::Unquoted;
-    let mut index = 0;
-
-    while index < bytes.len() {
-        match quote {
-            YamlLineQuote::Unquoted => match bytes[index] {
-                b'\'' => quote = YamlLineQuote::Single,
-                b'"' => quote = YamlLineQuote::Double,
-                b'|' | b'>' if block_scalar_indicator_starts_value(bytes, index) => return true,
-                _ => {}
-            },
-            YamlLineQuote::Single => {
-                if bytes[index] == b'\'' {
-                    quote = YamlLineQuote::Unquoted;
-                }
-            }
-            YamlLineQuote::Double => match bytes[index] {
-                b'"' => quote = YamlLineQuote::Unquoted,
-                b'\\' => {
-                    index += 1;
-                }
-                _ => {}
-            },
-        }
-
-        index += 1;
-    }
-
-    false
-}
-
-fn block_scalar_indicator_starts_value(bytes: &[u8], index: usize) -> bool {
-    let Some(previous_index) = previous_non_space_index(bytes, index) else {
-        return false;
-    };
-    if bytes[previous_index] == b':' {
-        return true;
-    }
-
-    let token_start = yaml_anchor_token_start_ending_at(bytes, previous_index);
-    token_start < previous_index
-        && bytes[token_start] == b'&'
-        && yaml_value_indicator_before(bytes, token_start)
-}
-
-fn yaml_value_indicator_before(bytes: &[u8], index: usize) -> bool {
-    let Some(previous_index) = previous_non_space_index(bytes, index) else {
-        return false;
-    };
-
-    match bytes[previous_index] {
-        b':' => yaml_colon_is_value_indicator(bytes, previous_index),
-        b'-' => yaml_dash_is_sequence_indicator(bytes, previous_index),
-        _ => false,
-    }
-}
-
-fn yaml_dash_is_sequence_indicator(bytes: &[u8], dash_index: usize) -> bool {
-    previous_non_space_index(bytes, dash_index).is_none()
-}
-
-fn yaml_anchor_token_start_ending_at(bytes: &[u8], index: usize) -> usize {
-    let mut start = index;
-    while start > 0 && is_yaml_anchor_name_byte(bytes[start]) {
-        start -= 1;
-    }
-    start
-}
-
-fn previous_non_space_index(bytes: &[u8], index: usize) -> Option<usize> {
-    bytes[..index]
-        .iter()
-        .rposition(|byte| !byte.is_ascii_whitespace())
-}
-
-fn leading_space_count(line: &str) -> usize {
-    line.bytes().take_while(|byte| *byte == b' ').count()
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum YamlLineQuote {
-    Unquoted,
-    Single,
-    Double,
+fn yaml_mapping_get_scalar<'a>(
+    mapping: &'a YamlMapping<'a>,
+    key: &str,
+) -> Option<&'a YamlNode<'a>> {
+    yaml_mapping_get_node(mapping, key).filter(|node| yaml_as_str(node).is_some())
 }
 
 fn gha_path_matches(path: &Path) -> bool {
@@ -837,57 +353,61 @@ fn gha_path_matches(path: &Path) -> bool {
         .any(|window| matches!(window, [".github", "workflows"]))
 }
 
-fn is_github_actions_mapping(root: &marked_yaml::types::MarkedMappingNode) -> bool {
+fn is_github_actions_mapping(root: &YamlMapping<'_>) -> bool {
     is_workflow(root) || is_composite_action(root)
 }
 
-fn is_workflow(root: &marked_yaml::types::MarkedMappingNode) -> bool {
-    root.get_node("on").is_some() && root.get_mapping("jobs").is_some()
+fn is_workflow(root: &YamlMapping<'_>) -> bool {
+    yaml_mapping_get_node(root, "on").is_some() && yaml_mapping_get_mapping(root, "jobs").is_some()
 }
 
-fn is_composite_action(root: &marked_yaml::types::MarkedMappingNode) -> bool {
-    root.get_mapping("runs")
-        .and_then(|runs| runs.get_scalar("using"))
-        .is_some_and(|using| using.as_str().eq_ignore_ascii_case("composite"))
+fn is_composite_action(root: &YamlMapping<'_>) -> bool {
+    yaml_mapping_get_mapping(root, "runs")
+        .and_then(|runs| yaml_mapping_get_scalar(runs, "using"))
+        .and_then(yaml_as_str)
+        .is_some_and(|using| using.eq_ignore_ascii_case("composite"))
 }
 
 fn extract_workflow(
-    root: &marked_yaml::types::MarkedMappingNode,
+    root: &YamlMapping<'_>,
     host_source: &str,
+    alias_spans: &HashMap<YamlMarkerKey, Span>,
 ) -> Result<Vec<EmbeddedScript>> {
     let mut scripts = Vec::new();
     let workflow_default_shell = nested_scalar(root, &["defaults", "run", "shell"]);
-    let Some(jobs) = root.get_mapping("jobs") else {
+    let Some(jobs) = yaml_mapping_get_mapping(root, "jobs") else {
         return Ok(scripts);
     };
 
     for (job_name, job_node) in jobs.iter() {
-        let Some(job) = job_node.as_mapping() else {
+        let Some(job) = yaml_as_mapping(job_node) else {
             continue;
         };
         let job_default_shell = nested_scalar(job, &["defaults", "run", "shell"])
             .or_else(|| workflow_default_shell.clone());
-        let runner_kind = runner_kind(job.get_node("runs-on"));
-        let Some(steps) = job.get_sequence("steps") else {
+        let runner_kind = runner_kind(yaml_mapping_get_node(job, "runs-on"));
+        let Some(steps) = yaml_mapping_get_sequence(job, "steps") else {
             continue;
         };
 
         for (index, step_node) in steps.iter().enumerate() {
-            let Some(step) = step_node.as_mapping() else {
+            let Some(step) = yaml_as_mapping(step_node) else {
                 continue;
             };
-            let Some(run) = step.get_scalar("run") else {
+            let Some(run) = yaml_mapping_get_scalar(step, "run") else {
                 continue;
             };
 
             let shell = step
-                .get_scalar("shell")
-                .map(|scalar| scalar.as_str().to_owned())
+                .and_then_scalar("shell")
+                .map(ToOwned::to_owned)
                 .or_else(|| job_default_shell.clone());
-            let label = format!("jobs.{}.steps[{index}].run", job_name.as_str());
+            let job_name = yaml_as_str(job_name).unwrap_or("<job>");
+            let label = format!("jobs.{job_name}.steps[{index}].run");
             scripts.push(build_embedded_script(
                 run,
                 host_source,
+                alias_spans,
                 &label,
                 EmbeddedFormat::GitHubActions,
                 resolve_shell(shell.as_deref(), runner_kind),
@@ -899,31 +419,31 @@ fn extract_workflow(
 }
 
 fn extract_composite_action(
-    root: &marked_yaml::types::MarkedMappingNode,
+    root: &YamlMapping<'_>,
     host_source: &str,
+    alias_spans: &HashMap<YamlMarkerKey, Span>,
 ) -> Result<Vec<EmbeddedScript>> {
     let mut scripts = Vec::new();
     let Some(steps) = root
-        .get_mapping("runs")
-        .and_then(|runs| runs.get_sequence("steps"))
+        .and_then_mapping("runs")
+        .and_then(|runs| yaml_mapping_get_sequence(runs, "steps"))
     else {
         return Ok(scripts);
     };
 
     for (index, step_node) in steps.iter().enumerate() {
-        let Some(step) = step_node.as_mapping() else {
+        let Some(step) = yaml_as_mapping(step_node) else {
             continue;
         };
-        let Some(run) = step.get_scalar("run") else {
+        let Some(run) = yaml_mapping_get_scalar(step, "run") else {
             continue;
         };
-        let shell = step
-            .get_scalar("shell")
-            .map(|scalar| scalar.as_str().to_owned());
+        let shell = step.and_then_scalar("shell").map(ToOwned::to_owned);
         let label = format!("runs.steps[{index}].run");
         scripts.push(build_embedded_script(
             run,
             host_source,
+            alias_spans,
             &label,
             EmbeddedFormat::GitHubActions,
             resolve_shell(shell.as_deref(), RunnerKind::Unix),
@@ -933,15 +453,30 @@ fn extract_composite_action(
     Ok(scripts)
 }
 
-fn nested_scalar(mapping: &marked_yaml::types::MarkedMappingNode, path: &[&str]) -> Option<String> {
+trait YamlMappingExt<'a> {
+    fn and_then_mapping(&'a self, key: &str) -> Option<&'a YamlMapping<'a>>;
+    fn and_then_scalar(&'a self, key: &str) -> Option<&'a str>;
+}
+
+impl<'a> YamlMappingExt<'a> for YamlMapping<'a> {
+    fn and_then_mapping(&'a self, key: &str) -> Option<&'a YamlMapping<'a>> {
+        yaml_mapping_get_mapping(self, key)
+    }
+
+    fn and_then_scalar(&'a self, key: &str) -> Option<&'a str> {
+        yaml_mapping_get_scalar(self, key).and_then(yaml_as_str)
+    }
+}
+
+fn nested_scalar(mapping: &YamlMapping<'_>, path: &[&str]) -> Option<String> {
     let (last, parents) = path.split_last()?;
     let mut current = mapping;
     for segment in parents {
-        current = current.get_mapping(segment)?;
+        current = yaml_mapping_get_mapping(current, segment)?;
     }
-    current
-        .get_scalar(last)
-        .map(|scalar| scalar.as_str().to_owned())
+    yaml_mapping_get_scalar(current, last)
+        .and_then(yaml_as_str)
+        .map(ToOwned::to_owned)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1198,7 +733,7 @@ fn parse_template_flags(template: &str) -> ImplicitShellFlags {
     }
 }
 
-fn runner_kind(runs_on: Option<&Node>) -> RunnerKind {
+fn runner_kind(runs_on: Option<&YamlNode<'_>>) -> RunnerKind {
     let Some(runs_on) = runs_on else {
         return RunnerKind::Unix;
     };
@@ -1218,21 +753,17 @@ fn runner_kind(runs_on: Option<&Node>) -> RunnerKind {
     RunnerKind::Unknown
 }
 
-fn node_contains_runner_label(node: &Node, label: &str) -> bool {
-    if node
-        .as_scalar()
-        .is_some_and(|scalar| scalar_matches_runner_label(scalar.as_str(), label))
-    {
+fn node_contains_runner_label(node: &YamlNode<'_>, label: &str) -> bool {
+    if yaml_as_str(node).is_some_and(|scalar| scalar_matches_runner_label(scalar, label)) {
         return true;
     }
 
-    node.as_sequence().is_some_and(|sequence| {
+    yaml_as_sequence(node).is_some_and(|sequence| {
         sequence
             .iter()
             .any(|item| node_contains_runner_label(item, label))
-    }) || node
-        .as_mapping()
-        .and_then(|mapping| mapping.get_node("labels"))
+    }) || yaml_as_mapping(node)
+        .and_then(|mapping| yaml_mapping_get_node(mapping, "labels"))
         .is_some_and(|labels| node_contains_runner_label(labels, label))
 }
 
@@ -1266,46 +797,44 @@ fn scalar_matches_runner_label(scalar: &str, label: &str) -> bool {
     }
 }
 
-fn node_contains_github_expression(node: &Node) -> bool {
-    if node
-        .as_scalar()
-        .is_some_and(|scalar| scalar.as_str().contains("${{"))
-    {
+fn node_contains_github_expression(node: &YamlNode<'_>) -> bool {
+    if yaml_as_str(node).is_some_and(|scalar| scalar.contains("${{")) {
         return true;
     }
 
-    if node
-        .as_sequence()
+    if yaml_as_sequence(node)
         .is_some_and(|sequence| sequence.iter().any(node_contains_github_expression))
     {
         return true;
     }
 
-    node.as_mapping().is_some_and(|mapping| {
+    yaml_as_mapping(node).is_some_and(|mapping| {
         mapping
             .iter()
             .any(|(_, value)| node_contains_github_expression(value))
     })
 }
 
-fn node_contains_unix_runner_label(node: &Node) -> bool {
+fn node_contains_unix_runner_label(node: &YamlNode<'_>) -> bool {
     ["ubuntu", "linux", "macos"]
         .into_iter()
         .any(|label| node_contains_runner_label(node, label))
 }
 
 fn build_embedded_script(
-    run: &marked_yaml::types::MarkedScalarNode,
+    run: &YamlNode<'_>,
     host_source: &str,
+    alias_spans: &HashMap<YamlMarkerKey, Span>,
     label: &str,
     format: EmbeddedFormat,
     shell: ShellResolution,
 ) -> EmbeddedScript {
-    let raw_source = run.as_str();
-    let marker = run.span().start().copied();
-    let start_offset = marker
-        .map(|marker| byte_offset_for_line_column(host_source, marker.line(), marker.column()))
-        .unwrap_or_default();
+    let raw_source = yaml_as_str(run).unwrap_or_default();
+    let marker = alias_spans
+        .get(&run.span.start.into())
+        .map(|span| span.start)
+        .unwrap_or(run.span.start);
+    let start_offset = byte_offset_for_line_column(host_source, marker.line(), marker.col() + 1);
     let source_mapping = source_mapping_for_scalar(host_source, start_offset, raw_source);
     let host_offset = source_mapping.host_offset;
     let host_start_line = source_mapping.host_line_starts[0].line;
@@ -2364,6 +1893,51 @@ jobs:
         assert!(scripts[0].implicit_flags.errexit);
         assert!(scripts[0].implicit_flags.pipefail);
         assert_eq!(scripts[1].dialect, ExtractedDialect::Unsupported);
+    }
+
+    #[test]
+    fn keeps_plain_yaml_core_schema_scalars_as_shell_source() {
+        let source = r#"
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "true");
+        assert_eq!(scripts[0].host_start_line, 7);
+        assert_eq!(scripts[0].host_start_column, 14);
+    }
+
+    #[test]
+    fn remaps_aliased_run_scalars_to_anchor_source() {
+        let source = r#"
+on: push
+x-run: &shared_run |
+  echo hi
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: *shared_run
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "echo hi\n");
+        assert_eq!(scripts[0].host_start_line, 4);
+        assert_eq!(scripts[0].host_start_column, 3);
+        assert_eq!(
+            scripts[0].host_line_starts,
+            vec![
+                HostLineStart { line: 4, column: 3 },
+                HostLineStart { line: 5, column: 1 },
+            ]
+        );
     }
 
     #[test]
