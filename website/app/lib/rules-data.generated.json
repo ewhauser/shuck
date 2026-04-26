@@ -17,6 +17,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rename the reported unused assignment target to `_`.",
     "examples": [
       {
         "kind": "invalid",
@@ -42,6 +46,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -67,6 +75,10 @@
     "status": "implemented_with_known_shellcheck_divergences",
     "hasKnownShellcheckDivergences": true,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -92,6 +104,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -117,6 +133,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "sometimes",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the reported single-quoted fragment as an equivalently escaped double-quoted fragment.",
     "examples": [
       {
         "kind": "invalid",
@@ -142,6 +162,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -167,6 +191,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Make the `find | xargs` handoff NUL-delimited by adding `-print0` to `find` and `-0` to `xargs` wherever they are missing.",
     "examples": [
       {
         "kind": "invalid",
@@ -192,6 +220,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "sometimes",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the enclosing fully double-quoted trap action as an equivalently escaped single-quoted trap action.",
     "examples": [
       {
         "kind": "invalid",
@@ -217,6 +249,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "sometimes",
+    "fixSafety": "unsafe",
+    "fixDescription": "Remove the surrounding quotes from the right-hand operand of the `[[ ... =~ ... ]]` regex test.",
     "examples": [
       {
         "kind": "invalid",
@@ -242,6 +278,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -271,6 +311,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -296,6 +340,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Prefix the flagged wildcard argument with `./`.",
     "examples": [
       {
         "kind": "invalid",
@@ -321,6 +369,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -344,6 +396,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -369,6 +425,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -394,6 +454,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -419,6 +483,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "sometimes",
+    "fixSafety": "safe",
+    "fixDescription": "Fold the fixed-literal comparison to its known boolean result and simplify the enclosing test or conditional.",
     "examples": [
       {
         "kind": "invalid",
@@ -444,6 +512,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -469,6 +541,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace the constant unary string-test operand with an explicit empty or non-empty literal that preserves the current result, such as `-z \"\"`, `-z x`, `-n \"\"`, or `-n x`.",
     "examples": [
       {
         "kind": "invalid",
@@ -494,6 +570,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -519,6 +599,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -544,6 +628,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -569,6 +657,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Remove the leading zeroes from the arithmetic literal, leaving a single `0` if needed.",
     "examples": [
       {
         "kind": "invalid",
@@ -594,6 +686,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the whitespace immediately after `=` so the assignment becomes one shell word.",
     "examples": [
       {
         "kind": "invalid",
@@ -619,6 +715,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Wrap the reported positional parameter in braces, for example `$10` to `${10}`.",
     "examples": [
       {
         "kind": "invalid",
@@ -644,6 +744,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -669,6 +773,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Insert a space before the trailing `]` in the reported unary test operand.",
     "examples": [
       {
         "kind": "invalid",
@@ -694,6 +802,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Insert a space before the trailing `]` in the test operand.",
     "examples": [
       {
         "kind": "invalid",
@@ -719,6 +831,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Insert a space after `[` so the test starts as `[ ! ... ]`.",
     "examples": [
       {
         "kind": "invalid",
@@ -744,6 +860,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Remove the leading indentation from the reported here-doc terminator line so it starts at column 1.",
     "examples": [
       {
         "kind": "invalid",
@@ -769,6 +889,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -794,6 +918,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Append a closing `fi` at end of file.",
     "examples": [
       {
         "kind": "invalid",
@@ -819,6 +947,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -844,6 +976,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -869,6 +1005,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -894,6 +1034,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the whole split quoted word as one consistent double-quoted string, escaping literal inner quotes and bracing embedded scalar expansions as needed.",
     "examples": [
       {
         "kind": "invalid",
@@ -919,6 +1063,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Insert a trailing `\\` before the newline so the `[` test continues onto the following standalone `]` line.",
     "examples": [
       {
         "kind": "invalid",
@@ -944,6 +1092,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Insert `# ` before the reported `/*...` command so the rest of that shell line becomes a comment.",
     "examples": [
       {
         "kind": "invalid",
@@ -969,6 +1121,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "safe",
+    "fixDescription": "Insert a space after `&` so the background operator is explicit.",
     "examples": [
       {
         "kind": "invalid",
@@ -994,6 +1150,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -1019,6 +1179,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Wrap the wildcard command-path word in quotes.",
     "examples": [
       {
         "kind": "invalid",
@@ -1044,6 +1208,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Prefix the patch-marker line with `# ` to turn it into a shell comment.",
     "examples": [
       {
         "kind": "invalid",
@@ -1069,6 +1237,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -1094,6 +1266,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -1119,6 +1295,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the reported case-pattern word as a single double-quoted word so its expansions are treated as literal text.",
     "examples": [
       {
         "kind": "invalid",
@@ -1144,6 +1324,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -1168,6 +1352,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Remove the reported `++` or `--` operator from the arithmetic expression used as the redirection target.",
     "examples": [
       {
         "kind": "invalid",
@@ -1193,6 +1381,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the earlier redirect that is overridden by the later redirect.",
     "examples": [
       {
         "kind": "invalid",
@@ -1215,6 +1407,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -1240,6 +1436,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Remove the spaces around `=` so the reported text becomes a single `name=value` assignment word.",
     "examples": [
       {
         "kind": "invalid",
@@ -1265,6 +1465,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -1290,6 +1494,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Double-quote the reported expansion inside the parameter-pattern operand so that fragment is matched literally.",
     "examples": [
       {
         "kind": "invalid",
@@ -1315,6 +1523,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -1340,6 +1552,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the stdout redirection(s) from inside the command substitution so the substitution captures stdout again.",
     "examples": [
       {
         "kind": "invalid",
@@ -1365,6 +1581,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "sometimes",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the stdout-to-`/dev/null` redirection(s) from inside the command substitution so the substitution can capture stdout again.",
     "examples": [
       {
         "kind": "invalid",
@@ -1390,6 +1610,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "safe",
+    "fixDescription": "Prefix the redirection target with `./` to make it an explicit relative path.",
     "examples": [
       {
         "kind": "invalid",
@@ -1415,6 +1639,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the shebang to `#!/usr/bin/env <interpreter>` using the current interpreter word’s basename and preserving any trailing shebang arguments.",
     "examples": [
       {
         "kind": "invalid",
@@ -1440,6 +1668,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -1465,6 +1697,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -1490,6 +1726,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the function definition that no reachable direct call can use.",
     "examples": [
       {
         "kind": "invalid",
@@ -1519,6 +1759,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -1544,6 +1788,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -1569,6 +1817,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -1594,6 +1846,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -1619,6 +1875,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -1644,6 +1904,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the backslash before the trailing spaces at the end of the backtick command substitution.",
     "examples": [
       {
         "kind": "invalid",
@@ -1669,6 +1933,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -1694,6 +1962,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Insert a space after the first `(` so the leading `((` becomes `( (` and parses as a subshell group.",
     "examples": [
       {
         "kind": "invalid",
@@ -1719,6 +1991,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace each reported Unicode smart quote with the matching ASCII quote character (`'` for `‘` or `’`, `\"` for `“` or `”`).",
     "examples": [
       {
         "kind": "invalid",
@@ -1744,6 +2020,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the leading whitespace before the shebang candidate line.",
     "examples": [
       {
         "kind": "invalid",
@@ -1769,6 +2049,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the whitespace between `#` and `!` so the line starts with `#!`.",
     "examples": [
       {
         "kind": "invalid",
@@ -1794,6 +2078,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Move the reported shebang line to the top of the file.",
     "examples": [
       {
         "kind": "invalid",
@@ -1819,6 +2107,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the trailing backslash from the comment-only continuation line.",
     "examples": [
       {
         "kind": "invalid",
@@ -1844,6 +2136,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -1869,6 +2165,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Quote the entire `find -exec` argument word that contains the reported unquoted glob or command substitution.",
     "examples": [
       {
         "kind": "invalid",
@@ -1894,6 +2194,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the reported grep pattern by changing each glob-style `*` to regex `.*`.",
     "examples": [
       {
         "kind": "invalid",
@@ -1919,6 +2223,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Wrap the reported right-hand variable-like operand in double quotes.",
     "examples": [
       {
         "kind": "invalid",
@@ -1944,6 +2252,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "safe",
+    "fixDescription": "Remove the backslash before the leading `!` in the test expression.",
     "examples": [
       {
         "kind": "invalid",
@@ -1969,6 +2281,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Quote the entire reported `find` pattern operand.",
     "examples": [
       {
         "kind": "invalid",
@@ -1994,6 +2310,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Quote the entire reported grep pattern word.",
     "examples": [
       {
         "kind": "invalid",
@@ -2019,6 +2339,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "sometimes",
+    "fixSafety": "unsafe",
+    "fixDescription": "Move the reported `2>&1` redirect to after the command's stdout-to-file redirects.",
     "examples": [
       {
         "kind": "invalid",
@@ -2044,6 +2368,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace the reported `<` or `>` operator with `-lt` or `-gt`.",
     "examples": [
       {
         "kind": "invalid",
@@ -2072,6 +2400,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -2101,6 +2433,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "safe",
+    "fixDescription": "Add parentheses around the parsed `&&`/`||` subexpression to make the current grouping explicit.",
     "examples": [
       {
         "kind": "invalid",
@@ -2126,6 +2462,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace the reported quoted pipeline literal with a quoted command substitution of the same text, for example `\"cmd | grep x\"` to `\"$(cmd | grep x)\"`.",
     "examples": [
       {
         "kind": "invalid",
@@ -2151,6 +2491,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Double-quote the reported right-hand glob operand so the `[ ... ]` comparison becomes a literal string comparison.",
     "examples": [
       {
         "kind": "invalid",
@@ -2176,6 +2520,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the reported quoted `~/...` word as a double-quoted `$HOME/...` word.",
     "examples": [
       {
         "kind": "invalid",
@@ -2201,6 +2549,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Remove the surrounding `$(` and `)` from the reported command substitution.",
     "examples": [
       {
         "kind": "invalid",
@@ -2226,6 +2578,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Remove the surrounding backticks from the reported command substitution so the inner command runs directly.",
     "examples": [
       {
         "kind": "invalid",
@@ -2251,6 +2607,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -2276,6 +2636,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Quote the literal assignment value so it is explicitly a string.",
     "examples": [
       {
         "kind": "invalid",
@@ -2301,6 +2665,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Single-quote the reported bracket-glob fragment so it is treated as literal text.",
     "examples": [
       {
         "kind": "invalid",
@@ -2326,6 +2694,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -2351,6 +2723,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Insert `--` before the first bare operand so `set` explicitly assigns positional parameters.",
     "examples": [
       {
         "kind": "invalid",
@@ -2376,6 +2752,10 @@
     "status": "implemented_with_known_shellcheck_divergences",
     "hasKnownShellcheckDivergences": true,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the scalar assignment as an explicit array assignment or intentional join.",
     "examples": [
       {
         "kind": "invalid",
@@ -2401,6 +2781,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -2430,6 +2814,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -2454,6 +2842,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the reported file-test operand as a single double-quoted word so the glob is treated literally.",
     "examples": [
       {
         "kind": "invalid",
@@ -2479,6 +2871,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Wrap the action-bearing `find` branch in escaped parentheses to make the existing precedence explicit.",
     "examples": [
       {
         "kind": "invalid",
@@ -2504,6 +2900,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the whole semicolon-terminated declaration-like simple command.",
     "examples": [
       {
         "kind": "invalid",
@@ -2529,6 +2929,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -2554,6 +2958,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the append assignment to array-element form by wrapping the existing scalar RHS in `(...)`, for example `items+=\" two\"` to `items+=(\" two\")`.",
     "examples": [
       {
         "kind": "invalid",
@@ -2579,6 +2987,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -2604,6 +3016,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the reported `unset` operand as a single double-quoted word, for example `unset parts[$key]` to `unset \"parts[$key]\"`.",
     "examples": [
       {
         "kind": "invalid",
@@ -2629,6 +3045,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "valid",
@@ -2654,6 +3074,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace each reported positional `@` splat with the corresponding `*` form, for example `\"$@\"` to `\"$*\"` and `\"${@:-x}\"` to `\"${*:-x}\"`.",
     "examples": [
       {
         "kind": "invalid",
@@ -2679,6 +3103,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace each reported all-elements `@` expansion with the corresponding `*` form, for example `\"$@\"` to `\"$*\"` and `\"${arr[@]}\"` to `\"${arr[*]}\"`.",
     "examples": [
       {
         "kind": "invalid",
@@ -2708,6 +3136,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Wrap each reported unquoted expansion prefix in double quotes.",
     "examples": [
       {
         "kind": "invalid",
@@ -2733,6 +3165,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -2758,6 +3194,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -2783,6 +3223,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -2808,6 +3252,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Move the reported stdout redirect from the left pipeline segment to the end of the full pipeline, preserving its operator and target.",
     "examples": [
       {
         "kind": "invalid",
@@ -2833,6 +3281,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -2856,6 +3308,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the surrounding `[[ ... -eq/-ne ... ]]` comparison to `=` or `!=` and quote any reported unquoted string-like operand.",
     "examples": [
       {
         "kind": "invalid",
@@ -2881,6 +3337,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Replace unary `-a` with `-e` inside the `[[ ... ]]` test.",
     "examples": [
       {
         "kind": "invalid",
@@ -2906,6 +3366,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -2931,6 +3395,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Delete the unreachable statement or definition.",
     "examples": [
       {
         "kind": "invalid",
@@ -2956,6 +3424,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -2981,6 +3453,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace the reported `continue` keyword with `return`, preserving any numeric argument.",
     "examples": [
       {
         "kind": "invalid",
@@ -3006,6 +3482,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the unused here-document redirect and its body.",
     "examples": [
       {
         "kind": "invalid",
@@ -3031,6 +3511,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the reported shadowing case-pattern alternative; if that leaves the arm with no patterns, delete the arm.",
     "examples": [
       {
         "kind": "invalid",
@@ -3056,6 +3540,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the reported shadowed case-pattern alternative; if it is the arm's only pattern, delete the arm.",
     "examples": [
       {
         "kind": "invalid",
@@ -3081,6 +3569,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3106,6 +3598,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3131,6 +3627,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the command by moving each leading prefix assignment onto its own standalone assignment statement immediately before the command.",
     "examples": [
       {
         "kind": "invalid",
@@ -3156,6 +3656,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3181,6 +3685,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3206,6 +3714,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the reported undeclared case-pattern alternative; if it is the arm's only pattern or an invalid multi-character pattern, delete the whole arm.",
     "examples": [
       {
         "kind": "invalid",
@@ -3231,6 +3743,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Split the declaration into sequential declaration commands, one assignment operand per command, preserving the original declaration keyword and options.",
     "examples": [
       {
         "kind": "invalid",
@@ -3256,6 +3772,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace each reported Unicode smart single quote with the shell-safe ASCII apostrophe sequence `'\\''` inside the surrounding single-quoted word.",
     "examples": [
       {
         "kind": "invalid",
@@ -3281,6 +3801,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Append the pending heredoc closing marker(s) at EOF in source order.",
     "examples": [
       {
         "kind": "invalid",
@@ -3306,6 +3830,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the whitespace around the reported `=` word so the declaration operand becomes a single `name=value` assignment.",
     "examples": [
       {
         "kind": "invalid",
@@ -3331,6 +3859,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3356,6 +3888,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Append one closing `done` at end of file.",
     "examples": [
       {
         "kind": "invalid",
@@ -3381,6 +3917,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Append one closing `done` at end of file.",
     "examples": [
       {
         "kind": "invalid",
@@ -3406,6 +3946,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3431,6 +3975,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Append the exact heredoc delimiter on its own new line after the current body text.",
     "examples": [
       {
         "kind": "invalid",
@@ -3456,6 +4004,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Append the exact unquoted heredoc delimiter on its own new line after the current body text.",
     "examples": [
       {
         "kind": "invalid",
@@ -3481,6 +4033,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3506,6 +4062,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3531,6 +4091,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3556,6 +4120,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3580,6 +4148,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3605,6 +4177,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3627,6 +4203,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Error",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Insert a space between `if` and `[`.",
     "examples": [
       {
         "kind": "invalid",
@@ -3652,6 +4232,10 @@
     "status": "implemented_with_known_shellcheck_divergences",
     "hasKnownShellcheckDivergences": true,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Wrap the reported expansion in double quotes.",
     "examples": [
       {
         "kind": "invalid",
@@ -3677,6 +4261,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Insert `-r` immediately after the reported `read` command word.",
     "examples": [
       {
         "kind": "invalid",
@@ -3702,6 +4290,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3727,6 +4319,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Wrap the reported `$(...)` span in double quotes.",
     "examples": [
       {
         "kind": "invalid",
@@ -3752,6 +4348,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3777,6 +4377,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Replace each legacy `$[expr]` arithmetic expansion with the equivalent `$((expr))` form.",
     "examples": [
       {
         "kind": "invalid",
@@ -3802,6 +4406,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3827,6 +4435,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Wrap the reported `@`-style expansion in double quotes.",
     "examples": [
       {
         "kind": "invalid",
@@ -3852,6 +4464,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace the enclosing echo wrapper with the inner command from its sole command substitution.",
     "examples": [
       {
         "kind": "invalid",
@@ -3877,6 +4493,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3902,6 +4522,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3927,6 +4551,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3952,6 +4580,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -3977,6 +4609,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Wrap the reported `*`-style splat expansion in double quotes.",
     "examples": [
       {
         "kind": "invalid",
@@ -4002,6 +4638,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the double-quote characters that make the reported lone `for`-list word fully quoted.",
     "examples": [
       {
         "kind": "invalid",
@@ -4027,6 +4667,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -4052,6 +4696,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Wrap each reported expansion span in double quotes inside the array-assignment word.",
     "examples": [
       {
         "kind": "invalid",
@@ -4077,6 +4725,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Wrap the reported command substitution span in double quotes inside the array-assignment word.",
     "examples": [
       {
         "kind": "invalid",
@@ -4102,6 +4754,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -4127,6 +4783,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -4152,6 +4812,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -4175,6 +4839,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Hint",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace the reported bare `let` command with an arithmetic command `(( ... ))`, joining multiple `let` arguments with commas and unquoting fully quoted arithmetic operands.",
     "examples": [
       {
         "kind": "invalid",
@@ -4200,6 +4868,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "sometimes",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the backslash before the reported character.",
     "examples": [
       {
         "kind": "invalid",
@@ -4225,6 +4897,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Move the trailing backslash out of the single-quoted fragment as an escaped backslash.",
     "examples": [
       {
         "kind": "invalid",
@@ -4250,6 +4926,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Delete the leading backslash from the two-character literal word.",
     "examples": [
       {
         "kind": "invalid",
@@ -4275,6 +4955,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the surrounding split word as one double-quoted word, escaping literal inner quotes and bracing embedded scalar expansions as needed.",
     "examples": [
       {
         "kind": "invalid",
@@ -4300,6 +4984,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Escape each reported literal brace with a backslash.",
     "examples": [
       {
         "kind": "invalid",
@@ -4325,6 +5013,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the trailing spaces or tabs after the reported here-doc delimiter line.",
     "examples": [
       {
         "kind": "invalid",
@@ -4350,6 +5042,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Move the inline shellcheck directive onto its own comment line immediately before the current command line.",
     "examples": [
       {
         "kind": "invalid",
@@ -4375,6 +5071,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Quote the fixed literal assignment value.",
     "examples": [
       {
         "kind": "invalid",
@@ -4400,6 +5100,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the here-doc redirect and its attached here-doc body from the reported `echo` command.",
     "examples": [
       {
         "kind": "invalid",
@@ -4425,6 +5129,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Remove the redundant `$((...))` wrapper from the indexed array subscript.",
     "examples": [
       {
         "kind": "invalid",
@@ -4450,6 +5158,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Remove the outer redundant parentheses from the arithmetic expansion body.",
     "examples": [
       {
         "kind": "invalid",
@@ -4473,6 +5185,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -4498,6 +5214,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Collapse the repeated spaces between `echo` arguments to a single separator space.",
     "examples": [
       {
         "kind": "invalid",
@@ -4523,6 +5243,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Delete the trailing `return $?` command.",
     "examples": [
       {
         "kind": "invalid",
@@ -4548,6 +5272,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Rewrite the single-quoted fragment as an equivalently escaped double-quoted fragment.",
     "examples": [
       {
         "kind": "invalid",
@@ -4573,6 +5301,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -4598,6 +5330,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Wrap the existing compound function body in `{ ...; }` without changing the inner command.",
     "examples": [
       {
         "kind": "invalid",
@@ -4623,6 +5359,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Rewrite `IFS==` as `IFS='='`.",
     "examples": [
       {
         "kind": "invalid",
@@ -4648,6 +5388,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -4671,6 +5415,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -4696,6 +5444,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Remove the redundant `$` prefix or `${...}` wrapper from arithmetic variable references.",
     "examples": [
       {
         "kind": "invalid",
@@ -4721,6 +5473,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -4746,6 +5502,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -4771,6 +5531,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Remove the outer `[` and `]` from the reported `tr` set operand, keeping any surrounding quotes.",
     "examples": [
       {
         "kind": "invalid",
@@ -4796,6 +5560,10 @@
     "status": "implemented_with_known_shellcheck_divergences",
     "hasKnownShellcheckDivergences": true,
     "severity": "Hint",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Wrap the reported unquoted literal fragment in single quotes so the adjacent pieces stay one literal word.",
     "examples": [
       {
         "kind": "invalid",
@@ -4821,6 +5589,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Wrap the reported `tr` character-class operand in single quotes.",
     "examples": [
       {
         "kind": "invalid",
@@ -4846,6 +5618,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Wrap each reported unquoted scalar expansion in double quotes.",
     "examples": [
       {
         "kind": "invalid",
@@ -4871,6 +5647,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -4896,6 +5676,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -4921,6 +5705,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Single-quote the unquoted glob fragment in the assignment value so the stored pattern remains literal.",
     "examples": [
       {
         "kind": "invalid",
@@ -4946,6 +5734,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the containing alias definition as a single-quoted shell word, escaping any embedded single quotes so the expansion text stays literal.",
     "examples": [
       {
         "kind": "invalid",
@@ -4971,6 +5763,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace the alias with a function that accepts positional parameters directly.",
     "examples": [
       {
         "kind": "invalid",
@@ -4996,6 +5792,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Wrap each reported unquoted path expansion in double quotes.",
     "examples": [
       {
         "kind": "invalid",
@@ -5021,6 +5821,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace the reported `tempfile` command name with `mktemp`.",
     "examples": [
       {
         "kind": "invalid",
@@ -5046,6 +5850,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace the reported `egrep` command word with `grep -E`.",
     "examples": [
       {
         "kind": "invalid",
@@ -5071,6 +5879,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace the reported `fgrep` command word with `grep -F`.",
     "examples": [
       {
         "kind": "invalid",
@@ -5096,6 +5908,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Wrap the `${name=...}` or `${name:=...}` expansion in double quotes when it is passed to `:`.",
     "examples": [
       {
         "kind": "invalid",
@@ -5121,6 +5937,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Rewrite deprecated `xargs -i` forms to the equivalent `xargs -I...` form, preserving any inline replacement string and using `{}` for bare `-i`.",
     "examples": [
       {
         "kind": "invalid",
@@ -5146,6 +5966,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Remove the leading `x` or `X` from both operands of the reported string comparison and double-quote the rewritten operands.",
     "examples": [
       {
         "kind": "invalid",
@@ -5171,6 +5995,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the reported `local` or `declare` operand from the declaration statement.",
     "examples": [
       {
         "kind": "invalid",
@@ -5196,6 +6024,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5221,6 +6053,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5246,6 +6082,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Hint",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5271,6 +6111,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Merge the reopened double-quoted segments into one quoted word, adding braces around the embedded expansion when needed.",
     "examples": [
       {
         "kind": "invalid",
@@ -5296,6 +6140,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5321,6 +6169,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Move the leading `&&`, `||`, or `|` to the end of the previous line.",
     "examples": [
       {
         "kind": "invalid",
@@ -5346,6 +6198,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the leading spaces before the reported `<<-` closing marker so only tabs, if any, remain before the delimiter.",
     "examples": [
       {
         "kind": "invalid",
@@ -5371,6 +6227,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "safe",
+    "fixDescription": "Delete the semicolon that immediately follows the background `&`.",
     "examples": [
       {
         "kind": "invalid",
@@ -5396,6 +6256,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5421,6 +6285,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Rewrite the whole word as one consistent quoted form, escaping literal quote fragments as needed.",
     "examples": [
       {
         "kind": "invalid",
@@ -5446,6 +6314,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Wrap the variable expansion in braces before the adjacent `[` text.",
     "examples": [
       {
         "kind": "invalid",
@@ -5469,6 +6341,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5492,6 +6368,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Replace each reported `==` comparison operator with `=`.",
     "examples": [
       {
         "kind": "invalid",
@@ -5514,6 +6394,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5537,6 +6421,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5561,6 +6449,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5584,6 +6476,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5607,6 +6503,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5630,6 +6530,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5653,6 +6557,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5676,6 +6584,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5699,6 +6611,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5722,6 +6638,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "sometimes",
+    "fixSafety": "safe",
+    "fixDescription": "Replace `&>target` with `>target 2>&1`.",
     "examples": [
       {
         "kind": "invalid",
@@ -5745,6 +6665,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5768,6 +6692,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5791,6 +6719,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5814,6 +6746,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5853,6 +6789,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5884,6 +6824,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5907,6 +6851,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5930,6 +6878,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5952,6 +6904,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5975,6 +6931,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -5998,6 +6958,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6021,6 +6985,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6044,6 +7012,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6067,6 +7039,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6089,6 +7065,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6114,6 +7094,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6139,6 +7123,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6163,6 +7151,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6186,6 +7178,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6209,6 +7205,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6234,6 +7234,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6259,6 +7263,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6284,6 +7292,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6309,6 +7321,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6334,6 +7350,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6359,6 +7379,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6384,6 +7408,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6409,6 +7437,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6432,6 +7464,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6457,6 +7493,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6482,6 +7522,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6507,6 +7551,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6536,6 +7584,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6565,6 +7617,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6590,6 +7646,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Expand the embedded parenthesized alternation into equivalent whole `case` patterns separated by `|`.",
     "examples": [
       {
         "kind": "invalid",
@@ -6615,6 +7675,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6640,6 +7704,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6665,6 +7733,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6688,6 +7760,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "sometimes",
+    "fixSafety": "safe",
+    "fixDescription": "Delete the leading `function` keyword and keep the `name()` definition form.",
     "examples": [
       {
         "kind": "invalid",
@@ -6710,6 +7786,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6733,6 +7813,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6756,6 +7840,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace the leading `$\"` with a plain `\"` on the reported string.",
     "examples": [
       {
         "kind": "invalid",
@@ -6779,6 +7867,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the C-style `for ((init; cond; step))` loop as separate init code plus a `while` loop with the condition and step made explicit.",
     "examples": [
       {
         "kind": "invalid",
@@ -6802,6 +7894,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Replace each legacy `$[expr]` arithmetic fragment with the equivalent `$((expr))` form.",
     "examples": [
       {
         "kind": "invalid",
@@ -6824,6 +7920,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6847,6 +7947,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -6870,6 +7974,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the reported variable-set test as a parameter-expansion emptiness check, for example `[[ -v name ]]` to `[ -n \"${name+set}\" ]`.",
     "examples": [
       {
         "kind": "invalid",
@@ -6893,6 +8001,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Replace unary `-a` with `-e` inside the `[[ ... ]]` file-existence test.",
     "examples": [
       {
         "kind": "invalid",
@@ -6916,6 +8028,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace each reported `++` or `--` with an explicit arithmetic assignment, and rewrite `for ((...))` loops into a portable `while` form when needed.",
     "examples": [
       {
         "kind": "invalid",
@@ -6939,6 +8055,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Expand `>& target` into `> target 2>&1` using the same fixed literal target word.",
     "examples": [
       {
         "kind": "invalid",
@@ -6962,6 +8082,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Replace the leading `^` in each reported bracket expression with `!` to use the portable negated bracket syntax.",
     "examples": [
       {
         "kind": "invalid",
@@ -6985,6 +8109,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "safe",
+    "fixDescription": "Expand each `|&` operator to `2>&1 |`.",
     "examples": [
       {
         "kind": "invalid",
@@ -7008,6 +8136,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rename the function by replacing hyphens with underscores, and update matching call sites to use the new name.",
     "examples": [
       {
         "kind": "invalid",
@@ -7030,6 +8162,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Remove the errtrace or functrace option from the reported `set` operand, deleting it or splitting any remaining clustered flags as needed.",
     "examples": [
       {
         "kind": "invalid",
@@ -7057,6 +8193,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "implemented",
+    "fixAvailability": "sometimes",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the leading `SIG` prefix from the reported trap signal name.",
     "examples": [
       {
         "kind": "invalid",
@@ -7080,6 +8220,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Remove the reported `base#` prefix and normalize the remaining value to plain decimal by stripping any leading zeroes first.",
     "examples": [
       {
         "kind": "invalid",
@@ -7103,6 +8247,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -7126,6 +8274,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -7149,6 +8301,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -7171,6 +8327,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -7193,6 +8353,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -7218,6 +8382,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -7241,6 +8409,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -7266,6 +8438,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -7291,6 +8467,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -7314,6 +8494,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace the leading `source` command word with `.`, leaving the remaining operands unchanged.",
     "examples": [
       {
         "kind": "invalid",
@@ -7337,6 +8521,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Assign `$*` or `$@` to a temporary variable first, then apply the reported pattern-trimming operator to that variable.",
     "examples": [
       {
         "kind": "invalid",
@@ -7362,6 +8550,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -7387,6 +8579,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace the reported `grep ... | wc -l` pair with `grep -c ...`, preserving the `grep` arguments and removing the trailing `wc -l` segment.",
     "examples": [
       {
         "kind": "invalid",
@@ -7412,6 +8608,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Delete the outer subshell parentheses around the reported test condition.",
     "examples": [
       {
         "kind": "invalid",
@@ -7437,6 +8637,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Replace the reported outer subshell parentheses with a brace group, preserving the inner test list and ending the group with `; }`.",
     "examples": [
       {
         "kind": "invalid",
@@ -7462,6 +8666,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -7487,6 +8695,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "planned",
+    "fixAvailability": "none",
+    "fixSafety": "unsafe",
+    "fixDescription": "Rewrite the containing fully double-quoted final remote-command argument as an equivalently escaped single-quoted shell word.",
     "examples": [
       {
         "kind": "invalid",
@@ -7512,6 +8724,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -7537,6 +8753,10 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -7562,6 +8782,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -7587,6 +8811,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",
@@ -7612,6 +8840,10 @@
     "status": "planned",
     "hasKnownShellcheckDivergences": false,
     "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
     "examples": [
       {
         "kind": "invalid",

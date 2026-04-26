@@ -1,4 +1,4 @@
-import type { RuleStatus } from "@/app/lib/rules-data";
+import type { FixSafety, FixStatus, RuleStatus } from "@/app/lib/rules-data";
 
 const categoryColors: Record<string, string> = {
   Correctness: "bg-red-500/15 text-red-400 border-red-500/25",
@@ -66,5 +66,36 @@ export function RuleStatusDot({ status }: { status: RuleStatus }) {
       title={statusLabels[status]}
       aria-label={statusLabels[status]}
     />
+  );
+}
+
+const fixStatusStyles: Record<FixStatus, string> = {
+  implemented: "border-teal-500/25 bg-teal-500/15 text-teal-300",
+  planned: "border-sky-500/25 bg-sky-500/15 text-sky-300",
+  none: "border-fg-dim/20 bg-fg-dim/10 text-fg-secondary",
+};
+
+export function FixStatusBadge({
+  status,
+  safety,
+}: {
+  status: FixStatus;
+  safety: FixSafety | null;
+}) {
+  const label =
+    status === "planned"
+      ? "Planned"
+      : status === "implemented"
+        ? safety === "safe"
+          ? "Safe"
+          : "Unsafe"
+        : "-";
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs font-medium ${fixStatusStyles[status]}`}
+    >
+      {label}
+    </span>
   );
 }
