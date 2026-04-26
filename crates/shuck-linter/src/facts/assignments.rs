@@ -95,66 +95,58 @@ impl<'a> BindingValueFact<'a> {
     }
 }
 
-fn build_bare_command_name_assignment_spans<'a>(
-    commands: &[CommandFact<'a>],
-    word_nodes: &[WordNode<'a>],
-    word_occurrences: &[WordOccurrence],
-    word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
+fn build_bare_command_name_assignment_spans(
+    commands: &[CommandFact<'_>],
+    arena_file: &ArenaFile,
     source: &str,
 ) -> Vec<Span> {
     commands
         .iter()
-        .filter_map(|command| {
-            bare_command_name_assignment_span(
-                command,
-                word_nodes,
-                word_occurrences,
-                word_index,
-                source,
-            )
-        })
+        .filter_map(|command| bare_command_name_assignment_span(command, arena_file, source))
         .collect()
 }
 
 fn build_assignment_like_command_name_spans<'a>(
-    _commands: &[CommandFact<'a>],
-    _source: &str,
-) -> Vec<Span> {
-    Vec::new()
-}
-
-fn collect_assignment_like_command_name_spans_in_command(
-    command: &Command,
+    commands: &[CommandFact<'a>],
+    arena_file: &ArenaFile,
     source: &str,
-    spans: &mut Vec<Span>,
-) {
-    match command {
-        Command::Simple(command) => {
-            collect_assignment_like_command_name_span(&command.name, source, spans);
-        }
-        Command::Decl(command) => {
-            for operand in &command.operands {
-                if let DeclOperand::Dynamic(word) = operand {
-                    collect_assignment_like_command_name_span(word, source, spans);
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+    for fact in commands {
+        let Some(command_id) = fact.arena_command_id() else {
+            continue;
+        };
+        let command = arena_file.store.command(command_id);
+        if let Some(simple) = command.simple() {
+            collect_assignment_like_arena_command_name_span(simple.name(), source, &mut spans);
+        } else if let Some(decl) = command.decl() {
+            for operand in decl.operands() {
+                if let DeclOperandNode::Dynamic(word_id) = operand {
+                    collect_assignment_like_arena_command_name_span(
+                        arena_file.store.word(*word_id),
+                        source,
+                        &mut spans,
+                    );
                 }
             }
         }
-        Command::Builtin(_)
-        | Command::Binary(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => {}
     }
+
+    spans
 }
 
-fn collect_assignment_like_command_name_span(word: &Word, source: &str, spans: &mut Vec<Span>) {
-    if let Some(span) = assignment_like_command_name_span(word, source) {
+fn collect_assignment_like_arena_command_name_span(
+    word: WordView<'_>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    if let Some(span) = assignment_like_arena_command_name_span(word, source) {
         spans.push(span);
     }
 }
 
-fn assignment_like_command_name_span(word: &Word, source: &str) -> Option<Span> {
-    let prefix = leading_literal_word_prefix(word, source);
+fn assignment_like_arena_command_name_span(word: WordView<'_>, source: &str) -> Option<Span> {
+    let prefix = arena_leading_literal_word_prefix(word, source);
     let target_end = prefix.find("+=").or_else(|| prefix.find('='))?;
     let target = &prefix[..target_end];
     if target.is_empty() || target.chars().any(char::is_whitespace) {
@@ -162,43 +154,92 @@ fn assignment_like_command_name_span(word: &Word, source: &str) -> Option<Span> 
     }
 
     if let Some(remainder) = target.strip_prefix('+') {
-        is_shell_variable_name(remainder).then_some(word.span)
+        is_shell_variable_name(remainder).then_some(word.span())
     } else {
-        (!is_shell_variable_name(target)).then_some(word.span)
+        (!is_shell_variable_name(target)).then_some(word.span())
     }
 }
 
-fn bare_command_name_assignment_span<'a>(
-    _command: &CommandFact<'a>,
-    _word_nodes: &[WordNode<'a>],
-    _word_occurrences: &[WordOccurrence],
-    _word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
-    _source: &str,
+fn arena_leading_literal_word_prefix(word: WordView<'_>, source: &str) -> String {
+    let mut prefix = String::new();
+    collect_arena_leading_literal_word_parts(word.parts(), word.store(), source, &mut prefix);
+    prefix
+}
+
+fn collect_arena_leading_literal_word_parts(
+    parts: &[WordPartArenaNode],
+    store: &AstStore,
+    source: &str,
+    prefix: &mut String,
+) -> bool {
+    for part in parts {
+        if !collect_arena_leading_literal_word_part(part, store, source, prefix) {
+            return false;
+        }
+    }
+    true
+}
+
+fn collect_arena_leading_literal_word_part(
+    part: &WordPartArenaNode,
+    store: &AstStore,
+    source: &str,
+    prefix: &mut String,
+) -> bool {
+    match &part.kind {
+        WordPartArena::Literal(text) => {
+            prefix.push_str(text.as_str(source, part.span));
+            true
+        }
+        WordPartArena::SingleQuoted { value, .. } => {
+            prefix.push_str(value.slice(source));
+            true
+        }
+        WordPartArena::DoubleQuoted { parts, .. } => collect_arena_leading_literal_word_parts(
+            store.word_parts(*parts),
+            store,
+            source,
+            prefix,
+        ),
+        _ => false,
+    }
+}
+
+fn bare_command_name_assignment_span(
+    fact: &CommandFact<'_>,
+    arena_file: &ArenaFile,
+    source: &str,
 ) -> Option<Span> {
-    None
-}
-
-fn anchored_assignment_command_span(
-    _command: &CommandFact<'_>,
-    assignment: &Assignment,
-    _source: &str,
-) -> Span {
-    Span {
-        start: assignment.span.start,
-        end: assignment.span.end,
+    let command = arena_file.store.command(fact.arena_command_id()?);
+    let assignments = arena_command_assignments(command);
+    let [assignment] = assignments else {
+        return None;
+    };
+    let AssignmentValueNode::Scalar(word_id) = assignment.value else {
+        return None;
+    };
+    let value = arena_file.store.word(word_id);
+    let [part] = value.parts() else {
+        return None;
+    };
+    let WordPartArena::Literal(text) = &part.kind else {
+        return None;
+    };
+    if !is_bare_command_name_assignment_value(text.as_str(source, part.span)) {
+        return None;
     }
-}
 
-fn assignment_target_span(assignment: &Assignment) -> Span {
-    assignment.target.subscript.as_deref().map_or_else(
-        || assignment.target.name_span,
-        |subscript| {
-            Span::from_positions(
-                assignment.target.name_span.start,
-                subscript.span().end.advanced_by("]"),
-            )
-        },
-    )
+    let command_span = trim_trailing_whitespace_span(command.span(), source);
+    let stmt_span = trim_trailing_whitespace_span(fact.stmt_span(), source);
+    if !command_span.slice(source).chars().any(char::is_whitespace) {
+        Some(assignment_node_target_span(assignment))
+    } else if stmt_span.end.offset > command_span.end.offset {
+        Some(stmt_span)
+    } else if command_span.end.offset <= assignment.span.end.offset {
+        Some(assignment_node_target_span(assignment))
+    } else {
+        Some(command_span)
+    }
 }
 
 fn is_bare_command_name_assignment_value(text: &str) -> bool {
@@ -316,36 +357,37 @@ struct EnvPrefixScopeSpans {
     expansion_scope_spans: Vec<Span>,
 }
 
-fn build_env_prefix_scope_spans(_source: &str, _commands: &[CommandFact<'_>]) -> EnvPrefixScopeSpans {
-    EnvPrefixScopeSpans::default()
-}
-
-#[cfg(any())]
-fn build_env_prefix_scope_spans_legacy(source: &str, commands: &[CommandFact<'_>]) -> EnvPrefixScopeSpans {
+fn build_env_prefix_scope_spans(
+    source: &str,
+    commands: &[CommandFact<'_>],
+    arena_file: &ArenaFile,
+) -> EnvPrefixScopeSpans {
     let mut scope_spans = EnvPrefixScopeSpans::default();
     let mut seen_assignment_scope_spans = FxHashSet::default();
     let mut seen_expansion_scope_spans = FxHashSet::default();
 
-    for command in commands {
-        if command_is_assignment_only(command, source) {
+    for fact in commands {
+        let Some(command_id) = fact.arena_command_id() else {
+            continue;
+        };
+        let command = arena_file.store.command(command_id);
+        if command_is_assignment_only(fact, source) {
             continue;
         }
 
-        let assignments = command_assignments(command.command());
-        let broken_legacy_bracket_tail = match command.command() {
-            Command::Simple(simple) => broken_legacy_bracket_tail(simple, source),
-            Command::Builtin(_)
-            | Command::Decl(_)
-            | Command::Binary(_)
-            | Command::Compound(_)
-            | Command::Function(_)
-            | Command::AnonymousFunction(_) => None,
-        };
+        let assignments = arena_command_assignments(command);
+        let broken_legacy_bracket_tail = command
+            .simple()
+            .and_then(|simple| broken_legacy_bracket_tail(simple, source));
 
         for (index, assignment) in assignments.iter().enumerate() {
             let span_key = FactSpan::new(assignment.target.name_span);
             let earlier_prefix_uses_name = assignments.iter().take(index).any(|other| {
-                assignment_mentions_name_outside_nested_commands(other, &assignment.target.name)
+                assignment_mentions_name_outside_nested_commands(
+                    other,
+                    &arena_file.store,
+                    &assignment.target.name,
+                )
             });
             let later_prefix_uses_name =
                 assignments
@@ -355,28 +397,18 @@ fn build_env_prefix_scope_spans_legacy(source: &str, commands: &[CommandFact<'_>
                     .any(|(other_index, other)| {
                         assignment_mentions_name_outside_nested_commands(
                             other,
+                            &arena_file.store,
                             &assignment.target.name,
-                        ) || match (command.command(), broken_legacy_bracket_tail) {
-                            (Command::Simple(simple), Some(tail))
-                                if tail.assignment_index == other_index =>
-                            {
-                                broken_legacy_bracket_tail_mentions_name(
-                                    simple,
-                                    tail,
-                                    &assignment.target.name,
-                                )
-                            }
-                            (
-                                Command::Builtin(_)
-                                | Command::Decl(_)
-                                | Command::Binary(_)
-                                | Command::Compound(_)
-                                | Command::Function(_)
-                                | Command::AnonymousFunction(_),
-                                _,
-                            )
-                            | (Command::Simple(_), _) => false,
-                        }
+                        ) || command.simple().is_some_and(|simple| {
+                            broken_legacy_bracket_tail.is_some_and(|tail| {
+                                tail.assignment_index == other_index
+                                    && broken_legacy_bracket_tail_mentions_name(
+                                        simple,
+                                        tail,
+                                        &assignment.target.name,
+                                    )
+                            })
+                        })
                     });
             let body_uses_name = command_body_mentions_name_outside_nested_commands(
                 command,
@@ -386,7 +418,8 @@ fn build_env_prefix_scope_spans_legacy(source: &str, commands: &[CommandFact<'_>
 
             if (earlier_prefix_uses_name
                 || later_prefix_uses_name
-                || (body_uses_name && !assignment_is_identity_self_copy(assignment)))
+                || (body_uses_name
+                    && !assignment_is_identity_self_copy(assignment, &arena_file.store)))
                 && seen_assignment_scope_spans.insert(span_key)
             {
                 scope_spans
@@ -401,6 +434,7 @@ fn build_env_prefix_scope_spans_legacy(source: &str, commands: &[CommandFact<'_>
 
                 let _ = visit_assignment_reference_spans_outside_nested_commands(
                     other,
+                    &arena_file.store,
                     &assignment.target.name,
                     &mut |span| {
                         push_fact_span(
@@ -412,34 +446,22 @@ fn build_env_prefix_scope_spans_legacy(source: &str, commands: &[CommandFact<'_>
                     },
                 );
 
-                match (command.command(), broken_legacy_bracket_tail) {
-                    (Command::Simple(simple), Some(tail))
-                        if tail.assignment_index == other_index =>
-                    {
-                        let _ = visit_broken_legacy_bracket_tail_reference_spans(
-                            simple,
-                            tail,
-                            &assignment.target.name,
-                            &mut |span| {
-                                push_fact_span(
-                                    span,
-                                    &mut scope_spans.expansion_scope_spans,
-                                    &mut seen_expansion_scope_spans,
-                                );
-                                ControlFlow::Continue(())
-                            },
-                        );
-                    }
-                    (
-                        Command::Builtin(_)
-                        | Command::Decl(_)
-                        | Command::Binary(_)
-                        | Command::Compound(_)
-                        | Command::Function(_)
-                        | Command::AnonymousFunction(_),
-                        _,
-                    )
-                    | (Command::Simple(_), _) => {}
+                if let (Some(simple), Some(tail)) = (command.simple(), broken_legacy_bracket_tail)
+                    && tail.assignment_index == other_index
+                {
+                    let _ = visit_broken_legacy_bracket_tail_reference_spans(
+                        simple,
+                        tail,
+                        &assignment.target.name,
+                        &mut |span| {
+                            push_fact_span(
+                                span,
+                                &mut scope_spans.expansion_scope_spans,
+                                &mut seen_expansion_scope_spans,
+                            );
+                            ControlFlow::Continue(())
+                        },
+                    );
                 }
             }
 
@@ -448,6 +470,7 @@ fn build_env_prefix_scope_spans_legacy(source: &str, commands: &[CommandFact<'_>
             }) {
                 let _ = visit_assignment_reference_spans_outside_nested_commands(
                     assignment,
+                    &arena_file.store,
                     &assignment.target.name,
                     &mut |span| {
                         push_fact_span(
@@ -493,22 +516,28 @@ struct BrokenLegacyBracketTail {
 
 type EnvPrefixReferenceSpanVisitor<'a> = dyn FnMut(Span) -> ControlFlow<()> + 'a;
 
-fn command_is_assignment_only(_fact: &CommandFact<'_>, _source: &str) -> bool {
-    false
+fn command_is_assignment_only(fact: &CommandFact<'_>, _source: &str) -> bool {
+    fact.body_word_span().is_none() || fact.effective_or_literal_name().is_none()
 }
 
 fn broken_legacy_bracket_tail(
-    command: &SimpleCommand,
+    command: shuck_ast::SimpleCommandView<'_>,
     source: &str,
 ) -> Option<BrokenLegacyBracketTail> {
-    let assignment_index = command.assignments.len().checked_sub(1)?;
-    if !assignment_is_broken_legacy_bracket_arithmetic(&command.assignments[assignment_index]) {
+    let store = command.name().store();
+    let assignment_index = command.assignments().len().checked_sub(1)?;
+    if !assignment_is_broken_legacy_bracket_arithmetic(
+        &command.assignments()[assignment_index],
+        store,
+    ) {
         return None;
     }
 
-    let synthetic_word_count = std::iter::once(&command.name)
-        .chain(command.args.iter())
-        .position(|word| static_word_text(word, source).as_deref() == Some("]"))?
+    let synthetic_word_count = std::iter::once(command.name_id())
+        .chain(command.arg_ids().iter().copied())
+        .position(|word_id| {
+            static_word_text_arena(store.word(word_id), source).as_deref() == Some("]")
+        })?
         + 1;
 
     Some(BrokenLegacyBracketTail {
@@ -517,16 +546,23 @@ fn broken_legacy_bracket_tail(
     })
 }
 
-fn assignment_is_broken_legacy_bracket_arithmetic(assignment: &Assignment) -> bool {
-    let AssignmentValue::Scalar(word) = &assignment.value else {
+fn assignment_is_broken_legacy_bracket_arithmetic(
+    assignment: &AssignmentNode,
+    store: &AstStore,
+) -> bool {
+    let AssignmentValueNode::Scalar(word_id) = assignment.value else {
         return false;
     };
-    let [part] = word.parts.as_slice() else {
+    word_is_broken_legacy_bracket_arithmetic(store.word(word_id))
+}
+
+fn word_is_broken_legacy_bracket_arithmetic(word: WordView<'_>) -> bool {
+    let [part] = word.parts() else {
         return false;
     };
     matches!(
         &part.kind,
-        WordPart::ArithmeticExpansion {
+        WordPartArena::ArithmeticExpansion {
             syntax: ArithmeticExpansionSyntax::LegacyBracket,
             expression_ast: None,
             ..
@@ -534,37 +570,43 @@ fn assignment_is_broken_legacy_bracket_arithmetic(assignment: &Assignment) -> bo
     )
 }
 
-fn assignment_mentions_name_outside_nested_commands(assignment: &Assignment, name: &Name) -> bool {
-    visit_assignment_reference_spans_outside_nested_commands(assignment, name, &mut |_span| {
-        ControlFlow::Break(())
-    })
+fn assignment_mentions_name_outside_nested_commands(
+    assignment: &AssignmentNode,
+    store: &AstStore,
+    name: &Name,
+) -> bool {
+    visit_assignment_reference_spans_outside_nested_commands(
+        assignment,
+        store,
+        name,
+        &mut |_span| ControlFlow::Break(()),
+    )
     .is_break()
 }
 
 fn command_body_mentions_name_outside_nested_commands(
-    fact: &CommandFact<'_>,
+    command: CommandView<'_>,
     source: &str,
     name: &Name,
 ) -> bool {
-    visit_command_body_reference_spans_outside_nested_commands(fact, source, name, &mut |_span| {
-        ControlFlow::Break(())
-    })
+    visit_command_body_reference_spans_outside_nested_commands(
+        command,
+        source,
+        name,
+        &mut |_span| ControlFlow::Break(()),
+    )
     .is_break()
 }
 
 fn simple_command_body_words<'a>(
     command: &'a SimpleCommand,
-    source: &'a str,
+    _source: &'a str,
 ) -> impl Iterator<Item = &'a Word> {
-    let skip =
-        broken_legacy_bracket_tail(command, source).map_or(0, |tail| tail.synthetic_word_count);
-    std::iter::once(&command.name)
-        .chain(command.args.iter())
-        .skip(skip)
+    std::iter::once(&command.name).chain(command.args.iter())
 }
 
 fn broken_legacy_bracket_tail_mentions_name(
-    command: &SimpleCommand,
+    command: shuck_ast::SimpleCommandView<'_>,
     tail: BrokenLegacyBracketTail,
     name: &Name,
 ) -> bool {
@@ -575,33 +617,45 @@ fn broken_legacy_bracket_tail_mentions_name(
 }
 
 fn visit_assignment_reference_spans_outside_nested_commands(
-    assignment: &Assignment,
+    assignment: &AssignmentNode,
+    store: &AstStore,
     name: &Name,
     visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
     visit_subscript_reference_spans_outside_nested_commands(
         assignment.target.subscript.as_deref(),
+        store,
         name,
         visit,
     )?;
 
     match &assignment.value {
-        AssignmentValue::Scalar(word) => {
-            visit_word_reference_spans_outside_nested_commands(word, name, visit)
+        AssignmentValueNode::Scalar(word_id) => {
+            visit_word_reference_spans_outside_nested_commands(store.word(*word_id), name, visit)
         }
-        AssignmentValue::Compound(array) => {
-            for element in &array.elements {
+        AssignmentValueNode::Compound(array) => {
+            for element in store.array_elems(array.elements) {
                 match element {
-                    ArrayElem::Sequential(word) => {
-                        visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
-                    }
-                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-                        visit_subscript_reference_spans_outside_nested_commands(
-                            Some(key),
+                    ArrayElemNode::Sequential(value) => {
+                        visit_word_reference_spans_outside_nested_commands(
+                            store.word(value.word),
                             name,
                             visit,
                         )?;
-                        visit_word_reference_spans_outside_nested_commands(value, name, visit)?;
+                    }
+                    ArrayElemNode::Keyed { key, value }
+                    | ArrayElemNode::KeyedAppend { key, value } => {
+                        visit_subscript_reference_spans_outside_nested_commands(
+                            Some(key),
+                            store,
+                            name,
+                            visit,
+                        )?;
+                        visit_word_reference_spans_outside_nested_commands(
+                            store.word(value.word),
+                            name,
+                            visit,
+                        )?;
                     }
                 }
             }
@@ -612,103 +666,119 @@ fn visit_assignment_reference_spans_outside_nested_commands(
 }
 
 fn visit_command_body_reference_spans_outside_nested_commands(
-    _fact: &CommandFact<'_>,
-    _source: &str,
-    _name: &Name,
-    _visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
+    command: CommandView<'_>,
+    source: &str,
+    name: &Name,
+    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
+    if let Some(simple) = command.simple() {
+        let skip =
+            broken_legacy_bracket_tail(simple, source).map_or(0, |tail| tail.synthetic_word_count);
+        for word_id in std::iter::once(simple.name_id())
+            .chain(simple.arg_ids().iter().copied())
+            .skip(skip)
+        {
+            visit_word_reference_spans_outside_nested_commands(
+                command.store().word(word_id),
+                name,
+                visit,
+            )?;
+        }
+    } else if let Some(builtin) = command.builtin() {
+        if let Some(word) = builtin.primary() {
+            visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
+        }
+        for word_id in builtin.extra_arg_ids() {
+            visit_word_reference_spans_outside_nested_commands(
+                command.store().word(*word_id),
+                name,
+                visit,
+            )?;
+        }
+    } else if let Some(decl) = command.decl() {
+        for operand in decl.operands() {
+            match operand {
+                DeclOperandNode::Flag(word_id) | DeclOperandNode::Dynamic(word_id) => {
+                    visit_word_reference_spans_outside_nested_commands(
+                        command.store().word(*word_id),
+                        name,
+                        visit,
+                    )?;
+                }
+                DeclOperandNode::Name(reference) => {
+                    visit_var_ref_reference_spans_outside_nested_commands(
+                        reference,
+                        command.store(),
+                        name,
+                        visit,
+                    )?;
+                }
+                DeclOperandNode::Assignment(assignment) => {
+                    visit_assignment_reference_spans_outside_nested_commands(
+                        assignment,
+                        command.store(),
+                        name,
+                        visit,
+                    )?;
+                }
+            }
+        }
+    }
+
     ControlFlow::Continue(())
 }
 
 fn visit_broken_legacy_bracket_tail_reference_spans(
-    command: &SimpleCommand,
+    command: shuck_ast::SimpleCommandView<'_>,
     tail: BrokenLegacyBracketTail,
     name: &Name,
     visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
-    for word in std::iter::once(&command.name)
-        .chain(command.args.iter())
+    let store = command.name().store();
+    for word_id in std::iter::once(command.name_id())
+        .chain(command.arg_ids().iter().copied())
         .take(tail.synthetic_word_count.saturating_sub(1))
     {
-        visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
+        visit_word_reference_spans_outside_nested_commands(store.word(word_id), name, visit)?;
     }
 
     ControlFlow::Continue(())
 }
 
-fn builtin_words(command: &BuiltinCommand) -> Vec<&Word> {
-    let mut words = Vec::new();
-    match command {
-        BuiltinCommand::Break(command) => {
-            if let Some(word) = &command.depth {
-                words.push(word);
-            }
-            words.extend(command.extra_args.iter());
-        }
-        BuiltinCommand::Continue(command) => {
-            if let Some(word) = &command.depth {
-                words.push(word);
-            }
-            words.extend(command.extra_args.iter());
-        }
-        BuiltinCommand::Return(command) => {
-            if let Some(word) = &command.code {
-                words.push(word);
-            }
-            words.extend(command.extra_args.iter());
-        }
-        BuiltinCommand::Exit(command) => {
-            if let Some(word) = &command.code {
-                words.push(word);
-            }
-            words.extend(command.extra_args.iter());
-        }
-    }
-    words
-}
-
-fn assignment_is_identity_self_copy(assignment: &Assignment) -> bool {
+fn assignment_is_identity_self_copy(assignment: &AssignmentNode, store: &AstStore) -> bool {
     if assignment.append {
         return false;
     }
 
-    let AssignmentValue::Scalar(word) = &assignment.value else {
+    let AssignmentValueNode::Scalar(word_id) = assignment.value else {
         return false;
     };
-    word_is_identity_self_copy(word, &assignment.target.name)
+    word_is_identity_self_copy(store.word(word_id), &assignment.target.name)
 }
 
-fn word_is_identity_self_copy(word: &Word, name: &Name) -> bool {
-    let [part] = word.parts.as_slice() else {
+fn word_is_identity_self_copy(word: WordView<'_>, name: &Name) -> bool {
+    let [part] = word.parts() else {
         return false;
     };
     word_part_is_identity_self_copy(&part.kind, name)
 }
 
-fn word_part_is_identity_self_copy(part: &WordPart, name: &Name) -> bool {
+fn word_part_is_identity_self_copy(part: &WordPartArena, name: &Name) -> bool {
     match part {
-        WordPart::Variable(variable) => variable == name,
-        WordPart::DoubleQuoted { parts, .. } => {
-            let [part] = parts.as_slice() else {
-                return false;
-            };
-            word_part_is_identity_self_copy(&part.kind, name)
-        }
-        WordPart::Parameter(parameter) => parameter_is_plain_access_to_name(parameter, name),
+        WordPartArena::Variable(variable) => variable == name,
+        WordPartArena::Parameter(parameter) => parameter_is_plain_access_to_name(parameter, name),
         _ => false,
     }
 }
 
-fn parameter_is_plain_access_to_name(parameter: &ParameterExpansion, name: &Name) -> bool {
+fn parameter_is_plain_access_to_name(parameter: &ParameterExpansionNode, name: &Name) -> bool {
     match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
-            if reference.subscript.is_none() =>
-        {
-            &reference.name == name
-        }
-        ParameterExpansionSyntax::Zsh(syntax)
+        ParameterExpansionSyntaxNode::Bourne(BourneParameterExpansionNode::Access {
+            reference,
+        }) if reference.subscript.is_none() => &reference.name == name,
+        ParameterExpansionSyntaxNode::Zsh(syntax)
             if syntax.operation.is_none()
-                && matches!(&syntax.target, ZshExpansionTarget::Reference(reference) if reference.subscript.is_none() && &reference.name == name) =>
+                && matches!(&syntax.target, ZshExpansionTargetNode::Reference(reference) if reference.subscript.is_none() && &reference.name == name) =>
         {
             true
         }
@@ -717,7 +787,8 @@ fn parameter_is_plain_access_to_name(parameter: &ParameterExpansion, name: &Name
 }
 
 fn visit_subscript_reference_spans_outside_nested_commands(
-    subscript: Option<&Subscript>,
+    subscript: Option<&SubscriptNode>,
+    store: &AstStore,
     name: &Name,
     visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
@@ -725,86 +796,91 @@ fn visit_subscript_reference_spans_outside_nested_commands(
         return ControlFlow::Continue(());
     };
 
-    if let Some(word) = subscript.word_ast() {
-        visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
+    if let Some(word_id) = subscript.word_ast {
+        visit_word_reference_spans_outside_nested_commands(store.word(word_id), name, visit)?;
     }
     if let Some(expr) = subscript.arithmetic_ast.as_ref() {
-        visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
+        visit_arithmetic_reference_spans_outside_nested_commands(expr, store, name, visit)?;
     }
 
     ControlFlow::Continue(())
 }
 
 fn visit_word_reference_spans_outside_nested_commands(
-    word: &Word,
+    word: WordView<'_>,
     name: &Name,
     visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
-    for part in &word.parts {
-        visit_word_part_reference_spans_outside_nested_commands(part, name, visit)?;
+    for part in word.parts() {
+        visit_word_part_reference_spans_outside_nested_commands(part, word.store(), name, visit)?;
     }
 
     ControlFlow::Continue(())
 }
 
 fn visit_word_part_reference_spans_outside_nested_commands(
-    part: &WordPartNode,
+    part: &WordPartArenaNode,
+    store: &AstStore,
     name: &Name,
     visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
     match &part.kind {
-        WordPart::Literal(_)
-        | WordPart::SingleQuoted { .. }
-        | WordPart::ZshQualifiedGlob(_)
-        | WordPart::PrefixMatch { .. } => {}
-        WordPart::DoubleQuoted { parts, .. } => {
-            for part in parts {
-                visit_word_part_reference_spans_outside_nested_commands(part, name, visit)?;
+        WordPartArena::Literal(_)
+        | WordPartArena::SingleQuoted { .. }
+        | WordPartArena::ZshQualifiedGlob(_)
+        | WordPartArena::PrefixMatch { .. } => {}
+        WordPartArena::DoubleQuoted { parts, .. } => {
+            for part in store.word_parts(*parts) {
+                visit_word_part_reference_spans_outside_nested_commands(part, store, name, visit)?;
             }
         }
-        WordPart::Variable(variable) => {
+        WordPartArena::Variable(variable) => {
             if variable == name {
                 visit(part.span)?;
             }
         }
-        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
-        WordPart::ArithmeticExpansion {
+        WordPartArena::CommandSubstitution { .. } | WordPartArena::ProcessSubstitution { .. } => {}
+        WordPartArena::ArithmeticExpansion {
             expression_ast,
             expression_word_ast,
             ..
         } => {
             if let Some(expr) = expression_ast.as_ref() {
-                visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
+                visit_arithmetic_reference_spans_outside_nested_commands(expr, store, name, visit)?;
             }
-            visit_word_reference_spans_outside_nested_commands(expression_word_ast, name, visit)?;
+            visit_word_reference_spans_outside_nested_commands(
+                store.word(*expression_word_ast),
+                name,
+                visit,
+            )?;
         }
-        WordPart::Parameter(parameter) => {
+        WordPartArena::Parameter(parameter) => {
             visit_parameter_reference_spans_outside_nested_commands(
-                parameter, part.span, name, visit,
+                parameter, store, part.span, name, visit,
             )?;
         }
-        WordPart::ParameterExpansion {
+        WordPartArena::ParameterExpansion {
             reference,
             operand_word_ast,
             ..
         } => {
-            visit_var_ref_reference_spans_outside_nested_commands(
-                reference, part.span, name, visit,
-            )?;
-            if let Some(word) = operand_word_ast.as_ref() {
-                visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
+            visit_var_ref_reference_spans_outside_nested_commands(reference, store, name, visit)?;
+            if let Some(word_id) = operand_word_ast {
+                visit_word_reference_spans_outside_nested_commands(
+                    store.word(*word_id),
+                    name,
+                    visit,
+                )?;
             }
         }
-        WordPart::Length(reference)
-        | WordPart::ArrayAccess(reference)
-        | WordPart::ArrayLength(reference)
-        | WordPart::ArrayIndices(reference)
-        | WordPart::Transformation { reference, .. } => {
-            visit_var_ref_reference_spans_outside_nested_commands(
-                reference, part.span, name, visit,
-            )?;
+        WordPartArena::Length(reference)
+        | WordPartArena::ArrayAccess(reference)
+        | WordPartArena::ArrayLength(reference)
+        | WordPartArena::ArrayIndices(reference)
+        | WordPartArena::Transformation { reference, .. } => {
+            visit_var_ref_reference_spans_outside_nested_commands(reference, store, name, visit)?;
         }
-        WordPart::Substring {
+        WordPartArena::Substring {
             reference,
             offset_ast,
             offset_word_ast,
@@ -812,7 +888,7 @@ fn visit_word_part_reference_spans_outside_nested_commands(
             length_word_ast,
             ..
         }
-        | WordPart::ArraySlice {
+        | WordPartArena::ArraySlice {
             reference,
             offset_ast,
             offset_word_ast,
@@ -820,30 +896,38 @@ fn visit_word_part_reference_spans_outside_nested_commands(
             length_word_ast,
             ..
         } => {
-            visit_var_ref_reference_spans_outside_nested_commands(
-                reference, part.span, name, visit,
-            )?;
+            visit_var_ref_reference_spans_outside_nested_commands(reference, store, name, visit)?;
             if let Some(expr) = offset_ast.as_ref() {
-                visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
+                visit_arithmetic_reference_spans_outside_nested_commands(expr, store, name, visit)?;
             }
-            visit_word_reference_spans_outside_nested_commands(offset_word_ast, name, visit)?;
+            visit_word_reference_spans_outside_nested_commands(
+                store.word(*offset_word_ast),
+                name,
+                visit,
+            )?;
             if let Some(expr) = length_ast.as_ref() {
-                visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
+                visit_arithmetic_reference_spans_outside_nested_commands(expr, store, name, visit)?;
             }
-            if let Some(word) = length_word_ast.as_ref() {
-                visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
+            if let Some(word_id) = length_word_ast {
+                visit_word_reference_spans_outside_nested_commands(
+                    store.word(*word_id),
+                    name,
+                    visit,
+                )?;
             }
         }
-        WordPart::IndirectExpansion {
+        WordPartArena::IndirectExpansion {
             reference,
             operand_word_ast,
             ..
         } => {
-            visit_var_ref_reference_spans_outside_nested_commands(
-                reference, part.span, name, visit,
-            )?;
-            if let Some(word) = operand_word_ast.as_ref() {
-                visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
+            visit_var_ref_reference_spans_outside_nested_commands(reference, store, name, visit)?;
+            if let Some(word_id) = operand_word_ast {
+                visit_word_reference_spans_outside_nested_commands(
+                    store.word(*word_id),
+                    name,
+                    visit,
+                )?;
             }
         }
     }
@@ -852,59 +936,83 @@ fn visit_word_part_reference_spans_outside_nested_commands(
 }
 
 fn visit_parameter_reference_spans_outside_nested_commands(
-    parameter: &ParameterExpansion,
+    parameter: &ParameterExpansionNode,
+    store: &AstStore,
     span: Span,
     name: &Name,
     visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
     match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
-            BourneParameterExpansion::Access { reference }
-            | BourneParameterExpansion::Length { reference }
-            | BourneParameterExpansion::Indices { reference }
-            | BourneParameterExpansion::Transformation { reference, .. } => {
+        ParameterExpansionSyntaxNode::Bourne(syntax) => match syntax {
+            BourneParameterExpansionNode::Access { reference }
+            | BourneParameterExpansionNode::Length { reference }
+            | BourneParameterExpansionNode::Indices { reference }
+            | BourneParameterExpansionNode::Transformation { reference, .. } => {
                 visit_var_ref_reference_spans_outside_nested_commands(
-                    reference, span, name, visit,
+                    reference, store, name, visit,
                 )?;
             }
-            BourneParameterExpansion::Indirect {
+            BourneParameterExpansionNode::Indirect {
                 reference,
                 operand_word_ast,
                 ..
             }
-            | BourneParameterExpansion::Operation {
+            | BourneParameterExpansionNode::Operation {
                 reference,
                 operand_word_ast,
                 ..
             } => {
                 visit_var_ref_reference_spans_outside_nested_commands(
-                    reference, span, name, visit,
+                    reference, store, name, visit,
                 )?;
-                if let Some(word) = operand_word_ast.as_ref() {
-                    visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
+                if let Some(word_id) = operand_word_ast {
+                    visit_word_reference_spans_outside_nested_commands(
+                        store.word(*word_id),
+                        name,
+                        visit,
+                    )?;
                 }
             }
-            BourneParameterExpansion::Slice {
+            BourneParameterExpansionNode::Slice {
                 reference,
                 offset_ast,
+                offset_word_ast,
                 length_ast,
+                length_word_ast,
                 ..
             } => {
                 visit_var_ref_reference_spans_outside_nested_commands(
-                    reference, span, name, visit,
+                    reference, store, name, visit,
                 )?;
                 if let Some(expr) = offset_ast.as_ref() {
-                    visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
+                    visit_arithmetic_reference_spans_outside_nested_commands(
+                        expr, store, name, visit,
+                    )?;
                 }
+                visit_word_reference_spans_outside_nested_commands(
+                    store.word(*offset_word_ast),
+                    name,
+                    visit,
+                )?;
                 if let Some(expr) = length_ast.as_ref() {
-                    visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
+                    visit_arithmetic_reference_spans_outside_nested_commands(
+                        expr, store, name, visit,
+                    )?;
+                }
+                if let Some(word_id) = length_word_ast {
+                    visit_word_reference_spans_outside_nested_commands(
+                        store.word(*word_id),
+                        name,
+                        visit,
+                    )?;
                 }
             }
-            BourneParameterExpansion::PrefixMatch { .. } => {}
+            BourneParameterExpansionNode::PrefixMatch { .. } => {}
         },
-        ParameterExpansionSyntax::Zsh(syntax) => {
+        ParameterExpansionSyntaxNode::Zsh(syntax) => {
             visit_zsh_target_reference_spans_outside_nested_commands(
                 &syntax.target,
+                store,
                 span,
                 name,
                 visit,
@@ -916,95 +1024,109 @@ fn visit_parameter_reference_spans_outside_nested_commands(
 }
 
 fn visit_zsh_target_reference_spans_outside_nested_commands(
-    target: &ZshExpansionTarget,
+    target: &ZshExpansionTargetNode,
+    store: &AstStore,
     span: Span,
     name: &Name,
     visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
     match target {
-        ZshExpansionTarget::Reference(reference) => {
-            visit_var_ref_reference_spans_outside_nested_commands(reference, span, name, visit)?;
+        ZshExpansionTargetNode::Reference(reference) => {
+            visit_var_ref_reference_spans_outside_nested_commands(reference, store, name, visit)?;
         }
-        ZshExpansionTarget::Nested(parameter) => {
-            visit_parameter_reference_spans_outside_nested_commands(parameter, span, name, visit)?;
+        ZshExpansionTargetNode::Nested(parameter) => {
+            visit_parameter_reference_spans_outside_nested_commands(
+                parameter, store, span, name, visit,
+            )?;
         }
-        ZshExpansionTarget::Word(word) => {
-            visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
+        ZshExpansionTargetNode::Word(word_id) => {
+            visit_word_reference_spans_outside_nested_commands(store.word(*word_id), name, visit)?;
         }
-        ZshExpansionTarget::Empty => {}
+        ZshExpansionTargetNode::Empty => {}
     }
 
     ControlFlow::Continue(())
 }
 
 fn visit_var_ref_reference_spans_outside_nested_commands(
-    reference: &VarRef,
-    span: Span,
+    reference: &VarRefNode,
+    store: &AstStore,
     name: &Name,
     visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
     if reference.name == *name {
-        visit(span)?;
+        visit(reference.span)?;
     }
 
     visit_subscript_reference_spans_outside_nested_commands(
         reference.subscript.as_deref(),
+        store,
         name,
         visit,
     )
 }
 
 fn visit_arithmetic_reference_spans_outside_nested_commands(
-    expression: &ArithmeticExprNode,
+    expression: &ArithmeticExprArenaNode,
+    store: &AstStore,
     name: &Name,
     visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
     match &expression.kind {
-        ArithmeticExpr::Number(_) => {}
-        ArithmeticExpr::Variable(variable) => {
+        ArithmeticExprArena::Number(_) => {}
+        ArithmeticExprArena::Variable(variable) => {
             if variable == name {
                 visit(expression.span)?;
             }
         }
-        ArithmeticExpr::Indexed {
+        ArithmeticExprArena::Indexed {
             name: variable,
             index,
         } => {
             if variable == name {
                 visit(expression.span)?;
             }
-            visit_arithmetic_reference_spans_outside_nested_commands(index, name, visit)?;
+            visit_arithmetic_reference_spans_outside_nested_commands(index, store, name, visit)?;
         }
-        ArithmeticExpr::ShellWord(word) => {
-            visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
+        ArithmeticExprArena::ShellWord(word_id) => {
+            visit_word_reference_spans_outside_nested_commands(store.word(*word_id), name, visit)?;
         }
-        ArithmeticExpr::Parenthesized { expression } => {
-            visit_arithmetic_reference_spans_outside_nested_commands(expression, name, visit)?;
+        ArithmeticExprArena::Parenthesized { expression } => {
+            visit_arithmetic_reference_spans_outside_nested_commands(
+                expression, store, name, visit,
+            )?;
         }
-        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
-            visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
+        ArithmeticExprArena::Unary { expr, .. } | ArithmeticExprArena::Postfix { expr, .. } => {
+            visit_arithmetic_reference_spans_outside_nested_commands(expr, store, name, visit)?;
         }
-        ArithmeticExpr::Binary { left, right, .. } => {
-            visit_arithmetic_reference_spans_outside_nested_commands(left, name, visit)?;
-            visit_arithmetic_reference_spans_outside_nested_commands(right, name, visit)?;
+        ArithmeticExprArena::Binary { left, right, .. } => {
+            visit_arithmetic_reference_spans_outside_nested_commands(left, store, name, visit)?;
+            visit_arithmetic_reference_spans_outside_nested_commands(right, store, name, visit)?;
         }
-        ArithmeticExpr::Conditional {
+        ArithmeticExprArena::Conditional {
             condition,
             then_expr,
             else_expr,
         } => {
-            visit_arithmetic_reference_spans_outside_nested_commands(condition, name, visit)?;
-            visit_arithmetic_reference_spans_outside_nested_commands(then_expr, name, visit)?;
-            visit_arithmetic_reference_spans_outside_nested_commands(else_expr, name, visit)?;
+            visit_arithmetic_reference_spans_outside_nested_commands(
+                condition, store, name, visit,
+            )?;
+            visit_arithmetic_reference_spans_outside_nested_commands(
+                then_expr, store, name, visit,
+            )?;
+            visit_arithmetic_reference_spans_outside_nested_commands(
+                else_expr, store, name, visit,
+            )?;
         }
-        ArithmeticExpr::Assignment { target, value, .. } => {
+        ArithmeticExprArena::Assignment { target, value, .. } => {
             visit_arithmetic_lvalue_reference_spans_outside_nested_commands(
                 target,
+                store,
                 expression.span,
                 name,
                 visit,
             )?;
-            visit_arithmetic_reference_spans_outside_nested_commands(value, name, visit)?;
+            visit_arithmetic_reference_spans_outside_nested_commands(value, store, name, visit)?;
         }
     }
 
@@ -1012,25 +1134,26 @@ fn visit_arithmetic_reference_spans_outside_nested_commands(
 }
 
 fn visit_arithmetic_lvalue_reference_spans_outside_nested_commands(
-    target: &ArithmeticLvalue,
+    target: &ArithmeticLvalueArena,
+    store: &AstStore,
     span: Span,
     name: &Name,
     visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
     match target {
-        ArithmeticLvalue::Variable(variable) => {
+        ArithmeticLvalueArena::Variable(variable) => {
             if variable == name {
                 visit(span)?;
             }
         }
-        ArithmeticLvalue::Indexed {
+        ArithmeticLvalueArena::Indexed {
             name: variable,
             index,
         } => {
             if variable == name {
                 visit(span)?;
             }
-            visit_arithmetic_reference_spans_outside_nested_commands(index, name, visit)?;
+            visit_arithmetic_reference_spans_outside_nested_commands(index, store, name, visit)?;
         }
     }
 
@@ -1044,71 +1167,53 @@ fn push_fact_span(span: Span, spans: &mut Vec<Span>, seen: &mut FxHashSet<FactSp
     }
 }
 
-
-fn build_plus_equals_assignment_spans(_commands: &[CommandFact<'_>]) -> Vec<Span> {
-    Vec::new()
-}
-
-fn collect_plus_equals_assignment_spans_in_command(command: &Command, spans: &mut Vec<Span>) {
-    match command {
-        Command::Simple(command) => {
-            collect_plus_equals_assignment_spans_in_assignments(&command.assignments, spans);
+fn build_plus_equals_assignment_spans(
+    commands: &[CommandFact<'_>],
+    arena_file: &ArenaFile,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+    for fact in commands {
+        let Some(command_id) = fact.arena_command_id() else {
+            continue;
+        };
+        let command = arena_file.store.command(command_id);
+        for assignment in arena_command_assignments(command) {
+            collect_plus_equals_arena_assignment_span(assignment, &mut spans);
         }
-        Command::Builtin(command) => match command {
-            BuiltinCommand::Break(command) => {
-                collect_plus_equals_assignment_spans_in_assignments(&command.assignments, spans);
-            }
-            BuiltinCommand::Continue(command) => {
-                collect_plus_equals_assignment_spans_in_assignments(&command.assignments, spans);
-            }
-            BuiltinCommand::Return(command) => {
-                collect_plus_equals_assignment_spans_in_assignments(&command.assignments, spans);
-            }
-            BuiltinCommand::Exit(command) => {
-                collect_plus_equals_assignment_spans_in_assignments(&command.assignments, spans);
-            }
-        },
-        Command::Decl(command) => {
-            collect_plus_equals_assignment_spans_in_assignments(&command.assignments, spans);
-            for operand in &command.operands {
-                if let DeclOperand::Assignment(assignment) = operand {
-                    collect_plus_equals_assignment_span(assignment, spans);
-                }
+        for operand in arena_declaration_operands(command) {
+            if let DeclOperandNode::Assignment(assignment) = operand {
+                collect_plus_equals_arena_assignment_span(assignment, &mut spans);
             }
         }
-        Command::Binary(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => {}
     }
+    spans
 }
 
-fn collect_plus_equals_assignment_spans_in_assignments(
-    assignments: &[Assignment],
-    spans: &mut Vec<Span>,
-) {
-    for assignment in assignments {
-        collect_plus_equals_assignment_span(assignment, spans);
-    }
-}
-
-fn collect_plus_equals_assignment_span(assignment: &Assignment, spans: &mut Vec<Span>) {
+fn collect_plus_equals_arena_assignment_span(assignment: &AssignmentNode, spans: &mut Vec<Span>) {
     if !assignment.append {
         return;
     }
 
-    let target = &assignment.target;
-    let end = target
-        .subscript
-        .as_ref()
-        .map(|subscript| subscript.syntax_source_text().span().end.advanced_by("]"))
-        .unwrap_or(target.name_span.end);
-    spans.push(Span::from_positions(target.name_span.start, end));
+    spans.push(assignment_node_target_span(assignment));
+}
+
+fn assignment_node_target_span(assignment: &AssignmentNode) -> Span {
+    assignment.target.subscript.as_deref().map_or_else(
+        || assignment.target.name_span,
+        |subscript| {
+            let subscript_span = subscript.raw.as_ref().unwrap_or(&subscript.text).span();
+            Span::from_positions(
+                assignment.target.name_span.start,
+                subscript_span.end.advanced_by("]"),
+            )
+        },
+    )
 }
 
 fn build_nonpersistent_assignment_spans(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
+    arena_file: &ArenaFile,
     source: &str,
     suppress_bash_pipefail_pipeline_side_effects: bool,
     _require_source_ordered_command_lookup: bool,
@@ -1126,7 +1231,7 @@ fn build_nonpersistent_assignment_spans(
     let mut command_id_query_offsets = Vec::new();
     let mut relevant_references = Vec::new();
     let mut relevant_synthetic_reads = Vec::new();
-    let loop_assignment_spans = build_subshell_loop_assignment_report_spans(commands);
+    let loop_assignment_spans = build_subshell_loop_assignment_report_spans(commands, arena_file);
 
     for binding in semantic.bindings() {
         if !is_reportable_subshell_assignment(binding.kind, binding.attributes) {
@@ -1154,7 +1259,10 @@ fn build_nonpersistent_assignment_spans(
             .or_insert(CandidateSubshellAssignment {
                 binding_id: binding.id,
                 effective_local: binding_effectively_targets_local(semantic, binding),
-                enclosing_function_scope: enclosing_function_scope_for_scope(semantic, binding.scope),
+                enclosing_function_scope: enclosing_function_scope_for_scope(
+                    semantic,
+                    binding.scope,
+                ),
                 assignment_span: subshell_assignment_report_span(binding, &loop_assignment_spans),
                 subshell_start: nonpersistent_scope.span.start.offset,
                 subshell_end: nonpersistent_scope.span.end.offset,
@@ -1218,7 +1326,7 @@ fn build_nonpersistent_assignment_spans(
             relevant_synthetic_reads.push(synthetic_read);
         }
     }
-    let prompt_runtime_reads = build_prompt_runtime_read_spans(commands, source);
+    let prompt_runtime_reads = build_prompt_runtime_read_spans(commands, arena_file, source);
     for read in &prompt_runtime_reads {
         if candidate_bindings_by_name.contains_key(&read.name) {
             command_id_query_offsets.push(read.span.start.offset);
@@ -1271,7 +1379,8 @@ fn build_nonpersistent_assignment_spans(
             reference.span.start.offset,
         );
         let resolved = semantic.resolved_binding(reference.id);
-        let reference_function_scope = enclosing_function_scope_for_scope(semantic, reference.scope);
+        let reference_function_scope =
+            enclosing_function_scope_for_scope(semantic, reference.scope);
         if let Some(candidate) = candidate_ids.iter().rev().find(|candidate| {
             reference.span.start.offset > candidate.subshell_end
                 && !has_intervening_persistent_reset(
@@ -1350,8 +1459,10 @@ fn build_nonpersistent_assignment_spans(
             .get(&read.name)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        let event_command_id =
-            precomputed_command_id_for_offset(&innermost_command_ids_by_offset, read.span.start.offset);
+        let event_command_id = precomputed_command_id_for_offset(
+            &innermost_command_ids_by_offset,
+            read.span.start.offset,
+        );
         let read_function_scope =
             enclosing_function_scope_for_scope(semantic, semantic.scope_at(read.span.start.offset));
         if let Some(candidate) = candidate_ids.iter().rev().find(|candidate| {
@@ -1474,31 +1585,32 @@ fn is_reportable_nonpersistent_assignment_name(name: &Name) -> bool {
 }
 
 fn build_subshell_loop_assignment_report_spans(
-    _commands: &[CommandFact<'_>],
-) -> FxHashMap<FactSpan, Span> {
-    FxHashMap::default()
-}
-
-#[cfg(any())]
-fn build_subshell_loop_assignment_report_spans_legacy(
     commands: &[CommandFact<'_>],
+    arena_file: &ArenaFile,
 ) -> FxHashMap<FactSpan, Span> {
     let mut spans = FxHashMap::default();
 
-    for command in commands {
-        match command.command() {
-            Command::Compound(CompoundCommand::For(for_command)) => {
-                let keyword_span = leading_keyword_span(for_command.span, "for");
-                for target in &for_command.targets {
+    for fact in commands {
+        let Some(command_id) = fact.arena_command_id() else {
+            continue;
+        };
+        let command = arena_file.store.command(command_id);
+        let Some(compound) = command.compound() else {
+            continue;
+        };
+        match compound.node() {
+            CompoundCommandNode::For { targets, .. } => {
+                let keyword_span = leading_keyword_span(command.span(), "for");
+                for target in arena_file.store.for_targets(*targets) {
                     if target.name.is_some() {
                         spans.insert(FactSpan::new(target.span), keyword_span);
                     }
                 }
             }
-            Command::Compound(CompoundCommand::Select(select_command)) => {
+            CompoundCommandNode::Select { variable_span, .. } => {
                 spans.insert(
-                    FactSpan::new(select_command.variable_span),
-                    leading_keyword_span(select_command.span, "select"),
+                    FactSpan::new(*variable_span),
+                    leading_keyword_span(command.span(), "select"),
                 );
             }
             _ => {}
@@ -1539,7 +1651,6 @@ struct CandidateSubshellAssignment {
 struct NonpersistentScopeSpan {
     span: Span,
 }
-
 
 #[derive(Debug, Default)]
 struct NonpersistentAssignmentSpans {
@@ -1667,33 +1778,55 @@ fn has_intervening_persistent_reset(
     })
 }
 
-fn command_prefix_assignments_reset_name(command: &Command, name: &Name) -> bool {
-    command_assignments(command)
-        .iter()
-        .any(|assignment| assignment.target.name == *name)
-}
-
 fn build_prompt_runtime_read_spans(
-    _commands: &[CommandFact<'_>],
-    _source: &str,
+    commands: &[CommandFact<'_>],
+    arena_file: &ArenaFile,
+    source: &str,
 ) -> Vec<NamedSpan> {
-    Vec::new()
+    let mut reads = Vec::new();
+    for fact in commands {
+        let Some(command_id) = fact.arena_command_id() else {
+            continue;
+        };
+        let command = arena_file.store.command(command_id);
+        for assignment in arena_command_assignments(command) {
+            collect_prompt_runtime_reads_from_assignment(
+                assignment,
+                &arena_file.store,
+                source,
+                &mut reads,
+            );
+        }
+        for operand in arena_declaration_operands(command) {
+            if let DeclOperandNode::Assignment(assignment) = operand {
+                collect_prompt_runtime_reads_from_assignment(
+                    assignment,
+                    &arena_file.store,
+                    source,
+                    &mut reads,
+                );
+            }
+        }
+    }
+    reads
 }
 
 fn collect_prompt_runtime_reads_from_assignment(
-    assignment: &Assignment,
+    assignment: &AssignmentNode,
+    store: &AstStore,
     source: &str,
     reads: &mut Vec<NamedSpan>,
 ) {
     if assignment.target.name.as_str() != "PS4" {
         return;
     }
-    let AssignmentValue::Scalar(word) = &assignment.value else {
+    let AssignmentValueNode::Scalar(word_id) = assignment.value else {
         return;
     };
+    let word = store.word(word_id);
 
-    let target_span = assignment_target_span(assignment);
-    for name in escaped_braced_parameter_names(word.span.slice(source)) {
+    let target_span = assignment_node_target_span(assignment);
+    for name in escaped_braced_parameter_names(word.span().slice(source)) {
         reads.push(NamedSpan {
             name: Name::from(name.as_str()),
             span: target_span,
@@ -1743,20 +1876,14 @@ fn build_innermost_command_ids_by_offset(
     offsets.sort_unstable();
     offsets.dedup();
 
-    let mut command_order = commands
-        .iter()
-        .map(CommandFact::id)
-        .collect::<Vec<_>>();
-    if command_order
-        .windows(2)
-        .any(|window| {
-            compare_command_offset_entries(
-                command_offset_entry(commands, window[0]),
-                command_offset_entry(commands, window[1]),
-            )
-            .is_gt()
-        })
-    {
+    let mut command_order = commands.iter().map(CommandFact::id).collect::<Vec<_>>();
+    if command_order.windows(2).any(|window| {
+        compare_command_offset_entries(
+            command_offset_entry(commands, window[0]),
+            command_offset_entry(commands, window[1]),
+        )
+        .is_gt()
+    }) {
         command_order.sort_unstable_by(|left, right| {
             compare_command_offset_entries(
                 command_offset_entry(commands, *left),
@@ -2097,7 +2224,6 @@ fn collect_dollar_question_after_command_spans_in_function_body(
         _ => collect_dollar_question_after_command_spans_in_stmt(stmt, source, false, spans),
     }
 }
-
 
 fn build_declaration_assignment_probes<'a>(
     command: &'a Command,

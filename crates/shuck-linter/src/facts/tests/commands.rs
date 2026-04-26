@@ -1,4 +1,5 @@
 use super::*;
+use crate::CommandFactCompoundKind;
 
 #[test]
 fn word_static_text_preserves_multi_part_literals() {
@@ -1140,34 +1141,34 @@ time timed
         let binary = facts
             .commands()
             .iter()
-            .find(|fact| matches!(fact.command(), shuck_ast::Command::Binary(_)))
+            .find(|fact| fact.command_kind() == shuck_ast::ArenaFileCommandKind::Binary)
             .expect("expected binary command");
 
         let init_parent = facts
             .command_parent(init_if.id())
             .expect("expected if parent");
-        assert!(matches!(
-            init_parent.command(),
-            shuck_ast::Command::Compound(shuck_ast::CompoundCommand::If(_))
-        ));
+        assert_eq!(
+            init_parent.compound_kind(),
+            Some(CommandFactCompoundKind::If)
+        );
         assert!(facts.command_is_dominance_barrier(init_parent.id()));
 
         let brace_parent = facts
             .command_parent(brace_inner.id())
             .expect("expected brace-group parent");
-        assert!(matches!(
-            brace_parent.command(),
-            shuck_ast::Command::Compound(shuck_ast::CompoundCommand::BraceGroup(_))
-        ));
+        assert_eq!(
+            brace_parent.compound_kind(),
+            Some(CommandFactCompoundKind::BraceGroup)
+        );
         assert!(!facts.command_is_dominance_barrier(brace_parent.id()));
 
         let timed_parent = facts
             .command_parent(timed.id())
             .expect("expected time parent");
-        assert!(matches!(
-            timed_parent.command(),
-            shuck_ast::Command::Compound(shuck_ast::CompoundCommand::Time(_))
-        ));
+        assert_eq!(
+            timed_parent.compound_kind(),
+            Some(CommandFactCompoundKind::Time)
+        );
         assert!(!facts.command_is_dominance_barrier(timed_parent.id()));
         assert!(facts.command_is_dominance_barrier(binary.id()));
 

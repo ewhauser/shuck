@@ -55,7 +55,8 @@ fn estimate_fact_build_capacity(arena_file: &ArenaFile) -> FactBuildCapacity {
 }
 
 fn arena_word_ids_by_span(arena_file: &ArenaFile) -> FxHashMap<FactSpan, WordId> {
-    let mut ids = FxHashMap::with_capacity_and_hasher(arena_file.store.word_count(), Default::default());
+    let mut ids =
+        FxHashMap::with_capacity_and_hasher(arena_file.store.word_count(), Default::default());
     for index in 0..arena_file.store.word_count() {
         let id = WordId::new(index);
         ids.insert(FactSpan::new(arena_file.store.word(id).span()), id);
@@ -98,7 +99,8 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut command_ids_by_span =
             CommandLookupIndex::with_capacity_and_hasher(capacity.commands, Default::default());
         let mut command_parent_ids = Vec::with_capacity(capacity.commands);
-        let mut command_child_ids_by_parent = Vec::<Vec<CommandId>>::with_capacity(capacity.commands);
+        let mut command_child_ids_by_parent =
+            Vec::<Vec<CommandId>>::with_capacity(capacity.commands);
         let mut active_parent_commands = Vec::<OpenParentCommand>::new();
         let mut if_condition_command_ids =
             FxHashSet::with_capacity_and_hasher(capacity.commands / 4, Default::default());
@@ -324,8 +326,8 @@ impl<'a> LinterFactsBuilder<'a> {
                     &arena_word_ids_by_span,
                     command_zsh_options.as_ref(),
                 );
-                let scope =
-                    (!nested_word_command).then(|| self.semantic.scope_at(normalized.body_span.start.offset));
+                let scope = (!nested_word_command)
+                    .then(|| self.semantic.scope_at(normalized.body_span.start.offset));
                 let declaration_assignment_probes = build_declaration_assignment_probes(
                     visit.command,
                     &normalized,
@@ -602,22 +604,20 @@ impl<'a> LinterFactsBuilder<'a> {
             build_statement_facts(&commands, &command_ids_by_span, &self.file.body);
         let background_semicolon_spans =
             build_background_semicolon_spans(&commands, &case_items, self.source);
-        let single_test_subshell_spans =
-            build_single_test_subshell_spans(
-                &commands,
-                &command_ids_by_span,
-                &command_child_index,
-                &arena_file,
-                self.source,
-            );
-        let subshell_test_group_spans =
-            build_subshell_test_group_spans(
-                &commands,
-                &command_ids_by_span,
-                &command_child_index,
-                &arena_file,
-                self.source,
-            );
+        let single_test_subshell_spans = build_single_test_subshell_spans(
+            &commands,
+            &command_ids_by_span,
+            &command_child_index,
+            &arena_file,
+            self.source,
+        );
+        let subshell_test_group_spans = build_subshell_test_group_spans(
+            &commands,
+            &command_ids_by_span,
+            &command_child_index,
+            &arena_file,
+            self.source,
+        );
         let shebang_header_facts = build_shebang_header_facts(self.source);
         let errexit_enabled_anywhere = self.ambient_shell_options.errexit
             || shebang_header_facts.enables_errexit
@@ -646,13 +646,19 @@ impl<'a> LinterFactsBuilder<'a> {
         let nonpersistent_assignment_spans = build_nonpersistent_assignment_spans(
             self.semantic,
             &commands,
+            &arena_file,
             self.source,
             matches!(self.shell, ShellDialect::Bash) && pipefail_enabled_anywhere,
             command_facts_require_source_order,
         );
-        let heredoc_summary =
-            build_heredoc_fact_summary(&commands, &arena_file, self.source, self.file.span.end.offset);
-        let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);
+        let heredoc_summary = build_heredoc_fact_summary(
+            &commands,
+            &arena_file,
+            self.source,
+            self.file.span.end.offset,
+        );
+        let plus_equals_assignment_spans =
+            build_plus_equals_assignment_spans(&commands, &arena_file);
         let literal_brace_spans = build_literal_brace_spans(
             &word_nodes,
             &word_occurrences,
@@ -745,7 +751,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let EnvPrefixScopeSpans {
             assignment_scope_spans: env_prefix_assignment_scope_spans,
             expansion_scope_spans: env_prefix_expansion_scope_spans,
-        } = build_env_prefix_scope_spans(self.source, &commands);
+        } = build_env_prefix_scope_spans(self.source, &commands, &arena_file);
         word_occurrences.extend(
             pending_arithmetic_word_occurrences
                 .into_iter()
@@ -777,8 +783,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 range
             })
             .collect::<Vec<_>>();
-        let mut word_occurrence_ids =
-            vec![WordOccurrenceId::new(0); next_word_occurrence_offset];
+        let mut word_occurrence_ids = vec![WordOccurrenceId::new(0); next_word_occurrence_offset];
         for (index, fact) in word_occurrences.iter().enumerate() {
             let id = WordOccurrenceId::new(index);
             word_index
@@ -820,14 +825,9 @@ impl<'a> LinterFactsBuilder<'a> {
             },
         );
         let assignment_like_command_name_spans =
-            build_assignment_like_command_name_spans(&commands, self.source);
-        let bare_command_name_assignment_spans = build_bare_command_name_assignment_spans(
-            &commands,
-            &word_nodes,
-            &word_occurrences,
-            &word_index,
-            source,
-        );
+            build_assignment_like_command_name_spans(&commands, &arena_file, self.source);
+        let bare_command_name_assignment_spans =
+            build_bare_command_name_assignment_spans(&commands, &arena_file, source);
         let unquoted_command_argument_use_offsets = build_unquoted_command_argument_use_offsets(
             self.semantic,
             &word_nodes,
@@ -1078,13 +1078,10 @@ fn c006_subscript_reference_suppresses_later_references(
         return false;
     }
 
-    precomputed_command_id_for_offset(
-        innermost_command_ids_by_offset,
-        reference.span.start.offset,
-    )
-    .and_then(|id| commands.get(id.index()))
-    .and_then(CommandFact::static_utility_name)
-    .is_none_or(|name| !matches!(name, "unset" | "[" | "[[" | "test"))
+    precomputed_command_id_for_offset(innermost_command_ids_by_offset, reference.span.start.offset)
+        .and_then(|id| commands.get(id.index()))
+        .and_then(CommandFact::static_utility_name)
+        .is_none_or(|name| !matches!(name, "unset" | "[" | "[[" | "test"))
 }
 
 fn stmt_seq_contains_nested_control_flow(body: &StmtSeq) -> bool {
