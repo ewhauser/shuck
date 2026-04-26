@@ -55,13 +55,6 @@ reviewed_divergences:
     column: 29
     end_column: 31
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
-    line: 362
-    end_line: 362
-    column: 40
-    end_column: 58
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__watch"
     line: 2096
@@ -89,13 +82,6 @@ reviewed_divergences:
     end_line: 110
     column: 7
     end_column: 15
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-monitoring__send_sms.sh"
-    line: 145
-    end_line: 145
-    column: 10
-    end_column: 19
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "community-scripts__ProxmoxVE__vm__haos-vm.sh"
@@ -264,20 +250,6 @@ reviewed_divergences:
     end_line: 196
     column: 40
     end_column: 49
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__packages__lazygit__build.sh"
-    line: 25
-    end_line: 25
-    column: 41
-    end_column: 61
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shellcheck-only
-    path_suffix: "termux__termux-packages__packages__lazygit__build.sh"
-    line: 26
-    end_line: 26
-    column: 30
-    end_column: 50
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "tteck__Proxmox__vm__nextcloud-vm.sh"

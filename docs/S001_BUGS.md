@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=31`
-- Individual reviewed records classified below: 42 total (`shellcheck-only=20`, `shuck-only=22`).
+- `reviewed_divergences=30`
+- Individual reviewed records classified below: 38 total (`shellcheck-only=19`, `shuck-only=19`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -28,14 +28,13 @@ Resolved records should not remain as reviewed divergences.
 - `rvm__rvm__scripts__functions__requirements__osx_brew:485:55-74` `$homebrew_installer`
 - `rvm__rvm__scripts__functions__requirements__osx_brew:486:32-51` `$homebrew_installer`
 
-## [ ] ShellCheck-only: embedded path/URL/composite word (6)
+## [ ] ShellCheck-only: embedded path/URL/composite word (5)
 
 - `233boy__v2ray__src__core.sh:1254:39-43` `$net`
 - `juewuy__ShellCrash__scripts__menus__9_upgrade.sh:651:70-80` `${project}`
 - `juewuy__ShellCrash__scripts__menus__9_upgrade.sh:867:52-62` `${db_type}`
 - `megastep__makeself__test__variabletest:15:56-60` `${1}`
 - `rvm__rvm__scripts__functions__requirements__osx_brew:491:35-51` `${homebrew_repo}`
-- `termux__termux-packages__packages__lazygit__build.sh:26:30-50` `${SOURCE_DATE_EPOCH}`
 
 ## [ ] ShellCheck-only: plain command argument (5)
 
@@ -54,7 +53,7 @@ Resolved records should not remain as reviewed divergences.
 
 - `bittorf__kalua__openwrt-addons__etc__init.d__override_uci_vars:418:29-31` `$i`
 
-## [ ] Shuck-only: simple command argument ShellCheck suppresses (10)
+## [ ] Shuck-only: simple command argument ShellCheck suppresses (9)
 
 - `awslabs__git-secrets__git-secrets:124:5-17` `${RECURSIVE}`
 - `bats-core__bats-core__libexec__bats-core__bats-format-pretty:67:16-34` `$count_column_left`
@@ -65,7 +64,6 @@ Resolved records should not remain as reviewed divergences.
 - `ko1nksm__shellspec__lib__libexec__shellspec.sh:94:37-39` `$c`
 - `masonr__yet-another-bench-script__yabs.sh:991:12-19` `$GB_URL`
 - `pi-hole__pi-hole__automated install__basic-install.sh:1833:21-39` `${webInterfaceDir}`
-- `termux__termux-packages__packages__lazygit__build.sh:25:41-61` `-ldflags`
 
 ## [ ] Shuck-only: command-substitution initializer argument (4 remaining)
 
@@ -73,11 +71,6 @@ Resolved records should not remain as reviewed divergences.
 - `alexanderepstein__Bash-Snippets__bak2dvd__bak2dvd:259:36-43` `$tarpid`
 - `swoodford__aws__vpc-sg-import-rules-cloudflare.sh:281:101-106` `$PORT`
 - `swoodford__aws__wafv2-web-acl-pingdom.sh:196:40-49` `$WAFSCOPE`
-
-## [ ] Shuck-only: numeric/test operand (2)
-
-- `bittorf__kalua__openwrt-addons__etc__kalua__watch:362:40-58` `${overall:-$count}`
-- `bittorf__kalua__openwrt-monitoring__send_sms.sh:145:10-19` `${pos:-0}`
 
 ## [ ] Shuck-only: status/return/exit operand (3)
 

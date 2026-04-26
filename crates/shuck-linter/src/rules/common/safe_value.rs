@@ -3654,9 +3654,15 @@ impl<'a> SafeValueIndex<'a> {
             | ParameterOp::RemovePrefixLong { .. }
             | ParameterOp::RemoveSuffixShort { .. }
             | ParameterOp::RemoveSuffixLong { .. } => self.name_is_safe(name, at, query),
-            ParameterOp::UseDefault | ParameterOp::AssignDefault | ParameterOp::Error => {
+            ParameterOp::UseDefault | ParameterOp::AssignDefault => {
                 self.name_is_safe(name, at, query)
+                    || (query == SafeValueQuery::NumericTestOperand
+                        && operand.is_some_and(|operand| {
+                            self.source_text_is_safe_numeric_operand(operand, at)
+                        })
+                        && self.name_has_numeric_loop_body_assignment(name, at))
             }
+            ParameterOp::Error => self.name_is_safe(name, at, query),
             ParameterOp::UseReplacement => {
                 operand.is_some_and(|operand| self.source_text_is_safe_literal(operand, query))
             }
@@ -3679,6 +3685,74 @@ impl<'a> SafeValueIndex<'a> {
                 SafeValueQuery::Pattern | SafeValueQuery::Regex => query.literal_is_safe(text),
             },
         })
+    }
+
+    fn source_text_is_safe_numeric_operand(&mut self, text: &SourceText, at: Span) -> bool {
+        let raw = text.slice(self.source).trim();
+        if source_text_literal_value(raw).is_some_and(|literal| match literal {
+            SourceTextLiteral::Bare(text) | SourceTextLiteral::Quoted(text) => {
+                shell_integer_text_is_safe(text)
+            }
+        }) {
+            return true;
+        }
+
+        source_text_plain_scalar_name(raw)
+            .is_some_and(|name| self.name_is_safe(&name, at, SafeValueQuery::NumericTestOperand))
+    }
+
+    fn name_has_numeric_loop_body_assignment(&mut self, name: &Name, at: Span) -> bool {
+        let Some(body_span) = self.enclosing_while_body_for_condition_span(at) else {
+            return false;
+        };
+        let bindings = self.semantic.bindings_for(name).to_vec();
+
+        bindings.into_iter().any(|binding_id| {
+            let binding = self.semantic.binding(binding_id);
+            span_contains(body_span, binding.span)
+                && self.binding_assigns_numeric_operand_value(binding_id, at)
+        })
+    }
+
+    fn enclosing_while_body_for_condition_span(&self, at: Span) -> Option<Span> {
+        self.facts
+            .commands()
+            .iter()
+            .filter_map(|command| match command.command() {
+                Command::Compound(CompoundCommand::While(command))
+                    if span_contains(command.condition.span, at) =>
+                {
+                    Some(command.body.span)
+                }
+                _ => None,
+            })
+            .min_by_key(|span| span.end.offset - span.start.offset)
+    }
+
+    fn binding_assigns_numeric_operand_value(&mut self, binding_id: BindingId, at: Span) -> bool {
+        let binding = self.semantic.binding(binding_id);
+        if self.binding_has_effective_integer_attribute(binding_id)
+            || matches!(binding.kind, BindingKind::ArithmeticAssignment)
+        {
+            return true;
+        }
+
+        let Some(word) = self
+            .facts
+            .binding_value(binding_id)
+            .and_then(|value| value.scalar_word())
+        else {
+            return false;
+        };
+
+        if word_static_text_is_shell_integer(word, self.source)
+            || word_has_arithmetic_expansion(word)
+        {
+            return true;
+        }
+
+        plain_scalar_reference_name(word)
+            .is_some_and(|name| self.name_is_safe(&name, at, SafeValueQuery::NumericTestOperand))
     }
 }
 
@@ -3780,6 +3854,28 @@ fn source_text_literal_value(text: &str) -> Option<SourceTextLiteral<'_>> {
     }
 
     None
+}
+
+fn source_text_plain_scalar_name(text: &str) -> Option<Name> {
+    if let Some(name) = text.strip_prefix('$') {
+        if shell_name_is_plain_scalar(name) {
+            return Some(Name::new(name));
+        }
+    }
+
+    let inner = text
+        .strip_prefix("${")
+        .and_then(|text| text.strip_suffix('}'))?;
+    shell_name_is_plain_scalar(inner).then(|| Name::new(inner))
+}
+
+fn shell_name_is_plain_scalar(text: &str) -> bool {
+    let mut chars = text.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|character| character == '_' || character.is_ascii_alphanumeric())
 }
 
 fn build_case_cli_reachable_function_scopes(

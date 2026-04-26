@@ -2902,6 +2902,65 @@ printf '%s\\n' $COLUMNS
     }
 
     #[test]
+    fn skips_loop_carried_numeric_default_operands() {
+        let source = "\
+#!/bin/sh
+encode() {
+  local text=\"$1\"
+  local pos char
+  while [ ${pos:-0} -lt ${#text} ]; do
+    pos=$(( pos + 1 ))
+    char=$(printf '%s' \"$text\" | cut -b $pos)
+    printf '%s' \"$char\"
+  done
+}
+scan() {
+  local count=0 overall file_list
+  file_list=$(printf '%s\\n' item)
+  while [ -n \"$file_list\" -a $count -le ${overall:-$count} ]; do
+    for item in $file_list; do count=$(( count + 1 )); done
+    overall=$count
+  done
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_numeric_defaults_without_loop_carried_updates() {
+        let source = "\
+#!/bin/sh
+plain() {
+  local pos
+  [ ${pos:-0} -lt 3 ] && :
+}
+dynamic_update() {
+  local pos
+  while [ ${pos:-0} -lt 3 ]; do
+    pos=$1
+  done
+}
+dynamic_default() {
+  local pos fallback
+  while [ ${pos:-$fallback} -lt 3 ]; do
+    pos=$(( pos + 1 ))
+  done
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${pos:-0}", "${pos:-0}", "${pos:-$fallback}"]
+        );
+    }
+
+    #[test]
     fn reports_unknown_values_in_uncalled_function_bodies() {
         let source = "\
 #!/bin/sh
