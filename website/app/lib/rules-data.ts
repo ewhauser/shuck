@@ -24,6 +24,7 @@ export interface RuleData {
 /** Lightweight subset for the rules list table (avoids shipping rationale/examples to client). */
 export interface RuleListItem {
   code: string;
+  shellcheckCode: string | null;
   name: string;
   category: string;
   description: string;
