@@ -28,13 +28,6 @@ reviewed_divergences:
     end_column: 43
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "awslabs__git-secrets__git-secrets"
-    line: 124
-    end_line: 124
-    column: 5
-    end_column: 17
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "bats-core__bats-core__libexec__bats-core__bats-format-pretty"
     line: 67
     end_line: 67

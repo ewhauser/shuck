@@ -3029,6 +3029,35 @@ scan() {
     }
 
     #[test]
+    fn skips_file_scope_integer_bindings_in_indirectly_called_numeric_tests() {
+        let source = "\
+#!/usr/bin/env bash
+scan() { regular_grep \"$@\"; }
+regular_grep() {
+  [ ${RECURSIVE} -eq 1 ] && action=recurse
+}
+run_named() {
+  local scan_fn=\"$1\"
+  shift
+  $scan_fn \"$@\"
+}
+declare COMMAND=\"$1\" RECURSIVE=0
+while [ \"$#\" -gt 0 ]; do
+  case \"$1\" in
+    -r) RECURSIVE=1 ;;
+  esac
+  shift
+done
+case \"$COMMAND\" in
+  --scan) run_named scan \"$@\" ;;
+esac
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_numeric_defaults_without_loop_carried_updates() {
         let source = "\
 #!/bin/sh

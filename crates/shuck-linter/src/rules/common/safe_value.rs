@@ -625,6 +625,11 @@ impl<'a> SafeValueIndex<'a> {
         if self.case_cli_reachable_call_path_keeps_argument_bindings_unsafe(at, query) {
             return safe_numeric_shell_variable(name);
         }
+        if query == SafeValueQuery::NumericTestOperand
+            && self.s001_function_reference_has_file_scope_integer_bindings(name, at)
+        {
+            return true;
+        }
 
         let mut bindings = self.safe_bindings_for_name(name, at);
         self.drop_declarations_shadowed_by_covering_loop_bindings(&mut bindings, at);
@@ -821,6 +826,11 @@ impl<'a> SafeValueIndex<'a> {
         }
         if query.is_field_context() && self.s001_reference_function_unset_before_first_call(at) {
             return S001QuoteExposure::Unsafe;
+        }
+        if query == SafeValueQuery::NumericTestOperand
+            && self.s001_function_reference_has_file_scope_integer_bindings(name, at)
+        {
+            return S001QuoteExposure::QuoteInertNonEmpty;
         }
         if self.name_is_safe(name, at, query) {
             return S001QuoteExposure::QuoteInertNonEmpty;
@@ -3947,6 +3957,53 @@ impl<'a> SafeValueIndex<'a> {
             span_contains(body_span, binding.span)
                 && self.binding_assigns_numeric_operand_value(binding_id, at)
         })
+    }
+
+    fn s001_function_reference_has_file_scope_integer_bindings(
+        &mut self,
+        name: &Name,
+        at: Span,
+    ) -> bool {
+        let Some(function_scope) = self.enclosing_function_scope_at(at.start.offset) else {
+            return false;
+        };
+        if self
+            .semantic
+            .bindings_for(name)
+            .iter()
+            .copied()
+            .any(|binding_id| {
+                let binding = self.semantic.binding(binding_id);
+                binding.scope == function_scope
+                    && self.binding_can_supply_parameter_value(binding_id)
+            })
+        {
+            return false;
+        }
+
+        let Some(file_scope) = self
+            .semantic
+            .ancestor_scopes(self.semantic.scope_at(at.start.offset))
+            .find(|scope| matches!(self.semantic.scope(*scope).kind, ScopeKind::File))
+        else {
+            return false;
+        };
+
+        let bindings = self
+            .semantic
+            .bindings_for(name)
+            .iter()
+            .copied()
+            .filter(|binding_id| {
+                let binding = self.semantic.binding(*binding_id);
+                binding.scope == file_scope && self.binding_can_supply_parameter_value(*binding_id)
+            })
+            .collect::<Vec<_>>();
+
+        !bindings.is_empty()
+            && bindings
+                .into_iter()
+                .all(|binding_id| self.binding_assigns_numeric_operand_value(binding_id, at))
     }
 
     fn enclosing_while_body_for_condition_span(&self, at: Span) -> Option<Span> {
