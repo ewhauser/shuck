@@ -364,8 +364,8 @@ find $TERMUX_PKG_SRCDIR -mindepth 1 -maxdepth 1 -exec cp -a \\{\\} ./ \\;
         let source = "\
 #!/bin/bash
 local args=${*:1:${#@}-1}
-eval ac_env_${ac_var}_set=\\${${ac_var}+set}
-if eval \\${ac_cv_prog_make_${ac_make}_set+:} false; then :
+eval xx_env_${xx_var}_set=\\${${xx_var}+set}
+if eval \\${xx_cv_prog_make_${xx_make}_set+:} false; then :
   :
 fi
 __rvm_find \"${rvm_bin_path:=$rvm_path/bin}\" -name \\*${ruby_at_gemset} -exec rm -rf '{}' \\;
