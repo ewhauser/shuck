@@ -108,6 +108,7 @@ pub struct SafeValueIndex<'a> {
     binding_value_stack: Vec<BindingId>,
     helper_binding_memo: FxHashMap<(Name, ScopeId, FactSpan), Box<[BindingId]>>,
     helper_binding_visiting: FxHashSet<(Name, ScopeId, FactSpan)>,
+    s001_unset_before_call_memo: FxHashMap<ScopeId, bool>,
 }
 
 impl<'a> SafeValueIndex<'a> {
@@ -186,6 +187,7 @@ impl<'a> SafeValueIndex<'a> {
             binding_value_stack: Vec::new(),
             helper_binding_memo: FxHashMap::default(),
             helper_binding_visiting: FxHashSet::default(),
+            s001_unset_before_call_memo: FxHashMap::default(),
         }
     }
 
@@ -369,6 +371,14 @@ impl<'a> SafeValueIndex<'a> {
                 }
             }
         }
+    }
+
+    pub fn span_has_s001_function_unset_exposure(
+        &mut self,
+        span: Span,
+        query: SafeValueQuery,
+    ) -> bool {
+        query.is_field_context() && self.s001_reference_function_unset_before_first_call(span)
     }
 
     pub fn part_is_safe_initializer_command_substitution_self_reference(
@@ -809,6 +819,9 @@ impl<'a> SafeValueIndex<'a> {
         if safe_special_parameter(name) {
             return S001QuoteExposure::QuoteInertNonEmpty;
         }
+        if query.is_field_context() && self.s001_reference_function_unset_before_first_call(at) {
+            return S001QuoteExposure::Unsafe;
+        }
         if self.name_is_safe(name, at, query) {
             return S001QuoteExposure::QuoteInertNonEmpty;
         }
@@ -1091,6 +1104,159 @@ impl<'a> SafeValueIndex<'a> {
             .get(&FactSpan::new(span))
             .copied()
             .map(|id| self.facts.command(id))
+    }
+
+    fn function_definition_command_for_scope(
+        &self,
+        scope: ScopeId,
+    ) -> Option<crate::facts::CommandFactRef<'a, 'a>> {
+        self.facts
+            .function_headers()
+            .iter()
+            .find(|header| header.function_scope() == Some(scope))
+            .and_then(|header| self.function_definition_command(header.function()))
+    }
+
+    fn s001_reference_function_unset_before_first_call(&mut self, at: Span) -> bool {
+        let Some(scope) = self.enclosing_function_scope_at(at.start.offset) else {
+            return false;
+        };
+        if let Some(result) = self.s001_unset_before_call_memo.get(&scope) {
+            return *result;
+        }
+
+        let result = self.s001_function_unset_before_first_call(scope);
+        self.s001_unset_before_call_memo.insert(scope, result);
+        result
+    }
+
+    fn s001_function_unset_before_first_call(&self, scope: ScopeId) -> bool {
+        let Some(definition_command) = self.function_definition_command_for_scope(scope) else {
+            return false;
+        };
+        let after_offset = definition_command.span_in_source(self.source).end.offset;
+        let Some(first_unset) = self.s001_first_function_unset_event_after(scope, after_offset)
+        else {
+            return false;
+        };
+
+        let first_call = self.s001_first_function_call_event_after(scope, after_offset);
+        first_call.is_none_or(|first_call| first_unset < first_call)
+    }
+
+    fn s001_first_function_call_event_after(
+        &self,
+        scope: ScopeId,
+        after_offset: usize,
+    ) -> Option<usize> {
+        self.s001_first_function_call_event_after_inner(
+            scope,
+            after_offset,
+            &mut FxHashSet::default(),
+        )
+    }
+
+    fn s001_first_function_call_event_after_inner(
+        &self,
+        scope: ScopeId,
+        after_offset: usize,
+        seen_scopes: &mut FxHashSet<ScopeId>,
+    ) -> Option<usize> {
+        if !seen_scopes.insert(scope) {
+            return None;
+        }
+
+        let definition_command = self.function_definition_command_for_scope(scope)?;
+        let function_kind = self.named_function_kind(scope)?;
+        let mut first_offset: Option<usize> = None;
+        for function_name in function_kind.static_names() {
+            for site in self.semantic.call_sites_for(function_name) {
+                if site.scope == scope {
+                    continue;
+                }
+                let call_span = self
+                    .command_for_name_word_span(site.span)
+                    .map_or(site.span, |command| command.span_in_source(self.source));
+                if !self.definition_command_resolves_at_call(definition_command.id(), call_span) {
+                    continue;
+                }
+                let event_offset = match self.enclosing_function_scope_at(call_span.start.offset) {
+                    Some(caller_scope) => self.s001_first_function_call_event_after_inner(
+                        caller_scope,
+                        after_offset,
+                        seen_scopes,
+                    ),
+                    None => {
+                        (call_span.start.offset > after_offset).then_some(call_span.start.offset)
+                    }
+                };
+                if let Some(event_offset) = event_offset {
+                    first_offset = Some(
+                        first_offset.map_or(event_offset, |current| current.min(event_offset)),
+                    );
+                }
+            }
+        }
+
+        first_offset
+    }
+
+    fn s001_first_function_unset_event_after(
+        &self,
+        target_scope: ScopeId,
+        after_offset: usize,
+    ) -> Option<usize> {
+        let target_function = self.named_function_kind(target_scope)?;
+        let mut first_offset: Option<usize> = None;
+
+        for command in self.facts.structural_commands() {
+            if !command.options().unset().is_some_and(|unset| {
+                target_function
+                    .static_names()
+                    .iter()
+                    .any(|name| unset.targets_function_name(self.source, name.as_str()))
+            }) {
+                continue;
+            }
+            if !self.command_runs_in_persistent_shell_context(command.id())
+                || self.command_is_in_background_context(command.id())
+                || self.command_has_dominance_barrier_ancestor(command.id())
+            {
+                continue;
+            }
+
+            let command_span = command.span_in_source(self.source);
+            let event_offset = match self.enclosing_function_scope_at(command_span.start.offset) {
+                Some(unsetter_scope) => {
+                    if unsetter_scope == target_scope {
+                        None
+                    } else {
+                        self.s001_first_function_call_event_after(unsetter_scope, after_offset)
+                    }
+                }
+                None => {
+                    (command_span.start.offset > after_offset).then_some(command_span.start.offset)
+                }
+            };
+
+            if let Some(event_offset) = event_offset {
+                first_offset =
+                    Some(first_offset.map_or(event_offset, |current| current.min(event_offset)));
+            }
+        }
+
+        first_offset
+    }
+
+    fn command_has_dominance_barrier_ancestor(&self, command_id: crate::facts::CommandId) -> bool {
+        let mut current = self.facts.command_parent_id(command_id);
+        while let Some(id) = current {
+            if self.facts.command_is_dominance_barrier(id) {
+                return true;
+            }
+            current = self.facts.command_parent_id(id);
+        }
+        false
     }
 
     fn command_runs_in_unconditional_flow(

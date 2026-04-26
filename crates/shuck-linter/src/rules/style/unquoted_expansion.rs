@@ -382,7 +382,9 @@ fn report_word_expansions<F>(
         if matches!(exposure, S001QuoteExposure::QuoteInertNonEmpty) {
             continue;
         }
-        if safe_values.part_is_safe(part, part_span, query) {
+        if !safe_values.span_has_s001_function_unset_exposure(part_span, query)
+            && safe_values.part_is_safe(part, part_span, query)
+        {
             continue;
         }
 
@@ -2480,6 +2482,43 @@ printf '%s\\n' $n $s $glob $split $copy $alias
                 .collect::<Vec<_>>(),
             vec!["$glob", "$split"]
         );
+    }
+
+    #[test]
+    fn reports_function_body_values_when_function_is_unset_before_first_call() {
+        let source = "\
+#!/bin/sh
+cleanup() { unset -f fetch; }
+version=v1
+URL=\"https://example.invalid/$version\"
+fetch() { echo $URL; }
+cleanup
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$URL"]
+        );
+    }
+
+    #[test]
+    fn keeps_function_body_values_safe_when_function_is_called_before_later_unset() {
+        let source = "\
+#!/bin/sh
+cleanup() { unset -f fetch; }
+version=v1
+URL=\"https://example.invalid/$version\"
+fetch() { echo $URL; }
+fetch
+cleanup
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]

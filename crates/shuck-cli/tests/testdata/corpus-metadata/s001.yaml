@@ -153,13 +153,6 @@ reviewed_divergences:
     column: 12
     end_column: 19
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shellcheck-only
-    path_suffix: "nvm-sh__nvm__test__slow__nvm_get_latest__nvm_get_latest"
-    line: 26
-    end_line: 26
-    column: 10
-    end_column: 14
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "pi-hole__pi-hole__automated install__basic-install.sh"
     line: 1833
