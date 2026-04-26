@@ -284,6 +284,100 @@ impl<'a> SafeValueIndex<'a> {
         self.name_is_safe(name, at, query)
     }
 
+    pub fn part_is_safe_initializer_command_substitution_self_reference(
+        &mut self,
+        part: &WordPart,
+        span: Span,
+        query: SafeValueQuery,
+    ) -> bool {
+        let Some(name) = plain_scalar_reference_name_from_part(part) else {
+            return false;
+        };
+
+        self.semantic
+            .bindings_for(&name)
+            .iter()
+            .copied()
+            .any(|binding_id| {
+                let binding = self.semantic.binding(binding_id);
+                if binding.span.start.offset > span.start.offset {
+                    return false;
+                }
+                let Some(word) = self
+                    .facts
+                    .binding_value(binding_id)
+                    .and_then(|value| value.scalar_word())
+                else {
+                    return false;
+                };
+                if !span_contains(word.span, span) {
+                    return false;
+                }
+
+                self.facts.any_word_fact(word.span).is_some_and(|fact| {
+                    fact.command_substitution_spans()
+                        .iter()
+                        .copied()
+                        .any(|command_substitution| span_contains(command_substitution, span))
+                }) && !self.span_is_inside_loop_context(span)
+                    && !self.span_is_inside_if_condition(span)
+                    && {
+                        self.binding_value_stack.push(binding_id);
+                        let result = self.name_is_safe(&name, span, query);
+                        self.binding_value_stack.pop();
+                        result
+                    }
+            })
+    }
+
+    fn span_is_inside_loop_context(&self, span: Span) -> bool {
+        let mut current = self
+            .facts
+            .innermost_command_id_at(span.start.offset)
+            .or_else(|| self.innermost_command_id_containing_offset(span.start.offset));
+        while let Some(command_id) = current {
+            if matches!(
+                self.facts.command(command_id).command(),
+                Command::Compound(
+                    CompoundCommand::For(_)
+                        | CompoundCommand::Repeat(_)
+                        | CompoundCommand::Foreach(_)
+                        | CompoundCommand::ArithmeticFor(_)
+                        | CompoundCommand::While(_)
+                        | CompoundCommand::Until(_)
+                        | CompoundCommand::Select(_)
+                )
+            ) {
+                return true;
+            }
+            current = self.facts.command_parent_id(command_id);
+        }
+
+        false
+    }
+
+    fn span_is_inside_if_condition(&self, span: Span) -> bool {
+        let mut current = self
+            .facts
+            .innermost_command_id_at(span.start.offset)
+            .or_else(|| self.innermost_command_id_containing_offset(span.start.offset));
+        while let Some(command_id) = current {
+            if let Command::Compound(CompoundCommand::If(command)) =
+                self.facts.command(command_id).command()
+                && (span_contains(command.condition.span, span)
+                    || command
+                        .elif_branches
+                        .iter()
+                        .any(|(condition, _)| span_contains(condition.span, span)))
+            {
+                return true;
+            }
+            current = self.facts.command_parent_id(command_id);
+        }
+
+        false
+    }
+
     fn literal_part_is_safe(&self, part: &WordPart, span: Span, query: SafeValueQuery) -> bool {
         let word = Word {
             parts: vec![WordPartNode::new(part.clone(), span)],

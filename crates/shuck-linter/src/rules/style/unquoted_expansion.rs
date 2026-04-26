@@ -337,6 +337,11 @@ fn report_word_expansions<F>(
         if fact.part_is_inside_backtick_escaped_double_quotes(part_span, source) {
             continue;
         }
+        if safe_values
+            .part_is_safe_initializer_command_substitution_self_reference(part, part_span, query)
+        {
+            continue;
+        }
         if part_is_in_numeric_test_operand(part_span, numeric_test_operand_spans)
             && safe_values.part_is_safe(part, part_span, SafeValueQuery::NumericTestOperand)
         {
@@ -1709,6 +1714,26 @@ echo \"MD5SUM=\\\"$( md5sum $PRGNAM-$VERSION.tar.xz | cut -d' ' -f1 )\\\"\"
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$VERSION"]
+        );
+    }
+
+    #[test]
+    fn skips_self_references_inside_command_substitution_initializers() {
+        let source = "\
+#!/bin/sh
+check=0
+check=$(expr $check + $?)
+value=$1
+value=$(echo $value | sed 's/^ //')
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$value"]
         );
     }
 
