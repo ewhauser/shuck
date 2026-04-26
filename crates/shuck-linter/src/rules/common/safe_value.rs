@@ -2215,14 +2215,10 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn unset_command_covers_reference(&self, name: &Name, at: Span) -> bool {
-        self.facts.structural_commands().any(|command| {
+        self.facts.unset_commands_for_name(name).any(|command| {
             command.span().end.offset <= at.start.offset
                 && self.command_runs_in_persistent_shell_context(command.id())
                 && self.command_runs_in_unconditional_flow(command.id(), at)
-                && command
-                    .options()
-                    .unset()
-                    .is_some_and(|unset| self.unset_targets_variable_name(unset, name))
                 && self.command_blocks_cover_all_paths_to_reference(command, name, at)
         })
     }
@@ -2234,15 +2230,11 @@ impl<'a> SafeValueIndex<'a> {
         at: Span,
     ) -> bool {
         let binding = self.semantic.binding(binding_id);
-        self.facts.structural_commands().any(|command| {
+        self.facts.unset_commands_for_name(name).any(|command| {
             command.span().start.offset >= binding.span.end.offset
                 && command.span().end.offset <= at.start.offset
                 && self.command_runs_in_persistent_shell_context(command.id())
                 && !self.command_is_in_background_context(command.id())
-                && command
-                    .options()
-                    .unset()
-                    .is_some_and(|unset| self.unset_targets_variable_name(unset, name))
                 && self.command_blocks_cover_all_paths_to_reference(command, name, at)
         })
     }
@@ -2252,10 +2244,9 @@ impl<'a> SafeValueIndex<'a> {
         command_id: crate::facts::CommandId,
     ) -> bool {
         let command = self.facts.command(command_id);
-        let scope = self.semantic.scope_at(command.span().start.offset);
 
         self.semantic
-            .ancestor_scopes(scope)
+            .ancestor_scopes(command.scope())
             .next()
             .is_none_or(|scope| {
                 matches!(
@@ -2263,21 +2254,6 @@ impl<'a> SafeValueIndex<'a> {
                     ScopeKind::Function(_) | ScopeKind::File
                 )
             })
-    }
-
-    fn unset_targets_variable_name(
-        &self,
-        unset: &crate::facts::UnsetCommandFacts<'a>,
-        name: &Name,
-    ) -> bool {
-        if unset.function_mode || unset.nameref_mode() || !unset.options_parseable() {
-            return false;
-        }
-
-        unset.operand_facts().iter().any(|operand| {
-            operand.array_subscript().is_none()
-                && static_word_text(operand.word(), self.source).as_deref() == Some(name.as_str())
-        })
     }
 
     fn reference_is_safe(&mut self, reference: &VarRef, at: Span, query: SafeValueQuery) -> bool {
@@ -3624,7 +3600,7 @@ impl<'a> SafeValueIndex<'a> {
         at: Span,
     ) -> FxHashSet<BlockId> {
         self.facts
-            .structural_commands()
+            .unset_commands_for_name(name)
             .filter(|command| {
                 command.span().end.offset <= at.start.offset
                     && self.enclosing_function_scope_at(command.span().start.offset)
@@ -3632,10 +3608,6 @@ impl<'a> SafeValueIndex<'a> {
                     && self.command_runs_in_persistent_shell_context(command.id())
                     && !self.command_is_in_background_context(command.id())
                     && !self.command_is_in_boolean_list(command.id())
-                    && command
-                        .options()
-                        .unset()
-                        .is_some_and(|unset| self.unset_targets_variable_name(unset, name))
             })
             .flat_map(|command| {
                 self.analysis
