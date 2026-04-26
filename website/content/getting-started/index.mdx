@@ -45,6 +45,12 @@ echo 'echo $foo' | shuck check -
 shuck check --fix .
 ```
 
+## Suppression
+
+Use inline comments to suppress warnings for a line, a command, or a whole file. Shuck supports both native `# shuck:` directives and ShellCheck-compatible `# shellcheck` directives, including mapped `SC` codes.
+
+See the dedicated [Suppression guide](/docs/suppression) for examples of both syntaxes.
+
 ## ShellCheck compatibility mode
 
 If you already have tools that invoke `shellcheck`, Shuck can expose a ShellCheck-shaped CLI without changing your primary workflow all at once.

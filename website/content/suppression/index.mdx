@@ -1,0 +1,91 @@
+# Suppression
+
+Use suppression comments when a warning is not useful for a specific script, command, or line.
+
+Shuck supports its native `# shuck:` directives and ShellCheck-compatible `# shellcheck` directives. You can use Shuck rule codes such as `C001` and `S001`, or mapped ShellCheck codes such as `SC2034` and `SC2086`.
+
+## Suppress the next command
+
+Place `disable` on its own line immediately before the command you want to silence:
+
+```sh
+# shuck: disable=C001
+unused_var="intentional"
+
+# shellcheck disable=SC2086
+echo $pattern
+```
+
+For a single-line command, this is the usual "suppress the next line" form. If the command spans multiple physical lines, the suppression follows the whole command instead of stopping after one line.
+
+You can list multiple rules with commas:
+
+```sh
+# shuck: disable=C001,S001
+value=$input
+
+# shellcheck disable=SC2034,SC2086
+unused=$value
+```
+
+Native and ShellCheck code namespaces are interchangeable in suppression comments:
+
+```sh
+# shuck: disable=SC2086
+echo $pattern
+
+# shellcheck disable=S001
+echo $pattern
+```
+
+## Suppress a whole file
+
+Use `disable-file` with the native Shuck syntax when a rule should be disabled throughout the file:
+
+```sh
+# shuck: disable-file=S001
+```
+
+A `disable` directive before the first shell statement also applies to the whole file:
+
+```sh
+# shuck: disable=C001
+
+unused_var="intentional"
+```
+
+The same placement rule applies to ShellCheck-compatible directives:
+
+```sh
+# shellcheck disable=SC2034
+
+unused_var="intentional"
+```
+
+ShellCheck-compatible directives also accept `all`:
+
+```sh
+# shellcheck disable=all
+```
+
+## Suppress one line
+
+Use `ignore` with the native Shuck syntax to silence diagnostics that start on the same physical line as the comment:
+
+```sh
+unused_var="intentional" # shuck: ignore=C001
+```
+
+This is the form Shuck writes when you run `shuck check --add-ignore`.
+
+## Embedded scripts
+
+For GitHub Actions workflows and composite actions, put suppression comments inside the extracted shell script:
+
+```yaml
+- run: |
+    # shellcheck disable=SC2086
+    echo $FOO
+```
+
+YAML comments outside the `run:` block are not part of the shell script, so they do not suppress shell diagnostics. See the [Embedded Scripts guide](/docs/embedded-scripts) for more details.
