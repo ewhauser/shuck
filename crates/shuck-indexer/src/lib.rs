@@ -36,7 +36,8 @@ impl Indexer {
         let line_index = LineIndex::new(source);
         let comment_index = CommentIndex::new(source, &line_index, &output.file);
         let region_index = RegionIndex::new(source, &output.file);
-        let continuation_lines = collect_continuation_lines(source, &comment_index, &region_index);
+        let continuation_lines =
+            collect_continuation_lines(&line_index, &comment_index, &region_index);
 
         Self {
             line_index,
@@ -78,19 +79,14 @@ impl Indexer {
 }
 
 fn collect_continuation_lines(
-    source: &str,
+    line_index: &LineIndex,
     comment_index: &CommentIndex,
     region_index: &RegionIndex,
 ) -> Vec<TextSize> {
-    let bytes = source.as_bytes();
     let mut continuation_lines = Vec::new();
 
-    for index in 1..bytes.len() {
-        if bytes[index] != b'\n' || bytes[index - 1] != b'\\' {
-            continue;
-        }
-
-        let backslash_offset = TextSize::new((index - 1) as u32);
+    for line_start in line_index.raw_continuation_line_starts() {
+        let backslash_offset = TextSize::new(line_start.to_u32() - 2);
         if comment_index.is_comment(backslash_offset)
             || region_index.is_heredoc(backslash_offset)
             || region_index.is_quoted(backslash_offset)
@@ -98,7 +94,7 @@ fn collect_continuation_lines(
             continue;
         }
 
-        continuation_lines.push(TextSize::new((index + 1) as u32));
+        continuation_lines.push(*line_start);
     }
 
     continuation_lines

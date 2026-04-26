@@ -54,6 +54,10 @@ name = "parser"
 harness = false
 
 [[bench]]
+name = "indexer"
+harness = false
+
+[[bench]]
 name = "arithmetic"
 harness = false
 
