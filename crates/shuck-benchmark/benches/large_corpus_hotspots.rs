@@ -250,6 +250,7 @@ fn prepare_word_facts_input(
             source_path: Some(&fixture.path),
             source_path_resolver: resolver,
             file_entry_contract: None,
+            file_entry_contract_collector: None,
             analyzed_paths: None,
             shell_profile: Some(ShellDialect::from_name(&fixture.shell).shell_profile()),
             resolve_source_closure: true,

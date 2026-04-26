@@ -38,8 +38,8 @@ use crate::source_ref::{
     default_diagnostic_class,
 };
 use crate::{
-    BindingId, FunctionScopeKind, IndirectTargetHint, ReferenceId, Scope, ScopeId, ScopeKind,
-    SourceDirectiveOverride, SpanKey, TraversalObserver,
+    BindingId, FileEntryContractCollector, FunctionScopeKind, IndirectTargetHint, ReferenceId,
+    Scope, ScopeId, ScopeKind, SourceDirectiveOverride, SpanKey, TraversalObserver,
 };
 
 pub(crate) struct BuildOutput {
@@ -74,6 +74,7 @@ pub(crate) struct BuildOutput {
 
 pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     source: &'a str,
+    file_entry_contract_collector: Option<&'observer mut dyn FileEntryContractCollector>,
     line_start_offsets: Vec<usize>,
     shell_profile: ShellProfile,
     observer: &'observer mut dyn TraversalObserver,
@@ -167,6 +168,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         source: &'a str,
         indexer: &'a Indexer,
         observer: &'observer mut dyn TraversalObserver,
+        file_entry_contract_collector: Option<&'observer mut dyn FileEntryContractCollector>,
         bash_runtime_vars_enabled: bool,
         shell_profile: ShellProfile,
     ) -> BuildOutput {
@@ -180,6 +182,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let runtime = RuntimePrelude::new(bash_runtime_vars_enabled);
         let mut builder = Self {
             source,
+            file_entry_contract_collector,
             line_start_offsets: source_line_start_offsets(source),
             shell_profile: shell_profile.clone(),
             observer,
@@ -386,6 +389,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             .collect::<Vec<_>>();
         let normalized = normalize_command_words(&command_words, self.source)
             .expect("simple commands always have a name");
+        if !flow.in_subshell
+            && let Some(collector) = self.file_entry_contract_collector.as_deref_mut()
+        {
+            collector.observe_simple_command(&normalized);
+        }
 
         if let Some(name) = normalized.literal_name.as_deref()
             && !name.is_empty()
