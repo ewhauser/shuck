@@ -2207,28 +2207,8 @@ fn compute_interprocedural_read_sets(
     scopes: &[Scope],
     name_count: usize,
 ) -> InterproceduralReadSets {
-    let nested_child_scopes = nested_non_function_child_scopes(scopes);
-    let mut transitive_reads = vec![DenseBitSet::new(name_count); read_plans.len()];
+    let transitive_reads = compute_transitive_reads_by_scc(read_plans, scopes, name_count);
     let mut reads = DenseBitSet::new(name_count);
-    loop {
-        let mut changed = false;
-        for (scope_index, plan) in read_plans.iter().enumerate() {
-            reads.copy_from(&plan.direct_reads);
-            for &child_scope in &nested_child_scopes[scope_index] {
-                reads.union_with(&transitive_reads[child_scope.index()]);
-            }
-            for call in &plan.calls {
-                reads.union_with(&transitive_reads[call.callee_scope.index()]);
-            }
-            if transitive_reads[scope_index].replace_if_changed(&reads) {
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
-
     let future_reads = build_future_read_summaries(read_plans, &transitive_reads, name_count);
     let mut escape_reads = vec![DenseBitSet::new(name_count); read_plans.len()];
     loop {
@@ -2277,6 +2257,165 @@ fn nested_non_function_child_scopes(scopes: &[Scope]) -> Vec<Vec<ScopeId>> {
         children[parent.index()].push(scope.id);
     }
     children
+}
+
+fn compute_transitive_reads_by_scc(
+    read_plans: &[ScopeReadPlan],
+    scopes: &[Scope],
+    name_count: usize,
+) -> Vec<DenseBitSet> {
+    let graph = build_scope_read_graph(read_plans, scopes);
+    let (sccs, scope_to_scc) = strongly_connected_components(&graph);
+    let mut reads_by_scc = vec![DenseBitSet::new(name_count); sccs.len()];
+
+    for (scc_index, scope_indexes) in sccs.iter().enumerate() {
+        for &scope_index in scope_indexes {
+            reads_by_scc[scc_index].union_with(&read_plans[scope_index].direct_reads);
+        }
+    }
+
+    let scc_graph = build_scc_graph(&graph, &scope_to_scc, sccs.len());
+    for scc_index in reverse_topological_order(&scc_graph) {
+        for &successor in &scc_graph[scc_index] {
+            let successor_reads = reads_by_scc[successor].clone();
+            reads_by_scc[scc_index].union_with(&successor_reads);
+        }
+    }
+
+    (0..read_plans.len())
+        .map(|scope_index| reads_by_scc[scope_to_scc[scope_index]].clone())
+        .collect()
+}
+
+fn build_scope_read_graph(read_plans: &[ScopeReadPlan], scopes: &[Scope]) -> Vec<Vec<usize>> {
+    let nested_child_scopes = nested_non_function_child_scopes(scopes);
+    let mut graph = vec![Vec::new(); read_plans.len()];
+    for (scope_index, plan) in read_plans.iter().enumerate() {
+        for &child_scope in &nested_child_scopes[scope_index] {
+            graph[scope_index].push(child_scope.index());
+        }
+        for call in &plan.calls {
+            graph[scope_index].push(call.callee_scope.index());
+        }
+        graph[scope_index].sort_unstable();
+        graph[scope_index].dedup();
+    }
+    graph
+}
+
+fn build_scc_graph(
+    graph: &[Vec<usize>],
+    node_to_scc: &[usize],
+    scc_count: usize,
+) -> Vec<Vec<usize>> {
+    let mut scc_graph = vec![Vec::new(); scc_count];
+    for (node, successors) in graph.iter().enumerate() {
+        let source_scc = node_to_scc[node];
+        for &successor in successors {
+            let successor_scc = node_to_scc[successor];
+            if source_scc != successor_scc {
+                scc_graph[source_scc].push(successor_scc);
+            }
+        }
+    }
+    for successors in &mut scc_graph {
+        successors.sort_unstable();
+        successors.dedup();
+    }
+    scc_graph
+}
+
+fn reverse_topological_order(graph: &[Vec<usize>]) -> Vec<usize> {
+    fn visit(node: usize, graph: &[Vec<usize>], visited: &mut [bool], order: &mut Vec<usize>) {
+        if visited[node] {
+            return;
+        }
+        visited[node] = true;
+        for &successor in &graph[node] {
+            visit(successor, graph, visited, order);
+        }
+        order.push(node);
+    }
+
+    let mut visited = vec![false; graph.len()];
+    let mut order = Vec::with_capacity(graph.len());
+    for node in 0..graph.len() {
+        visit(node, graph, &mut visited, &mut order);
+    }
+    order
+}
+
+fn strongly_connected_components(graph: &[Vec<usize>]) -> (Vec<Vec<usize>>, Vec<usize>) {
+    struct Tarjan<'a> {
+        graph: &'a [Vec<usize>],
+        next_index: usize,
+        stack: Vec<usize>,
+        on_stack: Vec<bool>,
+        indexes: Vec<Option<usize>>,
+        lowlinks: Vec<usize>,
+        components: Vec<Vec<usize>>,
+        node_to_component: Vec<usize>,
+    }
+
+    impl<'a> Tarjan<'a> {
+        fn new(graph: &'a [Vec<usize>]) -> Self {
+            Self {
+                graph,
+                next_index: 0,
+                stack: Vec::new(),
+                on_stack: vec![false; graph.len()],
+                indexes: vec![None; graph.len()],
+                lowlinks: vec![0; graph.len()],
+                components: Vec::new(),
+                node_to_component: vec![usize::MAX; graph.len()],
+            }
+        }
+
+        fn run(mut self) -> (Vec<Vec<usize>>, Vec<usize>) {
+            for node in 0..self.graph.len() {
+                if self.indexes[node].is_none() {
+                    self.connect(node);
+                }
+            }
+            (self.components, self.node_to_component)
+        }
+
+        fn connect(&mut self, node: usize) {
+            let index = self.next_index;
+            self.next_index += 1;
+            self.indexes[node] = Some(index);
+            self.lowlinks[node] = index;
+            self.stack.push(node);
+            self.on_stack[node] = true;
+
+            for &successor in &self.graph[node] {
+                if self.indexes[successor].is_none() {
+                    self.connect(successor);
+                    self.lowlinks[node] = self.lowlinks[node].min(self.lowlinks[successor]);
+                } else if self.on_stack[successor] {
+                    let successor_index = self.indexes[successor].expect("indexed successor");
+                    self.lowlinks[node] = self.lowlinks[node].min(successor_index);
+                }
+            }
+
+            if self.lowlinks[node] == index {
+                let component_index = self.components.len();
+                let mut component = Vec::new();
+                loop {
+                    let member = self.stack.pop().expect("non-empty SCC stack");
+                    self.on_stack[member] = false;
+                    self.node_to_component[member] = component_index;
+                    component.push(member);
+                    if member == node {
+                        break;
+                    }
+                }
+                self.components.push(component);
+            }
+        }
+    }
+
+    Tarjan::new(graph).run()
 }
 
 fn build_future_read_summaries(
