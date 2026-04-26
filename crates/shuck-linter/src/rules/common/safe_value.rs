@@ -3,9 +3,9 @@ use std::cell::RefCell;
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     BinaryOp, BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand, FunctionDef,
-    Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Position, RedirectKind,
-    SourceText, Span, Stmt, StmtSeq, StmtTerminator, VarRef, Word, WordPart, WordPartNode,
-    static_word_text, word_is_standalone_status_capture, word_is_standalone_variable_like,
+    Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Position, RedirectKind, Span,
+    Stmt, StmtSeq, StmtTerminator, VarRef, Word, WordPart, WordPartNode, static_word_text,
+    word_is_standalone_status_capture, word_is_standalone_variable_like,
 };
 use shuck_semantic::{
     AssignmentValueOrigin, BindingAttributes, BindingKind, BindingOrigin, LoopValueOrigin, ScopeId,
@@ -26,11 +26,6 @@ pub enum SafeValueQuery {
     Pattern,
     Regex,
     Quoted,
-}
-
-enum SourceTextLiteral<'a> {
-    Bare(&'a str),
-    Quoted(&'a str),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -231,7 +226,7 @@ impl<'a> SafeValueIndex<'a> {
             WordPart::IndirectExpansion {
                 reference,
                 operator,
-                operand,
+                operand_word_ast,
                 ..
             } => {
                 self.indirect_name_is_safe(reference, span, query)
@@ -239,7 +234,7 @@ impl<'a> SafeValueIndex<'a> {
                         self.parameter_operator_is_safe(
                             &reference.name,
                             operator,
-                            operand.as_ref(),
+                            operand_word_ast.as_ref(),
                             span,
                             query,
                         )
@@ -253,11 +248,15 @@ impl<'a> SafeValueIndex<'a> {
             WordPart::ParameterExpansion {
                 reference,
                 operator,
-                operand,
+                operand_word_ast,
                 ..
-            } => {
-                self.parameter_expansion_is_safe(reference, operator, operand.as_ref(), span, query)
-            }
+            } => self.parameter_expansion_is_safe(
+                reference,
+                operator,
+                operand_word_ast.as_ref(),
+                span,
+                query,
+            ),
         }
     }
 
@@ -3852,7 +3851,7 @@ impl<'a> SafeValueIndex<'a> {
                 BourneParameterExpansion::Indirect {
                     reference,
                     operator,
-                    operand,
+                    operand_word_ast,
                     ..
                 } => {
                     self.indirect_name_is_safe(reference, at, query)
@@ -3860,7 +3859,7 @@ impl<'a> SafeValueIndex<'a> {
                             self.parameter_operator_is_safe(
                                 &reference.name,
                                 operator,
-                                operand.as_ref(),
+                                operand_word_ast.as_ref(),
                                 at,
                                 query,
                             )
@@ -3876,12 +3875,12 @@ impl<'a> SafeValueIndex<'a> {
                 BourneParameterExpansion::Operation {
                     reference,
                     operator,
-                    operand,
+                    operand_word_ast,
                     ..
                 } => self.parameter_expansion_is_safe(
                     reference,
                     operator,
-                    operand.as_ref(),
+                    operand_word_ast.as_ref(),
                     at,
                     query,
                 ),
@@ -3928,7 +3927,7 @@ impl<'a> SafeValueIndex<'a> {
         &mut self,
         reference: &VarRef,
         operator: &ParameterOp,
-        operand: Option<&SourceText>,
+        operand_word: Option<&Word>,
         _at: Span,
         query: SafeValueQuery,
     ) -> bool {
@@ -3939,7 +3938,7 @@ impl<'a> SafeValueIndex<'a> {
         self.parameter_operator_is_safe(
             &reference.name,
             operator,
-            operand,
+            operand_word,
             reference.name_span,
             query,
         )
@@ -3949,7 +3948,7 @@ impl<'a> SafeValueIndex<'a> {
         &mut self,
         name: &Name,
         operator: &ParameterOp,
-        operand: Option<&SourceText>,
+        operand_word: Option<&Word>,
         at: Span,
         query: SafeValueQuery,
     ) -> bool {
@@ -3965,47 +3964,52 @@ impl<'a> SafeValueIndex<'a> {
             ParameterOp::UseDefault | ParameterOp::AssignDefault => {
                 self.name_is_safe(name, at, query)
                     || (query == SafeValueQuery::NumericTestOperand
-                        && operand.is_some_and(|operand| {
-                            self.source_text_is_safe_numeric_operand(operand, at)
-                        })
+                        && operand_word
+                            .is_some_and(|word| self.word_is_safe_numeric_operand(word, at))
                         && self.name_has_numeric_loop_body_assignment(name, at))
             }
             ParameterOp::Error => self.name_is_safe(name, at, query),
             ParameterOp::UseReplacement => {
-                operand.is_some_and(|operand| self.source_text_is_safe_literal(operand, query))
+                operand_word.is_some_and(|word| self.word_is_static_safe_literal(word, query))
             }
-            ParameterOp::ReplaceFirst { replacement, .. }
-            | ParameterOp::ReplaceAll { replacement, .. } => {
+            ParameterOp::ReplaceFirst {
+                replacement_word_ast,
+                ..
+            }
+            | ParameterOp::ReplaceAll {
+                replacement_word_ast,
+                ..
+            } => {
                 self.name_is_safe(name, at, query)
-                    && self.source_text_is_safe_literal(replacement, query)
+                    && self.word_is_static_safe_literal(replacement_word_ast, query)
             }
         }
     }
 
-    fn source_text_is_safe_literal(&self, text: &SourceText, query: SafeValueQuery) -> bool {
-        source_text_literal_value(text.slice(self.source)).is_some_and(|literal| match literal {
-            SourceTextLiteral::Bare(text) => query.literal_is_safe(text),
-            SourceTextLiteral::Quoted(text) => match query {
+    fn word_is_static_safe_literal(&self, word: &Word, query: SafeValueQuery) -> bool {
+        let Some(text) = static_word_text(word, self.source) else {
+            return false;
+        };
+
+        if word.is_fully_quoted() {
+            match query {
                 SafeValueQuery::Argv
                 | SafeValueQuery::RedirectTarget
                 | SafeValueQuery::NumericTestOperand
                 | SafeValueQuery::Quoted => true,
-                SafeValueQuery::Pattern | SafeValueQuery::Regex => query.literal_is_safe(text),
-            },
-        })
+                SafeValueQuery::Pattern | SafeValueQuery::Regex => query.literal_is_safe(&text),
+            }
+        } else {
+            query.literal_is_safe(&text)
+        }
     }
 
-    fn source_text_is_safe_numeric_operand(&mut self, text: &SourceText, at: Span) -> bool {
-        let raw = text.slice(self.source).trim();
-        if source_text_literal_value(raw).is_some_and(|literal| match literal {
-            SourceTextLiteral::Bare(text) | SourceTextLiteral::Quoted(text) => {
-                shell_integer_text_is_safe(text)
-            }
-        }) {
+    fn word_is_safe_numeric_operand(&mut self, word: &Word, at: Span) -> bool {
+        if word_static_text_is_shell_integer(word, self.source) {
             return true;
         }
 
-        source_text_plain_scalar_name(raw)
+        plain_scalar_reference_name(word)
             .is_some_and(|name| self.name_is_safe(&name, at, SafeValueQuery::NumericTestOperand))
     }
 
@@ -4307,50 +4311,6 @@ fn plain_scalar_reference_name_from_part(part: &WordPart) -> Option<Name> {
 
 fn span_contains(container: Span, inner: Span) -> bool {
     container.start.offset <= inner.start.offset && inner.end.offset <= container.end.offset
-}
-
-fn source_text_needs_parse(text: &str) -> bool {
-    text.chars()
-        .any(|character| matches!(character, '$' | '`' | '\\' | '\'' | '"'))
-}
-
-fn source_text_literal_value(text: &str) -> Option<SourceTextLiteral<'_>> {
-    if !source_text_needs_parse(text) {
-        return Some(SourceTextLiteral::Bare(text));
-    }
-
-    if let Some(inner) = text
-        .strip_prefix('"')
-        .and_then(|text| text.strip_suffix('"'))
-        && !inner
-            .chars()
-            .any(|character| matches!(character, '$' | '`' | '\\' | '"'))
-    {
-        return Some(SourceTextLiteral::Quoted(inner));
-    }
-
-    if let Some(inner) = text
-        .strip_prefix('\'')
-        .and_then(|text| text.strip_suffix('\''))
-        && !inner.contains('\'')
-    {
-        return Some(SourceTextLiteral::Quoted(inner));
-    }
-
-    None
-}
-
-fn source_text_plain_scalar_name(text: &str) -> Option<Name> {
-    if let Some(name) = text.strip_prefix('$')
-        && shell_name_is_plain_scalar(name)
-    {
-        return Some(Name::new(name));
-    }
-
-    let inner = text
-        .strip_prefix("${")
-        .and_then(|text| text.strip_suffix('}'))?;
-    shell_name_is_plain_scalar(inner).then(|| Name::new(inner))
 }
 
 fn shell_name_is_plain_scalar(text: &str) -> bool {
