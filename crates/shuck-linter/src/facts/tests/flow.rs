@@ -98,8 +98,7 @@ fn builds_command_facts_for_wrapped_and_nested_commands() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let outer = facts
         .structural_commands()
@@ -143,8 +142,7 @@ fn exposes_structural_commands_and_id_lookups() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let structural = facts
         .structural_commands()
@@ -179,8 +177,7 @@ fn precomputes_innermost_command_ids_for_nested_offsets() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let outer_id = facts
         .commands()

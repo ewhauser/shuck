@@ -313,7 +313,7 @@ Discovery does **not** read file contents — the `matches()` check is path-only
 2. Call `shuck_extract::extract_all(path, source)` — this probes and extracts in one call
 3. For each `EmbeddedScript` with a supported dialect:
    a. Parse the extracted `source` as a standalone shell script
-   b. Run the linter with the `FileContext` tagged as embedded (see below)
+   b. Run the linter with embedded-snippet metadata available to the checker (see below)
    c. Remap diagnostic line/column numbers by adding `host_start_line` and `host_start_column` offsets
 4. Collect all diagnostics under the host file's path
 
@@ -344,12 +344,12 @@ Each `EmbeddedScript` carries a `label` (e.g., `jobs.test.steps[0].run`) that pr
 
 The label appears between the rule code and the message.
 
-#### FileContext for Embedded Snippets
+#### Embedded Snippet Context
 
-A new `FileContextTag::EmbeddedScript(EmbeddedFormat)` variant is added. The `classify_file_context` function sets this tag when the snippet originates from an extractor, using the format from the `EmbeddedScript`. This serves two purposes:
+When a snippet originates from an extractor, the checker receives metadata from the `EmbeddedScript`, including the embedded format. This serves two purposes:
 
-1. Rules that are inherently file-level (shebang checks, file-level directive checks) check for the `EmbeddedScript` tag and skip silently when present.
-2. Format-specific rules (see [GHA-Specific Rules](#gha-specific-rules)) check the `EmbeddedFormat` payload to enable GHA-aware analysis.
+1. Rules that are inherently file-level (shebang checks, file-level directive checks) skip silently for extracted snippets.
+2. Format-specific rules (see [GHA-Specific Rules](#gha-specific-rules)) check the embedded format to enable GHA-aware analysis.
 
 The `EmbeddedScript` struct's `placeholders` and `implicit_flags` are also made available to rules through the `Checker` — either via a new `EmbeddedContext` field on `Checker` or by extending `LinterFacts` with an `embedded` section. The exact plumbing is an implementation detail, but the contract is: any rule can query placeholder provenance, taint classification, and implicit shell flags for the current snippet.
 

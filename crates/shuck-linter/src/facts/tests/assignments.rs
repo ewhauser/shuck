@@ -7,8 +7,7 @@ fn indexes_scalar_bindings_from_assignments_and_declarations() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     match &output.file.body[0].command {
         shuck_ast::Command::Simple(_) => {}
@@ -46,8 +45,7 @@ fn indexes_loop_bindings_from_for_words() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let loop_binding_span = match &output.file.body[0].command {
         shuck_ast::Command::Compound(shuck_ast::CompoundCommand::For(command)) => {
@@ -86,8 +84,7 @@ one_sided='-b' || one_sided='-y'
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let shortcut_bindings = semantic
         .bindings_for(&Name::from("w"))
@@ -153,8 +150,7 @@ printf '%s\\n' \"$foo\"
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let foo_bindings = semantic.bindings_for(&Name::from("foo"));
     assert_eq!(foo_bindings.len(), 1);
@@ -182,8 +178,7 @@ f() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let shadow_binding = semantic
         .bindings_for(&Name::from("value"))
@@ -295,8 +290,7 @@ fn collects_broken_assoc_key_spans_from_compound_array_assignments() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert_eq!(
         facts
@@ -314,8 +308,7 @@ fn collects_comma_array_assignment_spans_from_compound_values() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert_eq!(
         facts
@@ -364,8 +357,7 @@ fn ignores_commas_after_even_backslashes_before_quote_regions() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -384,8 +376,7 @@ fn ignores_commas_inside_ansi_c_quoted_array_elements() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -404,8 +395,7 @@ fn ignores_commas_inside_quoted_command_substitution_array_elements() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -424,8 +414,7 @@ fn ignores_commas_inside_separator_started_command_substitution_comments() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -444,8 +433,7 @@ fn ignores_commas_inside_grouped_command_substitution_comments() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -464,8 +452,7 @@ fn ignores_commas_inside_compact_grouped_command_substitution_comments() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -484,8 +471,7 @@ fn ignores_commas_inside_command_substitution_case_patterns() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -505,8 +491,7 @@ fn ignores_commas_inside_piped_heredoc_command_substitution_array_elements() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -525,8 +510,7 @@ fn ignores_commas_inside_parameter_expansions_with_right_parens_in_command_subst
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -545,8 +529,7 @@ fn ignores_commas_inside_parameter_expansions_with_literal_braces() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -565,8 +548,7 @@ fn ignores_commas_inside_parameter_expansions_with_ansi_c_single_quotes() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -586,8 +568,7 @@ fn ignores_commas_inside_case_pattern_comments_after_right_parens() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -606,8 +587,7 @@ fn ignores_commas_inside_process_substitution_array_elements() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -626,8 +606,7 @@ fn ignores_commas_inside_comments_after_quoted_double_parens() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -646,8 +625,7 @@ fn ignores_commas_inside_arithmetic_shift_command_substitutions() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -684,8 +662,7 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -704,8 +681,7 @@ fn ignores_commas_inside_nested_case_patterns_in_command_substitutions() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -724,8 +700,7 @@ fn ignores_commas_inside_command_substitutions_with_plain_case_words() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -744,8 +719,7 @@ fn ignores_commas_inside_command_substitutions_with_ansi_c_single_quotes() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -764,8 +738,7 @@ fn ignores_commas_inside_command_substitutions_with_backticks() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -784,8 +757,7 @@ fn ignores_commas_inside_backticks_inside_parameter_expansions() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -804,8 +776,7 @@ fn ignores_commas_inside_process_substitutions_inside_parameter_expansions() {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -824,8 +795,7 @@ fn ignores_commas_after_backticks_inside_parameter_expansions_in_command_substit
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -845,8 +815,7 @@ fn ignores_commas_after_process_substitutions_inside_parameter_expansions_in_com
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
         facts.comma_array_assignment_spans().is_empty(),
@@ -925,13 +894,11 @@ fn subshell_assignment_slices(source: &str, shell: ShellDialect) -> Vec<&str> {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, shell);
     let facts = LinterFacts::build_with_shell_and_ambient_shell_options(
         &output.file,
         source,
         &semantic,
         &indexer,
-        &file_context,
         shell,
         AmbientShellOptions::default(),
     );
@@ -947,13 +914,11 @@ fn subshell_later_use_slices(source: &str, shell: ShellDialect) -> Vec<&str> {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, shell);
     let facts = LinterFacts::build_with_shell_and_ambient_shell_options(
         &output.file,
         source,
         &semantic,
         &indexer,
-        &file_context,
         shell,
         AmbientShellOptions::default(),
     );

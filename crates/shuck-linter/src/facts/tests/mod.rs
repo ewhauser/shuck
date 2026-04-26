@@ -17,7 +17,7 @@ use super::{
 };
 use crate::WrapperKind;
 use crate::facts::surface::PositionalParameterFragmentKind;
-use crate::{LinterFacts, ShellDialect, classify_file_context};
+use crate::{LinterFacts, ShellDialect};
 
 mod assignments;
 mod braces;

@@ -4,9 +4,9 @@ use criterion::{
 use shuck_benchmark::{benchmark_cases, configure_benchmark_allocator, parse_fixture};
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    LinterFacts, LinterSettings, RuleSet, ShellCheckCodeMap, ShellDialect, SuppressionIndex,
-    benchmark_collect_word_facts, benchmark_normalize_commands, classify_file_context,
-    first_statement_line, lint_file, parse_directives,
+    LinterFacts, LinterSettings, RuleSet, ShellCheckCodeMap, SuppressionIndex,
+    benchmark_collect_word_facts, benchmark_normalize_commands, first_statement_line, lint_file,
+    parse_directives,
 };
 use shuck_parser::parser::ParseResult;
 use shuck_semantic::SemanticModel;
@@ -18,22 +18,18 @@ struct PreparedFactsInput {
     output: ParseResult,
     indexer: Indexer,
     semantic: SemanticModel,
-    file_context: shuck_linter::FileContext,
 }
 
 fn prepare_facts_input(source: &'static str) -> PreparedFactsInput {
     let output = parse_fixture(source);
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let shell = ShellDialect::infer(source, None);
-    let file_context = classify_file_context(source, None, shell);
 
     PreparedFactsInput {
         source,
         output,
         indexer,
         semantic,
-        file_context,
     }
 }
 
@@ -43,7 +39,6 @@ fn build_linter_facts(input: &PreparedFactsInput) -> usize {
         input.source,
         &input.semantic,
         &input.indexer,
-        &input.file_context,
     );
 
     black_box(

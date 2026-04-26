@@ -257,11 +257,7 @@ fn simple_test_operands<'a>(command: &'a SimpleCommand, source: &str) -> Option<
     }
 }
 
-fn build_simple_test_fact<'a>(
-    command: &'a Command,
-    source: &str,
-    _file_context: &FileContext,
-) -> Option<SimpleTestFact<'a>> {
+fn build_simple_test_fact<'a>(command: &'a Command, source: &str) -> Option<SimpleTestFact<'a>> {
     let Command::Simple(command) = command else {
         return None;
     };

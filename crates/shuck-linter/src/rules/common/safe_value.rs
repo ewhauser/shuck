@@ -3586,7 +3586,6 @@ mod tests {
     use super::{SafeValueIndex, SafeValueQuery, function_has_terminal_exit};
     use crate::ExpansionContext;
     use crate::LinterFacts;
-    use crate::{ShellDialect, classify_file_context};
 
     #[test]
     fn maps_pattern_and_regex_contexts_into_safe_value_queries() {
@@ -3643,8 +3642,7 @@ mod tests {
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let Command::Simple(command) = &output.file.body[0].command else {
@@ -3664,8 +3662,7 @@ mod tests {
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Zsh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let Command::Simple(command) = &output.file.body[0].command else {
@@ -3685,8 +3682,7 @@ mod tests {
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Zsh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let Command::Simple(command) = &output.file.body[0].command else {
@@ -3719,8 +3715,7 @@ if [ \"$foo\" = \"\" ]; then foo=0; fi
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let Command::Simple(command) = &output.file.body[2].command else {
@@ -3743,8 +3738,7 @@ fi
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let Command::Simple(command) = &output.file.body[1].command else {
@@ -3765,8 +3759,7 @@ printf '%s\\n' $PPID
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let Command::Simple(command) = &output.file.body[1].command else {
@@ -3790,8 +3783,7 @@ f() {
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -3818,8 +3810,7 @@ f() {
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -3850,8 +3841,7 @@ printf '%s\\n' $copy $mixed $lower $trimmed $count
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let Command::Simple(command) = &output.file.body[6].command else {
@@ -3881,8 +3871,7 @@ done
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let unsafe_words = facts
@@ -3933,8 +3922,7 @@ iptables $flag -t nat -N chain
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let short_circuit_word = facts
@@ -3975,8 +3963,7 @@ done
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let loop_words = facts
@@ -4013,8 +4000,7 @@ f() {
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -4046,8 +4032,7 @@ done
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -4082,8 +4067,7 @@ fi
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let validate_uses = facts
@@ -4118,8 +4102,7 @@ f() {
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -4160,8 +4143,7 @@ f() {
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let validate_uses = facts
@@ -4216,8 +4198,7 @@ printf '%s\\n' vm-${disk_ext_with_default:-}
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let maybe_uninitialized = facts
@@ -4253,8 +4234,7 @@ foo=0
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let Command::Simple(command) = &output.file.body[2].command else {
@@ -4280,8 +4260,7 @@ esac
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let Command::Compound(shuck_ast::CompoundCommand::Case(case_command)) =
@@ -4311,8 +4290,7 @@ free ${humanreadable}
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let Command::Simple(command) = &output.file.body[1].command else {
@@ -4337,8 +4315,7 @@ value=\"$(free ${humanreadable} | awk '{print $2}')\"
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -4365,8 +4342,7 @@ done
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let after_loop_use = facts
@@ -4416,8 +4392,7 @@ echo \"MD5SUM=\\\"$( md5sum $PRGNAM-$VERSION.tar.xz | cut -d' ' -f1 )\\\"\"
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let version_use = facts
@@ -4451,8 +4426,7 @@ config() {
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -4508,8 +4482,7 @@ printf '%s\\n' $opt hi
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let unsafe_words = facts
@@ -4572,8 +4545,7 @@ GetAMI
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -4611,8 +4583,7 @@ GetAMI
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -4669,8 +4640,7 @@ fn_backup_compression
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -4707,8 +4677,7 @@ exit $?
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let command_name = facts
@@ -4753,8 +4722,7 @@ esac
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let command_name = facts
@@ -4796,8 +4764,7 @@ exit $?
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let dispatched_use = facts
@@ -4854,8 +4821,7 @@ exit $?
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let command_arg = facts
@@ -4888,8 +4854,7 @@ exit 0
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let command_arg = facts
@@ -4926,8 +4891,7 @@ exit $?
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let command_arg = facts
@@ -4962,8 +4926,7 @@ exit $?
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let command_arg = facts
@@ -4999,8 +4962,7 @@ exit $?
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let command_name = facts
@@ -5039,8 +5001,7 @@ exit 0
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let command_arg = facts
@@ -5070,8 +5031,7 @@ outer() {
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let command_arg = facts
@@ -5109,8 +5069,7 @@ fi
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let command_arg = facts
@@ -5144,8 +5103,7 @@ exit $?
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let indirect_use = facts
@@ -5188,8 +5146,7 @@ unsafe_path
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -5231,8 +5188,7 @@ done
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let unsafe_words = facts
@@ -5269,8 +5225,7 @@ do_start
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -5312,8 +5267,7 @@ run_make
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -5347,8 +5301,7 @@ render() {
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -5396,8 +5349,7 @@ safe_path_b
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -5439,8 +5391,7 @@ printf '%s\\n' $pkgname
             },
         );
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -5465,8 +5416,7 @@ bash ${debug:+\"-x\"} script
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -5491,8 +5441,7 @@ printf '%s\\n' ${debug:+\"a b\"}
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -5520,8 +5469,7 @@ echo /tmp/$SAFE
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -5558,8 +5506,7 @@ fi
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Bash);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -5605,8 +5552,7 @@ echo x >> ${OPENBSD_CONTENTS}
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
         let exit_header = facts
             .function_headers()
@@ -5660,8 +5606,7 @@ helper() {
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let word_fact = facts
@@ -5687,8 +5632,7 @@ helper() (
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
             .function_headers()
             .iter()
@@ -5714,8 +5658,7 @@ helper() {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
             .function_headers()
             .iter()
@@ -5740,8 +5683,7 @@ helper() {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
             .function_headers()
             .iter()
@@ -5766,8 +5708,7 @@ helper() {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
             .function_headers()
             .iter()
@@ -5792,8 +5733,7 @@ helper() {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
             .function_headers()
             .iter()
@@ -5822,8 +5762,7 @@ helper() {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
             .function_headers()
             .iter()
@@ -5851,8 +5790,7 @@ helper() {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
             .function_headers()
             .iter()
@@ -5880,8 +5818,7 @@ helper() {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
             .function_headers()
             .iter()
@@ -5907,8 +5844,7 @@ helper() {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
             .function_headers()
             .iter()
@@ -5938,8 +5874,7 @@ helper() {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let helper_header = facts
             .function_headers()
             .iter()
@@ -5968,8 +5903,7 @@ Exit() { exit 0; }
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let analysis = semantic.analysis();
-        let file_context = classify_file_context(source, None, ShellDialect::Sh);
-        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
         let target = facts
             .word_facts()

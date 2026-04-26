@@ -3,7 +3,6 @@ struct LinterFactsBuilder<'a> {
     source: &'a str,
     semantic: &'a SemanticModel,
     _indexer: &'a Indexer,
-    _file_context: &'a FileContext,
     shell: ShellDialect,
     ambient_shell_options: AmbientShellOptions,
 }
@@ -60,7 +59,6 @@ impl<'a> LinterFactsBuilder<'a> {
         source: &'a str,
         semantic: &'a SemanticModel,
         indexer: &'a Indexer,
-        file_context: &'a FileContext,
         shell: ShellDialect,
         ambient_shell_options: AmbientShellOptions,
     ) -> Self {
@@ -69,7 +67,6 @@ impl<'a> LinterFactsBuilder<'a> {
             source,
             semantic,
             _indexer: indexer,
-            _file_context: file_context,
             shell,
             ambient_shell_options,
         }
@@ -291,8 +288,7 @@ impl<'a> LinterFactsBuilder<'a> {
                     build_glued_closing_bracket_operand_span(visit.command, self.source);
                 let glued_closing_bracket_insert_offset =
                     build_glued_closing_bracket_insert_offset(visit.command, self.source);
-                let simple_test =
-                    build_simple_test_fact(visit.command, self.source, self._file_context);
+                let simple_test = build_simple_test_fact(visit.command, self.source);
                 let conditional = build_conditional_fact(visit.command, self.source);
                 commands.push(CommandFact {
                     id,

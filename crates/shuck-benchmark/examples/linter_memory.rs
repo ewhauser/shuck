@@ -4,7 +4,7 @@ use std::process;
 use serde::Serialize;
 use shuck_benchmark::{benchmark_cases, parse_fixture};
 use shuck_indexer::Indexer;
-use shuck_linter::{Checker, LinterFacts, LinterSettings, ShellDialect, classify_file_context};
+use shuck_linter::{Checker, LinterFacts, LinterSettings, ShellDialect};
 use shuck_parser::parser::{ParseResult, ParseStatus};
 use shuck_semantic::SemanticModel;
 
@@ -176,7 +176,6 @@ struct PreparedInput {
     indexer: Indexer,
     semantic: SemanticModel,
     shell: ShellDialect,
-    file_context: shuck_linter::FileContext,
 }
 
 impl PreparedInput {
@@ -185,7 +184,6 @@ impl PreparedInput {
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let shell = ShellDialect::infer(source, None);
-        let file_context = classify_file_context(source, None, shell);
 
         Self {
             source,
@@ -193,7 +191,6 @@ impl PreparedInput {
             indexer,
             semantic,
             shell,
-            file_context,
         }
     }
 }
@@ -216,7 +213,6 @@ fn facts_size(input: &PreparedInput) -> usize {
         input.source,
         &input.semantic,
         &input.indexer,
-        &input.file_context,
         input.shell,
         Default::default(),
     );
@@ -242,7 +238,6 @@ fn check_diagnostics(input: &PreparedInput, settings: &LinterSettings) -> usize 
         settings.ambient_shell_options,
         settings.report_environment_style_names,
         settings.rule_options.clone(),
-        &input.file_context,
         None,
         None,
     );
