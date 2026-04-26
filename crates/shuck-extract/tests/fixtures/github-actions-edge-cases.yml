@@ -88,6 +88,9 @@ jobs:
           case "$WORKFLOW_VALUE" in
             *prod) echo prod ;;
           esac
+      - name: Inline glob after dash
+        shell: bash
+        run: rm -- *.tmp
 
   flow-style:
     runs-on: ubuntu-latest

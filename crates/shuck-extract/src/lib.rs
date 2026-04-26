@@ -421,11 +421,15 @@ fn yaml_anchor_token_starts(bytes: &[u8], index: usize) -> bool {
 }
 
 fn yaml_anchor_token_boundary_before(bytes: &[u8], index: usize) -> bool {
-    bytes[..index]
-        .iter()
-        .rev()
-        .find(|byte| !byte.is_ascii_whitespace())
-        .is_none_or(|byte| matches!(byte, b':' | b'-' | b'[' | b'{' | b','))
+    let Some(previous_index) = previous_non_space_index(bytes, index) else {
+        return true;
+    };
+
+    match bytes[previous_index] {
+        b':' | b'[' | b'{' | b',' => true,
+        b'-' => yaml_dash_is_sequence_indicator(bytes, previous_index),
+        _ => false,
+    }
 }
 
 fn yaml_anchor_token_len(bytes: &[u8], index: usize) -> usize {
@@ -487,8 +491,23 @@ fn block_scalar_indicator_starts_value(bytes: &[u8], index: usize) -> bool {
     let token_start = yaml_anchor_token_start_ending_at(bytes, previous_index);
     token_start < previous_index
         && bytes[token_start] == b'&'
-        && previous_non_space_byte(bytes, token_start)
-            .is_some_and(|byte| matches!(byte, b':' | b'-'))
+        && yaml_value_indicator_before(bytes, token_start)
+}
+
+fn yaml_value_indicator_before(bytes: &[u8], index: usize) -> bool {
+    let Some(previous_index) = previous_non_space_index(bytes, index) else {
+        return false;
+    };
+
+    match bytes[previous_index] {
+        b':' => true,
+        b'-' => yaml_dash_is_sequence_indicator(bytes, previous_index),
+        _ => false,
+    }
+}
+
+fn yaml_dash_is_sequence_indicator(bytes: &[u8], dash_index: usize) -> bool {
+    previous_non_space_index(bytes, dash_index).is_none()
 }
 
 fn yaml_anchor_token_start_ending_at(bytes: &[u8], index: usize) -> usize {
@@ -503,14 +522,6 @@ fn previous_non_space_index(bytes: &[u8], index: usize) -> Option<usize> {
     bytes[..index]
         .iter()
         .rposition(|byte| !byte.is_ascii_whitespace())
-}
-
-fn previous_non_space_byte(bytes: &[u8], index: usize) -> Option<u8> {
-    bytes[..index]
-        .iter()
-        .rev()
-        .find(|byte| !byte.is_ascii_whitespace())
-        .copied()
 }
 
 fn leading_space_count(line: &str) -> usize {
