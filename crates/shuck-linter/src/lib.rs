@@ -49,9 +49,7 @@ pub mod test;
 /// Primary checker API for walking facts and emitting diagnostics.
 pub use checker::Checker;
 /// File-context classification types.
-pub use context::{
-    ContextRegion, ContextRegionKind, FileContext, FileContextTag, classify_file_context,
-};
+pub use context::{FileContext, FileContextTag, classify_file_context};
 /// Rule diagnostics and severity levels.
 pub use diagnostic::{Diagnostic, Severity};
 /// Command-substitution classification exposed by fact APIs.
@@ -724,24 +722,6 @@ mod tests {
                 rules: RuleSet::EMPTY,
                 ..LinterSettings::default()
             },
-        );
-
-        assert!(diagnostics.is_empty());
-    }
-
-    #[test]
-    fn path_sensitive_context_classification_uses_the_supplied_path() {
-        let shellspec_path = Path::new("/tmp/project/spec/clone_spec.sh");
-        let source = "\
-Describe 'clone'
-Parameters
-  \"test\"
-End
-";
-        let diagnostics = lint_named_source(
-            shellspec_path,
-            source,
-            &LinterSettings::for_rule(Rule::EmptyTest),
         );
 
         assert!(diagnostics.is_empty());

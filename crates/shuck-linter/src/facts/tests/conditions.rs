@@ -1175,36 +1175,6 @@ true && `echo and_redirect` 2>/dev/null
 }
 
 #[test]
-fn marks_shellspec_parameter_region_empty_tests_as_suppressed() {
-    let source = "\
-Describe 'clone'
-Parameters
-  test
-End
-
-test
-";
-
-    with_facts(
-        source,
-        Some(Path::new(
-            "/tmp/ko1nksm__shellspec__spec__core__clone_spec.sh",
-        )),
-        |_, facts| {
-            let mut tests = facts
-                .structural_commands()
-                .filter_map(|fact| fact.simple_test().map(|simple| (fact.span(), simple)))
-                .collect::<Vec<_>>();
-            tests.sort_by_key(|(span, _)| span.start.line);
-
-            assert_eq!(tests.len(), 2);
-            assert!(tests[0].1.empty_test_suppressed());
-            assert!(!tests[1].1.empty_test_suppressed());
-        },
-    );
-}
-
-#[test]
 fn builds_loop_header_pipeline_and_list_facts() {
     let source = "\
 #!/bin/bash
