@@ -14,20 +14,6 @@ reviewed_divergences:
     end_column: 38
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__system__sboui__doinst.sh"
-    line: 19
-    end_line: 19
-    column: 8
-    end_column: 12
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__system__sboui__doinst.sh"
-    line: 19
-    end_line: 19
-    column: 13
-    end_column: 17
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "alexanderepstein__Bash-Snippets__bak2dvd__bak2dvd"
     line: 245
     end_line: 245
@@ -335,27 +321,6 @@ reviewed_divergences:
     column: 37
     end_column: 47
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "juewuy__ShellCrash__scripts__menus__2_settings.sh"
-    line: 360
-    end_line: 360
-    column: 41
-    end_column: 51
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "juewuy__ShellCrash__scripts__menus__2_settings.sh"
-    line: 368
-    end_line: 368
-    column: 41
-    end_column: 51
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "juewuy__ShellCrash__scripts__menus__2_settings.sh"
-    line: 377
-    end_line: 377
-    column: 41
-    end_column: 51
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "juewuy__ShellCrash__scripts__menus__9_upgrade.sh"
     line: 651
@@ -404,13 +369,6 @@ reviewed_divergences:
     end_line: 15
     column: 56
     end_column: 60
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "nvm-sh__nvm__nvm.sh"
-    line: 3785
-    end_line: 3785
-    column: 16
-    end_column: 25
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "nvm-sh__nvm__test__slow__nvm_get_latest__nvm_get_latest"

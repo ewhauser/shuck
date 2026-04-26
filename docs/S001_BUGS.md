@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=58`
-- Individual reviewed records classified below: 96 total (`shellcheck-only=23`, `shuck-only=73`).
+- `reviewed_divergences=55`
+- Individual reviewed records classified below: 90 total (`shellcheck-only=23`, `shuck-only=67`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -95,19 +95,14 @@ Resolved records should not remain as reviewed divergences.
 - `tteck__Proxmox__vm__ubuntu2404-vm.sh:399:25-34` `${FORMAT}`
 - `tteck__Proxmox__vm__ubuntu2404-vm.sh:400:23-36` `${DISK_CACHE}`
 
-## [ ] Shuck-only: simple command argument ShellCheck suppresses (17)
+## [ ] Shuck-only: simple command argument ShellCheck suppresses (12)
 
-- `SlackBuildsOrg__slackbuilds__system__sboui__doinst.sh:19:8-12` `$OLD`
-- `SlackBuildsOrg__slackbuilds__system__sboui__doinst.sh:19:13-17` `$NEW`
 - `awslabs__git-secrets__git-secrets:124:5-17` `${RECURSIVE}`
 - `bats-core__bats-core__libexec__bats-core__bats-format-pretty:67:16-34` `$count_column_left`
 - `bats-core__bats-core__libexec__bats-core__bats-format-pretty:78:13-32` `$line_backoff_count`
 - `bittorf__kalua__openwrt-monitoring__ping_counter.sh:110:7-15` `$fileage`
 - `gentoo__gentoo__eclass__tests__toolchain-funcs.sh:61:6-12` `${ret}`
 - `google__oss-fuzz__projects__threetenbp__build.sh:56:89-99` `LD_LIBRARY_PATH`
-- `juewuy__ShellCrash__scripts__menus__2_settings.sh:360:41-51` `$redir_mod`
-- `juewuy__ShellCrash__scripts__menus__2_settings.sh:368:41-51` `$redir_mod`
-- `juewuy__ShellCrash__scripts__menus__2_settings.sh:377:41-51` `$redir_mod`
 - `ko1nksm__shellspec__lib__general.sh:442:15-39` `$shellspec_readfile_data`
 - `ko1nksm__shellspec__lib__libexec__shellspec.sh:94:37-39` `$c`
 - `kward__shunit2__.githooks__generic:30:11-22` `${basename}`
@@ -122,11 +117,10 @@ Resolved records should not remain as reviewed divergences.
 - `swoodford__aws__vpc-sg-import-rules-cloudflare.sh:281:101-106` `$PORT`
 - `swoodford__aws__wafv2-web-acl-pingdom.sh:196:40-49` `$WAFSCOPE`
 
-## [ ] Shuck-only: numeric/test operand (7)
+## [ ] Shuck-only: numeric/test operand (6)
 
 - `bittorf__kalua__openwrt-addons__etc__kalua__watch:362:40-58` `${overall:-$count}`
 - `bittorf__kalua__openwrt-monitoring__send_sms.sh:145:10-19` `${pos:-0}`
-- `nvm-sh__nvm__nvm.sh:3785:16-25` `$nosource`
 - `pi-hole__pi-hole__advanced__Scripts__piholeCheckout.sh:191:14-30` `$download_status`
 - `pi-hole__pi-hole__advanced__Scripts__piholeCheckout.sh:215:18-34` `$download_status`
 - `pi-hole__pi-hole__advanced__Scripts__piholeCheckout.sh:221:20-36` `$download_status`

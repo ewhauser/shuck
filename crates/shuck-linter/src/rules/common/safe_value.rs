@@ -521,7 +521,7 @@ impl<'a> SafeValueIndex<'a> {
             && self.bindings_cover_all_paths_to_reference(&direct_bindings, name, at);
         if direct_bindings_cover_all_paths
             && self.enclosing_function_scope_at(at.start.offset).is_some()
-            && self.span_is_inside_command_substitution_scope(at)
+            && !self.span_is_exit_or_return_argument(at)
             && self.covering_direct_field_safe_bindings_can_stay_safe(&direct_bindings, query)
         {
             return true;
@@ -711,6 +711,38 @@ impl<'a> SafeValueIndex<'a> {
                     .body_name_word()
                     .is_some_and(word_is_standalone_variable_like)
         })
+    }
+
+    fn span_is_exit_or_return_argument(&self, at: Span) -> bool {
+        self.facts
+            .innermost_command_id_at(at.start.offset)
+            .or_else(|| self.innermost_command_id_containing_offset(at.start.offset))
+            .is_some_and(|command_id| {
+                let command = self.facts.command(command_id);
+                match command.command() {
+                    Command::Builtin(BuiltinCommand::Exit(command)) => {
+                        command
+                            .code
+                            .as_ref()
+                            .is_some_and(|word| span_contains(word.span, at))
+                            || command
+                                .extra_args
+                                .iter()
+                                .any(|word| span_contains(word.span, at))
+                    }
+                    Command::Builtin(BuiltinCommand::Return(command)) => {
+                        command
+                            .code
+                            .as_ref()
+                            .is_some_and(|word| span_contains(word.span, at))
+                            || command
+                                .extra_args
+                                .iter()
+                                .any(|word| span_contains(word.span, at))
+                    }
+                    _ => false,
+                }
+            })
     }
 
     fn span_is_within_command_name(&self, at: Span) -> bool {

@@ -2629,6 +2629,59 @@ send_request \"$1\"
     }
 
     #[test]
+    fn skips_local_literal_command_arguments_when_helper_reuses_name() {
+        let source = "\
+#!/bin/bash
+config() {
+  NEW=\"$1\"
+  OLD=\"$(dirname $NEW)/$(basename $NEW .new)\"
+}
+config_blacklist() {
+  NEW=etc/app/blacklist
+  OLD=etc/app/package_blacklist
+  cp $OLD $NEW
+}
+config \"$1\"
+config_blacklist
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$NEW", "$NEW"]
+        );
+    }
+
+    #[test]
+    fn reports_dynamic_command_arguments_when_helper_reuses_name() {
+        let source = "\
+#!/bin/bash
+config() {
+  NEW=etc/app/default
+}
+config_blacklist() {
+  NEW=\"$1\"
+  OLD=etc/app/package_blacklist
+  cp $OLD $NEW
+}
+config
+config_blacklist \"$1\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$NEW"]
+        );
+    }
+
+    #[test]
     fn skips_safe_numeric_shell_variables() {
         let source = "\
 #!/bin/bash
