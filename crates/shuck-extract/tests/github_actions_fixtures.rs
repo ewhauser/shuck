@@ -13,7 +13,7 @@ fn extracts_workflow_edge_case_fixture() {
     )
     .unwrap();
 
-    assert_eq!(scripts.len(), 28);
+    assert_eq!(scripts.len(), 29);
 
     let missing_unix = script(&scripts, "jobs.missing-unix.steps[0].run");
     assert_eq!(missing_unix.dialect, ExtractedDialect::Bash);
@@ -163,6 +163,10 @@ fn extracts_workflow_edge_case_fixture() {
     let quoted_run_key = script(&scripts, "jobs.flow-style.steps[4].run");
     assert_eq!(quoted_run_key.source, "echo quoted key");
     assert_eq!(quoted_run_key.host_start_column, 29);
+
+    let quoted_shell_key = script(&scripts, "jobs.flow-style.steps[5].run");
+    assert_eq!(quoted_shell_key.dialect, ExtractedDialect::Sh);
+    assert_eq!(quoted_shell_key.source, "echo quoted shell key");
 }
 
 #[test]

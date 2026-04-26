@@ -148,3 +148,4 @@ jobs:
       - { shell: *comment_shell, run: echo comment alias }
       - { shell: *flow_pwsh, run: echo flow pwsh }
       - { shell: *b, "run": echo quoted key }
+      - { "shell": *flow_posix, run: echo quoted shell key }

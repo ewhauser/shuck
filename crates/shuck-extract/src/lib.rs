@@ -581,7 +581,18 @@ fn yaml_has_unquoted_colon_before(bytes: &[u8], colon_index: usize) -> bool {
 fn yaml_flow_key_before_colon(bytes: &[u8], colon_index: usize) -> bool {
     let entry_start = yaml_flow_entry_start(bytes, colon_index);
     let key = trim_ascii(&bytes[entry_start..colon_index]);
+    yaml_flow_key_is_plain(key) || yaml_flow_key_is_quoted(key)
+}
+
+fn yaml_flow_key_is_plain(key: &[u8]) -> bool {
     !key.is_empty() && key.iter().all(|byte| is_yaml_anchor_name_byte(*byte))
+}
+
+fn yaml_flow_key_is_quoted(key: &[u8]) -> bool {
+    if key.len() < 2 || !matches!(key[0], b'\'' | b'"') {
+        return false;
+    }
+    key.last() == Some(&key[0]) && yaml_quoted_scalar_end(key, 0) == key.len()
 }
 
 fn yaml_flow_entry_start(bytes: &[u8], target_index: usize) -> usize {
