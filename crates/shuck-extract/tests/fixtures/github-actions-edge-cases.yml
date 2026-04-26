@@ -103,6 +103,9 @@ jobs:
       - name: Inline glob after brace
         shell: bash
         run: echo {*.tmp,*.log}
+      - name: Inline pattern after colon
+        shell: bash
+        run: echo foo:*bar
 
   short-shell-aliases:
     runs-on: ubuntu-latest

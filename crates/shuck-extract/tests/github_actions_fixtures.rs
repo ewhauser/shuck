@@ -13,7 +13,7 @@ fn extracts_workflow_edge_case_fixture() {
     )
     .unwrap();
 
-    assert_eq!(scripts.len(), 24);
+    assert_eq!(scripts.len(), 25);
 
     let missing_unix = script(&scripts, "jobs.missing-unix.steps[0].run");
     assert_eq!(missing_unix.dialect, ExtractedDialect::Bash);
@@ -99,6 +99,10 @@ fn extracts_workflow_edge_case_fixture() {
     let brace_glob = script(&scripts, "jobs.anchors-and-env.steps[5].run");
     assert_eq!(brace_glob.dialect, ExtractedDialect::Bash);
     assert_eq!(brace_glob.source, "echo {*.tmp,*.log}");
+
+    let colon_pattern = script(&scripts, "jobs.anchors-and-env.steps[6].run");
+    assert_eq!(colon_pattern.dialect, ExtractedDialect::Bash);
+    assert_eq!(colon_pattern.source, "echo foo:*bar");
 
     let short_alias_default = script(&scripts, "jobs.short-shell-aliases.steps[0].run");
     assert_eq!(short_alias_default.dialect, ExtractedDialect::Bash);

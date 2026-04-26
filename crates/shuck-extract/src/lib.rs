@@ -509,11 +509,112 @@ fn yaml_anchor_token_boundary_before(bytes: &[u8], index: usize) -> bool {
     };
 
     match bytes[previous_index] {
-        b':' => true,
+        b':' => yaml_colon_is_value_indicator(bytes, previous_index),
         b'[' | b'{' | b',' => yaml_index_is_inside_flow_collection(bytes, index),
         b'-' => yaml_dash_is_sequence_indicator(bytes, previous_index),
         _ => false,
     }
+}
+
+fn yaml_colon_is_value_indicator(bytes: &[u8], colon_index: usize) -> bool {
+    if yaml_index_is_inside_flow_collection(bytes, colon_index) {
+        return yaml_flow_key_before_colon(bytes, colon_index);
+    }
+
+    !yaml_has_unquoted_colon_before(bytes, colon_index)
+}
+
+fn yaml_has_unquoted_colon_before(bytes: &[u8], colon_index: usize) -> bool {
+    let mut index = 0;
+    let mut quote = YamlLineQuote::Unquoted;
+
+    while index < colon_index {
+        match quote {
+            YamlLineQuote::Unquoted => match bytes[index] {
+                b'\'' => quote = YamlLineQuote::Single,
+                b'"' => quote = YamlLineQuote::Double,
+                b':' => return true,
+                _ => {}
+            },
+            YamlLineQuote::Single => {
+                if bytes[index] == b'\'' {
+                    quote = YamlLineQuote::Unquoted;
+                }
+            }
+            YamlLineQuote::Double => match bytes[index] {
+                b'"' => quote = YamlLineQuote::Unquoted,
+                b'\\' => {
+                    index += 1;
+                }
+                _ => {}
+            },
+        }
+
+        index += 1;
+    }
+
+    false
+}
+
+fn yaml_flow_key_before_colon(bytes: &[u8], colon_index: usize) -> bool {
+    let entry_start = yaml_flow_entry_start(bytes, colon_index);
+    let key = trim_ascii(&bytes[entry_start..colon_index]);
+    !key.is_empty() && key.iter().all(|byte| is_yaml_anchor_name_byte(*byte))
+}
+
+fn yaml_flow_entry_start(bytes: &[u8], target_index: usize) -> usize {
+    let mut index = 0;
+    let mut entry_start = 0;
+    let mut quote = YamlLineQuote::Unquoted;
+    let mut flow_depth = 0usize;
+
+    while index < target_index {
+        match quote {
+            YamlLineQuote::Unquoted => match bytes[index] {
+                b'\'' => quote = YamlLineQuote::Single,
+                b'"' => quote = YamlLineQuote::Double,
+                b'[' | b'{' if yaml_flow_collection_can_start(bytes, index, flow_depth) => {
+                    flow_depth += 1;
+                    entry_start = index + 1;
+                }
+                b',' if flow_depth > 0 => {
+                    entry_start = index + 1;
+                }
+                b']' | b'}' if flow_depth > 0 => {
+                    flow_depth -= 1;
+                }
+                _ => {}
+            },
+            YamlLineQuote::Single => {
+                if bytes[index] == b'\'' {
+                    quote = YamlLineQuote::Unquoted;
+                }
+            }
+            YamlLineQuote::Double => match bytes[index] {
+                b'"' => quote = YamlLineQuote::Unquoted,
+                b'\\' => {
+                    index += 1;
+                }
+                _ => {}
+            },
+        }
+
+        index += 1;
+    }
+
+    entry_start
+}
+
+fn trim_ascii(bytes: &[u8]) -> &[u8] {
+    let start = bytes
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .rposition(|byte| !byte.is_ascii_whitespace())
+        .map_or(start, |index| index + 1);
+    &bytes[start..end]
 }
 
 fn yaml_index_is_inside_flow_collection(bytes: &[u8], target_index: usize) -> bool {
@@ -564,7 +665,7 @@ fn yaml_flow_collection_can_start(bytes: &[u8], index: usize, flow_depth: usize)
     };
 
     match bytes[previous_index] {
-        b':' => true,
+        b':' => yaml_colon_is_value_indicator(bytes, previous_index),
         b'-' => yaml_dash_is_sequence_indicator(bytes, previous_index),
         _ => false,
     }
@@ -638,7 +739,7 @@ fn yaml_value_indicator_before(bytes: &[u8], index: usize) -> bool {
     };
 
     match bytes[previous_index] {
-        b':' => true,
+        b':' => yaml_colon_is_value_indicator(bytes, previous_index),
         b'-' => yaml_dash_is_sequence_indicator(bytes, previous_index),
         _ => false,
     }
