@@ -154,13 +154,10 @@ impl ExactVariableDataflow {
     fn scope_components<'a>(&'a self, context: &DataflowContext<'_>) -> &'a [ExactScopeComponent] {
         self.scope_components
             .get_or_init(|| {
-                let reaching_definitions = self.reaching_definitions(context);
                 compute_scope_components_dense(
                     context.cfg,
                     context.scopes.len(),
                     context.cfg.blocks().len(),
-                    context.bindings.len(),
-                    &reaching_definitions.reaching_out,
                 )
             })
             .as_slice()
@@ -535,7 +532,12 @@ fn analyze_unused_assignments_exact(
             name_id
         })
         .collect::<Vec<_>>();
-    let scope_components = exact.scope_components(context);
+    let scope_component_cache = ScopeComponentCache::new(
+        context.cfg,
+        context.scopes.len(),
+        context.bindings.len(),
+        &reaching_definitions.reaching_out,
+    );
     let mut reaching_name_cache = ReachingNameCache::new(
         &reaching_definitions.reaching_in,
         &exact.binding_data.bindings_for_name,
@@ -619,10 +621,10 @@ fn analyze_unused_assignments_exact(
             continue;
         };
         let resolved_binding = &context.bindings[resolved_binding_id.index()];
-        let component = &scope_components[resolved_binding.scope.index()];
-        if !component.blocks.contains(block_id.index()) {
+        if !scope_component_cache.contains_block(resolved_binding.scope, block_id) {
+            let exit_defs = scope_component_cache.exit_defs(resolved_binding.scope);
             used_bindings.or_intersection3_with(
-                &component.exit_defs,
+                exit_defs,
                 &exact.binding_data.bindings_for_name[name_id.index()],
                 &exact.binding_data.bindings_in_scope[resolved_binding.scope.index()],
             );
@@ -636,10 +638,10 @@ fn analyze_unused_assignments_exact(
             && !candidates.is_empty()
         {
             mark_reaching_candidate_bindings_used(&mut used_bindings, incoming, candidates);
-            if !component.blocks.contains(block_id.index()) {
+            if !scope_component_cache.contains_block(resolved_binding.scope, block_id) {
                 mark_reaching_candidate_bindings_used(
                     &mut used_bindings,
-                    &component.exit_defs,
+                    scope_component_cache.exit_defs(resolved_binding.scope),
                     candidates,
                 );
             }
@@ -1345,15 +1347,89 @@ struct DenseInitializedNameStates {
 #[derive(Debug, Clone)]
 struct ExactScopeComponent {
     blocks: DenseBitSet,
-    exit_defs: DenseBitSet,
 }
 
 impl ExactScopeComponent {
-    fn new(block_count: usize, binding_count: usize) -> Self {
+    fn new(block_count: usize) -> Self {
         Self {
             blocks: DenseBitSet::new(block_count),
-            exit_defs: DenseBitSet::new(binding_count),
         }
+    }
+}
+
+struct ScopeComponentCache<'a> {
+    cfg: &'a ControlFlowGraph,
+    block_count: usize,
+    binding_count: usize,
+    reaching_out: &'a [DenseBitSet],
+    components: Vec<LazyScopeComponent>,
+}
+
+struct LazyScopeComponent {
+    blocks: OnceLock<DenseBitSet>,
+    exit_defs: OnceLock<DenseBitSet>,
+}
+
+impl<'a> ScopeComponentCache<'a> {
+    fn new(
+        cfg: &'a ControlFlowGraph,
+        scope_count: usize,
+        binding_count: usize,
+        reaching_out: &'a [DenseBitSet],
+    ) -> Self {
+        Self {
+            cfg,
+            block_count: cfg.blocks().len(),
+            binding_count,
+            reaching_out,
+            components: (0..scope_count)
+                .map(|_| LazyScopeComponent {
+                    blocks: OnceLock::new(),
+                    exit_defs: OnceLock::new(),
+                })
+                .collect(),
+        }
+    }
+
+    fn contains_block(&self, scope: ScopeId, block: BlockId) -> bool {
+        self.blocks(scope).contains(block.index())
+    }
+
+    fn exit_defs(&self, scope: ScopeId) -> &DenseBitSet {
+        self.components[scope.index()]
+            .exit_defs
+            .get_or_init(|| self.compute_exit_defs(scope))
+    }
+
+    fn blocks(&self, scope: ScopeId) -> &DenseBitSet {
+        self.components[scope.index()]
+            .blocks
+            .get_or_init(|| self.compute_blocks(scope))
+    }
+
+    fn compute_blocks(&self, scope: ScopeId) -> DenseBitSet {
+        self.cfg
+            .scope_entry(scope)
+            .map(|entry| reachable_blocks_dense(self.cfg, entry, self.block_count))
+            .unwrap_or_else(|| DenseBitSet::new(self.block_count))
+    }
+
+    fn compute_exit_defs(&self, scope: ScopeId) -> DenseBitSet {
+        let blocks = self.blocks(scope);
+        let mut exit_defs = DenseBitSet::new(self.binding_count);
+        if let Some(scope_exits) = self.cfg.scope_exits(scope) {
+            for exit in scope_exits {
+                exit_defs.union_with(&self.reaching_out[exit.index()]);
+            }
+        } else {
+            for block_index in blocks.iter_ones() {
+                let block_id = BlockId(block_index as u32);
+                if block_exits_component(self.cfg, blocks, block_id) {
+                    exit_defs.union_with(&self.reaching_out[block_index]);
+                }
+            }
+        }
+        exit_defs
     }
 }
 
@@ -1800,29 +1876,14 @@ fn compute_scope_components_dense(
     cfg: &ControlFlowGraph,
     scope_count: usize,
     block_count: usize,
-    binding_count: usize,
-    reaching_out: &[DenseBitSet],
 ) -> Vec<ExactScopeComponent> {
     let mut components = (0..scope_count)
-        .map(|_| ExactScopeComponent::new(block_count, binding_count))
+        .map(|_| ExactScopeComponent::new(block_count))
         .collect::<Vec<_>>();
 
     for (scope, entry) in &cfg.scope_entries {
         let blocks = reachable_blocks_dense(cfg, *entry, block_count);
-        let mut exit_defs = DenseBitSet::new(binding_count);
-        if let Some(scope_exits) = cfg.scope_exits(*scope) {
-            for exit in scope_exits {
-                exit_defs.union_with(&reaching_out[exit.index()]);
-            }
-        } else {
-            for block_index in blocks.iter_ones() {
-                let block_id = BlockId(block_index as u32);
-                if block_exits_component(cfg, &blocks, block_id) {
-                    exit_defs.union_with(&reaching_out[block_index]);
-                }
-            }
-        }
-        components[scope.index()] = ExactScopeComponent { blocks, exit_defs };
+        components[scope.index()] = ExactScopeComponent { blocks };
     }
 
     components
