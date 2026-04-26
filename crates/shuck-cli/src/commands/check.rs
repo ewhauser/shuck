@@ -7,6 +7,7 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::{ffi::OsStr, io::IsTerminal};
 
 use anyhow::{Result, anyhow};
+use globset::{Glob, GlobMatcher};
 use notify::{RecursiveMode, Watcher, recommended_watcher};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -25,7 +26,9 @@ use shuck_parser::{
 };
 
 use crate::ExitStatus;
-use crate::args::{CheckCommand, FileSelectionArgs, PatternRuleSelectorPair, RuleSelectionArgs};
+use crate::args::{
+    CheckCommand, FileSelectionArgs, PatternRuleSelectorPair, PatternShellPair, RuleSelectionArgs,
+};
 use crate::cache::resolve_cache_root;
 use crate::commands::check_output::{
     DisplayPosition, DisplaySpan, DisplayedApplicability, DisplayedDiagnostic,
@@ -96,6 +99,7 @@ fn diagnostics_exit_status(diagnostics: &[DisplayedDiagnostic], exit_zero: bool)
 struct EffectiveCheckSettings {
     enabled_rules: Vec<String>,
     per_file_ignores: Vec<EffectivePerFileIgnore>,
+    per_file_shell: Vec<EffectivePerFileShell>,
     rule_options: EffectiveRuleOptions,
     embedded_enabled: bool,
 }
@@ -104,6 +108,12 @@ struct EffectiveCheckSettings {
 struct EffectivePerFileIgnore {
     pattern: String,
     rules: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EffectivePerFileShell {
+    pattern: String,
+    shell: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,6 +126,7 @@ impl EffectiveCheckSettings {
     fn new(
         enabled_rules: RuleSet,
         per_file_ignores: &[PerFileIgnore],
+        per_file_shell: &[PerFileShell],
         rule_options: &shuck_linter::LinterRuleOptions,
         embedded_enabled: bool,
     ) -> Self {
@@ -142,9 +153,18 @@ impl EffectiveCheckSettings {
             .collect::<Vec<_>>();
         per_file_ignores.sort_by(|left, right| left.pattern.cmp(&right.pattern));
 
+        let per_file_shell = per_file_shell
+            .iter()
+            .map(|shell| EffectivePerFileShell {
+                pattern: shell.pattern.clone(),
+                shell: shell_name(shell.shell).to_owned(),
+            })
+            .collect::<Vec<_>>();
+
         Self {
             enabled_rules,
             per_file_ignores,
+            per_file_shell,
             rule_options: EffectiveRuleOptions::new(rule_options),
             embedded_enabled,
         }
@@ -156,6 +176,7 @@ impl CacheKey for EffectiveCheckSettings {
         state.write_tag(b"effective-check-settings");
         self.enabled_rules.cache_key(state);
         self.per_file_ignores.cache_key(state);
+        self.per_file_shell.cache_key(state);
         self.rule_options.cache_key(state);
         self.embedded_enabled.cache_key(state);
     }
@@ -165,6 +186,13 @@ impl CacheKey for EffectivePerFileIgnore {
     fn cache_key(&self, state: &mut CacheKeyHasher) {
         self.pattern.cache_key(state);
         self.rules.cache_key(state);
+    }
+}
+
+impl CacheKey for EffectivePerFileShell {
+    fn cache_key(&self, state: &mut CacheKeyHasher) {
+        self.pattern.cache_key(state);
+        self.shell.cache_key(state);
     }
 }
 
@@ -194,6 +222,7 @@ impl CacheKey for EffectiveRuleOptions {
 #[derive(Debug, Clone)]
 struct ResolvedCheckSettings {
     linter_settings: LinterSettings,
+    per_file_shell: Arc<CompiledPerFileShellList>,
     fixable_rules: RuleSet,
     effective: EffectiveCheckSettings,
     embedded_enabled: bool,
@@ -246,6 +275,8 @@ struct RuleSelectionLayer {
     extend_select: Vec<RuleSelector>,
     per_file_ignores: Option<Vec<PerFileIgnoreSpec>>,
     extend_per_file_ignores: Vec<PerFileIgnoreSpec>,
+    per_file_shell: Option<Vec<PerFileShell>>,
+    extend_per_file_shell: Vec<PerFileShell>,
     fixable: Option<Vec<RuleSelector>>,
     unfixable: Vec<RuleSelector>,
     extend_fixable: Vec<RuleSelector>,
@@ -267,6 +298,110 @@ impl PerFileIgnoreSpec {
             });
         PerFileIgnore::new(self.pattern, rules)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PerFileShell {
+    pattern: String,
+    shell: ShellDialect,
+}
+
+#[derive(Debug, Clone)]
+struct CompiledPerFileShellList {
+    project_root: PathBuf,
+    entries: Vec<CompiledPerFileShell>,
+}
+
+#[derive(Debug, Clone)]
+struct CompiledPerFileShell {
+    basename_matcher: GlobMatcher,
+    relative_matcher: GlobMatcher,
+    absolute_matcher: GlobMatcher,
+    negated: bool,
+    shell: ShellDialect,
+}
+
+impl CompiledPerFileShellList {
+    fn resolve(
+        project_root: impl Into<PathBuf>,
+        per_file_shell: impl IntoIterator<Item = PerFileShell>,
+    ) -> Result<Self> {
+        let entries = per_file_shell
+            .into_iter()
+            .map(|per_file_shell| {
+                let mut pattern = per_file_shell.pattern;
+                let negated = pattern.starts_with('!');
+                if negated {
+                    pattern.drain(..1);
+                }
+
+                Ok(CompiledPerFileShell {
+                    basename_matcher: Glob::new(&pattern)
+                        .map_err(|err| anyhow!("invalid glob {pattern:?}: {err}"))?
+                        .compile_matcher(),
+                    relative_matcher: Glob::new(&pattern)
+                        .map_err(|err| anyhow!("invalid glob {pattern:?}: {err}"))?
+                        .compile_matcher(),
+                    absolute_matcher: Glob::new(&pattern)
+                        .map_err(|err| anyhow!("invalid glob {pattern:?}: {err}"))?
+                        .compile_matcher(),
+                    negated,
+                    shell: per_file_shell.shell,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(Self {
+            project_root: project_root.into(),
+            entries,
+        })
+    }
+
+    fn shell_for_path(&self, path: &Path) -> Option<ShellDialect> {
+        let relative_path = path.strip_prefix(&self.project_root).unwrap_or(path);
+        let file_name = relative_path.file_name().or_else(|| path.file_name())?;
+
+        self.entries.iter().fold(None, |shell, entry| {
+            let matches = entry.basename_matcher.is_match(file_name)
+                || entry.relative_matcher.is_match(relative_path)
+                || per_file_shell_absolute_match(&entry.absolute_matcher, path);
+            let applies = if entry.negated { !matches } else { matches };
+
+            if applies { Some(entry.shell) } else { shell }
+        })
+    }
+}
+
+fn per_file_shell_absolute_match(matcher: &GlobMatcher, path: &Path) -> bool {
+    matcher.is_match(path)
+        || matcher.is_match(normalize_path(path))
+        || slash_normalized_match_path(path)
+            .as_deref()
+            .is_some_and(|normalized| matcher.is_match(normalized))
+        || normalized_absolute_shell_match_path(path)
+            .as_ref()
+            .is_some_and(|normalized| {
+                matcher.is_match(normalized)
+                    || slash_normalized_match_path(normalized)
+                        .as_deref()
+                        .is_some_and(|slash_normalized| matcher.is_match(slash_normalized))
+            })
+}
+
+fn normalized_absolute_shell_match_path(path: &Path) -> Option<PathBuf> {
+    let path = path.to_string_lossy();
+
+    if let Some(stripped) = path.strip_prefix(r"\\?\UNC\") {
+        return Some(PathBuf::from(format!(r"\\{stripped}")));
+    }
+
+    path.strip_prefix(r"\\?\").map(PathBuf::from)
+}
+
+fn slash_normalized_match_path(path: &Path) -> Option<PathBuf> {
+    let path = path.to_string_lossy();
+    path.contains('\\')
+        .then(|| PathBuf::from(path.replace('\\', "/")))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -839,6 +974,7 @@ fn resolve_project_check_settings(
     let mut enabled_rules = LinterSettings::default_rules();
     let mut fixable_rules = RuleSet::all();
     let mut per_file_ignores = Vec::new();
+    let mut per_file_shell = Vec::new();
 
     for layer in layers {
         enabled_rules = apply_rule_selector_layer(
@@ -858,16 +994,26 @@ fn resolve_project_check_settings(
             layer.per_file_ignores,
             layer.extend_per_file_ignores,
         );
+        per_file_shell = apply_per_file_shell_layer(
+            per_file_shell,
+            layer.per_file_shell,
+            layer.extend_per_file_shell,
+        );
     }
 
     let compiled_per_file_ignores = CompiledPerFileIgnoreList::resolve(
         project_root.canonical_root.clone(),
         per_file_ignores.clone(),
     )?;
+    let compiled_per_file_shell = CompiledPerFileShellList::resolve(
+        project_root.canonical_root.clone(),
+        per_file_shell.clone(),
+    )?;
     let embedded_enabled = config.check.embedded.unwrap_or(true);
     let effective = EffectiveCheckSettings::new(
         enabled_rules,
         &per_file_ignores,
+        &per_file_shell,
         &rule_options,
         embedded_enabled,
     );
@@ -879,6 +1025,7 @@ fn resolve_project_check_settings(
             rule_options,
             ..LinterSettings::default()
         },
+        per_file_shell: Arc::new(compiled_per_file_shell),
         fixable_rules,
         effective,
         embedded_enabled,
@@ -937,6 +1084,17 @@ fn parse_lint_config_layer(lint: &LintConfig) -> Result<RuleSelectionLayer> {
             .map(|patterns| parse_per_file_ignore_map(patterns, "lint.extend-per-file-ignores"))
             .transpose()?
             .unwrap_or_default(),
+        per_file_shell: lint
+            .per_file_shell
+            .as_ref()
+            .map(|patterns| parse_per_file_shell_map(patterns, "lint.per-file-shell"))
+            .transpose()?,
+        extend_per_file_shell: lint
+            .extend_per_file_shell
+            .as_ref()
+            .map(|patterns| parse_per_file_shell_map(patterns, "lint.extend-per-file-shell"))
+            .transpose()?
+            .unwrap_or_default(),
         fixable: lint
             .fixable
             .as_ref()
@@ -967,6 +1125,15 @@ fn parse_cli_rule_selection_layer(args: &RuleSelectionArgs) -> RuleSelectionLaye
             .as_ref()
             .map(|pairs| group_per_file_ignore_pairs(pairs)),
         extend_per_file_ignores: group_per_file_ignore_pairs(&args.extend_per_file_ignores),
+        per_file_shell: args
+            .per_file_shell
+            .as_ref()
+            .map(|pairs| pairs.iter().map(per_file_shell_from_pair).collect()),
+        extend_per_file_shell: args
+            .extend_per_file_shell
+            .iter()
+            .map(per_file_shell_from_pair)
+            .collect(),
         fixable: args.fixable.clone(),
         unfixable: args.unfixable.clone(),
         extend_fixable: args.extend_fixable.clone(),
@@ -1006,6 +1173,23 @@ fn parse_per_file_ignore_map(
         .collect()
 }
 
+fn parse_per_file_shell_map(
+    patterns: &BTreeMap<String, String>,
+    scope: &str,
+) -> Result<Vec<PerFileShell>> {
+    patterns
+        .iter()
+        .map(|(pattern, shell)| {
+            let shell = parse_shell_dialect(shell)
+                .map_err(|err| anyhow!("invalid {scope} shell `{shell}`: {err}"))?;
+            Ok(PerFileShell {
+                pattern: pattern.clone(),
+                shell,
+            })
+        })
+        .collect()
+}
+
 fn group_per_file_ignore_pairs(pairs: &[PatternRuleSelectorPair]) -> Vec<PerFileIgnoreSpec> {
     let mut grouped = BTreeMap::<String, Vec<RuleSelector>>::new();
     for pair in pairs {
@@ -1019,6 +1203,36 @@ fn group_per_file_ignore_pairs(pairs: &[PatternRuleSelectorPair]) -> Vec<PerFile
         .into_iter()
         .map(|(pattern, selectors)| PerFileIgnoreSpec { pattern, selectors })
         .collect()
+}
+
+fn per_file_shell_from_pair(pair: &PatternShellPair) -> PerFileShell {
+    PerFileShell {
+        pattern: pair.pattern.clone(),
+        shell: pair.shell,
+    }
+}
+
+fn parse_shell_dialect(value: &str) -> Result<ShellDialect> {
+    let shell = ShellDialect::from_name(value);
+    if shell == ShellDialect::Unknown {
+        return Err(anyhow!(
+            "expected shell dialect to be one of sh, bash, dash, ksh, mksh, zsh"
+        ));
+    }
+
+    Ok(shell)
+}
+
+fn shell_name(shell: ShellDialect) -> &'static str {
+    match shell {
+        ShellDialect::Unknown => "unknown",
+        ShellDialect::Sh => "sh",
+        ShellDialect::Bash => "bash",
+        ShellDialect::Dash => "dash",
+        ShellDialect::Ksh => "ksh",
+        ShellDialect::Mksh => "mksh",
+        ShellDialect::Zsh => "zsh",
+    }
 }
 
 fn apply_rule_selector_layer(
@@ -1102,6 +1316,17 @@ fn apply_per_file_ignore_layer(
     );
     per_file_ignores
 }
+
+fn apply_per_file_shell_layer(
+    current: Vec<PerFileShell>,
+    per_file_shell: Option<Vec<PerFileShell>>,
+    extend_per_file_shell: Vec<PerFileShell>,
+) -> Vec<PerFileShell> {
+    let mut per_file_shell = per_file_shell.unwrap_or(current);
+    per_file_shell.extend(extend_per_file_shell);
+    per_file_shell
+}
+
 fn run_check_with_cwd(
     args: &CheckCommand,
     config_arguments: &ConfigArguments,
@@ -1183,6 +1408,7 @@ fn run_check_with_cwd(
                 analyze_file(
                     pending,
                     &linter_settings,
+                    &project_settings.per_file_shell,
                     &shellcheck_map,
                     include_source,
                     fix_applicability,
@@ -1255,6 +1481,7 @@ fn run_add_ignore_with_cwd(
     }
 
     for run in runs {
+        let per_file_shell = Arc::clone(&run.settings.per_file_shell);
         let analyzed_paths = run
             .files
             .iter()
@@ -1267,7 +1494,13 @@ fn run_add_ignore_with_cwd(
             .with_analyzed_paths(analyzed_paths);
 
         for file in run.files {
-            let result = add_ignores_to_path(&file.absolute_path, &linter_settings, reason)?;
+            let file_linter_settings =
+                if let Some(shell) = per_file_shell.shell_for_path(&file.absolute_path) {
+                    linter_settings.clone().with_shell(shell)
+                } else {
+                    linter_settings.clone()
+                };
+            let result = add_ignores_to_path(&file.absolute_path, &file_linter_settings, reason)?;
             report.directives_added += result.directives_added;
             if result.parse_error.is_none() && result.diagnostics.is_empty() {
                 continue;
@@ -1339,6 +1572,7 @@ pub(crate) fn benchmark_check_paths(
 fn analyze_file(
     pending: PendingProjectFile,
     base_linter_settings: &LinterSettings,
+    per_file_shell: &CompiledPerFileShellList,
     shellcheck_map: &ShellCheckCodeMap,
     include_source: bool,
     fix_applicability: Option<Applicability>,
@@ -1348,6 +1582,7 @@ fn analyze_file(
         FileKind::Shell => analyze_shell_file(
             pending,
             base_linter_settings,
+            per_file_shell,
             shellcheck_map,
             include_source,
             fix_applicability,
@@ -1365,13 +1600,16 @@ fn analyze_file(
 fn analyze_shell_file(
     pending: PendingProjectFile,
     base_linter_settings: &LinterSettings,
+    per_file_shell: &CompiledPerFileShellList,
     shellcheck_map: &ShellCheckCodeMap,
     include_source: bool,
     fix_applicability: Option<Applicability>,
     fixable_rules: &RuleSet,
 ) -> Result<FileCheckResult> {
     let mut source = read_shared_source(&pending.file.absolute_path)?;
-    let inferred_shell = ShellDialect::infer(&source, Some(&pending.file.absolute_path));
+    let inferred_shell = per_file_shell
+        .shell_for_path(&pending.file.absolute_path)
+        .unwrap_or_else(|| ShellDialect::infer(&source, Some(&pending.file.absolute_path)));
     let parse_dialect = inferred_shell.parser_dialect();
 
     let linter_settings = base_linter_settings.clone().with_shell(inferred_shell);
@@ -1984,7 +2222,9 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-    use crate::args::{CheckOutputFormatArg, PatternRuleSelectorPair, RuleSelectionArgs};
+    use crate::args::{
+        CheckOutputFormatArg, PatternRuleSelectorPair, PatternShellPair, RuleSelectionArgs,
+    };
     use crate::config::ConfigArguments;
 
     fn pending_project_file(path: &Path, project_root: &Path) -> PendingProjectFile {
@@ -2001,6 +2241,10 @@ mod tests {
             },
             file_key: shuck_cache::FileCacheKey::from_path(path).unwrap(),
         }
+    }
+
+    fn empty_per_file_shell(project_root: &Path) -> CompiledPerFileShellList {
+        CompiledPerFileShellList::resolve(project_root.to_path_buf(), []).unwrap()
     }
 
     fn cache_root(cwd: &Path) -> PathBuf {
@@ -2769,6 +3013,107 @@ jobs:
     }
 
     #[test]
+    fn per_file_shell_overrides_inferred_shell_for_matching_files() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("bashy.sh"), "source helper.sh\n").unwrap();
+        fs::write(tempdir.path().join("portable.sh"), "source helper.sh\n").unwrap();
+
+        let mut args = check_args(true);
+        args.rule_selection = RuleSelectionArgs {
+            select: Some(vec![RuleSelector::Rule(Rule::SourceBuiltinInSh)]),
+            per_file_shell: Some(vec![PatternShellPair {
+                pattern: "bashy.sh".to_owned(),
+                shell: ShellDialect::Bash,
+            }]),
+            ..RuleSelectionArgs::default()
+        };
+
+        let report = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        assert_eq!(report.diagnostics.len(), 1);
+        assert_eq!(report.diagnostics[0].path, PathBuf::from("portable.sh"));
+        assert_eq!(
+            diagnostic_codes(&report),
+            vec![Rule::SourceBuiltinInSh.code().to_owned()]
+        );
+    }
+
+    #[test]
+    fn lint_config_per_file_shell_overrides_inferred_shell() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("bashy.sh"), "source helper.sh\n").unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[lint]\nselect = ['X031']\nper-file-shell = { 'bashy.sh' = 'bash' }\n",
+        )
+        .unwrap();
+
+        let report = run_check_with_cwd(
+            &check_args(true),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        assert!(report.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn add_ignore_respects_per_file_shell_overrides() {
+        let tempdir = tempdir().unwrap();
+        let script = tempdir.path().join("bashy.sh");
+        fs::write(&script, "source helper.sh\n").unwrap();
+
+        let mut args = check_args(true);
+        args.rule_selection = RuleSelectionArgs {
+            select: Some(vec![RuleSelector::Rule(Rule::SourceBuiltinInSh)]),
+            per_file_shell: Some(vec![PatternShellPair {
+                pattern: "bashy.sh".to_owned(),
+                shell: ShellDialect::Bash,
+            }]),
+            ..RuleSelectionArgs::default()
+        };
+
+        let report = run_add_ignore_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(report.directives_added, 0);
+        assert!(report.diagnostics.is_empty());
+        assert_eq!(fs::read_to_string(script).unwrap(), "source helper.sh\n");
+    }
+
+    #[test]
+    fn per_file_shell_matches_normalized_windows_verbatim_paths() {
+        let path = Path::new(r"\\?\C:\repo\nested\script.sh");
+        let per_file_shell = CompiledPerFileShellList::resolve(
+            PathBuf::from(r"C:\repo"),
+            [PerFileShell {
+                pattern: "C:/repo/nested/*.sh".to_owned(),
+                shell: ShellDialect::Bash,
+            }],
+        )
+        .unwrap();
+
+        assert_eq!(
+            per_file_shell.shell_for_path(path),
+            Some(ShellDialect::Bash)
+        );
+    }
+
+    #[test]
     fn rejects_empty_rule_selectors() {
         let error = parse_rule_selectors(&[String::new()], "lint.select").unwrap_err();
 
@@ -2819,6 +3164,7 @@ jobs:
             pending_project_file(&broken_path, tempdir.path()),
             &LinterSettings::for_rule(shuck_linter::Rule::UnusedAssignment)
                 .with_analyzed_paths([broken_path.clone()]),
+            &empty_per_file_shell(tempdir.path()),
             &ShellCheckCodeMap::default(),
             false,
             None,

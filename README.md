@@ -180,6 +180,12 @@ Use the `[check]` section to control embedded-script extraction:
 # GitHub Actions workflows and composite actions.
 # Default: true
 embedded = true
+
+[lint]
+# Override shell dialect inference for matching files.
+per-file-shell = { "scripts/bash/**" = "bash", "vendor/**/*.sh" = "sh" }
+# Add shell overrides on top of earlier config or CLI layers.
+extend-per-file-shell = { "tools/**/*.zsh" = "zsh" }
 ```
 
 ## File discovery
