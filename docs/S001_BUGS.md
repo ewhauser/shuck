@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=38`
-- Individual reviewed records classified below: 51 total (`shellcheck-only=23`, `shuck-only=28`).
+- `reviewed_divergences=37`
+- Individual reviewed records classified below: 48 total (`shellcheck-only=23`, `shuck-only=25`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -82,13 +82,10 @@ Resolved records should not remain as reviewed divergences.
 - `swoodford__aws__vpc-sg-import-rules-cloudflare.sh:281:101-106` `$PORT`
 - `swoodford__aws__wafv2-web-acl-pingdom.sh:196:40-49` `$WAFSCOPE`
 
-## [ ] Shuck-only: numeric/test operand (6)
+## [ ] Shuck-only: numeric/test operand (3)
 
 - `bittorf__kalua__openwrt-addons__etc__kalua__watch:362:40-58` `${overall:-$count}`
 - `bittorf__kalua__openwrt-monitoring__send_sms.sh:145:10-19` `${pos:-0}`
-- `pi-hole__pi-hole__advanced__Scripts__piholeCheckout.sh:191:14-30` `$download_status`
-- `pi-hole__pi-hole__advanced__Scripts__piholeCheckout.sh:215:18-34` `$download_status`
-- `pi-hole__pi-hole__advanced__Scripts__piholeCheckout.sh:221:20-36` `$download_status`
 - `super-linter__super-linter__test__run-super-linter-tests.sh:724:36-57` `${EXPECTED_EXIT_CODE}`
 
 ## [ ] Shuck-only: status/return/exit operand (3)

@@ -1502,8 +1502,12 @@ impl<'a> SafeValueIndex<'a> {
         {
             return true;
         }
-        if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
-            && self.binding_is_standalone_status_capture(binding_id, case_cli_scope)
+        if matches!(
+            query,
+            SafeValueQuery::Argv
+                | SafeValueQuery::RedirectTarget
+                | SafeValueQuery::NumericTestOperand
+        ) && self.binding_is_standalone_status_capture(binding_id, case_cli_scope)
         {
             return true;
         }

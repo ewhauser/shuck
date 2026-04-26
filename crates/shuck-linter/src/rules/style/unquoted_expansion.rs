@@ -3652,6 +3652,21 @@ if [ $foo -eq 1 ]; then :; fi
     }
 
     #[test]
+    fn skips_status_capture_numeric_test_operands() {
+        let source = "\
+#!/bin/bash
+f() {
+  local status
+  run_task && status=0 || status=$?
+  if [ $status -eq 0 ]; then :; fi
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_conditionally_initialized_bindings_with_unknown_fallbacks() {
         let source = "\
 #!/bin/bash
