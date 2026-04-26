@@ -13,7 +13,7 @@ fn extracts_workflow_edge_case_fixture() {
     )
     .unwrap();
 
-    assert_eq!(scripts.len(), 14);
+    assert_eq!(scripts.len(), 18);
 
     let missing_unix = script(&scripts, "jobs.missing-unix.steps[0].run");
     assert_eq!(missing_unix.dialect, ExtractedDialect::Bash);
@@ -91,6 +91,29 @@ fn extracts_workflow_edge_case_fixture() {
     let inline_glob = script(&scripts, "jobs.anchors-and-env.steps[3].run");
     assert_eq!(inline_glob.dialect, ExtractedDialect::Bash);
     assert_eq!(inline_glob.source, "rm -- *.tmp");
+
+    let comma_glob = script(&scripts, "jobs.anchors-and-env.steps[4].run");
+    assert_eq!(comma_glob.dialect, ExtractedDialect::Bash);
+    assert_eq!(comma_glob.source, "echo foo,*.tmp");
+
+    let brace_glob = script(&scripts, "jobs.anchors-and-env.steps[5].run");
+    assert_eq!(brace_glob.dialect, ExtractedDialect::Bash);
+    assert_eq!(brace_glob.source, "echo {*.tmp,*.log}");
+
+    let short_alias_default = script(&scripts, "jobs.short-shell-aliases.steps[0].run");
+    assert_eq!(short_alias_default.dialect, ExtractedDialect::Bash);
+    assert!(short_alias_default.implicit_flags.errexit);
+    assert!(short_alias_default.implicit_flags.pipefail);
+    assert_eq!(
+        short_alias_default.implicit_flags.template.as_deref(),
+        Some("bash --noprofile --norc -e -o pipefail {0}")
+    );
+
+    let short_alias_unsupported = script(&scripts, "jobs.short-shell-aliases.steps[1].run");
+    assert_eq!(
+        short_alias_unsupported.dialect,
+        ExtractedDialect::Unsupported
+    );
 
     let flow_style = script(&scripts, "jobs.flow-style.steps[0].run");
     assert_eq!(flow_style.dialect, ExtractedDialect::Sh);

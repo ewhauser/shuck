@@ -9,6 +9,8 @@ env: &workflow_env
 
 x-shells:
   posix: &posix_shell sh
+  strict-bash: &b bash --noprofile --norc -e -o pipefail {0}
+  powershell: &p pwsh
 
 defaults:
   run:
@@ -91,6 +93,24 @@ jobs:
       - name: Inline glob after dash
         shell: bash
         run: rm -- *.tmp
+      - name: Inline glob after comma
+        shell: bash
+        run: echo foo,*.tmp
+      - name: Inline glob after brace
+        shell: bash
+        run: echo {*.tmp,*.log}
+
+  short-shell-aliases:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: *b
+    steps:
+      - name: Short alias default shell
+        run: echo short alias default
+      - name: Short alias unsupported shell
+        shell: *p
+        run: Write-Host short alias pwsh
 
   flow-style:
     runs-on: ubuntu-latest
