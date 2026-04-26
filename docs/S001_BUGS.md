@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=30`
-- Individual reviewed records classified below: 38 total (`shellcheck-only=19`, `shuck-only=19`).
+- `reviewed_divergences=29`
+- Individual reviewed records classified below: 37 total (`shellcheck-only=19`, `shuck-only=18`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -70,7 +70,6 @@ Resolved records should not remain as reviewed divergences.
 - `alexanderepstein__Bash-Snippets__bak2dvd__bak2dvd:245:36-43` `$tarpid`
 - `alexanderepstein__Bash-Snippets__bak2dvd__bak2dvd:259:36-43` `$tarpid`
 - `swoodford__aws__vpc-sg-import-rules-cloudflare.sh:281:101-106` `$PORT`
-- `swoodford__aws__wafv2-web-acl-pingdom.sh:196:40-49` `$WAFSCOPE`
 
 ## [ ] Shuck-only: status/return/exit operand (3)
 

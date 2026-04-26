@@ -368,6 +368,11 @@ fn report_word_expansions<F>(
         {
             continue;
         }
+        if safe_values.part_is_safe_initializer_command_substitution_static_setup_reference(
+            part, part_span, query,
+        ) {
+            continue;
+        }
         if part_is_in_numeric_test_operand(part_span, numeric_test_operand_spans)
             && safe_values.part_is_safe(part, part_span, SafeValueQuery::NumericTestOperand)
         {
@@ -1764,6 +1769,43 @@ value=$(echo $value | sed 's/^ //')
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$value"]
+        );
+    }
+
+    #[test]
+    fn skips_static_setup_references_inside_command_substitution_initializers() {
+        let source = "\
+#!/bin/bash
+scope_menu() {
+  case $scope in
+    global) WAFSCOPE=CLOUDFRONT ;;
+    regional) WAFSCOPE=REGIONAL ;;
+    *) exit 1 ;;
+  esac
+}
+get_set() {
+  result=$(aws waf get --scope $WAFSCOPE --profile $profile 2>&1)
+}
+update_set() {
+  get_set
+}
+unused_export() {
+  get_set
+}
+main() {
+  update_set
+}
+scope_menu
+main
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$profile"]
         );
     }
 

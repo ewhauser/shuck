@@ -244,13 +244,6 @@ reviewed_divergences:
     column: 101
     end_column: 106
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "swoodford__aws__wafv2-web-acl-pingdom.sh"
-    line: 196
-    end_line: 196
-    column: 40
-    end_column: 49
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shellcheck-only
     path_suffix: "tteck__Proxmox__vm__nextcloud-vm.sh"
     line: 210

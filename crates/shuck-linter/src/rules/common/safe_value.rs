@@ -417,6 +417,75 @@ impl<'a> SafeValueIndex<'a> {
             })
     }
 
+    pub fn part_is_safe_initializer_command_substitution_static_setup_reference(
+        &mut self,
+        part: &WordPart,
+        span: Span,
+        query: SafeValueQuery,
+    ) -> bool {
+        if query != SafeValueQuery::Argv {
+            return false;
+        }
+        let Some(name) = plain_scalar_reference_name_from_part(part) else {
+            return false;
+        };
+        if !shell_name_is_uppercase_setup_value(name.as_str())
+            || !self.span_is_inside_initializer_command_substitution(span)
+            || self.span_is_inside_loop_context(span)
+            || self.span_is_inside_if_condition(span)
+        {
+            return false;
+        }
+
+        let mut saw_setup_binding = false;
+        for binding_id in self.semantic.bindings_for(&name).iter().copied() {
+            let binding = self.semantic.binding(binding_id);
+            if binding.span.start.offset >= span.start.offset {
+                continue;
+            }
+            if binding.attributes.contains(BindingAttributes::LOCAL) {
+                return false;
+            }
+            if !matches!(
+                self.semantic.scope(binding.scope).kind,
+                ScopeKind::File | ScopeKind::Function(_)
+            ) {
+                return false;
+            }
+            let setup_atom = self
+                .facts
+                .binding_value(binding_id)
+                .and_then(|value| value.scalar_word())
+                .and_then(|word| static_word_text(word, self.source))
+                .is_some_and(|text| literal_is_setup_atom(&text));
+            if !setup_atom {
+                return false;
+            }
+            saw_setup_binding = true;
+        }
+
+        saw_setup_binding
+    }
+
+    fn span_is_inside_initializer_command_substitution(&self, span: Span) -> bool {
+        self.semantic.bindings().iter().any(|binding| {
+            let Some(word) = self
+                .facts
+                .binding_value(binding.id)
+                .and_then(|value| value.scalar_word())
+            else {
+                return false;
+            };
+            span_contains(word.span, span)
+                && self.facts.any_word_fact(word.span).is_some_and(|fact| {
+                    fact.command_substitution_spans()
+                        .iter()
+                        .copied()
+                        .any(|command_substitution| span_contains(command_substitution, span))
+                })
+        })
+    }
+
     fn span_is_inside_loop_context(&self, span: Span) -> bool {
         let mut current = self
             .facts
@@ -3876,6 +3945,29 @@ fn shell_name_is_plain_scalar(text: &str) -> bool {
     };
     (first == '_' || first.is_ascii_alphabetic())
         && chars.all(|character| character == '_' || character.is_ascii_alphanumeric())
+}
+
+fn shell_name_is_uppercase_setup_value(text: &str) -> bool {
+    let mut saw_uppercase = false;
+    for character in text.chars() {
+        if character.is_ascii_uppercase() {
+            saw_uppercase = true;
+            continue;
+        }
+        if character == '_' || character.is_ascii_digit() {
+            continue;
+        }
+        return false;
+    }
+
+    saw_uppercase
+}
+
+fn literal_is_setup_atom(text: &str) -> bool {
+    !text.is_empty()
+        && text
+            .bytes()
+            .all(|byte| byte == b'_' || byte.is_ascii_uppercase() || byte.is_ascii_digit())
 }
 
 fn build_case_cli_reachable_function_scopes(
