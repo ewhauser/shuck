@@ -798,15 +798,14 @@ fn collapse_redundant_branch_unused_assignment_ids(
         .iter()
         .map(|unused| unused.binding)
         .collect::<FxHashSet<_>>();
-    let mut reachability_cache = vec![None; cfg.blocks().len()];
+    let block_reachability = BlockReachability::new(cfg);
     let mut suppression_context = RedundantBranchUnusedAssignmentContext {
-        cfg,
         bindings,
         bindings_by_name: &bindings_by_name,
         binding_blocks,
         unreachable_blocks,
         unused_binding_ids: &unused_binding_ids,
-        reachability_cache: &mut reachability_cache,
+        block_reachability: &block_reachability,
     };
 
     unused_assignments
@@ -833,13 +832,12 @@ fn cfg_has_no_branching_edges(cfg: &ControlFlowGraph) -> bool {
 }
 
 struct RedundantBranchUnusedAssignmentContext<'a> {
-    cfg: &'a ControlFlowGraph,
     bindings: &'a [Binding],
     bindings_by_name: &'a FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     binding_blocks: &'a [Option<BlockId>],
     unreachable_blocks: &'a DenseBitSet,
     unused_binding_ids: &'a FxHashSet<BindingId>,
-    reachability_cache: &'a mut [Option<DenseBitSet>],
+    block_reachability: &'a BlockReachability,
 }
 
 fn should_suppress_redundant_branch_unused_assignment(
@@ -877,12 +875,10 @@ fn should_suppress_redundant_branch_unused_assignment(
         return false;
     };
 
-    if block_can_reach(
-        context.cfg,
-        binding_block,
-        next_binding_block,
-        context.reachability_cache,
-    ) {
+    if context
+        .block_reachability
+        .can_reach(binding_block, next_binding_block)
+    {
         return false;
     }
 
@@ -960,43 +956,55 @@ fn resolved_binding_shadows_name_without_initializing(binding: Option<&Binding>)
     )
 }
 
-fn block_can_reach(
-    cfg: &ControlFlowGraph,
-    from: BlockId,
-    to: BlockId,
-    reachability_cache: &mut [Option<DenseBitSet>],
-) -> bool {
-    if from == to {
-        return true;
-    }
+struct BlockReachability {
+    block_to_scc: Vec<usize>,
+    reachable_sccs: Vec<DenseBitSet>,
+}
 
-    if cfg
-        .successors(from)
-        .iter()
-        .any(|(successor, _)| *successor == to)
-    {
-        return true;
-    }
-
-    if let Some(reachable) = &reachability_cache[from.index()] {
-        return reachable.contains(to.index());
-    }
-
-    let mut reachable = DenseBitSet::new(cfg.blocks().len());
-    let mut stack = vec![from];
-    while let Some(block_id) = stack.pop() {
-        for &(successor, _) in cfg.successors(block_id) {
-            if reachable.contains(successor.index()) {
-                continue;
+impl BlockReachability {
+    fn new(cfg: &ControlFlowGraph) -> Self {
+        let graph = build_cfg_block_graph(cfg);
+        let (_sccs, block_to_scc) = strongly_connected_components(&graph);
+        let scc_graph = build_scc_graph(
+            &graph,
+            &block_to_scc,
+            block_to_scc.iter().max().map_or(0, |max| max + 1),
+        );
+        let mut reachable_sccs = vec![DenseBitSet::new(scc_graph.len()); scc_graph.len()];
+        for scc in reverse_topological_order(&scc_graph) {
+            reachable_sccs[scc].insert(scc);
+            for &successor in &scc_graph[scc] {
+                let successor_reachable = reachable_sccs[successor].clone();
+                reachable_sccs[scc].union_with(&successor_reachable);
             }
-            reachable.insert(successor.index());
-            stack.push(successor);
+        }
+        Self {
+            block_to_scc,
+            reachable_sccs,
         }
     }
 
-    let can_reach = reachable.contains(to.index());
-    reachability_cache[from.index()] = Some(reachable);
-    can_reach
+    fn can_reach(&self, from: BlockId, to: BlockId) -> bool {
+        let from_scc = self.block_to_scc[from.index()];
+        let to_scc = self.block_to_scc[to.index()];
+        self.reachable_sccs[from_scc].contains(to_scc)
+    }
+}
+
+fn build_cfg_block_graph(cfg: &ControlFlowGraph) -> Vec<Vec<usize>> {
+    cfg.blocks()
+        .iter()
+        .map(|block| {
+            let mut successors = cfg
+                .successors(block.id)
+                .iter()
+                .map(|(successor, _)| successor.index())
+                .collect::<Vec<_>>();
+            successors.sort_unstable();
+            successors.dedup();
+            successors
+        })
+        .collect()
 }
 
 fn is_straight_line_overwrite(cfg: &ControlFlowGraph, from: BlockId, to: BlockId) -> bool {
