@@ -29,13 +29,6 @@ reviewed_divergences:
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
     path_suffix: "bats-core__bats-core__libexec__bats-core__bats-format-pretty"
-    line: 67
-    end_line: 67
-    column: 16
-    end_column: 34
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "bats-core__bats-core__libexec__bats-core__bats-format-pretty"
     line: 78
     end_line: 78
     column: 13

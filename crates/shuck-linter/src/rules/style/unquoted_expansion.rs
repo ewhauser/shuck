@@ -373,8 +373,16 @@ fn report_word_expansions<F>(
         ) {
             continue;
         }
-        if part_is_in_numeric_test_operand(part_span, numeric_test_operand_spans)
-            && safe_values.part_is_safe(part, part_span, SafeValueQuery::NumericTestOperand)
+        let in_numeric_test_operand =
+            part_is_in_numeric_test_operand(part_span, numeric_test_operand_spans);
+        if in_numeric_test_operand {
+            if safe_values.part_is_safe(part, part_span, SafeValueQuery::NumericTestOperand) {
+                continue;
+            }
+        } else if context == ExpansionContext::CommandArgument
+            && !fact.has_literal_affixes()
+            && fact.parts_len() == 1
+            && safe_values.part_has_s001_standalone_numeric_argv_exposure(part, part_span)
         {
             continue;
         }
@@ -3055,6 +3063,53 @@ esac
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_counter_arguments_with_only_numeric_assignments() {
+        let source = "\
+#!/usr/bin/env bash
+update_count_column_width() {
+  count_column_width=$((${#count} * 2 + 2))
+  update_count_column_left
+}
+update_screen_width() {
+  screen_width=\"$(tput cols)\"
+  update_count_column_left
+}
+update_count_column_left() {
+  count_column_left=$((screen_width - count_column_width))
+}
+count=0
+screen_width=80
+update_count_column_width
+begin() {
+  line_backoff_count=0
+  update_count_column_width
+  go_to_column $count_column_left
+}
+finish_test() {
+  move_up $line_backoff_count
+}
+line_backoff_count=0
+bats_tap_stream_comment() {
+  ((++line_backoff_count))
+  ((line_backoff_count += ${#1} / screen_width))
+}
+dynamic_test() {
+  quiet=${1:-0}
+  if [ ${quiet} -eq 0 ]; then :; fi
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${quiet}"]
+        );
     }
 
     #[test]
