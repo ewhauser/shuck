@@ -576,6 +576,8 @@ fn analyze_unused_assignments_exact(
         }
     }
 
+    let mut read_use_queries =
+        Vec::with_capacity(context.references.len() + context.synthetic_reads.len());
     for (reference_index, reference) in context.references.iter().enumerate() {
         let Some(block_id) = exact.reference_blocks[reference_index] else {
             continue;
@@ -595,14 +597,17 @@ fn analyze_unused_assignments_exact(
                 &context.bindings[resolved_binding_id.index()],
             ))
         {
-            reaching_name_cache.mark_used_for_name(
-                &mut used_bindings,
+            read_use_queries.push(ReadUseQuery {
                 block_id,
                 name_id,
-                Some(resolved_binding_id),
-            );
+                except: Some(resolved_binding_id),
+            });
         } else {
-            reaching_name_cache.mark_used_for_name(&mut used_bindings, block_id, name_id, None);
+            read_use_queries.push(ReadUseQuery {
+                block_id,
+                name_id,
+                except: None,
+            });
         }
 
         let Some(resolved_binding_id) = resolved_binding_id else {
@@ -645,11 +650,27 @@ fn analyze_unused_assignments_exact(
         {
             continue;
         }
+        read_use_queries.push(ReadUseQuery {
+            block_id,
+            name_id: synthetic_read_name_ids[read_index],
+            except: None,
+        });
+    }
+
+    read_use_queries.sort_unstable_by_key(|query| {
+        (
+            query.block_id.index(),
+            query.name_id.index(),
+            query.except.map(|binding| binding.index()),
+        )
+    });
+    read_use_queries.dedup();
+    for query in read_use_queries {
         reaching_name_cache.mark_used_for_name(
             &mut used_bindings,
-            block_id,
-            synthetic_read_name_ids[read_index],
-            None,
+            query.block_id,
+            query.name_id,
+            query.except,
         );
     }
 
@@ -1163,6 +1184,13 @@ struct DenseBindingData {
     bindings_for_name_list: Vec<Vec<BindingId>>,
     bindings_in_scope: Vec<DenseBitSet>,
     next_overwrite: Vec<Option<BindingId>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReadUseQuery {
+    block_id: BlockId,
+    name_id: NameId,
+    except: Option<BindingId>,
 }
 
 struct ReachingNameCache<'a> {
