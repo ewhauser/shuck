@@ -88,6 +88,7 @@ pub(crate) struct ExactVariableDataflow {
     binding_data: DenseBindingData,
     binding_blocks: Vec<Option<BlockId>>,
     reference_blocks: Vec<Option<BlockId>>,
+    synthetic_read_blocks: Vec<Option<BlockId>>,
     unreachable_blocks: DenseBitSet,
     reaching_definitions: OnceLock<DenseReachingDefinitions>,
     initialized_name_states: OnceLock<DenseInitializedNameStates>,
@@ -245,6 +246,8 @@ pub(crate) fn build_exact_variable_dataflow(
     let binding_data = build_dense_binding_data(context.bindings, context.scopes, &names);
     let binding_blocks = build_binding_block_index(context.cfg, context.bindings.len());
     let reference_blocks = build_reference_block_index(context.cfg, context.references.len());
+    let synthetic_read_blocks =
+        build_synthetic_read_block_index(context.cfg, context.synthetic_reads);
     let unreachable_blocks = build_unreachable_block_set(context.cfg);
 
     ExactVariableDataflow {
@@ -252,6 +255,7 @@ pub(crate) fn build_exact_variable_dataflow(
         binding_data,
         binding_blocks,
         reference_blocks,
+        synthetic_read_blocks,
         unreachable_blocks,
         reaching_definitions: OnceLock::new(),
         initialized_name_states: OnceLock::new(),
@@ -547,6 +551,7 @@ fn analyze_unused_assignments_exact(
             context.references,
             context.synthetic_reads,
             &exact.reference_blocks,
+            &exact.synthetic_read_blocks,
             &reference_name_ids,
             &synthetic_read_name_ids,
             context.call_sites,
@@ -641,8 +646,8 @@ fn analyze_unused_assignments_exact(
         }
     }
 
-    for (read_index, synthetic_read) in context.synthetic_reads.iter().enumerate() {
-        let Some(block_id) = command_block_for_span(context.cfg, synthetic_read.span) else {
+    for read_index in 0..context.synthetic_reads.len() {
+        let Some(block_id) = exact.synthetic_read_blocks[read_index] else {
             continue;
         };
         if exact.unreachable_blocks.contains(block_id.index())
@@ -677,7 +682,7 @@ fn analyze_unused_assignments_exact(
     if let Some((read_plans, interprocedural)) = &interprocedural_reads {
         for plan in read_plans {
             for call in &plan.calls {
-                let Some(block_id) = command_block_for_span(context.cfg, call.span) else {
+                let Some(block_id) = call.block else {
                     continue;
                 };
                 if exact.unreachable_blocks.contains(block_id.index())
@@ -1355,7 +1360,7 @@ impl ExactScopeComponent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ResolvedCallSite {
     offset: usize,
-    span: Span,
+    block: Option<BlockId>,
     callee_scope: ScopeId,
 }
 
@@ -1500,6 +1505,16 @@ fn build_reference_block_index(
         }
     }
     blocks
+}
+
+fn build_synthetic_read_block_index(
+    cfg: &ControlFlowGraph,
+    synthetic_reads: &[SyntheticRead],
+) -> Vec<Option<BlockId>> {
+    synthetic_reads
+        .iter()
+        .map(|read| command_block_for_span(cfg, read.span))
+        .collect()
 }
 
 fn build_unreachable_block_set(cfg: &ControlFlowGraph) -> DenseBitSet {
@@ -2023,13 +2038,15 @@ fn build_scope_read_plans(
     references: &[Reference],
     synthetic_reads: &[SyntheticRead],
     reference_blocks: &[Option<BlockId>],
+    synthetic_read_blocks: &[Option<BlockId>],
     reference_name_ids: &[NameId],
     synthetic_read_name_ids: &[NameId],
     call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
     name_count: usize,
 ) -> (Vec<ScopeReadPlan>, Vec<Vec<CallerReadSite>>) {
     let function_scopes = function_scopes_by_binding(scopes, bindings);
-    let calls_by_scope = resolved_calls_by_scope(scopes, bindings, call_sites, &function_scopes);
+    let calls_by_scope =
+        resolved_calls_by_scope(cfg, scopes, bindings, call_sites, &function_scopes);
     let mut plans = scopes
         .iter()
         .map(|scope| ScopeReadPlan::new(name_count, matches!(scope.kind, ScopeKind::Function(_))))
@@ -2053,7 +2070,7 @@ fn build_scope_read_plans(
         plan.direct_reads.insert(name_id.index());
         plan.events.push(ScopeReadEvent {
             offset: synthetic_read.span.start.offset,
-            block: command_block_for_span(cfg, synthetic_read.span),
+            block: synthetic_read_blocks[read_index],
             kind: ScopeReadEventKind::Direct(name_id),
         });
     }
@@ -2067,7 +2084,7 @@ fn build_scope_read_plans(
             });
             plan.events.push(ScopeReadEvent {
                 offset: call.offset,
-                block: command_block_for_span(cfg, call.span),
+                block: call.block,
                 kind: ScopeReadEventKind::Call(call.callee_scope),
             });
         }
@@ -2520,6 +2537,7 @@ fn function_scopes_by_binding(
 }
 
 fn resolved_calls_by_scope(
+    cfg: &ControlFlowGraph,
     scopes: &[Scope],
     bindings: &[Binding],
     call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
@@ -2545,7 +2563,7 @@ fn resolved_calls_by_scope(
                 .or_default()
                 .push(ResolvedCallSite {
                     offset: site.span.start.offset,
-                    span: site.span,
+                    block: command_block_for_span(cfg, site.span),
                     callee_scope,
                 });
         }
