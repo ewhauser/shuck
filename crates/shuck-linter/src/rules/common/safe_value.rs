@@ -378,6 +378,12 @@ impl<'a> SafeValueIndex<'a> {
         false
     }
 
+    fn span_is_inside_command_substitution_scope(&self, span: Span) -> bool {
+        self.semantic
+            .ancestor_scopes(self.semantic.scope_at(span.start.offset))
+            .any(|scope| matches!(self.semantic.scope(scope).kind, ScopeKind::CommandSubstitution))
+    }
+
     fn literal_part_is_safe(&self, part: &WordPart, span: Span, query: SafeValueQuery) -> bool {
         let word = Word {
             parts: vec![WordPartNode::new(part.clone(), span)],
@@ -502,6 +508,13 @@ impl<'a> SafeValueIndex<'a> {
         let direct_bindings_cover_all_paths = needs_arg_path_coverage
             && !direct_bindings.is_empty()
             && self.bindings_cover_all_paths_to_reference(&direct_bindings, name, at);
+        if direct_bindings_cover_all_paths
+            && self.enclosing_function_scope_at(at.start.offset).is_some()
+            && self.span_is_inside_command_substitution_scope(at)
+            && self.covering_direct_field_safe_bindings_can_stay_safe(&direct_bindings, query)
+        {
+            return true;
+        }
         if needs_arg_path_coverage
             && !bindings_cover_all_paths
             && !direct_bindings_cover_all_paths
@@ -941,6 +954,20 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         saw_name_only_declaration && saw_field_safe_value
+    }
+
+    fn covering_direct_field_safe_bindings_can_stay_safe(
+        &mut self,
+        bindings: &[BindingId],
+        query: SafeValueQuery,
+    ) -> bool {
+        if !query.is_field_context() || bindings.is_empty() {
+            return false;
+        }
+
+        let mut visiting = FxHashSet::default();
+        self.field_safe_binding_group_class(bindings, query, &mut visiting)
+            == Some(FieldSafeBindingClass::NonEmpty)
     }
 
     fn covering_optional_field_safe_bindings_can_stay_safe(

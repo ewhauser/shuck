@@ -28,27 +28,6 @@ reviewed_divergences:
     end_column: 17
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
   - side: shuck-only
-    path_suffix: "acmesh-official__acme.sh__dnsapi__dns_tencent.sh"
-    line: 113
-    end_line: 113
-    column: 32
-    end_column: 40
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "acmesh-official__acme.sh__dnsapi__dns_tencent.sh"
-    line: 116
-    end_line: 116
-    column: 40
-    end_column: 48
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "acmesh-official__acme.sh__dnsapi__dns_tencent.sh"
-    line: 116
-    end_line: 116
-    column: 49
-    end_column: 57
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
     path_suffix: "alexanderepstein__Bash-Snippets__bak2dvd__bak2dvd"
     line: 245
     end_line: 245

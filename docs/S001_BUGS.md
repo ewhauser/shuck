@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=64`
-- Individual reviewed records classified below: 103 total (`shellcheck-only=23`, `shuck-only=80`).
+- `reviewed_divergences=63`
+- Individual reviewed records classified below: 100 total (`shellcheck-only=23`, `shuck-only=77`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -118,11 +118,8 @@ Resolved records should not remain as reviewed divergences.
 - `scop__bash-completion__completions-core__geoiplookup.bash:29:31-36` `$ipvx`
 - `termux__termux-packages__packages__lazygit__build.sh:25:41-61` `-ldflags`
 
-## [ ] Shuck-only: command-substitution initializer argument (7 remaining)
+## [ ] Shuck-only: command-substitution initializer argument (4 remaining)
 
-- `acmesh-official__acme.sh__dnsapi__dns_tencent.sh:113:32-40` `$service`
-- `acmesh-official__acme.sh__dnsapi__dns_tencent.sh:116:40-48` `$service`
-- `acmesh-official__acme.sh__dnsapi__dns_tencent.sh:116:49-57` `$version`
 - `alexanderepstein__Bash-Snippets__bak2dvd__bak2dvd:245:36-43` `$tarpid`
 - `alexanderepstein__Bash-Snippets__bak2dvd__bak2dvd:259:36-43` `$tarpid`
 - `swoodford__aws__vpc-sg-import-rules-cloudflare.sh:281:101-106` `$PORT`

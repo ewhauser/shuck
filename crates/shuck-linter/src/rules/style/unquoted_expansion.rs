@@ -2583,6 +2583,51 @@ FILE=$(basename $URL)
     }
 
     #[test]
+    fn skips_local_literal_arguments_when_called_helper_reuses_name() {
+        let source = "\
+#!/bin/bash
+build_payload() {
+  service=$1
+  version=$2
+}
+send_request() {
+  action=$1
+  service=alpha
+  version=2024-01
+  token=$(build_payload $service $version \"$action\")
+}
+send_request \"$1\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_dynamic_arguments_when_called_helper_reuses_name() {
+        let source = "\
+#!/bin/bash
+build_payload() {
+  service=$1
+}
+send_request() {
+  service=$1
+  token=$(build_payload $service)
+}
+send_request \"$1\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$service"]
+        );
+    }
+
+    #[test]
     fn skips_safe_numeric_shell_variables() {
         let source = "\
 #!/bin/bash
