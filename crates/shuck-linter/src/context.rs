@@ -8,7 +8,6 @@ use crate::ShellDialect;
 pub enum FileContextTag {
     ShellSpec,
     HelperLibrary,
-    TestHarness,
     ProjectClosure,
     DirectiveHandling,
 }
@@ -18,7 +17,6 @@ impl FileContextTag {
         match self {
             Self::ShellSpec => "shellspec",
             Self::HelperLibrary => "helper-library",
-            Self::TestHarness => "test-harness",
             Self::ProjectClosure => "project-closure",
             Self::DirectiveHandling => "directive-handling",
         }
@@ -118,20 +116,6 @@ pub fn classify_file_context(
         && source_defines_function(&lines)
     {
         tags.push(FileContextTag::HelperLibrary);
-    }
-
-    if path_tokens
-        .iter()
-        .any(|token| matches!(token.as_str(), "test" | "tests" | "spec"))
-        || path
-            .and_then(Path::file_name)
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| {
-                let lower = name.to_ascii_lowercase();
-                lower.contains("_test.") || lower.contains("_spec.")
-            })
-    {
-        tags.push(FileContextTag::TestHarness);
     }
 
     if lines.iter().any(|line| {
@@ -360,7 +344,6 @@ It 'still shell'
         );
 
         assert!(context.has_tag(FileContextTag::ShellSpec));
-        assert!(context.has_tag(FileContextTag::TestHarness));
         assert_eq!(context.regions().len(), 1);
         assert_eq!(
             context.regions()[0].kind,
@@ -387,7 +370,6 @@ source ./lib.sh
         );
 
         assert!(context.has_tag(FileContextTag::HelperLibrary));
-        assert!(context.has_tag(FileContextTag::TestHarness));
         assert!(context.has_tag(FileContextTag::ProjectClosure));
         assert!(context.has_tag(FileContextTag::DirectiveHandling));
     }
@@ -405,7 +387,6 @@ helper() { :; }
         );
 
         assert!(context.has_tag(FileContextTag::ProjectClosure));
-        assert!(context.has_tag(FileContextTag::TestHarness));
     }
 
     #[test]
