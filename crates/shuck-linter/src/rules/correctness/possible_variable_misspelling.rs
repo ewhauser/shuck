@@ -433,14 +433,14 @@ fn add_scope_compat_name_uses(index: &mut ScopeCompatIndex, checker: &Checker<'_
             index.add_exact_candidate(name, name_use.span());
             continue;
         }
-        if name_use.kind() != ComparableNameUseKind::Derived
-            || !is_reportable_build_flag_family_name(name)
-        {
+        if !is_reportable_build_flag_family_name(name) {
             continue;
         }
 
         index.add_build_flag_candidate(name, name_use.span());
-        if !is_braced_parameter_use(checker.source(), name_use.span()) {
+        if name_use.kind() != ComparableNameUseKind::Derived
+            || !is_braced_parameter_use(checker.source(), name_use.span())
+        {
             continue;
         }
         index.build_flag_references.push(ScopeCompatUse {
@@ -1346,6 +1346,57 @@ done
 for f in ${CFLAGS}; do
   echo \"c flag: ${f}\"
 done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CFLAGS}"]
+        );
+    }
+
+    #[test]
+    fn reports_build_flag_scope_compat_with_parameter_candidate() {
+        let source = "\
+#!/bin/bash
+tmp=\"${CXXFLAGS}\"
+for f in ${CFLAGS}; do
+  echo \"c flag: ${f}\"
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CFLAGS}"]
+        );
+    }
+
+    #[test]
+    fn reports_build_flag_scope_compat_with_quoted_derived_candidate() {
+        let source = "\
+#!/bin/bash
+declare -r EXTRA_FLAGS=\"\\
+$(
+for f in \"${CXXFLAGS}\"; do
+  echo \"cxx flag: ${f}\"
+done
+for f in ${CFLAGS}; do
+  echo \"c flag: ${f}\"
+done
+)\"
 ";
         let diagnostics = test_snippet(
             source,

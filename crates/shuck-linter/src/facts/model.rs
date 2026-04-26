@@ -1139,31 +1139,14 @@ fn scope_compat_standalone_derived_name_use(
 }
 
 fn is_interesting_scope_compat_name_use(
-    source: &str,
+    _source: &str,
     name: &str,
     kind: ComparableNameUseKind,
-    span: Span,
+    _span: Span,
 ) -> bool {
     name == "SHELLSPEC_EXECDIR"
         || name == "SHELLSPEC_SPECDIR"
-        || kind == ComparableNameUseKind::Derived
-            && (is_braced_scope_compat_parameter_use(source, span)
-                || is_unbraced_scope_compat_parameter_use(source, span))
-            && is_reportable_build_flag_family_name(name)
-}
-
-fn is_braced_scope_compat_parameter_use(source: &str, span: Span) -> bool {
-    source
-        .as_bytes()
-        .get(span.start.offset..span.start.offset + 2)
-        .is_some_and(|prefix| prefix == b"${")
-}
-
-fn is_unbraced_scope_compat_parameter_use(source: &str, span: Span) -> bool {
-    source
-        .as_bytes()
-        .get(span.start.offset)
-        .is_some_and(|byte| *byte == b'$')
+        || kind == ComparableNameUseKind::Derived && is_reportable_build_flag_family_name(name)
 }
 
 fn is_reportable_build_flag_family_name(name: &str) -> bool {
