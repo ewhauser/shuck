@@ -1,0 +1,18 @@
+name: Composite edge cases
+
+runs:
+  using: composite
+  steps:
+    - name: Bash step with env
+      shell: bash
+      env:
+        COMPOSITE_VALUE: ${{ inputs.message }}
+      run: |
+        echo "$COMPOSITE_VALUE"
+        echo "${{ github.sha }}"
+    - name: Sh step with expression
+      shell: sh
+      run: echo "${{ inputs.message }}"
+    - name: Unsupported Windows shell
+      shell: powershell
+      run: Write-Host "skip"
