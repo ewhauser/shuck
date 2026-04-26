@@ -3023,6 +3023,7 @@ fn collects_declaration_assignment_probes_for_process_substitution_subscripts() 
     let source = "\
 #!/bin/bash
 \\declare -A arr[<(printf \"]\")]=$(date)
+\\export out=<(printf hi)
 ";
 
     with_facts(source, None, |_, facts| {
@@ -3032,7 +3033,7 @@ fn collects_declaration_assignment_probes_for_process_substitution_subscripts() 
             .map(|probe| (probe.target_name(), probe.has_command_substitution()))
             .collect::<Vec<_>>();
 
-        assert_eq!(probes, vec![("arr", true)]);
+        assert_eq!(probes, vec![("arr", true), ("out", false)]);
     });
 }
 
@@ -3060,13 +3061,4 @@ demo() {
 
         assert_eq!(probes, vec![("out", false, true)]);
     });
-}
-
-#[test]
-fn parses_assignment_words_with_process_substitution_subscripts() {
-    let word = "arr[<(printf \"]\")]=$(date)";
-    let parsed = super::parse_assignment_word(word)
-        .map(|parsed| (parsed.name, &word[parsed.value_offset..]));
-
-    assert_eq!(parsed, Some(("arr", "$(date)")));
 }

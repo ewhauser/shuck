@@ -396,4 +396,18 @@ shopt -s extglob
             vec!["arr"]
         );
     }
+
+    #[test]
+    fn ignores_escaped_declaration_process_substitution_values() {
+        let source = "\
+#!/bin/bash
+\\export out=<(printf hi)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }

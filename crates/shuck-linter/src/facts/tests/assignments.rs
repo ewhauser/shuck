@@ -47,13 +47,22 @@ status=$?
 pid=$!
 \\typeset ret=$?
 \\local child=$!
+\\declare -A grouped_status[<(printf '%s' key)]=$?
+\\declare -A grouped_child[<(printf '%s' key)]=$!
 ";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
-    for name in ["status", "pid", "ret", "child"] {
+    for name in [
+        "status",
+        "pid",
+        "ret",
+        "child",
+        "grouped_status",
+        "grouped_child",
+    ] {
         let binding_id = semantic.bindings_for(&Name::from(name))[0];
         assert!(
             facts

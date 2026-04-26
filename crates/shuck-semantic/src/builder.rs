@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::BTreeMap};
+use std::collections::BTreeMap;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
@@ -9,8 +9,8 @@ use shuck_ast::{
     FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, LiteralText, Name,
     NormalizedCommand, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
     PatternGroupKind, PatternPart, PatternPartNode, Position, SourceText, Span,
-    StaticCommandWrapperTarget, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode,
-    WrapperKind, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
+    StaticCommandWrapperTarget, Stmt, StmtSeq, Subscript, SubscriptInterpretation, VarRef, Word,
+    WordPart, WordPartNode, WrapperKind, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
     normalize_command_words, static_command_name_text, static_command_wrapper_target_index,
     static_word_text, try_static_word_parts_text,
 };
@@ -2690,9 +2690,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let mut parsing_options = true;
         let mut operands = Vec::new();
 
-        for argument in args.iter().copied() {
+        let argument_groups = contiguous_word_groups(args);
+        for arguments in argument_groups {
+            let Some(argument) = arguments.first().copied() else {
+                continue;
+            };
+            let argument_span = word_group_span(arguments);
             if parsing_options {
-                if let Some(text) = static_word_text(argument, self.source) {
+                if arguments.len() == 1
+                    && let Some(text) = static_word_text(argument, self.source)
+                {
                     if text == "--" {
                         parsing_options = false;
                         continue;
@@ -2715,14 +2722,14 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
             if name_operands_are_function_names {
                 operands.push(DeclarationOperand::DynamicWord {
-                    span: argument.span,
+                    span: argument_span,
                 });
                 continue;
             }
 
-            let assignment_text = declaration_assignment_text(argument, self.source);
+            let explicit_array_kind = declaration_explicit_array_kind(&flags);
             if let Some(assignment) =
-                parse_simple_declaration_assignment(argument, assignment_text.as_ref(), self.source)
+                parse_simple_declaration_assignment(arguments, self.source, explicit_array_kind)
             {
                 let (scope, mut attributes) = self.simple_declaration_scope_and_attributes(
                     builtin,
@@ -2756,16 +2763,22 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 );
                 operands.push(DeclarationOperand::Assignment {
                     name: assignment.name,
+                    operand_span: argument_span,
+                    target_span: assignment.target_span,
                     name_span: assignment.name_span,
                     value_span: assignment.value_span,
                     append: assignment.append,
+                    value_origin: assignment.value_origin,
+                    has_command_substitution: assignment.has_command_substitution,
+                    has_command_or_process_substitution: assignment
+                        .has_command_or_process_substitution,
                 });
                 continue;
             }
 
-            if static_word_text(argument, self.source).is_none() {
+            if arguments.len() != 1 || static_word_text(argument, self.source).is_none() {
                 operands.push(DeclarationOperand::DynamicWord {
-                    span: argument.span,
+                    span: argument_span,
                 });
                 continue;
             }
@@ -2782,7 +2795,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 operands.push(DeclarationOperand::Name { name, span });
             } else {
                 operands.push(DeclarationOperand::DynamicWord {
-                    span: argument.span,
+                    span: argument_span,
                 });
             }
         }
@@ -3937,9 +3950,17 @@ fn declaration_operands(operands: &[DeclOperand], source: &str) -> Vec<Declarati
             },
             DeclOperand::Assignment(assignment) => DeclarationOperand::Assignment {
                 name: assignment.target.name.clone(),
+                operand_span: assignment.span,
+                target_span: assignment_target_span(assignment, source),
                 name_span: assignment.target.name_span,
                 value_span: assignment_value_span(assignment),
                 append: assignment.append,
+                value_origin: assignment_value_origin(&assignment.value),
+                has_command_substitution: assignment_value_has_command_substitution(
+                    &assignment.value,
+                ),
+                has_command_or_process_substitution:
+                    assignment_value_has_command_or_process_substitution(&assignment.value),
             },
             DeclOperand::Dynamic(word) => DeclarationOperand::DynamicWord { span: word.span },
         })
@@ -4940,10 +4961,6 @@ fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
     is_name(&text).then_some((Name::from(text.as_ref()), word.span))
 }
 
-fn declaration_assignment_text<'a>(word: &'a Word, source: &'a str) -> Cow<'a, str> {
-    static_word_text(word, source).unwrap_or_else(|| Cow::Borrowed(word.span.slice(source)))
-}
-
 #[derive(Debug, Clone)]
 struct SimpleDeclarationAssignment {
     name: Name,
@@ -4953,57 +4970,76 @@ struct SimpleDeclarationAssignment {
     append: bool,
     array_like: bool,
     value_origin: AssignmentValueOrigin,
+    has_command_substitution: bool,
+    has_command_or_process_substitution: bool,
 }
 
 fn parse_simple_declaration_assignment(
-    word: &Word,
-    text: &str,
+    words: &[&Word],
     source: &str,
+    explicit_array_kind: Option<ArrayKind>,
 ) -> Option<SimpleDeclarationAssignment> {
-    let name_end = variable_name_end(text)?;
-    let name = &text[..name_end];
-    let mut index = name_end;
-    let mut array_like = false;
-
-    if text.as_bytes().get(index) == Some(&b'[') {
-        let subscript_end = text[index..].find(']')? + index + 1;
-        index = subscript_end;
-        array_like = true;
-    }
-
-    let append = if text.as_bytes().get(index) == Some(&b'+') {
-        index += 1;
-        true
-    } else {
-        false
-    };
-
-    if text.as_bytes().get(index) != Some(&b'=') {
-        return None;
-    }
-
-    let value_start = index + 1;
-    let name_span = word_text_offset_span(word.span, source, 0, name_end);
-    let target_span =
-        word_text_offset_span(word.span, source, 0, if append { index - 1 } else { index });
-    let value_span = word_text_offset_span(word.span, source, value_start, text.len());
-    let value_text = &text[value_start..];
-    let value_origin = if value_text.trim_start().starts_with('(') {
-        AssignmentValueOrigin::ArrayOrCompound
-    } else {
-        let word = Parser::parse_word_string(value_text);
-        assignment_value_origin_for_word(&word)
-    };
+    let assignment = Parser::parse_assignment_word_group(
+        source,
+        words,
+        explicit_array_kind,
+        SubscriptInterpretation::Contextual,
+    )?;
+    let target_span = assignment_target_span(&assignment, source);
+    let value_span = assignment_value_span(&assignment);
+    let array_like = assignment.target.subscript.is_some()
+        || matches!(assignment.value, AssignmentValue::Compound(_));
+    let value_origin = assignment_value_origin(&assignment.value);
+    let has_command_substitution = assignment_value_has_command_substitution(&assignment.value);
+    let has_command_or_process_substitution =
+        assignment_value_has_command_or_process_substitution(&assignment.value);
 
     Some(SimpleDeclarationAssignment {
-        name: Name::from(name),
-        name_span,
+        name: assignment.target.name,
+        name_span: assignment.target.name_span,
         target_span,
         value_span,
-        append,
+        append: assignment.append,
         array_like,
         value_origin,
+        has_command_substitution,
+        has_command_or_process_substitution,
     })
+}
+
+fn contiguous_word_groups<'a>(words: &'a [&'a Word]) -> Vec<&'a [&'a Word]> {
+    let mut groups = Vec::new();
+    let mut start = 0usize;
+
+    while start < words.len() {
+        let mut end = start + 1;
+        while let Some(next) = words.get(end).copied() {
+            if words[end - 1].span.end.offset != next.span.start.offset {
+                break;
+            }
+            end += 1;
+        }
+        groups.push(&words[start..end]);
+        start = end;
+    }
+
+    groups
+}
+
+fn word_group_span(words: &[&Word]) -> Span {
+    let first = words.first().expect("word groups are non-empty");
+    let last = words.last().expect("word groups are non-empty");
+    Span::from_positions(first.span.start, last.span.end)
+}
+
+fn declaration_explicit_array_kind(flags: &FxHashSet<char>) -> Option<ArrayKind> {
+    if flags.contains(&'A') {
+        Some(ArrayKind::Associative)
+    } else if flags.contains(&'a') {
+        Some(ArrayKind::Indexed)
+    } else {
+        None
+    }
 }
 
 fn let_arithmetic_assignment_target(word: &Word, source: &str) -> Option<(Name, Span)> {
@@ -5569,19 +5605,49 @@ fn single_literal_word(word: &Word) -> Option<&str> {
     }
 }
 
-fn binding_origin_for_assignment(assignment: &Assignment, source: &str) -> BindingOrigin {
-    let value = if assignment.target.subscript.is_some() {
+fn assignment_value_origin_for_assignment(
+    assignment: &Assignment,
+    _source: &str,
+) -> AssignmentValueOrigin {
+    if assignment.target.subscript.is_some() {
         AssignmentValueOrigin::ArrayOrCompound
     } else {
         match &assignment.value {
             AssignmentValue::Scalar(word) => assignment_value_origin_for_word(word),
             AssignmentValue::Compound(_) => AssignmentValueOrigin::ArrayOrCompound,
         }
-    };
+    }
+}
 
+fn assignment_value_origin(value: &AssignmentValue) -> AssignmentValueOrigin {
+    match value {
+        AssignmentValue::Scalar(word) => assignment_value_origin_for_word(word),
+        AssignmentValue::Compound(_) => AssignmentValueOrigin::ArrayOrCompound,
+    }
+}
+
+fn assignment_value_has_command_or_process_substitution(value: &AssignmentValue) -> bool {
+    let AssignmentValue::Scalar(word) = value else {
+        return false;
+    };
+    let mut scan = AssignmentWordOriginScan::default();
+    scan_assignment_word_parts(&word.parts, &mut scan);
+    scan.command_substitution || scan.process_substitution
+}
+
+fn assignment_value_has_command_substitution(value: &AssignmentValue) -> bool {
+    let AssignmentValue::Scalar(word) = value else {
+        return false;
+    };
+    let mut scan = AssignmentWordOriginScan::default();
+    scan_assignment_word_parts(&word.parts, &mut scan);
+    scan.command_substitution
+}
+
+fn binding_origin_for_assignment(assignment: &Assignment, source: &str) -> BindingOrigin {
     BindingOrigin::Assignment {
         definition_span: assignment_target_span(assignment, source),
-        value,
+        value: assignment_value_origin_for_assignment(assignment, source),
     }
 }
 
@@ -5643,7 +5709,8 @@ struct AssignmentWordOriginScan {
     parameter_operator: bool,
     transformation: bool,
     indirect_expansion: bool,
-    command_or_process_substitution: bool,
+    command_substitution: bool,
+    process_substitution: bool,
     array_or_compound: bool,
     mixed_dynamic: bool,
 }
@@ -5654,7 +5721,7 @@ impl AssignmentWordOriginScan {
             self.parameter_operator,
             self.transformation,
             self.indirect_expansion,
-            self.command_or_process_substitution,
+            self.command_substitution || self.process_substitution,
             self.array_or_compound,
             self.mixed_dynamic,
         ]
@@ -5670,7 +5737,7 @@ impl AssignmentWordOriginScan {
             Some(AssignmentValueOrigin::Transformation)
         } else if self.indirect_expansion {
             Some(AssignmentValueOrigin::IndirectExpansion)
-        } else if self.command_or_process_substitution {
+        } else if self.command_substitution || self.process_substitution {
             Some(AssignmentValueOrigin::CommandOrProcessSubstitution)
         } else if self.array_or_compound {
             Some(AssignmentValueOrigin::ArrayOrCompound)
@@ -5729,9 +5796,8 @@ fn scan_assignment_word_part(part: &WordPart, scan: &mut AssignmentWordOriginSca
         | WordPart::ArithmeticExpansion { .. } => {}
         WordPart::DoubleQuoted { parts, .. } => scan_assignment_word_parts(parts, scan),
         WordPart::Parameter(parameter) => scan_parameter_word_part(parameter, scan),
-        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {
-            scan.command_or_process_substitution = true;
-        }
+        WordPart::CommandSubstitution { .. } => scan.command_substitution = true,
+        WordPart::ProcessSubstitution { .. } => scan.process_substitution = true,
         WordPart::ParameterExpansion { reference, .. } => {
             if reference.has_array_selector() {
                 scan.array_or_compound = true;

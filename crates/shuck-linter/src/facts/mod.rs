@@ -60,10 +60,12 @@ use shuck_ast::{
     static_command_wrapper_target_index, static_word_text, word_is_standalone_status_capture,
 };
 use shuck_indexer::Indexer;
+#[cfg(test)]
 use shuck_parser::parser::Parser;
 use shuck_semantic::{
-    Binding, BindingAttributes, BindingId, BindingKind, DeclarationBuiltin, OptionValue, Reference,
-    ReferenceId, ReferenceKind, ScopeId, SemanticModel, ZshOptionState,
+    Binding, BindingAttributes, BindingId, BindingKind, Declaration, DeclarationBuiltin,
+    DeclarationOperand as SemanticDeclarationOperand, OptionValue, Reference, ReferenceId,
+    ReferenceKind, ScopeId, SemanticModel, ZshOptionState,
 };
 use smallvec::SmallVec;
 use std::{borrow::Cow, ops::ControlFlow, sync::OnceLock};

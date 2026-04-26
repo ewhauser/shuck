@@ -12,8 +12,7 @@ use super::{
     ExprStringHelperKind, GrepPatternSourceKind, ListFact, ListSegmentKind, MixedShortCircuitKind,
     SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SubstitutionHostKind,
     SubstitutionOutputIntent, SudoFamilyInvoker, WordFactHostKind,
-    build_innermost_command_ids_by_offset, parse_assignment_word,
-    precomputed_command_id_for_offset,
+    build_innermost_command_ids_by_offset, precomputed_command_id_for_offset,
 };
 use crate::WrapperKind;
 use crate::facts::surface::PositionalParameterFragmentKind;

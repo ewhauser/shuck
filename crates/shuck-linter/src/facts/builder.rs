@@ -281,6 +281,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 let declaration_assignment_probes = build_declaration_assignment_probes(
                     visit.command,
                     &normalized,
+                    self.semantic,
                     self.source,
                     command_zsh_options.as_ref(),
                 );

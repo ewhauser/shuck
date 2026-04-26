@@ -2283,6 +2283,7 @@ fn collect_dollar_question_after_command_spans_in_function_body(
 fn build_declaration_assignment_probes<'a>(
     command: &'a Command,
     normalized: &NormalizedCommand<'a>,
+    semantic: &SemanticModel,
     source: &str,
     zsh_options: Option<&ZshOptionState>,
 ) -> Vec<DeclarationAssignmentProbe> {
@@ -2311,15 +2312,6 @@ fn build_declaration_assignment_probes<'a>(
             .collect();
     }
 
-    build_simple_command_declaration_assignment_probes(command, normalized, source, zsh_options)
-}
-
-fn build_simple_command_declaration_assignment_probes<'a>(
-    command: &'a Command,
-    normalized: &NormalizedCommand<'a>,
-    source: &str,
-    zsh_options: Option<&ZshOptionState>,
-) -> Vec<DeclarationAssignmentProbe> {
     let Command::Simple(_) = command else {
         return Vec::new();
     };
@@ -2328,52 +2320,121 @@ fn build_simple_command_declaration_assignment_probes<'a>(
         return Vec::new();
     }
 
-    let Some(kind) = simple_command_declaration_kind(normalized.effective_or_literal_name()) else {
+    let Some(declaration) = semantic_declaration_for_command(semantic, command) else {
         return Vec::new();
     };
-    let word_groups = contiguous_word_groups(normalized.body_args());
-    let readonly_flag = matches!(
-        kind,
-        DeclarationKind::Local | DeclarationKind::Declare | DeclarationKind::Typeset
-    ) && simple_command_declaration_readonly_flag(&word_groups, source);
+    let kind = declaration_kind_from_semantic(declaration.builtin);
+    let readonly_flag = semantic_declaration_readonly_flag(declaration);
 
-    word_groups
+    declaration
+        .operands
         .iter()
-        .filter_map(|words| {
-            let first = *words.first()?;
-            let text = words
-                .iter()
-                .map(|word| word.span.slice(source))
-                .collect::<String>();
-            let parsed = parse_assignment_word(&text)?;
-            let value_text = &text[parsed.value_offset..];
+        .filter_map(|operand| {
+            let SemanticDeclarationOperand::Assignment {
+                name,
+                name_span,
+                value_span,
+                has_command_substitution,
+                ..
+            } = operand
+            else {
+                return None;
+            };
             Some(DeclarationAssignmentProbe {
                 kind: kind.clone(),
                 readonly_flag,
-                target_name: parsed.name.into(),
-                target_name_span: Span::from_positions(
-                    first.span.start,
-                    first.span.start.advanced_by(parsed.name),
-                ),
-                has_command_substitution: parsed_assignment_value_has_command_substitution(
-                    value_text,
-                    zsh_options,
-                ),
-                status_capture: assignment_value_text_is_standalone_status_capture(value_text),
+                target_name: name.as_str().into(),
+                target_name_span: *name_span,
+                has_command_substitution: *has_command_substitution,
+                status_capture: word_for_declaration_value_span(command, *value_span)
+                    .is_some_and(|word| word_span_is_standalone_status_capture(word, *value_span)),
             })
         })
         .collect()
 }
 
-fn assignment_value_text_is_standalone_status_capture(text: &str) -> bool {
-    matches!(text, "$?" | "${?}" | "\"$?\"" | "\"${?}\"")
+fn semantic_declaration_for_command<'a>(
+    semantic: &'a SemanticModel,
+    command: &Command,
+) -> Option<&'a Declaration> {
+    let span = command_span(command);
+    semantic.declarations().iter().find(|declaration| {
+        declaration.span.start.offset == span.start.offset
+            && declaration.span.end.offset == span.end.offset
+    })
 }
 
-fn assignment_value_text_is_standalone_status_or_pid_capture(text: &str) -> bool {
-    matches!(
-        text,
-        "$?" | "${?}" | "\"$?\"" | "\"${?}\"" | "$!" | "${!}" | "\"$!\"" | "\"${!}\""
-    )
+fn declaration_kind_from_semantic(builtin: DeclarationBuiltin) -> DeclarationKind {
+    match builtin {
+        DeclarationBuiltin::Export => DeclarationKind::Export,
+        DeclarationBuiltin::Local => DeclarationKind::Local,
+        DeclarationBuiltin::Declare => DeclarationKind::Declare,
+        DeclarationBuiltin::Typeset => DeclarationKind::Typeset,
+        DeclarationBuiltin::Readonly => DeclarationKind::Other("readonly".to_owned()),
+    }
+}
+
+fn semantic_declaration_readonly_flag(declaration: &Declaration) -> bool {
+    if !matches!(
+        declaration.builtin,
+        DeclarationBuiltin::Local | DeclarationBuiltin::Declare | DeclarationBuiltin::Typeset
+    ) {
+        return false;
+    }
+
+    declaration.operands.iter().any(|operand| match operand {
+        SemanticDeclarationOperand::Flag { flags, .. } => {
+            flags.starts_with('-') && flags.contains('r')
+        }
+        SemanticDeclarationOperand::Name { .. }
+        | SemanticDeclarationOperand::Assignment { .. }
+        | SemanticDeclarationOperand::DynamicWord { .. } => false,
+    })
+}
+
+fn word_for_declaration_value_span(command: &Command, span: Span) -> Option<&Word> {
+    let Command::Simple(command) = command else {
+        return None;
+    };
+
+    command
+        .args
+        .iter()
+        .find(|word| span.start.offset >= word.span.start.offset && span.end.offset <= word.span.end.offset)
+}
+
+fn word_span_is_standalone_status_capture(word: &Word, span: Span) -> bool {
+    let parts = word_parts_in_span(word, span);
+    matches!(parts.as_slice(), [part] if part_is_standalone_status_capture(&part.kind))
+}
+
+fn word_span_is_standalone_status_or_pid_capture(word: &Word, span: Span) -> bool {
+    let parts = word_parts_in_span(word, span);
+    matches!(parts.as_slice(), [part] if part_is_standalone_status_or_pid_capture(&part.kind))
+}
+
+fn word_parts_in_span(word: &Word, span: Span) -> Vec<&WordPartNode> {
+    word.parts
+        .iter()
+        .filter(|part| {
+            span.start.offset <= part.span.start.offset && part.span.end.offset <= span.end.offset
+        })
+        .collect()
+}
+
+fn part_is_standalone_status_capture(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(name) => name.as_str() == "?",
+        WordPart::DoubleQuoted { parts, .. } => {
+            matches!(parts.as_slice(), [part] if part_is_standalone_status_capture(&part.kind))
+        }
+        WordPart::Parameter(parameter) => matches!(
+            parameter.bourne(),
+            Some(BourneParameterExpansion::Access { reference })
+                if reference.name.as_str() == "?" && reference.subscript.is_none()
+        ),
+        _ => false,
+    }
 }
 
 fn word_is_standalone_status_or_pid_capture(word: &Word) -> bool {
@@ -2398,206 +2459,6 @@ fn part_is_standalone_status_or_pid_capture(part: &WordPart) -> bool {
     }
 }
 
-fn contiguous_word_groups<'a>(words: &'a [&'a Word]) -> Vec<&'a [&'a Word]> {
-    let mut groups = Vec::new();
-    let mut start = 0usize;
-
-    while start < words.len() {
-        let mut end = start + 1;
-        while let Some(next) = words.get(end).copied() {
-            if words[end - 1].span.end.offset != next.span.start.offset {
-                break;
-            }
-            end += 1;
-        }
-        groups.push(&words[start..end]);
-        start = end;
-    }
-
-    groups
-}
-
-fn simple_command_declaration_kind(name: Option<&str>) -> Option<DeclarationKind> {
-    match name? {
-        "export" => Some(DeclarationKind::Export),
-        "local" => Some(DeclarationKind::Local),
-        "declare" => Some(DeclarationKind::Declare),
-        "typeset" => Some(DeclarationKind::Typeset),
-        "readonly" => Some(DeclarationKind::Other("readonly".to_owned())),
-        _ => None,
-    }
-}
-
-fn simple_command_declaration_readonly_flag(word_groups: &[&[&Word]], source: &str) -> bool {
-    let mut readonly_flag = false;
-
-    for words in word_groups {
-        let [word] = words else {
-            break;
-        };
-        let Some(text) = static_word_text(word, source) else {
-            break;
-        };
-
-        // Bash stops parsing declaration options after the first name[=value] operand,
-        // so later "-r" words must not retroactively mark earlier assignments readonly.
-        if text == "--" {
-            break;
-        }
-
-        if !simple_command_declaration_option_word(&text) {
-            break;
-        }
-
-        if declaration_flag_sets_readonly_text(&text) {
-            readonly_flag = true;
-        }
-    }
-
-    readonly_flag
-}
-
-fn simple_command_declaration_option_word(text: &str) -> bool {
-    let mut chars = text.chars();
-    let Some(prefix) = chars.next() else {
-        return false;
-    };
-
-    if !matches!(prefix, '-' | '+') {
-        return false;
-    }
-
-    let rest = chars.as_str();
-    !rest.is_empty() && rest.chars().all(|ch| ch.is_ascii_alphabetic())
-}
-
-fn declaration_flag_sets_readonly_text(text: &str) -> bool {
-    text.starts_with('-') && text.contains('r')
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ParsedAssignmentWord<'a> {
-    name: &'a str,
-    value_offset: usize,
-}
-
-fn parse_assignment_word(word: &str) -> Option<ParsedAssignmentWord<'_>> {
-    if !word.contains('=') {
-        return None;
-    }
-
-    let mut chars = word.char_indices();
-    let (_, first) = chars.next()?;
-    if !first.is_ascii_alphabetic() && first != '_' {
-        return None;
-    }
-
-    let mut ident_end = first.len_utf8();
-    for (index, ch) in chars {
-        if ch.is_ascii_alphanumeric() || ch == '_' {
-            ident_end = index + ch.len_utf8();
-        } else {
-            break;
-        }
-    }
-
-    let name = &word[..ident_end];
-    let mut cursor = ident_end;
-
-    if word[cursor..].starts_with('[') {
-        let bytes = word.as_bytes();
-        let mut close_index = None;
-        let mut bracket_depth = 0usize;
-        let mut index = cursor + 1;
-
-        while index < bytes.len() {
-            if bytes[index] == b'\\' {
-                index = advance_escaped_char_boundary(word, index);
-                continue;
-            }
-
-            if index + 2 < bytes.len()
-                && is_unescaped_dollar(bytes, index)
-                && bytes[index + 1] == b'('
-                && bytes[index + 2] == b'('
-            {
-                index = find_wrapped_arithmetic_end(bytes, index)?;
-                continue;
-            }
-
-            if index + 1 < bytes.len()
-                && is_unescaped_dollar(bytes, index)
-                && bytes[index + 1] == b'('
-            {
-                index = find_command_substitution_end(bytes, index)?;
-                continue;
-            }
-
-            if index + 1 < bytes.len()
-                && is_unescaped_dollar(bytes, index)
-                && bytes[index + 1] == b'{'
-            {
-                index = find_runtime_parameter_closing_brace(word, index)?;
-                continue;
-            }
-
-            if index + 1 < bytes.len()
-                && matches!(bytes[index], b'<' | b'>')
-                && bytes[index + 1] == b'('
-            {
-                index = find_process_substitution_end(bytes, index)?;
-                continue;
-            }
-
-            match bytes[index] {
-                b'\'' => index = skip_single_quoted(bytes, index + 1)?,
-                b'"' => index = skip_double_quoted(bytes, index + 1)?,
-                b'`' => index = skip_backticks(bytes, index + 1)?,
-                b'[' => {
-                    bracket_depth += 1;
-                    index += 1;
-                }
-                b']' if bracket_depth == 0 => {
-                    close_index = Some(index);
-                    break;
-                }
-                b']' => {
-                    bracket_depth -= 1;
-                    index += 1;
-                }
-                _ => {
-                    index += word[index..].chars().next()?.len_utf8();
-                }
-            }
-        }
-
-        cursor = close_index? + 1;
-    }
-
-    if word[cursor..].starts_with("+=") || word[cursor..].starts_with('=') {
-        Some(ParsedAssignmentWord {
-            name,
-            value_offset: cursor
-                + if word[cursor..].starts_with("+=") {
-                    2
-                } else {
-                    1
-                },
-        })
-    } else {
-        None
-    }
-}
-
-fn advance_escaped_char_boundary(text: &str, start: usize) -> usize {
-    let next = start + '\\'.len_utf8();
-    if next >= text.len() {
-        return next;
-    }
-
-    next + text[next..].chars().next().map_or(0, char::len_utf8)
-}
-
 fn word_has_command_substitution(
     word: &Word,
     source: &str,
@@ -2607,17 +2468,13 @@ fn word_has_command_substitution(
         .has_command_substitution()
 }
 
-fn parsed_assignment_value_has_command_substitution(
-    value_text: &str,
-    zsh_options: Option<&ZshOptionState>,
-) -> bool {
-    if value_text.is_empty() {
-        return false;
+fn advance_escaped_char_boundary(text: &str, start: usize) -> usize {
+    let next = start + '\\'.len_utf8();
+    if next >= text.len() {
+        return next;
     }
 
-    let word = Parser::parse_word_string(value_text);
-    word_classification_from_analysis(analyze_word(&word, value_text, zsh_options))
-        .has_command_substitution()
+    next + text[next..].chars().next().map_or(0, char::len_utf8)
 }
 
 fn collect_binding_values<'a>(
@@ -2665,19 +2522,35 @@ fn collect_binding_values<'a>(
         }
     }
 
-    for (name, name_span, word, standalone_status_or_pid_capture) in
-        simple_declaration_assignment_value_words(command, source)
+    if matches!(command, Command::Simple(_))
+        && let Some(declaration) = semantic_declaration_for_command(semantic, command)
     {
-        if let Some(binding_id) =
-            binding_value_definition_id_for_name(semantic, &name, name_span)
-        {
-            binding_values.insert(
-                binding_id,
-                BindingValueFact::scalar_with_status_or_pid_capture(
-                    word,
-                    standalone_status_or_pid_capture,
-                ),
-            );
+        for operand in &declaration.operands {
+            let SemanticDeclarationOperand::Assignment {
+                name,
+                name_span,
+                value_span,
+                ..
+            } = operand
+            else {
+                continue;
+            };
+            let Some(word) = word_for_declaration_value_span(command, *value_span) else {
+                continue;
+            };
+            let standalone_status_or_pid_capture =
+                word_span_is_standalone_status_or_pid_capture(word, *value_span);
+            if let Some(binding_id) =
+                binding_value_definition_id_for_name(semantic, name, *name_span)
+            {
+                binding_values.insert(
+                    binding_id,
+                    BindingValueFact::scalar_with_status_or_pid_capture(
+                        word,
+                        standalone_status_or_pid_capture,
+                    ),
+                );
+            }
         }
     }
 
@@ -2729,67 +2602,6 @@ fn collect_binding_values<'a>(
         }
         _ => {}
     }
-}
-
-fn simple_declaration_assignment_value_words<'a>(
-    command: &'a Command,
-    source: &str,
-) -> Vec<(Name, Span, &'a Word, bool)> {
-    let Command::Simple(command) = command else {
-        return Vec::new();
-    };
-    let Some(command_name) = static_command_name_text(&command.name, source) else {
-        return Vec::new();
-    };
-    let command_name = command_name
-        .as_ref()
-        .strip_prefix('\\')
-        .unwrap_or(command_name.as_ref());
-    if simple_command_declaration_kind(Some(command_name)).is_none() {
-        return Vec::new();
-    }
-
-    let mut values = Vec::new();
-    let mut parsing_options = true;
-    for word in &command.args {
-        let static_text = static_word_text(word, source);
-        let text = static_text
-            .as_deref()
-            .unwrap_or_else(|| word.span.slice(source));
-
-        if parsing_options {
-            if text == "--" {
-                parsing_options = false;
-                continue;
-            }
-            if simple_command_declaration_option_word(text) {
-                continue;
-            }
-            parsing_options = false;
-        }
-
-        let Some(parsed) = parse_assignment_word(text) else {
-            continue;
-        };
-        let value_text = &text[parsed.value_offset..];
-        let standalone_status_or_pid_capture =
-            assignment_value_text_is_standalone_status_or_pid_capture(value_text);
-        if static_text.is_none() && !standalone_status_or_pid_capture {
-            continue;
-        }
-        let name_span = Span::from_positions(
-            word.span.start,
-            word.span.start.advanced_by(parsed.name),
-        );
-        values.push((
-            Name::from(parsed.name),
-            name_span,
-            word,
-            standalone_status_or_pid_capture,
-        ));
-    }
-
-    values
 }
 
 fn binding_value_definition_id_for_name(

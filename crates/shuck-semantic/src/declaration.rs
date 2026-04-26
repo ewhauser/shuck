@@ -1,5 +1,7 @@
 use shuck_ast::{Name, Span};
 
+use crate::AssignmentValueOrigin;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeclarationBuiltin {
     Declare,
@@ -29,9 +31,14 @@ pub enum DeclarationOperand {
     },
     Assignment {
         name: Name,
+        operand_span: Span,
+        target_span: Span,
         name_span: Span,
         value_span: Span,
         append: bool,
+        value_origin: AssignmentValueOrigin,
+        has_command_substitution: bool,
+        has_command_or_process_substitution: bool,
     },
     DynamicWord {
         span: Span,
