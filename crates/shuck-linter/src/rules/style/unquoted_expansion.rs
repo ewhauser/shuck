@@ -3102,6 +3102,42 @@ esac
     }
 
     #[test]
+    fn reports_file_scope_integer_bindings_after_function_calls() {
+        let source = "\
+#!/bin/bash
+check_count() {
+  [ $count -eq 0 ] && :
+}
+check_count
+count=0
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$count"]
+        );
+    }
+
+    #[test]
+    fn skips_file_scope_integer_bindings_before_function_calls() {
+        let source = "\
+#!/bin/bash
+count=0
+check_count() {
+  [ $count -eq 0 ] && :
+}
+check_count
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn skips_counter_arguments_with_only_numeric_assignments() {
         let source = "\
 #!/usr/bin/env bash

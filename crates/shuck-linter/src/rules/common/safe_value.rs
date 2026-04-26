@@ -4033,10 +4033,20 @@ impl<'a> SafeValueIndex<'a> {
             })
             .collect::<Vec<_>>();
 
-        !bindings.is_empty()
-            && bindings
-                .into_iter()
+        if bindings.is_empty()
+            || !bindings
+                .iter()
+                .copied()
                 .all(|binding_id| self.binding_assigns_numeric_operand_value(binding_id, at))
+        {
+            return false;
+        }
+
+        let call_sites = self.named_function_call_sites(function_scope);
+        call_sites.is_empty()
+            || call_sites.into_iter().all(|(_, call_span)| {
+                self.bindings_cover_all_paths_to_callsite(&bindings, call_span)
+            })
     }
 
     fn s001_name_has_only_numeric_value_bindings(&mut self, name: &Name, at: Span) -> bool {
