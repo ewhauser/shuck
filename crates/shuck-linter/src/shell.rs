@@ -15,8 +15,9 @@ pub enum ShellDialect {
 impl ShellDialect {
     pub fn parser_dialect(self) -> shuck_parser::ShellDialect {
         match self {
+            Self::Mksh => shuck_parser::ShellDialect::Mksh,
             Self::Zsh => shuck_parser::ShellDialect::Zsh,
-            Self::Unknown | Self::Sh | Self::Bash | Self::Dash | Self::Ksh | Self::Mksh => {
+            Self::Unknown | Self::Sh | Self::Bash | Self::Dash | Self::Ksh => {
                 shuck_parser::ShellDialect::Bash
             }
         }
@@ -164,7 +165,7 @@ mod tests {
         );
         assert_eq!(
             ShellDialect::Mksh.parser_dialect(),
-            shuck_parser::ShellDialect::Bash
+            shuck_parser::ShellDialect::Mksh
         );
         assert_eq!(
             ShellDialect::Zsh.parser_dialect(),
