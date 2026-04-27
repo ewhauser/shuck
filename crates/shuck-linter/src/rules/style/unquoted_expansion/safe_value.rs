@@ -781,7 +781,7 @@ impl<'a> SafeValueIndex<'a> {
         }
         let direct_bindings_are_status_captures =
             direct_bindings.iter().copied().all(|binding_id| {
-                self.binding_is_standalone_status_capture(binding_id, case_cli_scope)
+                self.binding_is_standalone_status_capture(binding_id, at, case_cli_scope)
             });
         if direct_bindings_cover_all_paths && direct_bindings_are_status_captures {
             bindings.retain(|binding_id| !helper_bindings.contains(binding_id));
@@ -1793,7 +1793,7 @@ impl<'a> SafeValueIndex<'a> {
             return true;
         }
         if self.binding_value_is_standalone_status_capture(binding_id)
-            && self.status_capture_binding_conflicts_with_caller_local(binding_id)
+            && self.status_capture_binding_conflicts_with_caller_local(binding_id, at)
         {
             return false;
         }
@@ -1802,7 +1802,7 @@ impl<'a> SafeValueIndex<'a> {
             SafeValueQuery::Argv
                 | SafeValueQuery::RedirectTarget
                 | SafeValueQuery::NumericTestOperand
-        ) && self.binding_is_standalone_status_capture(binding_id, case_cli_scope)
+        ) && self.binding_is_standalone_status_capture(binding_id, at, case_cli_scope)
         {
             return true;
         }
@@ -2024,7 +2024,11 @@ impl<'a> SafeValueIndex<'a> {
                     ..
                 }
                 | BindingOrigin::Declaration { .. }
-                    if self.binding_is_standalone_status_capture(binding_id, case_cli_scope) =>
+                    if self.binding_is_standalone_status_capture(
+                        binding_id,
+                        at,
+                        case_cli_scope,
+                    ) =>
                 {
                     status_bindings.push(binding_id);
                 }
@@ -2056,7 +2060,7 @@ impl<'a> SafeValueIndex<'a> {
                 self.semantic.binding(*binding_id).span.end.offset <= at.start.offset
             })
             .filter(|binding_id| {
-                self.binding_is_standalone_status_capture(*binding_id, case_cli_scope)
+                self.binding_is_standalone_status_capture(*binding_id, at, case_cli_scope)
             })
             .collect::<Vec<_>>();
         if status_bindings.is_empty()
@@ -2079,13 +2083,14 @@ impl<'a> SafeValueIndex<'a> {
             binding.scope == reference_scope
                 && binding.span.start.offset > first_status_offset
                 && binding.span.start.offset < at.start.offset
-                && !self.binding_is_standalone_status_capture(binding_id, case_cli_scope)
+                && !self.binding_is_standalone_status_capture(binding_id, at, case_cli_scope)
         })
     }
 
     fn binding_is_standalone_status_capture(
         &self,
         binding_id: BindingId,
+        at: Span,
         case_cli_scope: Option<ScopeId>,
     ) -> bool {
         let binding = self.semantic.binding(binding_id);
@@ -2099,7 +2104,7 @@ impl<'a> SafeValueIndex<'a> {
             } | BindingOrigin::Declaration { .. }
         ) && case_cli_scope != Some(binding.scope)
             && self.binding_value_is_standalone_status_capture(binding_id)
-            && !self.status_capture_binding_conflicts_with_caller_local(binding_id)
+            && !self.status_capture_binding_conflicts_with_caller_local(binding_id, at)
     }
 
     fn binding_is_local_declaration_status_capture(&self, binding_id: BindingId) -> bool {
@@ -2136,7 +2141,11 @@ impl<'a> SafeValueIndex<'a> {
             .is_some_and(|value| value.standalone_status_or_pid_capture())
     }
 
-    fn status_capture_binding_conflicts_with_caller_local(&self, binding_id: BindingId) -> bool {
+    fn status_capture_binding_conflicts_with_caller_local(
+        &self,
+        binding_id: BindingId,
+        at: Span,
+    ) -> bool {
         let binding = self.semantic.binding(binding_id);
         if binding.attributes.contains(BindingAttributes::LOCAL) {
             return false;
@@ -2158,9 +2167,20 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         }
 
-        self.named_function_call_sites(binding_scope)
+        let at_scope = self.semantic.scope_at(at.start.offset);
+        let reference_is_in_binding_scope =
+            at_scope == binding_scope || self.scope_is_ancestor(binding_scope, at_scope);
+        let relevant_call_sites = self
+            .named_function_call_sites(binding_scope)
             .into_iter()
-            .any(|(scope, span)| {
+            .filter(|(_, span)| {
+                reference_is_in_binding_scope
+                    || self.call_site_dominates_use(*span, &binding.name, at)
+            })
+            .collect::<Vec<_>>();
+
+        !relevant_call_sites.is_empty()
+            && relevant_call_sites.into_iter().all(|(scope, span)| {
                 let caller_scope = self
                     .enclosing_function_scope_at(span.start.offset)
                     .unwrap_or(scope);
@@ -4203,6 +4223,14 @@ impl<'a> SafeValueIndex<'a> {
         self.drop_declarations_shadowed_by_covering_loop_bindings(&mut bindings, at);
         self.drop_outer_bindings_shadowed_by_covering_loop_bindings(&mut bindings, at);
         self.retain_value_bindings(&mut bindings);
+        bindings.retain(|binding_id| {
+            !self.binding_is_cleared_by_dominating_unset(*binding_id, &reference.name, at)
+        });
+        if query.is_field_context() {
+            bindings.retain(|binding_id| {
+                !self.binding_is_blocked_by_exit_like_function_call(*binding_id, at)
+            });
+        }
         if bindings.is_empty() {
             return false;
         }
@@ -6779,6 +6807,81 @@ render() {
             .expect("expected local argument fact");
 
         assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn unrelated_caller_local_does_not_poison_status_capture_helper_use() {
+        let source = "\
+#!/bin/bash
+helper() {
+  false || ret=$?
+  printf '%s\\n' $ret
+}
+
+shadowed_caller() {
+  local ret=SAFE
+  helper
+}
+
+clean_caller() {
+  helper
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+        let safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$ret"
+            })
+            .expect("expected helper status argument fact");
+        let status_binding = semantic
+            .bindings_for(&Name::from("ret"))
+            .iter()
+            .copied()
+            .find(|binding_id| safe_values.binding_value_is_standalone_status_capture(*binding_id))
+            .expect("expected status capture binding");
+
+        assert!(
+            !safe_values.status_capture_binding_conflicts_with_caller_local(
+                status_binding,
+                word_fact.span()
+            )
+        );
+    }
+
+    #[test]
+    fn unset_static_slice_binding_does_not_stay_safe() {
+        let source = "\
+#!/bin/bash
+sig=RS256
+unset sig
+openssl dgst -sha${sig:2} file
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "-sha${sig:2}"
+            })
+            .expect("expected sliced digest argument fact");
+
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]
