@@ -356,14 +356,11 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
 }
 
 fn build_compat_function_bindings_by_scope(checker: &Checker<'_>) -> CompatFunctionBindingsByScope {
-    let mut bindings = CompatFunctionBindingsByScope::default();
-    for header in checker.facts().function_headers() {
-        let (Some(scope), Some(binding_id)) = (header.function_scope(), header.binding_id()) else {
-            continue;
-        };
-        bindings.entry(scope).or_default().push(binding_id);
-    }
-    bindings
+    checker
+        .semantic_analysis()
+        .function_bindings_by_scope()
+        .map(|(scope, bindings)| (scope, bindings.to_vec()))
+        .collect()
 }
 
 fn build_compat_activation_index(
@@ -993,12 +990,9 @@ fn scope_is_file_scope(checker: &Checker<'_>, scope: ScopeId) -> bool {
 }
 
 fn scope_has_transient_ancestor(checker: &Checker<'_>, scope: ScopeId) -> bool {
-    checker.semantic().ancestor_scopes(scope).any(|scope_id| {
-        matches!(
-            checker.semantic().scope_kind(scope_id),
-            ScopeKind::Subshell | ScopeKind::CommandSubstitution | ScopeKind::Pipeline
-        )
-    })
+    checker
+        .semantic_analysis()
+        .scope_runs_in_transient_context(scope)
 }
 
 fn has_direct_call_to_binding_before_offset(
@@ -1748,97 +1742,25 @@ fn call_may_resolve_to_binding(
     }
 
     let analysis = checker.semantic_analysis();
-    let cfg = analysis.cfg();
-    let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
-    let binding_blocks = binding_blocks_for_cfg(cfg, binding_id, &unreachable);
+    let mut avoid = analysis.shadow_function_blocks_for_binding(binding_id);
+    avoid.extend(analysis.cfg().script_terminators().iter().copied());
+    let binding_blocks = analysis
+        .reachable_blocks_for_binding(binding_id)
+        .into_iter()
+        .filter(|block| !avoid.contains(block))
+        .collect::<Vec<_>>();
     let call_blocks = analysis
         .block_ids_for_span(cfg_span)
         .iter()
         .copied()
-        .filter(|block| !unreachable.contains(block))
+        .filter(|block| !analysis.block_is_unreachable(*block))
+        .filter(|block| !avoid.contains(block))
         .collect::<Vec<_>>();
     if binding_blocks.is_empty() || call_blocks.is_empty() {
         return false;
     }
 
-    let mut avoid = shadow_function_blocks_for_cfg(cfg, checker, binding_id, &unreachable);
-    avoid.extend(cfg.script_terminators().iter().copied());
-    blocks_have_path_avoiding(cfg, &binding_blocks, &call_blocks, &avoid)
-}
-
-fn binding_blocks_for_cfg(
-    cfg: &shuck_semantic::ControlFlowGraph,
-    binding_id: shuck_semantic::BindingId,
-    unreachable: &FxHashSet<shuck_semantic::BlockId>,
-) -> Vec<shuck_semantic::BlockId> {
-    cfg.blocks()
-        .iter()
-        .filter(|block| block.bindings.contains(&binding_id) && !unreachable.contains(&block.id))
-        .map(|block| block.id)
-        .collect()
-}
-
-fn shadow_function_blocks_for_cfg(
-    cfg: &shuck_semantic::ControlFlowGraph,
-    checker: &Checker<'_>,
-    binding_id: shuck_semantic::BindingId,
-    unreachable: &FxHashSet<shuck_semantic::BlockId>,
-) -> FxHashSet<shuck_semantic::BlockId> {
-    let binding = checker.semantic().binding(binding_id);
-    checker
-        .semantic()
-        .function_definitions(&binding.name)
-        .iter()
-        .copied()
-        .filter(|other| *other != binding_id)
-        .filter(|other| {
-            let other_binding = checker.semantic().binding(*other);
-            other_binding.scope == binding.scope
-                && other_binding.span.start.offset > binding.span.start.offset
-        })
-        .flat_map(|other| binding_blocks_for_cfg(cfg, other, unreachable))
-        .collect()
-}
-
-fn blocks_have_path_avoiding(
-    cfg: &shuck_semantic::ControlFlowGraph,
-    starts: &[shuck_semantic::BlockId],
-    ends: &[shuck_semantic::BlockId],
-    avoid: &FxHashSet<shuck_semantic::BlockId>,
-) -> bool {
-    let end_set = ends.iter().copied().collect::<FxHashSet<_>>();
-    starts
-        .iter()
-        .copied()
-        .any(|start| block_reaches_avoiding(cfg, start, &end_set, avoid))
-}
-
-fn block_reaches_avoiding(
-    cfg: &shuck_semantic::ControlFlowGraph,
-    start: shuck_semantic::BlockId,
-    ends: &FxHashSet<shuck_semantic::BlockId>,
-    avoid: &FxHashSet<shuck_semantic::BlockId>,
-) -> bool {
-    if avoid.contains(&start) {
-        return false;
-    }
-
-    let mut stack = vec![start];
-    let mut seen = FxHashSet::default();
-    while let Some(block) = stack.pop() {
-        if !seen.insert(block) {
-            continue;
-        }
-        if ends.contains(&block) {
-            return true;
-        }
-        for (successor, _) in cfg.successors(block) {
-            if !avoid.contains(successor) {
-                stack.push(*successor);
-            }
-        }
-    }
-    false
+    analysis.blocks_have_path_avoiding(&binding_blocks, &call_blocks, &avoid)
 }
 
 fn call_scope_can_execute_after_offset_before_offset(

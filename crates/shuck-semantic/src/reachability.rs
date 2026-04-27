@@ -44,6 +44,51 @@ impl<'model> SemanticAnalysis<'model> {
             .as_slice()
     }
 
+    pub fn reachable_blocks_for_binding(&self, binding_id: BindingId) -> Vec<BlockId> {
+        reachable_blocks_for_binding(self.cfg(), binding_id, self.unreachable_blocks())
+    }
+
+    pub fn shadow_function_blocks_for_binding(&self, binding_id: BindingId) -> FxHashSet<BlockId> {
+        let binding = self.model.binding(binding_id);
+        self.shadow_function_blocks_from_cfg(
+            &binding.name,
+            binding_id,
+            self.cfg(),
+            self.unreachable_blocks(),
+        )
+    }
+
+    pub fn blocks_have_path_avoiding(
+        &self,
+        starts: &[BlockId],
+        ends: &[BlockId],
+        avoid: &FxHashSet<BlockId>,
+    ) -> bool {
+        blocks_have_path_avoiding(self.cfg(), starts, ends, avoid)
+    }
+
+    pub fn scope_runs_in_transient_context(&self, scope: ScopeId) -> bool {
+        self.model.ancestor_scopes(scope).any(|scope_id| {
+            matches!(
+                self.model.scope_kind(scope_id),
+                ScopeKind::Subshell | ScopeKind::CommandSubstitution | ScopeKind::Pipeline
+            )
+        })
+    }
+
+    pub fn call_site_runs_in_transient_context(&self, scope: ScopeId) -> bool {
+        self.scope_runs_in_transient_context(scope)
+    }
+
+    pub fn enclosing_function_scope(&self, scope: ScopeId) -> Option<ScopeId> {
+        self.model.ancestor_scopes(scope).find(|scope_id| {
+            matches!(
+                self.model.scope_kind(*scope_id),
+                ScopeKind::Function(function) if !function.is_anonymous()
+            )
+        })
+    }
+
     fn overwrite_call_site_resolves_to_binding(
         &self,
         name: &Name,
@@ -535,7 +580,7 @@ impl<'model> SemanticAnalysis<'model> {
                         ) && self.call_site_can_execute_after_function_definition(
                             site,
                             function.span.start.offset,
-                        ) && !self.call_site_runs_in_transient_context(site.scope)
+                        ) && !self.scope_runs_in_transient_context(site.scope)
                             && self.call_site_context_can_run_persistently_before_termination(
                                 site,
                                 cfg,
@@ -683,15 +728,6 @@ impl<'model> SemanticAnalysis<'model> {
             visiting_scopes,
             scope_execution_cache,
         )
-    }
-
-    pub(crate) fn call_site_runs_in_transient_context(&self, scope: ScopeId) -> bool {
-        self.model.ancestor_scopes(scope).any(|scope_id| {
-            matches!(
-                self.model.scope_kind(scope_id),
-                ScopeKind::Subshell | ScopeKind::CommandSubstitution | ScopeKind::Pipeline
-            )
-        })
     }
 
     fn function_binding_has_direct_call_before_termination(
@@ -1093,15 +1129,6 @@ impl<'model> SemanticAnalysis<'model> {
             })
             .flat_map(|other| reachable_blocks_for_binding(cfg, other, unreachable))
             .collect()
-    }
-
-    fn enclosing_function_scope(&self, scope: ScopeId) -> Option<ScopeId> {
-        self.model.ancestor_scopes(scope).find(|scope_id| {
-            matches!(
-                self.model.scope_kind(*scope_id),
-                ScopeKind::Function(function) if !function.is_anonymous()
-            )
-        })
     }
 
     fn enclosing_function_or_transient_scope(&self, scope: ScopeId) -> Option<ScopeId> {
