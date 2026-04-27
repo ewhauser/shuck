@@ -3982,6 +3982,44 @@ fn test_parse_pattern_preserves_dynamic_fragments_inside_extglob() {
 }
 
 #[test]
+fn test_parse_pattern_preserves_delimiters_past_group_depth_limit() {
+    let mut nested = "@(a|b)".to_string();
+    for suffix in ["c", "d", "e", "f", "g", "h", "i", "j", "k"] {
+        nested = format!("@({nested}|{suffix})");
+    }
+    let input = format!("[[ value == {nested} ]]\n");
+    let script = Parser::new(&input).parse().unwrap().file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional compound command");
+    };
+    let ConditionalExpr::Binary(binary) = &command.expression else {
+        panic!("expected binary conditional");
+    };
+    let ConditionalExpr::Pattern(pattern) = binary.right.as_ref() else {
+        panic!("expected pattern rhs");
+    };
+    let mut pattern = pattern;
+
+    for suffix in ["k", "j", "i", "h", "g", "f", "e", "d"] {
+        let [
+            PatternPartNode {
+                kind: PatternPart::Group { patterns, .. },
+                ..
+            },
+        ] = pattern.parts.as_slice()
+        else {
+            panic!("expected nested group");
+        };
+        assert_eq!(patterns.len(), 2);
+        assert_eq!(patterns[1].render(&input), suffix);
+        pattern = &patterns[0];
+    }
+    assert_eq!(pattern.render(&input), "@(@(a|b)|c)");
+}
+
+#[test]
 fn test_parse_conditional_regex_rejects_unquoted_right_brace_operand() {
     let input = "[[ { =~ { ]]\n";
     assert!(Parser::new(input).parse().is_err());

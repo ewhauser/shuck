@@ -129,9 +129,14 @@ impl<'a> PatternParser<'a> {
         let mut literal_start: Option<Position> = None;
         let mut literal_end = start;
         let allow_groups = group_depth < Self::MAX_PATTERN_GROUP_DEPTH;
+        let mut unparsed_group_depth = 0usize;
+        let mut pending_unparsed_group_open = false;
 
         while let Some(segment) = self.segments.get(cursor.segment_index) {
-            if stop_at_group_delim && self.peek_group_delimiter(*cursor).is_some() {
+            if stop_at_group_delim
+                && unparsed_group_depth == 0
+                && self.peek_group_delimiter(*cursor).is_some()
+            {
                 break;
             }
 
@@ -208,6 +213,11 @@ impl<'a> PatternParser<'a> {
                         continue;
                     }
 
+                    let starts_unparsed_group = !allow_groups
+                        && stop_at_group_delim
+                        && unparsed_group_depth == 0
+                        && self.starts_unparsed_pattern_group(*cursor);
+                    let was_escaped = self.is_escaped(*cursor);
                     let Some((ch, span)) = self.consume_literal_char(cursor) else {
                         break;
                     };
@@ -216,6 +226,28 @@ impl<'a> PatternParser<'a> {
                     }
                     literal_end = span.end;
                     literal.push(ch);
+                    if !allow_groups && stop_at_group_delim && !was_escaped {
+                        if pending_unparsed_group_open && ch == '(' {
+                            unparsed_group_depth = unparsed_group_depth.saturating_add(1);
+                            pending_unparsed_group_open = false;
+                        } else if unparsed_group_depth > 0 {
+                            match ch {
+                                '(' => {
+                                    unparsed_group_depth = unparsed_group_depth.saturating_add(1)
+                                }
+                                ')' => {
+                                    unparsed_group_depth = unparsed_group_depth.saturating_sub(1)
+                                }
+                                _ => {}
+                            }
+                        } else if starts_unparsed_group {
+                            if ch == '(' {
+                                unparsed_group_depth = unparsed_group_depth.saturating_add(1);
+                            } else {
+                                pending_unparsed_group_open = true;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -337,6 +369,37 @@ impl<'a> PatternParser<'a> {
         }
 
         false
+    }
+
+    fn starts_unparsed_pattern_group(&self, cursor: PatternCursor) -> bool {
+        if self.is_escaped(cursor) {
+            return false;
+        }
+
+        let Some(ch) = self.peek_literal_char(cursor) else {
+            return false;
+        };
+
+        if matches!(
+            self.mode,
+            PatternParseMode::ZshCase | PatternParseMode::ZshConditional
+        ) && ch == '('
+            && self.has_zsh_case_group_separator(cursor)
+        {
+            return true;
+        }
+
+        if !matches!(ch, '?' | '*' | '+' | '@' | '!') {
+            return false;
+        }
+
+        let Some(PatternSegment::Literal { text, .. }) = self.segments.get(cursor.segment_index)
+        else {
+            return false;
+        };
+        let next_offset = cursor.literal_offset + ch.len_utf8();
+        text.get(next_offset..)
+            .is_some_and(|rest| rest.starts_with('('))
     }
 
     fn flush_literal(
