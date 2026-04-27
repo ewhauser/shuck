@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=20`
-- Individual reviewed records classified below: 26 total (`shellcheck-only=16`, `shuck-only=10`).
+- `reviewed_divergences=18`
+- Individual reviewed records classified below: 24 total (`shellcheck-only=14`, `shuck-only=10`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -34,11 +34,9 @@ Resolved records should not remain as reviewed divergences.
 - `juewuy__ShellCrash__scripts__menus__9_upgrade.sh:867:52-62` `${db_type}`
 - `rvm__rvm__scripts__functions__requirements__osx_brew:491:35-51` `${homebrew_repo}`
 
-## [ ] ShellCheck-only: plain command argument (4)
+## [ ] ShellCheck-only: plain command argument (2)
 
 - `RetroPie__RetroPie-Setup__scriptmodules__supplementary__runcommand__runcommand.sh:235:32-38` `$group`
-- `community-scripts__ProxmoxVE__vm__haos-vm.sh:636:23-35` `${DISK_SIZE}`
-- `community-scripts__ProxmoxVE__vm__mikrotik-routeros.sh:655:25-37` `${DISK_SIZE}`
 - `gentoo__gentoo__eclass__tests__toolchain.sh:155:7-13` `${ret}`
 
 ## [ ] ShellCheck-only: test/probe command operand (2)

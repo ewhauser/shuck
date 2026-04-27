@@ -2992,10 +2992,12 @@ impl<'a> SafeValueIndex<'a> {
 
         let mut bindings = Vec::new();
         let mut seen_scopes = FxHashSet::default();
+        let relaxed = !self.span_is_exit_or_return_argument(at);
         self.collect_transitive_helper_bindings_before(
             name,
             self.semantic.scope_at(at.start.offset),
             at.start.offset,
+            relaxed,
             &mut seen_scopes,
             &mut bindings,
         );
@@ -3237,10 +3239,16 @@ impl<'a> SafeValueIndex<'a> {
         name: &Name,
         scope: ScopeId,
         limit_offset: usize,
+        relaxed: bool,
         seen_scopes: &mut FxHashSet<ScopeId>,
         bindings: &mut Vec<BindingId>,
     ) {
-        for callee_scope in self.direct_called_function_scopes_before(scope, limit_offset) {
+        let callee_scopes = if relaxed {
+            self.direct_called_function_scopes_before_relaxed(scope, limit_offset)
+        } else {
+            self.direct_called_function_scopes_before(scope, limit_offset)
+        };
+        for callee_scope in callee_scopes {
             if !seen_scopes.insert(callee_scope) {
                 continue;
             }
@@ -3258,11 +3266,50 @@ impl<'a> SafeValueIndex<'a> {
                     name,
                     callee_scope,
                     limit_offset,
+                    relaxed,
                     seen_scopes,
                     bindings,
                 );
             }
         }
+    }
+
+    fn direct_called_function_scopes_before_relaxed(
+        &self,
+        scope: ScopeId,
+        limit_offset: usize,
+    ) -> Vec<ScopeId> {
+        let mut scopes = Vec::new();
+        let mut seen_scopes = FxHashSet::default();
+
+        for header in self.facts.function_headers() {
+            let Some(callee_scope) = header.function_scope() else {
+                continue;
+            };
+            let Some(function_kind) = self.named_function_kind(callee_scope) else {
+                continue;
+            };
+            let Some(definition_command) = self.facts.function_definition_command(callee_scope)
+            else {
+                continue;
+            };
+
+            let called_before = function_kind.static_names().iter().any(|function_name| {
+                self.semantic.call_sites_for(function_name).iter().any(|site| {
+                    site.scope == scope
+                        && site.span.start.offset < limit_offset
+                        && self.definition_command_resolves_at_call(
+                            definition_command.id(),
+                            site.span,
+                        )
+                })
+            });
+            if called_before && seen_scopes.insert(callee_scope) {
+                scopes.push(callee_scope);
+            }
+        }
+
+        scopes
     }
 
     fn direct_called_function_scopes_before(
@@ -3935,10 +3982,12 @@ impl<'a> SafeValueIndex<'a> {
         self.retain_value_bindings(&mut bindings);
         let mut transitive_helper_bindings = Vec::new();
         let mut seen_scopes = FxHashSet::default();
+        let relaxed = !self.span_is_exit_or_return_argument(at);
         self.collect_transitive_helper_bindings_before(
             name,
             self.semantic.scope_at(at.start.offset),
             at.start.offset,
+            relaxed,
             &mut seen_scopes,
             &mut transitive_helper_bindings,
         );

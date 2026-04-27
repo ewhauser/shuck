@@ -4580,6 +4580,73 @@ fi
     }
 
     #[test]
+    fn reports_top_level_arguments_after_branch_unsafe_helper_calls() {
+        let source = "\
+#!/bin/bash
+DISK_SIZE=\"32G\"
+
+advanced_settings() {
+  DISK_SIZE=\"$(get_size)\"
+}
+
+start_script() {
+  if choose; then
+    :
+  else
+    advanced_settings
+  fi
+}
+
+start_script
+qm resize 100 scsi0 ${DISK_SIZE}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${DISK_SIZE}"]
+        );
+    }
+
+    #[test]
+    fn reports_top_level_arguments_after_recursive_unsafe_helper_calls() {
+        let source = "\
+#!/bin/bash
+DISK_SIZE=\"32G\"
+
+advanced_settings() {
+  if choose_again; then
+    advanced_settings
+  fi
+  DISK_SIZE=\"$(get_size)\"
+}
+
+start_script() {
+  if choose; then
+    :
+  else
+    advanced_settings
+  fi
+}
+
+start_script
+qm resize 100 scsi0 ${DISK_SIZE}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${DISK_SIZE}"]
+        );
+    }
+
+    #[test]
     fn reports_helper_initialized_bindings_when_other_callers_skip_the_helper() {
         let source = "\
 #!/bin/bash
