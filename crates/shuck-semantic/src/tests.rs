@@ -383,6 +383,33 @@ printf '%s\\n' \"$scoped\"
 }
 
 #[test]
+fn analysis_maps_function_binding_to_body_scope() {
+    let model = model(
+        "\
+x=1
+f() {
+  :
+}
+",
+    );
+    let function_binding = binding_for_name(&model, "f");
+    let assignment_binding = binding_for_name(&model, "x");
+    let analysis = model.analysis();
+
+    let function_scope = analysis
+        .function_scope_for_binding(function_binding.id)
+        .expect("expected function body scope for function binding");
+    let ScopeKind::Function(function_scope_kind) = model.scope_kind(function_scope) else {
+        panic!("expected function binding to map to a function scope");
+    };
+    assert!(function_scope_kind.contains_name_str("f"));
+    assert_eq!(
+        analysis.function_scope_for_binding(assignment_binding.id),
+        None
+    );
+}
+
+#[test]
 fn zsh_anonymous_functions_create_function_scoped_locals() {
     let source = "function { local scoped=1; echo \"$scoped\" \"$1\"; } arg\necho \"$scoped\"\n";
     let model = model_with_dialect(source, ShellDialect::Zsh);
