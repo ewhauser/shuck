@@ -13,10 +13,10 @@ use shuck_parser::parser::Parser;
 use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile, ZshOptionState};
 
 use crate::{
-    Binding, BindingId, BindingKind, ContractCertainty, FileContract, FunctionContract,
-    FunctionScopeKind, ProvidedBinding, ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel,
-    SourcePathResolver, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution, SpanKey,
-    SyntheticRead, build_semantic_model_base, infer_explicit_parse_dialect_from_source,
+    BindingId, BindingKind, ContractCertainty, FileContract, FunctionContract, FunctionScopeKind,
+    ProvidedBinding, ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel, SourcePathResolver,
+    SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution, SpanKey, SyntheticRead,
+    build_semantic_model_base, infer_explicit_parse_dialect_from_source,
 };
 
 #[derive(Debug, Clone)]
@@ -1062,7 +1062,6 @@ fn resolve_literal_call_args_by_scope(
     model: &SemanticModel,
     calls: &[CallInfo],
 ) -> FxHashMap<ScopeId, Vec<Vec<Option<String>>>> {
-    let function_scopes = function_scopes_by_binding(model.scopes(), model.bindings());
     let mut resolved = FxHashMap::default();
 
     for call in calls {
@@ -1071,7 +1070,12 @@ fn resolve_literal_call_args_by_scope(
         else {
             continue;
         };
-        let Some(callee_scope) = function_scopes.get(&function_binding).copied() else {
+        let Some(callee_scope) = model
+            .recorded_program()
+            .function_body_scopes
+            .get(&function_binding)
+            .copied()
+        else {
             continue;
         };
         resolved
@@ -1081,54 +1085,6 @@ fn resolve_literal_call_args_by_scope(
     }
 
     resolved
-}
-
-fn function_scopes_by_binding(
-    scopes: &[crate::Scope],
-    bindings: &[Binding],
-) -> FxHashMap<BindingId, ScopeId> {
-    let mut bindings_by_parent_and_name: FxHashMap<(ScopeId, Name), Vec<BindingId>> =
-        FxHashMap::default();
-    for binding in bindings {
-        if matches!(binding.kind, crate::BindingKind::FunctionDefinition) {
-            bindings_by_parent_and_name
-                .entry((binding.scope, binding.name.clone()))
-                .or_default()
-                .push(binding.id);
-        }
-    }
-    for binding_ids in bindings_by_parent_and_name.values_mut() {
-        binding_ids.sort_by_key(|binding| bindings[binding.index()].span.start.offset);
-    }
-
-    let mut scopes_by_parent_and_name: FxHashMap<(ScopeId, Name), Vec<ScopeId>> =
-        FxHashMap::default();
-    for scope in scopes {
-        if let ScopeKind::Function(FunctionScopeKind::Named(names)) = &scope.kind
-            && let Some(parent) = scope.parent
-        {
-            for name in names {
-                scopes_by_parent_and_name
-                    .entry((parent, name.clone()))
-                    .or_default()
-                    .push(scope.id);
-            }
-        }
-    }
-    for scope_ids in scopes_by_parent_and_name.values_mut() {
-        scope_ids.sort_by_key(|scope| scopes[scope.index()].span.start.offset);
-    }
-
-    let mut function_scopes = FxHashMap::default();
-    for (key, binding_ids) in bindings_by_parent_and_name {
-        let Some(scope_ids) = scopes_by_parent_and_name.get(&key) else {
-            continue;
-        };
-        for (binding_id, scope_id) in binding_ids.into_iter().zip(scope_ids.iter().copied()) {
-            function_scopes.insert(binding_id, scope_id);
-        }
-    }
-    function_scopes
 }
 
 fn visible_function_binding(

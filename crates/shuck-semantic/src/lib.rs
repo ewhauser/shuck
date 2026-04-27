@@ -1153,6 +1153,7 @@ impl SemanticModel {
             self_referential_assignment_refs: &self.self_referential_assignment_refs,
             resolved: &self.resolved,
             call_sites: &self.call_sites,
+            function_body_scopes: &self.recorded_program.function_body_scopes,
             indirect_targets_by_reference: &self.indirect_targets_by_reference,
             array_like_indirect_expansion_refs: &self.array_like_indirect_expansion_refs,
             synthetic_reads: &self.synthetic_reads,
