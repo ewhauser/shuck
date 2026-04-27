@@ -4,7 +4,6 @@ use shuck_ast::Span;
 use smallvec::SmallVec;
 
 use crate::runtime::RuntimePrelude;
-use crate::scope::ancestor_scopes;
 use crate::{
     Binding, BindingAttributes, BindingId, BindingKind, BlockId, CallSite, ContractCertainty,
     ControlFlowGraph, EdgeKind, ProvidedBinding, ProvidedBindingKind, Reference, ReferenceId,

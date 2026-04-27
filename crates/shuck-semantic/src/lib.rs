@@ -1181,6 +1181,16 @@ impl SemanticModel {
         }
     }
 
+    pub(crate) fn visible_function_binding(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        offset: usize,
+    ) -> Option<BindingId> {
+        self.function_binding_lookup()
+            .visible_function_binding(name, scope, offset)
+    }
+
     fn unconditional_function_bindings(&self) -> &FxHashSet<BindingId> {
         self.unconditional_function_bindings.get_or_init(|| {
             cfg::collect_unconditional_function_bindings(

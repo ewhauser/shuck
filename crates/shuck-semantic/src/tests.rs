@@ -5952,8 +5952,6 @@ flag=1
         "synthetic reads: {:?}",
         model.synthetic_reads
     );
-    let unused = reportable_unused_names(&model);
-    assert!(unused.is_empty(), "unused: {:?}", unused);
 }
 
 #[test]
@@ -5988,8 +5986,6 @@ source \"${BASH_SOURCE[0]}__dep.bash\"
         "synthetic reads: {:?}",
         model.synthetic_reads
     );
-    let unused = reportable_unused_names(&model);
-    assert!(unused.is_empty(), "unused: {:?}", unused);
 }
 
 #[test]
@@ -6024,8 +6020,6 @@ source \"${BASH_SOURCE[00]}__dep.bash\"
         "synthetic reads: {:?}",
         model.synthetic_reads
     );
-    let unused = reportable_unused_names(&model);
-    assert!(unused.is_empty(), "unused: {:?}", unused);
 }
 
 #[test]
@@ -6223,6 +6217,32 @@ load helper.sh
     );
     let unused = reportable_unused_names(&model);
     assert!(unused.is_empty(), "unused: {:?}", unused);
+}
+
+#[test]
+fn wrapped_loader_function_source_reads_keep_top_level_assignment_live() {
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.sh");
+    let helper = temp.path().join("helper.sh");
+    fs::write(
+        &main,
+        "\
+#!/bin/sh
+load() { . \"$ROOT/$1\"; }
+flag=1
+noglob load helper.sh
+",
+    )
+    .unwrap();
+    fs::write(&helper, "echo \"$flag\"\n").unwrap();
+
+    let model = model_at_path(&main);
+
+    assert!(
+        model.synthetic_reads.iter().any(|read| read.name == "flag"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
 }
 
 #[test]

@@ -613,7 +613,6 @@ struct CallInfo {
     name: Name,
     scope: ScopeId,
     span: Span,
-    name_span: Span,
     args: Vec<Option<String>>,
 }
 
@@ -653,20 +652,10 @@ fn collect_ast_facts(model: &SemanticModel) -> AstFacts {
 
         let name = Name::from(name);
         let is_source_builtin = matches!(name.as_str(), "source" | ".");
-        let call_site = model.call_sites_for(&name).iter().find(|site| {
-            site.span == command.span
-                || program
-                    .call_command_spans
-                    .get(&SpanKey::new(site.span))
-                    .is_some_and(|span| *span == command.span)
-        });
         facts.calls.push(CallInfo {
             name,
-            scope: call_site
-                .map(|site| site.scope)
-                .unwrap_or_else(|| model.scope_at(command.span.start.offset)),
+            scope: model.scope_at(command.span.start.offset),
             span: command.span,
-            name_span: call_site.map(|site| site.name_span).unwrap_or(command.span),
             args: info.static_args.to_vec(),
         });
 
@@ -1076,10 +1065,8 @@ fn resolve_literal_call_args_by_scope(
     let mut resolved = FxHashMap::default();
 
     for call in calls {
-        let Some(function_binding) = model
-            .visible_function_call_bindings()
-            .get(&SpanKey::new(call.name_span))
-            .copied()
+        let Some(function_binding) =
+            model.visible_function_binding(&call.name, call.scope, call.span.start.offset)
         else {
             continue;
         };
@@ -1465,14 +1452,30 @@ outer() {
         let facts = collect_ast_facts(&model);
         let args_by_scope = resolve_literal_call_args_by_scope(&model, &facts.calls);
         let name = Name::from("load_helper");
-        let call = facts
-            .calls
-            .iter()
-            .find(|call| call.name == name)
-            .expect("expected call info");
-        let call_site = &model.call_sites_for(&name)[0];
-        assert_eq!(call.scope, call_site.scope);
-        assert_eq!(call.name_span, call_site.name_span);
+        let binding = model.function_definitions(&name)[0];
+        let scope = model
+            .analysis()
+            .function_scope_for_binding(binding)
+            .expect("expected function scope");
+
+        assert_eq!(
+            args_by_scope.get(&scope),
+            Some(&vec![vec![Some("./helper.sh".to_owned())]])
+        );
+    }
+
+    #[test]
+    fn resolve_literal_call_args_by_scope_tracks_wrapper_expanded_calls() {
+        let source = "\
+load_helper() { . \"$1\"; }
+noglob load_helper ./helper.sh
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build(&output.file, source, &indexer);
+        let facts = collect_ast_facts(&model);
+        let args_by_scope = resolve_literal_call_args_by_scope(&model, &facts.calls);
+        let name = Name::from("load_helper");
         let binding = model.function_definitions(&name)[0];
         let scope = model
             .analysis()
