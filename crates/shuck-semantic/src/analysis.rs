@@ -74,7 +74,7 @@ impl<'model> SemanticAnalysis<'model> {
             bindings: &self.model.bindings,
             call_sites: &self.model.call_sites,
             unconditional_function_bindings: self.unconditional_function_bindings(),
-            function_bindings_by_scope: self.function_bindings_by_scope(),
+            function_bindings_by_scope: self.function_binding_scope_index(),
         }
     }
 
@@ -95,9 +95,16 @@ impl<'model> SemanticAnalysis<'model> {
         })
     }
 
-    fn function_bindings_by_scope(&self) -> &FxHashMap<ScopeId, SmallVec<[BindingId; 2]>> {
+    fn function_binding_scope_index(&self) -> &FxHashMap<ScopeId, SmallVec<[BindingId; 2]>> {
         self.function_bindings_by_scope
             .get_or_init(|| cfg::function_bindings_by_scope(&self.model.recorded_program))
+    }
+
+    #[doc(hidden)]
+    pub fn function_bindings_by_scope(&self) -> impl Iterator<Item = (ScopeId, &[BindingId])> + '_ {
+        self.function_binding_scope_index()
+            .iter()
+            .map(|(scope, bindings)| (*scope, bindings.as_slice()))
     }
 
     #[doc(hidden)]
