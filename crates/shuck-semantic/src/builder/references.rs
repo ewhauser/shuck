@@ -143,7 +143,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             return None;
         }
 
-        let (line_start_offset, line) = source_line(self.source, span.start.line)?;
+        let (line_start_offset, line) =
+            source_line(self.source, &self.line_start_offsets, span.start.line)?;
         let name = name.as_str();
         let mut best = None::<(usize, usize, usize)>;
         for (start, _) in line.match_indices('$') {
@@ -173,7 +174,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         needle: &str,
         span: Span,
     ) -> Option<Span> {
-        let (line_start_offset, line) = source_line(self.source, span.start.line)?;
+        let (line_start_offset, line) =
+            source_line(self.source, &self.line_start_offsets, span.start.line)?;
         let mut best = None::<(usize, usize, usize)>;
         let name = needle.strip_prefix("${").unwrap_or(needle);
         for (start, _) in line.match_indices(needle) {

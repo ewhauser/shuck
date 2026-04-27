@@ -2325,25 +2325,19 @@ fn braced_parameter_end_offset(
     None
 }
 
-fn source_line(source: &str, target_line: usize) -> Option<(usize, &str)> {
-    if target_line == 0 {
-        return None;
-    }
-
-    let mut line_start = 0;
-    for (index, line) in source.split_inclusive('\n').enumerate() {
-        let line_number = index + 1;
-        if line_number == target_line {
-            let line = line.strip_suffix('\n').unwrap_or(line);
-            let line = line.strip_suffix('\r').unwrap_or(line);
-            return Some((line_start, line));
-        }
-        line_start += line.len();
-    }
-
-    if target_line == source.split_inclusive('\n').count() + 1 && line_start == source.len() {
-        return Some((line_start, ""));
-    }
-
-    None
+fn source_line<'a>(
+    source: &'a str,
+    line_start_offsets: &[usize],
+    target_line: usize,
+) -> Option<(usize, &'a str)> {
+    let line_index = target_line.checked_sub(1)?;
+    let line_start = *line_start_offsets.get(line_index)?;
+    let line_end = line_start_offsets
+        .get(line_index + 1)
+        .copied()
+        .unwrap_or(source.len());
+    let line = source.get(line_start..line_end)?;
+    let line = line.strip_suffix('\n').unwrap_or(line);
+    let line = line.strip_suffix('\r').unwrap_or(line);
+    Some((line_start, line))
 }
