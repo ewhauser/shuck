@@ -45,6 +45,7 @@ pub(super) struct PresenceTestedNames {
 #[cfg_attr(shuck_profiling, inline(never))]
 pub(super) fn build_presence_tested_names(
     commands: &[CommandFact<'_>],
+    command_offset_order: &CommandOffsetOrder,
     source: &str,
     semantic: &SemanticModel,
 ) -> PresenceTestedNames {
@@ -54,7 +55,8 @@ pub(super) fn build_presence_tested_names(
     let mut c006_nested_command_spans_by_name = FxHashMap::<Name, Vec<Span>>::default();
     let mut references_by_name = FxHashMap::<Name, Vec<PresenceTestReferenceFact>>::default();
     let mut names_by_name = FxHashMap::<Name, Vec<PresenceTestNameFact>>::default();
-    let outermost_nested_scopes = build_outermost_nested_presence_scopes(commands);
+    let outermost_nested_scopes =
+        build_outermost_nested_presence_scopes(commands, command_offset_order);
     let mut command_names = FxHashSet::default();
     let mut c006_command_names = FxHashSet::default();
     let mut command_reference_ids = FxHashSet::default();
@@ -138,37 +140,33 @@ pub(super) fn build_presence_tested_names(
         }
     }
 
+    // Commands are visited in preorder, so per-name vecs are already sorted by
+    // (command_span.start, command_span.end) for these three maps. references_by_name
+    // is the only one that needs a sort because per-command refs come out of a
+    // FxHashSet drain in non-deterministic order.
     for spans in nested_command_spans_by_name.values_mut() {
-        spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+        debug_assert!(spans.is_sorted_by_key(|span| (span.start.offset, span.end.offset)));
         spans.dedup();
     }
     for spans in c006_nested_command_spans_by_name.values_mut() {
-        spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+        debug_assert!(spans.is_sorted_by_key(|span| (span.start.offset, span.end.offset)));
         spans.dedup();
     }
 
-    for references in references_by_name.values_mut() {
-        references.sort_unstable_by_key(|fact| {
-            let reference = semantic.reference(fact.reference_id());
-            (
-                fact.command_span().start.offset,
-                fact.command_span().end.offset,
-                reference.span.start.offset,
-                reference.span.end.offset,
-            )
-        });
-        references.dedup();
-    }
+    // references_by_name consumers all iterate the full vec (and build derived
+    // structures via min_by_key / HashSets), so within-vec order is not observed.
+    // Each (command, reference_id) pair is pushed at most once because
+    // command_reference_ids is a FxHashSet, so we don't need dedup either.
 
     for names in names_by_name.values_mut() {
-        names.sort_unstable_by_key(|fact| {
+        debug_assert!(names.is_sorted_by_key(|fact| {
             (
                 fact.command_span().start.offset,
                 fact.command_span().end.offset,
                 fact.tested_span().start.offset,
                 fact.tested_span().end.offset,
             )
-        });
+        }));
         names.dedup();
     }
 
@@ -182,20 +180,17 @@ pub(super) fn build_presence_tested_names(
     }
 }
 
-fn build_outermost_nested_presence_scopes(commands: &[CommandFact<'_>]) -> Vec<Option<Span>> {
-    let mut ordered_commands = commands.iter().map(CommandFact::id).collect::<Vec<_>>();
-    ordered_commands.sort_unstable_by(|left, right| {
-        compare_command_offset_entries(
-            command_offset_entry(commands, *left),
-            command_offset_entry(commands, *right),
-        )
-    });
-
+fn build_outermost_nested_presence_scopes(
+    commands: &[CommandFact<'_>],
+    command_offset_order: &CommandOffsetOrder,
+) -> Vec<Option<Span>> {
     let mut outermost_scopes = vec![None; commands.len()];
     let mut active_nested_scopes = Vec::<Span>::new();
-    for id in ordered_commands {
+    for index in 0..commands.len() {
+        let (span, id) = command_offset_order
+            .entry(commands, index)
+            .expect("command_offset_order index in range");
         let command = command_fact(commands, id);
-        let span = command.span();
         let is_nested = command.is_nested_word_command();
         pop_finished_nested_presence_scopes(&mut active_nested_scopes, span.start.offset);
         outermost_scopes[id.index()] = active_nested_scopes
