@@ -6,9 +6,9 @@ use smallvec::SmallVec;
 use crate::runtime::RuntimePrelude;
 use crate::{
     Binding, BindingAttributes, BindingId, BindingKind, BlockId, CallSite, ContractCertainty,
-    ControlFlowGraph, EdgeKind, FunctionScopeKind, ProvidedBinding, ProvidedBindingKind, Reference,
-    ReferenceId, ReferenceKind, Scope, ScopeId, ScopeKind, SpanKey, SyntheticRead,
-    UnreachableCauseKind, UnusedAssignmentAnalysisOptions,
+    ControlFlowGraph, EdgeKind, ProvidedBinding, ProvidedBindingKind, Reference, ReferenceId,
+    ReferenceKind, Scope, ScopeId, ScopeKind, SpanKey, SyntheticRead, UnreachableCauseKind,
+    UnusedAssignmentAnalysisOptions,
 };
 use std::sync::OnceLock;
 
@@ -76,6 +76,7 @@ pub(crate) struct DataflowContext<'a> {
     pub(crate) self_referential_assignment_refs: &'a FxHashSet<ReferenceId>,
     pub(crate) resolved: &'a FxHashMap<ReferenceId, BindingId>,
     pub(crate) call_sites: &'a FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    pub(crate) function_body_scopes: &'a FxHashMap<BindingId, ScopeId>,
     pub(crate) indirect_targets_by_reference: &'a FxHashMap<ReferenceId, Vec<BindingId>>,
     pub(crate) array_like_indirect_expansion_refs: &'a FxHashSet<ReferenceId>,
     pub(crate) synthetic_reads: &'a [SyntheticRead],
@@ -537,6 +538,7 @@ fn analyze_unused_assignments_exact(
         &reference_name_ids,
         &synthetic_read_name_ids,
         context.call_sites,
+        context.function_body_scopes,
         exact.names.len(),
     );
     let transitive_reads =
@@ -1224,8 +1226,7 @@ fn build_unused_assignment_events(
         }
     }
 
-    let function_scopes = function_scopes_by_binding(context.scopes, context.bindings);
-    for (binding_id, scope_id) in function_scopes {
+    for (&binding_id, &scope_id) in context.function_body_scopes {
         let Some(block_id) = exact.binding_blocks[binding_id.index()] else {
             continue;
         };
@@ -2200,10 +2201,11 @@ fn build_scope_read_plans(
     reference_name_ids: &[NameId],
     synthetic_read_name_ids: &[NameId],
     call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    function_body_scopes: &FxHashMap<BindingId, ScopeId>,
     name_count: usize,
 ) -> (Vec<ScopeReadPlan>, Vec<Vec<CallerReadSite>>) {
-    let function_scopes = function_scopes_by_binding(scopes, bindings);
-    let calls_by_scope = resolved_calls_by_scope(scopes, bindings, call_sites, &function_scopes);
+    let calls_by_scope =
+        resolved_calls_by_scope(scopes, bindings, call_sites, function_body_scopes);
     let mut plans = scopes
         .iter()
         .map(|scope| ScopeReadPlan::new(name_count, matches!(scope.kind, ScopeKind::Function(_))))
@@ -2629,54 +2631,6 @@ fn function_binding_certainty(binding: &Binding) -> Option<ContractCertainty> {
         }
         _ => None,
     }
-}
-
-fn function_scopes_by_binding(
-    scopes: &[Scope],
-    bindings: &[Binding],
-) -> FxHashMap<BindingId, ScopeId> {
-    let mut bindings_by_parent_and_name: FxHashMap<(ScopeId, Name), Vec<BindingId>> =
-        FxHashMap::default();
-    for binding in bindings {
-        if matches!(binding.kind, BindingKind::FunctionDefinition) {
-            bindings_by_parent_and_name
-                .entry((binding.scope, binding.name.clone()))
-                .or_default()
-                .push(binding.id);
-        }
-    }
-    for binding_ids in bindings_by_parent_and_name.values_mut() {
-        binding_ids.sort_by_key(|binding| bindings[binding.index()].span.start.offset);
-    }
-
-    let mut scopes_by_parent_and_name: FxHashMap<(ScopeId, Name), Vec<ScopeId>> =
-        FxHashMap::default();
-    for scope in scopes {
-        if let ScopeKind::Function(FunctionScopeKind::Named(names)) = &scope.kind
-            && let Some(parent) = scope.parent
-        {
-            for name in names {
-                scopes_by_parent_and_name
-                    .entry((parent, name.clone()))
-                    .or_default()
-                    .push(scope.id);
-            }
-        }
-    }
-    for scope_ids in scopes_by_parent_and_name.values_mut() {
-        scope_ids.sort_by_key(|scope| scopes[scope.index()].span.start.offset);
-    }
-
-    let mut function_scopes = FxHashMap::default();
-    for (key, binding_ids) in bindings_by_parent_and_name {
-        let Some(scope_ids) = scopes_by_parent_and_name.get(&key) else {
-            continue;
-        };
-        for (binding_id, scope_id) in binding_ids.into_iter().zip(scope_ids.iter().copied()) {
-            function_scopes.insert(binding_id, scope_id);
-        }
-    }
-    function_scopes
 }
 
 fn resolved_calls_by_scope(
