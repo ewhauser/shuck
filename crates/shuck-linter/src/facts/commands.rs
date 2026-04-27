@@ -688,7 +688,7 @@ fn populate_scope_fact_ranges<'a>(
         if_condition_command_ids,
         source,
     };
-    let mut scratch = ScopeFactScratch::default();
+    let mut scratch = ScopeAccessInventory::default();
 
     for index in 0..commands.len() {
         populate_scope_fact_ranges_for_command(index, commands, fact_store, inputs, &mut scratch);
@@ -704,7 +704,7 @@ struct ScopeFactInputs<'facts, 'a> {
 }
 
 #[derive(Default)]
-struct ScopeFactScratch<'a> {
+struct ScopeAccessInventory<'a> {
     source_words: Vec<PathWordFact<'a>>,
     name_reads: Vec<ComparableNameUse>,
     heredoc_name_reads: Vec<ComparableNameUse>,
@@ -717,43 +717,21 @@ fn populate_scope_fact_ranges_for_command<'a>(
     commands: &mut [CommandFact<'a>],
     fact_store: &mut FactStore<'a>,
     inputs: ScopeFactInputs<'_, 'a>,
-    scratch: &mut ScopeFactScratch<'a>,
+    scratch: &mut ScopeAccessInventory<'a>,
 ) {
     {
         let command_facts = CommandFacts::new(commands, fact_store);
         let command = command_facts
             .get(index)
             .expect("command index should resolve while populating scope facts");
-        collect_scope_read_source_words_for_command(
+        build_scope_access_inventory_for_command(
             command_facts,
             command,
             inputs.pipeline_summaries,
             &inputs.pipeline_summary_ids_by_writer[index],
             inputs.if_condition_command_ids,
             inputs.source,
-            &mut scratch.source_words,
-        );
-        collect_scope_name_read_uses_for_command(
-            command_facts,
-            command,
-            inputs.pipeline_summaries,
-            &inputs.pipeline_summary_ids_by_writer[index],
-            inputs.source,
-            &mut scratch.name_reads,
-        );
-        collect_scope_heredoc_name_read_uses_for_command(
-            command_facts,
-            command,
-            inputs.pipeline_summaries,
-            &inputs.pipeline_summary_ids_by_writer[index],
-            inputs.source,
-            &mut scratch.heredoc_name_reads,
-        );
-        collect_scope_name_write_uses_for_command(
-            command_facts,
-            command,
-            inputs.source,
-            &mut scratch.name_writes,
+            scratch,
         );
     }
 
@@ -837,93 +815,67 @@ fn build_pipeline_scope_summaries<'a>(
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn collect_scope_read_source_words_for_command<'a>(
+fn build_scope_access_inventory_for_command<'a>(
     commands: CommandFacts<'_, 'a>,
     command: CommandFactRef<'_, 'a>,
     pipeline_summaries: &[PipelineScopeSummary<'a>],
     pipeline_summary_ids: &[usize],
     if_condition_command_ids: &FxHashSet<CommandId>,
     source: &str,
-    words: &mut Vec<PathWordFact<'a>>,
+    inventory: &mut ScopeAccessInventory<'a>,
 ) {
-    collect_own_scope_read_source_words(command, if_condition_command_ids, source, words);
-    if command_has_file_output_redirect(command) {
-        collect_nested_scope_read_source_words(
-            commands,
-            command,
-            if_condition_command_ids,
-            source,
-            words,
-        );
-        for summary_id in pipeline_summary_ids {
-            words.extend(
-                pipeline_summaries[*summary_id]
-                    .source_words
-                    .iter()
-                    .cloned(),
+    collect_own_scope_read_source_words(
+        command,
+        if_condition_command_ids,
+        source,
+        &mut inventory.source_words,
+    );
+    collect_own_scope_name_read_uses(command, source, &mut inventory.name_reads);
+    collect_own_scope_heredoc_name_read_uses(command, source, &mut inventory.heredoc_name_reads);
+    collect_own_scope_name_write_uses(command, source, &mut inventory.name_writes);
+
+    let has_file_output_redirect = command_has_file_output_redirect(command);
+    let has_file_input_redirect = command_has_file_input_redirect(command);
+
+    if has_file_output_redirect || has_file_input_redirect {
+        for other in commands.iter().filter(|other| {
+            other.id() != command.id() && contains_span(command.span(), other.span())
+        }) {
+            if has_file_output_redirect {
+                collect_own_scope_read_source_words(
+                    other,
+                    if_condition_command_ids,
+                    source,
+                    &mut inventory.source_words,
+                );
+                collect_own_scope_name_read_uses(other, source, &mut inventory.name_reads);
+            }
+            collect_own_scope_heredoc_name_read_uses(
+                other,
+                source,
+                &mut inventory.heredoc_name_reads,
             );
+            if has_file_input_redirect {
+                collect_own_scope_name_write_uses(other, source, &mut inventory.name_writes);
+            }
         }
     }
-    dedup_path_words(words);
-}
 
-#[cfg_attr(shuck_profiling, inline(never))]
-fn collect_scope_name_read_uses_for_command(
-    commands: CommandFacts<'_, '_>,
-    command: CommandFactRef<'_, '_>,
-    pipeline_summaries: &[PipelineScopeSummary<'_>],
-    pipeline_summary_ids: &[usize],
-    source: &str,
-    uses: &mut Vec<ComparableNameUse>,
-) {
-    collect_own_scope_name_read_uses(command, source, uses);
-    if command_has_file_output_redirect(command) {
-        collect_nested_scope_name_read_uses(commands, command, source, uses);
+    if has_file_output_redirect {
         for summary_id in pipeline_summary_ids {
-            uses.extend(pipeline_summaries[*summary_id].name_reads.iter().cloned());
+            let summary = &pipeline_summaries[*summary_id];
+            inventory.source_words.extend(summary.source_words.iter().cloned());
+            inventory.name_reads.extend(summary.name_reads.iter().cloned());
+            inventory
+                .heredoc_name_reads
+                .extend(summary.heredoc_name_reads.iter().cloned());
         }
     }
-    dedup_name_uses(uses);
-}
 
-#[cfg_attr(shuck_profiling, inline(never))]
-fn collect_scope_heredoc_name_read_uses_for_command(
-    commands: CommandFacts<'_, '_>,
-    command: CommandFactRef<'_, '_>,
-    pipeline_summaries: &[PipelineScopeSummary<'_>],
-    pipeline_summary_ids: &[usize],
-    source: &str,
-    uses: &mut Vec<ComparableNameUse>,
-) {
-    collect_own_scope_heredoc_name_read_uses(command, source, uses);
-    if command_has_file_output_redirect(command) || command_has_file_input_redirect(command) {
-        collect_nested_scope_heredoc_name_read_uses(commands, command, source, uses);
-    }
-    if command_has_file_output_redirect(command) {
-        for summary_id in pipeline_summary_ids {
-            uses.extend(
-                pipeline_summaries[*summary_id]
-                    .heredoc_name_reads
-                    .iter()
-                    .cloned(),
-            );
-        }
-    }
-    dedup_name_uses(uses);
-}
-
-#[cfg_attr(shuck_profiling, inline(never))]
-fn collect_scope_name_write_uses_for_command(
-    commands: CommandFacts<'_, '_>,
-    command: CommandFactRef<'_, '_>,
-    source: &str,
-    uses: &mut Vec<ComparableNameUse>,
-) {
-    collect_own_scope_name_write_uses(command, source, uses);
-    if command_has_file_input_redirect(command) {
-        collect_nested_scope_name_write_uses(commands, command, source, uses);
-    }
-    dedup_name_uses(uses);
+    dedup_path_words(&mut inventory.source_words);
+    dedup_name_uses(&mut inventory.name_reads);
+    dedup_name_uses(&mut inventory.heredoc_name_reads);
+    dedup_name_uses(&mut inventory.name_writes);
 }
 
 fn collect_own_scope_read_source_words<'a>(
@@ -1002,63 +954,6 @@ fn collect_own_scope_name_write_uses(
 ) {
     if let Some(read) = command.options().read() {
         uses.extend(read.target_name_uses().iter().cloned());
-    }
-}
-
-fn collect_nested_scope_read_source_words<'a>(
-    commands: CommandFacts<'_, 'a>,
-    command: CommandFactRef<'_, 'a>,
-    if_condition_command_ids: &FxHashSet<CommandId>,
-    source: &str,
-    words: &mut Vec<PathWordFact<'a>>,
-) {
-    for other in commands
-        .iter()
-        .filter(|other| other.id() != command.id() && contains_span(command.span(), other.span()))
-    {
-        collect_own_scope_read_source_words(other, if_condition_command_ids, source, words);
-    }
-}
-
-fn collect_nested_scope_name_read_uses(
-    commands: CommandFacts<'_, '_>,
-    command: CommandFactRef<'_, '_>,
-    source: &str,
-    uses: &mut Vec<ComparableNameUse>,
-) {
-    for other in commands
-        .iter()
-        .filter(|other| other.id() != command.id() && contains_span(command.span(), other.span()))
-    {
-        collect_own_scope_name_read_uses(other, source, uses);
-    }
-}
-
-fn collect_nested_scope_heredoc_name_read_uses(
-    commands: CommandFacts<'_, '_>,
-    command: CommandFactRef<'_, '_>,
-    source: &str,
-    uses: &mut Vec<ComparableNameUse>,
-) {
-    for other in commands
-        .iter()
-        .filter(|other| other.id() != command.id() && contains_span(command.span(), other.span()))
-    {
-        collect_own_scope_heredoc_name_read_uses(other, source, uses);
-    }
-}
-
-fn collect_nested_scope_name_write_uses(
-    commands: CommandFacts<'_, '_>,
-    command: CommandFactRef<'_, '_>,
-    source: &str,
-    uses: &mut Vec<ComparableNameUse>,
-) {
-    for other in commands
-        .iter()
-        .filter(|other| other.id() != command.id() && contains_span(command.span(), other.span()))
-    {
-        collect_own_scope_name_write_uses(other, source, uses);
     }
 }
 
