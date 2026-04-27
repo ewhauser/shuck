@@ -1182,6 +1182,7 @@ for file in $(printf '%s\\n' one two) \"$(command find . -type f)\" literal; do 
 select choice in $(printf '%s\\n' a b) \"$(find . -type f)\" literal; do :; done
 printf '%s\\n' 123 |& command kill -9 | tee out.txt
 summary=$(printf '%s\\n' 456 | kill -TERM)
+! printf '%s\\n' neg | cat
 echo \"$(for nested in $(printf nested); do :; done)\"
 true && false || printf '%s\\n' fallback
 ";
@@ -1227,6 +1228,7 @@ true && false || printf '%s\\n' fallback
             vec![
                 vec!["printf".to_owned(), "kill".to_owned(), "tee".to_owned()],
                 vec!["printf".to_owned(), "kill".to_owned()],
+                vec!["printf".to_owned(), "cat".to_owned()],
             ]
         );
 

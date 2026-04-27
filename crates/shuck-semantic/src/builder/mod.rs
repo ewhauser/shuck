@@ -26,8 +26,8 @@ use crate::call_graph::{CallGraph, CallSite, build_call_graph};
 use crate::cfg::{
     FlowContext, IsolatedRegion, RecordedCaseArm, RecordedCommand, RecordedCommandId,
     RecordedCommandInfo, RecordedCommandKind, RecordedCommandRange, RecordedElifBranch,
-    RecordedListItem, RecordedListOperator, RecordedPipelineSegment, RecordedProgram,
-    RecordedZshCommandEffect, RecordedZshOptionUpdate,
+    RecordedListItem, RecordedListOperator, RecordedPipelineOperator, RecordedPipelineOperatorKind,
+    RecordedPipelineSegment, RecordedProgram, RecordedZshCommandEffect, RecordedZshOptionUpdate,
 };
 use crate::declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 use crate::reference::{Reference, ReferenceKind};
@@ -2183,25 +2183,54 @@ fn command_span_from_compound(command: &CompoundCommand) -> Span {
     }
 }
 
-fn collect_pipeline_segments<'a>(stmt: &'a Stmt, out: &mut SmallVec<[&'a Stmt; 4]>) {
+struct PipelineSegmentInput<'a> {
+    operator_before: Option<RecordedPipelineOperator>,
+    stmt: &'a Stmt,
+}
+
+fn collect_pipeline_segments<'a>(
+    stmt: &'a Stmt,
+    operator_before: Option<RecordedPipelineOperator>,
+    out: &mut SmallVec<[PipelineSegmentInput<'a>; 4]>,
+) {
     match &stmt.command {
         Command::Binary(command) if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
-            collect_pipeline_segments(&command.left, out);
-            collect_pipeline_segments(&command.right, out);
+            collect_pipeline_segments(&command.left, operator_before, out);
+            collect_pipeline_segments(
+                &command.right,
+                Some(RecordedPipelineOperator {
+                    operator: recorded_pipeline_operator(command.op),
+                    span: command.op_span,
+                }),
+                out,
+            );
         }
-        _ => out.push(stmt),
+        _ => out.push(PipelineSegmentInput {
+            operator_before,
+            stmt,
+        }),
+    }
+}
+
+fn recorded_pipeline_operator(op: BinaryOp) -> RecordedPipelineOperatorKind {
+    match op {
+        BinaryOp::Pipe => RecordedPipelineOperatorKind::Pipe,
+        BinaryOp::PipeAll => RecordedPipelineOperatorKind::PipeAll,
+        BinaryOp::And | BinaryOp::Or => {
+            unreachable!("logical operators are not valid in pipelines")
+        }
     }
 }
 
 fn collect_logical_segments<'a>(
     stmt: &'a Stmt,
     commands: &mut SmallVec<[&'a Stmt; 4]>,
-    operators: &mut SmallVec<[RecordedListOperator; 4]>,
+    operators: &mut SmallVec<[(RecordedListOperator, Span); 4]>,
 ) {
     match &stmt.command {
         Command::Binary(command) if matches!(command.op, BinaryOp::And | BinaryOp::Or) => {
             collect_logical_segments(&command.left, commands, operators);
-            operators.push(recorded_list_operator(command.op));
+            operators.push((recorded_list_operator(command.op), command.op_span));
             collect_logical_segments(&command.right, commands, operators);
         }
         _ => commands.push(stmt),

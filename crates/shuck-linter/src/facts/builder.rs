@@ -529,7 +529,12 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
         let case_pattern_impossible_spans =
             build_case_pattern_impossible_spans(&commands, self.source);
-        let pipelines = build_pipeline_facts(&commands, &command_ids_by_span, &command_child_index);
+        let pipelines = build_pipeline_facts(
+            &commands,
+            self.semantic,
+            &command_ids_by_span,
+            &command_child_index,
+        );
         populate_scope_fact_ranges(
             &mut commands,
             &mut fact_store,

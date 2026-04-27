@@ -334,6 +334,7 @@ pub(crate) struct RecordedCaseArm {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RecordedPipelineSegment {
+    pub(crate) operator_before: Option<RecordedPipelineOperator>,
     pub(crate) scope: ScopeId,
     pub(crate) command: RecordedCommandId,
 }
@@ -341,7 +342,20 @@ pub(crate) struct RecordedPipelineSegment {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RecordedListItem {
     pub(crate) operator: RecordedListOperator,
+    pub(crate) operator_span: Span,
     pub(crate) command: RecordedCommandId,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RecordedPipelineOperator {
+    pub(crate) operator: RecordedPipelineOperatorKind,
+    pub(crate) span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RecordedPipelineOperatorKind {
+    Pipe,
+    PipeAll,
 }
 
 #[derive(Debug, Clone, Copy)]
