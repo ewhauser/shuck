@@ -14,6 +14,31 @@ impl<'model> SemanticAnalysis<'model> {
             .as_slice()
     }
 
+    /// Returns the cached uninitialized-reference certainty for the reference at `span`.
+    #[doc(hidden)]
+    pub fn uninitialized_reference_certainty_at(
+        &self,
+        span: Span,
+    ) -> Option<UninitializedCertainty> {
+        self.uninitialized_reference_certainties()
+            .get(&SpanKey::new(span))
+            .copied()
+    }
+
+    fn uninitialized_reference_certainties(&self) -> &FxHashMap<SpanKey, UninitializedCertainty> {
+        self.uninitialized_reference_certainties.get_or_init(|| {
+            self.uninitialized_references()
+                .iter()
+                .map(|uninitialized| {
+                    (
+                        SpanKey::new(self.model.reference(uninitialized.reference).span),
+                        uninitialized.certainty,
+                    )
+                })
+                .collect()
+        })
+    }
+
     pub(crate) fn reference_for_name_at(&self, name: &Name, at: Span) -> Option<&Reference> {
         let references = self.model.reference_index.get(name)?;
         let first_candidate = references.partition_point(|reference_id| {

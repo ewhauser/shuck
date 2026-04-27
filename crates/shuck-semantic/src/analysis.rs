@@ -14,6 +14,7 @@ impl<'model> SemanticAnalysis<'model> {
             unused_assignments: OnceLock::new(),
             unused_assignments_shellcheck_compat: OnceLock::new(),
             uninitialized_references: OnceLock::new(),
+            uninitialized_reference_certainties: OnceLock::new(),
             dead_code: OnceLock::new(),
             unreachable_blocks: OnceLock::new(),
             overwritten_functions: OnceLock::new(),

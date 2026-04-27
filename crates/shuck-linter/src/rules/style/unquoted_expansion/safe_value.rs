@@ -94,11 +94,6 @@ pub struct SafeValueIndex<'a> {
     analysis: &'a SemanticAnalysis<'a>,
     facts: &'a LinterFacts<'a>,
     source: &'a str,
-    case_cli_reachable_function_scopes: FxHashSet<ScopeId>,
-    definite_uninitialized_refs: FxHashSet<FactSpan>,
-    maybe_uninitialized_refs: FxHashSet<FactSpan>,
-    function_commands_by_span: FxHashMap<FactSpan, crate::facts::CommandId>,
-    commands_by_name_word_span: FxHashMap<FactSpan, crate::facts::CommandId>,
     command_cover_memo: RefCell<FxHashMap<(crate::facts::CommandId, Name, FactSpan), bool>>,
     memo: FxHashMap<(FactSpan, FactSpan, SafeValueQuery, Option<ScopeId>), bool>,
     visiting: FxHashSet<(FactSpan, FactSpan, SafeValueQuery, Option<ScopeId>)>,
@@ -106,6 +101,8 @@ pub struct SafeValueIndex<'a> {
     helper_binding_memo: FxHashMap<(Name, ScopeId, FactSpan), Box<[BindingId]>>,
     helper_binding_visiting: FxHashSet<(Name, ScopeId, FactSpan)>,
     s001_unset_before_call_memo: FxHashMap<ScopeId, bool>,
+    #[cfg(test)]
+    uninitialized_reference_overrides: FxHashMap<FactSpan, UninitializedCertainty>,
 }
 
 impl<'a> SafeValueIndex<'a> {
@@ -115,40 +112,11 @@ impl<'a> SafeValueIndex<'a> {
         facts: &'a LinterFacts<'a>,
         source: &'a str,
     ) -> Self {
-        let definite_uninitialized_refs = analysis
-            .uninitialized_references()
-            .iter()
-            .filter(|uninitialized| uninitialized.certainty == UninitializedCertainty::Definite)
-            .map(|uninitialized| FactSpan::new(semantic.reference(uninitialized.reference).span))
-            .collect();
-        let maybe_uninitialized_refs = analysis
-            .uninitialized_references()
-            .iter()
-            .filter(|uninitialized| uninitialized.certainty == UninitializedCertainty::Possible)
-            .map(|uninitialized| FactSpan::new(semantic.reference(uninitialized.reference).span))
-            .collect();
-        let case_cli_reachable_function_scopes =
-            build_case_cli_reachable_function_scopes(semantic, facts);
-        let mut function_commands_by_span = FxHashMap::default();
-        let mut commands_by_name_word_span = FxHashMap::default();
-        for command in facts.commands() {
-            if let Command::Function(function) = command.command() {
-                function_commands_by_span.insert(FactSpan::new(function.span), command.id());
-            }
-            if let Some(name_word) = command.body_name_word() {
-                commands_by_name_word_span.insert(FactSpan::new(name_word.span), command.id());
-            }
-        }
         Self {
             semantic,
             analysis,
             facts,
             source,
-            case_cli_reachable_function_scopes,
-            definite_uninitialized_refs,
-            maybe_uninitialized_refs,
-            function_commands_by_span,
-            commands_by_name_word_span,
             command_cover_memo: RefCell::new(FxHashMap::default()),
             memo: FxHashMap::default(),
             visiting: FxHashSet::default(),
@@ -156,6 +124,8 @@ impl<'a> SafeValueIndex<'a> {
             helper_binding_memo: FxHashMap::default(),
             helper_binding_visiting: FxHashSet::default(),
             s001_unset_before_call_memo: FxHashMap::default(),
+            #[cfg(test)]
+            uninitialized_reference_overrides: FxHashMap::default(),
         }
     }
 
@@ -245,6 +215,30 @@ impl<'a> SafeValueIndex<'a> {
             .all(|(part, span)| self.part_is_safe(part, span, query))
     }
 
+    fn uninitialized_reference_certainty_at(&self, span: Span) -> Option<UninitializedCertainty> {
+        #[cfg(test)]
+        if let Some(certainty) = self
+            .uninitialized_reference_overrides
+            .get(&FactSpan::new(span))
+            .copied()
+        {
+            return Some(certainty);
+        }
+
+        self.analysis.uninitialized_reference_certainty_at(span)
+    }
+
+    #[cfg(test)]
+    fn override_uninitialized_reference_certainty(
+        &mut self,
+        span: Span,
+        certainty: UninitializedCertainty,
+    ) {
+        self.uninitialized_reference_overrides
+            .insert(FactSpan::new(span), certainty);
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn word_occurrence_is_safe(
         &mut self,
         fact: crate::WordOccurrenceRef<'_, 'a>,
@@ -549,17 +543,6 @@ impl<'a> SafeValueIndex<'a> {
         false
     }
 
-    fn span_is_inside_command_substitution_scope(&self, span: Span) -> bool {
-        self.semantic
-            .ancestor_scopes(self.semantic.scope_at(span.start.offset))
-            .any(|scope| {
-                matches!(
-                    self.semantic.scope(scope).kind,
-                    ScopeKind::CommandSubstitution
-                )
-            })
-    }
-
     fn literal_part_is_safe(&self, part: &WordPart, span: Span, query: SafeValueQuery) -> bool {
         let word = Word {
             parts: vec![WordPartNode::new(part.clone(), span)],
@@ -788,31 +771,32 @@ impl<'a> SafeValueIndex<'a> {
         if !outer_bindings_cover_callers && !direct_bindings_cover_all_paths {
             return false;
         }
-        if self
-            .definite_uninitialized_refs
-            .contains(&FactSpan::new(at))
-        {
-            if bindings.iter().copied().any(|binding_id| {
-                !helper_bindings.contains(&binding_id)
-                    && self.binding_is_guarded_before_reference(binding_id, at)
-            }) {
-                return false;
+        match self.uninitialized_reference_certainty_at(at) {
+            Some(UninitializedCertainty::Definite) => {
+                if bindings.iter().copied().any(|binding_id| {
+                    !helper_bindings.contains(&binding_id)
+                        && self.binding_is_guarded_before_reference(binding_id, at)
+                }) {
+                    return false;
+                }
             }
-        } else if self.maybe_uninitialized_refs.contains(&FactSpan::new(at)) {
-            let has_dominating_binding = bindings
-                .iter()
-                .copied()
-                .any(|binding_id| self.binding_dominates_reference(binding_id, name, at));
-            if !has_dominating_binding
-                && !bindings_cover_all_paths
-                && !unset_covers_reference
-                && !bindings
+            Some(UninitializedCertainty::Possible) => {
+                let has_dominating_binding = bindings
                     .iter()
                     .copied()
-                    .all(|binding_id| helper_bindings.contains(&binding_id))
-            {
-                return false;
+                    .any(|binding_id| self.binding_dominates_reference(binding_id, name, at));
+                if !has_dominating_binding
+                    && !bindings_cover_all_paths
+                    && !unset_covers_reference
+                    && !bindings
+                        .iter()
+                        .copied()
+                        .all(|binding_id| helper_bindings.contains(&binding_id))
+                {
+                    return false;
+                }
             }
+            None => {}
         }
 
         bindings
@@ -885,14 +869,10 @@ impl<'a> SafeValueIndex<'a> {
             })
     }
 
-    pub fn in_case_cli_dispatch_entrypoint(&self, offset: usize) -> bool {
-        self.case_cli_dispatch_scope_at(offset).is_some()
-    }
-
     fn case_cli_reachable_function_scope_at(&self, offset: usize) -> Option<ScopeId> {
-        let scope = self.enclosing_function_scope_at(offset)?;
-        self.case_cli_reachable_function_scopes
-            .contains(&scope)
+        let scope = self.analysis.enclosing_function_scope_at(offset)?;
+        self.facts
+            .is_case_cli_reachable_function_scope(scope)
             .then_some(scope)
     }
 
@@ -1015,11 +995,6 @@ impl<'a> SafeValueIndex<'a> {
     ) -> bool {
         let binding = self.semantic.binding(binding_id);
         self.facts.function_headers().iter().any(|header| {
-            let Some(function_definition_command) =
-                self.function_definition_command(header.function())
-            else {
-                return false;
-            };
             function_has_terminal_exit(header.function())
                 && header
                     .call_arity()
@@ -1033,7 +1008,7 @@ impl<'a> SafeValueIndex<'a> {
                             && {
                                 let call_span = command.span_in_source(self.source);
                                 self.definition_command_resolves_at_call(
-                                    function_definition_command.id(),
+                                    header.command_id(),
                                     call_span,
                                 ) && call_span.end.offset <= at.start.offset
                                     && (call_span.start.offset >= binding.span.end.offset
@@ -1053,16 +1028,6 @@ impl<'a> SafeValueIndex<'a> {
                     Command::Builtin(BuiltinCommand::Exit(_) | BuiltinCommand::Return(_))
                 )
         })
-    }
-
-    fn function_definition_command(
-        &self,
-        function: &FunctionDef,
-    ) -> Option<crate::facts::CommandFactRef<'a, 'a>> {
-        self.function_commands_by_span
-            .get(&FactSpan::new(function.span))
-            .copied()
-            .map(|id| self.facts.command(id))
     }
 
     fn definition_command_is_visible_at_call(
@@ -1114,21 +1079,14 @@ impl<'a> SafeValueIndex<'a> {
         &self,
         span: Span,
     ) -> Option<crate::facts::CommandFactRef<'a, 'a>> {
-        self.commands_by_name_word_span
-            .get(&FactSpan::new(span))
-            .copied()
-            .map(|id| self.facts.command(id))
+        self.facts.command_for_name_word_span(span)
     }
 
     fn function_definition_command_for_scope(
         &self,
         scope: ScopeId,
     ) -> Option<crate::facts::CommandFactRef<'a, 'a>> {
-        self.facts
-            .function_headers()
-            .iter()
-            .find(|header| header.function_scope() == Some(scope))
-            .and_then(|header| self.function_definition_command(header.function()))
+        self.facts.function_definition_command(scope)
     }
 
     fn s001_reference_function_unset_before_first_call(&mut self, at: Span) -> bool {
@@ -2419,8 +2377,8 @@ impl<'a> SafeValueIndex<'a> {
             return Vec::new();
         };
         if self
-            .case_cli_reachable_function_scopes
-            .contains(&helper_scope)
+            .facts
+            .is_case_cli_reachable_function_scope(helper_scope)
             || !self.named_function_call_sites(helper_scope).is_empty()
         {
             return Vec::new();
@@ -3247,7 +3205,7 @@ impl<'a> SafeValueIndex<'a> {
             let Some(function_kind) = self.named_function_kind(callee_scope) else {
                 continue;
             };
-            let Some(definition_command) = self.function_definition_command(header.function())
+            let Some(definition_command) = self.facts.function_definition_command(callee_scope)
             else {
                 continue;
             };
@@ -4125,15 +4083,6 @@ fn span_contains(container: Span, inner: Span) -> bool {
     container.start.offset <= inner.start.offset && inner.end.offset <= container.end.offset
 }
 
-fn shell_name_is_plain_scalar(text: &str) -> bool {
-    let mut chars = text.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    (first == '_' || first.is_ascii_alphabetic())
-        && chars.all(|character| character == '_' || character.is_ascii_alphanumeric())
-}
-
 fn shell_name_is_uppercase_setup_value(text: &str) -> bool {
     let mut saw_uppercase = false;
     for character in text.chars() {
@@ -4155,69 +4104,6 @@ fn literal_is_setup_atom(text: &str) -> bool {
         && text
             .bytes()
             .all(|byte| byte == b'_' || byte.is_ascii_uppercase() || byte.is_ascii_digit())
-}
-
-fn build_case_cli_reachable_function_scopes(
-    semantic: &SemanticModel,
-    facts: &LinterFacts<'_>,
-) -> FxHashSet<ScopeId> {
-    let dispatcher_offset = facts
-        .function_headers()
-        .iter()
-        .filter_map(|header| {
-            let scope = header.function_scope()?;
-            facts
-                .function_cli_dispatch_facts(scope)
-                .dispatcher_span()
-                .map(|span| span.start.offset)
-        })
-        .min();
-    let top_level_exit_offset = facts
-        .commands()
-        .iter()
-        .filter(|command| {
-            facts.command_parent_id(command.id()).is_none()
-                && semantic
-                    .ancestor_scopes(semantic.scope_at(command.span().start.offset))
-                    .all(|scope| !matches!(semantic.scope(scope).kind, ScopeKind::Function(_)))
-                && command_fact_is_standalone_exit(*command)
-        })
-        .map(|command| command.span().start.offset)
-        .min();
-
-    facts
-        .function_headers()
-        .iter()
-        .filter_map(|header| {
-            let scope = header.function_scope()?;
-            let nested = semantic
-                .ancestor_scopes(scope)
-                .skip(1)
-                .any(|ancestor| matches!(semantic.scope(ancestor).kind, ScopeKind::Function(_)));
-            (nested
-                || dispatcher_offset
-                    .is_some_and(|offset| header.function().span.start.offset < offset)
-                || top_level_exit_offset
-                    .is_some_and(|offset| header.function().span.start.offset < offset))
-            .then_some(scope)
-        })
-        .collect()
-}
-
-fn command_fact_is_standalone_exit(command: crate::facts::CommandFactRef<'_, '_>) -> bool {
-    if command.stmt().negated
-        || matches!(
-            command.stmt().terminator,
-            Some(StmtTerminator::Background(_))
-        )
-    {
-        return false;
-    }
-
-    let Command::Builtin(BuiltinCommand::Exit(exit)) = command.command() else {
-        return false;
-    };
-    exit.extra_args.is_empty() && exit.assignments.is_empty() && command.stmt().redirects.is_empty()
 }
 
 fn safe_special_parameter(name: &Name) -> bool {
@@ -4474,12 +4360,6 @@ fn alternative_terminal_flow_kind(
     TerminalFlowKind::None
 }
 
-fn span_strictly_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset
-        && outer.end.offset >= inner.end.offset
-        && outer != inner
-}
-
 #[cfg(test)]
 mod tests {
     use shuck_ast::{Command, Name, RedirectKind};
@@ -4487,7 +4367,7 @@ mod tests {
     use shuck_parser::parser::Parser;
     use shuck_semantic::{
         BindingOrigin, ContractCertainty, FileContract, ProvidedBinding, ProvidedBindingKind,
-        SemanticBuildOptions, SemanticModel,
+        SemanticBuildOptions, SemanticModel, UninitializedCertainty,
     };
 
     use super::{SafeValueIndex, SafeValueQuery, function_has_terminal_exit};
@@ -6504,9 +6384,10 @@ fi
             "expected exhaustive branch ladder to cover all paths"
         );
 
-        safe_values
-            .maybe_uninitialized_refs
-            .insert(crate::FactSpan::new(part_span));
+        safe_values.override_uninitialized_reference_certainty(
+            part_span,
+            UninitializedCertainty::Possible,
+        );
 
         assert!(safe_values.part_is_safe(part, part_span, SafeValueQuery::Argv));
     }
