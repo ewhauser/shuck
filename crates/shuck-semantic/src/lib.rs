@@ -416,6 +416,7 @@ pub struct SemanticModel {
     zsh_option_analysis: Option<ZshOptionAnalysis>,
     assoc_lookup_binding_index: OnceLock<AssocLookupBindingIndex>,
     references_sorted_by_start: OnceLock<Vec<ReferenceId>>,
+    bindings_sorted_by_start: OnceLock<Vec<BindingId>>,
     declarations_by_command_span: OnceLock<FxHashMap<SpanKey, usize>>,
     unconditional_function_bindings: OnceLock<FxHashSet<BindingId>>,
     function_bindings_by_scope: OnceLock<FxHashMap<ScopeId, SmallVec<[BindingId; 2]>>>,
@@ -594,6 +595,7 @@ impl SemanticModel {
             zsh_option_analysis,
             assoc_lookup_binding_index: OnceLock::new(),
             references_sorted_by_start: OnceLock::new(),
+            bindings_sorted_by_start: OnceLock::new(),
             declarations_by_command_span: OnceLock::new(),
             unconditional_function_bindings: OnceLock::new(),
             function_bindings_by_scope: OnceLock::new(),
@@ -645,6 +647,24 @@ impl SemanticModel {
         });
         ReferencesInSpan {
             references: &self.references,
+            ids: sorted[lower..].iter(),
+            end: outer.end.offset,
+        }
+    }
+
+    /// Yield every binding whose span is fully contained within `outer`.
+    ///
+    /// Backed by a lazily-built index sorted by binding start offset, so a
+    /// per-span query costs `O(log n + matches)` rather than scanning every
+    /// binding in the file.
+    pub fn bindings_in_span(&self, outer: Span) -> BindingsInSpan<'_> {
+        let sorted = self
+            .bindings_sorted_by_start
+            .get_or_init(|| build_bindings_sorted_by_start(&self.bindings));
+        let lower = sorted
+            .partition_point(|id| self.bindings[id.index()].span.start.offset < outer.start.offset);
+        BindingsInSpan {
+            bindings: &self.bindings,
             ids: sorted[lower..].iter(),
             end: outer.end.offset,
         }
@@ -1652,6 +1672,12 @@ fn build_references_sorted_by_start(references: &[Reference]) -> Vec<ReferenceId
     ids
 }
 
+fn build_bindings_sorted_by_start(bindings: &[Binding]) -> Vec<BindingId> {
+    let mut ids: Vec<BindingId> = (0..bindings.len() as u32).map(BindingId).collect();
+    ids.sort_by_key(|id| bindings[id.index()].span.start.offset);
+    ids
+}
+
 fn build_declarations_by_command_span(declarations: &[Declaration]) -> FxHashMap<SpanKey, usize> {
     let mut index = FxHashMap::with_capacity_and_hasher(declarations.len(), Default::default());
     for (declaration_index, declaration) in declarations.iter().enumerate() {
@@ -1683,6 +1709,34 @@ impl<'a> Iterator for ReferencesInSpan<'a> {
             }
             if reference.span.end.offset <= self.end {
                 return Some(reference);
+            }
+        }
+    }
+}
+
+/// Iterator returned by [`SemanticModel::bindings_in_span`].
+///
+/// Walks the bindings sorted index forward from the first candidate and
+/// stops as soon as a binding starts past the outer span's end.
+#[derive(Debug, Clone)]
+pub struct BindingsInSpan<'a> {
+    bindings: &'a [Binding],
+    ids: std::slice::Iter<'a, BindingId>,
+    end: usize,
+}
+
+impl<'a> Iterator for BindingsInSpan<'a> {
+    type Item = &'a Binding;
+
+    fn next(&mut self) -> Option<&'a Binding> {
+        loop {
+            let id = self.ids.next()?;
+            let binding = &self.bindings[id.index()];
+            if binding.span.start.offset > self.end {
+                return None;
+            }
+            if binding.span.end.offset <= self.end {
+                return Some(binding);
             }
         }
     }
