@@ -175,7 +175,36 @@ impl<'a> LinterFacts<'a> {
         shell: ShellDialect,
         ambient_shell_options: AmbientShellOptions,
     ) -> Self {
-        LinterFactsBuilder::new(file, source, semantic, indexer, shell, ambient_shell_options)
+        let semantic_analysis = semantic.analysis();
+        Self::build_with_semantic_analysis_shell_and_ambient_shell_options(
+            file,
+            source,
+            semantic,
+            &semantic_analysis,
+            indexer,
+            shell,
+            ambient_shell_options,
+        )
+    }
+
+    pub(crate) fn build_with_semantic_analysis_shell_and_ambient_shell_options(
+        file: &'a File,
+        source: &'a str,
+        semantic: &'a SemanticModel,
+        semantic_analysis: &SemanticAnalysis<'a>,
+        indexer: &'a Indexer,
+        shell: ShellDialect,
+        ambient_shell_options: AmbientShellOptions,
+    ) -> Self {
+        LinterFactsBuilder::new(
+            file,
+            source,
+            semantic,
+            semantic_analysis,
+            indexer,
+            shell,
+            ambient_shell_options,
+        )
         .build()
     }
 
