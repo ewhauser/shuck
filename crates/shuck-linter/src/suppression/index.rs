@@ -152,7 +152,11 @@ fn collect_command_spans(file: &File) -> Vec<Span> {
             }
         });
     }
-    spans.sort_unstable_by_key(|span| span.start.offset);
+    // Stable sort preserves walk order so a parent statement keeps priority over
+    // its children when both share the same start offset (e.g. a binary command
+    // and its left operand). The lookup picks the first span at each start
+    // offset, matching the previous behavior of `consider_command`.
+    spans.sort_by_key(|span| span.start.offset);
     spans
 }
 
@@ -855,6 +859,22 @@ echo $foo
 
         assert!(index.is_suppressed(Rule::UnquotedExpansion, 4));
         assert!(!index.is_suppressed(Rule::UnquotedExpansion, 6));
+    }
+
+    #[test]
+    fn scopes_shellcheck_disable_to_the_full_multiline_binary_statement() {
+        let source = "\
+foo='a b'
+# shellcheck disable=SC2086
+echo $foo &&
+  echo $bar
+echo $baz
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 4));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 5));
     }
 
     #[test]
