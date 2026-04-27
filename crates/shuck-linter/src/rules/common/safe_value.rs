@@ -2673,7 +2673,7 @@ impl<'a> SafeValueIndex<'a> {
                     *binding_block,
                     reference_block,
                     &candidates,
-                    &unreachable,
+                    unreachable,
                 )
             })
             .map(|(binding_id, _)| binding_id)
