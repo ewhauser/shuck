@@ -7742,6 +7742,30 @@ fn test_parse_zsh_deep_arithmetic_array_comma_stays_nested() {
 }
 
 #[test]
+fn test_parse_zsh_deep_arithmetic_skips_nested_parameter_parens() {
+    let mut nested = "$(( ${name:-1),2} ))".to_string();
+    for _ in 0..5 {
+        nested = format!("$(({nested}))");
+    }
+    let source = format!("values=({nested})\n");
+    let output = Parser::with_dialect(&source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let command = expect_simple(&output.file.body[0]);
+    assert_eq!(command.assignments.len(), 1);
+    let AssignmentValue::Compound(array) = &command.assignments[0].value else {
+        panic!("expected compound assignment value");
+    };
+    assert_eq!(array.elements.len(), 1);
+
+    let ArrayElem::Sequential(value) = &array.elements[0] else {
+        panic!("expected sequential array element");
+    };
+    assert_eq!(value.span.slice(&source), nested);
+}
+
+#[test]
 fn test_parse_zsh_parameter_default_with_prompt_escape_text() {
     let source = "color_green=${BATTERY_COLOR_GREEN:-%F{green}}\n";
     Parser::with_dialect(source, ShellDialect::Zsh)

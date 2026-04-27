@@ -1387,6 +1387,29 @@ impl<'a> Parser<'a> {
             }
             escaped = false;
 
+            if !in_single && !was_escaped && ch == '$' {
+                if text[next_index..].starts_with('{')
+                    && let Some(consumed) = Self::scan_array_parameter_expansion_len_inner(
+                        &text[next_index + '{'.len_utf8()..],
+                        0,
+                    )
+                {
+                    index = next_index + '{'.len_utf8() + consumed;
+                    continue;
+                }
+
+                if text[next_index..].starts_with('(')
+                    && !text[next_index + '('.len_utf8()..].starts_with('(')
+                    && let Some(consumed) = lexer::scan_command_substitution_body_len_inner(
+                        &text[next_index + '('.len_utf8()..],
+                        0,
+                    )
+                {
+                    index = next_index + '('.len_utf8() + consumed;
+                    continue;
+                }
+            }
+
             match ch {
                 '\'' if !in_double && !was_escaped => in_single = !in_single,
                 '"' if !in_single && !was_escaped => in_double = !in_double,
