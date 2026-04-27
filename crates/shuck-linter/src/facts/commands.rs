@@ -1142,10 +1142,11 @@ fn for_each_nested_command<'facts, 'a>(
     mut visit: impl FnMut(CommandFactRef<'facts, 'a>),
 ) {
     let outer_span = outer.span();
-    for other in commands {
-        if other.id() == outer.id() {
-            continue;
-        }
+    let start = match commands.index_of(outer.id()) {
+        Some(index) => index + 1,
+        None => return,
+    };
+    for other in commands.iter_from(start) {
         if other.span().start.offset > outer_span.end.offset {
             break;
         }

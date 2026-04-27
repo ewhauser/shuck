@@ -292,6 +292,18 @@ impl<'facts, 'a> CommandFacts<'facts, 'a> {
             .map(|fact| CommandFactRef::new(fact, self.store))
     }
 
+    pub(crate) fn index_of(self, id: CommandId) -> Option<usize> {
+        self.indices_by_id.get(id.index()).copied().flatten()
+    }
+
+    pub(crate) fn iter_from(self, start: usize) -> CommandFactIter<'facts, 'a> {
+        let slice = self.commands.get(start..).unwrap_or(&[]);
+        CommandFactIter {
+            inner: slice.iter(),
+            store: self.store,
+        }
+    }
+
     pub fn first(self) -> Option<CommandFactRef<'facts, 'a>> {
         self.get(0)
     }

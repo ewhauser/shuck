@@ -681,6 +681,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         pattern_charclass_spans.extend(surface_pattern_charclass_spans);
         let escape_scan_matches = build_escape_scan_matches(
             &commands,
+            &command_fact_indices_by_id,
             &word_nodes,
             &word_occurrences,
             EscapeScanInputs {

@@ -107,6 +107,7 @@ fn build_sorted_single_quoted_bounds(
 #[cfg_attr(shuck_profiling, inline(never))]
 pub(super) fn build_escape_scan_matches(
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     nodes: &[WordNode<'_>],
     occurrences: &[WordOccurrence],
     inputs: EscapeScanInputs<'_>,
@@ -120,8 +121,10 @@ pub(super) fn build_escape_scan_matches(
         .iter()
         .filter(|fact| is_relevant_word_occurrence(fact))
     {
-        let grep_style_argument = is_grep_style_argument(commands, nodes, fact);
-        let tr_operand_argument = is_tr_operand_argument(commands, nodes, fact);
+        let grep_style_argument =
+            is_grep_style_argument(commands, command_fact_indices_by_id, nodes, fact);
+        let tr_operand_argument =
+            is_tr_operand_argument(commands, command_fact_indices_by_id, nodes, fact);
         let expansion_context = match fact.context {
             super::WordFactContext::Expansion(context) => Some(context),
             super::WordFactContext::CaseSubject | super::WordFactContext::ArithmeticCommand => None,
@@ -174,8 +177,18 @@ pub(super) fn build_escape_scan_matches(
             context.source,
             EscapeScanMatchContext {
                 source_kind: EscapeScanSourceKind::SingleLiteralAssignmentWord,
-                grep_style_argument: is_grep_style_argument(commands, nodes, fact),
-                tr_operand_argument: is_tr_operand_argument(commands, nodes, fact),
+                grep_style_argument: is_grep_style_argument(
+                    commands,
+                    command_fact_indices_by_id,
+                    nodes,
+                    fact,
+                ),
+                tr_operand_argument: is_tr_operand_argument(
+                    commands,
+                    command_fact_indices_by_id,
+                    nodes,
+                    fact,
+                ),
                 host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
                     occurrence_span(nodes, fact),
                     &single_quoted_bounds,
@@ -191,8 +204,10 @@ pub(super) fn build_escape_scan_matches(
             super::WordFactContext::Expansion(ExpansionContext::RedirectTarget(_))
         )
     }) {
-        let grep_style_argument = is_grep_style_argument(commands, nodes, fact);
-        let tr_operand_argument = is_tr_operand_argument(commands, nodes, fact);
+        let grep_style_argument =
+            is_grep_style_argument(commands, command_fact_indices_by_id, nodes, fact);
+        let tr_operand_argument =
+            is_tr_operand_argument(commands, command_fact_indices_by_id, nodes, fact);
         if is_regex_like_context(match fact.context {
             super::WordFactContext::Expansion(context) => Some(context),
             super::WordFactContext::CaseSubject | super::WordFactContext::ArithmeticCommand => None,
@@ -464,8 +479,21 @@ fn span_within_any(span: Span, hosts: &[Span]) -> bool {
         .any(|host| span.start.offset >= host.start.offset && span.end.offset <= host.end.offset)
 }
 
+fn lookup_command_fact<'facts, 'a>(
+    commands: &'facts [CommandFact<'a>],
+    indices_by_id: &[Option<usize>],
+    id: super::CommandId,
+) -> Option<&'facts CommandFact<'a>> {
+    indices_by_id
+        .get(id.index())
+        .copied()
+        .flatten()
+        .and_then(|index| commands.get(index))
+}
+
 fn is_grep_style_argument(
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
 ) -> bool {
@@ -473,9 +501,7 @@ fn is_grep_style_argument(
         return false;
     }
 
-    let Some(command) = commands
-        .iter()
-        .find(|command| command.id() == fact.command_id)
+    let Some(command) = lookup_command_fact(commands, command_fact_indices_by_id, fact.command_id)
     else {
         return false;
     };
@@ -493,6 +519,7 @@ fn is_grep_style_argument(
 
 fn is_tr_operand_argument(
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
 ) -> bool {
@@ -500,16 +527,15 @@ fn is_tr_operand_argument(
         return false;
     }
 
-    commands
-        .iter()
-        .find(|command| command.id() == fact.command_id)
-        .is_some_and(|command| {
+    lookup_command_fact(commands, command_fact_indices_by_id, fact.command_id).is_some_and(
+        |command| {
             command.options().tr().is_some_and(|tr| {
                 tr.operand_words()
                     .iter()
                     .any(|word| word.span == occurrence_span(nodes, fact))
             })
-        })
+        },
+    )
 }
 
 #[cfg(test)]
