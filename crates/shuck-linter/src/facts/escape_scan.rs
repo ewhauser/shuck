@@ -81,6 +81,29 @@ struct EscapeScanMatchContext {
     host_contains_single_quoted_fragment: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct SingleQuotedFragmentBounds {
+    start: usize,
+    end: usize,
+}
+
+fn build_sorted_single_quoted_bounds(
+    fragments: &[SingleQuotedFragmentFact],
+) -> Vec<SingleQuotedFragmentBounds> {
+    let mut bounds: Vec<SingleQuotedFragmentBounds> = fragments
+        .iter()
+        .map(|fragment| {
+            let span = fragment.span();
+            SingleQuotedFragmentBounds {
+                start: span.start.offset,
+                end: span.end.offset,
+            }
+        })
+        .collect();
+    bounds.sort_unstable_by_key(|b| b.start);
+    bounds
+}
+
 #[cfg_attr(shuck_profiling, inline(never))]
 pub(super) fn build_escape_scan_matches(
     commands: &[CommandFact<'_>],
@@ -91,6 +114,7 @@ pub(super) fn build_escape_scan_matches(
 ) -> Vec<EscapeScanMatch> {
     let mut matches = Vec::new();
     let mut span_buffer = Vec::new();
+    let single_quoted_bounds = build_sorted_single_quoted_bounds(inputs.single_quoted_fragments);
 
     for fact in occurrences
         .iter()
@@ -109,7 +133,7 @@ pub(super) fn build_escape_scan_matches(
         let word = occurrence_word(nodes, fact);
         let host_contains_single_quoted_fragment = span_contains_single_quoted_fragment(
             occurrence_span(nodes, fact),
-            inputs.single_quoted_fragments,
+            &single_quoted_bounds,
         );
 
         span_buffer.clear();
@@ -129,7 +153,7 @@ pub(super) fn build_escape_scan_matches(
                     tr_operand_argument,
                     host_contains_single_quoted_fragment,
                 },
-                inputs.single_quoted_fragments,
+                &single_quoted_bounds,
             );
         }
     }
@@ -154,10 +178,10 @@ pub(super) fn build_escape_scan_matches(
                 tr_operand_argument: is_tr_operand_argument(commands, nodes, fact),
                 host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
                     occurrence_span(nodes, fact),
-                    inputs.single_quoted_fragments,
+                    &single_quoted_bounds,
                 ),
             },
-            inputs.single_quoted_fragments,
+            &single_quoted_bounds,
         );
     }
 
@@ -178,7 +202,7 @@ pub(super) fn build_escape_scan_matches(
 
         let host_contains_single_quoted_fragment = span_contains_single_quoted_fragment(
             occurrence_span(nodes, fact),
-            inputs.single_quoted_fragments,
+            &single_quoted_bounds,
         );
 
         span_buffer.clear();
@@ -198,7 +222,7 @@ pub(super) fn build_escape_scan_matches(
                     tr_operand_argument,
                     host_contains_single_quoted_fragment,
                 },
-                inputs.single_quoted_fragments,
+                &single_quoted_bounds,
             );
         }
     }
@@ -221,10 +245,10 @@ pub(super) fn build_escape_scan_matches(
                 tr_operand_argument: false,
                 host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
                     span,
-                    inputs.single_quoted_fragments,
+                    &single_quoted_bounds,
                 ),
             },
-            inputs.single_quoted_fragments,
+            &single_quoted_bounds,
         );
     }
 
@@ -239,10 +263,10 @@ pub(super) fn build_escape_scan_matches(
                 tr_operand_argument: false,
                 host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
                     *span,
-                    inputs.single_quoted_fragments,
+                    &single_quoted_bounds,
                 ),
             },
-            inputs.single_quoted_fragments,
+            &single_quoted_bounds,
         );
     }
 
@@ -262,10 +286,10 @@ pub(super) fn build_escape_scan_matches(
                 tr_operand_argument: false,
                 host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
                     *span,
-                    inputs.single_quoted_fragments,
+                    &single_quoted_bounds,
                 ),
             },
-            inputs.single_quoted_fragments,
+            &single_quoted_bounds,
         );
     }
 
@@ -280,10 +304,10 @@ pub(super) fn build_escape_scan_matches(
                 tr_operand_argument: false,
                 host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
                     fragment.span(),
-                    inputs.single_quoted_fragments,
+                    &single_quoted_bounds,
                 ),
             },
-            inputs.single_quoted_fragments,
+            &single_quoted_bounds,
         );
     }
 
@@ -295,7 +319,7 @@ fn append_escape_scan_matches(
     scan_span: Span,
     source: &str,
     match_context: EscapeScanMatchContext,
-    single_quoted_fragments: &[SingleQuotedFragmentFact],
+    single_quoted_bounds: &[SingleQuotedFragmentBounds],
 ) {
     let text = scan_span.slice(source);
     let bytes = text.as_bytes();
@@ -369,7 +393,7 @@ fn append_escape_scan_matches(
                 .host_contains_single_quoted_fragment,
             inside_single_quoted_fragment: span_within_single_quoted_fragment(
                 report_span,
-                single_quoted_fragments,
+                single_quoted_bounds,
             ),
         });
     }
@@ -414,23 +438,24 @@ fn is_regex_like_context(context: Option<ExpansionContext>) -> bool {
     )
 }
 
-fn span_contains_single_quoted_fragment(
-    span: Span,
-    fragments: &[SingleQuotedFragmentFact],
-) -> bool {
-    fragments.iter().any(|fragment| {
-        let fragment_span = fragment.span();
-        fragment_span.start.offset >= span.start.offset
-            && fragment_span.end.offset <= span.end.offset
-    })
+fn span_contains_single_quoted_fragment(span: Span, bounds: &[SingleQuotedFragmentBounds]) -> bool {
+    let span_start = span.start.offset;
+    let span_end = span.end.offset;
+    let index = bounds.partition_point(|b| b.start < span_start);
+    bounds
+        .get(index)
+        .is_some_and(|b| b.start <= span_end && b.end <= span_end)
 }
 
-fn span_within_single_quoted_fragment(span: Span, fragments: &[SingleQuotedFragmentFact]) -> bool {
-    fragments.iter().any(|fragment| {
-        let fragment_span = fragment.span();
-        span.start.offset >= fragment_span.start.offset
-            && span.end.offset < fragment_span.end.offset
-    })
+fn span_within_single_quoted_fragment(span: Span, bounds: &[SingleQuotedFragmentBounds]) -> bool {
+    let span_start = span.start.offset;
+    let span_end = span.end.offset;
+    let index = bounds.partition_point(|b| b.start <= span_start);
+    if index == 0 {
+        return false;
+    }
+    let candidate = bounds[index - 1];
+    candidate.start <= span_start && span_end < candidate.end
 }
 
 fn span_within_any(span: Span, hosts: &[Span]) -> bool {

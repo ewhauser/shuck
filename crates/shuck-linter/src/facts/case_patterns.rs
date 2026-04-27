@@ -269,6 +269,10 @@ impl StaticCasePatternMatcher {
             return false;
         }
 
+        if let Some(result) = subsumes_fixed_length_fast_path(self, other) {
+            return result;
+        }
+
         let symbols = merged_case_pattern_symbols(
             self.literal_symbols.as_ref(),
             other.literal_symbols.as_ref(),
@@ -304,6 +308,10 @@ impl StaticCasePatternMatcher {
     }
 
     fn intersects(&self, other: &Self) -> bool {
+        if let Some(result) = intersects_fixed_length_fast_path(self, other) {
+            return result;
+        }
+
         let symbols = merged_case_pattern_symbols(
             self.literal_symbols.as_ref(),
             other.literal_symbols.as_ref(),
@@ -400,6 +408,55 @@ impl StaticCasePatternMatcher {
     fn is_accepting(&self, states: &[usize]) -> bool {
         states.contains(&self.tokens.len())
     }
+}
+
+fn subsumes_fixed_length_fast_path(
+    left: &StaticCasePatternMatcher,
+    right: &StaticCasePatternMatcher,
+) -> Option<bool> {
+    if left.max_len.is_none() || right.max_len.is_none() {
+        return None;
+    }
+    if left.tokens.len() != right.tokens.len() {
+        return Some(false);
+    }
+    let result = left
+        .tokens
+        .iter()
+        .zip(right.tokens.iter())
+        .all(|(l, r)| match (l, r) {
+            (CasePatternToken::Literal(a), CasePatternToken::Literal(b)) => a == b,
+            (CasePatternToken::AnyChar, _) => true,
+            (CasePatternToken::Literal(_), CasePatternToken::AnyChar) => false,
+            (CasePatternToken::AnyString, _) | (_, CasePatternToken::AnyString) => {
+                unreachable!("AnyString tokens excluded by max_len check")
+            }
+        });
+    Some(result)
+}
+
+fn intersects_fixed_length_fast_path(
+    left: &StaticCasePatternMatcher,
+    right: &StaticCasePatternMatcher,
+) -> Option<bool> {
+    if left.max_len.is_none() || right.max_len.is_none() {
+        return None;
+    }
+    if left.tokens.len() != right.tokens.len() {
+        return Some(false);
+    }
+    let result = left
+        .tokens
+        .iter()
+        .zip(right.tokens.iter())
+        .all(|(l, r)| match (l, r) {
+            (CasePatternToken::Literal(a), CasePatternToken::Literal(b)) => a == b,
+            (CasePatternToken::AnyChar, _) | (_, CasePatternToken::AnyChar) => true,
+            (CasePatternToken::AnyString, _) | (_, CasePatternToken::AnyString) => {
+                unreachable!("AnyString tokens excluded by max_len check")
+            }
+        });
+    Some(result)
 }
 
 fn summarize_static_case_pattern_tokens(tokens: &[CasePatternToken]) -> StaticCasePatternSummary {
