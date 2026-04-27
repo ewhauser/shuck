@@ -464,8 +464,12 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             self.source,
         );
 
-        let presence_tested_names =
-            build_presence_tested_names(&commands, self.source, self.semantic);
+        let presence_tested_names = build_presence_tested_names(
+            &commands,
+            &command_offset_order,
+            self.source,
+            self.semantic,
+        );
         let function_headers = build_function_header_facts(
             self.semantic,
             semantic_analysis,

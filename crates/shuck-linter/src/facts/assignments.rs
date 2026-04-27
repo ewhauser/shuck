@@ -1511,7 +1511,11 @@ pub(crate) enum CommandOffsetOrder {
 }
 
 impl CommandOffsetOrder {
-    fn entry(&self, commands: &[CommandFact<'_>], index: usize) -> Option<(Span, CommandId)> {
+    pub(super) fn entry(
+        &self,
+        commands: &[CommandFact<'_>],
+        index: usize,
+    ) -> Option<(Span, CommandId)> {
         match self {
             Self::SourceOrdered => {
                 let command = commands.get(index)?;
