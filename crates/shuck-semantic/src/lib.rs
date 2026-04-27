@@ -1482,6 +1482,144 @@ impl<'model> SemanticAnalysis<'model> {
             })
     }
 
+    /// Returns the semantic reference for a named expansion contained by `at`.
+    #[doc(hidden)]
+    pub fn reference_id_for_name_at(&self, name: &Name, at: Span) -> Option<ReferenceId> {
+        self.reference_for_name_at(name, at)
+            .map(|reference| reference.id)
+    }
+
+    /// Returns the CFG block containing `reference_id`, if it was recorded in the CFG.
+    #[doc(hidden)]
+    pub fn block_for_reference_id(&self, reference_id: ReferenceId) -> Option<BlockId> {
+        let exact = self.exact_variable_dataflow();
+        exact.reference_block(&self.model.references[reference_id.index()])
+    }
+
+    /// Returns the CFG block containing `binding_id`, if it was recorded in the CFG.
+    #[doc(hidden)]
+    pub fn block_for_binding(&self, binding_id: BindingId) -> Option<BlockId> {
+        self.exact_variable_dataflow().binding_block(binding_id)
+    }
+
+    /// Returns the innermost function scope containing `offset`.
+    #[doc(hidden)]
+    pub fn enclosing_function_scope_at(&self, offset: usize) -> Option<ScopeId> {
+        self.model
+            .ancestor_scopes(self.model.scope_at(offset))
+            .find(|scope| matches!(self.model.scope(*scope).kind, ScopeKind::Function(_)))
+    }
+
+    /// Returns whether a binding's scope is `ancestor_scope` or nested below it.
+    #[doc(hidden)]
+    pub fn binding_is_in_scope_or_descendant(
+        &self,
+        binding_id: BindingId,
+        ancestor_scope: ScopeId,
+    ) -> bool {
+        self.model
+            .ancestor_scopes(self.model.binding(binding_id).scope)
+            .any(|scope| scope == ancestor_scope)
+    }
+
+    /// Returns the entry block that covers the common runtime scope of `binding_scopes`.
+    #[doc(hidden)]
+    pub fn flow_entry_block_for_binding_scopes(
+        &self,
+        binding_scopes: &[ScopeId],
+        reference_offset: usize,
+    ) -> BlockId {
+        let cfg = self.cfg();
+        self.model
+            .ancestor_scopes(self.model.scope_at(reference_offset))
+            .find_map(|scope| {
+                if !matches!(
+                    self.model.scope(scope).kind,
+                    ScopeKind::Function(_) | ScopeKind::File
+                ) {
+                    return None;
+                }
+                binding_scopes
+                    .iter()
+                    .copied()
+                    .all(|binding_scope| {
+                        self.model
+                            .ancestor_scopes(binding_scope)
+                            .any(|ancestor| ancestor == scope)
+                    })
+                    .then(|| cfg.scope_entry(scope))
+                    .flatten()
+            })
+            .unwrap_or_else(|| cfg.entry())
+    }
+
+    /// Returns true when every path from `entry` to `target` crosses one of `cover_blocks`.
+    #[doc(hidden)]
+    pub fn blocks_cover_all_paths_to_block(
+        &self,
+        entry: BlockId,
+        target: BlockId,
+        cover_blocks: &FxHashSet<BlockId>,
+    ) -> bool {
+        if cover_blocks.contains(&target) {
+            return true;
+        }
+
+        let cfg = self.cfg();
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let mut stack = vec![entry];
+        let mut seen = FxHashSet::default();
+        while let Some(block_id) = stack.pop() {
+            if cover_blocks.contains(&block_id)
+                || unreachable.contains(&block_id)
+                || !seen.insert(block_id)
+            {
+                continue;
+            }
+            if block_id == target {
+                return false;
+            }
+            for (successor, _) in cfg.successors(block_id) {
+                stack.push(*successor);
+            }
+        }
+
+        true
+    }
+
+    /// Returns true when a binding's CFG block dominates a named reference from the relevant
+    /// runtime entry block. Same-block ordering remains caller policy because it often depends on
+    /// rule-local structural facts.
+    #[doc(hidden)]
+    pub fn binding_dominates_reference_from_flow_entry(
+        &self,
+        binding_id: BindingId,
+        name: &Name,
+        at: Span,
+        same_block_dominates: bool,
+    ) -> bool {
+        let Some(reference_id) = self.reference_id_for_name_at(name, at) else {
+            return false;
+        };
+        let Some(reference_block) = self.block_for_reference_id(reference_id) else {
+            return false;
+        };
+        let Some(binding_block) = self.block_for_binding(binding_id) else {
+            return false;
+        };
+        if binding_block == reference_block {
+            return same_block_dominates;
+        }
+
+        let binding_scope = self.model.binding(binding_id).scope;
+        let entry = self.flow_entry_block_for_binding_scopes(&[binding_scope], at.start.offset);
+        self.blocks_cover_all_paths_to_block(
+            entry,
+            reference_block,
+            &FxHashSet::from_iter([binding_block]),
+        )
+    }
+
     pub fn reaching_bindings_for_name(&self, name: &Name, at: Span) -> Vec<BindingId> {
         let cfg = self.cfg();
         let context = self.model.dataflow_context(cfg);
@@ -7580,6 +7718,84 @@ printf '%s\\n' \"$foo\"
             .reaching_bindings_for_name(&target_reference.name, target_reference.span);
 
         assert_eq!(reaching, vec![foo_bindings[1]]);
+    }
+
+    #[test]
+    fn semantic_analysis_exposes_binding_and_reference_flow_blocks() {
+        let source = "\
+#!/bin/bash
+foo=1
+printf '%s\\n' \"$foo\"
+";
+        let model = model(source);
+        let binding = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment)
+            })
+            .expect("expected foo binding");
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "foo")
+            .expect("expected foo reference");
+        let analysis = model.analysis();
+
+        assert_eq!(
+            analysis.reference_id_for_name_at(&reference.name, reference.span),
+            Some(reference.id)
+        );
+        assert!(analysis.block_for_binding(binding.id).is_some());
+        assert!(analysis.block_for_reference_id(reference.id).is_some());
+        assert!(analysis.binding_dominates_reference_from_flow_entry(
+            binding.id,
+            &reference.name,
+            reference.span,
+            true
+        ));
+    }
+
+    #[test]
+    fn semantic_block_coverage_detects_uncovered_branch_paths() {
+        let source = "\
+#!/bin/bash
+if cond; then
+  foo=1
+fi
+printf '%s\\n' \"$foo\"
+";
+        let model = model(source);
+        let binding = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment)
+            })
+            .expect("expected foo binding");
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "foo")
+            .expect("expected foo reference");
+        let analysis = model.analysis();
+        let binding_block = analysis
+            .block_for_binding(binding.id)
+            .expect("expected binding block");
+        let reference_block = analysis
+            .block_for_reference_id(reference.id)
+            .expect("expected reference block");
+        let entry = analysis
+            .flow_entry_block_for_binding_scopes(&[binding.scope], reference.span.start.offset);
+        let cover_blocks = FxHashSet::from_iter([binding_block]);
+
+        assert!(!analysis.blocks_cover_all_paths_to_block(entry, reference_block, &cover_blocks));
+        assert!(!analysis.binding_dominates_reference_from_flow_entry(
+            binding.id,
+            &reference.name,
+            reference.span,
+            true
+        ));
     }
 
     #[test]
