@@ -57,20 +57,16 @@ pub use facts::words::{
 };
 /// Extracted structural facts available to rules and callers.
 pub use facts::{
-    BacktickFragmentFact, CommandFact, CommandFactRef, CommandFacts, CommandOptionFacts,
-    ConditionalBareWordFact, ConditionalBinaryFact, ConditionalFact,
-    ConditionalMixedLogicalOperatorFact, ConditionalNodeFact, ConditionalOperandFact,
-    ConditionalOperatorFamily, ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts,
-    FindCommandFacts, FindExecCommandFacts, FindExecShellCommandFacts, ForHeaderFact,
-    FunctionCallArityFacts, FunctionHeaderFact, GrepPatternSourceKind,
-    LegacyArithmeticFragmentFact, ListFact, ListOperatorFact, LoopHeaderWordFact, PathWordFact,
-    PipelineFact, PipelineOperatorFact, PipelineSegmentFact, PositionalParameterFragmentFact,
-    PrintfCommandFacts, ReadCommandFacts, RedirectDevNullStatus, RedirectFact,
-    RedirectTargetAnalysis, RedirectTargetKind, RmCommandFacts, SelectHeaderFact, SimpleTestFact,
-    SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact,
-    SshCommandFacts, StatementFact, SubstitutionFact, SubstitutionHostKind,
-    SubstitutionOutputIntent, SudoFamilyCommandFacts, SudoFamilyInvoker, UnsetCommandFacts,
-    WaitCommandFacts, XargsCommandFacts,
+    BacktickFragmentFact, CommandFact, CommandFactRef, CommandFacts, ConditionalBareWordFact,
+    ConditionalBinaryFact, ConditionalFact, ConditionalMixedLogicalOperatorFact,
+    ConditionalNodeFact, ConditionalOperandFact, ConditionalOperatorFamily,
+    ConditionalPortabilityFacts, ConditionalUnaryFact, ForHeaderFact, FunctionCallArityFacts,
+    FunctionHeaderFact, LegacyArithmeticFragmentFact, ListFact, ListOperatorFact,
+    LoopHeaderWordFact, PipelineFact, PipelineOperatorFact, PipelineSegmentFact,
+    PositionalParameterFragmentFact, RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis,
+    RedirectTargetKind, SelectHeaderFact, SimpleTestFact, SimpleTestOperatorFamily,
+    SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact, StatementFact, SubstitutionFact,
+    SubstitutionHostKind, SubstitutionOutputIntent, SudoFamilyInvoker,
 };
 /// Fact collection types and stable identifiers into those collections.
 pub use facts::{

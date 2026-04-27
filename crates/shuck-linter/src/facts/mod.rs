@@ -7,6 +7,7 @@
 //! declaration summaries, option-shape summaries, and later word/expansion
 //! facts.
 
+pub(crate) mod command_options;
 mod conditional_portability;
 mod escape_scan;
 mod misspelling;
@@ -70,6 +71,20 @@ use shuck_semantic::{
 use smallvec::SmallVec;
 use std::{borrow::Cow, ops::ControlFlow, sync::OnceLock};
 
+#[allow(unused_imports)]
+pub(crate) use self::command_options::{
+    CommandOptionFacts, ExitCommandFacts, ExprCommandFacts, ExprStringHelperKind,
+    FunctionPositionalParameterFacts, GrepPatternSourceKind, MapfileCommandFacts, PathWordFact,
+    WaitCommandFacts,
+};
+#[allow(unused_imports)]
+pub(crate) use self::command_options::{
+    SedScriptQuoteMode, UnsetArraySubscriptFact, UnsetOperandFact, XargsShortOptionArgumentStyle,
+    find_sed_substitution_section, sed_has_single_substitution_script, sed_script_text,
+    shell_flag_contains_command_string, short_option_cluster_contains_flag,
+    ssh_option_consumes_next_argument, word_starts_with_literal_dash,
+    xargs_long_option_requires_separate_argument, xargs_short_option_argument_style,
+};
 pub use self::conditional_portability::ConditionalPortabilityFacts;
 pub(crate) use self::escape_scan::{EscapeScanMatch, EscapeScanSourceKind};
 #[cfg(feature = "benchmarking")]
@@ -94,7 +109,6 @@ include!("functions.rs");
 include!("pipelines.rs");
 include!("lists.rs");
 include!("statements.rs");
-include!("command_options.rs");
 include!("commands.rs");
 include!("model.rs");
 include!("builder.rs");
@@ -182,16 +196,6 @@ pub(crate) mod lists {
 #[allow(unused_imports)]
 pub(crate) mod statements {
     pub use super::StatementFact;
-}
-
-#[allow(unused_imports)]
-pub(crate) mod command_options {
-    pub use super::{
-        CommandOptionFacts, ExitCommandFacts, FindCommandFacts, FindExecCommandFacts,
-        FindExecShellCommandFacts, GrepPatternSourceKind, PathWordFact, PrintfCommandFacts,
-        ReadCommandFacts, RmCommandFacts, SshCommandFacts, SudoFamilyCommandFacts,
-        UnsetCommandFacts, WaitCommandFacts, XargsCommandFacts,
-    };
 }
 
 #[allow(unused_imports)]

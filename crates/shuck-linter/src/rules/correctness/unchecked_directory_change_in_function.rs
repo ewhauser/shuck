@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::{Checker, CommandId, LinterFacts, Rule, Violation};
+use crate::{
+    Checker, CommandId, LinterFacts, Rule, Violation,
+    facts::command_options::DirectoryChangeCommandKind,
+};
 use shuck_semantic::{ScopeId, ScopeKind};
 
 use super::unchecked_directory_change::{report_span, supports_directory_change_rules};
@@ -46,7 +49,7 @@ pub fn unchecked_directory_change_in_function(checker: &mut Checker) {
         let Some(directory_change) = fact.options().directory_change() else {
             continue;
         };
-        if directory_change.kind() != crate::facts::DirectoryChangeCommandKind::Cd {
+        if directory_change.kind() != DirectoryChangeCommandKind::Cd {
             continue;
         }
 
