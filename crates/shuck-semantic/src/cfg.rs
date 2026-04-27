@@ -438,6 +438,12 @@ pub(crate) struct RecordedListItem {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct FlatListSegment {
+    operator_before: Option<(RecordedListOperator, Span)>,
+    command: CommandId,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct RecordedPipelineOperator {
     pub(crate) operator: RecordedPipelineOperatorKind,
     pub(crate) span: Span,
@@ -1846,7 +1852,22 @@ impl<'a> GraphBuilder<'a> {
         loops: &[LoopTarget],
         force_command_header: bool,
     ) -> SequenceResult {
-        let current = self.build_command(first, loops, false);
+        let mut segments = Vec::new();
+        collect_flat_list_segments(self.program, first, None, &mut segments);
+        for item in self.program.list_items(rest) {
+            collect_flat_list_segments(
+                self.program,
+                item.command,
+                Some((item.operator, item.operator_span)),
+                &mut segments,
+            );
+        }
+
+        let mut segments = segments.into_iter();
+        let first = segments
+            .next()
+            .expect("recorded logical list has at least one segment");
+        let current = self.build_command(first.command, loops, false);
         let entry = current.entry;
         let mut success_exits = current.exits.clone();
         let mut failure_exits = current.exits.clone();
@@ -1857,10 +1878,13 @@ impl<'a> GraphBuilder<'a> {
             .flatten();
         let mut failure_cause = success_cause;
 
-        for item in self.program.list_items(rest) {
+        for item in segments {
+            let (operator, _) = item
+                .operator_before
+                .expect("logical list rest segment has an operator");
             let next_start = self.blocks.len();
             let next = self.build_command(item.command, loops, false);
-            let (triggering_exits, triggering_cause, edge_kind) = match item.operator {
+            let (triggering_exits, triggering_cause, edge_kind) = match operator {
                 RecordedListOperator::And => {
                     (&success_exits, success_cause, EdgeKind::ConditionalTrue)
                 }
@@ -1897,7 +1921,7 @@ impl<'a> GraphBuilder<'a> {
                 .then_some(next_terminal_cause)
                 .flatten();
 
-            match item.operator {
+            match operator {
                 RecordedListOperator::And => {
                     let existing_failure_cause = failure_exits.is_empty().then_some(failure_cause);
                     append_unique_block_ids(&mut failure_exits, &next_failure_exits);
@@ -2367,6 +2391,31 @@ impl<'a> GraphBuilder<'a> {
 
 fn resolve_break_target(loops: &[LoopTarget], depth: usize) -> Option<&LoopTarget> {
     loops.iter().rev().nth(depth.saturating_sub(1))
+}
+
+fn collect_flat_list_segments(
+    program: &RecordedProgram,
+    command: CommandId,
+    operator_before: Option<(RecordedListOperator, Span)>,
+    out: &mut Vec<FlatListSegment>,
+) {
+    if let RecordedCommandKind::List { first, rest } = program.command(command).kind {
+        collect_flat_list_segments(program, first, operator_before, out);
+        for item in program.list_items(rest) {
+            collect_flat_list_segments(
+                program,
+                item.command,
+                Some((item.operator, item.operator_span)),
+                out,
+            );
+        }
+        return;
+    }
+
+    out.push(FlatListSegment {
+        operator_before,
+        command,
+    });
 }
 
 fn derive_predecessors(successors: &[SmallVec<[FlowEdge; 2]>]) -> Vec<SmallVec<[BlockId; 2]>> {

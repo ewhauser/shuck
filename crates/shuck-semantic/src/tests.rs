@@ -999,6 +999,18 @@ fn recorded_program_preserves_logical_list_order_in_ranges() {
 }
 
 #[test]
+fn flattened_logical_lists_preserve_short_circuit_cfg_paths() {
+    let source = "true && true || exit 1\nprintf '%s\\n' reachable\n";
+    let model = model(source);
+
+    assert!(
+        model.analysis().dead_code().is_empty(),
+        "dead code: {:?}",
+        model.analysis().dead_code()
+    );
+}
+
+#[test]
 fn recorded_program_preserves_pipeline_segment_order_in_ranges() {
     let source = "a | b | c\n";
     let model = model(source);
