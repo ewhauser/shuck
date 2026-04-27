@@ -81,6 +81,10 @@ const DEFAULT_MAX_AST_DEPTH: usize = 100;
 /// In release builds this could safely be higher, but we use one value for consistency.
 const HARD_MAX_AST_DEPTH: usize = 100;
 
+/// Auxiliary word reparsing happens while the main parser is already on the stack.
+/// Keep its synthetic parser shallower than the main AST limit.
+const SOURCE_TEXT_WORD_REPARSE_MAX_DEPTH: usize = 32;
+
 /// Default maximum parser operations (matches ExecutionLimits default)
 const DEFAULT_MAX_PARSER_OPERATIONS: usize = 100_000;
 
@@ -484,7 +488,25 @@ impl<'a> Parser<'a> {
     /// Parse a fragment against the original source span so part offsets stay
     /// aligned with the surrounding script.
     fn parse_word_fragment(source: &str, text: &str, span: Span) -> Word {
-        let mut parser = Parser::new(text);
+        Self::parse_word_fragment_with_limits(
+            source,
+            text,
+            span,
+            DEFAULT_MAX_AST_DEPTH,
+            DEFAULT_MAX_PARSER_OPERATIONS,
+            ShellProfile::native(ShellDialect::Bash),
+        )
+    }
+
+    fn parse_word_fragment_with_limits(
+        source: &str,
+        text: &str,
+        span: Span,
+        max_depth: usize,
+        max_fuel: usize,
+        shell_profile: ShellProfile,
+    ) -> Word {
+        let mut parser = Parser::with_limits_and_profile(text, max_depth, max_fuel, shell_profile);
         let source_backed = span.end.offset <= source.len() && span.slice(source) == text;
         let start = Position::new();
         let fragment_span = Span::from_positions(start, start.advanced_by(text));
@@ -5116,17 +5138,40 @@ impl<'a> Parser<'a> {
         }
 
         let span = text.span();
+        let remaining_depth = self.max_depth.saturating_sub(self.current_depth);
+        if remaining_depth == 0 {
+            return self.word_with_single_part(
+                self.literal_part_from_text(text.slice(self.input), span, text.is_source_backed()),
+                span,
+            );
+        }
+        let reparse_depth = (remaining_depth - 1).min(SOURCE_TEXT_WORD_REPARSE_MAX_DEPTH);
+
         if !text.is_source_backed()
             && span.start.offset <= span.end.offset
             && span.end.offset <= self.input.len()
         {
             let raw = span.slice(self.input);
             if raw.contains("\\\"") {
-                return Self::parse_word_fragment(self.input, raw, span);
+                return Self::parse_word_fragment_with_limits(
+                    self.input,
+                    raw,
+                    span,
+                    reparse_depth,
+                    self.fuel,
+                    self.shell_profile.clone(),
+                );
             }
         }
 
-        Self::parse_word_fragment(self.input, text.slice(self.input), text.span())
+        Self::parse_word_fragment_with_limits(
+            self.input,
+            text.slice(self.input),
+            text.span(),
+            reparse_depth,
+            self.fuel,
+            self.shell_profile.clone(),
+        )
     }
 
     fn simple_source_text_as_word(&self, text: &SourceText) -> Option<Word> {

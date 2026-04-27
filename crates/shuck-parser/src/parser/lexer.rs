@@ -551,6 +551,7 @@ pub(crate) struct HeredocRead {
 /// Maximum nesting depth for command substitution in the lexer.
 /// Prevents stack overflow from deeply nested $() patterns.
 const DEFAULT_MAX_SUBST_DEPTH: usize = 50;
+const MAX_PARAMETER_EXPANSION_SCAN_DEPTH: usize = 4;
 
 #[derive(Clone, Debug)]
 struct Cursor<'a> {
@@ -4231,6 +4232,10 @@ fn scan_double_quoted_command_substitution_segment(
 }
 
 fn scan_command_subst_parameter_expansion_len(input: &str, subst_depth: usize) -> Option<usize> {
+    if subst_depth >= MAX_PARAMETER_EXPANSION_SCAN_DEPTH {
+        return None;
+    }
+
     let mut index = 0usize;
     let mut in_single = false;
     let mut in_double = false;
@@ -4253,7 +4258,7 @@ fn scan_command_subst_parameter_expansion_len(input: &str, subst_depth: usize) -
             if input[next_index..].starts_with('{')
                 && let Some(consumed) = scan_command_subst_parameter_expansion_len(
                     &input[next_index + '{'.len_utf8()..],
-                    subst_depth,
+                    subst_depth + 1,
                 )
             {
                 index = next_index + '{'.len_utf8() + consumed;
@@ -4463,7 +4468,10 @@ fn flush_scanned_command_subst_keyword(
     *word_started_at_command_start = false;
 }
 
-fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> Option<usize> {
+pub(super) fn scan_command_substitution_body_len_inner(
+    input: &str,
+    subst_depth: usize,
+) -> Option<usize> {
     if subst_depth >= DEFAULT_MAX_SUBST_DEPTH {
         return None;
     }
