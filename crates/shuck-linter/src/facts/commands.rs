@@ -1501,6 +1501,19 @@ fn command_facts_are_source_ordered(commands: &[CommandFact<'_>]) -> bool {
         .all(|window| compare_command_facts_by_offset(&window[0], &window[1]).is_le())
 }
 
+fn build_command_fact_indices_by_id(commands: &[CommandFact<'_>]) -> Vec<Option<usize>> {
+    let len = commands
+        .iter()
+        .map(|command| command.id().index())
+        .max()
+        .map_or(0, |index| index + 1);
+    let mut indices = vec![None; len];
+    for (index, command) in commands.iter().enumerate() {
+        indices[command.id().index()] = Some(index);
+    }
+    indices
+}
+
 fn compare_command_facts_by_offset(
     left: &CommandFact<'_>,
     right: &CommandFact<'_>,

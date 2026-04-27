@@ -427,6 +427,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             .flatten()
             .collect::<Vec<_>>();
         commands.sort_unstable_by(compare_command_facts_by_offset);
+        let command_fact_indices_by_id = build_command_fact_indices_by_id(&commands);
         let command_facts_require_source_order = !command_facts_are_source_ordered(&commands);
         let command_offset_order =
             build_command_offset_order(&commands, command_facts_require_source_order);
@@ -804,6 +805,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         LinterFacts {
             source,
             commands,
+            command_fact_indices_by_id,
             structural_command_ids,
             command_ids_by_span,
             command_ids_by_name_word_span,
