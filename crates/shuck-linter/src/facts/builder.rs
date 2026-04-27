@@ -431,7 +431,17 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let command_facts_require_source_order = !command_facts_are_source_ordered(&commands);
         let command_offset_order =
             build_command_offset_order(&commands, command_facts_require_source_order);
-        let structural_command_ids = self.semantic.structural_commands().to_vec();
+        let structural_command_ids = self
+            .semantic
+            .structural_commands()
+            .iter()
+            .copied()
+            .filter(|id| {
+                command_fact_indices_by_id
+                    .get(id.index())
+                    .is_some_and(Option::is_some)
+            })
+            .collect::<Vec<_>>();
         let command_parent_ids = self
             .semantic
             .commands()
