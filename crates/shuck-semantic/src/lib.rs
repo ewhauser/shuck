@@ -22,6 +22,8 @@ mod dataflow;
 #[allow(missing_docs)]
 mod declaration;
 #[allow(missing_docs)]
+mod nonpersistent;
+#[allow(missing_docs)]
 mod reachability;
 #[allow(missing_docs)]
 mod reference;
@@ -63,6 +65,12 @@ pub use dataflow::{
 };
 /// Declaration records discovered while building the semantic model.
 pub use declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
+/// Nonpersistent assignment effects, such as assignments made in subshells and read later outside.
+pub use nonpersistent::{
+    NonpersistentAssignmentAnalysis, NonpersistentAssignmentAnalysisContext,
+    NonpersistentAssignmentAnalysisOptions, NonpersistentAssignmentCommandContext,
+    NonpersistentAssignmentEffect, NonpersistentAssignmentExtraRead, NonpersistentLaterUseKind,
+};
 /// Reference types and identifiers tracked by the semantic model.
 pub use reference::{Reference, ReferenceId, ReferenceKind};
 /// Scope types and identifiers tracked by the semantic model.

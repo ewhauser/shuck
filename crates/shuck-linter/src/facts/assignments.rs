@@ -1257,312 +1257,40 @@ fn build_nonpersistent_assignment_spans(
     commands: &[CommandFact<'_>],
     source: &str,
     suppress_bash_pipefail_pipeline_side_effects: bool,
-    command_offset_order: &CommandOffsetOrder,
 ) -> NonpersistentAssignmentSpans {
-    let scope_spans_by_id = semantic
-        .scopes()
-        .iter()
-        .map(|scope| (scope.id, scope.span))
-        .collect::<FxHashMap<_, _>>();
-    let mut candidate_bindings_by_scope: FxHashMap<
-        (Name, usize, usize),
-        CandidateSubshellAssignment,
-    > = FxHashMap::default();
-    let mut persistent_reset_offsets_by_name: FxHashMap<Name, Vec<usize>> = FxHashMap::default();
-    let mut command_id_query_offsets = Vec::new();
-    let mut relevant_references = Vec::new();
-    let mut relevant_synthetic_reads = Vec::new();
-    let loop_assignment_spans = build_subshell_loop_assignment_report_spans(commands);
-
-    for binding in semantic.bindings() {
-        if !is_reportable_subshell_assignment(binding.kind, binding.attributes) {
-            continue;
-        }
-        if !is_reportable_nonpersistent_assignment_name(&binding.name) {
-            continue;
-        }
-
-        let Some(nonpersistent_scope) = nonpersistent_scope_span_for_assignment(
-            semantic,
-            binding.scope,
-            &scope_spans_by_id,
-            suppress_bash_pipefail_pipeline_side_effects,
-        ) else {
-            continue;
-        };
-
-        candidate_bindings_by_scope
-            .entry((
-                binding.name.clone(),
-                nonpersistent_scope.span.start.offset,
-                nonpersistent_scope.span.end.offset,
-            ))
-            .or_insert(CandidateSubshellAssignment {
-                binding_id: binding.id,
-                effective_local: binding_effectively_targets_local(semantic, binding),
-                enclosing_function_scope: enclosing_function_scope_for_scope(semantic, binding.scope),
-                assignment_span: subshell_assignment_report_span(binding, &loop_assignment_spans),
-                subshell_start: nonpersistent_scope.span.start.offset,
-                subshell_end: nonpersistent_scope.span.end.offset,
-            });
-    }
-
-    let mut candidate_bindings_by_name: FxHashMap<Name, Vec<CandidateSubshellAssignment>> =
-        FxHashMap::default();
-    for ((name, _, _), candidate) in candidate_bindings_by_scope {
-        candidate_bindings_by_name
-            .entry(name)
-            .or_default()
-            .push(candidate);
-    }
-    for candidates in candidate_bindings_by_name.values_mut() {
-        candidates.sort_by_key(|candidate| {
-            (
-                candidate.subshell_end,
-                candidate.assignment_span.start.offset,
-                candidate.assignment_span.end.offset,
-            )
-        });
-    }
-
-    for binding in semantic.bindings() {
-        if !is_persistent_subshell_reset_binding(binding.kind, binding.attributes) {
-            continue;
-        }
-        if !is_reportable_nonpersistent_assignment_name(&binding.name) {
-            continue;
-        }
-        persistent_reset_offsets_by_name
-            .entry(binding.name.clone())
-            .or_default()
-            .push(binding.span.start.offset);
-        command_id_query_offsets.push(binding.span.start.offset);
-    }
-
-    for reference in semantic.references() {
-        if matches!(
-            reference.kind,
-            shuck_semantic::ReferenceKind::DeclarationName
-        ) {
-            continue;
-        }
-        if !is_reportable_nonpersistent_assignment_name(&reference.name) {
-            continue;
-        }
-        if candidate_bindings_by_name.contains_key(&reference.name) {
-            command_id_query_offsets.push(reference.span.start.offset);
-            relevant_references.push(reference);
-        }
-    }
-
-    for synthetic_read in semantic.synthetic_reads() {
-        if !is_reportable_nonpersistent_assignment_name(synthetic_read.name()) {
-            continue;
-        }
-        if candidate_bindings_by_name.contains_key(synthetic_read.name()) {
-            command_id_query_offsets.push(synthetic_read.span().start.offset);
-            relevant_synthetic_reads.push(synthetic_read);
-        }
-    }
-    let prompt_runtime_reads = build_prompt_runtime_read_spans(commands, source);
-    for read in &prompt_runtime_reads {
-        if candidate_bindings_by_name.contains_key(&read.name) {
-            command_id_query_offsets.push(read.span.start.offset);
-        }
-    }
-
-    let innermost_command_ids_by_offset = build_innermost_command_ids_by_offset(
-        commands,
-        command_id_query_offsets,
-        command_offset_order,
+    let command_contexts = build_nonpersistent_assignment_command_contexts(commands);
+    let prompt_runtime_reads = build_prompt_runtime_read_spans(commands, source)
+        .into_iter()
+        .map(|read| NonpersistentAssignmentExtraRead {
+            name: read.name,
+            span: read.span,
+            scope: read.scope,
+        })
+        .collect();
+    let analysis = semantic.analyze_nonpersistent_assignments(
+        &NonpersistentAssignmentAnalysisContext {
+            options: NonpersistentAssignmentAnalysisOptions {
+                suppress_bash_pipefail_pipeline_side_effects,
+                ignored_names: vec![Name::from("IFS")],
+            },
+            commands: command_contexts,
+            extra_reads: prompt_runtime_reads,
+        },
     );
-    let persistent_reset_offsets_by_name: FxHashMap<Name, Vec<PersistentReset>> =
-        persistent_reset_offsets_by_name
-            .into_iter()
-            .map(|(name, offsets)| {
-                let resets = offsets
-                    .into_iter()
-                    .map(|offset| {
-                        let command_id = precomputed_command_id_for_offset(
-                            &innermost_command_ids_by_offset,
-                            offset,
-                        );
-                        let command_end_offset = command_id
-                            .and_then(|id| commands.get(id.index()))
-                            .map(CommandFact::span)
-                            .map(|span| span.end.offset)
-                            .unwrap_or(offset);
-
-                        PersistentReset {
-                            offset,
-                            command_id,
-                            command_end_offset,
-                        }
-                    })
-                    .collect();
-                (name, resets)
-            })
-            .collect();
-
+    let loop_assignment_spans = build_subshell_loop_assignment_report_spans(commands);
     let mut later_use_sites = Vec::new();
     let mut assignment_sites = Vec::new();
-    for reference in relevant_references {
-        let Some(candidate_ids) = candidate_bindings_by_name.get(&reference.name) else {
-            continue;
-        };
 
-        let reset_offsets = persistent_reset_offsets_by_name
-            .get(&reference.name)
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
-        let event_command_id = precomputed_command_id_for_offset(
-            &innermost_command_ids_by_offset,
-            reference.span.start.offset,
-        );
-        let resolved = semantic.resolved_binding(reference.id);
-        let reference_function_scope = enclosing_function_scope_for_scope(semantic, reference.scope);
-        if let Some(candidate) = candidate_ids.iter().rev().find(|candidate| {
-            reference.span.start.offset > candidate.subshell_end
-                && !has_intervening_persistent_reset(
-                    reset_offsets,
-                    candidate.subshell_end,
-                    reference.span.start.offset,
-                    event_command_id,
-                )
-                && resolved_binding_allows_subshell_later_use(
-                    resolved,
-                    candidate,
-                    reference.span.start.offset,
-                    reference_function_scope,
-                )
-        }) {
-            assignment_sites.push(NamedSpan {
-                name: reference.name.clone(),
-                span: candidate.assignment_span,
-            });
-            later_use_sites.push(NamedSpan {
-                name: reference.name.clone(),
-                span: reference.span,
-            });
-        }
-    }
-
-    for synthetic_read in relevant_synthetic_reads {
-        let Some(candidate_ids) = candidate_bindings_by_name.get(synthetic_read.name()) else {
-            continue;
-        };
-
-        let reset_offsets = persistent_reset_offsets_by_name
-            .get(synthetic_read.name())
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
-        let synthetic_command_id = precomputed_command_id_for_offset(
-            &innermost_command_ids_by_offset,
-            synthetic_read.span().start.offset,
-        );
-        let same_command_prefix_reset = synthetic_command_id
-            .and_then(|id| commands.get(id.index()))
-            .is_some_and(|command| {
-                command_prefix_assignments_reset_name(command.command(), synthetic_read.name())
-            });
-        let synthetic_command_end_offset = synthetic_command_id
-            .and_then(|id| commands.get(id.index()))
-            .map(CommandFact::span)
-            .map(|span| span.end.offset)
-            .unwrap_or(synthetic_read.span().start.offset);
-        let synthetic_function_scope =
-            enclosing_function_scope_for_scope(semantic, synthetic_read.scope());
-        if let Some(candidate) = candidate_ids.iter().rev().find(|candidate| {
-            synthetic_read.span().start.offset > candidate.subshell_end
-                && !same_command_prefix_reset
-                && candidate_allows_unresolved_later_use(candidate, synthetic_function_scope)
-                && !has_intervening_persistent_reset(
-                    reset_offsets,
-                    candidate.subshell_end,
-                    synthetic_command_end_offset,
-                    None,
-                )
-        }) {
-            assignment_sites.push(NamedSpan {
-                name: synthetic_read.name().clone(),
-                span: candidate.assignment_span,
-            });
-            later_use_sites.push(NamedSpan {
-                name: synthetic_read.name().clone(),
-                span: synthetic_read.span(),
-            });
-        }
-    }
-
-    for read in prompt_runtime_reads {
-        let Some(candidate_ids) = candidate_bindings_by_name.get(&read.name) else {
-            continue;
-        };
-
-        let reset_offsets = persistent_reset_offsets_by_name
-            .get(&read.name)
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
-        let event_command_id =
-            precomputed_command_id_for_offset(&innermost_command_ids_by_offset, read.span.start.offset);
-        let read_function_scope = enclosing_function_scope_for_scope(semantic, read.scope);
-        if let Some(candidate) = candidate_ids.iter().rev().find(|candidate| {
-            read.span.start.offset > candidate.subshell_end
-                && candidate_allows_unresolved_later_use(candidate, read_function_scope)
-                && !has_intervening_persistent_reset(
-                    reset_offsets,
-                    candidate.subshell_end,
-                    read.span.start.offset,
-                    event_command_id,
-                )
-        }) {
-            assignment_sites.push(NamedSpan {
-                name: read.name.clone(),
-                span: candidate.assignment_span,
-            });
-            later_use_sites.push(NamedSpan {
-                name: read.name,
-                span: read.span,
-            });
-        }
-    }
-
-    for binding in semantic.bindings() {
-        if !is_reportable_subshell_later_use_binding(binding.kind, binding.attributes) {
-            continue;
-        }
-        if !is_reportable_nonpersistent_assignment_name(&binding.name) {
-            continue;
-        }
-
-        let Some(candidate_ids) = candidate_bindings_by_name.get(&binding.name) else {
-            continue;
-        };
-
-        let reset_offsets = persistent_reset_offsets_by_name
-            .get(&binding.name)
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
-        let binding_function_scope = enclosing_function_scope_for_scope(semantic, binding.scope);
-        if let Some(candidate) = candidate_ids.iter().rev().find(|candidate| {
-            binding.span.start.offset > candidate.subshell_end
-                && candidate_allows_unresolved_later_use(candidate, binding_function_scope)
-                && !has_intervening_persistent_reset(
-                    reset_offsets,
-                    candidate.subshell_end,
-                    binding.span.start.offset,
-                    None,
-                )
-        }) {
-            assignment_sites.push(NamedSpan {
-                name: binding.name.clone(),
-                span: candidate.assignment_span,
-            });
-            later_use_sites.push(NamedSpan {
-                name: binding.name.clone(),
-                span: binding.span,
-            });
-        }
+    for effect in analysis.effects {
+        let assignment_binding = semantic.binding(effect.assignment_binding);
+        assignment_sites.push(NamedSpan {
+            name: effect.name.clone(),
+            span: subshell_assignment_report_span(assignment_binding, &loop_assignment_spans),
+        });
+        later_use_sites.push(NamedSpan {
+            name: effect.name,
+            span: effect.later_use_span,
+        });
     }
 
     let mut seen = FxHashSet::default();
@@ -1577,55 +1305,6 @@ fn build_nonpersistent_assignment_spans(
         subshell_assignment_sites: assignment_sites,
         subshell_later_use_sites: later_use_sites,
     }
-}
-
-fn is_reportable_subshell_assignment(kind: BindingKind, attributes: BindingAttributes) -> bool {
-    match kind {
-        BindingKind::Assignment
-        | BindingKind::ParameterDefaultAssignment
-        | BindingKind::AppendAssignment
-        | BindingKind::ArrayAssignment
-        | BindingKind::LoopVariable
-        | BindingKind::ReadTarget
-        | BindingKind::MapfileTarget
-        | BindingKind::PrintfTarget
-        | BindingKind::GetoptsTarget
-        | BindingKind::ArithmeticAssignment => !attributes.contains(BindingAttributes::LOCAL),
-        BindingKind::Declaration(_) => {
-            attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
-        }
-        BindingKind::Imported => false,
-        BindingKind::FunctionDefinition | BindingKind::Nameref => false,
-    }
-}
-
-fn is_reportable_subshell_later_use_binding(
-    kind: BindingKind,
-    attributes: BindingAttributes,
-) -> bool {
-    match kind {
-        BindingKind::AppendAssignment => true,
-        BindingKind::ArithmeticAssignment => true,
-        BindingKind::Declaration(DeclarationBuiltin::Export) => {
-            !attributes.contains(BindingAttributes::LOCAL)
-        }
-        BindingKind::Declaration(_) => false,
-        BindingKind::Assignment
-        | BindingKind::ArrayAssignment
-        | BindingKind::LoopVariable
-        | BindingKind::ReadTarget
-        | BindingKind::MapfileTarget
-        | BindingKind::PrintfTarget
-        | BindingKind::GetoptsTarget
-        | BindingKind::ParameterDefaultAssignment
-        | BindingKind::FunctionDefinition
-        | BindingKind::Imported
-        | BindingKind::Nameref => false,
-    }
-}
-
-fn is_reportable_nonpersistent_assignment_name(name: &Name) -> bool {
-    name.as_str() != "IFS"
 }
 
 fn build_subshell_loop_assignment_report_spans(
@@ -1673,152 +1352,31 @@ fn subshell_assignment_report_span(
     binding.span
 }
 
-#[derive(Debug, Clone, Copy)]
-struct CandidateSubshellAssignment {
-    binding_id: shuck_semantic::BindingId,
-    effective_local: bool,
-    enclosing_function_scope: Option<ScopeId>,
-    assignment_span: Span,
-    subshell_start: usize,
-    subshell_end: usize,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct NonpersistentScopeSpan {
-    span: Span,
-}
-
-
 #[derive(Debug, Default)]
 struct NonpersistentAssignmentSpans {
     subshell_assignment_sites: Vec<NamedSpan>,
     subshell_later_use_sites: Vec<NamedSpan>,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct PersistentReset {
-    offset: usize,
-    command_id: Option<CommandId>,
-    command_end_offset: usize,
-}
-
-fn nonpersistent_scope_span_for_assignment(
-    semantic: &SemanticModel,
-    scope: ScopeId,
-    scope_spans_by_id: &FxHashMap<ScopeId, Span>,
-    suppress_bash_pipefail_pipeline_side_effects: bool,
-) -> Option<NonpersistentScopeSpan> {
-    semantic
-        .ancestor_scopes(scope)
-        .find(|scope_id| match semantic.scope_kind(*scope_id) {
-            shuck_semantic::ScopeKind::Pipeline => !suppress_bash_pipefail_pipeline_side_effects,
-            shuck_semantic::ScopeKind::Subshell
-            | shuck_semantic::ScopeKind::CommandSubstitution => true,
-            shuck_semantic::ScopeKind::Function(_) | shuck_semantic::ScopeKind::File => false,
-        })
-        .and_then(|scope_id| scope_spans_by_id.get(&scope_id).copied())
-        .map(|span| NonpersistentScopeSpan { span })
-}
-
-fn is_persistent_subshell_reset_binding(kind: BindingKind, attributes: BindingAttributes) -> bool {
-    match kind {
-        BindingKind::Assignment
-        | BindingKind::ParameterDefaultAssignment
-        | BindingKind::AppendAssignment
-        | BindingKind::ArrayAssignment
-        | BindingKind::LoopVariable
-        | BindingKind::ReadTarget
-        | BindingKind::MapfileTarget
-        | BindingKind::PrintfTarget
-        | BindingKind::GetoptsTarget
-        | BindingKind::ArithmeticAssignment => !attributes.contains(BindingAttributes::LOCAL),
-        BindingKind::Declaration(_) => {
-            attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
-        }
-        BindingKind::Imported => false,
-        BindingKind::FunctionDefinition | BindingKind::Nameref => false,
-    }
-}
-
-fn resolved_binding_allows_subshell_later_use(
-    resolved: Option<&Binding>,
-    candidate: &CandidateSubshellAssignment,
-    reference_offset: usize,
-    reference_function_scope: Option<ScopeId>,
-) -> bool {
-    let Some(resolved) = resolved else {
-        return candidate_allows_unresolved_later_use(candidate, reference_function_scope);
-    };
-    if resolved.id == candidate.binding_id {
-        return false;
-    }
-    if resolved.span.start.offset > reference_offset {
-        return true;
-    }
-    if resolved.span.start.offset < candidate.subshell_start {
-        return true;
-    }
-
-    matches!(resolved.kind, BindingKind::Declaration(_))
-        && !resolved
-            .attributes
-            .contains(BindingAttributes::DECLARATION_INITIALIZED)
-}
-
-fn candidate_allows_unresolved_later_use(
-    candidate: &CandidateSubshellAssignment,
-    later_function_scope: Option<ScopeId>,
-) -> bool {
-    !candidate.effective_local || later_function_scope == candidate.enclosing_function_scope
-}
-
-fn binding_effectively_targets_local(semantic: &SemanticModel, binding: &Binding) -> bool {
-    if binding.attributes.contains(BindingAttributes::LOCAL) {
-        return true;
-    }
-
-    let binding_function_scope = enclosing_function_scope_for_scope(semantic, binding.scope);
-    semantic
-        .previous_visible_binding(&binding.name, binding.span, Some(binding.span))
-        .is_some_and(|previous| {
-            previous.attributes.contains(BindingAttributes::LOCAL)
-                && enclosing_function_scope_for_scope(semantic, previous.scope)
-                    == binding_function_scope
-        })
-}
-
-fn enclosing_function_scope_for_scope(semantic: &SemanticModel, scope: ScopeId) -> Option<ScopeId> {
-    semantic.ancestor_scopes(scope).find(|scope| {
-        matches!(
-            semantic.scope_kind(*scope),
-            shuck_semantic::ScopeKind::Function(_)
-        )
-    })
-}
-
-fn has_intervening_persistent_reset(
-    resets: &[PersistentReset],
-    candidate_end: usize,
-    event_offset: usize,
-    event_command_id: Option<CommandId>,
-) -> bool {
-    resets.iter().any(|reset| {
-        let effective_offset = if reset.offset > candidate_end {
-            reset.offset
-        } else {
-            reset.command_end_offset
-        };
-
-        effective_offset > candidate_end
-            && effective_offset < event_offset
-            && event_command_id.is_none_or(|event_id| reset.command_id != Some(event_id))
-    })
-}
-
-fn command_prefix_assignments_reset_name(command: &Command, name: &Name) -> bool {
-    command_assignments(command)
+fn build_nonpersistent_assignment_command_contexts(
+    commands: &[CommandFact<'_>],
+) -> Vec<NonpersistentAssignmentCommandContext> {
+    commands
         .iter()
-        .any(|assignment| assignment.target.name == *name)
+        .map(|command| {
+            let mut prefix_reset_names = command_assignments(command.command())
+                .iter()
+                .map(|assignment| assignment.target.name.clone())
+                .collect::<Vec<_>>();
+            prefix_reset_names.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+            prefix_reset_names.dedup();
+
+            NonpersistentAssignmentCommandContext {
+                span: command.span(),
+                prefix_reset_names,
+            }
+        })
+        .collect()
 }
 
 struct PromptRuntimeRead {

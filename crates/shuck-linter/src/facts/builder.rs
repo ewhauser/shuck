@@ -594,7 +594,6 @@ impl<'a> LinterFactsBuilder<'a> {
             &commands,
             self.source,
             matches!(self.shell, ShellDialect::Bash) && pipefail_enabled_anywhere,
-            &command_offset_order,
         );
         let heredoc_summary =
             build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
