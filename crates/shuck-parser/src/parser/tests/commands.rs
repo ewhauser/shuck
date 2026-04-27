@@ -1955,6 +1955,37 @@ fn test_zsh_case_accepts_suffix_bare_group_pattern() {
 }
 
 #[test]
+fn test_zsh_case_group_separator_after_parameter_segment() {
+    let input = concat!(
+        "case \"$mode\" in\n",
+        "  (${kind}|literal)) print ok ;;\n",
+        "esac\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    let pattern = &command.cases[0].patterns[0];
+    let PatternPart::Group { kind, patterns } = &pattern.parts[0].kind else {
+        panic!("expected zsh group with parameter branch");
+    };
+    assert_eq!(*kind, PatternGroupKind::ExactlyOne);
+    assert_eq!(
+        patterns
+            .iter()
+            .map(|pattern| pattern.render_syntax(input))
+            .collect::<Vec<_>>(),
+        vec!["${kind}", "literal"]
+    );
+}
+
+#[test]
 fn test_zsh_case_accepts_numeric_range_pattern() {
     let input = concat!("case \"$jobspec\" in\n", "  <->) print ok ;;\n", "esac\n",);
     let script = Parser::with_dialect(input, ShellDialect::Zsh)

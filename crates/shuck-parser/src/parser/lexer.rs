@@ -4212,6 +4212,7 @@ fn scan_double_quoted_command_substitution_segment(
                 let consumed = scan_command_subst_parameter_expansion_len(
                     &input[next_index + '{'.len_utf8()..],
                     subst_depth,
+                    0,
                 )?;
                 index = next_index + '{'.len_utf8() + consumed;
             }
@@ -4231,8 +4232,12 @@ fn scan_double_quoted_command_substitution_segment(
     None
 }
 
-fn scan_command_subst_parameter_expansion_len(input: &str, subst_depth: usize) -> Option<usize> {
-    if subst_depth >= MAX_PARAMETER_EXPANSION_SCAN_DEPTH {
+fn scan_command_subst_parameter_expansion_len(
+    input: &str,
+    subst_depth: usize,
+    parameter_depth: usize,
+) -> Option<usize> {
+    if parameter_depth >= MAX_PARAMETER_EXPANSION_SCAN_DEPTH {
         return None;
     }
 
@@ -4258,7 +4263,8 @@ fn scan_command_subst_parameter_expansion_len(input: &str, subst_depth: usize) -
             if input[next_index..].starts_with('{')
                 && let Some(consumed) = scan_command_subst_parameter_expansion_len(
                     &input[next_index + '{'.len_utf8()..],
-                    subst_depth + 1,
+                    subst_depth,
+                    parameter_depth + 1,
                 )
             {
                 index = next_index + '{'.len_utf8() + consumed;
@@ -4751,6 +4757,7 @@ pub(super) fn scan_command_substitution_body_len_inner(
                 let consumed = scan_command_subst_parameter_expansion_len(
                     &input[next_index + '{'.len_utf8()..],
                     subst_depth,
+                    0,
                 )?;
                 index = next_index + '{'.len_utf8() + consumed;
                 if expecting_redirection_target {
@@ -4973,6 +4980,19 @@ mod tests {
         assert_eq!(
             token.word_text(),
             Some(r#"$(echo "${@}" | tr -d '[:space:]')"#)
+        );
+    }
+
+    #[test]
+    fn test_deep_command_substitution_preserves_simple_parameter_expansion() {
+        let source = r#""$(echo "$(echo "$(echo "$(echo "${name}")")")")""#;
+        let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::QuotedWord);
+        assert_eq!(
+            token.word_text(),
+            Some(r#"$(echo "$(echo "$(echo "$(echo "${name}")")")")"#)
         );
     }
 

@@ -287,38 +287,52 @@ impl<'a> PatternParser<'a> {
     }
 
     fn has_zsh_case_group_separator(&self, cursor: PatternCursor) -> bool {
-        let Some(PatternSegment::Literal { text, .. }) = self.segments.get(cursor.segment_index)
-        else {
-            return false;
-        };
-        let Some(rest) = text.get(cursor.literal_offset + '('.len_utf8()..) else {
-            return false;
-        };
-
         let mut escaped = false;
         let mut paren_depth = 0usize;
         let mut scanned = 0usize;
-        for ch in rest.chars() {
-            scanned += ch.len_utf8();
-            if scanned > Self::MAX_ZSH_CASE_GROUP_PRESCAN_BYTES {
-                return false;
-            }
+        for (index, segment) in self.segments.iter().enumerate().skip(cursor.segment_index) {
+            match segment {
+                PatternSegment::Literal { text, .. } => {
+                    let offset = if index == cursor.segment_index {
+                        cursor.literal_offset + '('.len_utf8()
+                    } else {
+                        0
+                    };
+                    let Some(rest) = text.get(offset..) else {
+                        return false;
+                    };
 
-            if escaped {
-                escaped = false;
-                continue;
-            }
-            if ch == '\\' {
-                escaped = true;
-                continue;
-            }
+                    for ch in rest.chars() {
+                        scanned += ch.len_utf8();
+                        if scanned > Self::MAX_ZSH_CASE_GROUP_PRESCAN_BYTES {
+                            return false;
+                        }
 
-            match ch {
-                '(' => paren_depth = paren_depth.saturating_add(1),
-                ')' if paren_depth == 0 => return false,
-                ')' => paren_depth -= 1,
-                '|' if paren_depth == 0 => return true,
-                _ => {}
+                        if escaped {
+                            escaped = false;
+                            continue;
+                        }
+                        if ch == '\\' {
+                            escaped = true;
+                            continue;
+                        }
+
+                        match ch {
+                            '(' => paren_depth = paren_depth.saturating_add(1),
+                            ')' if paren_depth == 0 => return false,
+                            ')' => paren_depth -= 1,
+                            '|' if paren_depth == 0 => return true,
+                            _ => {}
+                        }
+                    }
+                }
+                PatternSegment::Word(part) => {
+                    scanned += part.span.end.offset.saturating_sub(part.span.start.offset);
+                    if scanned > Self::MAX_ZSH_CASE_GROUP_PRESCAN_BYTES {
+                        return false;
+                    }
+                    escaped = false;
+                }
             }
         }
 
