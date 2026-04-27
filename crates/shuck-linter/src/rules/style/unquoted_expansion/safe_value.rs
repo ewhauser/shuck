@@ -3460,6 +3460,11 @@ impl<'a> SafeValueIndex<'a> {
                             function_name,
                             site,
                         )
+                        && self.scope_has_visible_local_binding_before(
+                            &binding.name,
+                            scope,
+                            site.span,
+                        )
                         && self
                             .definition_command_resolves_at_call(definition_command.id(), site.span)
                         && self.call_site_dominates_use(site.span, &binding.name, at)
@@ -6739,6 +6744,39 @@ render() {
                     && fact.span().slice(source) == "${value}"
             })
             .expect("expected shadowed helper argument fact");
+
+        assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn helper_call_before_local_shadow_does_not_make_local_unsafe() {
+        let source = "\
+#!/bin/bash
+helper() {
+  value=$1
+}
+
+render() {
+  helper \"$1\"
+  local value=SAFE
+  printf '%s\\n' ${value}
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${value}"
+            })
+            .expect("expected local argument fact");
 
         assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
