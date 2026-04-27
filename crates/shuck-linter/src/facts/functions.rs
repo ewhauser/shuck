@@ -138,13 +138,14 @@ struct FunctionFactInput<'a> {
 #[cfg_attr(shuck_profiling, inline(never))]
 fn build_function_header_facts<'a>(
     semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
     functions: &[FunctionFactInput<'a>],
     commands: &[CommandFact<'a>],
     source: &str,
     command_offset_order: &CommandOffsetOrder,
 ) -> Vec<FunctionHeaderFact<'a>> {
     let call_arity_by_binding = build_function_call_arity_facts(
-        semantic,
+        semantic_analysis,
         &functions
             .iter()
             .map(|input| input.function)
@@ -158,10 +159,8 @@ fn build_function_header_facts<'a>(
         .copied()
         .map(|input| {
             let binding_id = function_header_binding_id(semantic, input.function);
-            let scope_id = binding_id
-                .and_then(|binding_id| {
-                    function_header_scope_id(semantic, input.function, binding_id)
-                });
+            let scope_id =
+                binding_id.and_then(|binding_id| semantic_analysis.function_scope_for_binding(binding_id));
             let call_arity = binding_id
                 .and_then(|binding_id| call_arity_by_binding.get(&binding_id).cloned())
                 .unwrap_or_default();
@@ -180,6 +179,7 @@ fn build_function_header_facts<'a>(
 #[cfg_attr(shuck_profiling, inline(never))]
 fn build_function_cli_dispatch_facts(
     semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
     function_headers: &[FunctionHeaderFact<'_>],
     file: &File,
     source: &str,
@@ -218,8 +218,7 @@ fn build_function_cli_dispatch_facts(
                 }
 
                 let name = Name::from(name.as_str());
-                let Some(binding_id) = visible_function_binding_defined_before_offset(
-                    semantic,
+                let Some(binding_id) = semantic_analysis.visible_function_binding_defined_before(
                     &name,
                     semantic.scope_at(dispatcher_span.start.offset),
                     dispatcher_span.start.offset,
@@ -516,7 +515,7 @@ fn named_coproc_subshell_fallback_span(command: &CommandFact<'_>) -> Option<Span
     Some(Span::from_positions(body_start, body_start))
 }
 fn build_function_call_arity_facts<'a>(
-    semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
     functions: &[&FunctionDef],
     commands: &[CommandFact<'a>],
     source: &str,
@@ -539,7 +538,7 @@ fn build_function_call_arity_facts<'a>(
 
     let mut offsets = Vec::new();
     for name in &unique_function_names {
-        for site in semantic.call_sites_for(name) {
+        for (site, _) in semantic_analysis.function_call_arity_sites(name) {
             offsets.push(site.name_span.start.offset);
         }
     }
@@ -551,7 +550,7 @@ fn build_function_call_arity_facts<'a>(
         build_innermost_command_ids_by_offset(commands, offsets, command_offset_order);
 
     for name in unique_function_names {
-        for site in semantic.call_sites_for(name) {
+        for (site, binding_id) in semantic_analysis.function_call_arity_sites(name) {
             let Some(command_id) =
                 precomputed_command_id_for_offset(&command_ids_by_offset, site.name_span.start.offset)
             else {
@@ -566,19 +565,11 @@ fn build_function_call_arity_facts<'a>(
             let Some(name_word) = command.body_name_word() else {
                 continue;
             };
-            let Some(binding_id) = visible_function_binding_for_call_offset(
-                semantic,
-                name,
-                command.scope(),
-                name_word.span.start.offset,
-            ) else {
-                continue;
-            };
             facts
                 .entry(binding_id)
                 .or_default()
                 .record_call(
-                    function_call_arg_count(command, source),
+                    site.arg_count,
                     name_word.span,
                     function_call_diagnostic_span(command, name_word.span, source),
                 );
@@ -600,34 +591,6 @@ fn function_call_diagnostic_span(
     trim_trailing_whitespace_span(command.stmt().span, source)
 }
 
-fn function_call_arg_count(command: &CommandFact<'_>, source: &str) -> usize {
-    let arg_count = command.body_args().len();
-    if arg_count != 0 || !command.redirects().is_empty() || !command.is_nested_word_command() {
-        return arg_count;
-    }
-
-    let Some(name_word) = command.body_name_word() else {
-        return 0;
-    };
-    let stmt_span = trim_trailing_whitespace_span(command.stmt().span, source);
-    let tail = if stmt_span.end.offset > name_word.span.end.offset {
-        trim_shell_layout_prefix(&source[name_word.span.end.offset..stmt_span.end.offset])
-    } else {
-        trim_shell_layout_prefix(&source[name_word.span.end.offset..])
-    };
-    if tail.is_empty() {
-        return 0;
-    }
-    if matches!(
-        tail.as_bytes().first(),
-        Some(b')' | b';' | b'|' | b'&' | b'<' | b'>' | b'#' | b'`')
-    ) {
-        return 0;
-    }
-
-    1
-}
-
 fn function_header_binding_id(
     semantic: &SemanticModel,
     function: &FunctionDef,
@@ -638,76 +601,6 @@ fn function_header_binding_id(
         .iter()
         .copied()
         .find(|binding_id| semantic.binding(*binding_id).span == name_span)
-}
-
-fn function_header_scope_id(
-    semantic: &SemanticModel,
-    function: &FunctionDef,
-    binding_id: BindingId,
-) -> Option<ScopeId> {
-    let (name, _) = function.static_name_entries().next()?;
-    let binding = semantic.binding(binding_id);
-
-    semantic.scopes().iter().find_map(|scope| {
-        let shuck_semantic::ScopeKind::Function(function_scope) = &scope.kind else {
-            return None;
-        };
-        (scope.parent == Some(binding.scope)
-            && scope.span == function.body.span
-            && function_scope.contains_name(name))
-        .then_some(scope.id)
-    })
-}
-
-fn visible_function_binding_for_call_offset(
-    semantic: &SemanticModel,
-    name: &Name,
-    site_scope: ScopeId,
-    site_offset: usize,
-) -> Option<BindingId> {
-    let scopes = semantic.ancestor_scopes(site_scope).collect::<Vec<_>>();
-
-    scopes
-        .iter()
-        .copied()
-        .find_map(|scope| {
-            semantic
-                .function_definitions(name)
-                .iter()
-                .copied()
-                .filter(|candidate| semantic.binding(*candidate).scope == scope)
-                .filter(|candidate| semantic.binding(*candidate).span.start.offset < site_offset)
-                .max_by_key(|candidate| semantic.binding(*candidate).span.start.offset)
-        })
-        .or_else(|| {
-            scopes.iter().copied().find_map(|scope| {
-                semantic
-                    .function_definitions(name)
-                    .iter()
-                    .copied()
-                    .filter(|candidate| semantic.binding(*candidate).scope == scope)
-                    .min_by_key(|candidate| semantic.binding(*candidate).span.start.offset)
-            })
-        })
-}
-
-fn visible_function_binding_defined_before_offset(
-    semantic: &SemanticModel,
-    name: &Name,
-    site_scope: ScopeId,
-    site_offset: usize,
-) -> Option<BindingId> {
-    let scopes = semantic.ancestor_scopes(site_scope).collect::<Vec<_>>();
-
-    scopes.iter().copied().find_map(|scope| {
-        semantic
-            .function_definitions(name)
-            .iter()
-            .copied()
-            .filter(|candidate| semantic.binding(*candidate).scope == scope)
-            .filter(|candidate| semantic.binding(*candidate).span.start.offset < site_offset)
-            .max_by_key(|candidate| semantic.binding(*candidate).span.start.offset)
-    })
 }
 
 fn first_positional_dispatch_in_commands(commands: &StmtSeq) -> Option<Span> {

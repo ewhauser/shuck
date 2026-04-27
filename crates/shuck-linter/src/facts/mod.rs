@@ -66,7 +66,7 @@ use shuck_parser::parser::Parser;
 use shuck_semantic::{
     Binding, BindingAttributes, BindingId, BindingKind, Declaration, DeclarationBuiltin,
     DeclarationOperand as SemanticDeclarationOperand, OptionValue, Reference, ReferenceId,
-    ReferenceKind, ScopeId, SemanticModel, ZshOptionState,
+    ReferenceKind, ScopeId, SemanticAnalysis, SemanticModel, ZshOptionState,
 };
 use smallvec::SmallVec;
 use std::{borrow::Cow, ops::ControlFlow, sync::OnceLock};

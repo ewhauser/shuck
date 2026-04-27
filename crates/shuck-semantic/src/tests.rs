@@ -474,6 +474,41 @@ fn zsh_multi_name_function_lookup_works_through_any_alias() {
 }
 
 #[test]
+fn semantic_analysis_exposes_function_scope_and_call_arity_bindings() {
+    let source = "greet ok\ngreet() { echo \"$1\"; }\ngreet\n";
+    let model = model(source);
+    let analysis = model.analysis();
+    let name = Name::from("greet");
+    let binding = model.function_definitions(&name)[0];
+
+    let function_scope = analysis
+        .function_scope_for_binding(binding)
+        .expect("expected function body scope");
+    assert!(matches!(
+        model.scope_kind(function_scope),
+        ScopeKind::Function(_)
+    ));
+
+    let arity_sites = analysis
+        .function_call_arity_sites(&name)
+        .map(|(site, binding_id)| {
+            (
+                site.name_span.slice(source).to_owned(),
+                site.arg_count,
+                binding_id,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        arity_sites,
+        vec![
+            ("greet".to_owned(), 1, binding),
+            ("greet".to_owned(), 0, binding)
+        ]
+    );
+}
+
+#[test]
 fn zsh_parameter_modifiers_still_register_references() {
     let model = model_with_profile("print ${(m)foo}\n", ShellProfile::native(ShellDialect::Zsh));
     let unresolved = unresolved_names(&model);
