@@ -52,7 +52,10 @@ pub use call_graph::{
     CallGraph, CallSite, OverwrittenFunction, UnreachedFunction, UnreachedFunctionReason,
 };
 /// Control-flow graph types and flow-context annotations.
-pub use cfg::{BasicBlock, BlockId, ControlFlowGraph, EdgeKind, FlowContext, UnreachableCauseKind};
+pub use cfg::{
+    BasicBlock, BlockId, ControlFlowGraph, EdgeKind, FlowContext, StatementSequenceCommand,
+    UnreachableCauseKind,
+};
 /// Contract and build-option types used when constructing semantic models.
 pub use contract::{
     ContractCertainty, FileContract, FileEntryBindingInitialization, FileEntryContractCollector,
@@ -1137,6 +1140,10 @@ impl SemanticModel {
             .get(&id)
             .map(Vec::as_slice)
             .unwrap_or(&[])
+    }
+
+    pub fn statement_sequence_commands(&self) -> &[StatementSequenceCommand] {
+        self.recorded_program.statement_sequence_commands()
     }
 
     pub(crate) fn recorded_program(&self) -> &RecordedProgram {
