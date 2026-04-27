@@ -521,6 +521,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let function_in_alias_spans = build_function_in_alias_spans(&commands, self.source);
         let function_parameter_fallback_spans = build_function_parameter_fallback_spans(
             &commands,
+            &command_fact_indices_by_id,
             &structural_command_ids,
             self.source,
         );
@@ -716,11 +717,16 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             assignment_scope_spans: env_prefix_assignment_scope_spans,
             expansion_scope_spans: env_prefix_expansion_scope_spans,
         } = build_env_prefix_scope_spans(self.source, &commands);
-        let unset_command_ids_by_target_name =
-            build_unset_command_ids_by_target_name(&commands, &structural_command_ids, source);
+        let unset_command_ids_by_target_name = build_unset_command_ids_by_target_name(
+            &commands,
+            &command_fact_indices_by_id,
+            &structural_command_ids,
+            source,
+        );
         let function_unset_command_ids_by_target_name =
             build_function_unset_command_ids_by_target_name(
                 &commands,
+                &command_fact_indices_by_id,
                 &structural_command_ids,
                 source,
             );
@@ -799,6 +805,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             build_c006_suppressing_reference_offsets_by_name(
                 self.semantic,
                 &commands,
+                &command_fact_indices_by_id,
                 &innermost_command_ids_by_offset,
                 &subscript_later_suppression_reference_spans,
             );
@@ -1139,6 +1146,7 @@ fn build_c006_suppressing_reference_offsets_by_name(
 fn c006_reference_suppresses_later_references(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     innermost_command_ids_by_offset: &CommandOffsetLookup,
     subscript_later_suppression_reference_spans: &FxHashSet<FactSpan>,
     reference: &Reference,
@@ -1147,6 +1155,7 @@ fn c006_reference_suppresses_later_references(
         || semantic.is_defaulting_parameter_operand_reference(reference.id)
         || c006_subscript_reference_suppresses_later_references(
             commands,
+            command_fact_indices_by_id,
             innermost_command_ids_by_offset,
             subscript_later_suppression_reference_spans,
             reference,
@@ -1155,6 +1164,7 @@ fn c006_reference_suppresses_later_references(
 
 fn c006_subscript_reference_suppresses_later_references(
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     innermost_command_ids_by_offset: &CommandOffsetLookup,
     subscript_later_suppression_reference_spans: &FxHashSet<FactSpan>,
     reference: &Reference,
@@ -1167,7 +1177,13 @@ fn c006_subscript_reference_suppresses_later_references(
         innermost_command_ids_by_offset,
         reference.span.start.offset,
     )
-    .and_then(|id| commands.iter().find(|command| command.id() == id))
+    .and_then(|id| {
+        command_fact_indices_by_id
+            .get(id.index())
+            .copied()
+            .flatten()
+            .and_then(|index| commands.get(index))
+    })
     .and_then(CommandFact::static_utility_name)
     .is_none_or(|name| !matches!(name, "unset" | "[" | "[[" | "test"))
 }
@@ -1275,13 +1291,19 @@ fn linebreak_in_test_insert_offset(span: Span, source: &str) -> Option<usize> {
 
 fn build_unset_command_ids_by_target_name(
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     structural_command_ids: &[CommandId],
     source: &str,
 ) -> FxHashMap<Name, Vec<CommandId>> {
     let mut command_ids_by_name = FxHashMap::<Name, Vec<CommandId>>::default();
 
     for command_id in structural_command_ids.iter().copied() {
-        let Some(command) = commands.iter().find(|command| command.id() == command_id) else {
+        let Some(command) = command_fact_indices_by_id
+            .get(command_id.index())
+            .copied()
+            .flatten()
+            .and_then(|index| commands.get(index))
+        else {
             continue;
         };
         let Some(unset) = command.options().unset() else {
@@ -1309,13 +1331,19 @@ fn build_unset_command_ids_by_target_name(
 
 fn build_function_unset_command_ids_by_target_name(
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     structural_command_ids: &[CommandId],
     source: &str,
 ) -> FxHashMap<Name, Vec<CommandId>> {
     let mut command_ids_by_name = FxHashMap::<Name, Vec<CommandId>>::default();
 
     for command_id in structural_command_ids.iter().copied() {
-        let Some(command) = commands.iter().find(|command| command.id() == command_id) else {
+        let Some(command) = command_fact_indices_by_id
+            .get(command_id.index())
+            .copied()
+            .flatten()
+            .and_then(|index| commands.get(index))
+        else {
             continue;
         };
         let Some(unset) = command.options().unset() else {
