@@ -1005,6 +1005,7 @@ fn collect_own_scope_name_write_uses(
     }
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn collect_nested_scope_read_source_words<'a>(
     commands: CommandFacts<'_, 'a>,
     command: CommandFactRef<'_, 'a>,
@@ -1012,62 +1013,84 @@ fn collect_nested_scope_read_source_words<'a>(
     source: &str,
     words: &mut Vec<PathWordFact<'a>>,
 ) {
-    for other in commands
-        .iter()
-        .filter(|other| other.id() != command.id() && contains_span(command.span(), other.span()))
-    {
+    for_each_nested_command(commands, command, |other| {
         collect_own_scope_read_source_words(other, if_condition_command_ids, source, words);
-    }
+    });
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn collect_nested_scope_name_read_uses(
     commands: CommandFacts<'_, '_>,
     command: CommandFactRef<'_, '_>,
     source: &str,
     uses: &mut Vec<ComparableNameUse>,
 ) {
-    for other in commands
-        .iter()
-        .filter(|other| other.id() != command.id() && contains_span(command.span(), other.span()))
-    {
+    for_each_nested_command(commands, command, |other| {
         collect_own_scope_name_read_uses(other, source, uses);
-    }
+    });
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn collect_nested_scope_heredoc_name_read_uses(
     commands: CommandFacts<'_, '_>,
     command: CommandFactRef<'_, '_>,
     source: &str,
     uses: &mut Vec<ComparableNameUse>,
 ) {
-    for other in commands
-        .iter()
-        .filter(|other| other.id() != command.id() && contains_span(command.span(), other.span()))
-    {
+    for_each_nested_command(commands, command, |other| {
         collect_own_scope_heredoc_name_read_uses(other, source, uses);
-    }
+    });
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
 fn collect_nested_scope_name_write_uses(
     commands: CommandFacts<'_, '_>,
     command: CommandFactRef<'_, '_>,
     source: &str,
     uses: &mut Vec<ComparableNameUse>,
 ) {
-    for other in commands
-        .iter()
-        .filter(|other| other.id() != command.id() && contains_span(command.span(), other.span()))
-    {
+    for_each_nested_command(commands, command, |other| {
         collect_own_scope_name_write_uses(other, source, uses);
+    });
+}
+
+/// Visits commands strictly nested inside `outer`'s span.
+///
+/// Relies on `commands` being in DFS pre-order, so any command spatially
+/// nested in `outer` appears at a later index. Iteration stops as soon as a
+/// command starts past `outer`'s end offset.
+fn for_each_nested_command<'facts, 'a>(
+    commands: CommandFacts<'facts, 'a>,
+    outer: CommandFactRef<'_, 'a>,
+    mut visit: impl FnMut(CommandFactRef<'facts, 'a>),
+) {
+    let outer_span = outer.span();
+    let start_index = outer.id().index() + 1;
+    for index in start_index..commands.len() {
+        let Some(other) = commands.get(index) else {
+            break;
+        };
+        if other.span().start.offset > outer_span.end.offset {
+            break;
+        }
+        if other.span().end.offset <= outer_span.end.offset {
+            visit(other);
+        }
     }
 }
 
 fn dedup_path_words(words: &mut Vec<PathWordFact<'_>>) {
+    if words.len() < 2 {
+        return;
+    }
     let mut seen = FxHashSet::<(FactSpan, ExpansionContext)>::default();
     words.retain(|fact| seen.insert((FactSpan::new(fact.word().span), fact.context())));
 }
 
 fn dedup_name_uses(uses: &mut Vec<ComparableNameUse>) {
+    if uses.len() < 2 {
+        return;
+    }
     let mut seen = FxHashSet::<(ComparableNameKey, FactSpan)>::default();
     uses.retain(|name_use| seen.insert((name_use.key().clone(), FactSpan::new(name_use.span()))));
 }
