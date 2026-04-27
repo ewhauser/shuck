@@ -6042,6 +6042,76 @@ f
     }
 
     #[test]
+    fn backward_liveness_unused_assignment_reports_only_values_that_do_not_feed_later_reads() {
+        let source = "\
+value=one
+value=two
+value=three
+printf '%s\\n' \"$value\"
+";
+        let model = model(source);
+        let unused_lines = model
+            .analysis()
+            .dataflow()
+            .unused_assignments
+            .iter()
+            .map(|unused| model.binding(unused.binding).span.start.line)
+            .collect::<Vec<_>>();
+
+        assert_eq!(unused_lines, vec![1, 2]);
+    }
+
+    #[test]
+    fn backward_liveness_preserves_unused_assignment_edge_cases() {
+        let cases = [
+            (
+                "\
+#!/bin/bash
+arr=(--first)
+arr+=(--second)
+printf '%s\\n' \"${arr[@]}\"
+",
+                "arr",
+            ),
+            (
+                "\
+reader() {
+  printf '%s\\n' \"$value\"
+}
+main() {
+  value=ok
+  reader
+}
+main
+",
+                "value",
+            ),
+            (
+                "\
+f() {
+  foo=1
+  if cond; then
+    local foo
+  fi
+  echo \"$foo\"
+}
+f
+",
+                "foo",
+            ),
+        ];
+
+        for (source, live_name) in cases {
+            let model = model(source);
+            let unused = binding_names(&model, model.analysis().unused_assignments());
+            assert!(
+                !unused.iter().any(|name| name == live_name),
+                "unused bindings for {live_name}: {unused:?}"
+            );
+        }
+    }
+
+    #[test]
     fn branch_assignments_reaching_a_later_read_are_both_used() {
         let source = "\
 if command -v code >/dev/null 2>&1; then
@@ -6178,13 +6248,18 @@ f() {
 f
 ";
         let model = model(source);
+        let unused = model.analysis().dataflow().unused_assignment_ids().to_vec();
 
         assert!(
-            model
-                .analysis()
-                .dataflow()
-                .unused_assignment_ids()
-                .is_empty()
+            unused.is_empty(),
+            "unused: {:?}",
+            unused
+                .iter()
+                .map(|binding| {
+                    let binding = model.binding(*binding);
+                    (binding.name.to_string(), binding.span.start.line)
+                })
+                .collect::<Vec<_>>()
         );
     }
 
@@ -6204,13 +6279,18 @@ f() {
 f
 ";
         let model = model(source);
+        let unused = model.analysis().dataflow().unused_assignment_ids().to_vec();
 
         assert!(
-            model
-                .analysis()
-                .dataflow()
-                .unused_assignment_ids()
-                .is_empty()
+            unused.is_empty(),
+            "unused: {:?}",
+            unused
+                .iter()
+                .map(|binding| {
+                    let binding = model.binding(*binding);
+                    (binding.name.to_string(), binding.span.start.line)
+                })
+                .collect::<Vec<_>>()
         );
     }
 
