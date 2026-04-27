@@ -3999,6 +3999,19 @@ mapfile
 }
 
 #[test]
+fn mapfile_missing_option_operand_does_not_panic() {
+    let source = "mapfile -u\n";
+    let model = model(source);
+
+    assert!(
+        !model
+            .bindings()
+            .iter()
+            .any(|binding| matches!(binding.kind, BindingKind::MapfileTarget))
+    );
+}
+
+#[test]
 fn read_header_bindings_consumed_in_loop_body_are_live() {
     let source = "\
 printf '%s\n' 'service safe ok yes' | while read UNIT EXPOSURE PREDICATE HAPPY; do

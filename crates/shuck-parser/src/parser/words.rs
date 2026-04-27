@@ -61,6 +61,9 @@ impl Default for DecodeWordPartsOptions {
 }
 
 impl<'a> PatternParser<'a> {
+    const MAX_PATTERN_GROUP_DEPTH: usize = 8;
+    const MAX_ZSH_CASE_GROUP_PRESCAN_BYTES: usize = 512;
+
     fn new(input: &'a str, word: &'a Word) -> Self {
         Self::from_word_parts_with_mode(input, &word.parts, word.span, PatternParseMode::Standard)
     }
@@ -109,20 +112,31 @@ impl<'a> PatternParser<'a> {
                 .map(|segment| self.segment_start(segment))
                 .unwrap_or(self.full_span.start),
         };
-        let mut pattern = self.parse_until(&mut cursor, false);
+        let mut pattern = self.parse_until(&mut cursor, false, 0);
         pattern.span = self.full_span;
         pattern
     }
 
-    fn parse_until(&self, cursor: &mut PatternCursor, stop_at_group_delim: bool) -> Pattern {
+    fn parse_until(
+        &self,
+        cursor: &mut PatternCursor,
+        stop_at_group_delim: bool,
+        group_depth: usize,
+    ) -> Pattern {
         let start = cursor.position;
         let mut parts = Vec::new();
         let mut literal = String::new();
         let mut literal_start: Option<Position> = None;
         let mut literal_end = start;
+        let allow_groups = group_depth < Self::MAX_PATTERN_GROUP_DEPTH;
+        let mut unparsed_group_depth = 0usize;
+        let mut pending_unparsed_group_open = false;
 
         while let Some(segment) = self.segments.get(cursor.segment_index) {
-            if stop_at_group_delim && self.peek_group_delimiter(*cursor).is_some() {
+            if stop_at_group_delim
+                && unparsed_group_depth == 0
+                && self.peek_group_delimiter(*cursor).is_some()
+            {
                 break;
             }
 
@@ -145,7 +159,10 @@ impl<'a> PatternParser<'a> {
                         continue;
                     }
 
-                    if let Some((group, next_cursor)) = self.try_parse_group(*cursor) {
+                    if allow_groups
+                        && let Some((group, next_cursor)) =
+                            self.try_parse_group(*cursor, group_depth)
+                    {
                         self.flush_literal(
                             &mut parts,
                             &mut literal,
@@ -157,7 +174,10 @@ impl<'a> PatternParser<'a> {
                         continue;
                     }
 
-                    if let Some((group, next_cursor)) = self.try_parse_zsh_case_group(*cursor) {
+                    if allow_groups
+                        && let Some((group, next_cursor)) =
+                            self.try_parse_zsh_case_group(*cursor, group_depth)
+                    {
                         self.flush_literal(
                             &mut parts,
                             &mut literal,
@@ -169,7 +189,14 @@ impl<'a> PatternParser<'a> {
                         continue;
                     }
 
-                    if let Some((char_class, next_cursor)) = self.try_parse_char_class(*cursor) {
+                    let starts_unparsed_group = !allow_groups
+                        && stop_at_group_delim
+                        && unparsed_group_depth == 0
+                        && self.starts_unparsed_pattern_group(*cursor);
+
+                    if !starts_unparsed_group
+                        && let Some((char_class, next_cursor)) = self.try_parse_char_class(*cursor)
+                    {
                         self.flush_literal(
                             &mut parts,
                             &mut literal,
@@ -181,7 +208,9 @@ impl<'a> PatternParser<'a> {
                         continue;
                     }
 
-                    if let Some((wildcard, next_cursor)) = self.try_parse_wildcard(*cursor) {
+                    if !starts_unparsed_group
+                        && let Some((wildcard, next_cursor)) = self.try_parse_wildcard(*cursor)
+                    {
                         self.flush_literal(
                             &mut parts,
                             &mut literal,
@@ -193,6 +222,7 @@ impl<'a> PatternParser<'a> {
                         continue;
                     }
 
+                    let was_escaped = self.is_escaped(*cursor);
                     let Some((ch, span)) = self.consume_literal_char(cursor) else {
                         break;
                     };
@@ -201,6 +231,28 @@ impl<'a> PatternParser<'a> {
                     }
                     literal_end = span.end;
                     literal.push(ch);
+                    if !allow_groups && stop_at_group_delim && !was_escaped {
+                        if pending_unparsed_group_open && ch == '(' {
+                            unparsed_group_depth = unparsed_group_depth.saturating_add(1);
+                            pending_unparsed_group_open = false;
+                        } else if unparsed_group_depth > 0 {
+                            match ch {
+                                '(' => {
+                                    unparsed_group_depth = unparsed_group_depth.saturating_add(1)
+                                }
+                                ')' => {
+                                    unparsed_group_depth = unparsed_group_depth.saturating_sub(1)
+                                }
+                                _ => {}
+                            }
+                        } else if starts_unparsed_group {
+                            if ch == '(' {
+                                unparsed_group_depth = unparsed_group_depth.saturating_add(1);
+                            } else {
+                                pending_unparsed_group_open = true;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -220,6 +272,7 @@ impl<'a> PatternParser<'a> {
     fn try_parse_zsh_case_group(
         &self,
         cursor: PatternCursor,
+        group_depth: usize,
     ) -> Option<(PatternPartNode, PatternCursor)> {
         if !matches!(
             self.mode,
@@ -232,12 +285,15 @@ impl<'a> PatternParser<'a> {
         if self.is_escaped(cursor) || opener != '(' {
             return None;
         }
+        if !self.has_zsh_case_group_separator(cursor) {
+            return None;
+        }
 
         let start = cursor.position;
         let mut next_cursor = cursor;
         self.consume_literal_char(&mut next_cursor)?;
 
-        let mut patterns = vec![self.parse_until(&mut next_cursor, true)];
+        let mut patterns = vec![self.parse_until(&mut next_cursor, true, group_depth + 1)];
         if self.peek_group_delimiter(next_cursor) != Some('|') {
             return None;
         }
@@ -245,7 +301,7 @@ impl<'a> PatternParser<'a> {
         loop {
             if self.peek_group_delimiter(next_cursor) == Some('|') {
                 self.consume_literal_char(&mut next_cursor)?;
-                patterns.push(self.parse_until(&mut next_cursor, true));
+                patterns.push(self.parse_until(&mut next_cursor, true, group_depth + 1));
                 continue;
             }
 
@@ -265,6 +321,90 @@ impl<'a> PatternParser<'a> {
 
             return None;
         }
+    }
+
+    fn has_zsh_case_group_separator(&self, cursor: PatternCursor) -> bool {
+        let mut escaped = false;
+        let mut paren_depth = 0usize;
+        let mut scanned = 0usize;
+        for (index, segment) in self.segments.iter().enumerate().skip(cursor.segment_index) {
+            match segment {
+                PatternSegment::Literal { text, .. } => {
+                    let offset = if index == cursor.segment_index {
+                        cursor.literal_offset + '('.len_utf8()
+                    } else {
+                        0
+                    };
+                    let Some(rest) = text.get(offset..) else {
+                        return false;
+                    };
+
+                    for ch in rest.chars() {
+                        scanned += ch.len_utf8();
+                        if scanned > Self::MAX_ZSH_CASE_GROUP_PRESCAN_BYTES {
+                            return true;
+                        }
+
+                        if escaped {
+                            escaped = false;
+                            continue;
+                        }
+                        if ch == '\\' {
+                            escaped = true;
+                            continue;
+                        }
+
+                        match ch {
+                            '(' => paren_depth = paren_depth.saturating_add(1),
+                            ')' if paren_depth == 0 => return false,
+                            ')' => paren_depth -= 1,
+                            '|' if paren_depth == 0 => return true,
+                            _ => {}
+                        }
+                    }
+                }
+                PatternSegment::Word(part) => {
+                    scanned += part.span.end.offset.saturating_sub(part.span.start.offset);
+                    if scanned > Self::MAX_ZSH_CASE_GROUP_PRESCAN_BYTES {
+                        return true;
+                    }
+                    escaped = false;
+                }
+            }
+        }
+
+        false
+    }
+
+    fn starts_unparsed_pattern_group(&self, cursor: PatternCursor) -> bool {
+        if self.is_escaped(cursor) {
+            return false;
+        }
+
+        let Some(ch) = self.peek_literal_char(cursor) else {
+            return false;
+        };
+
+        if matches!(
+            self.mode,
+            PatternParseMode::ZshCase | PatternParseMode::ZshConditional
+        ) && ch == '('
+            && self.has_zsh_case_group_separator(cursor)
+        {
+            return true;
+        }
+
+        if !matches!(ch, '?' | '*' | '+' | '@' | '!') {
+            return false;
+        }
+
+        let Some(PatternSegment::Literal { text, .. }) = self.segments.get(cursor.segment_index)
+        else {
+            return false;
+        };
+        let next_offset = cursor.literal_offset + ch.len_utf8();
+        text.get(next_offset..)
+            .is_some_and(|rest| rest.starts_with('('))
     }
 
     fn flush_literal(
@@ -336,7 +476,11 @@ impl<'a> PatternParser<'a> {
         ))
     }
 
-    fn try_parse_group(&self, cursor: PatternCursor) -> Option<(PatternPartNode, PatternCursor)> {
+    fn try_parse_group(
+        &self,
+        cursor: PatternCursor,
+        group_depth: usize,
+    ) -> Option<(PatternPartNode, PatternCursor)> {
         let PatternSegment::Literal { text, .. } = self.segments.get(cursor.segment_index)? else {
             return None;
         };
@@ -366,7 +510,7 @@ impl<'a> PatternParser<'a> {
 
         let mut patterns = Vec::new();
         loop {
-            patterns.push(self.parse_until(&mut next_cursor, true));
+            patterns.push(self.parse_until(&mut next_cursor, true, group_depth + 1));
             match self.peek_group_delimiter(next_cursor) {
                 Some('|') => {
                     self.consume_literal_char(&mut next_cursor)?;
@@ -547,6 +691,21 @@ impl<'a> Parser<'a> {
 
     pub(super) fn pattern_from_source_text(&mut self, text: &SourceText) -> Pattern {
         let span = text.span();
+        if self.source_text_pattern_depth >= SOURCE_TEXT_PATTERN_REPARSE_MAX_DEPTH {
+            return Pattern {
+                parts: vec![PatternPartNode::new(
+                    PatternPart::Literal(if text.is_source_backed() {
+                        LiteralText::source()
+                    } else {
+                        LiteralText::owned(text.slice(self.input).to_string())
+                    }),
+                    span,
+                )],
+                span,
+            };
+        }
+
+        self.source_text_pattern_depth += 1;
         let mut parts = WordPartBuffer::new();
         self.decode_word_parts_into_with_quote_fragments(
             text.slice(self.input),
@@ -560,7 +719,9 @@ impl<'a> Parser<'a> {
             },
             &mut parts,
         );
-        PatternParser::from_word_parts(self.input, &parts, span).parse()
+        let pattern = PatternParser::from_word_parts(self.input, &parts, span).parse();
+        self.source_text_pattern_depth -= 1;
+        pattern
     }
 
     pub(super) fn single_literal_word_text<'b>(&'b self, word: &'b Word) -> Option<&'b str> {
@@ -1126,7 +1287,17 @@ impl<'a> Parser<'a> {
         false
     }
 
+    const MAX_ARRAY_NESTED_EXPANSION_SCAN_DEPTH: usize = 4;
+
     fn scan_array_arithmetic_expansion_len(text: &str) -> Option<usize> {
+        Self::scan_array_arithmetic_expansion_len_inner(text, 0)
+    }
+
+    fn scan_array_arithmetic_expansion_len_inner(text: &str, scan_depth: usize) -> Option<usize> {
+        if scan_depth >= Self::MAX_ARRAY_NESTED_EXPANSION_SCAN_DEPTH {
+            return Self::scan_array_arithmetic_expansion_len_balanced(text);
+        }
+
         let mut index = 0usize;
         let mut depth = 2usize;
         let mut in_single = false;
@@ -1146,8 +1317,10 @@ impl<'a> Parser<'a> {
 
             if !in_single && !was_escaped && ch == '$' {
                 if text[next_index..].starts_with("((")
-                    && let Some(consumed) =
-                        Self::scan_array_arithmetic_expansion_len(&text[next_index + 2..])
+                    && let Some(consumed) = Self::scan_array_arithmetic_expansion_len_inner(
+                        &text[next_index + 2..],
+                        scan_depth + 1,
+                    )
                 {
                     index = next_index + 2 + consumed;
                     continue;
@@ -1155,8 +1328,9 @@ impl<'a> Parser<'a> {
 
                 if text[next_index..].starts_with('(')
                     && !text[next_index + '('.len_utf8()..].starts_with('(')
-                    && let Some(consumed) = lexer::scan_command_substitution_body_len(
+                    && let Some(consumed) = lexer::scan_command_substitution_body_len_inner(
                         &text[next_index + '('.len_utf8()..],
+                        scan_depth + 1,
                     )
                 {
                     index = next_index + '('.len_utf8() + consumed;
@@ -1164,8 +1338,9 @@ impl<'a> Parser<'a> {
                 }
 
                 if text[next_index..].starts_with('{')
-                    && let Some(consumed) = Self::scan_array_parameter_expansion_len(
+                    && let Some(consumed) = Self::scan_array_parameter_expansion_len_inner(
                         &text[next_index + '{'.len_utf8()..],
+                        scan_depth + 1,
                     )
                 {
                     index = next_index + '{'.len_utf8() + consumed;
@@ -1194,7 +1369,77 @@ impl<'a> Parser<'a> {
         None
     }
 
+    fn scan_array_arithmetic_expansion_len_balanced(text: &str) -> Option<usize> {
+        let mut index = 0usize;
+        let mut depth = 2usize;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
+
+        while index < text.len() {
+            let ch = text[index..].chars().next()?;
+            let next_index = index + ch.len_utf8();
+            let was_escaped = escaped;
+            if ch == '\\' && !in_single {
+                escaped = !escaped;
+                index = next_index;
+                continue;
+            }
+            escaped = false;
+
+            if !in_single && !was_escaped && ch == '$' {
+                if text[next_index..].starts_with('{')
+                    && let Some(consumed) = Self::scan_array_parameter_expansion_len_inner(
+                        &text[next_index + '{'.len_utf8()..],
+                        0,
+                    )
+                {
+                    index = next_index + '{'.len_utf8() + consumed;
+                    continue;
+                }
+
+                if text[next_index..].starts_with('(')
+                    && !text[next_index + '('.len_utf8()..].starts_with('(')
+                    && let Some(consumed) = lexer::scan_command_substitution_body_len_inner(
+                        &text[next_index + '('.len_utf8()..],
+                        0,
+                    )
+                {
+                    index = next_index + '('.len_utf8() + consumed;
+                    continue;
+                }
+            }
+
+            match ch {
+                '\'' if !in_double && !was_escaped => in_single = !in_single,
+                '"' if !in_single && !was_escaped => in_double = !in_double,
+                '(' if !in_single && !in_double && !was_escaped => depth = depth.saturating_add(1),
+                ')' if !in_single && !in_double && !was_escaped => {
+                    depth = depth.saturating_sub(1);
+                    index = next_index;
+                    if depth == 0 {
+                        return Some(index);
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+
+            index = next_index;
+        }
+
+        None
+    }
+
     fn scan_array_parameter_expansion_len(text: &str) -> Option<usize> {
+        Self::scan_array_parameter_expansion_len_inner(text, 0)
+    }
+
+    fn scan_array_parameter_expansion_len_inner(text: &str, depth: usize) -> Option<usize> {
+        if depth >= Self::MAX_ARRAY_NESTED_EXPANSION_SCAN_DEPTH {
+            return Self::scan_array_parameter_expansion_len_balanced(text);
+        }
+
         let mut index = 0usize;
         let mut in_single = false;
         let mut in_ansi_c_single = false;
@@ -1217,8 +1462,9 @@ impl<'a> Parser<'a> {
 
             if !in_single && !in_ansi_c_single && !in_backtick && !was_escaped && ch == '$' {
                 if text[next_index..].starts_with('{')
-                    && let Some(consumed) = Self::scan_array_parameter_expansion_len(
+                    && let Some(consumed) = Self::scan_array_parameter_expansion_len_inner(
                         &text[next_index + '{'.len_utf8()..],
+                        depth + 1,
                     )
                 {
                     index = next_index + '{'.len_utf8() + consumed;
@@ -1227,8 +1473,10 @@ impl<'a> Parser<'a> {
                 }
 
                 if text[next_index..].starts_with("((")
-                    && let Some(consumed) =
-                        Self::scan_array_arithmetic_expansion_len(&text[next_index + 2..])
+                    && let Some(consumed) = Self::scan_array_arithmetic_expansion_len_inner(
+                        &text[next_index + 2..],
+                        depth + 1,
+                    )
                 {
                     index = next_index + 2 + consumed;
                     ansi_c_quote_pending = false;
@@ -1237,8 +1485,9 @@ impl<'a> Parser<'a> {
 
                 if text[next_index..].starts_with('(')
                     && !text[next_index + '('.len_utf8()..].starts_with('(')
-                    && let Some(consumed) = lexer::scan_command_substitution_body_len(
+                    && let Some(consumed) = lexer::scan_command_substitution_body_len_inner(
                         &text[next_index + '('.len_utf8()..],
+                        depth + 1,
                     )
                 {
                     index = next_index + '('.len_utf8() + consumed;
@@ -1254,8 +1503,10 @@ impl<'a> Parser<'a> {
                 && !was_escaped
                 && matches!(ch, '<' | '>')
                 && text[next_index..].starts_with('(')
-                && let Some(consumed) =
-                    lexer::scan_command_substitution_body_len(&text[next_index + '('.len_utf8()..])
+                && let Some(consumed) = lexer::scan_command_substitution_body_len_inner(
+                    &text[next_index + '('.len_utf8()..],
+                    depth + 1,
+                )
             {
                 index = next_index + '('.len_utf8() + consumed;
                 ansi_c_quote_pending = false;
@@ -1285,6 +1536,117 @@ impl<'a> Parser<'a> {
                     && !was_escaped =>
                 {
                     return Some(next_index);
+                }
+                _ => {}
+            }
+
+            ansi_c_quote_pending = ch == '$'
+                && !in_single
+                && !in_ansi_c_single
+                && !in_double
+                && !in_backtick
+                && !was_escaped;
+            index = next_index;
+        }
+
+        None
+    }
+
+    fn scan_array_parameter_expansion_len_balanced(text: &str) -> Option<usize> {
+        let mut index = 0usize;
+        let mut brace_depth = 1usize;
+        let mut in_single = false;
+        let mut in_ansi_c_single = false;
+        let mut in_double = false;
+        let mut in_backtick = false;
+        let mut escaped = false;
+        let mut ansi_c_quote_pending = false;
+
+        while index < text.len() {
+            let ch = text[index..].chars().next()?;
+            let next_index = index + ch.len_utf8();
+            let was_escaped = escaped;
+            if ch == '\\' && !in_single {
+                escaped = !escaped;
+                index = next_index;
+                ansi_c_quote_pending = false;
+                continue;
+            }
+            escaped = false;
+
+            if !in_single && !in_ansi_c_single && !in_backtick && !was_escaped && ch == '$' {
+                if text[next_index..].starts_with("((")
+                    && let Some(consumed) =
+                        Self::scan_array_arithmetic_expansion_len_inner(&text[next_index + 2..], 0)
+                {
+                    index = next_index + 2 + consumed;
+                    ansi_c_quote_pending = false;
+                    continue;
+                }
+
+                if text[next_index..].starts_with('(')
+                    && !text[next_index + '('.len_utf8()..].starts_with('(')
+                    && let Some(consumed) = lexer::scan_command_substitution_body_len_inner(
+                        &text[next_index + '('.len_utf8()..],
+                        0,
+                    )
+                {
+                    index = next_index + '('.len_utf8() + consumed;
+                    ansi_c_quote_pending = false;
+                    continue;
+                }
+
+                if text[next_index..].starts_with('{') {
+                    brace_depth = brace_depth.saturating_add(1);
+                    index = next_index + '{'.len_utf8();
+                    ansi_c_quote_pending = false;
+                    continue;
+                }
+            }
+
+            if !in_single
+                && !in_ansi_c_single
+                && !in_double
+                && !in_backtick
+                && !was_escaped
+                && matches!(ch, '<' | '>')
+                && text[next_index..].starts_with('(')
+                && let Some(consumed) = lexer::scan_command_substitution_body_len_inner(
+                    &text[next_index + '('.len_utf8()..],
+                    0,
+                )
+            {
+                index = next_index + '('.len_utf8() + consumed;
+                ansi_c_quote_pending = false;
+                continue;
+            }
+
+            match ch {
+                '\'' if !in_double && !in_backtick && !was_escaped => {
+                    if in_ansi_c_single {
+                        in_ansi_c_single = false;
+                    } else if !in_single && ansi_c_quote_pending {
+                        in_ansi_c_single = true;
+                    } else {
+                        in_single = !in_single;
+                    }
+                }
+                '"' if !in_single && !in_ansi_c_single && !in_backtick && !was_escaped => {
+                    in_double = !in_double
+                }
+                '`' if !in_single && !in_ansi_c_single && !in_double && !was_escaped => {
+                    in_backtick = !in_backtick
+                }
+                '}' if !in_single
+                    && !in_ansi_c_single
+                    && !in_double
+                    && !in_backtick
+                    && !was_escaped =>
+                {
+                    brace_depth = brace_depth.saturating_sub(1);
+                    if brace_depth == 0 {
+                        return Some(next_index);
+                    }
                 }
                 _ => {}
             }
