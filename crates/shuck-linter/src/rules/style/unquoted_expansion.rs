@@ -4679,6 +4679,128 @@ main
     }
 
     #[test]
+    fn reports_status_capture_returns_into_caller_locals() {
+        let source = "\
+#!/bin/bash
+outer() {
+  local result=0
+  inner
+}
+
+inner() {
+  false ||
+  {
+    result=$?
+    return $result
+  }
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$result"]
+        );
+    }
+
+    #[test]
+    fn reports_subshell_status_capture_returns_into_caller_locals() {
+        let source = "\
+#!/bin/bash
+outer() {
+  local result=0
+  inner
+}
+
+inner() {
+  (
+    false ||
+    {
+      result=$?
+      return $result
+    }
+  )
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$result"]
+        );
+    }
+
+    #[test]
+    fn skips_sequential_status_capture_returns_into_caller_locals() {
+        let source = "\
+#!/bin/bash
+outer() {
+  local result=0
+  inner
+}
+
+inner() {
+  false
+  result=$?
+  return $result
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_subshell_sequential_status_capture_returns_into_caller_locals() {
+        let source = "\
+#!/bin/bash
+outer() {
+  local result=0
+  inner
+}
+
+inner() {
+  (
+    false
+    result=$?
+    return $result
+  )
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_branch_status_capture_when_caller_local_is_uninitialized() {
+        let source = "\
+#!/bin/bash
+outer() {
+  local result
+  inner
+}
+
+inner() {
+  false ||
+  {
+    result=$?
+    return $result
+  }
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_helper_initialized_bindings_when_other_callers_skip_the_helper() {
         let source = "\
 #!/bin/bash

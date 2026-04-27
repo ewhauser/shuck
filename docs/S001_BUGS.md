@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=16`
-- Individual reviewed records classified below: 20 total (`shellcheck-only=11`, `shuck-only=9`).
+- `reviewed_divergences=15`
+- Individual reviewed records classified below: 17 total (`shellcheck-only=8`, `shuck-only=9`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -18,11 +18,8 @@ When a record is fixed, remove the matching entry from
 `crates/shuck-cli/tests/testdata/corpus-metadata/s001.yaml` in the same change.
 Resolved records should not remain as reviewed divergences.
 
-## [ ] ShellCheck-only: status/return operand shuck marked safe (4)
+## [ ] ShellCheck-only: status/return operand shuck marked safe (1)
 
-- `rvm__rvm__scripts__functions__manage__base_fetch:223:18-25` `$result`
-- `rvm__rvm__scripts__functions__manage__base_fetch:243:24-31` `$result`
-- `rvm__rvm__scripts__functions__manage__base_fetch:251:18-25` `$result`
 - `rvm__rvm__scripts__functions__manage__macruby:145:14-21` `$result`
 
 ## [ ] ShellCheck-only: embedded path/URL/composite word (3)

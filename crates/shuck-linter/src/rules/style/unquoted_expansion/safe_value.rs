@@ -1768,6 +1768,11 @@ impl<'a> SafeValueIndex<'a> {
         if self.binding_has_effective_integer_attribute(binding_id) {
             return true;
         }
+        if self.binding_value_is_standalone_status_capture(binding_id)
+            && self.status_capture_binding_conflicts_with_caller_local(binding_id)
+        {
+            return false;
+        }
         if matches!(
             query,
             SafeValueQuery::Argv
@@ -1995,8 +2000,7 @@ impl<'a> SafeValueIndex<'a> {
                     ..
                 }
                 | BindingOrigin::Declaration { .. }
-                    if case_cli_scope != Some(binding.scope)
-                        && self.binding_value_is_standalone_status_capture(binding_id) =>
+                    if self.binding_is_standalone_status_capture(binding_id, case_cli_scope) =>
                 {
                     status_bindings.push(binding_id);
                 }
@@ -2071,6 +2075,7 @@ impl<'a> SafeValueIndex<'a> {
             } | BindingOrigin::Declaration { .. }
         ) && case_cli_scope != Some(binding.scope)
             && self.binding_value_is_standalone_status_capture(binding_id)
+            && !self.status_capture_binding_conflicts_with_caller_local(binding_id)
     }
 
     fn binding_is_local_declaration_status_capture(&self, binding_id: BindingId) -> bool {
@@ -2105,6 +2110,55 @@ impl<'a> SafeValueIndex<'a> {
         self.facts
             .binding_value(binding_id)
             .is_some_and(|value| value.standalone_status_or_pid_capture())
+    }
+
+    fn status_capture_binding_conflicts_with_caller_local(&self, binding_id: BindingId) -> bool {
+        let binding = self.semantic.binding(binding_id);
+        if binding.attributes.contains(BindingAttributes::LOCAL) {
+            return false;
+        }
+        if !self.status_capture_binding_is_in_short_circuit_branch(binding.span) {
+            return false;
+        }
+        let Some(binding_scope) = self.enclosing_function_scope_at(binding.span.start.offset)
+        else {
+            return false;
+        };
+        if self
+            .semantic
+            .ancestor_scopes(binding_scope)
+            .any(|scope| {
+                self.scope_has_visible_initialized_local_binding_before(
+                    &binding.name,
+                    scope,
+                    binding.span,
+                )
+            })
+        {
+            return false;
+        }
+
+        self.named_function_call_sites(binding_scope)
+            .into_iter()
+            .any(|(scope, span)| {
+                let caller_scope = self
+                    .enclosing_function_scope_at(span.start.offset)
+                    .unwrap_or(scope);
+                self.scope_has_visible_initialized_local_binding_before(
+                    &binding.name,
+                    caller_scope,
+                    span,
+                )
+            })
+    }
+
+    fn status_capture_binding_is_in_short_circuit_branch(&self, span: Span) -> bool {
+        self.facts.lists().iter().any(|list| {
+            list.segments()
+                .iter()
+                .skip(1)
+                .any(|segment| span_contains(segment.span(), span))
+        })
     }
 
     fn status_capture_declaration_probe_covers_reference(
@@ -3212,6 +3266,44 @@ impl<'a> SafeValueIndex<'a> {
             binding.scope == scope
                 && binding.span.end.offset <= at.start.offset
                 && binding.attributes.contains(BindingAttributes::LOCAL)
+        })
+    }
+
+    fn scope_has_visible_initialized_local_binding_before(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        at: Span,
+    ) -> bool {
+        let latest_local_start = self
+            .semantic
+            .bindings_for(name)
+            .iter()
+            .copied()
+            .filter(|binding_id| {
+                let binding = self.semantic.binding(*binding_id);
+                binding.scope == scope
+                    && binding.span.end.offset <= at.start.offset
+                    && binding.attributes.contains(BindingAttributes::LOCAL)
+            })
+            .map(|binding_id| self.semantic.binding(binding_id).span.start.offset)
+            .max();
+        let Some(latest_local_start) = latest_local_start else {
+            return false;
+        };
+
+        self.semantic.bindings_for(name).iter().copied().any(|binding_id| {
+            let binding = self.semantic.binding(binding_id);
+            let initializes_local_value = match binding.origin {
+                BindingOrigin::Declaration { .. } => binding
+                    .attributes
+                    .intersects(BindingAttributes::DECLARATION_INITIALIZED | BindingAttributes::INTEGER),
+                _ => self.binding_can_supply_parameter_value(binding_id),
+            };
+            binding.scope == scope
+                && binding.span.end.offset <= at.start.offset
+                && binding.span.start.offset >= latest_local_start
+                && initializes_local_value
         })
     }
 
