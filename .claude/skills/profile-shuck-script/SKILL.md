@@ -15,6 +15,7 @@ description: Profile shuck scripts and large-corpus fixtures, especially request
 3. Run the profile at least once after a rebuild and again warm if the first run includes rebuild/cold-start noise.
 4. Summarize the newest saved profile with `scripts/summarize_samply_hotspots.py`.
 5. Return an attributed-exclusive table, not a raw inclusive table.
+6. If a single fat frame (e.g. `LinterFactsBuilder::build`) dominates the summary, drill into its sub-frames with `scripts/drilldown_subframes.py` before recommending optimizations.
 
 ## Commands
 
@@ -34,6 +35,33 @@ python3 ~/.codex/skills/profile-shuck-script/scripts/summarize_samply_hotspots.p
 ```
 
 Use the profile output's reported average from the harness stderr, not a profile-wide estimate, when stating wall-clock time.
+
+Drill into a fat parent frame (default targets `LinterFactsBuilder::build` and the `shuck_linter::facts::` namespace):
+
+```bash
+python3 .claude/skills/profile-shuck-script/scripts/drilldown_subframes.py \
+  .cache/profiles/large-corpus/xwmx__nb__nb.json.gz \
+  target/profiling/examples/large_corpus_profile \
+  --limit 30
+```
+
+Override `--parent` and `--namespace` when drilling into a different layer (for example
+`--parent shuck_semantic::SemanticModel::build --namespace shuck_semantic::`). Output is a
+percent-of-total / percent-of-parent breakdown of the deepest namespace-matching frame above
+the parent on each stack; samples whose only matching frame is generic library code (allocator,
+hashing, memchr, etc.) are bucketed under `<non-... leaf>`.
+
+Sample output:
+
+```markdown
+total_samples=12345
+parent_samples=4321 (35.0% of total)
+
+| Rank | Sub-frame | % of total | % of parent | Top leaf |
+|---:|---|---:|---:|---|
+| 1 | `shuck_linter::facts::case_patterns::StaticCasePatternMatcher::advance` | 3.3% | 9.4% | `core::str::...` |
+| 2 | `shuck_linter::facts::semantic_declaration_for_command` | 2.1% | 6.0% | `hashbrown::...` |
+```
 
 ## Table Style
 
@@ -62,7 +90,7 @@ If the user is debugging whether a row is real, add a short note after the table
 - Treat unexpectedly large file open/read/canonicalization rows with suspicion. In this workflow they often mean the profiler captured corpus discovery or resolver setup, not linting.
 - If I/O remains after loop-only profiling, split it into target fixture source read, source-closure sibling reads, manifest load, and path canonicalization.
 - If C063 appears, mention whether it is still material after the activation-window index. Around 1-2% is no longer the main target.
-- If `LinterFactsBuilder::build` dominates, identify it as the next broad optimization area rather than a single rule hotspot.
+- If `LinterFactsBuilder::build` dominates, identify it as the next broad optimization area rather than a single rule hotspot, then run `drilldown_subframes.py` to surface the specific facts sub-frames worth attacking.
 
 ## Validation
 
