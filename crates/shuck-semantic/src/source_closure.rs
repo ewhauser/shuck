@@ -1489,6 +1489,24 @@ noglob load_helper ./helper.sh
     }
 
     #[test]
+    fn shell_precommand_wrappers_do_not_create_source_template_facts() {
+        let source = "\
+#!/bin/bash
+command . \"$1\"
+builtin source \"$2\"
+noglob source \"$3\"
+";
+        let output = Parser::with_dialect(source, ShellDialect::Bash)
+            .parse()
+            .unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build(&output.file, source, &indexer);
+        let facts = collect_ast_facts(&model);
+
+        assert!(facts.source_templates.is_empty());
+    }
+
+    #[test]
     fn summarize_helper_reuses_request_profile_cache_hit_before_reading() {
         let temp = tempdir().unwrap();
         let helper = temp.path().join("helper");

@@ -8257,6 +8257,27 @@ print *
 }
 
 #[test]
+fn zsh_option_analysis_skips_assignment_prefixes_after_wrappers() {
+    for source in [
+        "\
+command FOO=1 setopt no_glob
+print *
+",
+        "\
+noglob FOO=1 setopt no_glob
+print *
+",
+    ] {
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected wrapped zsh option effects");
+
+        assert_eq!(options.glob, OptionValue::Off, "{source}");
+    }
+}
+
+#[test]
 fn zsh_option_analysis_tracks_command_repeated_p_wrapper() {
     let source = "\
 command -pp setopt no_glob
@@ -8292,6 +8313,35 @@ print *
             .expect("expected wrapped zsh option effects");
 
         assert_eq!(options.glob, OptionValue::Off, "{source}");
+    }
+}
+
+#[test]
+fn zsh_option_analysis_ignores_external_command_wrappers() {
+    for source in [
+        "\
+sudo setopt no_glob
+print *
+",
+        "\
+find . -exec setopt no_glob \\;
+print *
+",
+        "\
+command FOO=1 sudo setopt no_glob
+print *
+",
+        "\
+command FOO=1 find . -exec setopt no_glob \\;
+print *
+",
+    ] {
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected wrapped zsh options");
+
+        assert_eq!(options.glob, OptionValue::On, "{source}");
     }
 }
 
