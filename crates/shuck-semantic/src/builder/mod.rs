@@ -8,10 +8,9 @@ use shuck_ast::{
     CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclOperand, File,
     FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, LiteralText, Name,
     NormalizedCommand, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
-    PatternGroupKind, PatternPart, PatternPartNode, Position, SourceText, Span,
-    StaticCommandWrapperTarget, Stmt, StmtSeq, Subscript, SubscriptInterpretation, VarRef, Word,
-    WordPart, WordPartNode, WrapperKind, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
-    normalize_command_words, static_command_name_text, static_command_wrapper_target_index,
+    PatternGroupKind, PatternPart, PatternPartNode, Position, SourceText, Span, Stmt, StmtSeq,
+    Subscript, SubscriptInterpretation, VarRef, Word, WordPart, WordPartNode, WrapperKind,
+    ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment, normalize_command_words,
     static_word_text, try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;

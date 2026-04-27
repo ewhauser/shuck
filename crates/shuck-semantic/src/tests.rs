@@ -8296,6 +8296,27 @@ print *
 }
 
 #[test]
+fn zsh_option_analysis_ignores_external_command_wrappers() {
+    for source in [
+        "\
+sudo setopt no_glob
+print *
+",
+        "\
+find . -exec setopt no_glob \\;
+print *
+",
+    ] {
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected wrapped zsh options");
+
+        assert_eq!(options.glob, OptionValue::On, "{source}");
+    }
+}
+
+#[test]
 fn zsh_option_analysis_ignores_command_lookup_modes() {
     for source in [
         "\
