@@ -1,5 +1,6 @@
 #[derive(Debug, Clone)]
 pub struct FunctionHeaderFact<'a> {
+    command_id: CommandId,
     function: &'a FunctionDef,
     binding_id: Option<BindingId>,
     scope_id: Option<ScopeId>,
@@ -7,6 +8,10 @@ pub struct FunctionHeaderFact<'a> {
 }
 
 impl<'a> FunctionHeaderFact<'a> {
+    pub fn command_id(&self) -> CommandId {
+        self.command_id
+    }
+
     pub fn function(&self) -> &'a FunctionDef {
         self.function
     }
@@ -124,29 +129,46 @@ impl FunctionCliDispatchFacts {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct FunctionFactInput<'a> {
+    command_id: CommandId,
+    function: &'a FunctionDef,
+}
+
 #[cfg_attr(shuck_profiling, inline(never))]
 fn build_function_header_facts<'a>(
     semantic: &SemanticModel,
-    functions: &[&'a FunctionDef],
+    functions: &[FunctionFactInput<'a>],
     commands: &[CommandFact<'a>],
     source: &str,
     command_offset_order: &CommandOffsetOrder,
 ) -> Vec<FunctionHeaderFact<'a>> {
-    let call_arity_by_binding =
-        build_function_call_arity_facts(semantic, functions, commands, source, command_offset_order);
+    let call_arity_by_binding = build_function_call_arity_facts(
+        semantic,
+        &functions
+            .iter()
+            .map(|input| input.function)
+            .collect::<Vec<_>>(),
+        commands,
+        source,
+        command_offset_order,
+    );
     functions
         .iter()
         .copied()
-        .map(|function| {
-            let binding_id = function_header_binding_id(semantic, function);
+        .map(|input| {
+            let binding_id = function_header_binding_id(semantic, input.function);
             let scope_id = binding_id
-                .and_then(|binding_id| function_header_scope_id(semantic, function, binding_id));
+                .and_then(|binding_id| {
+                    function_header_scope_id(semantic, input.function, binding_id)
+                });
             let call_arity = binding_id
                 .and_then(|binding_id| call_arity_by_binding.get(&binding_id).cloned())
                 .unwrap_or_default();
 
             FunctionHeaderFact {
-                function,
+                command_id: input.command_id,
+                function: input.function,
                 binding_id,
                 scope_id,
                 call_arity,
@@ -219,6 +241,64 @@ fn build_function_cli_dispatch_facts(
     facts
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
+fn build_case_cli_reachable_function_scopes(
+    semantic: &SemanticModel,
+    function_headers: &[FunctionHeaderFact<'_>],
+    function_cli_dispatch_facts: &FxHashMap<ScopeId, FunctionCliDispatchFacts>,
+    commands: &[CommandFact<'_>],
+    command_parent_ids: &[Option<CommandId>],
+) -> FxHashSet<ScopeId> {
+    let dispatcher_offset = function_headers
+        .iter()
+        .filter_map(|header| {
+            let scope = header.function_scope()?;
+            function_cli_dispatch_facts
+                .get(&scope)
+                .copied()
+                .unwrap_or_default()
+                .dispatcher_span()
+                .map(|span| span.start.offset)
+        })
+        .min();
+    let top_level_exit_offset = commands
+        .iter()
+        .filter(|command| {
+            command_parent_ids
+                .get(command.id().index())
+                .copied()
+                .flatten()
+                .is_none()
+                && semantic
+                    .ancestor_scopes(command.scope())
+                    .all(|scope| {
+                        !matches!(semantic.scope(scope).kind, shuck_semantic::ScopeKind::Function(_))
+                    })
+                && command_fact_is_standalone_exit(command)
+        })
+        .map(|command| command.span().start.offset)
+        .min();
+
+    function_headers
+        .iter()
+        .filter_map(|header| {
+            let scope = header.function_scope()?;
+            let nested = semantic
+                .ancestor_scopes(scope)
+                .skip(1)
+                .any(|ancestor| {
+                    matches!(semantic.scope(ancestor).kind, shuck_semantic::ScopeKind::Function(_))
+                });
+            (nested
+                || dispatcher_offset
+                    .is_some_and(|offset| header.function().span.start.offset < offset)
+                || top_level_exit_offset
+                    .is_some_and(|offset| header.function().span.start.offset < offset))
+            .then_some(scope)
+        })
+        .collect()
+}
+
 fn stmt_is_top_level_exit(stmt: &Stmt) -> bool {
     if stmt.negated || matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
         return false;
@@ -235,6 +315,22 @@ fn stmt_is_top_level_exit(stmt: &Stmt) -> bool {
     }
 
     true
+}
+
+fn command_fact_is_standalone_exit(command: &CommandFact<'_>) -> bool {
+    if command.stmt().negated
+        || matches!(
+            command.stmt().terminator,
+            Some(StmtTerminator::Background(_))
+        )
+    {
+        return false;
+    }
+
+    let Command::Builtin(BuiltinCommand::Exit(exit)) = command.command() else {
+        return false;
+    };
+    exit.extra_args.is_empty() && exit.assignments.is_empty() && command.stmt().redirects.is_empty()
 }
 
 fn build_function_parameter_fallback_spans(

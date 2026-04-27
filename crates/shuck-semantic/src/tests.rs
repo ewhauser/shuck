@@ -7841,6 +7841,38 @@ load_value
 }
 
 #[test]
+fn uninitialized_reference_certainty_lookup_matches_analysis_results() {
+    let source = "\
+#!/bin/bash
+echo \"$definite\"
+case \"$1\" in
+  yes)
+    possible=1
+    ;;
+esac
+echo \"$possible\"
+";
+    let model = model(source);
+    let analysis = model.analysis();
+    let references = analysis.uninitialized_references().to_vec();
+
+    assert!(
+        !references.is_empty(),
+        "expected representative uninitialized references"
+    );
+
+    for uninitialized in references {
+        let reference = model.reference(uninitialized.reference);
+        assert_eq!(
+            analysis.uninitialized_reference_certainty_at(reference.span),
+            Some(uninitialized.certainty),
+            "certainty lookup should match analysis results for {}",
+            reference.name
+        );
+    }
+}
+
+#[test]
 fn recorded_program_and_cfg_capture_non_arithmetic_var_ref_nested_regions() {
     let source = "\
 [[ -v assoc[\"$(printf inner)\"] ]]

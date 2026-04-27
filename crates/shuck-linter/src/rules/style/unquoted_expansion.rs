@@ -1,9 +1,11 @@
+mod safe_value;
+
 use rustc_hash::FxHashSet;
 use shuck_ast::Span;
 
+use self::safe_value::{S001QuoteExposure, SafeValueIndex, SafeValueQuery};
 use crate::{
-    Checker, ExpansionContext, FactSpan, Rule, S001QuoteExposure, SafeValueIndex, SafeValueQuery,
-    ShellDialect, Violation, WordOccurrenceRef,
+    Checker, ExpansionContext, FactSpan, Rule, ShellDialect, Violation, WordOccurrenceRef,
 };
 
 pub struct UnquotedExpansion;

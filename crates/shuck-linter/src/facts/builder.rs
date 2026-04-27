@@ -85,6 +85,8 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut structural_command_ids = Vec::with_capacity(capacity.structural_commands);
         let mut command_ids_by_span =
             CommandLookupIndex::with_capacity_and_hasher(capacity.commands, Default::default());
+        let mut command_ids_by_name_word_span =
+            FxHashMap::with_capacity_and_hasher(capacity.commands, Default::default());
         let mut command_parent_ids = Vec::with_capacity(capacity.commands);
         let mut command_child_ids_by_parent = Vec::<Vec<CommandId>>::with_capacity(capacity.commands);
         let mut active_parent_commands = Vec::<OpenParentCommand>::new();
@@ -199,6 +201,9 @@ impl<'a> LinterFactsBuilder<'a> {
                     command_start_offset,
                     &normalized,
                 );
+                if let Some(name_word) = normalized.body_name_word() {
+                    command_ids_by_name_word_span.insert(FactSpan::new(name_word.span), id);
+                }
                 let nested_word_command = context.nested_word_command;
                 if !nested_word_command {
                     structural_command_ids.push(id);
@@ -319,7 +324,10 @@ impl<'a> LinterFactsBuilder<'a> {
                 });
 
                 if let Command::Function(function) = visit.command {
-                    functions.push(function);
+                    functions.push(FunctionFactInput {
+                        command_id: id,
+                        function,
+                    });
                     if let Some(span) = function_body_without_braces_span(function) {
                         function_body_without_braces_spans.push(span);
                     }
@@ -466,6 +474,17 @@ impl<'a> LinterFactsBuilder<'a> {
             &function_headers,
             self.file,
             self.source,
+        );
+        let function_definition_command_ids_by_scope = function_headers
+            .iter()
+            .filter_map(|header| header.function_scope().map(|scope| (scope, header.command_id())))
+            .collect::<FxHashMap<_, _>>();
+        let case_cli_reachable_function_scopes = build_case_cli_reachable_function_scopes(
+            self.semantic,
+            &function_headers,
+            &function_cli_dispatch_facts,
+            &commands,
+            &command_parent_ids,
         );
         collect_condition_status_capture_from_sequences(
             &self.file.body,
@@ -778,6 +797,7 @@ impl<'a> LinterFactsBuilder<'a> {
             commands,
             structural_command_ids,
             command_ids_by_span,
+            command_ids_by_name_word_span,
             innermost_command_ids_by_offset,
             innermost_command_ids_by_binding_offset,
             command_parent_ids,
@@ -814,6 +834,8 @@ impl<'a> LinterFactsBuilder<'a> {
             brace_variable_before_bracket_spans,
             completion_registered_function_command_flags,
             function_headers,
+            function_definition_command_ids_by_scope,
+            case_cli_reachable_function_scopes,
             function_in_alias_spans,
             alias_definition_expansion_spans,
             function_body_without_braces_spans,

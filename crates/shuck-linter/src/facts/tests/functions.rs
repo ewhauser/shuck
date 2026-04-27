@@ -1,4 +1,5 @@
 use super::*;
+use shuck_ast::Command;
 
 #[test]
 fn function_header_fact_span_in_source_stops_at_header() {
@@ -41,6 +42,64 @@ fn function_header_fact_tracks_binding_scope_and_call_arity() {
         assert_eq!(
             header.call_arity().zero_arg_call_spans()[0].slice(source),
             "greet"
+        );
+    });
+}
+
+#[test]
+fn function_definition_command_lookup_returns_header_command() {
+    let source = "#!/bin/sh\ngreet() { echo hi; }\n";
+
+    with_facts(source, None, |_, facts| {
+        let header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name == "greet")
+            })
+            .expect("expected greet header fact");
+        let scope = header
+            .function_scope()
+            .expect("expected greet function scope");
+        let definition_command = facts
+            .function_definition_command(scope)
+            .expect("expected definition command");
+
+        assert_eq!(definition_command.id(), header.command_id());
+        assert!(matches!(definition_command.command(), Command::Function(_)));
+    });
+}
+
+#[test]
+fn command_for_name_word_span_resolves_definition_and_call_commands() {
+    let source = "#!/bin/sh\ngreet() { echo hi; }\ngreet\n";
+
+    with_facts(source, None, |_, facts| {
+        let header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name == "greet")
+            })
+            .expect("expected greet header fact");
+        let definition_command = facts.command(header.command_id());
+        let call_name_span = header.call_arity().zero_arg_call_spans()[0];
+
+        assert_eq!(
+            facts
+                .command_for_name_word_span(definition_command.span())
+                .map(|command| command.id()),
+            Some(header.command_id())
+        );
+        assert_eq!(
+            facts
+                .command_for_name_word_span(call_name_span)
+                .and_then(|command| command.body_name_word().map(|word| word.span.slice(source))),
+            Some("greet")
         );
     });
 }
@@ -238,6 +297,47 @@ exit $?
                 if name == "start" { "$1" } else { "\"$1\"" }
             );
         }
+    });
+}
+
+#[test]
+fn case_cli_reachable_function_scopes_track_dispatchable_functions() {
+    let source = "\
+#!/bin/sh
+start() { echo hi; }
+case \"$1\" in
+  start) \"$1\" ;;
+esac
+exit $?
+late() { echo later; }
+";
+
+    with_facts(source, None, |_, facts| {
+        let start = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name == "start")
+            })
+            .expect("expected start header fact");
+        let late = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name == "late")
+            })
+            .expect("expected late header fact");
+
+        assert!(facts.is_case_cli_reachable_function_scope(
+            start.function_scope().expect("expected start scope")
+        ));
+        assert!(!facts.is_case_cli_reachable_function_scope(
+            late.function_scope().expect("expected late scope")
+        ));
     });
 }
 

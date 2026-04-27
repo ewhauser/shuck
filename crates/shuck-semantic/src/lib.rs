@@ -490,6 +490,7 @@ pub struct SemanticAnalysis<'model> {
     unused_assignments: OnceLock<Vec<BindingId>>,
     unused_assignments_shellcheck_compat: OnceLock<Vec<BindingId>>,
     uninitialized_references: OnceLock<Vec<UninitializedReference>>,
+    uninitialized_reference_certainties: OnceLock<FxHashMap<SpanKey, UninitializedCertainty>>,
     dead_code: OnceLock<Vec<DeadCode>>,
     unreachable_blocks: OnceLock<FxHashSet<BlockId>>,
     overwritten_functions: OnceLock<Vec<OverwrittenFunction>>,

@@ -4,6 +4,7 @@ pub struct LinterFacts<'a> {
     structural_command_ids: Vec<CommandId>,
     #[cfg_attr(not(test), allow(dead_code))]
     command_ids_by_span: CommandLookupIndex,
+    command_ids_by_name_word_span: FxHashMap<FactSpan, CommandId>,
     innermost_command_ids_by_offset: CommandOffsetLookup,
     innermost_command_ids_by_binding_offset: CommandOffsetLookup,
     command_parent_ids: Vec<Option<CommandId>>,
@@ -39,6 +40,8 @@ pub struct LinterFacts<'a> {
     brace_variable_before_bracket_spans: Vec<Span>,
     completion_registered_function_command_flags: Vec<bool>,
     function_headers: Vec<FunctionHeaderFact<'a>>,
+    function_definition_command_ids_by_scope: FxHashMap<ScopeId, CommandId>,
+    case_cli_reachable_function_scopes: FxHashSet<ScopeId>,
     function_in_alias_spans: Vec<Span>,
     alias_definition_expansion_spans: Vec<Span>,
     function_body_without_braces_spans: Vec<Span>,
@@ -254,6 +257,14 @@ impl<'a> LinterFacts<'a> {
         CommandFactRef::new(&self.commands[id.index()], &self.fact_store)
     }
 
+    pub fn command_for_name_word_span(&self, span: Span) -> Option<CommandFactRef<'_, 'a>> {
+        self.command_ids_by_name_word_span
+            .get(&FactSpan::new(span))
+            .copied()
+            .or_else(|| self.command_id_for_exact_span(span))
+            .map(|id| self.command(id))
+    }
+
     pub fn innermost_command_at(&self, offset: usize) -> Option<CommandFactRef<'_, 'a>> {
         self.innermost_command_id_at(offset)
             .map(|id| self.command(id))
@@ -280,6 +291,17 @@ impl<'a> LinterFacts<'a> {
             .map(|parent_id| self.command(parent_id))
     }
 
+    pub fn function_definition_command(&self, scope: ScopeId) -> Option<CommandFactRef<'_, 'a>> {
+        self.function_definition_command_ids_by_scope
+            .get(&scope)
+            .copied()
+            .map(|id| self.command(id))
+    }
+
+    pub fn is_case_cli_reachable_function_scope(&self, scope: ScopeId) -> bool {
+        self.case_cli_reachable_function_scopes.contains(&scope)
+    }
+
     pub fn command_is_dominance_barrier(&self, id: CommandId) -> bool {
         self.command_dominance_barrier_flags
             .get(id.index())
@@ -295,6 +317,16 @@ impl<'a> LinterFacts<'a> {
     #[cfg_attr(not(test), allow(dead_code))]
     fn command_id_for_command(&self, command: &Command) -> Option<CommandId> {
         command_id_for_command(command, &self.command_ids_by_span)
+    }
+
+    fn command_id_for_exact_span(&self, span: Span) -> Option<CommandId> {
+        let mut current = self.innermost_command_id_at(span.start.offset)?;
+        loop {
+            if self.command(current).span() == span {
+                return Some(current);
+            }
+            current = self.command_parent_id(current)?;
+        }
     }
 
     pub fn binding_value(&self, binding_id: BindingId) -> Option<&BindingValueFact<'a>> {
