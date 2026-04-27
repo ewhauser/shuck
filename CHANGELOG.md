@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.0.25](https://github.com/ewhauser/shuck/compare/v0.0.24...v0.0.25) (2026-04-27)
+
+
+### Bug Fixes
+
+* **linter:** add autofix for redundant echo spaces ([#680](https://github.com/ewhauser/shuck/issues/680)) ([2548cc7](https://github.com/ewhauser/shuck/commit/2548cc7d90ae2fa9dbc49771ed178e00991125af))
+* **semantic:** share function call binding resolution ([#675](https://github.com/ewhauser/shuck/issues/675)) ([f157215](https://github.com/ewhauser/shuck/commit/f1572152a00536377d5cfc1315011a469e170b39))
+
+
+### Performance
+
+* **linter:** add simple-glob fast path for case-pattern matcher ([#663](https://github.com/ewhauser/shuck/issues/663)) ([8ea3736](https://github.com/ewhauser/shuck/commit/8ea373654e8dcf60bdbfbfa05b68775453f758f9))
+* **linter:** bracket nested-scope walks by command index ([#643](https://github.com/ewhauser/shuck/issues/643)) ([6c73acd](https://github.com/ewhauser/shuck/commit/6c73acda63bac51bdf4bb5b924b57d65476f7ba4))
+* **linter:** collapse safe_value into S001 ([#647](https://github.com/ewhauser/shuck/issues/647)) ([df6423b](https://github.com/ewhauser/shuck/commit/df6423b605f61f698f24a7aaf9d0c7e8d691a811))
+* **linter:** index function call sites via semantic call graph ([#649](https://github.com/ewhauser/shuck/issues/649)) ([7276273](https://github.com/ewhauser/shuck/commit/7276273d9aa810b1b4ed66cc6de2d99ca0ac4310))
+* **linter:** reuse command-offset order in presence facts ([#672](https://github.com/ewhauser/shuck/issues/672)) ([fbe6c7a](https://github.com/ewhauser/shuck/commit/fbe6c7aa109a146ad8ce81068b533cc80c3130f2))
+* **linter:** reuse semantic analysis for facts ([#667](https://github.com/ewhauser/shuck/issues/667)) ([80354fb](https://github.com/ewhauser/shuck/commit/80354fb61118aeccd0139cda7d3a1a14fe168630))
+* **linter:** reuse semantic reference span index ([#662](https://github.com/ewhauser/shuck/issues/662)) ([c988df0](https://github.com/ewhauser/shuck/commit/c988df02d6ea149a2cc113b5748ad9d5440f9901))
+* **linter:** skip array-split scan without command substitutions ([#638](https://github.com/ewhauser/shuck/issues/638)) ([856b673](https://github.com/ewhauser/shuck/commit/856b6739a066ec7cb1608cfaf381c8e54957d63e))
+* **linter:** speed up facts builder hotspots ([#659](https://github.com/ewhauser/shuck/issues/659)) ([df0d258](https://github.com/ewhauser/shuck/commit/df0d258d60f424a5e2147b1deb3e7f3e9f5f05af))
+* **linter:** speed up local-cross-reference rule ([#650](https://github.com/ewhauser/shuck/issues/650)) ([6699e42](https://github.com/ewhauser/shuck/commit/6699e42ab3fc1f0c7fc23ee2cc59a8a0f2e9266a))
+* **linter:** u128 bitset NFA for case-pattern matcher ([#666](https://github.com/ewhauser/shuck/issues/666)) ([3a263b3](https://github.com/ewhauser/shuck/commit/3a263b320e70af5d54395709ca60fc90cba90b46))
+* **semantic:** cache binding-block index for reachability queries ([#657](https://github.com/ewhauser/shuck/issues/657)) ([ecee0f0](https://github.com/ewhauser/shuck/commit/ecee0f08fd08568f19fd85d825d0d8755484ea52))
+* **semantic:** speed up exact unused assignments ([#642](https://github.com/ewhauser/shuck/issues/642)) ([4ce6854](https://github.com/ewhauser/shuck/commit/4ce6854fc4a9ac84392721093c71580a87f029ef))
+* **semantic:** use line-start index in source_line ([#681](https://github.com/ewhauser/shuck/issues/681)) ([e74288c](https://github.com/ewhauser/shuck/commit/e74288cf376434d15a4acb2918ae06ddb5638420))
+
+
+### Refactor
+
+* **cli:** split check command modules ([#656](https://github.com/ewhauser/shuck/issues/656)) ([1c45d9b](https://github.com/ewhauser/shuck/commit/1c45d9b2db7268f4db1ee7423c8fdf88f0320a5c))
+* **linter:** add profiler frames for fact building ([#636](https://github.com/ewhauser/shuck/issues/636)) ([16a7538](https://github.com/ewhauser/shuck/commit/16a7538f5934f2d21c49e50ec075f35d367b6390))
+* **linter:** move safe-value flow helpers to semantic ([#644](https://github.com/ewhauser/shuck/issues/644)) ([82d4619](https://github.com/ewhauser/shuck/commit/82d46196a2f36bcc23493aecdb99a63816043c1e))
+* **linter:** reuse semantic list and pipeline shapes ([#679](https://github.com/ewhauser/shuck/issues/679)) ([124ac18](https://github.com/ewhauser/shuck/commit/124ac18549f2f609da33905d267aef5616947d6e))
+* **linter:** reuse semantic statement sequences ([#677](https://github.com/ewhauser/shuck/issues/677)) ([83f7e56](https://github.com/ewhauser/shuck/commit/83f7e56dea72ae5f9cb2d878a36e8ef523b7ddb6))
+* **linter:** share overwritten function analysis ([#651](https://github.com/ewhauser/shuck/issues/651)) ([dbaf467](https://github.com/ewhauser/shuck/commit/dbaf4672ad2b33dff952989f85c7138060d5650b))
+* **linter:** split command option facts ([#645](https://github.com/ewhauser/shuck/issues/645)) ([4032284](https://github.com/ewhauser/shuck/commit/40322849494dce1a7f1272f3c3fd4a0725c1c997))
+* **linter:** split word facts module ([#640](https://github.com/ewhauser/shuck/issues/640)) ([ad8d476](https://github.com/ewhauser/shuck/commit/ad8d476eaae64440b6caf95540ca946dc1b56f28))
+* **linter:** split word span facts ([#653](https://github.com/ewhauser/shuck/issues/653)) ([06cc626](https://github.com/ewhauser/shuck/commit/06cc626004b7164ed5059f462a549948c4ff72ba))
+* **parser:** narrow public API surface ([#682](https://github.com/ewhauser/shuck/issues/682)) ([2676e5e](https://github.com/ewhauser/shuck/commit/2676e5e141fa3fb718dd5eaa08ae9813149f3c9e))
+* **parser:** split parser module internals ([#654](https://github.com/ewhauser/shuck/issues/654)) ([6fd5fa1](https://github.com/ewhauser/shuck/commit/6fd5fa11f6d4dd262b2a15e4e2aec9985ca29aa9))
+* **semantic:** expose function binding facts ([#660](https://github.com/ewhauser/shuck/issues/660)) ([ee9231c](https://github.com/ewhauser/shuck/commit/ee9231c922da395bceba730e045309b670240306))
+* **semantic:** expose function reachability helpers ([#648](https://github.com/ewhauser/shuck/issues/648)) ([06fa5ae](https://github.com/ewhauser/shuck/commit/06fa5ae98d67b2dd1260507a59488de383256884))
+* **semantic:** expose nonpersistent assignment analysis ([#665](https://github.com/ewhauser/shuck/issues/665)) ([63c4c2f](https://github.com/ewhauser/shuck/commit/63c4c2f7e6f9aa263dcafa9545c9ea80cb175257))
+* **semantic:** index declarations by command span ([#670](https://github.com/ewhauser/shuck/issues/670)) ([9e108bb](https://github.com/ewhauser/shuck/commit/9e108bb8f32b5aeb1ed12b846a5c94d3a55d6937))
+* **semantic:** reuse command normalization for zsh effects ([#678](https://github.com/ewhauser/shuck/issues/678)) ([1987f05](https://github.com/ewhauser/shuck/commit/1987f05a6afbf0eff380052dd03609169238e41d))
+* **semantic:** reuse recorded function scopes ([#668](https://github.com/ewhauser/shuck/issues/668)) ([2e3cf91](https://github.com/ewhauser/shuck/commit/2e3cf918d9e76c0f6a11b3b3b9136fa27164517c))
+* **semantic:** share ancestor scope traversal ([#676](https://github.com/ewhauser/shuck/issues/676)) ([f3dd66e](https://github.com/ewhauser/shuck/commit/f3dd66ef324eae320d281e403b24aabe634c198e))
+* **semantic:** share call graph construction ([#658](https://github.com/ewhauser/shuck/issues/658)) ([466f19b](https://github.com/ewhauser/shuck/commit/466f19b6661f43a9b4577c49c07f6fb645edbcad))
+* **semantic:** split semantic builder modules ([#652](https://github.com/ewhauser/shuck/issues/652)) ([2995219](https://github.com/ewhauser/shuck/commit/29952194faf446c9b38ce565e294ab52a56ab059))
+* **semantic:** split semantic facade modules ([#646](https://github.com/ewhauser/shuck/issues/646)) ([3b7b7db](https://github.com/ewhauser/shuck/commit/3b7b7dbed55713bfb42290a71b5430e4437b4c24))
+
 ## [0.0.24](https://github.com/ewhauser/shuck/compare/v0.0.23...v0.0.24) (2026-04-26)
 
 
