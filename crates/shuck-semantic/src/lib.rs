@@ -80,6 +80,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use crate::builder::SemanticModelBuilder;
+use crate::call_graph::build_call_graph;
 use crate::cfg::RecordedProgram;
 use crate::dataflow::{DataflowContext, DataflowResult, ExactVariableDataflow};
 use crate::runtime::RuntimePrelude;
@@ -205,83 +206,6 @@ fn dedup_synthetic_reads(reads: Vec<SyntheticRead>) -> Vec<SyntheticRead> {
         }
     }
     deduped
-}
-
-fn build_call_graph(
-    scopes: &[Scope],
-    all_bindings: &[Binding],
-    functions: &FxHashMap<Name, SmallVec<[BindingId; 2]>>,
-    call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
-) -> CallGraph {
-    let mut reachable = FxHashSet::default();
-    let mut worklist = call_sites
-        .values()
-        .flat_map(|sites| sites.iter())
-        .filter(|site| !is_in_function_scope(scopes, site.scope))
-        .map(|site| site.callee.clone())
-        .collect::<Vec<_>>();
-
-    while let Some(name) = worklist.pop() {
-        if reachable.contains(name.as_str()) {
-            continue;
-        }
-        for sites in call_sites.values() {
-            for site in sites {
-                if is_in_named_function_scope(scopes, site.scope, &name) {
-                    worklist.push(site.callee.clone());
-                }
-            }
-        }
-        reachable.insert(name);
-    }
-
-    let uncalled = functions
-        .iter()
-        .filter(|(name, _)| !reachable.contains(*name))
-        .flat_map(|(_, bindings)| bindings.iter().copied())
-        .collect();
-
-    let overwritten = functions
-        .iter()
-        .flat_map(|(name, function_bindings)| {
-            function_bindings
-                .windows(2)
-                .map(move |pair| OverwrittenFunction {
-                    name: name.clone(),
-                    first: pair[0],
-                    second: pair[1],
-                    first_called: call_sites
-                        .get(name)
-                        .into_iter()
-                        .flat_map(|sites| sites.iter())
-                        .any(|site| {
-                            let first = all_bindings[pair[0].index()].span.start.offset;
-                            let second = all_bindings[pair[1].index()].span.start.offset;
-                            site.span.start.offset > first && site.span.start.offset < second
-                        }),
-                })
-        })
-        .collect();
-
-    CallGraph {
-        reachable,
-        uncalled,
-        overwritten,
-    }
-}
-
-fn is_in_function_scope(scopes: &[Scope], scope: ScopeId) -> bool {
-    ancestor_scopes(scopes, scope)
-        .any(|scope| matches!(scopes[scope.index()].kind, ScopeKind::Function(_)))
-}
-
-fn is_in_named_function_scope(scopes: &[Scope], scope: ScopeId, name: &Name) -> bool {
-    ancestor_scopes(scopes, scope).any(|scope| {
-        matches!(
-            &scopes[scope.index()].kind,
-            ScopeKind::Function(function) if function.contains_name(name)
-        )
-    })
 }
 
 fn assignment_like_binding(kind: BindingKind) -> bool {
@@ -1040,12 +964,7 @@ impl SemanticModel {
         self.set_synthetic_reads(dedup_synthetic_reads(synthetic_reads));
         self.set_entry_bindings(entry_bindings);
         self.resolve_unresolved_references();
-        self.call_graph = build_call_graph(
-            &self.scopes,
-            &self.bindings,
-            &self.functions,
-            &self.call_sites,
-        );
+        self.rebuild_call_graph();
     }
 
     fn mark_file_entry_consumed_bindings(&mut self) {
@@ -1119,6 +1038,10 @@ impl SemanticModel {
             );
         }
         self.resolve_unresolved_references();
+        self.rebuild_call_graph();
+    }
+
+    fn rebuild_call_graph(&mut self) {
         self.call_graph = build_call_graph(
             &self.scopes,
             &self.bindings,
@@ -1527,10 +1450,6 @@ fn scope_span_width(span: Span) -> usize {
 
 fn contains_span(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
-}
-
-fn ancestor_scopes(scopes: &[Scope], scope: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
-    std::iter::successors(Some(scope), move |scope| scopes[scope.index()].parent)
 }
 
 #[cfg(test)]

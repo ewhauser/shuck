@@ -1255,6 +1255,18 @@ f() { echo again; }
 }
 
 #[test]
+fn call_graph_does_not_root_calls_inside_uncalled_functions() {
+    let source = "\
+f() { g; }
+g() { echo hi; }
+";
+    let model = model(source);
+
+    assert!(!model.call_graph().reachable.contains("f"));
+    assert!(!model.call_graph().reachable.contains("g"));
+}
+
+#[test]
 fn precise_overwritten_functions_track_real_overwrites() {
     let source = "\
 f() { echo hi; }
