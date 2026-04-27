@@ -52,7 +52,7 @@ pub fn unquoted_globs_in_find(checker: &mut Checker) {
 
 fn diagnostics_for_find_exec_argument(
     source: &str,
-    fact: crate::facts::WordOccurrenceRef<'_, '_>,
+    fact: crate::facts::words::WordOccurrenceRef<'_, '_>,
 ) -> Vec<crate::Diagnostic> {
     let word_span = fact.span();
     let replacement = fact.single_double_quoted_replacement(source);

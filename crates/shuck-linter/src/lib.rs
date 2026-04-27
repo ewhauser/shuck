@@ -49,25 +49,28 @@ pub use checker::Checker;
 pub use diagnostic::{Diagnostic, Severity};
 /// Command-substitution classification exposed by fact APIs.
 pub use facts::CommandSubstitutionKind;
+pub use facts::words::{
+    ExpansionAnalysis, ExpansionContext, ExpansionHazards, ExpansionValueShape,
+    RuntimeLiteralAnalysis, TestOperandClass, WordClassification, WordExpansionKind,
+    WordFactContext, WordFactHostKind, WordLiteralness, WordOccurrence, WordOccurrenceIter,
+    WordOccurrenceRef, WordQuote, WordSubstitutionShape, leading_literal_word_prefix,
+};
 /// Extracted structural facts available to rules and callers.
 pub use facts::{
     BacktickFragmentFact, CommandFact, CommandFactRef, CommandFacts, CommandOptionFacts,
     ConditionalBareWordFact, ConditionalBinaryFact, ConditionalFact,
     ConditionalMixedLogicalOperatorFact, ConditionalNodeFact, ConditionalOperandFact,
     ConditionalOperatorFamily, ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts,
-    ExpansionAnalysis, ExpansionContext, ExpansionHazards, ExpansionValueShape, FindCommandFacts,
-    FindExecCommandFacts, FindExecShellCommandFacts, ForHeaderFact, FunctionCallArityFacts,
-    FunctionHeaderFact, GrepPatternSourceKind, LegacyArithmeticFragmentFact, ListFact,
-    ListOperatorFact, LoopHeaderWordFact, PathWordFact, PipelineFact, PipelineOperatorFact,
-    PipelineSegmentFact, PositionalParameterFragmentFact, PrintfCommandFacts, ReadCommandFacts,
-    RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis, RedirectTargetKind,
-    RmCommandFacts, RuntimeLiteralAnalysis, SelectHeaderFact, SimpleTestFact,
+    FindCommandFacts, FindExecCommandFacts, FindExecShellCommandFacts, ForHeaderFact,
+    FunctionCallArityFacts, FunctionHeaderFact, GrepPatternSourceKind,
+    LegacyArithmeticFragmentFact, ListFact, ListOperatorFact, LoopHeaderWordFact, PathWordFact,
+    PipelineFact, PipelineOperatorFact, PipelineSegmentFact, PositionalParameterFragmentFact,
+    PrintfCommandFacts, ReadCommandFacts, RedirectDevNullStatus, RedirectFact,
+    RedirectTargetAnalysis, RedirectTargetKind, RmCommandFacts, SelectHeaderFact, SimpleTestFact,
     SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact,
     SshCommandFacts, StatementFact, SubstitutionFact, SubstitutionHostKind,
-    SubstitutionOutputIntent, SudoFamilyCommandFacts, SudoFamilyInvoker, TestOperandClass,
-    UnsetCommandFacts, WaitCommandFacts, WordClassification, WordExpansionKind, WordFactContext,
-    WordFactHostKind, WordLiteralness, WordOccurrence, WordOccurrenceIter, WordOccurrenceRef,
-    WordQuote, WordSubstitutionShape, XargsCommandFacts, leading_literal_word_prefix,
+    SubstitutionOutputIntent, SudoFamilyCommandFacts, SudoFamilyInvoker, UnsetCommandFacts,
+    WaitCommandFacts, XargsCommandFacts,
 };
 /// Fact collection types and stable identifiers into those collections.
 pub use facts::{

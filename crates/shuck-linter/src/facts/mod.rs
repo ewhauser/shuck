@@ -104,7 +104,8 @@ include!("comments.rs");
 include!("heredocs.rs");
 include!("braces.rs");
 include!("arithmetic.rs");
-include!("words.rs");
+pub(crate) mod words;
+use self::words::*;
 
 #[cfg(feature = "benchmarking")]
 pub(crate) fn benchmark_normalize_commands(file: &File, source: &str) -> usize {
@@ -196,12 +197,4 @@ pub(crate) mod command_options {
 #[allow(unused_imports)]
 pub(crate) mod commands {
     pub use super::{CommandFact, CommandFactRef};
-}
-
-#[allow(unused_imports)]
-pub(crate) mod words {
-    pub use super::{
-        WordFactContext, WordFactHostKind, WordOccurrence, WordOccurrenceIter, WordOccurrenceRef,
-        leading_literal_word_prefix,
-    };
 }

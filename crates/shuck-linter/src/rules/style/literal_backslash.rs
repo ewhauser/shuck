@@ -42,7 +42,7 @@ fn is_relevant_word_context(context: Option<ExpansionContext>) -> bool {
 
 fn is_command_name_word<'a>(
     facts: &'a crate::facts::LinterFacts<'a>,
-    fact: crate::facts::WordOccurrenceRef<'_, 'a>,
+    fact: crate::facts::words::WordOccurrenceRef<'_, 'a>,
 ) -> bool {
     facts
         .command(fact.command_id())
@@ -52,7 +52,7 @@ fn is_command_name_word<'a>(
 
 fn is_unalias_argument<'a>(
     facts: &'a crate::facts::LinterFacts<'a>,
-    fact: crate::facts::WordOccurrenceRef<'_, 'a>,
+    fact: crate::facts::words::WordOccurrenceRef<'_, 'a>,
 ) -> bool {
     fact.expansion_context() == Some(ExpansionContext::CommandArgument)
         && facts

@@ -1,4 +1,4 @@
-use crate::facts::WordFactHostKind;
+use crate::facts::words::WordFactHostKind;
 use crate::{Checker, Edit, ExpansionContext, Fix, FixAvailability, Rule, Violation};
 use shuck_ast::Span;
 
@@ -35,7 +35,7 @@ pub fn leading_glob_argument(checker: &mut Checker) {
 
 fn reportable_glob_diagnostic(
     checker: &Checker<'_>,
-    fact: crate::facts::WordOccurrenceRef<'_, '_>,
+    fact: crate::facts::words::WordOccurrenceRef<'_, '_>,
 ) -> Option<crate::Diagnostic> {
     let command = checker.facts().command(fact.command_id());
     if command_exempts_glob_warning(command.effective_name()) {
