@@ -43,13 +43,13 @@ pub(super) fn recorded_simple_command_info(
         source_path_template,
         zsh_effects: Vec::new(),
     };
-    if !normalized_command_can_have_zsh_effects(&normalized) {
-        return info;
-    }
-    let Some(effect_callee) = normalized.effective_name.as_deref() else {
+    let Some(effect_command) = normalized_zsh_effect_command(&normalized, source) else {
         return info;
     };
-    let args = normalized.body_args();
+    let Some(effect_callee) = effect_command.effective_name.as_deref() else {
+        return info;
+    };
+    let args = effect_command.body_args();
 
     match effect_callee {
         "emulate" => info.zsh_effects = parse_emulate_effects(args, source),
@@ -107,6 +107,25 @@ fn recorded_static_args(
         .into_boxed_slice()
 }
 
+fn normalized_zsh_effect_command<'a>(
+    command: &NormalizedCommand<'a>,
+    source: &'a str,
+) -> Option<NormalizedCommand<'a>> {
+    if !normalized_command_can_have_zsh_effects(command) {
+        return None;
+    }
+
+    let effect_start = command
+        .body_words
+        .iter()
+        .position(|word| {
+            static_word_text(word, source).is_none_or(|text| !is_recorded_assignment_word(&text))
+        })
+        .unwrap_or(command.body_words.len());
+    let effect_command = normalize_command_words(&command.body_words[effect_start..], source)?;
+    normalized_command_can_have_zsh_effects(&effect_command).then_some(effect_command)
+}
+
 fn normalized_command_can_have_zsh_effects(command: &NormalizedCommand<'_>) -> bool {
     command.wrappers.iter().all(|wrapper| {
         matches!(
@@ -114,6 +133,17 @@ fn normalized_command_can_have_zsh_effects(command: &NormalizedCommand<'_>) -> b
             WrapperKind::Command | WrapperKind::Builtin | WrapperKind::Noglob | WrapperKind::Exec
         )
     })
+}
+
+fn is_recorded_assignment_word(word: &str) -> bool {
+    let Some((name, _value)) = word.split_once('=') else {
+        return false;
+    };
+    !name.is_empty()
+        && !name.starts_with('-')
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
 pub(super) fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<RecordedZshCommandEffect> {
