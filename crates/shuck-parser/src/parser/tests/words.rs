@@ -7657,6 +7657,29 @@ fn test_parse_zsh_git_extras_style_quoted_continuations_inside_assignment() {
 }
 
 #[test]
+fn test_parse_zsh_deep_parameter_array_comma_stays_nested() {
+    let source = "values=(${a:-${b:-${c:-${d:-${e:-x},y}}}})\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let command = expect_simple(&output.file.body[0]);
+    assert_eq!(command.assignments.len(), 1);
+    let AssignmentValue::Compound(array) = &command.assignments[0].value else {
+        panic!("expected compound assignment value");
+    };
+    assert_eq!(array.elements.len(), 1);
+
+    let ArrayElem::Sequential(value) = &array.elements[0] else {
+        panic!("expected sequential array element");
+    };
+    assert_eq!(
+        value.span.slice(source),
+        "${a:-${b:-${c:-${d:-${e:-x},y}}}}"
+    );
+}
+
+#[test]
 fn test_parse_zsh_parameter_default_with_prompt_escape_text() {
     let source = "color_green=${BATTERY_COLOR_GREEN:-%F{green}}\n";
     Parser::with_dialect(source, ShellDialect::Zsh)

@@ -305,7 +305,7 @@ impl<'a> PatternParser<'a> {
                     for ch in rest.chars() {
                         scanned += ch.len_utf8();
                         if scanned > Self::MAX_ZSH_CASE_GROUP_PRESCAN_BYTES {
-                            return false;
+                            return true;
                         }
 
                         if escaped {
@@ -329,7 +329,7 @@ impl<'a> PatternParser<'a> {
                 PatternSegment::Word(part) => {
                     scanned += part.span.end.offset.saturating_sub(part.span.start.offset);
                     if scanned > Self::MAX_ZSH_CASE_GROUP_PRESCAN_BYTES {
-                        return false;
+                        return true;
                     }
                     escaped = false;
                 }
@@ -1307,7 +1307,7 @@ impl<'a> Parser<'a> {
 
     fn scan_array_parameter_expansion_len_inner(text: &str, depth: usize) -> Option<usize> {
         if depth >= Self::MAX_ARRAY_NESTED_EXPANSION_SCAN_DEPTH {
-            return None;
+            return Self::scan_array_parameter_expansion_len_balanced(text);
         }
 
         let mut index = 0usize;
@@ -1406,6 +1406,117 @@ impl<'a> Parser<'a> {
                     && !was_escaped =>
                 {
                     return Some(next_index);
+                }
+                _ => {}
+            }
+
+            ansi_c_quote_pending = ch == '$'
+                && !in_single
+                && !in_ansi_c_single
+                && !in_double
+                && !in_backtick
+                && !was_escaped;
+            index = next_index;
+        }
+
+        None
+    }
+
+    fn scan_array_parameter_expansion_len_balanced(text: &str) -> Option<usize> {
+        let mut index = 0usize;
+        let mut brace_depth = 1usize;
+        let mut in_single = false;
+        let mut in_ansi_c_single = false;
+        let mut in_double = false;
+        let mut in_backtick = false;
+        let mut escaped = false;
+        let mut ansi_c_quote_pending = false;
+
+        while index < text.len() {
+            let ch = text[index..].chars().next()?;
+            let next_index = index + ch.len_utf8();
+            let was_escaped = escaped;
+            if ch == '\\' && !in_single {
+                escaped = !escaped;
+                index = next_index;
+                ansi_c_quote_pending = false;
+                continue;
+            }
+            escaped = false;
+
+            if !in_single && !in_ansi_c_single && !in_backtick && !was_escaped && ch == '$' {
+                if text[next_index..].starts_with("((")
+                    && let Some(consumed) =
+                        Self::scan_array_arithmetic_expansion_len_inner(&text[next_index + 2..], 0)
+                {
+                    index = next_index + 2 + consumed;
+                    ansi_c_quote_pending = false;
+                    continue;
+                }
+
+                if text[next_index..].starts_with('(')
+                    && !text[next_index + '('.len_utf8()..].starts_with('(')
+                    && let Some(consumed) = lexer::scan_command_substitution_body_len_inner(
+                        &text[next_index + '('.len_utf8()..],
+                        0,
+                    )
+                {
+                    index = next_index + '('.len_utf8() + consumed;
+                    ansi_c_quote_pending = false;
+                    continue;
+                }
+
+                if text[next_index..].starts_with('{') {
+                    brace_depth = brace_depth.saturating_add(1);
+                    index = next_index + '{'.len_utf8();
+                    ansi_c_quote_pending = false;
+                    continue;
+                }
+            }
+
+            if !in_single
+                && !in_ansi_c_single
+                && !in_double
+                && !in_backtick
+                && !was_escaped
+                && matches!(ch, '<' | '>')
+                && text[next_index..].starts_with('(')
+                && let Some(consumed) = lexer::scan_command_substitution_body_len_inner(
+                    &text[next_index + '('.len_utf8()..],
+                    0,
+                )
+            {
+                index = next_index + '('.len_utf8() + consumed;
+                ansi_c_quote_pending = false;
+                continue;
+            }
+
+            match ch {
+                '\'' if !in_double && !in_backtick && !was_escaped => {
+                    if in_ansi_c_single {
+                        in_ansi_c_single = false;
+                    } else if !in_single && ansi_c_quote_pending {
+                        in_ansi_c_single = true;
+                    } else {
+                        in_single = !in_single;
+                    }
+                }
+                '"' if !in_single && !in_ansi_c_single && !in_backtick && !was_escaped => {
+                    in_double = !in_double
+                }
+                '`' if !in_single && !in_ansi_c_single && !in_double && !was_escaped => {
+                    in_backtick = !in_backtick
+                }
+                '}' if !in_single
+                    && !in_ansi_c_single
+                    && !in_double
+                    && !in_backtick
+                    && !was_escaped =>
+                {
+                    brace_depth = brace_depth.saturating_sub(1);
+                    if brace_depth == 0 {
+                        return Some(next_index);
+                    }
                 }
                 _ => {}
             }

@@ -1986,6 +1986,33 @@ fn test_zsh_case_group_separator_after_parameter_segment() {
 }
 
 #[test]
+fn test_zsh_case_group_separator_after_long_literal_prefix() {
+    let long_prefix = "a".repeat(600);
+    let input = format!(
+        "case \"$mode\" in\n  ({}|literal)) print ok ;;\nesac\n",
+        long_prefix
+    );
+    let script = Parser::with_dialect(&input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    let pattern = &command.cases[0].patterns[0];
+    let PatternPart::Group { kind, patterns } = &pattern.parts[0].kind else {
+        panic!("expected long zsh case group");
+    };
+    assert_eq!(*kind, PatternGroupKind::ExactlyOne);
+    assert_eq!(patterns.len(), 2);
+    assert_eq!(patterns[0].render_syntax(&input), long_prefix);
+    assert_eq!(patterns[1].render_syntax(&input), "literal");
+}
+
+#[test]
 fn test_zsh_case_accepts_numeric_range_pattern() {
     let input = concat!("case \"$jobspec\" in\n", "  <->) print ok ;;\n", "esac\n",);
     let script = Parser::with_dialect(input, ShellDialect::Zsh)
