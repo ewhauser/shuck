@@ -4,6 +4,7 @@ use shuck_parser::ZshEmulationMode;
 use smallvec::{SmallVec, smallvec};
 use std::marker::PhantomData;
 
+use crate::scope::ancestor_scopes;
 use crate::source_closure::SourcePathTemplate;
 use crate::{Binding, BindingId, BindingKind, CallSite, ReferenceId, Scope, ScopeId, SpanKey};
 
@@ -1305,10 +1306,6 @@ impl FunctionCallResolver<'_> {
                     && candidate.span.start.offset <= offset
             })
     }
-}
-
-fn ancestor_scopes(scopes: &[Scope], start: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
-    std::iter::successors(Some(start), move |scope| scopes[scope.index()].parent)
 }
 
 struct SequenceResult {

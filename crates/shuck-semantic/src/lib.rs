@@ -92,6 +92,7 @@ use crate::call_graph::build_call_graph;
 use crate::cfg::RecordedProgram;
 use crate::dataflow::{DataflowContext, DataflowResult, ExactVariableDataflow};
 use crate::runtime::RuntimePrelude;
+use crate::scope::ancestor_scopes;
 use crate::source_closure::ImportedBindingContractSite;
 use crate::zsh_options::ZshOptionAnalysis;
 
@@ -749,7 +750,7 @@ impl SemanticModel {
     }
 
     pub fn ancestor_scopes(&self, scope: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
-        std::iter::successors(Some(scope), move |scope| self.scopes[scope.index()].parent)
+        ancestor_scopes(&self.scopes, scope)
     }
 
     fn previous_visible_binding_id_in_scope_chain(
