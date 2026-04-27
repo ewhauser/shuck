@@ -1086,6 +1086,44 @@ fn command_topology_excludes_nested_substitutions_from_structural_commands() {
 }
 
 #[test]
+fn command_lookup_by_span_and_kind_skips_synthetic_commands() {
+    let source = "case \"$x\" in $(echo a)) ;; esac\n";
+    let model = model(source);
+
+    let case_span = model
+        .commands()
+        .iter()
+        .copied()
+        .map(|id| model.command_syntax_span(id))
+        .find(|span| span.slice(source).starts_with("case"))
+        .unwrap();
+
+    assert!(
+        model
+            .command_by_span_and_kind(case_span, CommandKind::Compound(CompoundCommandKind::Case))
+            .is_some()
+    );
+}
+
+#[test]
+fn command_topology_preserves_nested_region_immediate_parents() {
+    let source = "echo >\"$(a | b)\"\n";
+    let model = model(source);
+
+    let echo_id = command_id_starting_with(&model, source, "echo").unwrap();
+    let pipeline_span = model.pipeline_commands()[0].span;
+    let pipeline_id = model
+        .command_by_span_and_kind(pipeline_span, CommandKind::Binary)
+        .unwrap();
+    let a_id = command_id_starting_with(&model, source, "a").unwrap();
+    let b_id = command_id_starting_with(&model, source, "b").unwrap();
+
+    assert_eq!(model.command_parent_id(pipeline_id), Some(echo_id));
+    assert_eq!(model.command_parent_id(a_id), Some(pipeline_id));
+    assert_eq!(model.command_parent_id(b_id), Some(pipeline_id));
+}
+
+#[test]
 fn command_topology_finds_innermost_command_at_offsets() {
     let source = "if foo; then bar; fi\n";
     let model = model(source);

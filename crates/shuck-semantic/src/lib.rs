@@ -1271,9 +1271,7 @@ impl SemanticModel {
     }
 
     pub fn command_kind(&self, id: CommandId) -> CommandKind {
-        self.recorded_program
-            .command(id)
-            .syntax_kind
+        self.command_syntax_kind(id)
             .expect("semantic command syntax kind is recorded")
     }
 
@@ -1291,7 +1289,7 @@ impl SemanticModel {
             .and_then(|ids| {
                 ids.iter()
                     .copied()
-                    .find(|id| self.command_kind(*id) == kind)
+                    .find(|id| self.command_syntax_kind(*id) == Some(kind))
             })
     }
 
@@ -1475,6 +1473,10 @@ impl SemanticModel {
     fn command_topology(&self) -> &CommandTopology {
         self.command_topology
             .get_or_init(|| build_command_topology(self))
+    }
+
+    fn command_syntax_kind(&self, id: CommandId) -> Option<CommandKind> {
+        self.recorded_program.command(id).syntax_kind
     }
 
     pub(crate) fn set_synthetic_reads(&mut self, synthetic_reads: Vec<SyntheticRead>) {
@@ -1667,6 +1669,8 @@ fn record_command_children(
     for region in program.nested_regions(command.nested_regions) {
         for child in commands_in_range_recursive(program, region.commands) {
             nested_region_command_ids.insert(child);
+        }
+        for child in program.commands_in(region.commands).iter().copied() {
             assign_command_parent(parent, child, parent_ids, child_ids);
         }
     }
@@ -1853,7 +1857,7 @@ fn attach_function_body_commands(
                 .iter()
                 .copied()
                 .filter(|candidate| {
-                    model.command_kind(*candidate) == CommandKind::Function
+                    model.command_syntax_kind(*candidate) == Some(CommandKind::Function)
                         && contains_command_span(model.command_syntax_span(*candidate), child_span)
                 })
                 .min_by_key(|candidate| {
