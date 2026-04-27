@@ -28,8 +28,18 @@ impl SuppressionIndex {
             )
         });
 
+        let mut sorted_command_spans: Option<Vec<Span>> = None;
         let mut by_rule = FxHashMap::default();
         for directive in ordered {
+            let directive_range = (matches!(directive.action, SuppressionAction::Disable)
+                && directive.line >= first_stmt_line)
+                .then(|| {
+                    let spans =
+                        sorted_command_spans.get_or_insert_with(|| collect_command_spans(file));
+                    next_command_range_after(spans, directive.range.end())
+                })
+                .flatten();
+
             for &rule in &directive.codes {
                 let index = by_rule
                     .entry(rule)
@@ -40,8 +50,7 @@ impl SuppressionIndex {
                     SuppressionAction::Disable => {
                         if directive.line < first_stmt_line {
                             index.whole_file = true;
-                        } else if let Some(range) = next_command_range(file, directive.range.end())
-                        {
+                        } else if let Some(range) = directive_range {
                             index.ranges.push(range);
                         }
                     }
@@ -134,33 +143,23 @@ fn merge_overlapping_ranges(ranges: &mut Vec<LineRange>) {
     *ranges = merged;
 }
 
-fn next_command_range(file: &File, offset: TextSize) -> Option<LineRange> {
-    let mut next = None;
+fn collect_command_spans(file: &File) -> Vec<Span> {
+    let mut spans = Vec::new();
     for command in file.body.iter() {
         walk_command(command, &mut |span| {
-            consider_command(span, offset, &mut next)
+            if span.start.line != 0 && span.end.line != 0 {
+                spans.push(span);
+            }
         });
     }
-
-    next.and_then(line_range)
+    spans.sort_unstable_by_key(|span| span.start.offset);
+    spans
 }
 
-fn consider_command(span: Span, offset: TextSize, next: &mut Option<Span>) {
-    if span.start.line == 0 || span.end.line == 0 {
-        return;
-    }
-
-    let start = TextSize::new(span.start.offset as u32);
-    if start <= offset {
-        return;
-    }
-
-    if next
-        .as_ref()
-        .is_none_or(|current| span.start.offset < current.start.offset)
-    {
-        *next = Some(span);
-    }
+fn next_command_range_after(spans: &[Span], offset: TextSize) -> Option<LineRange> {
+    let offset = offset.to_u32() as usize;
+    let idx = spans.partition_point(|span| span.start.offset <= offset);
+    spans.get(idx).copied().and_then(line_range)
 }
 
 fn line_range(span: Span) -> Option<LineRange> {
