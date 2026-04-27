@@ -3481,6 +3481,28 @@ cleanup() {
     }
 
     #[test]
+    fn skips_subshell_status_return_operands_with_safe_base() {
+        let source = "\
+#!/bin/bash
+cleanup()
+(
+  \\typeset __result
+  __result=0
+  run_task \"$@\" || __result=$?
+  next_step && final_step || __result=$?
+  return ${__result}
+)
+invoke_cleanup() {
+  cleanup \"$@\"
+}
+invoke_cleanup \"$@\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn skips_pid_capture_bindings() {
         let source = "\
 #!/bin/bash

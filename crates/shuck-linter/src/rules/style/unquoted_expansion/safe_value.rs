@@ -3085,7 +3085,7 @@ impl<'a> SafeValueIndex<'a> {
         if !bindings
             .iter()
             .copied()
-            .any(|binding_id| self.semantic.binding(binding_id).scope != helper_scope)
+            .any(|binding_id| !self.binding_is_in_scope_or_descendant(binding_id, helper_scope))
         {
             return true;
         }
