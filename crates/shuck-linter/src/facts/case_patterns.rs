@@ -273,6 +273,10 @@ impl StaticCasePatternMatcher {
             return result;
         }
 
+        if both_have_simple_glob_form(self, other) {
+            return true;
+        }
+
         let symbols = merged_case_pattern_symbols(
             self.literal_symbols.as_ref(),
             other.literal_symbols.as_ref(),
@@ -309,6 +313,10 @@ impl StaticCasePatternMatcher {
 
     fn intersects(&self, other: &Self) -> bool {
         if let Some(result) = intersects_fixed_length_fast_path(self, other) {
+            return result;
+        }
+
+        if let Some(result) = intersects_simple_glob_fast_path(self, other) {
             return result;
         }
 
@@ -433,6 +441,50 @@ fn subsumes_fixed_length_fast_path(
             }
         });
     Some(result)
+}
+
+fn glob_simple_form(matcher: &StaticCasePatternMatcher) -> Option<bool> {
+    let mut star_count = 0u32;
+    for token in &matcher.tokens {
+        match token {
+            CasePatternToken::Literal(_) => {}
+            CasePatternToken::AnyChar => return None,
+            CasePatternToken::AnyString => {
+                star_count += 1;
+                if star_count > 1 {
+                    return None;
+                }
+            }
+        }
+    }
+    Some(star_count == 1)
+}
+
+fn both_have_simple_glob_form(
+    left: &StaticCasePatternMatcher,
+    right: &StaticCasePatternMatcher,
+) -> bool {
+    glob_simple_form(left).is_some() && glob_simple_form(right).is_some()
+}
+
+fn intersects_simple_glob_fast_path(
+    left: &StaticCasePatternMatcher,
+    right: &StaticCasePatternMatcher,
+) -> Option<bool> {
+    let lh = glob_simple_form(left)?;
+    let rh = glob_simple_form(right)?;
+    let lp: &str = left.literal_prefix.as_ref();
+    let ls: &str = left.literal_suffix.as_ref();
+    let rp: &str = right.literal_prefix.as_ref();
+    let rs: &str = right.literal_suffix.as_ref();
+    Some(match (lh, rh) {
+        (false, false) => lp == rp,
+        (false, true) => lp.len() >= rp.len() + rs.len() && lp.starts_with(rp) && lp.ends_with(rs),
+        (true, false) => rp.len() >= lp.len() + ls.len() && rp.starts_with(lp) && rp.ends_with(ls),
+        (true, true) => {
+            (lp.starts_with(rp) || rp.starts_with(lp)) && (ls.ends_with(rs) || rs.ends_with(ls))
+        }
+    })
 }
 
 fn intersects_fixed_length_fast_path(
