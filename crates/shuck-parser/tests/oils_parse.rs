@@ -10,7 +10,11 @@ use shuck_parser::parser::{Parser, ShellDialect};
 
 const OILS_DIR: &str = "tests/testdata/oils";
 const EXPECTATIONS_PATH: &str = "tests/testdata/oils_expectations.json";
-const ZSH_FIXTURE_FILES: &[&str] = &["zsh-idioms.test.sh", "zsh-large-corpus-regressions.test.sh"];
+const ZSH_FIXTURE_FILES: &[&str] = &[
+    "zsh-idioms.test.sh",
+    "zsh-large-corpus-regressions.test.sh",
+    "zsh-obscure-syntax.test.sh",
+];
 const ZSH_DEFAULT_PARSE_ERR_FILES: &[&str] = &["oils/zsh-large-corpus-regressions.test.sh"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]

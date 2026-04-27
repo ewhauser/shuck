@@ -1,4 +1,8 @@
 {
+  "oils/zsh-obscure-syntax.test.sh": {
+    "expectation": "skip",
+    "reason": "fixture is intentionally zsh-only and is covered by the zsh-mode parser harness"
+  },
   "oils/array-sparse.test.sh::crash dump": {
     "expectation": "skip",
     "reason": "case uses YSH/OILS-only syntax or option modes outside the current Bash parser"
