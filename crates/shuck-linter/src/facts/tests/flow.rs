@@ -205,7 +205,7 @@ fn precomputes_innermost_command_ids_for_nested_offsets() {
             source.find("printf").expect("expected printf offset"),
             source.find("uname").expect("expected uname offset"),
         ],
-        false,
+        &super::CommandOffsetOrder::SourceOrdered,
     );
 
     assert_eq!(

@@ -130,9 +130,10 @@ fn build_function_header_facts<'a>(
     functions: &[&'a FunctionDef],
     commands: &[CommandFact<'a>],
     source: &str,
+    command_offset_order: &CommandOffsetOrder,
 ) -> Vec<FunctionHeaderFact<'a>> {
     let call_arity_by_binding =
-        build_function_call_arity_facts(semantic, functions, commands, source);
+        build_function_call_arity_facts(semantic, functions, commands, source, command_offset_order);
     functions
         .iter()
         .copied()
@@ -423,19 +424,44 @@ fn build_function_call_arity_facts<'a>(
     functions: &[&FunctionDef],
     commands: &[CommandFact<'a>],
     source: &str,
+    command_offset_order: &CommandOffsetOrder,
 ) -> FxHashMap<BindingId, FunctionCallArityFacts> {
     let mut facts = FxHashMap::<BindingId, FunctionCallArityFacts>::default();
     let mut seen_names = FxHashSet::default();
-
+    let mut unique_function_names: Vec<&Name> = Vec::with_capacity(functions.len());
     for function in functions {
         let Some((name, _)) = function.static_name_entries().next() else {
             continue;
         };
-        if !seen_names.insert(name.clone()) {
-            continue;
+        if seen_names.insert(name.clone()) {
+            unique_function_names.push(name);
         }
+    }
+    if unique_function_names.is_empty() {
+        return facts;
+    }
 
-        for command in commands {
+    let mut offsets = Vec::new();
+    for name in &unique_function_names {
+        for site in semantic.call_sites_for(name) {
+            offsets.push(site.name_span.start.offset);
+        }
+    }
+    if offsets.is_empty() {
+        return facts;
+    }
+
+    let command_ids_by_offset =
+        build_innermost_command_ids_by_offset(commands, offsets, command_offset_order);
+
+    for name in unique_function_names {
+        for site in semantic.call_sites_for(name) {
+            let Some(command_id) =
+                precomputed_command_id_for_offset(&command_ids_by_offset, site.name_span.start.offset)
+            else {
+                continue;
+            };
+            let command = command_fact(commands, command_id);
             if !command.wrappers().is_empty()
                 || command.effective_or_literal_name() != Some(name.as_str())
             {

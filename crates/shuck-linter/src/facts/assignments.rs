@@ -1257,7 +1257,7 @@ fn build_nonpersistent_assignment_spans(
     commands: &[CommandFact<'_>],
     source: &str,
     suppress_bash_pipefail_pipeline_side_effects: bool,
-    require_source_ordered_command_lookup: bool,
+    command_offset_order: &CommandOffsetOrder,
 ) -> NonpersistentAssignmentSpans {
     let scope_spans_by_id = semantic
         .scopes()
@@ -1374,7 +1374,7 @@ fn build_nonpersistent_assignment_spans(
     let innermost_command_ids_by_offset = build_innermost_command_ids_by_offset(
         commands,
         command_id_query_offsets,
-        require_source_ordered_command_lookup,
+        command_offset_order,
     );
     let persistent_reset_offsets_by_name: FxHashMap<Name, Vec<PersistentReset>> =
         persistent_reset_offsets_by_name
@@ -1907,7 +1907,7 @@ fn escaped_braced_parameter_names(text: &str) -> Vec<String> {
 fn build_innermost_command_ids_by_offset(
     commands: &[CommandFact<'_>],
     mut offsets: Vec<usize>,
-    require_source_order: bool,
+    command_order: &CommandOffsetOrder,
 ) -> CommandOffsetLookup {
     if offsets.is_empty() {
         return CommandOffsetLookup::default();
@@ -1916,7 +1916,6 @@ fn build_innermost_command_ids_by_offset(
     offsets.sort_unstable();
     offsets.dedup();
 
-    let command_order = command_offset_order(commands, require_source_order);
     let mut entries = Vec::with_capacity(offsets.len());
     let mut active_commands = Vec::new();
     let mut next_command = 0;
@@ -1948,7 +1947,7 @@ fn build_innermost_command_ids_by_offset(
     CommandOffsetLookup { entries }
 }
 
-enum CommandOffsetOrder {
+pub(crate) enum CommandOffsetOrder {
     SourceOrdered,
     Sorted(Vec<CommandId>),
 }
@@ -1968,7 +1967,11 @@ impl CommandOffsetOrder {
     }
 }
 
-fn command_offset_order(commands: &[CommandFact<'_>], require_source_order: bool) -> CommandOffsetOrder {
+#[cfg_attr(shuck_profiling, inline(never))]
+fn build_command_offset_order(
+    commands: &[CommandFact<'_>],
+    require_source_order: bool,
+) -> CommandOffsetOrder {
     if !require_source_order {
         return CommandOffsetOrder::SourceOrdered;
     }
