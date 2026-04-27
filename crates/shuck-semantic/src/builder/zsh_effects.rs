@@ -28,12 +28,11 @@ pub(super) fn recorded_simple_command_info(
         .collect::<Vec<_>>();
     let mut static_callee =
         static_command_name_text(&command.name, source).map(|name| name.into_owned());
-    let static_args = command
+    let mut static_args = command
         .args
         .iter()
         .map(|word| static_word_text(word, source).map(|text| text.into_owned()))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
+        .collect::<Vec<_>>();
     let source_path_template = static_callee
         .as_deref()
         .filter(|name| matches!(*name, "source" | "."))
@@ -44,11 +43,17 @@ pub(super) fn recorded_simple_command_info(
         static_callee = words
             .get(1)
             .and_then(|word| static_command_name_text(word, source).map(|name| name.into_owned()));
+        static_args = command
+            .args
+            .iter()
+            .skip(1)
+            .map(|word| static_word_text(word, source).map(|text| text.into_owned()))
+            .collect();
     }
 
     let mut info = RecordedCommandInfo {
         static_callee,
-        static_args,
+        static_args: static_args.into_boxed_slice(),
         source_path_template,
         zsh_effects: Vec::new(),
     };

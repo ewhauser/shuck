@@ -735,6 +735,24 @@ pub(crate) struct FunctionBindingLookup<'a> {
 }
 
 impl FunctionBindingLookup<'_> {
+    pub(crate) fn visible_function_binding(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        offset: usize,
+    ) -> Option<BindingId> {
+        let mut resolver = FunctionCallResolver {
+            program: self.program,
+            scopes: self.scopes,
+            bindings: self.bindings,
+            call_sites: self.call_sites,
+            unconditional_function_bindings: self.unconditional_function_bindings,
+            function_bindings_by_scope: self.function_bindings_by_scope,
+            entry_before_offset_cache: FxHashMap::default(),
+        };
+        resolver.visible_function_binding(name, scope, offset)
+    }
+
     pub(crate) fn visible_function_call_bindings(&self) -> FxHashMap<SpanKey, BindingId> {
         let mut resolver = FunctionCallResolver {
             program: self.program,

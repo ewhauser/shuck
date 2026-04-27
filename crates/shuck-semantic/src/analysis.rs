@@ -1,5 +1,5 @@
 use super::*;
-use crate::cfg::{self, build_control_flow_graph};
+use crate::cfg::build_control_flow_graph;
 use crate::dataflow;
 use crate::reachability::block_reaches_without;
 
@@ -22,9 +22,6 @@ impl<'model> SemanticAnalysis<'model> {
             unreached_functions: OnceLock::new(),
             unreached_functions_shellcheck_compat: OnceLock::new(),
             scope_provided_binding_index: OnceLock::new(),
-            unconditional_function_bindings: OnceLock::new(),
-            function_bindings_by_scope: OnceLock::new(),
-            visible_function_call_bindings: OnceLock::new(),
         }
     }
 
@@ -158,42 +155,14 @@ impl<'model> SemanticAnalysis<'model> {
             .min_by_key(|candidate| self.model.binding(*candidate).span.start.offset)
     }
 
-    fn function_binding_lookup(&self) -> cfg::FunctionBindingLookup<'_> {
-        cfg::FunctionBindingLookup {
-            program: &self.model.recorded_program,
-            scopes: &self.model.scopes,
-            bindings: &self.model.bindings,
-            call_sites: &self.model.call_sites,
-            unconditional_function_bindings: self.unconditional_function_bindings(),
-            function_bindings_by_scope: self.function_binding_scope_index(),
-        }
-    }
-
     fn visible_function_call_bindings(&self) -> &FxHashMap<SpanKey, BindingId> {
-        self.visible_function_call_bindings.get_or_init(|| {
-            self.function_binding_lookup()
-                .visible_function_call_bindings()
-        })
-    }
-
-    fn unconditional_function_bindings(&self) -> &FxHashSet<BindingId> {
-        self.unconditional_function_bindings.get_or_init(|| {
-            cfg::collect_unconditional_function_bindings(
-                &self.model.recorded_program,
-                &self.model.command_bindings,
-                &self.model.bindings,
-            )
-        })
-    }
-
-    fn function_binding_scope_index(&self) -> &FxHashMap<ScopeId, SmallVec<[BindingId; 2]>> {
-        self.function_bindings_by_scope
-            .get_or_init(|| cfg::function_bindings_by_scope(&self.model.recorded_program))
+        self.model.visible_function_call_bindings()
     }
 
     #[doc(hidden)]
     pub fn function_bindings_by_scope(&self) -> impl Iterator<Item = (ScopeId, &[BindingId])> + '_ {
-        self.function_binding_scope_index()
+        self.model
+            .function_binding_scope_index()
             .iter()
             .map(|(scope, bindings)| (*scope, bindings.as_slice()))
     }

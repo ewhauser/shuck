@@ -415,6 +415,9 @@ pub struct SemanticModel {
     assoc_lookup_binding_index: OnceLock<AssocLookupBindingIndex>,
     references_sorted_by_start: OnceLock<Vec<ReferenceId>>,
     declarations_by_command_span: OnceLock<FxHashMap<SpanKey, usize>>,
+    unconditional_function_bindings: OnceLock<FxHashSet<BindingId>>,
+    function_bindings_by_scope: OnceLock<FxHashMap<ScopeId, SmallVec<[BindingId; 2]>>>,
+    visible_function_call_bindings: OnceLock<FxHashMap<SpanKey, BindingId>>,
 }
 
 /// Lazy analysis view over a `SemanticModel`.
@@ -435,9 +438,6 @@ pub struct SemanticAnalysis<'model> {
     unreached_functions: OnceLock<Vec<UnreachedFunction>>,
     unreached_functions_shellcheck_compat: OnceLock<Vec<UnreachedFunction>>,
     scope_provided_binding_index: OnceLock<ScopeProvidedBindingIndex>,
-    unconditional_function_bindings: OnceLock<FxHashSet<BindingId>>,
-    function_bindings_by_scope: OnceLock<FxHashMap<ScopeId, SmallVec<[BindingId; 2]>>>,
-    visible_function_call_bindings: OnceLock<FxHashMap<SpanKey, BindingId>>,
 }
 
 #[allow(missing_docs)]
@@ -521,6 +521,9 @@ impl SemanticModel {
             assoc_lookup_binding_index: OnceLock::new(),
             references_sorted_by_start: OnceLock::new(),
             declarations_by_command_span: OnceLock::new(),
+            unconditional_function_bindings: OnceLock::new(),
+            function_bindings_by_scope: OnceLock::new(),
+            visible_function_call_bindings: OnceLock::new(),
         }
     }
 
@@ -978,6 +981,7 @@ impl SemanticModel {
 
         self.set_synthetic_reads(dedup_synthetic_reads(synthetic_reads));
         self.set_entry_bindings(entry_bindings);
+        self.invalidate_function_binding_lookup();
         self.resolve_unresolved_references();
         self.rebuild_call_graph();
     }
@@ -1052,8 +1056,15 @@ impl SemanticModel {
                 false,
             );
         }
+        self.invalidate_function_binding_lookup();
         self.resolve_unresolved_references();
         self.rebuild_call_graph();
+    }
+
+    fn invalidate_function_binding_lookup(&mut self) {
+        self.unconditional_function_bindings.take();
+        self.function_bindings_by_scope.take();
+        self.visible_function_call_bindings.take();
     }
 
     fn rebuild_call_graph(&mut self) {
@@ -1159,6 +1170,51 @@ impl SemanticModel {
         self.entry_bindings = entry_bindings;
     }
 
+    fn function_binding_lookup(&self) -> cfg::FunctionBindingLookup<'_> {
+        cfg::FunctionBindingLookup {
+            program: &self.recorded_program,
+            scopes: &self.scopes,
+            bindings: &self.bindings,
+            call_sites: &self.call_sites,
+            unconditional_function_bindings: self.unconditional_function_bindings(),
+            function_bindings_by_scope: self.function_binding_scope_index(),
+        }
+    }
+
+    pub(crate) fn visible_function_binding(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        offset: usize,
+    ) -> Option<BindingId> {
+        self.function_binding_lookup()
+            .visible_function_binding(name, scope, offset)
+    }
+
+    fn unconditional_function_bindings(&self) -> &FxHashSet<BindingId> {
+        self.unconditional_function_bindings.get_or_init(|| {
+            cfg::collect_unconditional_function_bindings(
+                &self.recorded_program,
+                &self.command_bindings,
+                &self.bindings,
+            )
+        })
+    }
+
+    pub(crate) fn function_binding_scope_index(
+        &self,
+    ) -> &FxHashMap<ScopeId, SmallVec<[BindingId; 2]>> {
+        self.function_bindings_by_scope
+            .get_or_init(|| cfg::function_bindings_by_scope(&self.recorded_program))
+    }
+
+    pub(crate) fn visible_function_call_bindings(&self) -> &FxHashMap<SpanKey, BindingId> {
+        self.visible_function_call_bindings.get_or_init(|| {
+            self.function_binding_lookup()
+                .visible_function_call_bindings()
+        })
+    }
+
     fn dataflow_context<'a>(&'a self, cfg: &'a ControlFlowGraph) -> DataflowContext<'a> {
         DataflowContext {
             cfg,
@@ -1172,6 +1228,7 @@ impl SemanticModel {
             self_referential_assignment_refs: &self.self_referential_assignment_refs,
             resolved: &self.resolved,
             call_sites: &self.call_sites,
+            visible_function_call_bindings: self.visible_function_call_bindings(),
             function_body_scopes: &self.recorded_program.function_body_scopes,
             indirect_targets_by_reference: &self.indirect_targets_by_reference,
             array_like_indirect_expansion_refs: &self.array_like_indirect_expansion_refs,
