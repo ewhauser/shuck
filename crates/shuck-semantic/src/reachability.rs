@@ -45,17 +45,34 @@ impl<'model> SemanticAnalysis<'model> {
     }
 
     pub fn reachable_blocks_for_binding(&self, binding_id: BindingId) -> Vec<BlockId> {
-        reachable_blocks_for_binding(self.cfg(), binding_id, self.unreachable_blocks())
+        let unreachable = self.unreachable_blocks();
+        self.blocks_containing_binding(binding_id)
+            .iter()
+            .copied()
+            .filter(|block| !unreachable.contains(block))
+            .collect()
+    }
+
+    /// Returns every CFG block whose `bindings` contain `binding_id`, including unreachable
+    /// blocks. Callers that already iterate the result can filter on `unreachable_blocks()`
+    /// inline to avoid an intermediate allocation.
+    #[doc(hidden)]
+    pub fn blocks_containing_binding(&self, binding_id: BindingId) -> &[BlockId] {
+        self.binding_block_index()
+            .get(binding_id.index())
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    fn binding_block_index(&self) -> &[Vec<BlockId>] {
+        self.binding_block_index.get_or_init(|| {
+            build_binding_block_index(self.cfg().blocks(), self.model.bindings.len())
+        })
     }
 
     pub fn shadow_function_blocks_for_binding(&self, binding_id: BindingId) -> FxHashSet<BlockId> {
         let binding = self.model.binding(binding_id);
-        self.shadow_function_blocks_from_cfg(
-            &binding.name,
-            binding_id,
-            self.cfg(),
-            self.unreachable_blocks(),
-        )
+        self.shadow_function_blocks_from_cfg(&binding.name, binding_id, self.unreachable_blocks())
     }
 
     pub fn blocks_have_path_avoiding(
@@ -153,10 +170,12 @@ impl<'model> SemanticAnalysis<'model> {
 
         let mut avoid = self.shadow_function_blocks_for_binding(binding_id);
         avoid.extend(self.cfg().script_terminators().iter().copied());
+        let unreachable = self.unreachable_blocks();
         let binding_blocks = self
-            .reachable_blocks_for_binding(binding_id)
-            .into_iter()
-            .filter(|block| !avoid.contains(block))
+            .blocks_containing_binding(binding_id)
+            .iter()
+            .copied()
+            .filter(|block| !unreachable.contains(block) && !avoid.contains(block))
             .collect::<Vec<_>>();
         let call_blocks = self
             .block_ids_for_span(cfg_span)
@@ -345,7 +364,7 @@ impl<'model> SemanticAnalysis<'model> {
             return Vec::new();
         }
 
-        let binding_blocks = build_binding_block_index(cfg.blocks(), self.model.bindings.len());
+        let binding_blocks = self.binding_block_index();
         let natural_exits = cfg
             .natural_exits()
             .iter()
@@ -365,7 +384,7 @@ impl<'model> SemanticAnalysis<'model> {
                 }
 
                 let reachable_blocks =
-                    reachable_binding_blocks(binding_id, &binding_blocks, &unreachable);
+                    reachable_binding_blocks(binding_id, binding_blocks, &unreachable);
 
                 if has_termination_boundary {
                     match reachable_blocks.as_deref() {
@@ -398,7 +417,7 @@ impl<'model> SemanticAnalysis<'model> {
                                 let shadow_blocks = self.shadow_function_blocks(
                                     name,
                                     binding_id,
-                                    &binding_blocks,
+                                    binding_blocks,
                                     &unreachable,
                                 );
                                 let window = FunctionReachWindow {
@@ -447,7 +466,7 @@ impl<'model> SemanticAnalysis<'model> {
                         name,
                         binding_id,
                         cfg,
-                        &binding_blocks,
+                        binding_blocks,
                         &unreachable,
                         &mut nested_scope_execution_cache,
                     )
@@ -853,12 +872,16 @@ impl<'model> SemanticAnalysis<'model> {
                 .ancestor_scopes(site.scope)
                 .any(|scope| scope == binding.scope)
         {
-            let binding_blocks = reachable_blocks_for_binding(cfg, binding_id, unreachable);
+            let binding_blocks: Vec<BlockId> = self
+                .blocks_containing_binding(binding_id)
+                .iter()
+                .copied()
+                .filter(|block| !unreachable.contains(block))
+                .collect();
             if binding_blocks.is_empty() {
                 return false;
             }
-            let shadow_blocks =
-                self.shadow_function_blocks_from_cfg(name, binding_id, cfg, unreachable);
+            let shadow_blocks = self.shadow_function_blocks_from_cfg(name, binding_id, unreachable);
             return blocks_have_path_avoiding_many(
                 cfg,
                 &binding_blocks,
@@ -922,8 +945,9 @@ impl<'model> SemanticAnalysis<'model> {
                 (*body_scope == function_scope).then_some(*function_binding)
             })
             .any(|function_binding| {
-                !reachable_blocks_for_binding(window.cfg, function_binding, window.unreachable)
-                    .is_empty()
+                self.blocks_containing_binding(function_binding)
+                    .iter()
+                    .any(|block| !window.unreachable.contains(block))
             })
     }
 
@@ -1196,7 +1220,6 @@ impl<'model> SemanticAnalysis<'model> {
         &self,
         name: &Name,
         binding_id: BindingId,
-        cfg: &ControlFlowGraph,
         unreachable: &FxHashSet<BlockId>,
     ) -> FxHashSet<BlockId> {
         let binding = self.model.binding(binding_id);
@@ -1210,7 +1233,12 @@ impl<'model> SemanticAnalysis<'model> {
                 other_binding.scope == binding.scope
                     && other_binding.span.start.offset > binding.span.start.offset
             })
-            .flat_map(|other| reachable_blocks_for_binding(cfg, other, unreachable))
+            .flat_map(|other| {
+                self.blocks_containing_binding(other)
+                    .iter()
+                    .copied()
+                    .filter(|block| !unreachable.contains(block))
+            })
             .collect()
     }
 
@@ -1238,7 +1266,7 @@ impl<'model> SemanticAnalysis<'model> {
             .iter()
             .copied()
             .collect::<FxHashSet<_>>();
-        let binding_blocks = build_binding_block_index(cfg.blocks(), self.model.bindings.len());
+        let binding_blocks = self.binding_block_index();
         let mut reachability = ReachabilityCache::new(cfg);
         let mut overwritten = Vec::new();
 
@@ -1259,12 +1287,12 @@ impl<'model> SemanticAnalysis<'model> {
                     let first = pair[0];
                     let second = pair[1];
                     let Some(first_blocks) =
-                        reachable_binding_blocks(first, &binding_blocks, &unreachable)
+                        reachable_binding_blocks(first, binding_blocks, &unreachable)
                     else {
                         continue;
                     };
                     let Some(second_blocks) =
-                        reachable_binding_blocks(second, &binding_blocks, &unreachable)
+                        reachable_binding_blocks(second, binding_blocks, &unreachable)
                     else {
                         continue;
                     };
@@ -1415,18 +1443,6 @@ fn path_reaches_any_target_or_terminates(
 
     visiting.remove(&block);
     reaches
-}
-
-fn reachable_blocks_for_binding(
-    cfg: &ControlFlowGraph,
-    binding: BindingId,
-    unreachable: &FxHashSet<BlockId>,
-) -> Vec<BlockId> {
-    cfg.blocks()
-        .iter()
-        .filter(|block| block.bindings.contains(&binding) && !unreachable.contains(&block.id))
-        .map(|block| block.id)
-        .collect()
 }
 
 fn blocks_have_path_avoiding(

@@ -493,6 +493,7 @@ pub struct SemanticAnalysis<'model> {
     uninitialized_reference_certainties: OnceLock<FxHashMap<SpanKey, UninitializedCertainty>>,
     dead_code: OnceLock<Vec<DeadCode>>,
     unreachable_blocks: OnceLock<FxHashSet<BlockId>>,
+    binding_block_index: OnceLock<Vec<Vec<BlockId>>>,
     overwritten_functions: OnceLock<Vec<OverwrittenFunction>>,
     unreached_functions: OnceLock<Vec<UnreachedFunction>>,
     unreached_functions_shellcheck_compat: OnceLock<Vec<UnreachedFunction>>,
