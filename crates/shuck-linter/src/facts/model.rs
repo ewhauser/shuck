@@ -18,6 +18,7 @@ pub struct LinterFacts<'a> {
     env_prefix_assignment_scope_spans: Vec<Span>,
     env_prefix_expansion_scope_spans: Vec<Span>,
     unset_command_ids_by_target_name: FxHashMap<Name, Vec<CommandId>>,
+    function_unset_command_ids_by_target_name: FxHashMap<Name, Vec<CommandId>>,
     presence_tested_names: FxHashSet<Name>,
     nested_presence_test_spans: FxHashMap<Name, Vec<Span>>,
     c006_presence_tested_names: FxHashSet<Name>,
@@ -246,6 +247,18 @@ impl<'a> LinterFacts<'a> {
         name: &Name,
     ) -> impl Iterator<Item = CommandFactRef<'_, 'a>> + '_ {
         self.unset_command_ids_by_target_name
+            .get(name)
+            .into_iter()
+            .flatten()
+            .copied()
+            .map(|id| self.command(id))
+    }
+
+    pub(crate) fn function_unset_commands_for_name(
+        &self,
+        name: &Name,
+    ) -> impl Iterator<Item = CommandFactRef<'_, 'a>> + '_ {
+        self.function_unset_command_ids_by_target_name
             .get(name)
             .into_iter()
             .flatten()

@@ -89,6 +89,89 @@ impl<'model> SemanticAnalysis<'model> {
         })
     }
 
+    pub fn function_call_may_resolve_to_binding(
+        &self,
+        binding_id: BindingId,
+        call_scope: ScopeId,
+        visibility_span: Span,
+        cfg_span: Span,
+        has_prior_shadowing_function_definition: bool,
+    ) -> bool {
+        let binding = self.model.binding(binding_id);
+        if let Some(visible) = self.model.visible_binding(&binding.name, visibility_span)
+            && visible.id != binding_id
+            && visible.scope != binding.scope
+            && matches!(visible.kind, BindingKind::FunctionDefinition)
+            && visible.span.start.offset < visibility_span.start.offset
+            && self
+                .model
+                .ancestor_scopes(call_scope)
+                .any(|scope| scope == visible.scope)
+        {
+            return false;
+        }
+
+        let has_visible_shadow = self
+            .model
+            .visible_binding(&binding.name, visibility_span)
+            .is_some_and(|visible| {
+                visible.id != binding_id
+                    && matches!(visible.kind, BindingKind::FunctionDefinition)
+                    && visible.span.start.offset < visibility_span.start.offset
+                    && self
+                        .model
+                        .ancestor_scopes(call_scope)
+                        .any(|scope| scope == visible.scope)
+            })
+            || self
+                .model
+                .function_definitions(&binding.name)
+                .iter()
+                .copied()
+                .any(|other| {
+                    if other == binding_id {
+                        return false;
+                    }
+                    let other_binding = self.model.binding(other);
+                    other_binding.span.start.offset < visibility_span.start.offset
+                        && self
+                            .model
+                            .ancestor_scopes(call_scope)
+                            .any(|scope| scope == other_binding.scope)
+                })
+            || has_prior_shadowing_function_definition;
+        if !has_visible_shadow {
+            return true;
+        }
+        if self
+            .model
+            .ancestor_scopes(call_scope)
+            .any(|scope| matches!(self.model.scope_kind(scope), ScopeKind::Function(_)))
+        {
+            return true;
+        }
+
+        let mut avoid = self.shadow_function_blocks_for_binding(binding_id);
+        avoid.extend(self.cfg().script_terminators().iter().copied());
+        let binding_blocks = self
+            .reachable_blocks_for_binding(binding_id)
+            .into_iter()
+            .filter(|block| !avoid.contains(block))
+            .collect::<Vec<_>>();
+        let call_blocks = self
+            .block_ids_for_span(cfg_span)
+            .iter()
+            .copied()
+            .filter(|block| !self.block_is_unreachable(*block))
+            .filter(|block| !avoid.contains(block))
+            .collect::<Vec<_>>();
+        if binding_blocks.is_empty() || call_blocks.is_empty() {
+            return false;
+        }
+
+        self.blocks_have_path_avoiding(&binding_blocks, &call_blocks, &avoid)
+    }
+
     fn overwrite_call_site_resolves_to_binding(
         &self,
         name: &Name,
