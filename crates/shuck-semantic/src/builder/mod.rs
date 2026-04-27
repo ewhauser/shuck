@@ -32,6 +32,7 @@ use crate::cfg::{
 use crate::declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 use crate::reference::{Reference, ReferenceKind};
 use crate::runtime::RuntimePrelude;
+use crate::scope::ancestor_scopes;
 use crate::source_closure::source_path_template;
 use crate::source_ref::{
     SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution,
@@ -2140,10 +2141,6 @@ fn pattern_group_can_match_empty(kind: PatternGroupKind, patterns: &[Pattern]) -
         }
         PatternGroupKind::NoneOf => false,
     }
-}
-
-fn ancestor_scopes(scopes: &[Scope], start: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
-    std::iter::successors(Some(start), move |scope| scopes[scope.index()].parent)
 }
 
 fn function_scope_kind(function: &FunctionDef) -> FunctionScopeKind {

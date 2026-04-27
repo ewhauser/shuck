@@ -4,6 +4,7 @@ use shuck_ast::Span;
 use smallvec::SmallVec;
 
 use crate::runtime::RuntimePrelude;
+use crate::scope::ancestor_scopes;
 use crate::{
     Binding, BindingAttributes, BindingId, BindingKind, BlockId, CallSite, ContractCertainty,
     ControlFlowGraph, EdgeKind, ProvidedBinding, ProvidedBindingKind, Reference, ReferenceId,
@@ -2713,10 +2714,6 @@ fn is_function_escape_candidate(binding: &Binding, scopes: &[Scope]) -> bool {
             binding.kind,
             BindingKind::FunctionDefinition | BindingKind::Imported | BindingKind::Nameref
         )
-}
-
-fn ancestor_scopes(scopes: &[Scope], start: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
-    std::iter::successors(Some(start), move |scope| scopes[scope.index()].parent)
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ use shuck_ast::{Name, Span};
 use smallvec::SmallVec;
 
 use crate::binding::Binding;
+use crate::scope::ancestor_scopes;
 use crate::{BindingId, Scope, ScopeId, ScopeKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,10 +105,6 @@ pub(crate) fn build_call_graph(
         uncalled,
         overwritten,
     }
-}
-
-fn ancestor_scopes(scopes: &[Scope], start: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
-    std::iter::successors(Some(start), move |scope| scopes[scope.index()].parent)
 }
 
 fn is_in_function_scope(scopes: &[Scope], scope: ScopeId) -> bool {

@@ -12,6 +12,13 @@ impl ScopeId {
     }
 }
 
+pub(crate) fn ancestor_scopes(
+    scopes: &[Scope],
+    start: ScopeId,
+) -> impl Iterator<Item = ScopeId> + '_ {
+    std::iter::successors(Some(start), move |scope| scopes[scope.index()].parent)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Scope {
     pub id: ScopeId,
