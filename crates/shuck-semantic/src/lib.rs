@@ -53,8 +53,8 @@ pub use call_graph::{
 };
 /// Control-flow graph types and flow-context annotations.
 pub use cfg::{
-    BasicBlock, BlockId, ControlFlowGraph, EdgeKind, FlowContext, StatementSequenceCommand,
-    UnreachableCauseKind,
+    BasicBlock, BlockId, BuiltinCommandKind, CommandId, CommandKind, CompoundCommandKind,
+    ControlFlowGraph, EdgeKind, FlowContext, StatementSequenceCommand, UnreachableCauseKind,
 };
 /// Contract and build-option types used when constructing semantic models.
 pub use contract::{
@@ -117,6 +117,16 @@ impl SpanKey {
             end: span.end.offset,
         }
     }
+}
+
+#[derive(Debug)]
+struct CommandTopology {
+    ids: Vec<CommandId>,
+    structural_ids: Vec<CommandId>,
+    ids_by_syntax_span: FxHashMap<SpanKey, SmallVec<[CommandId; 1]>>,
+    parent_ids: Vec<Option<CommandId>>,
+    child_ids: Vec<Vec<CommandId>>,
+    offset_order: Vec<CommandId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -415,6 +425,7 @@ pub struct SemanticModel {
     heuristic_unused_assignments: Vec<BindingId>,
     zsh_option_analysis: Option<ZshOptionAnalysis>,
     assoc_lookup_binding_index: OnceLock<AssocLookupBindingIndex>,
+    command_topology: OnceLock<CommandTopology>,
     references_sorted_by_start: OnceLock<Vec<ReferenceId>>,
     declarations_by_command_span: OnceLock<FxHashMap<SpanKey, usize>>,
     unconditional_function_bindings: OnceLock<FxHashSet<BindingId>>,
@@ -476,6 +487,12 @@ pub enum SemanticListOperatorKind {
     And,
     /// `||`
     Or,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RecordedListOperatorWithSpan {
+    operator: RecordedListOperator,
+    span: Span,
 }
 
 /// A flattened pipeline command recorded by semantic analysis.
@@ -593,6 +610,7 @@ impl SemanticModel {
             heuristic_unused_assignments: built.heuristic_unused_assignments,
             zsh_option_analysis,
             assoc_lookup_binding_index: OnceLock::new(),
+            command_topology: OnceLock::new(),
             references_sorted_by_start: OnceLock::new(),
             declarations_by_command_span: OnceLock::new(),
             unconditional_function_bindings: OnceLock::new(),
@@ -1232,32 +1250,106 @@ impl SemanticModel {
         self.recorded_program.statement_sequence_commands()
     }
 
+    pub fn command_count(&self) -> usize {
+        self.recorded_program.commands().len()
+    }
+
+    pub fn commands(&self) -> &[CommandId] {
+        &self.command_topology().ids
+    }
+
+    pub fn structural_commands(&self) -> &[CommandId] {
+        &self.command_topology().structural_ids
+    }
+
+    pub fn command_span(&self, id: CommandId) -> Span {
+        self.recorded_program.command(id).span
+    }
+
+    pub fn command_syntax_span(&self, id: CommandId) -> Span {
+        self.recorded_program.command(id).syntax_span
+    }
+
+    pub fn command_kind(&self, id: CommandId) -> CommandKind {
+        self.recorded_program
+            .command(id)
+            .syntax_kind
+            .expect("semantic command syntax kind is recorded")
+    }
+
+    pub fn command_by_span(&self, span: Span) -> Option<CommandId> {
+        self.command_topology()
+            .ids_by_syntax_span
+            .get(&SpanKey::new(span))
+            .and_then(|ids| ids.first().copied())
+    }
+
+    pub fn command_by_span_and_kind(&self, span: Span, kind: CommandKind) -> Option<CommandId> {
+        self.command_topology()
+            .ids_by_syntax_span
+            .get(&SpanKey::new(span))
+            .and_then(|ids| {
+                ids.iter()
+                    .copied()
+                    .find(|id| self.command_kind(*id) == kind)
+            })
+    }
+
+    pub fn command_parent_id(&self, id: CommandId) -> Option<CommandId> {
+        self.command_topology().parent_ids[id.index()]
+    }
+
+    pub fn command_children(&self, id: CommandId) -> &[CommandId] {
+        &self.command_topology().child_ids[id.index()]
+    }
+
+    pub fn innermost_command_id_at(&self, offset: usize) -> Option<CommandId> {
+        let topology = self.command_topology();
+        let mut innermost = None;
+        for id in topology.offset_order.iter().copied() {
+            let span = self.command_syntax_span(id);
+            if span.start.offset > offset {
+                break;
+            }
+            if offset <= span.end.offset {
+                innermost = Some(id);
+            }
+        }
+        innermost
+    }
+
     /// Returns logical list commands flattened by the semantic traversal.
     pub fn list_commands(&self) -> Vec<SemanticListCommand> {
         self.recorded_program
             .commands()
             .iter()
-            .filter_map(|command| {
+            .enumerate()
+            .filter_map(|(index, command)| {
                 let RecordedCommandKind::List { first, rest } = command.kind else {
                     return None;
                 };
+                let command_id = CommandId(index as u32);
+                if self.command_parent_id(command_id).is_some_and(|parent| {
+                    matches!(
+                        self.recorded_program.command(parent).kind,
+                        RecordedCommandKind::List { .. }
+                    )
+                }) {
+                    return None;
+                }
 
-                let rest = self.recorded_program.list_items(rest);
-                let mut segments = Vec::with_capacity(rest.len() + 1);
-                segments.push(SemanticListSegment {
-                    command_span: self.recorded_program.command(first).span,
-                    operator_before: None,
-                });
-                segments.extend(rest.iter().map(|item| SemanticListSegment {
-                    command_span: self.recorded_program.command(item.command).span,
-                    operator_before: Some(SemanticListOperator {
-                        kind: match item.operator {
-                            RecordedListOperator::And => SemanticListOperatorKind::And,
-                            RecordedListOperator::Or => SemanticListOperatorKind::Or,
-                        },
-                        span: item.operator_span,
-                    }),
-                }));
+                let mut segments = Vec::new();
+                self.flatten_list_segment(first, None, &mut segments);
+                for item in self.recorded_program.list_items(rest) {
+                    self.flatten_list_segment(
+                        item.command,
+                        Some(RecordedListOperatorWithSpan {
+                            operator: item.operator,
+                            span: item.operator_span,
+                        }),
+                        &mut segments,
+                    );
+                }
 
                 Some(SemanticListCommand {
                     span: command.span,
@@ -1267,49 +1359,122 @@ impl SemanticModel {
             .collect()
     }
 
+    fn flatten_list_segment(
+        &self,
+        command: CommandId,
+        operator_before: Option<RecordedListOperatorWithSpan>,
+        out: &mut Vec<SemanticListSegment>,
+    ) {
+        if let RecordedCommandKind::List { first, rest } =
+            self.recorded_program.command(command).kind
+        {
+            self.flatten_list_segment(first, operator_before, out);
+            for item in self.recorded_program.list_items(rest) {
+                self.flatten_list_segment(
+                    item.command,
+                    Some(RecordedListOperatorWithSpan {
+                        operator: item.operator,
+                        span: item.operator_span,
+                    }),
+                    out,
+                );
+            }
+            return;
+        }
+
+        out.push(SemanticListSegment {
+            command_span: self.recorded_program.command(command).span,
+            operator_before: operator_before.map(|operator| SemanticListOperator {
+                kind: match operator.operator {
+                    RecordedListOperator::And => SemanticListOperatorKind::And,
+                    RecordedListOperator::Or => SemanticListOperatorKind::Or,
+                },
+                span: operator.span,
+            }),
+        });
+    }
+
     /// Returns pipeline commands flattened by the semantic traversal.
     pub fn pipeline_commands(&self) -> Vec<SemanticPipelineCommand> {
         self.recorded_program
             .commands()
             .iter()
-            .filter_map(|command| {
+            .enumerate()
+            .filter_map(|(index, command)| {
                 let RecordedCommandKind::Pipeline { segments } = command.kind else {
                     return None;
                 };
+                let command_id = CommandId(index as u32);
+                if self.command_parent_id(command_id).is_some_and(|parent| {
+                    matches!(
+                        self.recorded_program.command(parent).kind,
+                        RecordedCommandKind::Pipeline { .. }
+                    )
+                }) {
+                    return None;
+                }
 
-                let segments = self
-                    .recorded_program
-                    .pipeline_segments(segments)
-                    .iter()
-                    .map(|segment| SemanticPipelineSegment {
-                        command_span: self.recorded_program.command(segment.command).span,
-                        operator_before: segment.operator_before.map(|operator| {
-                            SemanticPipelineOperator {
-                                kind: match operator.operator {
-                                    RecordedPipelineOperatorKind::Pipe => {
-                                        SemanticPipelineOperatorKind::Pipe
-                                    }
-                                    RecordedPipelineOperatorKind::PipeAll => {
-                                        SemanticPipelineOperatorKind::PipeAll
-                                    }
-                                },
-                                span: operator.span,
-                            }
-                        }),
-                    })
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice();
+                let mut flattened = Vec::new();
+                for segment in self.recorded_program.pipeline_segments(segments) {
+                    self.flatten_pipeline_segment(
+                        segment.command,
+                        segment.operator_before,
+                        &mut flattened,
+                    );
+                }
 
                 Some(SemanticPipelineCommand {
                     span: command.span,
-                    segments,
+                    segments: flattened.into_boxed_slice(),
                 })
             })
             .collect()
     }
 
+    fn flatten_pipeline_segment(
+        &self,
+        command: CommandId,
+        operator_before: Option<crate::cfg::RecordedPipelineOperator>,
+        out: &mut Vec<SemanticPipelineSegment>,
+    ) {
+        if let RecordedCommandKind::Pipeline { segments } =
+            self.recorded_program.command(command).kind
+        {
+            for (index, segment) in self
+                .recorded_program
+                .pipeline_segments(segments)
+                .iter()
+                .enumerate()
+            {
+                let operator = if index == 0 {
+                    operator_before
+                } else {
+                    segment.operator_before
+                };
+                self.flatten_pipeline_segment(segment.command, operator, out);
+            }
+            return;
+        }
+
+        out.push(SemanticPipelineSegment {
+            command_span: self.recorded_program.command(command).span,
+            operator_before: operator_before.map(|operator| SemanticPipelineOperator {
+                kind: match operator.operator {
+                    RecordedPipelineOperatorKind::Pipe => SemanticPipelineOperatorKind::Pipe,
+                    RecordedPipelineOperatorKind::PipeAll => SemanticPipelineOperatorKind::PipeAll,
+                },
+                span: operator.span,
+            }),
+        });
+    }
+
     pub(crate) fn recorded_program(&self) -> &RecordedProgram {
         &self.recorded_program
+    }
+
+    fn command_topology(&self) -> &CommandTopology {
+        self.command_topology
+            .get_or_init(|| build_command_topology(self))
     }
 
     pub(crate) fn set_synthetic_reads(&mut self, synthetic_reads: Vec<SyntheticRead>) {
@@ -1407,6 +1572,319 @@ fn file_entry_contract_can_consume_binding(binding: &Binding) -> bool {
             | BindingKind::ArithmeticAssignment
             | BindingKind::Declaration(_)
     )
+}
+
+fn build_command_topology(model: &SemanticModel) -> CommandTopology {
+    let program = model.recorded_program();
+    let command_count = program.commands().len();
+    let ids = (0..command_count)
+        .map(|index| CommandId(index as u32))
+        .collect::<Vec<_>>();
+    let mut ids_by_syntax_span = FxHashMap::<SpanKey, SmallVec<[CommandId; 1]>>::default();
+    let mut parent_ids = vec![None; command_count];
+    let mut child_ids = vec![Vec::new(); command_count];
+    let mut nested_region_command_ids = FxHashSet::default();
+
+    for id in ids.iter().copied() {
+        let command = program.command(id);
+        ids_by_syntax_span
+            .entry(SpanKey::new(command.syntax_span))
+            .or_default()
+            .push(id);
+        record_command_children(
+            program,
+            id,
+            &mut parent_ids,
+            &mut child_ids,
+            &mut nested_region_command_ids,
+        );
+    }
+
+    attach_function_body_commands(model, &ids, &mut parent_ids, &mut child_ids);
+    attach_containing_command_parents(model, &ids, &mut parent_ids, &mut child_ids);
+
+    let mut structural_ids = ids
+        .iter()
+        .copied()
+        .filter(|id| !nested_region_command_ids.contains(id))
+        .collect::<Vec<_>>();
+    structural_ids
+        .sort_unstable_by(|left, right| compare_command_ids_by_syntax_span(model, *left, *right));
+
+    let mut offset_order = ids.clone();
+    offset_order
+        .sort_unstable_by(|left, right| compare_command_ids_by_syntax_span(model, *left, *right));
+
+    CommandTopology {
+        ids,
+        structural_ids,
+        ids_by_syntax_span,
+        parent_ids,
+        child_ids,
+        offset_order,
+    }
+}
+
+fn attach_containing_command_parents(
+    model: &SemanticModel,
+    command_ids: &[CommandId],
+    parent_ids: &mut [Option<CommandId>],
+    child_ids: &mut [Vec<CommandId>],
+) {
+    let mut sorted = command_ids.to_vec();
+    sorted.sort_unstable_by(|left, right| compare_command_ids_by_syntax_span(model, *left, *right));
+
+    let mut stack = Vec::<CommandId>::new();
+    for child in sorted {
+        let child_span = model.command_syntax_span(child);
+        while stack.last().is_some_and(|candidate| {
+            !contains_command_span(model.command_syntax_span(*candidate), child_span)
+        }) {
+            stack.pop();
+        }
+
+        if parent_ids[child.index()].is_none()
+            && let Some(parent) = stack.iter().rev().copied().find(|candidate| {
+                *candidate != child
+                    && contains_command_span(model.command_syntax_span(*candidate), child_span)
+                    && !would_create_command_parent_cycle(*candidate, child, parent_ids)
+            })
+        {
+            assign_command_parent(parent, child, parent_ids, child_ids);
+        }
+        stack.push(child);
+    }
+}
+
+fn record_command_children(
+    program: &RecordedProgram,
+    parent: CommandId,
+    parent_ids: &mut [Option<CommandId>],
+    child_ids: &mut [Vec<CommandId>],
+    nested_region_command_ids: &mut FxHashSet<CommandId>,
+) {
+    let command = program.command(parent);
+    for region in program.nested_regions(command.nested_regions) {
+        for child in commands_in_range_recursive(program, region.commands) {
+            nested_region_command_ids.insert(child);
+            assign_command_parent(parent, child, parent_ids, child_ids);
+        }
+    }
+
+    match command.kind {
+        RecordedCommandKind::Linear
+        | RecordedCommandKind::Break { .. }
+        | RecordedCommandKind::Continue { .. }
+        | RecordedCommandKind::Return
+        | RecordedCommandKind::Exit => {}
+        RecordedCommandKind::List { first, rest } => {
+            assign_command_parent(parent, first, parent_ids, child_ids);
+            for item in program.list_items(rest) {
+                assign_command_parent(parent, item.command, parent_ids, child_ids);
+            }
+        }
+        RecordedCommandKind::If {
+            condition,
+            then_branch,
+            elif_branches,
+            else_branch,
+        } => {
+            assign_range_parent(program, parent, condition, parent_ids, child_ids);
+            assign_range_parent(program, parent, then_branch, parent_ids, child_ids);
+            for branch in program.elif_branches(elif_branches) {
+                assign_range_parent(program, parent, branch.condition, parent_ids, child_ids);
+                assign_range_parent(program, parent, branch.body, parent_ids, child_ids);
+            }
+            assign_range_parent(program, parent, else_branch, parent_ids, child_ids);
+        }
+        RecordedCommandKind::While { condition, body }
+        | RecordedCommandKind::Until { condition, body } => {
+            assign_range_parent(program, parent, condition, parent_ids, child_ids);
+            assign_range_parent(program, parent, body, parent_ids, child_ids);
+        }
+        RecordedCommandKind::For { body }
+        | RecordedCommandKind::Select { body }
+        | RecordedCommandKind::ArithmeticFor { body }
+        | RecordedCommandKind::BraceGroup { body }
+        | RecordedCommandKind::Subshell { body } => {
+            assign_range_parent(program, parent, body, parent_ids, child_ids);
+        }
+        RecordedCommandKind::Case { arms } => {
+            for arm in program.case_arms(arms) {
+                assign_range_parent(program, parent, arm.commands, parent_ids, child_ids);
+            }
+        }
+        RecordedCommandKind::Pipeline { segments } => {
+            for segment in program.pipeline_segments(segments) {
+                assign_command_parent(parent, segment.command, parent_ids, child_ids);
+            }
+        }
+    }
+}
+
+fn assign_range_parent(
+    program: &RecordedProgram,
+    parent: CommandId,
+    range: crate::cfg::RecordedCommandRange,
+    parent_ids: &mut [Option<CommandId>],
+    child_ids: &mut [Vec<CommandId>],
+) {
+    for child in program.commands_in(range).iter().copied() {
+        assign_command_parent(parent, child, parent_ids, child_ids);
+    }
+}
+
+fn assign_command_parent(
+    parent: CommandId,
+    child: CommandId,
+    parent_ids: &mut [Option<CommandId>],
+    child_ids: &mut [Vec<CommandId>],
+) {
+    if parent != child
+        && parent_ids[child.index()].is_none()
+        && !would_create_command_parent_cycle(parent, child, parent_ids)
+    {
+        parent_ids[child.index()] = Some(parent);
+        child_ids[parent.index()].push(child);
+    }
+}
+
+fn would_create_command_parent_cycle(
+    parent: CommandId,
+    child: CommandId,
+    parent_ids: &[Option<CommandId>],
+) -> bool {
+    let mut current = Some(parent);
+    while let Some(id) = current {
+        if id == child {
+            return true;
+        }
+        current = parent_ids[id.index()];
+    }
+    false
+}
+
+fn commands_in_range_recursive(
+    program: &RecordedProgram,
+    range: crate::cfg::RecordedCommandRange,
+) -> Vec<CommandId> {
+    let mut commands = Vec::new();
+    for command in program.commands_in(range).iter().copied() {
+        commands.push(command);
+        commands.extend(command_descendants(program, command));
+    }
+    commands
+}
+
+fn command_descendants(program: &RecordedProgram, command: CommandId) -> Vec<CommandId> {
+    let mut descendants = Vec::new();
+    let command = program.command(command);
+    for region in program.nested_regions(command.nested_regions) {
+        descendants.extend(commands_in_range_recursive(program, region.commands));
+    }
+    match command.kind {
+        RecordedCommandKind::Linear
+        | RecordedCommandKind::Break { .. }
+        | RecordedCommandKind::Continue { .. }
+        | RecordedCommandKind::Return
+        | RecordedCommandKind::Exit => {}
+        RecordedCommandKind::List { first, rest } => {
+            descendants.push(first);
+            descendants.extend(command_descendants(program, first));
+            for item in program.list_items(rest) {
+                descendants.push(item.command);
+                descendants.extend(command_descendants(program, item.command));
+            }
+        }
+        RecordedCommandKind::If {
+            condition,
+            then_branch,
+            elif_branches,
+            else_branch,
+        } => {
+            descendants.extend(commands_in_range_recursive(program, condition));
+            descendants.extend(commands_in_range_recursive(program, then_branch));
+            for branch in program.elif_branches(elif_branches) {
+                descendants.extend(commands_in_range_recursive(program, branch.condition));
+                descendants.extend(commands_in_range_recursive(program, branch.body));
+            }
+            descendants.extend(commands_in_range_recursive(program, else_branch));
+        }
+        RecordedCommandKind::While { condition, body }
+        | RecordedCommandKind::Until { condition, body } => {
+            descendants.extend(commands_in_range_recursive(program, condition));
+            descendants.extend(commands_in_range_recursive(program, body));
+        }
+        RecordedCommandKind::For { body }
+        | RecordedCommandKind::Select { body }
+        | RecordedCommandKind::ArithmeticFor { body }
+        | RecordedCommandKind::BraceGroup { body }
+        | RecordedCommandKind::Subshell { body } => {
+            descendants.extend(commands_in_range_recursive(program, body));
+        }
+        RecordedCommandKind::Case { arms } => {
+            for arm in program.case_arms(arms) {
+                descendants.extend(commands_in_range_recursive(program, arm.commands));
+            }
+        }
+        RecordedCommandKind::Pipeline { segments } => {
+            for segment in program.pipeline_segments(segments) {
+                descendants.push(segment.command);
+                descendants.extend(command_descendants(program, segment.command));
+            }
+        }
+    }
+    descendants
+}
+
+fn attach_function_body_commands(
+    model: &SemanticModel,
+    command_ids: &[CommandId],
+    parent_ids: &mut [Option<CommandId>],
+    child_ids: &mut [Vec<CommandId>],
+) {
+    for body in model.recorded_program.function_bodies().values().copied() {
+        for child in model.recorded_program.commands_in(body).iter().copied() {
+            if parent_ids[child.index()].is_some() {
+                continue;
+            }
+            let child_span = model.command_syntax_span(child);
+            let Some(parent) = command_ids
+                .iter()
+                .copied()
+                .filter(|candidate| {
+                    model.command_kind(*candidate) == CommandKind::Function
+                        && contains_command_span(model.command_syntax_span(*candidate), child_span)
+                })
+                .min_by_key(|candidate| {
+                    let span = model.command_syntax_span(*candidate);
+                    (span.end.offset - span.start.offset, candidate.index())
+                })
+            else {
+                continue;
+            };
+            assign_command_parent(parent, child, parent_ids, child_ids);
+        }
+    }
+}
+
+fn contains_command_span(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+}
+
+fn compare_command_ids_by_syntax_span(
+    model: &SemanticModel,
+    left: CommandId,
+    right: CommandId,
+) -> std::cmp::Ordering {
+    let left_span = model.command_syntax_span(left);
+    let right_span = model.command_syntax_span(right);
+    left_span
+        .start
+        .offset
+        .cmp(&right_span.start.offset)
+        .then_with(|| right_span.end.offset.cmp(&left_span.end.offset))
+        .then_with(|| right.index().cmp(&left.index()))
 }
 
 #[doc(hidden)]

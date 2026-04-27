@@ -473,7 +473,12 @@ fn is_grep_style_argument(
         return false;
     }
 
-    let command = &commands[fact.command_id.index()];
+    let Some(command) = commands
+        .iter()
+        .find(|command| command.id() == fact.command_id)
+    else {
+        return false;
+    };
     if command
         .body_name_word()
         .is_some_and(|word| word.span == occurrence_span(nodes, fact))
@@ -495,13 +500,15 @@ fn is_tr_operand_argument(
         return false;
     }
 
-    commands[fact.command_id.index()]
-        .options()
-        .tr()
-        .is_some_and(|tr| {
-            tr.operand_words()
-                .iter()
-                .any(|word| word.span == occurrence_span(nodes, fact))
+    commands
+        .iter()
+        .find(|command| command.id() == fact.command_id)
+        .is_some_and(|command| {
+            command.options().tr().is_some_and(|tr| {
+                tr.operand_words()
+                    .iter()
+                    .any(|word| word.span == occurrence_span(nodes, fact))
+            })
         })
 }
 

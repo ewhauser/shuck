@@ -340,7 +340,7 @@ fn build_function_parameter_fallback_spans(
     let structural_commands = structural_command_ids
         .iter()
         .copied()
-        .map(|id| &commands[id.index()])
+        .filter_map(|id| commands.iter().find(|command| command.id() == id))
         .collect::<Vec<_>>();
 
     structural_commands
@@ -363,13 +363,12 @@ fn build_completion_registered_function_command_flags(
     let registered_scopes =
         build_completion_registered_function_scopes(semantic, commands, lists, source);
 
-    commands
-        .iter()
-        .map(|command| {
-            enclosing_function_scope(semantic, command.scope())
-                .is_some_and(|scope| registered_scopes.contains(&scope))
-        })
-        .collect()
+    let mut flags = vec![false; function_command_slot_count(commands)];
+    for command in commands {
+        flags[command.id().index()] = enclosing_function_scope(semantic, command.scope())
+            .is_some_and(|scope| registered_scopes.contains(&scope));
+    }
+    flags
 }
 
 fn build_completion_registered_function_scopes(
@@ -378,10 +377,12 @@ fn build_completion_registered_function_scopes(
     lists: &[ListFact<'_>],
     source: &str,
 ) -> FxHashSet<ScopeId> {
-    let function_candidates = commands
-        .iter()
-        .map(|command| completion_registered_function_candidate(semantic, command))
-        .collect::<Vec<_>>();
+    let mut function_candidates = Vec::new();
+    function_candidates.resize_with(function_command_slot_count(commands), || None);
+    for command in commands {
+        function_candidates[command.id().index()] =
+            completion_registered_function_candidate(semantic, command);
+    }
     let mut scopes = FxHashSet::default();
 
     for list in lists {
@@ -403,6 +404,14 @@ fn build_completion_registered_function_scopes(
     }
 
     scopes
+}
+
+fn function_command_slot_count(commands: &[CommandFact<'_>]) -> usize {
+    commands
+        .iter()
+        .map(|command| command.id().index())
+        .max()
+        .map_or(0, |index| index + 1)
 }
 
 fn completion_registered_function_candidate(

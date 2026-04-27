@@ -184,7 +184,7 @@ fn build_outermost_nested_presence_scopes(
     commands: &[CommandFact<'_>],
     command_offset_order: &CommandOffsetOrder,
 ) -> Vec<Option<Span>> {
-    let mut outermost_scopes = vec![None; commands.len()];
+    let mut outermost_scopes = vec![None; command_slot_count(commands)];
     let mut active_nested_scopes = Vec::<Span>::new();
     for index in 0..commands.len() {
         let (span, id) = command_offset_order
@@ -203,6 +203,14 @@ fn build_outermost_nested_presence_scopes(
     }
 
     outermost_scopes
+}
+
+fn command_slot_count(commands: &[CommandFact<'_>]) -> usize {
+    commands
+        .iter()
+        .map(|command| command.id().index())
+        .max()
+        .map_or(0, |index| index + 1)
 }
 
 fn pop_finished_nested_presence_scopes(active_nested_scopes: &mut Vec<Span>, offset: usize) {

@@ -860,17 +860,21 @@ fn build_pipeline_scope_summaries<'a>(
     let mut summary_ids_by_writer = vec![SmallVec::<[usize; 1]>::new(); commands.len()];
 
     for pipeline in pipelines {
-        let writer_ids = pipeline
+        let writer_indexes = pipeline
             .segments()
             .iter()
             .map(|segment| segment.command_id())
-            .filter(|id| {
+            .filter_map(|id| {
                 commands
-                    .get(id.index())
-                    .is_some_and(command_has_file_output_redirect)
+                    .iter()
+                    .enumerate()
+                    .find(|(_, command)| command.id() == id)
+                    .and_then(|(index, command)| {
+                        command_has_file_output_redirect(command).then_some(index)
+                    })
             })
             .collect::<SmallVec<[_; 4]>>();
-        if writer_ids.is_empty() {
+        if writer_indexes.is_empty() {
             continue;
         }
 
@@ -900,8 +904,8 @@ fn build_pipeline_scope_summaries<'a>(
             name_reads,
             heredoc_name_reads,
         });
-        for writer_id in writer_ids {
-            summary_ids_by_writer[writer_id.index()].push(summary_id);
+        for writer_index in writer_indexes {
+            summary_ids_by_writer[writer_index].push(summary_id);
         }
     }
 
@@ -1126,30 +1130,17 @@ fn collect_nested_scope_name_write_uses(
     });
 }
 
-/// Visits commands strictly nested inside `outer`'s span.
-///
-/// Relies on the DFS pre-order ID layout: any command spatially nested in
-/// `outer` has a higher index, so the search starts at `outer.id().index() +
-/// 1` and stops as soon as a command starts past `outer`'s end offset.
-///
-/// IDs are not strictly source-ordered — a stmt's redirects are visited
-/// after its body, so a leading-redirect substitution like `>"$(a)" cmd
-/// "$(b)"` assigns `b` a smaller ID than `a` even though `a` appears first
-/// in source. The bracketed range therefore filters with full
-/// `contains_span` (start *and* end) so that an arg-substitution at one
-/// index does not pick up its sibling redirect-substitution at a later
-/// index as nested.
+/// Visits commands nested inside `outer`'s span.
 fn for_each_nested_command<'facts, 'a>(
     commands: CommandFacts<'facts, 'a>,
     outer: CommandFactRef<'_, 'a>,
     mut visit: impl FnMut(CommandFactRef<'facts, 'a>),
 ) {
     let outer_span = outer.span();
-    let start_index = outer.id().index() + 1;
-    for index in start_index..commands.len() {
-        let Some(other) = commands.get(index) else {
-            break;
-        };
+    for other in commands {
+        if other.id() == outer.id() {
+            continue;
+        }
         if other.span().start.offset > outer_span.end.offset {
             break;
         }
@@ -1392,7 +1383,10 @@ fn command_fact<'facts, 'a>(
     commands: &'facts [CommandFact<'a>],
     id: CommandId,
 ) -> &'facts CommandFact<'a> {
-    &commands[id.index()]
+    commands
+        .iter()
+        .find(|command| command.id() == id)
+        .unwrap_or_else(|| panic!("command id {} must exist", id.index()))
 }
 
 fn command_fact_for_semantic_span_matching<'facts, 'a>(
@@ -1437,7 +1431,7 @@ fn command_fact_ref<'facts, 'a>(
     id: CommandId,
 ) -> CommandFactRef<'facts, 'a> {
     commands
-        .get(id.index())
+        .find(id)
         .unwrap_or_else(|| panic!("command id {} must exist", id.index()))
 }
 
@@ -1462,7 +1456,7 @@ impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
     }
 
     fn fact(self, id: CommandId) -> &'facts CommandFact<'a> {
-        &self.commands[id.index()]
+        command_fact(self.commands, id)
     }
 
     fn id_for_command(self, command: &Command) -> Option<CommandId> {
@@ -1501,58 +1495,6 @@ impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
 
 }
 
-fn build_command_parent_ids(
-    commands: &[CommandFact<'_>],
-    require_source_order: bool,
-) -> Vec<Option<CommandId>> {
-    let mut parent_ids = vec![None; commands.len()];
-    let mut active_commands = Vec::<OpenParentCommand>::new();
-
-    if !require_source_order {
-        for command in commands {
-            assign_command_parent(
-                command.span(),
-                command.id(),
-                &mut active_commands,
-                &mut parent_ids,
-            );
-        }
-    } else {
-        let mut command_spans = commands
-            .iter()
-            .map(|command| (command.span(), command.id()))
-            .collect::<Vec<_>>();
-        command_spans
-            .sort_unstable_by(|left, right| compare_command_parent_entries(*left, *right));
-
-        for (span, id) in command_spans {
-            assign_command_parent(span, id, &mut active_commands, &mut parent_ids);
-        }
-    }
-
-    parent_ids
-}
-
-fn assign_command_parent(
-    span: Span,
-    id: CommandId,
-    active_commands: &mut Vec<OpenParentCommand>,
-    parent_ids: &mut [Option<CommandId>],
-) {
-    while active_commands
-        .last()
-        .is_some_and(|candidate| candidate.end_offset < span.end.offset)
-    {
-        active_commands.pop();
-    }
-
-    parent_ids[id.index()] = active_commands.last().map(|command| command.id);
-    active_commands.push(OpenParentCommand {
-        id,
-        end_offset: span.end.offset,
-    });
-}
-
 fn command_facts_are_source_ordered(commands: &[CommandFact<'_>]) -> bool {
     commands
         .windows(2)
@@ -1580,9 +1522,9 @@ fn compare_command_parent_entries(
 
 #[cfg_attr(shuck_profiling, inline(never))]
 fn build_command_dominance_barrier_flags(commands: &[CommandFact<'_>]) -> Vec<bool> {
-    commands
-        .iter()
-        .map(|fact| match fact.command() {
+    let mut flags = vec![false; command_slot_count(commands)];
+    for fact in commands {
+        flags[fact.id().index()] = match fact.command() {
             Command::Binary(_) => true,
             Command::Compound(compound) => !matches!(
                 compound,
@@ -1595,20 +1537,23 @@ fn build_command_dominance_barrier_flags(commands: &[CommandFact<'_>]) -> Vec<bo
             | Command::Decl(_)
             | Command::Function(_)
             | Command::AnonymousFunction(_) => false,
-        })
-        .collect()
+        };
+    }
+    flags
+}
+
+fn command_slot_count(commands: &[CommandFact<'_>]) -> usize {
+    commands
+        .iter()
+        .map(|command| command.id().index())
+        .max()
+        .map_or(0, |index| index + 1)
 }
 
 fn sort_and_dedup_spans(spans: &mut Vec<Span>) {
     let mut seen = FxHashSet::default();
     spans.retain(|span| seen.insert(FactSpan::new(*span)));
     spans.sort_by_key(|span| (span.start.offset, span.end.offset));
-}
-
-#[derive(Debug, Clone, Copy)]
-struct OpenParentCommand {
-    id: CommandId,
-    end_offset: usize,
 }
 
 fn trim_trailing_whitespace_span(span: Span, source: &str) -> Span {
@@ -1643,7 +1588,12 @@ fn child_command_id_for_command(
         .child_ids(parent_id)
         .iter()
         .copied()
-        .find(|id| std::ptr::eq(command_fact(commands, *id).command(), command))
+        .find(|id| {
+            commands
+                .iter()
+                .find(|fact| fact.id() == *id)
+                .is_some_and(|fact| std::ptr::eq(fact.command(), command))
+        })
 }
 
 fn command_fact_ref_for_stmt<'facts, 'a>(

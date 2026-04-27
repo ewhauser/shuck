@@ -1,5 +1,5 @@
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{CaseTerminator, Name, Span};
+use shuck_ast::{BuiltinCommand, CaseTerminator, Command, CompoundCommand, Name, Span};
 use shuck_parser::ZshEmulationMode;
 use smallvec::{SmallVec, smallvec};
 use std::marker::PhantomData;
@@ -166,7 +166,7 @@ pub(crate) struct RecordedProgram {
     file_commands: RecordedCommandRange,
     function_bodies: FxHashMap<ScopeId, RecordedCommandRange>,
     commands: Vec<RecordedCommand>,
-    command_sequence_items: Vec<RecordedCommandId>,
+    command_sequence_items: Vec<CommandId>,
     statement_sequence_commands: Vec<StatementSequenceCommand>,
     isolated_regions: Vec<IsolatedRegion>,
     case_arms: Vec<RecordedCaseArm>,
@@ -195,11 +195,100 @@ impl StatementSequenceCommand {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct RecordedCommandId(u32);
+pub struct CommandId(pub(crate) u32);
 
-impl RecordedCommandId {
-    pub(crate) fn index(self) -> usize {
+impl CommandId {
+    pub fn index(self) -> usize {
         self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CommandKind {
+    Simple,
+    Builtin(BuiltinCommandKind),
+    Decl,
+    Binary,
+    Compound(CompoundCommandKind),
+    Function,
+    AnonymousFunction,
+}
+
+impl CommandKind {
+    pub fn from_command(command: &Command) -> Self {
+        match command {
+            Command::Simple(_) => Self::Simple,
+            Command::Builtin(command) => Self::Builtin(BuiltinCommandKind::from_builtin(command)),
+            Command::Decl(_) => Self::Decl,
+            Command::Binary(_) => Self::Binary,
+            Command::Compound(command) => {
+                Self::Compound(CompoundCommandKind::from_compound(command))
+            }
+            Command::Function(_) => Self::Function,
+            Command::AnonymousFunction(_) => Self::AnonymousFunction,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BuiltinCommandKind {
+    Break,
+    Continue,
+    Return,
+    Exit,
+}
+
+impl BuiltinCommandKind {
+    fn from_builtin(command: &BuiltinCommand) -> Self {
+        match command {
+            BuiltinCommand::Break(_) => Self::Break,
+            BuiltinCommand::Continue(_) => Self::Continue,
+            BuiltinCommand::Return(_) => Self::Return,
+            BuiltinCommand::Exit(_) => Self::Exit,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CompoundCommandKind {
+    If,
+    For,
+    Repeat,
+    Foreach,
+    ArithmeticFor,
+    While,
+    Until,
+    Case,
+    Select,
+    Subshell,
+    BraceGroup,
+    Arithmetic,
+    Time,
+    Conditional,
+    Coproc,
+    Always,
+}
+
+impl CompoundCommandKind {
+    fn from_compound(command: &CompoundCommand) -> Self {
+        match command {
+            CompoundCommand::If(_) => Self::If,
+            CompoundCommand::For(_) => Self::For,
+            CompoundCommand::Repeat(_) => Self::Repeat,
+            CompoundCommand::Foreach(_) => Self::Foreach,
+            CompoundCommand::ArithmeticFor(_) => Self::ArithmeticFor,
+            CompoundCommand::While(_) => Self::While,
+            CompoundCommand::Until(_) => Self::Until,
+            CompoundCommand::Case(_) => Self::Case,
+            CompoundCommand::Select(_) => Self::Select,
+            CompoundCommand::Subshell(_) => Self::Subshell,
+            CompoundCommand::BraceGroup(_) => Self::BraceGroup,
+            CompoundCommand::Arithmetic(_) => Self::Arithmetic,
+            CompoundCommand::Time(_) => Self::Time,
+            CompoundCommand::Conditional(_) => Self::Conditional,
+            CompoundCommand::Coproc(_) => Self::Coproc,
+            CompoundCommand::Always(_) => Self::Always,
+        }
     }
 }
 
@@ -253,7 +342,7 @@ impl<T> Default for RecordedRange<T> {
     }
 }
 
-pub(crate) type RecordedCommandRange = RecordedRange<RecordedCommandId>;
+pub(crate) type RecordedCommandRange = RecordedRange<CommandId>;
 pub(crate) type RecordedRegionRange = RecordedRange<IsolatedRegion>;
 pub(crate) type RecordedCaseArmRange = RecordedRange<RecordedCaseArm>;
 pub(crate) type RecordedPipelineSegmentRange = RecordedRange<RecordedPipelineSegment>;
@@ -263,6 +352,8 @@ pub(crate) type RecordedElifBranchRange = RecordedRange<RecordedElifBranch>;
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RecordedCommand {
     pub(crate) span: Span,
+    pub(crate) syntax_span: Span,
+    pub(crate) syntax_kind: Option<CommandKind>,
     pub(crate) nested_regions: RecordedRegionRange,
     pub(crate) kind: RecordedCommandKind,
 }
@@ -285,7 +376,7 @@ pub(crate) enum RecordedCommandKind {
     Return,
     Exit,
     List {
-        first: RecordedCommandId,
+        first: CommandId,
         rest: RecordedListItemRange,
     },
     If {
@@ -336,14 +427,14 @@ pub(crate) struct RecordedCaseArm {
 pub(crate) struct RecordedPipelineSegment {
     pub(crate) operator_before: Option<RecordedPipelineOperator>,
     pub(crate) scope: ScopeId,
-    pub(crate) command: RecordedCommandId,
+    pub(crate) command: CommandId,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RecordedListItem {
     pub(crate) operator: RecordedListOperator,
     pub(crate) operator_span: Span,
-    pub(crate) command: RecordedCommandId,
+    pub(crate) command: CommandId,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -370,6 +461,15 @@ pub(crate) struct RecordedCommandInfo {
     pub(crate) static_args: Box<[Option<String>]>,
     pub(crate) source_path_template: Option<SourcePathTemplate>,
     pub(crate) zsh_effects: Vec<RecordedZshCommandEffect>,
+}
+
+impl RecordedCommandInfo {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.static_callee.is_none()
+            && self.static_args.is_empty()
+            && self.source_path_template.is_none()
+            && self.zsh_effects.is_empty()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -419,11 +519,11 @@ impl RecordedProgram {
         &self.function_bodies
     }
 
-    pub(crate) fn command(&self, id: RecordedCommandId) -> &RecordedCommand {
+    pub(crate) fn command(&self, id: CommandId) -> &RecordedCommand {
         &self.commands[id.index()]
     }
 
-    pub(crate) fn command_mut(&mut self, id: RecordedCommandId) -> &mut RecordedCommand {
+    pub(crate) fn command_mut(&mut self, id: CommandId) -> &mut RecordedCommand {
         &mut self.commands[id.index()]
     }
 
@@ -431,7 +531,7 @@ impl RecordedProgram {
         &self.commands
     }
 
-    pub(crate) fn commands_in(&self, range: RecordedCommandRange) -> &[RecordedCommandId] {
+    pub(crate) fn commands_in(&self, range: RecordedCommandRange) -> &[CommandId] {
         range.slice(&self.command_sequence_items)
     }
 
@@ -470,8 +570,8 @@ impl RecordedProgram {
         range.slice(&self.elif_branches)
     }
 
-    pub(crate) fn push_command(&mut self, command: RecordedCommand) -> RecordedCommandId {
-        let id = RecordedCommandId(match u32::try_from(self.commands.len()) {
+    pub(crate) fn push_command(&mut self, command: RecordedCommand) -> CommandId {
+        let id = CommandId(match u32::try_from(self.commands.len()) {
             Ok(id) => id,
             Err(err) => panic!("recorded command count fits in u32: {err}"),
         });
@@ -479,10 +579,7 @@ impl RecordedProgram {
         id
     }
 
-    pub(crate) fn push_command_ids(
-        &mut self,
-        command_ids: Vec<RecordedCommandId>,
-    ) -> RecordedCommandRange {
+    pub(crate) fn push_command_ids(&mut self, command_ids: Vec<CommandId>) -> RecordedCommandRange {
         push_range(&mut self.command_sequence_items, command_ids)
     }
 
@@ -638,7 +735,7 @@ fn command_range_can_return_before(
 
 fn command_can_return_before(
     program: &RecordedProgram,
-    command_id: RecordedCommandId,
+    command_id: CommandId,
     before_offset: usize,
 ) -> bool {
     let command = program.command(command_id);
@@ -897,7 +994,7 @@ fn collect_sequence_function_bindings(
 
 fn collect_command_function_bindings(
     program: &RecordedProgram,
-    command_id: RecordedCommandId,
+    command_id: CommandId,
     command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     bindings: &[Binding],
     unconditional: &mut FxHashSet<BindingId>,
@@ -993,7 +1090,7 @@ fn sequence_exit_effect(
 
 fn command_exit_effect(
     program: &RecordedProgram,
-    command_id: RecordedCommandId,
+    command_id: CommandId,
     terminating_call_spans: &FxHashSet<SpanKey>,
 ) -> ExitEffect {
     let command = program.command(command_id);
@@ -1055,7 +1152,7 @@ fn span_contains(outer: Span, inner: Span) -> bool {
 
 fn list_exit_effect(
     program: &RecordedProgram,
-    first: RecordedCommandId,
+    first: CommandId,
     rest: RecordedListItemRange,
     terminating_call_spans: &FxHashSet<SpanKey>,
 ) -> ExitEffect {
@@ -1566,7 +1663,7 @@ impl<'a> GraphBuilder<'a> {
 
     fn build_command(
         &mut self,
-        command_id: RecordedCommandId,
+        command_id: CommandId,
         loops: &[LoopTarget],
         force_command_header: bool,
     ) -> SequenceResult {
@@ -1716,7 +1813,7 @@ impl<'a> GraphBuilder<'a> {
 
     fn wrap_sequence_with_command_header(
         &mut self,
-        command_id: RecordedCommandId,
+        command_id: CommandId,
         mut sequence: SequenceResult,
         loops: &[LoopTarget],
         force_command_header: bool,
@@ -1743,8 +1840,8 @@ impl<'a> GraphBuilder<'a> {
 
     fn build_list(
         &mut self,
-        command: RecordedCommandId,
-        first: RecordedCommandId,
+        command: CommandId,
+        first: CommandId,
         rest: RecordedListItemRange,
         loops: &[LoopTarget],
         force_command_header: bool,
@@ -1862,7 +1959,7 @@ impl<'a> GraphBuilder<'a> {
 
     fn build_if(
         &mut self,
-        command: RecordedCommandId,
+        command: CommandId,
         ranges: IfRanges,
         loops: &[LoopTarget],
         force_command_header: bool,
@@ -2030,7 +2127,7 @@ impl<'a> GraphBuilder<'a> {
 
     fn build_while_like(
         &mut self,
-        command: RecordedCommandId,
+        command: CommandId,
         condition: RecordedCommandRange,
         body: RecordedCommandRange,
         loops: &[LoopTarget],
@@ -2092,7 +2189,7 @@ impl<'a> GraphBuilder<'a> {
 
     fn build_loop_command(
         &mut self,
-        command: RecordedCommandId,
+        command: CommandId,
         body: RecordedCommandRange,
         loops: &[LoopTarget],
     ) -> SequenceResult {
@@ -2124,7 +2221,7 @@ impl<'a> GraphBuilder<'a> {
 
     fn build_case(
         &mut self,
-        command: RecordedCommandId,
+        command: CommandId,
         arms: RecordedCaseArmRange,
         loops: &[LoopTarget],
     ) -> SequenceResult {

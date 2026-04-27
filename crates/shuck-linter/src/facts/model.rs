@@ -269,7 +269,7 @@ impl<'a> LinterFacts<'a> {
         self.structural_command_ids
             .iter()
             .copied()
-            .map(|id| self.command(id))
+            .filter_map(|id| self.commands().find(id))
     }
 
     pub(crate) fn unset_commands_for_name(
@@ -297,7 +297,9 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn command(&self, id: CommandId) -> CommandFactRef<'_, 'a> {
-        CommandFactRef::new(&self.commands[id.index()], &self.fact_store)
+        self.commands()
+            .find(id)
+            .unwrap_or_else(|| panic!("command id {} must exist", id.index()))
     }
 
     pub fn command_for_name_word_span(&self, span: Span) -> Option<CommandFactRef<'_, 'a>> {

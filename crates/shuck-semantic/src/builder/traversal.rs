@@ -17,10 +17,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         span: Span,
         nested_regions: Vec<IsolatedRegion>,
         kind: RecordedCommandKind,
-    ) -> RecordedCommandId {
+    ) -> CommandId {
         let nested_regions = self.recorded_program.push_regions(nested_regions);
         self.recorded_program.push_command(RecordedCommand {
             span,
+            syntax_span: span,
+            syntax_kind: None,
             nested_regions,
             kind,
         })
@@ -28,7 +30,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     pub(super) fn prepend_nested_regions(
         &mut self,
-        command: RecordedCommandId,
+        command: CommandId,
         regions: Vec<IsolatedRegion>,
     ) {
         if regions.is_empty() {
@@ -56,7 +58,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         commands: &'a StmtSeq,
         flow: FlowState,
-        recorded: &mut Vec<RecordedCommandId>,
+        recorded: &mut Vec<CommandId>,
     ) {
         recorded.reserve(commands.len());
         for stmt in commands.iter() {
@@ -67,7 +69,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
-    pub(super) fn visit_stmt(&mut self, stmt: &'a Stmt, flow: FlowState) -> RecordedCommandId {
+    pub(super) fn visit_stmt(&mut self, stmt: &'a Stmt, flow: FlowState) -> CommandId {
         let span = semantic_statement_span(stmt);
         let scope = self.current_scope();
         let context = Self::flow_context(flow);
@@ -81,21 +83,27 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             self.prepend_nested_regions(recorded, redirects);
         }
         self.recorded_program.command_mut(recorded).span = span;
-        self.recorded_program.command_infos.insert(
-            SpanKey::new(span),
-            recorded_command_info(&stmt.command, self.source, self.runtime.bash_enabled()),
-        );
+        self.recorded_program.command_mut(recorded).syntax_kind =
+            Some(CommandKind::from_command(&stmt.command));
+        let info = recorded_command_info(&stmt.command, self.source, self.runtime.bash_enabled());
+        if !info.is_empty() {
+            self.recorded_program
+                .command_infos
+                .entry(SpanKey::new(span))
+                .and_modify(|existing| {
+                    if existing.is_empty() {
+                        *existing = info.clone();
+                    }
+                })
+                .or_insert(info);
+        }
 
         self.command_stack.pop();
         self.observer.exit_command(&stmt.command, scope);
         recorded
     }
 
-    pub(super) fn visit_command(
-        &mut self,
-        command: &'a Command,
-        flow: FlowState,
-    ) -> RecordedCommandId {
+    pub(super) fn visit_command(&mut self, command: &'a Command, flow: FlowState) -> CommandId {
         match command {
             Command::Simple(command) => self.visit_simple_command(command, flow),
             Command::Builtin(command) => self.visit_builtin(command, flow),
@@ -111,7 +119,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         command: &'a shuck_ast::SimpleCommand,
         flow: FlowState,
-    ) -> RecordedCommandId {
+    ) -> CommandId {
         let mut nested_regions = Vec::new();
         let command_has_name = simple_command_has_name(command, self.source);
         for assignment in &command.assignments {
@@ -190,7 +198,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         command: &'a BuiltinCommand,
         flow: FlowState,
-    ) -> RecordedCommandId {
+    ) -> CommandId {
         match command {
             BuiltinCommand::Break(command) => {
                 let nested_regions = self.visit_builtin_parts(
@@ -270,7 +278,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         command: &'a shuck_ast::DeclClause,
         flow: FlowState,
-    ) -> RecordedCommandId {
+    ) -> CommandId {
         let mut nested_regions = Vec::new();
         for assignment in &command.assignments {
             self.visit_assignment_value_into(assignment, flow, &mut nested_regions);
@@ -348,7 +356,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         command: &'a BinaryCommand,
         flow: FlowState,
-    ) -> RecordedCommandId {
+    ) -> CommandId {
         match command.op {
             BinaryOp::And | BinaryOp::Or => self.visit_logical_binary(command, flow),
             BinaryOp::Pipe | BinaryOp::PipeAll => self.visit_pipeline_binary(command, flow),
@@ -359,28 +367,35 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         command: &'a BinaryCommand,
         mut flow: FlowState,
-    ) -> RecordedCommandId {
+    ) -> CommandId {
         flow.in_subshell = true;
-        let mut commands = SmallVec::<[PipelineSegmentInput<'a>; 4]>::new();
-        collect_pipeline_segments(&command.left, None, &mut commands);
-        collect_pipeline_segments(
-            &command.right,
-            Some(RecordedPipelineOperator {
-                operator: recorded_pipeline_operator(command.op),
-                span: command.op_span,
-            }),
-            &mut commands,
-        );
-
-        let mut segments = Vec::with_capacity(commands.len());
-        for segment in commands {
-            let stmt = segment.stmt;
-            let scope = self.push_scope(ScopeKind::Pipeline, self.current_scope(), stmt.span);
+        let mut segments = Vec::with_capacity(2);
+        for (stmt, operator_before) in [
+            (&command.left, None),
+            (
+                &command.right,
+                Some(RecordedPipelineOperator {
+                    operator: recorded_pipeline_operator(command.op),
+                    span: command.op_span,
+                }),
+            ),
+        ] {
+            let segment_is_nested_pipeline = matches!(
+                &stmt.command,
+                Command::Binary(binary) if matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll)
+            );
+            let scope = if segment_is_nested_pipeline {
+                self.current_scope()
+            } else {
+                self.push_scope(ScopeKind::Pipeline, self.current_scope(), stmt.span)
+            };
             let recorded = self.visit_stmt(stmt, flow);
-            self.pop_scope(scope);
-            self.mark_scope_completed(scope);
+            if !segment_is_nested_pipeline {
+                self.pop_scope(scope);
+                self.mark_scope_completed(scope);
+            }
             segments.push(RecordedPipelineSegment {
-                operator_before: segment.operator_before,
+                operator_before,
                 scope,
                 command: recorded,
             });
@@ -398,38 +413,21 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         command: &'a BinaryCommand,
         flow: FlowState,
-    ) -> RecordedCommandId {
-        let mut operators = SmallVec::<[(RecordedListOperator, Span); 4]>::new();
-        let mut commands = SmallVec::<[&Stmt; 4]>::new();
-        collect_logical_segments(&command.left, &mut commands, &mut operators);
-        operators.push((recorded_list_operator(command.op), command.op_span));
-        collect_logical_segments(&command.right, &mut commands, &mut operators);
-
-        let mut recorded = SmallVec::<[RecordedCommandId; 4]>::with_capacity(commands.len());
-        for (index, stmt) in commands.into_iter().enumerate() {
-            let mut nested = flow;
-            nested.exit_status_checked = operators.get(index).is_some() || flow.exit_status_checked;
-            if index > 0 {
-                nested.conditionally_executed = true;
-            }
-            recorded.push(self.visit_stmt(stmt, nested));
-        }
-
-        let mut recorded = recorded.into_iter();
-        let Some(first) = recorded.next() else {
-            unreachable!("logical lists have at least one command");
-        };
-        let rest = self.recorded_program.push_list_items(
-            operators
-                .into_iter()
-                .zip(recorded)
-                .map(|((operator, operator_span), command)| RecordedListItem {
-                    operator,
-                    operator_span,
-                    command,
-                })
-                .collect(),
-        );
+    ) -> CommandId {
+        let mut left_flow = flow;
+        left_flow.exit_status_checked = true;
+        let first = self.visit_stmt(&command.left, left_flow);
+        let mut right_flow = flow;
+        right_flow.exit_status_checked = flow.exit_status_checked;
+        right_flow.conditionally_executed = true;
+        let right = self.visit_stmt(&command.right, right_flow);
+        let rest = self
+            .recorded_program
+            .push_list_items(vec![RecordedListItem {
+                operator: recorded_list_operator(command.op),
+                operator_span: command.op_span,
+                command: right,
+            }]);
 
         self.record_command(
             command.span,
@@ -442,7 +440,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         command: &'a CompoundCommand,
         flow: FlowState,
-    ) -> RecordedCommandId {
+    ) -> CommandId {
         match command {
             CompoundCommand::If(command) => {
                 let condition = self.visit_stmt_seq(
@@ -787,7 +785,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         function: &'a FunctionDef,
         flow: FlowState,
-    ) -> RecordedCommandId {
+    ) -> CommandId {
         let mut nested_regions = Vec::new();
         for entry in &function.header.entries {
             self.visit_word_into(
@@ -833,7 +831,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         function: &'a AnonymousFunctionCommand,
         flow: FlowState,
-    ) -> RecordedCommandId {
+    ) -> CommandId {
         let nested_regions = self.visit_words(&function.args, WordVisitKind::Expansion, flow);
         let scope = self.push_scope(
             ScopeKind::Function(FunctionScopeKind::Anonymous),
@@ -899,15 +897,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             ..flow
         };
 
-        match &body.command {
-            Command::Compound(CompoundCommand::BraceGroup(commands)) => {
-                self.visit_stmt_seq(commands, flow)
-            }
-            _ => {
-                let command = self.visit_stmt(body, flow);
-                self.recorded_program.push_command_ids(vec![command])
-            }
-        }
+        let command = self.visit_stmt(body, flow);
+        self.recorded_program.push_command_ids(vec![command])
     }
 
     pub(super) fn rebuild_scope_stack(&mut self, scope: ScopeId) {
@@ -915,10 +906,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.scope_stack.reverse();
     }
 
-    pub(super) fn flatten_recorded_regions(
-        &self,
-        recorded: RecordedCommandId,
-    ) -> Vec<IsolatedRegion> {
+    pub(super) fn flatten_recorded_regions(&self, recorded: CommandId) -> Vec<IsolatedRegion> {
         let recorded = self.recorded_program.command(recorded);
         let mut regions = self
             .recorded_program

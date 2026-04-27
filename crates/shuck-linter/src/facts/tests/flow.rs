@@ -143,14 +143,13 @@ fn builds_command_facts_for_wrapped_and_nested_commands() {
         .find(|fact| fact.effective_name_is("echo"))
         .expect("expected nested echo fact");
     assert!(nested.is_nested_word_command());
-    assert_eq!(
-        facts
-            .commands()
-            .iter()
-            .map(|fact| fact.id())
-            .collect::<Vec<_>>(),
-        vec![CommandId::new(0), CommandId::new(1)]
-    );
+    let ids = facts
+        .commands()
+        .iter()
+        .map(|fact| fact.id().index())
+        .collect::<Vec<_>>();
+    assert_eq!(ids.len(), 2);
+    assert_ne!(ids[0], ids[1]);
 }
 
 #[test]
@@ -178,7 +177,6 @@ fn exposes_structural_commands_and_id_lookups() {
     let echo_id = facts
         .command_id_for_stmt(&output.file.body[0])
         .expect("expected command id for top-level stmt");
-    assert_eq!(echo_id, CommandId::new(0));
     assert_eq!(
         facts.command(echo_id).effective_or_literal_name(),
         Some("echo")

@@ -1,3 +1,5 @@
+pub use shuck_semantic::CommandId;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FactSpan {
     start: usize,
@@ -16,19 +18,6 @@ impl FactSpan {
 impl From<Span> for FactSpan {
     fn from(span: Span) -> Self {
         Self::new(span)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CommandId(u32);
-
-impl CommandId {
-    fn new(index: usize) -> Self {
-        Self(fact_id_index_to_u32(index, "command fact id"))
-    }
-
-    fn index(self) -> usize {
-        self.0 as usize
     }
 }
 
@@ -282,6 +271,13 @@ impl<'facts, 'a> CommandFacts<'facts, 'a> {
     pub fn get(self, index: usize) -> Option<CommandFactRef<'facts, 'a>> {
         self.commands
             .get(index)
+            .map(|fact| CommandFactRef::new(fact, self.store))
+    }
+
+    pub fn find(self, id: CommandId) -> Option<CommandFactRef<'facts, 'a>> {
+        self.commands
+            .iter()
+            .find(|fact| fact.id() == id)
             .map(|fact| CommandFactRef::new(fact, self.store))
     }
 
