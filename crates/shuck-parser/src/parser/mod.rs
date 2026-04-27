@@ -23,8 +23,8 @@ use std::{
     sync::Arc,
 };
 
-pub(crate) use lexer::{LexedWordSegment, LexedWordSegmentKind};
 pub use lexer::{LexedToken, Lexer};
+pub(crate) use lexer::{LexedWordSegment, LexedWordSegmentKind};
 pub use profile::{ShellDialect, ShellProfile};
 pub use result::{ParseDiagnostic, ParseResult, ParseStatus, SyntaxFacts, ZshCaseGroupPart};
 pub use zsh_options::{OptionValue, ZshEmulationMode, ZshOptionState};
