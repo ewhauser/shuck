@@ -837,6 +837,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             possible_variable_misspelling_use_scan: OnceLock::new(),
             possible_variable_misspelling_index: OnceLock::new(),
             possible_variable_misspelling_scope_compat_name_uses: OnceLock::new(),
+            redundant_echo_space_facts: OnceLock::new(),
             suppressed_subscript_reference_spans,
             subscript_later_suppression_reference_spans,
             compound_assignment_value_word_spans,

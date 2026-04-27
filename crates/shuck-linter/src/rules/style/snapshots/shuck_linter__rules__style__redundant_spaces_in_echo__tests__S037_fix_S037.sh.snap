@@ -1,0 +1,70 @@
+---
+source: crates/shuck-linter/src/rules/style/redundant_spaces_in_echo.rs
+assertion_line: 229
+---
+Diagnostics:
+S037 quote repeated spaces to avoid them collapsing into one
+ --> <source>:4:1
+  |
+4 | echo foo    bar
+  |
+
+S037 quote repeated spaces to avoid them collapsing into one
+ --> <source>:5:1
+  |
+5 | echo -n    "foo"
+  |
+
+S037 quote repeated spaces to avoid them collapsing into one
+ --> <source>:6:1
+  |
+6 | echo "foo"    bar
+  |
+
+S037 quote repeated spaces to avoid them collapsing into one
+ --> <source>:7:1
+  |
+7 | echo foo    "bar"
+  |
+
+
+Applied fixes: 4
+
+Diff:
+--- before
++++ after
+@@ -1,10 +1,10 @@
+ #!/bin/bash
+ 
+ # Should trigger: repeated spacing between echoed arguments collapses.
+-echo foo    bar
+-echo -n    "foo"
+-echo "foo"    bar
+-echo foo    "bar"
++echo foo bar
++echo -n "foo"
++echo "foo" bar
++echo foo "bar"
+ 
+ # Should not trigger: single gaps and single-argument layout are fine.
+ echo foo  bar
+
+Fixed source:
+#!/bin/bash
+
+# Should trigger: repeated spacing between echoed arguments collapses.
+echo foo bar
+echo -n "foo"
+echo "foo" bar
+echo foo "bar"
+
+# Should not trigger: single gaps and single-argument layout are fine.
+echo foo  bar
+echo    foo
+
+# Should not trigger: wrapped echoes are intentionally skipped.
+command echo foo    bar
+builtin echo foo    bar
+
+Remaining diagnostics:
+<none>
