@@ -122,7 +122,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let mut pattern_charclass_spans = Vec::new();
         let mut arithmetic_summary = ArithmeticFactSummary::default();
         let mut surface_fragments = SurfaceFragmentSink::new(self.source);
-        let semantic_declaration_index = build_semantic_declaration_index(self.semantic);
         let mut functions = Vec::with_capacity(capacity.functions);
         let mut function_body_without_braces_spans = Vec::with_capacity(capacity.functions);
         let redundant_return_status_spans = Vec::new();
@@ -175,7 +174,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 collect_binding_values(
                     visit.command,
                     self.semantic,
-                    &semantic_declaration_index,
                     self.source,
                     &mut binding_values,
                 );
@@ -293,7 +291,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 let declaration_assignment_probes = build_declaration_assignment_probes(
                     visit.command,
                     &normalized,
-                    &semantic_declaration_index,
+                    self.semantic,
                     self.source,
                     command_zsh_options.as_ref(),
                 );
