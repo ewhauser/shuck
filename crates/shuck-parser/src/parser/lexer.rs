@@ -551,6 +551,7 @@ pub(crate) struct HeredocRead {
 /// Maximum nesting depth for command substitution in the lexer.
 /// Prevents stack overflow from deeply nested $() patterns.
 const DEFAULT_MAX_SUBST_DEPTH: usize = 50;
+const MAX_PARAMETER_EXPANSION_SCAN_DEPTH: usize = 4;
 
 #[derive(Clone, Debug)]
 struct Cursor<'a> {
@@ -4211,6 +4212,7 @@ fn scan_double_quoted_command_substitution_segment(
                 let consumed = scan_command_subst_parameter_expansion_len(
                     &input[next_index + '{'.len_utf8()..],
                     subst_depth,
+                    0,
                 )?;
                 index = next_index + '{'.len_utf8() + consumed;
             }
@@ -4230,7 +4232,15 @@ fn scan_double_quoted_command_substitution_segment(
     None
 }
 
-fn scan_command_subst_parameter_expansion_len(input: &str, subst_depth: usize) -> Option<usize> {
+fn scan_command_subst_parameter_expansion_len(
+    input: &str,
+    subst_depth: usize,
+    parameter_depth: usize,
+) -> Option<usize> {
+    if parameter_depth >= MAX_PARAMETER_EXPANSION_SCAN_DEPTH {
+        return scan_command_subst_parameter_expansion_len_balanced(input, subst_depth);
+    }
+
     let mut index = 0usize;
     let mut in_single = false;
     let mut in_double = false;
@@ -4254,6 +4264,7 @@ fn scan_command_subst_parameter_expansion_len(input: &str, subst_depth: usize) -
                 && let Some(consumed) = scan_command_subst_parameter_expansion_len(
                     &input[next_index + '{'.len_utf8()..],
                     subst_depth,
+                    parameter_depth + 1,
                 )
             {
                 index = next_index + '{'.len_utf8() + consumed;
@@ -4314,6 +4325,109 @@ fn scan_command_subst_parameter_expansion_len(input: &str, subst_depth: usize) -
                 && !was_escaped =>
             {
                 return Some(next_index);
+            }
+            _ => {}
+        }
+
+        ansi_c_quote_pending = ch == '$'
+            && !in_single
+            && !in_ansi_c_single
+            && !in_double
+            && !in_backtick
+            && !was_escaped;
+        index = next_index;
+    }
+
+    None
+}
+
+fn scan_command_subst_parameter_expansion_len_balanced(
+    input: &str,
+    subst_depth: usize,
+) -> Option<usize> {
+    let mut index = 0usize;
+    let mut brace_depth = 1usize;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_ansi_c_single = false;
+    let mut in_backtick = false;
+    let mut escaped = false;
+    let mut ansi_c_quote_pending = false;
+
+    while let Some((ch, next_index)) = next_char_boundary(input, index) {
+        let was_escaped = escaped;
+        if ch == '\\' && !in_single {
+            escaped = !escaped;
+            index = next_index;
+            ansi_c_quote_pending = false;
+            continue;
+        }
+        escaped = false;
+
+        if !in_single && !in_ansi_c_single && !in_backtick && !was_escaped && ch == '$' {
+            if input[next_index..].starts_with('{') {
+                brace_depth = brace_depth.saturating_add(1);
+                index = next_index + '{'.len_utf8();
+                ansi_c_quote_pending = false;
+                continue;
+            }
+
+            if input[next_index..].starts_with('(')
+                && !input[next_index + '('.len_utf8()..].starts_with('(')
+                && let Some(consumed) = scan_command_substitution_body_len_inner(
+                    &input[next_index + '('.len_utf8()..],
+                    subst_depth + 1,
+                )
+            {
+                index = next_index + '('.len_utf8() + consumed;
+                ansi_c_quote_pending = false;
+                continue;
+            }
+        }
+
+        if !in_single
+            && !in_ansi_c_single
+            && !in_double
+            && !in_backtick
+            && !was_escaped
+            && matches!(ch, '<' | '>')
+            && input[next_index..].starts_with('(')
+            && let Some(consumed) = scan_command_substitution_body_len_inner(
+                &input[next_index + '('.len_utf8()..],
+                subst_depth + 1,
+            )
+        {
+            index = next_index + '('.len_utf8() + consumed;
+            ansi_c_quote_pending = false;
+            continue;
+        }
+
+        match ch {
+            '\'' if !in_double && !in_backtick && !was_escaped => {
+                if in_ansi_c_single {
+                    in_ansi_c_single = false;
+                } else if !in_single && ansi_c_quote_pending {
+                    in_ansi_c_single = true;
+                } else {
+                    in_single = !in_single;
+                }
+            }
+            '"' if !in_single && !in_ansi_c_single && !in_backtick && !was_escaped => {
+                in_double = !in_double
+            }
+            '`' if !in_single && !in_ansi_c_single && !in_double && !was_escaped => {
+                in_backtick = !in_backtick
+            }
+            '}' if !in_single
+                && !in_ansi_c_single
+                && !in_double
+                && !in_backtick
+                && !was_escaped =>
+            {
+                brace_depth = brace_depth.saturating_sub(1);
+                if brace_depth == 0 {
+                    return Some(next_index);
+                }
             }
             _ => {}
         }
@@ -4463,7 +4577,10 @@ fn flush_scanned_command_subst_keyword(
     *word_started_at_command_start = false;
 }
 
-fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> Option<usize> {
+pub(super) fn scan_command_substitution_body_len_inner(
+    input: &str,
+    subst_depth: usize,
+) -> Option<usize> {
     if subst_depth >= DEFAULT_MAX_SUBST_DEPTH {
         return None;
     }
@@ -4743,6 +4860,7 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
                 let consumed = scan_command_subst_parameter_expansion_len(
                     &input[next_index + '{'.len_utf8()..],
                     subst_depth,
+                    0,
                 )?;
                 index = next_index + '{'.len_utf8() + consumed;
                 if expecting_redirection_target {
@@ -4965,6 +5083,32 @@ mod tests {
         assert_eq!(
             token.word_text(),
             Some(r#"$(echo "${@}" | tr -d '[:space:]')"#)
+        );
+    }
+
+    #[test]
+    fn test_deep_command_substitution_preserves_simple_parameter_expansion() {
+        let source = r#""$(echo "$(echo "$(echo "$(echo "${name}")")")")""#;
+        let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::QuotedWord);
+        assert_eq!(
+            token.word_text(),
+            Some(r#"$(echo "$(echo "$(echo "$(echo "${name}")")")")"#)
+        );
+    }
+
+    #[test]
+    fn test_command_substitution_preserves_deep_parameter_operand_paren() {
+        let source = r#""$(echo "${a:-${b:-${c:-${d:-${e:-x})}}}}")""#;
+        let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::QuotedWord);
+        assert_eq!(
+            token.word_text(),
+            Some(r#"$(echo "${a:-${b:-${c:-${d:-${e:-x})}}}}")"#)
         );
     }
 

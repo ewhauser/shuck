@@ -3982,6 +3982,44 @@ fn test_parse_pattern_preserves_dynamic_fragments_inside_extglob() {
 }
 
 #[test]
+fn test_parse_pattern_preserves_delimiters_past_group_depth_limit() {
+    let mut nested = "?(a|b)".to_string();
+    for suffix in ["c", "d", "e", "f", "g", "h", "i", "j", "k"] {
+        nested = format!("@({nested}|{suffix})");
+    }
+    let input = format!("[[ value == {nested} ]]\n");
+    let script = Parser::new(&input).parse().unwrap().file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional compound command");
+    };
+    let ConditionalExpr::Binary(binary) = &command.expression else {
+        panic!("expected binary conditional");
+    };
+    let ConditionalExpr::Pattern(pattern) = binary.right.as_ref() else {
+        panic!("expected pattern rhs");
+    };
+    let mut pattern = pattern;
+
+    for suffix in ["k", "j", "i", "h", "g", "f", "e", "d"] {
+        let [
+            PatternPartNode {
+                kind: PatternPart::Group { patterns, .. },
+                ..
+            },
+        ] = pattern.parts.as_slice()
+        else {
+            panic!("expected nested group");
+        };
+        assert_eq!(patterns.len(), 2);
+        assert_eq!(patterns[1].render(&input), suffix);
+        pattern = &patterns[0];
+    }
+    assert_eq!(pattern.render(&input), "@(?(a|b)|c)");
+}
+
+#[test]
 fn test_parse_conditional_regex_rejects_unquoted_right_brace_operand() {
     let input = "[[ { =~ { ]]\n";
     assert!(Parser::new(input).parse().is_err());
@@ -7654,6 +7692,77 @@ fn test_parse_zsh_git_extras_style_quoted_continuations_inside_assignment() {
         value.span.slice(source),
         "${${(f)\"$(_call_program tags git for-each-ref --format='\"%(refname)\"' refs/tags 2>/dev/null)\"}#refs/tags/}"
     );
+}
+
+#[test]
+fn test_parse_zsh_deep_parameter_array_comma_stays_nested() {
+    let source = "values=(${a:-${b:-${c:-${d:-${e:-x},y}}}})\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let command = expect_simple(&output.file.body[0]);
+    assert_eq!(command.assignments.len(), 1);
+    let AssignmentValue::Compound(array) = &command.assignments[0].value else {
+        panic!("expected compound assignment value");
+    };
+    assert_eq!(array.elements.len(), 1);
+
+    let ArrayElem::Sequential(value) = &array.elements[0] else {
+        panic!("expected sequential array element");
+    };
+    assert_eq!(
+        value.span.slice(source),
+        "${a:-${b:-${c:-${d:-${e:-x},y}}}}"
+    );
+}
+
+#[test]
+fn test_parse_zsh_deep_arithmetic_array_comma_stays_nested() {
+    let mut nested = "$((a, b))".to_string();
+    for _ in 0..5 {
+        nested = format!("$(({nested}))");
+    }
+    let source = format!("values=({nested})\n");
+    let output = Parser::with_dialect(&source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let command = expect_simple(&output.file.body[0]);
+    assert_eq!(command.assignments.len(), 1);
+    let AssignmentValue::Compound(array) = &command.assignments[0].value else {
+        panic!("expected compound assignment value");
+    };
+    assert_eq!(array.elements.len(), 1);
+
+    let ArrayElem::Sequential(value) = &array.elements[0] else {
+        panic!("expected sequential array element");
+    };
+    assert_eq!(value.span.slice(&source), nested);
+}
+
+#[test]
+fn test_parse_zsh_deep_arithmetic_skips_nested_parameter_parens() {
+    let mut nested = "$(( ${name:-1),2} ))".to_string();
+    for _ in 0..5 {
+        nested = format!("$(({nested}))");
+    }
+    let source = format!("values=({nested})\n");
+    let output = Parser::with_dialect(&source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let command = expect_simple(&output.file.body[0]);
+    assert_eq!(command.assignments.len(), 1);
+    let AssignmentValue::Compound(array) = &command.assignments[0].value else {
+        panic!("expected compound assignment value");
+    };
+    assert_eq!(array.elements.len(), 1);
+
+    let ArrayElem::Sequential(value) = &array.elements[0] else {
+        panic!("expected sequential array element");
+    };
+    assert_eq!(value.span.slice(&source), nested);
 }
 
 #[test]
