@@ -179,6 +179,97 @@ struct StaticCasePatternMatcher {
     literal_suffix: Box<str>,
     literal_symbols: Box<[char]>,
     start_states: Box<[usize]>,
+    bit_nfa: Option<StaticCasePatternBitNfa>,
+}
+
+#[derive(Debug, Clone)]
+struct StaticCasePatternBitNfa {
+    accept: u128,
+    start: u128,
+    any_char: u128,
+    any_string: u128,
+    literal_masks: Box<[(char, u128)]>,
+}
+
+impl StaticCasePatternBitNfa {
+    fn new(tokens: &[CasePatternToken]) -> Option<Self> {
+        if tokens.len() >= 128 {
+            return None;
+        }
+
+        let mut any_char = 0u128;
+        let mut any_string = 0u128;
+        let mut literal_masks = Vec::<(char, u128)>::new();
+
+        for (i, token) in tokens.iter().copied().enumerate() {
+            let bit = 1u128 << i;
+            match token {
+                CasePatternToken::Literal(c) => literal_masks.push((c, bit)),
+                CasePatternToken::AnyChar => any_char |= bit,
+                CasePatternToken::AnyString => any_string |= bit,
+            }
+        }
+
+        literal_masks.sort_by_key(|(c, _)| *c);
+        let mut merged: Vec<(char, u128)> = Vec::with_capacity(literal_masks.len());
+        for (c, mask) in literal_masks {
+            match merged.last_mut() {
+                Some((last_c, last_mask)) if *last_c == c => *last_mask |= mask,
+                _ => merged.push((c, mask)),
+            }
+        }
+
+        let mut nfa = Self {
+            accept: 1u128 << tokens.len(),
+            start: 1,
+            any_char,
+            any_string,
+            literal_masks: merged.into_boxed_slice(),
+        };
+        nfa.start = nfa.epsilon_closure(nfa.start);
+        Some(nfa)
+    }
+
+    #[inline]
+    fn is_accepting(&self, states: u128) -> bool {
+        states & self.accept != 0
+    }
+
+    #[inline]
+    fn literal_mask(&self, c: char) -> u128 {
+        match self
+            .literal_masks
+            .binary_search_by_key(&c, |(literal, _)| *literal)
+        {
+            Ok(index) => self.literal_masks[index].1,
+            Err(_) => 0,
+        }
+    }
+
+    #[inline]
+    fn epsilon_closure(&self, mut states: u128) -> u128 {
+        loop {
+            let next = states | ((states & self.any_string) << 1);
+            if next == states {
+                return states;
+            }
+            states = next;
+        }
+    }
+
+    #[inline]
+    fn advance(&self, states: u128, symbol: CasePatternSymbol) -> u128 {
+        if states == 0 {
+            return 0;
+        }
+        let literal = match symbol {
+            CasePatternSymbol::Literal(c) => self.literal_mask(c),
+            CasePatternSymbol::Other => 0,
+        };
+        let shifted = (states & (literal | self.any_char)) << 1;
+        let stayed = states & self.any_string;
+        self.epsilon_closure(shifted | stayed)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -226,6 +317,7 @@ impl StaticCasePatternMatcher {
             literal_symbols,
             start_states,
         } = summarize_static_case_pattern_tokens(&tokens);
+        let bit_nfa = StaticCasePatternBitNfa::new(&tokens);
         Some(Self {
             tokens,
             min_len,
@@ -234,6 +326,7 @@ impl StaticCasePatternMatcher {
             literal_suffix,
             literal_symbols,
             start_states,
+            bit_nfa,
         })
     }
 
@@ -253,6 +346,7 @@ impl StaticCasePatternMatcher {
             literal_symbols,
             start_states,
         } = summarize_static_case_pattern_tokens(&tokens);
+        let bit_nfa = StaticCasePatternBitNfa::new(&tokens);
         Some(Self {
             tokens,
             min_len,
@@ -261,6 +355,7 @@ impl StaticCasePatternMatcher {
             literal_suffix,
             literal_symbols,
             start_states,
+            bit_nfa,
         })
     }
 
@@ -277,6 +372,14 @@ impl StaticCasePatternMatcher {
             return true;
         }
 
+        if let (Some(left_nfa), Some(right_nfa)) = (&self.bit_nfa, &other.bit_nfa) {
+            return self.subsumes_bitset(other, left_nfa, right_nfa);
+        }
+
+        self.subsumes_slow(other)
+    }
+
+    fn subsumes_slow(&self, other: &Self) -> bool {
         let symbols = merged_case_pattern_symbols(
             self.literal_symbols.as_ref(),
             other.literal_symbols.as_ref(),
@@ -311,7 +414,90 @@ impl StaticCasePatternMatcher {
         true
     }
 
+    fn subsumes_bitset(
+        &self,
+        other: &Self,
+        left_nfa: &StaticCasePatternBitNfa,
+        right_nfa: &StaticCasePatternBitNfa,
+    ) -> bool {
+        let symbols = merged_case_pattern_symbols(
+            self.literal_symbols.as_ref(),
+            other.literal_symbols.as_ref(),
+        );
+
+        let start = (left_nfa.start, right_nfa.start);
+        let mut seen = FxHashSet::default();
+        let mut worklist = Vec::with_capacity(32);
+        seen.insert(start);
+        worklist.push(start);
+
+        while let Some((left, right)) = worklist.pop() {
+            if right_nfa.is_accepting(right) && !left_nfa.is_accepting(left) {
+                return false;
+            }
+
+            for symbol in symbols.iter().copied() {
+                let next_right = right_nfa.advance(right, symbol);
+                if next_right == 0 {
+                    continue;
+                }
+                let next_left = left_nfa.advance(left, symbol);
+                let next = (next_left, next_right);
+                if seen.insert(next) {
+                    worklist.push(next);
+                }
+            }
+        }
+
+        true
+    }
+
+    fn intersects_bitset(
+        &self,
+        other: &Self,
+        left_nfa: &StaticCasePatternBitNfa,
+        right_nfa: &StaticCasePatternBitNfa,
+    ) -> bool {
+        let symbols = merged_case_pattern_symbols(
+            self.literal_symbols.as_ref(),
+            other.literal_symbols.as_ref(),
+        );
+
+        let start = (left_nfa.start, right_nfa.start);
+        let mut seen = FxHashSet::default();
+        let mut worklist = Vec::with_capacity(32);
+        seen.insert(start);
+        worklist.push(start);
+
+        while let Some((left, right)) = worklist.pop() {
+            if left_nfa.is_accepting(left) && right_nfa.is_accepting(right) {
+                return true;
+            }
+
+            for symbol in symbols.iter().copied() {
+                let next_left = left_nfa.advance(left, symbol);
+                if next_left == 0 {
+                    continue;
+                }
+                let next_right = right_nfa.advance(right, symbol);
+                if next_right == 0 {
+                    continue;
+                }
+                let next = (next_left, next_right);
+                if seen.insert(next) {
+                    worklist.push(next);
+                }
+            }
+        }
+
+        false
+    }
+
     fn intersects(&self, other: &Self) -> bool {
+        if !self.could_intersect(other) {
+            return false;
+        }
+
         if let Some(result) = intersects_fixed_length_fast_path(self, other) {
             return result;
         }
@@ -320,6 +506,14 @@ impl StaticCasePatternMatcher {
             return result;
         }
 
+        if let (Some(left_nfa), Some(right_nfa)) = (&self.bit_nfa, &other.bit_nfa) {
+            return self.intersects_bitset(other, left_nfa, right_nfa);
+        }
+
+        self.intersects_slow(other)
+    }
+
+    fn intersects_slow(&self, other: &Self) -> bool {
         let symbols = merged_case_pattern_symbols(
             self.literal_symbols.as_ref(),
             other.literal_symbols.as_ref(),
@@ -356,6 +550,28 @@ impl StaticCasePatternMatcher {
         }
 
         false
+    }
+
+    fn could_intersect(&self, other: &Self) -> bool {
+        if matches!(self.max_len, Some(max) if max < other.min_len) {
+            return false;
+        }
+        if matches!(other.max_len, Some(max) if max < self.min_len) {
+            return false;
+        }
+        if !literal_prefixes_compatible(
+            self.literal_prefix.as_ref(),
+            other.literal_prefix.as_ref(),
+        ) {
+            return false;
+        }
+        if !literal_suffixes_compatible(
+            self.literal_suffix.as_ref(),
+            other.literal_suffix.as_ref(),
+        ) {
+            return false;
+        }
+        true
     }
 
     fn could_subsume(&self, other: &Self) -> bool {
@@ -415,6 +631,51 @@ impl StaticCasePatternMatcher {
 
     fn is_accepting(&self, states: &[usize]) -> bool {
         states.contains(&self.tokens.len())
+    }
+}
+
+#[cfg(feature = "benchmarking")]
+pub mod benchmark {
+    use super::{
+        StaticCasePatternBitNfa, StaticCasePatternMatcher, StaticCasePatternSummary,
+        collect_static_case_pattern_tokens, summarize_static_case_pattern_tokens,
+    };
+
+    #[doc(hidden)]
+    pub struct CasePatternMatcher(StaticCasePatternMatcher);
+
+    impl CasePatternMatcher {
+        pub fn from_glob(glob: &str) -> Option<Self> {
+            let mut tokens = Vec::new();
+            collect_static_case_pattern_tokens(glob, &mut tokens)?;
+            let StaticCasePatternSummary {
+                min_len,
+                max_len,
+                literal_prefix,
+                literal_suffix,
+                literal_symbols,
+                start_states,
+            } = summarize_static_case_pattern_tokens(&tokens);
+            let bit_nfa = StaticCasePatternBitNfa::new(&tokens);
+            Some(Self(StaticCasePatternMatcher {
+                tokens,
+                min_len,
+                max_len,
+                literal_prefix,
+                literal_suffix,
+                literal_symbols,
+                start_states,
+                bit_nfa,
+            }))
+        }
+
+        pub fn subsumes(&self, other: &Self) -> bool {
+            self.0.subsumes(&other.0)
+        }
+
+        pub fn intersects(&self, other: &Self) -> bool {
+            self.0.intersects(&other.0)
+        }
     }
 }
 
@@ -509,6 +770,16 @@ fn intersects_fixed_length_fast_path(
             }
         });
     Some(result)
+}
+
+#[inline]
+fn literal_prefixes_compatible(left: &str, right: &str) -> bool {
+    left.is_empty() || right.is_empty() || left.starts_with(right) || right.starts_with(left)
+}
+
+#[inline]
+fn literal_suffixes_compatible(left: &str, right: &str) -> bool {
+    left.is_empty() || right.is_empty() || left.ends_with(right) || right.ends_with(left)
 }
 
 fn summarize_static_case_pattern_tokens(tokens: &[CasePatternToken]) -> StaticCasePatternSummary {
