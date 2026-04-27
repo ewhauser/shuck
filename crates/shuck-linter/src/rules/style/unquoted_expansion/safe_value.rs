@@ -4717,6 +4717,9 @@ fn static_slice_result_is_safe(
     let chars = text.chars().collect::<Vec<_>>();
     let start = if offset < 0 {
         let distance = offset.unsigned_abs();
+        if distance > chars.len() {
+            return false;
+        }
         chars.len().saturating_sub(distance)
     } else {
         offset as usize
@@ -4889,7 +4892,9 @@ mod tests {
         SemanticBuildOptions, SemanticModel, UninitializedCertainty,
     };
 
-    use super::{SafeValueIndex, SafeValueQuery, function_has_terminal_exit};
+    use super::{
+        SafeValueIndex, SafeValueQuery, function_has_terminal_exit, static_slice_result_is_safe,
+    };
     use crate::ExpansionContext;
     use crate::LinterFacts;
 
@@ -7164,6 +7169,16 @@ openssl dgst -sha${sig:2} payload
             .expect("expected sliced command argument fact");
 
         assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn overly_negative_static_slice_offset_stays_unsafe() {
+        assert!(!static_slice_result_is_safe(
+            "RS256",
+            -20,
+            None,
+            SafeValueQuery::Argv
+        ));
     }
 
     #[test]
