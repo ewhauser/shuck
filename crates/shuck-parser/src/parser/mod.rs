@@ -85,6 +85,10 @@ const HARD_MAX_AST_DEPTH: usize = 100;
 /// Keep its synthetic parser shallower than the main AST limit.
 const SOURCE_TEXT_WORD_REPARSE_MAX_DEPTH: usize = 32;
 
+/// Pattern operands can themselves contain parameter expansions with pattern operands.
+/// Keep that source-text reparsing shallow and preserve deeper text literally.
+const SOURCE_TEXT_PATTERN_REPARSE_MAX_DEPTH: usize = 4;
+
 /// Default maximum parser operations (matches ExecutionLimits default)
 const DEFAULT_MAX_PARSER_OPERATIONS: usize = 100_000;
 
@@ -349,6 +353,7 @@ impl<'a> Parser<'a> {
             current_depth: 0,
             fuel: max_fuel,
             max_fuel,
+            source_text_pattern_depth: 0,
             comments,
             aliases: HashMap::new(),
             expand_aliases: false,
@@ -5254,6 +5259,7 @@ impl<'a> Parser<'a> {
             peeked_token: self.peeked_token.clone(),
             current_depth: self.current_depth,
             fuel: self.fuel,
+            source_text_pattern_depth: self.source_text_pattern_depth,
             comments: self.comments.clone(),
             expand_next_word: self.expand_next_word,
             brace_group_depth: self.brace_group_depth,
@@ -5277,6 +5283,7 @@ impl<'a> Parser<'a> {
         self.peeked_token = checkpoint.peeked_token;
         self.current_depth = checkpoint.current_depth;
         self.fuel = checkpoint.fuel;
+        self.source_text_pattern_depth = checkpoint.source_text_pattern_depth;
         self.comments = checkpoint.comments;
         self.expand_next_word = checkpoint.expand_next_word;
         self.brace_group_depth = checkpoint.brace_group_depth;

@@ -61,7 +61,7 @@ impl Default for DecodeWordPartsOptions {
 }
 
 impl<'a> PatternParser<'a> {
-    const MAX_PATTERN_GROUP_DEPTH: usize = 32;
+    const MAX_PATTERN_GROUP_DEPTH: usize = 8;
     const MAX_ZSH_CASE_GROUP_PRESCAN_BYTES: usize = 512;
 
     fn new(input: &'a str, word: &'a Word) -> Self {
@@ -609,6 +609,21 @@ impl<'a> Parser<'a> {
 
     pub(super) fn pattern_from_source_text(&mut self, text: &SourceText) -> Pattern {
         let span = text.span();
+        if self.source_text_pattern_depth >= SOURCE_TEXT_PATTERN_REPARSE_MAX_DEPTH {
+            return Pattern {
+                parts: vec![PatternPartNode::new(
+                    PatternPart::Literal(if text.is_source_backed() {
+                        LiteralText::source()
+                    } else {
+                        LiteralText::owned(text.slice(self.input).to_string())
+                    }),
+                    span,
+                )],
+                span,
+            };
+        }
+
+        self.source_text_pattern_depth += 1;
         let mut parts = WordPartBuffer::new();
         self.decode_word_parts_into_with_quote_fragments(
             text.slice(self.input),
@@ -622,7 +637,9 @@ impl<'a> Parser<'a> {
             },
             &mut parts,
         );
-        PatternParser::from_word_parts(self.input, &parts, span).parse()
+        let pattern = PatternParser::from_word_parts(self.input, &parts, span).parse();
+        self.source_text_pattern_depth -= 1;
+        pattern
     }
 
     pub(super) fn single_literal_word_text<'b>(&'b self, word: &'b Word) -> Option<&'b str> {

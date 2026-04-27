@@ -122,6 +122,8 @@ pub struct Parser<'a> {
     pub(super) fuel: usize,
     /// Maximum fuel (for error reporting)
     pub(super) max_fuel: usize,
+    /// Depth of reparsing source-text operands as patterns.
+    pub(super) source_text_pattern_depth: usize,
     /// Comments collected during parsing.
     pub(super) comments: Vec<Comment>,
     /// Known aliases declared earlier in the current parse stream.
@@ -155,6 +157,7 @@ pub(super) struct ParserCheckpoint<'a> {
     pub(super) current_span: Span,
     pub(super) peeked_token: Option<LexedToken<'a>>,
     pub(super) current_depth: usize,
+    pub(super) source_text_pattern_depth: usize,
     pub(super) fuel: usize,
     pub(super) comments: Vec<Comment>,
     pub(super) expand_next_word: bool,
