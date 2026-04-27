@@ -1240,21 +1240,23 @@ fn collect_array_assignment_split_scalar_expansion_spans(
     let unquoted_command_substitution_spans =
         fact_store.word_spans(derived.unquoted_command_substitution_spans);
 
-    for command in commands {
-        if contains_span_strictly(fact_span, command.span())
-            && unquoted_command_substitution_spans
-                .iter()
-                .any(|span| contains_span_strictly(*span, command.span()))
-        {
-            for nested_id in fact_store.word_occurrence_ids_for_command(command.id()) {
-                let nested = &word_occurrences[nested_id.index()];
-                let nested_derived = word_node_derived(&word_nodes[nested.node_id.index()]);
-                split_sensitive_spans.extend(
-                    fact_store
-                        .word_spans(nested_derived.scalar_expansion_spans)
-                        .iter()
-                        .copied(),
-                );
+    if !unquoted_command_substitution_spans.is_empty() {
+        for command in commands {
+            if contains_span_strictly(fact_span, command.span())
+                && unquoted_command_substitution_spans
+                    .iter()
+                    .any(|span| contains_span_strictly(*span, command.span()))
+            {
+                for nested_id in fact_store.word_occurrence_ids_for_command(command.id()) {
+                    let nested = &word_occurrences[nested_id.index()];
+                    let nested_derived = word_node_derived(&word_nodes[nested.node_id.index()]);
+                    split_sensitive_spans.extend(
+                        fact_store
+                            .word_spans(nested_derived.scalar_expansion_spans)
+                            .iter()
+                            .copied(),
+                    );
+                }
             }
         }
     }
