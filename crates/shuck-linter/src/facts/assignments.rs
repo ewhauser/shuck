@@ -1849,7 +1849,7 @@ fn collect_dollar_question_after_command_spans_in_function_body(
 fn build_declaration_assignment_probes<'a>(
     command: &'a Command,
     normalized: &NormalizedCommand<'a>,
-    declaration_index: &FxHashMap<usize, &Declaration>,
+    semantic: &SemanticModel,
     source: &str,
     zsh_options: Option<&ZshOptionState>,
 ) -> Vec<DeclarationAssignmentProbe> {
@@ -1886,7 +1886,7 @@ fn build_declaration_assignment_probes<'a>(
         return Vec::new();
     }
 
-    let Some(declaration) = semantic_declaration_for_command(declaration_index, command) else {
+    let Some(declaration) = semantic.declaration_for_command_span(command_span(command)) else {
         return Vec::new();
     };
     let kind = declaration_kind_from_semantic(declaration.builtin);
@@ -1917,30 +1917,6 @@ fn build_declaration_assignment_probes<'a>(
             })
         })
         .collect()
-}
-
-fn build_semantic_declaration_index(
-    semantic: &SemanticModel,
-) -> FxHashMap<usize, &Declaration> {
-    let declarations = semantic.declarations();
-    let mut index = FxHashMap::with_capacity_and_hasher(declarations.len(), Default::default());
-    for declaration in declarations {
-        index.insert(declaration.span.start.offset, declaration);
-    }
-    index
-}
-
-fn semantic_declaration_for_command<'a>(
-    declaration_index: &FxHashMap<usize, &'a Declaration>,
-    command: &Command,
-) -> Option<&'a Declaration> {
-    let span = command_span(command);
-    let declaration = *declaration_index.get(&span.start.offset)?;
-    if declaration.span.end.offset == span.end.offset {
-        Some(declaration)
-    } else {
-        None
-    }
 }
 
 fn declaration_kind_from_semantic(builtin: DeclarationBuiltin) -> DeclarationKind {
@@ -2059,7 +2035,6 @@ fn advance_escaped_char_boundary(text: &str, start: usize) -> usize {
 fn collect_binding_values<'a>(
     command: &'a Command,
     semantic: &SemanticModel,
-    declaration_index: &FxHashMap<usize, &Declaration>,
     source: &str,
     binding_values: &mut FxHashMap<BindingId, BindingValueFact<'a>>,
 ) {
@@ -2103,7 +2078,7 @@ fn collect_binding_values<'a>(
     }
 
     if matches!(command, Command::Simple(_))
-        && let Some(declaration) = semantic_declaration_for_command(declaration_index, command)
+        && let Some(declaration) = semantic.declaration_for_command_span(command_span(command))
     {
         for operand in &declaration.operands {
             let SemanticDeclarationOperand::Assignment {

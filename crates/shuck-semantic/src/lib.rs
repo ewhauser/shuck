@@ -410,6 +410,7 @@ pub struct SemanticModel {
     zsh_option_analysis: Option<ZshOptionAnalysis>,
     assoc_lookup_binding_index: OnceLock<AssocLookupBindingIndex>,
     references_sorted_by_start: OnceLock<Vec<ReferenceId>>,
+    declarations_by_command_span: OnceLock<FxHashMap<SpanKey, usize>>,
 }
 
 /// Lazy analysis view over a `SemanticModel`.
@@ -515,6 +516,7 @@ impl SemanticModel {
             zsh_option_analysis,
             assoc_lookup_binding_index: OnceLock::new(),
             references_sorted_by_start: OnceLock::new(),
+            declarations_by_command_span: OnceLock::new(),
         }
     }
 
@@ -1113,6 +1115,15 @@ impl SemanticModel {
         &self.declarations
     }
 
+    pub fn declaration_for_command_span(&self, span: Span) -> Option<&Declaration> {
+        let index = self
+            .declarations_by_command_span
+            .get_or_init(|| build_declarations_by_command_span(&self.declarations));
+        index
+            .get(&SpanKey::new(span))
+            .map(|declaration_index| &self.declarations[*declaration_index])
+    }
+
     pub fn source_refs(&self) -> &[SourceRef] {
         &self.source_refs
     }
@@ -1424,6 +1435,14 @@ fn build_references_sorted_by_start(references: &[Reference]) -> Vec<ReferenceId
     let mut ids: Vec<ReferenceId> = (0..references.len() as u32).map(ReferenceId).collect();
     ids.sort_by_key(|id| references[id.index()].span.start.offset);
     ids
+}
+
+fn build_declarations_by_command_span(declarations: &[Declaration]) -> FxHashMap<SpanKey, usize> {
+    let mut index = FxHashMap::with_capacity_and_hasher(declarations.len(), Default::default());
+    for (declaration_index, declaration) in declarations.iter().enumerate() {
+        index.insert(SpanKey::new(declaration.span), declaration_index);
+    }
+    index
 }
 
 /// Iterator returned by [`SemanticModel::references_in_span`].
