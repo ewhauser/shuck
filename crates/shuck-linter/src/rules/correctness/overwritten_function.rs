@@ -1742,19 +1742,24 @@ fn call_may_resolve_to_binding(
     }
 
     let analysis = checker.semantic_analysis();
-    let binding_blocks = analysis.reachable_blocks_for_binding(binding_id);
+    let mut avoid = analysis.shadow_function_blocks_for_binding(binding_id);
+    avoid.extend(analysis.cfg().script_terminators().iter().copied());
+    let binding_blocks = analysis
+        .reachable_blocks_for_binding(binding_id)
+        .into_iter()
+        .filter(|block| !avoid.contains(block))
+        .collect::<Vec<_>>();
     let call_blocks = analysis
         .block_ids_for_span(cfg_span)
         .iter()
         .copied()
         .filter(|block| !analysis.block_is_unreachable(*block))
+        .filter(|block| !avoid.contains(block))
         .collect::<Vec<_>>();
     if binding_blocks.is_empty() || call_blocks.is_empty() {
         return false;
     }
 
-    let mut avoid = analysis.shadow_function_blocks_for_binding(binding_id);
-    avoid.extend(analysis.cfg().script_terminators().iter().copied());
     analysis.blocks_have_path_avoiding(&binding_blocks, &call_blocks, &avoid)
 }
 
