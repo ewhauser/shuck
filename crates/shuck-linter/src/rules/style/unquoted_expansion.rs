@@ -3358,6 +3358,26 @@ exit $?
     }
 
     #[test]
+    fn skips_nested_local_status_capture_returns() {
+        let source = "\
+#!/bin/sh
+prompt_set() {
+  face() {
+    local rc=$?
+
+    case \"$rc\" in
+      0) printf '%s' \"$1\" ;;
+      *) printf '%s' \"$2\" ; return $rc ;;
+    esac
+  }
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn skips_name_only_local_option_bindings() {
         let source = "\
 #!/bin/bash

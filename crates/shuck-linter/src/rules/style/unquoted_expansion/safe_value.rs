@@ -611,6 +611,23 @@ impl<'a> SafeValueIndex<'a> {
             return true;
         }
         if self.case_cli_reachable_call_path_keeps_argument_bindings_unsafe(at, query) {
+            let mut bindings = self.safe_bindings_for_name(name, at);
+            self.drop_declarations_shadowed_by_covering_loop_bindings(&mut bindings, at);
+            self.drop_outer_bindings_shadowed_by_covering_loop_bindings(&mut bindings, at);
+            bindings.retain(|binding_id| {
+                !self.binding_is_cleared_by_dominating_unset(*binding_id, name, at)
+            });
+            bindings.retain(|binding_id| {
+                !self.binding_is_blocked_by_exit_like_function_call(*binding_id, at)
+            });
+            if self.local_declaration_status_capture_bindings_cover_reference(
+                &bindings,
+                name,
+                at,
+                query,
+            ) {
+                return true;
+            }
             return safe_numeric_shell_variable(name);
         }
         if query == SafeValueQuery::NumericTestOperand
@@ -646,6 +663,14 @@ impl<'a> SafeValueIndex<'a> {
         }
         if bindings.is_empty() {
             return safe_numeric_shell_variable(name);
+        }
+        if self.local_declaration_status_capture_bindings_cover_reference(
+            &bindings,
+            name,
+            at,
+            query,
+        ) {
+            return true;
         }
         let binding_belongs_to_case_cli_scope = case_cli_scope.is_some_and(|scope| {
             bindings
@@ -2046,6 +2071,34 @@ impl<'a> SafeValueIndex<'a> {
             } | BindingOrigin::Declaration { .. }
         ) && case_cli_scope != Some(binding.scope)
             && self.binding_value_is_standalone_status_capture(binding_id)
+    }
+
+    fn binding_is_local_declaration_status_capture(&self, binding_id: BindingId) -> bool {
+        let binding = self.semantic.binding(binding_id);
+
+        matches!(binding.kind, BindingKind::Declaration(_))
+            && binding.attributes.contains(BindingAttributes::LOCAL)
+            && binding
+                .attributes
+                .contains(BindingAttributes::DECLARATION_INITIALIZED)
+            && self.binding_value_is_standalone_status_capture(binding_id)
+    }
+
+    fn local_declaration_status_capture_bindings_cover_reference(
+        &self,
+        bindings: &[BindingId],
+        name: &Name,
+        at: Span,
+        query: SafeValueQuery,
+    ) -> bool {
+        query.is_field_context()
+            && self.span_is_return_argument(at)
+            && !bindings.is_empty()
+            && bindings
+                .iter()
+                .copied()
+                .all(|binding_id| self.binding_is_local_declaration_status_capture(binding_id))
+            && self.bindings_cover_all_paths_to_reference(bindings, name, at)
     }
 
     fn binding_value_is_standalone_status_capture(&self, binding_id: BindingId) -> bool {
