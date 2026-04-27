@@ -45,6 +45,7 @@ pub(super) struct PresenceTestedNames {
 #[cfg_attr(shuck_profiling, inline(never))]
 pub(super) fn build_presence_tested_names(
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_offset_order: &CommandOffsetOrder,
     source: &str,
     semantic: &SemanticModel,
@@ -55,8 +56,11 @@ pub(super) fn build_presence_tested_names(
     let mut c006_nested_command_spans_by_name = FxHashMap::<Name, Vec<Span>>::default();
     let mut references_by_name = FxHashMap::<Name, Vec<PresenceTestReferenceFact>>::default();
     let mut names_by_name = FxHashMap::<Name, Vec<PresenceTestNameFact>>::default();
-    let outermost_nested_scopes =
-        build_outermost_nested_presence_scopes(commands, command_offset_order);
+    let outermost_nested_scopes = build_outermost_nested_presence_scopes(
+        commands,
+        command_fact_indices_by_id,
+        command_offset_order,
+    );
     let mut command_names = FxHashSet::default();
     let mut c006_command_names = FxHashSet::default();
     let mut command_reference_ids = FxHashSet::default();
@@ -182,15 +186,16 @@ pub(super) fn build_presence_tested_names(
 
 fn build_outermost_nested_presence_scopes(
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_offset_order: &CommandOffsetOrder,
 ) -> Vec<Option<Span>> {
     let mut outermost_scopes = vec![None; command_slot_count(commands)];
     let mut active_nested_scopes = Vec::<Span>::new();
     for index in 0..commands.len() {
         let (span, id) = command_offset_order
-            .entry(commands, index)
+            .entry(commands, command_fact_indices_by_id, index)
             .expect("command_offset_order index in range");
-        let command = command_fact(commands, id);
+        let command = command_fact(commands, command_fact_indices_by_id, id);
         let is_nested = command.is_nested_word_command();
         pop_finished_nested_presence_scopes(&mut active_nested_scopes, span.start.offset);
         outermost_scopes[id.index()] = active_nested_scopes

@@ -923,12 +923,17 @@ fn simple_test_is_numeric_binary_operator(text: &str) -> bool {
 
 pub(super) fn build_single_test_subshell_spans<'a>(
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
     source: &str,
 ) -> Vec<Span> {
-    let command_relationships =
-        CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
+    let command_relationships = CommandRelationshipContext::new(
+        commands,
+        command_fact_indices_by_id,
+        command_ids_by_span,
+        command_child_index,
+    );
     commands
         .iter()
         .filter_map(|fact| single_test_subshell_span(fact, command_relationships, source))
@@ -937,12 +942,17 @@ pub(super) fn build_single_test_subshell_spans<'a>(
 
 pub(super) fn build_subshell_test_group_spans<'a>(
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
     source: &str,
 ) -> Vec<Span> {
-    let command_relationships =
-        CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
+    let command_relationships = CommandRelationshipContext::new(
+        commands,
+        command_fact_indices_by_id,
+        command_ids_by_span,
+        command_child_index,
+    );
     commands
         .iter()
         .filter_map(|fact| subshell_test_group_span(fact, command_relationships, source))
@@ -1214,20 +1224,32 @@ fn mixed_short_circuit_operator_span(operators: &[ListOperatorFact]) -> Option<S
 fn word_contains_find_substitution<'a>(
     word: &'a Word,
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    word.parts
-        .iter()
-        .any(|part| part_contains_find_substitution(&part.kind, commands, command_ids_by_span))
+    word.parts.iter().any(|part| {
+        part_contains_find_substitution(
+            &part.kind,
+            commands,
+            command_fact_indices_by_id,
+            command_ids_by_span,
+        )
+    })
 }
 
 fn word_contains_line_oriented_substitution<'a>(
     word: &'a Word,
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     word.parts.iter().any(|part| {
-        part_contains_line_oriented_substitution(&part.kind, commands, command_ids_by_span)
+        part_contains_line_oriented_substitution(
+            &part.kind,
+            commands,
+            command_fact_indices_by_id,
+            command_ids_by_span,
+        )
     })
 }
 
@@ -1235,10 +1257,17 @@ fn word_contains_command_substitution_named<'a>(
     word: &'a Word,
     name: &str,
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     word.parts.iter().any(|part| {
-        part_contains_command_substitution_named(&part.kind, name, commands, command_ids_by_span)
+        part_contains_command_substitution_named(
+            &part.kind,
+            name,
+            commands,
+            command_fact_indices_by_id,
+            command_ids_by_span,
+        )
     })
 }
 
@@ -1246,6 +1275,7 @@ fn part_contains_command_substitution_named<'a>(
     part: &WordPart,
     name: &str,
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     match part {
@@ -1254,11 +1284,18 @@ fn part_contains_command_substitution_named<'a>(
                 &part.kind,
                 name,
                 commands,
+                command_fact_indices_by_id,
                 command_ids_by_span,
             )
         }),
         WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
-            substitution_body_is_simple_command_named(body, name, commands, command_ids_by_span)
+            substitution_body_is_simple_command_named(
+                body,
+                name,
+                commands,
+                command_fact_indices_by_id,
+                command_ids_by_span,
+            )
         }
         _ => false,
     }
@@ -1267,6 +1304,7 @@ fn part_contains_command_substitution_named<'a>(
 fn part_contains_line_oriented_substitution<'a>(
     part: &WordPart,
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     match part {
@@ -1274,12 +1312,16 @@ fn part_contains_line_oriented_substitution<'a>(
             part_contains_line_oriented_substitution(
                 &part.kind,
                 commands,
+                command_fact_indices_by_id,
                 command_ids_by_span,
             )
         }),
-        WordPart::CommandSubstitution { body, .. } => {
-            substitution_body_is_line_oriented(body, commands, command_ids_by_span)
-        }
+        WordPart::CommandSubstitution { body, .. } => substitution_body_is_line_oriented(
+            body,
+            commands,
+            command_fact_indices_by_id,
+            command_ids_by_span,
+        ),
         _ => false,
     }
 }
@@ -1287,14 +1329,25 @@ fn part_contains_line_oriented_substitution<'a>(
 fn part_contains_find_substitution<'a>(
     part: &WordPart,
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     match part {
-        WordPart::DoubleQuoted { parts, .. } => parts
-            .iter()
-            .any(|part| part_contains_find_substitution(&part.kind, commands, command_ids_by_span)),
+        WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| {
+            part_contains_find_substitution(
+                &part.kind,
+                commands,
+                command_fact_indices_by_id,
+                command_ids_by_span,
+            )
+        }),
         WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
-            substitution_body_is_find(body, commands, command_ids_by_span)
+            substitution_body_is_find(
+                body,
+                commands,
+                command_fact_indices_by_id,
+                command_ids_by_span,
+            )
         }
         _ => false,
     }
@@ -1303,19 +1356,29 @@ fn part_contains_find_substitution<'a>(
 fn substitution_body_is_find<'a>(
     body: &'a StmtSeq,
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    matches!(body.as_slice(), [stmt] if stmt_invokes_find(stmt, commands, command_ids_by_span))
+    matches!(
+        body.as_slice(),
+        [stmt] if stmt_invokes_find(stmt, commands, command_fact_indices_by_id, command_ids_by_span)
+    )
 }
 
 fn substitution_body_is_line_oriented<'a>(
     body: &'a StmtSeq,
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     matches!(
         body.as_slice(),
-        [stmt] if command_is_line_oriented_substitution_body(&stmt.command, commands, command_ids_by_span)
+        [stmt] if command_is_line_oriented_substitution_body(
+            &stmt.command,
+            commands,
+            command_fact_indices_by_id,
+            command_ids_by_span,
+        )
     )
 }
 
@@ -1346,30 +1409,40 @@ fn substitution_body_is_simple_command_named<'a>(
     body: &'a StmtSeq,
     name: &str,
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    matches!(body.as_slice(), [stmt] if stmt_literal_name_is(stmt, name, commands, command_ids_by_span))
+    matches!(
+        body.as_slice(),
+        [stmt] if stmt_literal_name_is(stmt, name, commands, command_fact_indices_by_id, command_ids_by_span)
+    )
 }
 
 fn command_is_line_oriented_substitution_body<'a>(
     command: &'a Command,
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     match command {
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {
-            command_fact_for_command(command, commands, command_ids_by_span)
-                .is_some_and(command_fact_is_line_oriented_utility)
-        }
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => command_fact_for_command(
+            command,
+            commands,
+            command_fact_indices_by_id,
+            command_ids_by_span,
+        )
+        .is_some_and(command_fact_is_line_oriented_utility),
         Command::Binary(binary) => match binary.op {
             BinaryOp::Pipe | BinaryOp::PipeAll => {
                 command_is_line_oriented_substitution_body(
                     &binary.left.command,
                     commands,
+                    command_fact_indices_by_id,
                     command_ids_by_span,
                 ) && command_is_line_oriented_substitution_body(
                     &binary.right.command,
                     commands,
+                    command_fact_indices_by_id,
                     command_ids_by_span,
                 )
             }
@@ -1382,6 +1455,7 @@ fn command_is_line_oriented_substitution_body<'a>(
                 command_is_line_oriented_substitution_body(
                     &stmt.command,
                     commands,
+                    command_fact_indices_by_id,
                     command_ids_by_span,
                 )
             }),
@@ -1422,9 +1496,10 @@ fn command_fact_is_line_oriented_utility(fact: &CommandFact<'_>) -> bool {
 fn stmt_invokes_find<'a>(
     stmt: &'a Stmt,
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    command_fact_for_stmt(stmt, commands, command_ids_by_span)
+    command_fact_for_stmt(stmt, commands, command_fact_indices_by_id, command_ids_by_span)
         .is_some_and(command_fact_invokes_find)
 }
 
@@ -1443,9 +1518,11 @@ fn stmt_literal_name_is<'a>(
     stmt: &'a Stmt,
     name: &str,
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    command_fact_for_stmt(stmt, commands, command_ids_by_span).and_then(CommandFact::literal_name)
+    command_fact_for_stmt(stmt, commands, command_fact_indices_by_id, command_ids_by_span)
+        .and_then(CommandFact::literal_name)
         == Some(name)
 }
 

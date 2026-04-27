@@ -241,11 +241,20 @@ impl<'facts, 'a> std::ops::Deref for CommandFactRef<'facts, 'a> {
 pub struct CommandFacts<'facts, 'a> {
     commands: &'facts [CommandFact<'a>],
     store: &'facts FactStore<'a>,
+    indices_by_id: &'facts [Option<usize>],
 }
 
 impl<'facts, 'a> CommandFacts<'facts, 'a> {
-    fn new(commands: &'facts [CommandFact<'a>], store: &'facts FactStore<'a>) -> Self {
-        Self { commands, store }
+    fn new(
+        commands: &'facts [CommandFact<'a>],
+        store: &'facts FactStore<'a>,
+        indices_by_id: &'facts [Option<usize>],
+    ) -> Self {
+        Self {
+            commands,
+            store,
+            indices_by_id,
+        }
     }
 
     pub fn len(self) -> usize {
@@ -275,9 +284,11 @@ impl<'facts, 'a> CommandFacts<'facts, 'a> {
     }
 
     pub fn find(self, id: CommandId) -> Option<CommandFactRef<'facts, 'a>> {
-        self.commands
-            .iter()
-            .find(|fact| fact.id() == id)
+        self.indices_by_id
+            .get(id.index())
+            .copied()
+            .flatten()
+            .and_then(|index| self.commands.get(index))
             .map(|fact| CommandFactRef::new(fact, self.store))
     }
 

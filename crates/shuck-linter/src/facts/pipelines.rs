@@ -102,12 +102,17 @@ impl<'a> PipelineFact<'a> {
 #[cfg_attr(shuck_profiling, inline(never))]
 pub(super) fn build_pipeline_facts<'a>(
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     semantic: &SemanticModel,
     command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
 ) -> Vec<PipelineFact<'a>> {
-    let command_relationships =
-        CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
+    let command_relationships = CommandRelationshipContext::new(
+        commands,
+        command_fact_indices_by_id,
+        command_ids_by_span,
+        command_child_index,
+    );
 
     semantic
         .pipeline_commands()
@@ -115,6 +120,7 @@ pub(super) fn build_pipeline_facts<'a>(
         .filter_map(|pipeline| {
             let fact = command_fact_for_semantic_span_matching(
                 commands,
+                command_fact_indices_by_id,
                 command_ids_by_span,
                 pipeline.span,
                 |command| matches!(command.command(), Command::Binary(_)),
@@ -164,6 +170,7 @@ fn build_pipeline_segment_fact<'a>(
 ) -> PipelineSegmentFact<'a> {
     let Some(fact) = command_fact_for_semantic_span_matching(
         command_relationships.commands,
+        command_relationships.command_fact_indices_by_id,
         command_relationships.command_ids_by_span,
         command_span,
         |command| {

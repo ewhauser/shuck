@@ -211,7 +211,7 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn commands(&self) -> CommandFacts<'_, 'a> {
-        CommandFacts::new(&self.commands, &self.fact_store)
+        CommandFacts::new(&self.commands, &self.fact_store, &self.command_fact_indices_by_id)
     }
 
     pub fn malformed_bracket_test_spans(&self, source: &str) -> Vec<Span> {

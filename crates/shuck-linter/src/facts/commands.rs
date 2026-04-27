@@ -741,12 +741,13 @@ fn repeated_echo_argument_space_span(left: Span, right: Span, source: &str) -> O
 fn populate_scope_fact_ranges<'a>(
     commands: &mut [CommandFact<'a>],
     fact_store: &mut FactStore<'a>,
+    command_fact_indices_by_id: &[Option<usize>],
     pipelines: &[PipelineFact<'a>],
     if_condition_command_ids: &FxHashSet<CommandId>,
     source: &'a str,
 ) {
     let (pipeline_summaries, pipeline_summary_ids_by_writer) = {
-        let command_facts = CommandFacts::new(commands, fact_store);
+        let command_facts = CommandFacts::new(commands, fact_store, command_fact_indices_by_id);
         build_pipeline_scope_summaries(
             command_facts,
             pipelines,
@@ -763,7 +764,14 @@ fn populate_scope_fact_ranges<'a>(
     let mut scratch = ScopeFactScratch::default();
 
     for index in 0..commands.len() {
-        populate_scope_fact_ranges_for_command(index, commands, fact_store, inputs, &mut scratch);
+        populate_scope_fact_ranges_for_command(
+            index,
+            commands,
+            fact_store,
+            command_fact_indices_by_id,
+            inputs,
+            &mut scratch,
+        );
     }
 }
 
@@ -788,11 +796,12 @@ fn populate_scope_fact_ranges_for_command<'a>(
     index: usize,
     commands: &mut [CommandFact<'a>],
     fact_store: &mut FactStore<'a>,
+    command_fact_indices_by_id: &[Option<usize>],
     inputs: ScopeFactInputs<'_, 'a>,
     scratch: &mut ScopeFactScratch<'a>,
 ) {
     {
-        let command_facts = CommandFacts::new(commands, fact_store);
+        let command_facts = CommandFacts::new(commands, fact_store, command_fact_indices_by_id);
         let command = command_facts
             .get(index)
             .expect("command index should resolve while populating scope facts");
@@ -1381,16 +1390,20 @@ fn command_id_for_command(
 
 fn command_fact<'facts, 'a>(
     commands: &'facts [CommandFact<'a>],
+    indices_by_id: &[Option<usize>],
     id: CommandId,
 ) -> &'facts CommandFact<'a> {
-    commands
-        .iter()
-        .find(|command| command.id() == id)
+    indices_by_id
+        .get(id.index())
+        .copied()
+        .flatten()
+        .and_then(|index| commands.get(index))
         .unwrap_or_else(|| panic!("command id {} must exist", id.index()))
 }
 
 fn command_fact_for_semantic_span_matching<'facts, 'a>(
     commands: &'facts [CommandFact<'a>],
+    indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
     span: Span,
     predicate: impl Fn(&CommandFact<'a>) -> bool,
@@ -1400,7 +1413,7 @@ fn command_fact_for_semantic_span_matching<'facts, 'a>(
         .and_then(|entries| {
             entries
                 .iter()
-                .map(|entry| command_fact(commands, entry.id))
+                .map(|entry| command_fact(commands, indices_by_id, entry.id))
                 .find(|command| predicate(command))
         })
         .or_else(|| {
@@ -1438,6 +1451,7 @@ fn command_fact_ref<'facts, 'a>(
 #[derive(Clone, Copy)]
 struct CommandRelationshipContext<'facts, 'a> {
     commands: &'facts [CommandFact<'a>],
+    command_fact_indices_by_id: &'facts [Option<usize>],
     command_ids_by_span: &'facts CommandLookupIndex,
     command_child_index: &'facts CommandChildIndex,
 }
@@ -1445,18 +1459,20 @@ struct CommandRelationshipContext<'facts, 'a> {
 impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
     fn new(
         commands: &'facts [CommandFact<'a>],
+        command_fact_indices_by_id: &'facts [Option<usize>],
         command_ids_by_span: &'facts CommandLookupIndex,
         command_child_index: &'facts CommandChildIndex,
     ) -> Self {
         Self {
             commands,
+            command_fact_indices_by_id,
             command_ids_by_span,
             command_child_index,
         }
     }
 
     fn fact(self, id: CommandId) -> &'facts CommandFact<'a> {
-        command_fact(self.commands, id)
+        command_fact(self.commands, self.command_fact_indices_by_id, id)
     }
 
     fn id_for_command(self, command: &Command) -> Option<CommandId> {
@@ -1472,7 +1488,13 @@ impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
     }
 
     fn child_id_for_command(self, parent_id: CommandId, command: &Command) -> Option<CommandId> {
-        child_command_id_for_command(parent_id, command, self.commands, self.command_child_index)
+        child_command_id_for_command(
+            parent_id,
+            command,
+            self.commands,
+            self.command_fact_indices_by_id,
+            self.command_child_index,
+        )
     }
 
     fn child_fact_for_stmt(
@@ -1578,23 +1600,27 @@ fn trim_trailing_whitespace_span(span: Span, source: &str) -> Span {
 fn command_fact_for_command<'a>(
     command: &Command,
     commands: &'a [CommandFact<'a>],
+    indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> Option<&'a CommandFact<'a>> {
-    command_id_for_command(command, command_ids_by_span).map(|id| command_fact(commands, id))
+    command_id_for_command(command, command_ids_by_span)
+        .map(|id| command_fact(commands, indices_by_id, id))
 }
 
 fn command_fact_for_stmt<'a>(
     stmt: &Stmt,
     commands: &'a [CommandFact<'a>],
+    indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> Option<&'a CommandFact<'a>> {
-    command_fact_for_command(&stmt.command, commands, command_ids_by_span)
+    command_fact_for_command(&stmt.command, commands, indices_by_id, command_ids_by_span)
 }
 
 fn child_command_id_for_command(
     parent_id: CommandId,
     command: &Command,
     commands: &[CommandFact<'_>],
+    indices_by_id: &[Option<usize>],
     command_child_index: &CommandChildIndex,
 ) -> Option<CommandId> {
     command_child_index
@@ -1602,9 +1628,11 @@ fn child_command_id_for_command(
         .iter()
         .copied()
         .find(|id| {
-            commands
-                .iter()
-                .find(|fact| fact.id() == *id)
+            indices_by_id
+                .get(id.index())
+                .copied()
+                .flatten()
+                .and_then(|index| commands.get(index))
                 .is_some_and(|fact| std::ptr::eq(fact.command(), command))
         })
 }

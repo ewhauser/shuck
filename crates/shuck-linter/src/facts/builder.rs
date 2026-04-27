@@ -429,8 +429,11 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         commands.sort_unstable_by(compare_command_facts_by_offset);
         let command_fact_indices_by_id = build_command_fact_indices_by_id(&commands);
         let command_facts_require_source_order = !command_facts_are_source_ordered(&commands);
-        let command_offset_order =
-            build_command_offset_order(&commands, command_facts_require_source_order);
+        let command_offset_order = build_command_offset_order(
+            &commands,
+            &command_fact_indices_by_id,
+            command_facts_require_source_order,
+        );
         let structural_command_ids = self
             .semantic
             .structural_commands()
@@ -455,6 +458,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         populate_substitution_fact_ranges(
             &mut commands,
             &mut fact_store,
+            &command_fact_indices_by_id,
             &command_ids_by_span,
             &command_child_index,
             self.source,
@@ -462,6 +466,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
 
         let presence_tested_names = build_presence_tested_names(
             &commands,
+            &command_fact_indices_by_id,
             &command_offset_order,
             self.source,
             self.semantic,
@@ -471,6 +476,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             semantic_analysis,
             &functions,
             &commands,
+            &command_fact_indices_by_id,
             self.source,
             &command_offset_order,
         );
@@ -518,15 +524,25 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &structural_command_ids,
             self.source,
         );
-        let for_headers = build_for_header_facts(&commands, &command_ids_by_span, self.source);
-        let select_headers =
-            build_select_header_facts(&commands, &command_ids_by_span, self.source);
+        let for_headers = build_for_header_facts(
+            &commands,
+            &command_fact_indices_by_id,
+            &command_ids_by_span,
+            self.source,
+        );
+        let select_headers = build_select_header_facts(
+            &commands,
+            &command_fact_indices_by_id,
+            &command_ids_by_span,
+            self.source,
+        );
         let case_items = build_case_item_facts(&commands, self.source);
         let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
         let case_pattern_impossible_spans =
             build_case_pattern_impossible_spans(&commands, self.source);
         let pipelines = build_pipeline_facts(
             &commands,
+            &command_fact_indices_by_id,
             self.semantic,
             &command_ids_by_span,
             &command_child_index,
@@ -534,12 +550,14 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         populate_scope_fact_ranges(
             &mut commands,
             &mut fact_store,
+            &command_fact_indices_by_id,
             &pipelines,
             &if_condition_command_ids,
             source,
         );
         let lists = build_list_facts(
             &commands,
+            &command_fact_indices_by_id,
             &command_ids_by_span,
             &command_child_index,
             self.source,
@@ -548,6 +566,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             build_completion_registered_function_command_flags(
                 self.semantic,
                 &commands,
+                &command_fact_indices_by_id,
                 &lists,
                 self.source,
             );
@@ -558,6 +577,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let single_test_subshell_spans =
             build_single_test_subshell_spans(
                 &commands,
+                &command_fact_indices_by_id,
                 &command_ids_by_span,
                 &command_child_index,
                 self.source,
@@ -565,6 +585,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let subshell_test_group_spans =
             build_subshell_test_group_spans(
                 &commands,
+                &command_fact_indices_by_id,
                 &command_ids_by_span,
                 &command_child_index,
                 self.source,
@@ -606,7 +627,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let literal_brace_spans = build_literal_brace_spans(
             &word_nodes,
             &word_occurrences,
-            CommandFacts::new(&commands, &fact_store),
+            CommandFacts::new(&commands, &fact_store, &command_fact_indices_by_id),
             &fact_store,
             source,
             self._indexer.region_index().heredoc_ranges(),
@@ -719,7 +740,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &array_assignment_split_word_ids,
         );
         let echo_to_sed_substitution_spans = build_echo_to_sed_substitution_spans(
-            CommandFacts::new(&commands, &fact_store),
+            CommandFacts::new(&commands, &fact_store, &command_fact_indices_by_id),
             &pipelines,
             &backticks,
             WordFactLookup {
@@ -756,6 +777,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         );
         let innermost_command_ids_by_offset = build_innermost_command_ids_by_offset(
             &commands,
+            &command_fact_indices_by_id,
             commands
                 .iter()
                 .map(|command| command.span().start.offset)
@@ -764,6 +786,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         );
         let innermost_command_ids_by_binding_offset = build_innermost_command_ids_by_offset(
             &commands,
+            &command_fact_indices_by_id,
             self.semantic
                 .bindings()
                 .iter()
@@ -1083,6 +1106,7 @@ fn build_word_occurrence_index(
 fn build_c006_suppressing_reference_offsets_by_name(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     innermost_command_ids_by_offset: &CommandOffsetLookup,
     subscript_later_suppression_reference_spans: &FxHashSet<FactSpan>,
 ) -> FxHashMap<Name, Vec<usize>> {
@@ -1092,6 +1116,7 @@ fn build_c006_suppressing_reference_offsets_by_name(
         if c006_reference_suppresses_later_references(
             semantic,
             commands,
+            command_fact_indices_by_id,
             innermost_command_ids_by_offset,
             subscript_later_suppression_reference_spans,
             reference,

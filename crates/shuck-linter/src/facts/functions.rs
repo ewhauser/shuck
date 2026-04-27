@@ -141,6 +141,7 @@ fn build_function_header_facts<'a>(
     semantic_analysis: &SemanticAnalysis<'_>,
     functions: &[FunctionFactInput<'a>],
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     source: &str,
     command_offset_order: &CommandOffsetOrder,
 ) -> Vec<FunctionHeaderFact<'a>> {
@@ -151,6 +152,7 @@ fn build_function_header_facts<'a>(
             .map(|input| input.function)
             .collect::<Vec<_>>(),
         commands,
+        command_fact_indices_by_id,
         source,
         command_offset_order,
     );
@@ -357,11 +359,17 @@ fn build_function_parameter_fallback_spans(
 fn build_completion_registered_function_command_flags(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     lists: &[ListFact<'_>],
     source: &str,
 ) -> Vec<bool> {
-    let registered_scopes =
-        build_completion_registered_function_scopes(semantic, commands, lists, source);
+    let registered_scopes = build_completion_registered_function_scopes(
+        semantic,
+        commands,
+        command_fact_indices_by_id,
+        lists,
+        source,
+    );
 
     let mut flags = vec![false; function_command_slot_count(commands)];
     for command in commands {
@@ -374,6 +382,7 @@ fn build_completion_registered_function_command_flags(
 fn build_completion_registered_function_scopes(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     lists: &[ListFact<'_>],
     source: &str,
 ) -> FxHashSet<ScopeId> {
@@ -393,7 +402,11 @@ fn build_completion_registered_function_scopes(
 
             if list.segments()[index + 1..].iter().any(|later_segment| {
                 command_registers_completion_function(
-                    command_fact(commands, later_segment.command_id()),
+                    command_fact(
+                        commands,
+                        command_fact_indices_by_id,
+                        later_segment.command_id(),
+                    ),
                     source,
                     &candidate.name,
                 )
@@ -527,6 +540,7 @@ fn build_function_call_arity_facts<'a>(
     semantic_analysis: &SemanticAnalysis<'_>,
     functions: &[&FunctionDef],
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     source: &str,
     command_offset_order: &CommandOffsetOrder,
 ) -> FxHashMap<BindingId, FunctionCallArityFacts> {
@@ -555,8 +569,12 @@ fn build_function_call_arity_facts<'a>(
         return facts;
     }
 
-    let command_ids_by_offset =
-        build_innermost_command_ids_by_offset(commands, offsets, command_offset_order);
+    let command_ids_by_offset = build_innermost_command_ids_by_offset(
+        commands,
+        command_fact_indices_by_id,
+        offsets,
+        command_offset_order,
+    );
 
     for name in unique_function_names {
         for (site, binding_id) in semantic_analysis.function_call_arity_sites(name) {
@@ -565,7 +583,7 @@ fn build_function_call_arity_facts<'a>(
             else {
                 continue;
             };
-            let command = command_fact(commands, command_id);
+            let command = command_fact(commands, command_fact_indices_by_id, command_id);
             if !command.wrappers().is_empty()
                 || command.effective_or_literal_name() != Some(name.as_str())
             {
