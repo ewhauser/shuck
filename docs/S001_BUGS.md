@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=23`
-- Individual reviewed records classified below: 30 total (`shellcheck-only=17`, `shuck-only=13`).
+- `reviewed_divergences=22`
+- Individual reviewed records classified below: 29 total (`shellcheck-only=17`, `shuck-only=12`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -64,11 +64,10 @@ Resolved records should not remain as reviewed divergences.
 - `alexanderepstein__Bash-Snippets__bak2dvd__bak2dvd:259:36-43` `$tarpid`
 - `swoodford__aws__vpc-sg-import-rules-cloudflare.sh:281:101-106` `$PORT`
 
-## [ ] Shuck-only: status/return/exit operand (3)
+## [ ] Shuck-only: status/return/exit operand (2)
 
 - `bittorf__kalua__openwrt-addons__etc__profile.d__kalua.sh:11:33-36` `$rc`
 - `rvm__rvm__scripts__functions__manage__macruby:23:10-21` `${__result}`
-- `v1s1t0r1sh3r3__airgeddon__airgeddon.sh:16442:11-23` `${exit_code}`
 
 ## [ ] Shuck-only: arithmetic/parameter-operator form (2)
 

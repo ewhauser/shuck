@@ -352,7 +352,7 @@ impl<'a> SafeValueIndex<'a> {
         part: &WordPart,
         span: Span,
     ) -> bool {
-        if self.span_is_exit_or_return_argument(span) {
+        if self.span_is_return_argument(span) {
             return false;
         }
         let Some(name) = plain_scalar_reference_name_from_part(part) else {
@@ -965,6 +965,28 @@ impl<'a> SafeValueIndex<'a> {
                                 .iter()
                                 .any(|word| span_contains(word.span, at))
                     }
+                    Command::Builtin(BuiltinCommand::Return(command)) => {
+                        command
+                            .code
+                            .as_ref()
+                            .is_some_and(|word| span_contains(word.span, at))
+                            || command
+                                .extra_args
+                                .iter()
+                                .any(|word| span_contains(word.span, at))
+                    }
+                    _ => false,
+                }
+            })
+    }
+
+    fn span_is_return_argument(&self, at: Span) -> bool {
+        self.facts
+            .innermost_command_id_at(at.start.offset)
+            .or_else(|| self.innermost_command_id_containing_offset(at.start.offset))
+            .is_some_and(|command_id| {
+                let command = self.facts.command(command_id);
+                match command.command() {
                     Command::Builtin(BuiltinCommand::Return(command)) => {
                         command
                             .code

@@ -3474,6 +3474,21 @@ counter=$(ps -A | grep $tarpid | wc -l)
     }
 
     #[test]
+    fn skips_exit_arguments_with_only_numeric_bindings() {
+        let source = "\
+#!/bin/bash
+exit_code=1
+if [[ \"$1\" = retry ]]; then
+  exit_code=2
+fi
+exit ${exit_code}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn skips_status_capture_after_escaped_name_only_declarations() {
         let source = "\
 #!/bin/bash

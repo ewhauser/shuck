@@ -202,10 +202,3 @@ reviewed_divergences:
     column: 96
     end_column: 99
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
-  - side: shuck-only
-    path_suffix: "v1s1t0r1sh3r3__airgeddon__airgeddon.sh"
-    line: 16442
-    end_line: 16442
-    column: 11
-    end_column: 23
-    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
