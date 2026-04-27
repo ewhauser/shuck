@@ -613,6 +613,7 @@ struct CallInfo {
     name: Name,
     scope: ScopeId,
     span: Span,
+    name_span: Span,
     args: Vec<Option<String>>,
 }
 
@@ -650,16 +651,26 @@ fn collect_ast_facts(model: &SemanticModel) -> AstFacts {
             continue;
         }
 
+        let name = Name::from(name);
+        let is_source_builtin = matches!(name.as_str(), "source" | ".");
+        let call_site = model.call_sites_for(&name).iter().find(|site| {
+            site.span == command.span
+                || program
+                    .call_command_spans
+                    .get(&SpanKey::new(site.span))
+                    .is_some_and(|span| *span == command.span)
+        });
         facts.calls.push(CallInfo {
-            name: Name::from(name),
-            scope: model.scope_at(command.span.start.offset),
+            name,
+            scope: call_site
+                .map(|site| site.scope)
+                .unwrap_or_else(|| model.scope_at(command.span.start.offset)),
             span: command.span,
+            name_span: call_site.map(|site| site.name_span).unwrap_or(command.span),
             args: info.static_args.to_vec(),
         });
 
-        if matches!(name, "source" | ".")
-            && let Some(template) = info.source_path_template.clone()
-        {
+        if is_source_builtin && let Some(template) = info.source_path_template.clone() {
             facts.source_templates_use_positional_args |=
                 source_template_uses_positional_args(&template);
             facts
@@ -1065,8 +1076,10 @@ fn resolve_literal_call_args_by_scope(
     let mut resolved = FxHashMap::default();
 
     for call in calls {
-        let Some(function_binding) =
-            visible_function_binding(model, &call.name, call.scope, call.span.start.offset)
+        let Some(function_binding) = model
+            .visible_function_call_bindings()
+            .get(&SpanKey::new(call.name_span))
+            .copied()
         else {
             continue;
         };
@@ -1085,28 +1098,6 @@ fn resolve_literal_call_args_by_scope(
     }
 
     resolved
-}
-
-fn visible_function_binding(
-    model: &SemanticModel,
-    name: &Name,
-    scope: ScopeId,
-    offset: usize,
-) -> Option<BindingId> {
-    for scope_id in model.ancestor_scopes(scope) {
-        let Some(candidates) = model.scopes()[scope_id.index()].bindings.get(name) else {
-            continue;
-        };
-        for binding in candidates.iter().rev().copied() {
-            let candidate = model.binding(binding);
-            if matches!(candidate.kind, crate::BindingKind::FunctionDefinition)
-                && candidate.span.start.offset <= offset
-            {
-                return Some(binding);
-            }
-        }
-    }
-    None
 }
 
 fn resolve_helper_paths(
@@ -1457,6 +1448,41 @@ coproc loader { . \"$2\"; }
 
         assert_eq!(source_call_count, 2);
         assert_eq!(facts.source_templates.len(), 2);
+    }
+
+    #[test]
+    fn resolve_literal_call_args_by_scope_uses_visible_parent_function_bindings() {
+        let source = "\
+outer() {
+  inner() { load_helper ./helper.sh; }
+  load_helper() { . \"$1\"; }
+  inner
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build(&output.file, source, &indexer);
+        let facts = collect_ast_facts(&model);
+        let args_by_scope = resolve_literal_call_args_by_scope(&model, &facts.calls);
+        let name = Name::from("load_helper");
+        let call = facts
+            .calls
+            .iter()
+            .find(|call| call.name == name)
+            .expect("expected call info");
+        let call_site = &model.call_sites_for(&name)[0];
+        assert_eq!(call.scope, call_site.scope);
+        assert_eq!(call.name_span, call_site.name_span);
+        let binding = model.function_definitions(&name)[0];
+        let scope = model
+            .analysis()
+            .function_scope_for_binding(binding)
+            .expect("expected function scope");
+
+        assert_eq!(
+            args_by_scope.get(&scope),
+            Some(&vec![vec![Some("./helper.sh".to_owned())]])
+        );
     }
 
     #[test]

@@ -77,6 +77,7 @@ pub(crate) struct DataflowContext<'a> {
     pub(crate) self_referential_assignment_refs: &'a FxHashSet<ReferenceId>,
     pub(crate) resolved: &'a FxHashMap<ReferenceId, BindingId>,
     pub(crate) call_sites: &'a FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    pub(crate) visible_function_call_bindings: &'a FxHashMap<SpanKey, BindingId>,
     pub(crate) function_body_scopes: &'a FxHashMap<BindingId, ScopeId>,
     pub(crate) indirect_targets_by_reference: &'a FxHashMap<ReferenceId, Vec<BindingId>>,
     pub(crate) array_like_indirect_expansion_refs: &'a FxHashSet<ReferenceId>,
@@ -532,13 +533,13 @@ fn analyze_unused_assignments_exact(
     let (read_plans, callers_by_callee) = build_scope_read_plans(
         context.cfg,
         context.scopes,
-        context.bindings,
         context.references,
         context.synthetic_reads,
         &exact.reference_blocks,
         &reference_name_ids,
         &synthetic_read_name_ids,
         context.call_sites,
+        context.visible_function_call_bindings,
         context.function_body_scopes,
         exact.names.len(),
     );
@@ -2195,18 +2196,21 @@ fn reachable_blocks_dense(
 fn build_scope_read_plans(
     cfg: &ControlFlowGraph,
     scopes: &[Scope],
-    bindings: &[Binding],
     references: &[Reference],
     synthetic_reads: &[SyntheticRead],
     reference_blocks: &[Option<BlockId>],
     reference_name_ids: &[NameId],
     synthetic_read_name_ids: &[NameId],
     call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    visible_function_call_bindings: &FxHashMap<SpanKey, BindingId>,
     function_body_scopes: &FxHashMap<BindingId, ScopeId>,
     name_count: usize,
 ) -> (Vec<ScopeReadPlan>, Vec<Vec<CallerReadSite>>) {
-    let calls_by_scope =
-        resolved_calls_by_scope(scopes, bindings, call_sites, function_body_scopes);
+    let calls_by_scope = resolved_calls_by_scope(
+        call_sites,
+        visible_function_call_bindings,
+        function_body_scopes,
+    );
     let mut plans = scopes
         .iter()
         .map(|scope| ScopeReadPlan::new(name_count, matches!(scope.kind, ScopeKind::Function(_))))
@@ -2635,21 +2639,17 @@ fn function_binding_certainty(binding: &Binding) -> Option<ContractCertainty> {
 }
 
 fn resolved_calls_by_scope(
-    scopes: &[Scope],
-    bindings: &[Binding],
     call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    visible_function_call_bindings: &FxHashMap<SpanKey, BindingId>,
     function_scopes: &FxHashMap<BindingId, ScopeId>,
 ) -> FxHashMap<ScopeId, Vec<ResolvedCallSite>> {
     let mut calls_by_scope: FxHashMap<ScopeId, Vec<ResolvedCallSite>> = FxHashMap::default();
-    for (name, sites) in call_sites {
+    for sites in call_sites.values() {
         for site in sites {
-            let Some(function_binding) = visible_function_binding(
-                scopes,
-                bindings,
-                name,
-                site.scope,
-                site.span.start.offset,
-            ) else {
+            let Some(function_binding) = visible_function_call_bindings
+                .get(&SpanKey::new(site.name_span))
+                .copied()
+            else {
                 continue;
             };
             let Some(callee_scope) = function_scopes.get(&function_binding).copied() else {
@@ -2671,42 +2671,6 @@ fn resolved_calls_by_scope(
     calls_by_scope
 }
 
-fn visible_function_binding(
-    scopes: &[Scope],
-    bindings: &[Binding],
-    name: &Name,
-    scope: ScopeId,
-    offset: usize,
-) -> Option<BindingId> {
-    for scope_id in ancestor_scopes(scopes, scope) {
-        let Some(candidates) = scopes[scope_id.index()].bindings.get(name) else {
-            continue;
-        };
-
-        if scope_id != scope {
-            if let Some(binding) = candidates.iter().rev().copied().find(|binding| {
-                matches!(
-                    bindings[binding.index()].kind,
-                    BindingKind::FunctionDefinition
-                )
-            }) {
-                return Some(binding);
-            }
-            continue;
-        }
-
-        for binding in candidates.iter().rev().copied() {
-            let candidate = &bindings[binding.index()];
-            if matches!(candidate.kind, BindingKind::FunctionDefinition)
-                && candidate.span.start.offset <= offset
-            {
-                return Some(binding);
-            }
-        }
-    }
-    None
-}
-
 fn is_function_escape_candidate(binding: &Binding, scopes: &[Scope]) -> bool {
     matches!(scopes[binding.scope.index()].kind, ScopeKind::Function(_))
         && !binding.attributes.contains(BindingAttributes::LOCAL)
@@ -2719,6 +2683,11 @@ fn is_function_escape_candidate(binding: &Binding, scopes: &[Scope]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SemanticModel;
+    use shuck_ast::Name;
+    use shuck_indexer::Indexer;
+    use shuck_parser::parser::Parser;
+    use smallvec::smallvec;
 
     #[test]
     fn future_reads_contain_after_until_ignores_backwards_intervals() {
@@ -2742,5 +2711,46 @@ mod tests {
             &[plan],
             &transitive_reads,
         ));
+    }
+
+    #[test]
+    fn resolved_calls_by_scope_ignores_conditionally_installed_functions() {
+        let source = "\
+outer() {
+  if false; then
+    use_flag() { printf '%s\\n' \"$flag\"; }
+  fi
+  flag=1
+  use_flag
+}
+outer
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build(&output.file, source, &indexer);
+        let name = Name::from("use_flag");
+        let mut call_sites = FxHashMap::default();
+        call_sites.insert(
+            name.clone(),
+            smallvec![model.call_sites_for(&name)[0].clone()],
+        );
+        let mut function_scopes = FxHashMap::default();
+        for binding in model.function_definitions(&name) {
+            if let Some(scope) = model.analysis().function_scope_for_binding(*binding) {
+                function_scopes.insert(*binding, scope);
+            }
+        }
+
+        let calls_by_scope = resolved_calls_by_scope(
+            &call_sites,
+            model.visible_function_call_bindings(),
+            &function_scopes,
+        );
+
+        assert!(
+            calls_by_scope.is_empty(),
+            "resolved calls: {:?}",
+            calls_by_scope
+        );
     }
 }

@@ -3007,6 +3007,30 @@ printf '%s\\n' \"$value\"
 }
 
 #[test]
+fn conditional_function_install_is_not_a_visible_function_call_binding() {
+    let source = "\
+outer() {
+  if false; then
+    use_flag() { printf '%s\\n' \"$flag\"; }
+  fi
+  flag=1
+  use_flag
+}
+outer
+";
+    let model = model(source);
+    let name = Name::from("use_flag");
+    let call = &model.call_sites_for(&name)[0];
+
+    assert_eq!(
+        model
+            .analysis()
+            .visible_function_binding_at_call(&name, call.name_span),
+        None
+    );
+}
+
+#[test]
 fn empty_case_catch_all_arm_keeps_following_code_reachable() {
     let source = "\
 case \"$kind\" in
@@ -7117,6 +7141,26 @@ set_flag() {
 
     let model = model_at_path(&main);
     assert!(model.analysis().uninitialized_references().is_empty());
+}
+
+#[test]
+fn late_parent_scope_loader_calls_are_visible_from_nested_functions() {
+    let source = "\
+outer() {
+  inner() { load_helper ./helper.sh; }
+  load_helper() { . \"$1\"; }
+  inner
+}
+";
+    let model = model(source);
+    let name = Name::from("load_helper");
+    let call = &model.call_sites_for(&name)[0];
+    assert!(
+        model
+            .analysis()
+            .visible_function_binding_at_call(&name, call.name_span)
+            .is_some()
+    );
 }
 
 #[test]
