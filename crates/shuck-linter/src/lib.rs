@@ -164,7 +164,7 @@ pub fn benchmark_normalize_commands(file: &File, source: &str) -> usize {
 #[doc(hidden)]
 #[must_use]
 pub fn benchmark_collect_word_facts(file: &File, source: &str, semantic: &SemanticModel) -> usize {
-    facts::benchmark_collect_word_facts(file, source, semantic)
+    facts::words::benchmark_collect_word_facts(file, source, semantic)
 }
 
 /// Builds semantic facts and linter diagnostics for a parsed file at an optional source path.
