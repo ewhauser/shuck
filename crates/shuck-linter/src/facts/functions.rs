@@ -336,13 +336,20 @@ fn command_fact_is_standalone_exit(command: &CommandFact<'_>) -> bool {
 
 fn build_function_parameter_fallback_spans(
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     structural_command_ids: &[CommandId],
     source: &str,
 ) -> Vec<Span> {
     let structural_commands = structural_command_ids
         .iter()
         .copied()
-        .filter_map(|id| commands.iter().find(|command| command.id() == id))
+        .filter_map(|id| {
+            command_fact_indices_by_id
+                .get(id.index())
+                .copied()
+                .flatten()
+                .and_then(|index| commands.get(index))
+        })
         .collect::<Vec<_>>();
 
     structural_commands

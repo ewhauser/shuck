@@ -874,13 +874,9 @@ fn build_pipeline_scope_summaries<'a>(
             .iter()
             .map(|segment| segment.command_id())
             .filter_map(|id| {
-                commands
-                    .iter()
-                    .enumerate()
-                    .find(|(_, command)| command.id() == id)
-                    .and_then(|(index, command)| {
-                        command_has_file_output_redirect(command).then_some(index)
-                    })
+                let index = commands.indices_by_id.get(id.index()).copied().flatten()?;
+                let command = commands.get(index)?;
+                command_has_file_output_redirect(command).then_some(index)
             })
             .collect::<SmallVec<[_; 4]>>();
         if writer_indexes.is_empty() {
