@@ -421,6 +421,7 @@ pub struct SemanticModel {
     unconditional_function_bindings: OnceLock<FxHashSet<BindingId>>,
     function_bindings_by_scope: OnceLock<FxHashMap<ScopeId, SmallVec<[BindingId; 2]>>>,
     visible_function_call_bindings: OnceLock<FxHashMap<SpanKey, BindingId>>,
+    function_definition_binding_ids: OnceLock<Vec<BindingId>>,
 }
 
 /// Lazy analysis view over a `SemanticModel`.
@@ -600,6 +601,7 @@ impl SemanticModel {
             unconditional_function_bindings: OnceLock::new(),
             function_bindings_by_scope: OnceLock::new(),
             visible_function_call_bindings: OnceLock::new(),
+            function_definition_binding_ids: OnceLock::new(),
         }
     }
 
@@ -627,6 +629,21 @@ impl SemanticModel {
 
     pub fn bindings(&self) -> &[Binding] {
         &self.bindings
+    }
+
+    /// Yield every binding with `BindingKind::FunctionDefinition`.
+    ///
+    /// Backed by a lazily-built index so repeat calls avoid rescanning the
+    /// full `bindings()` slice.
+    pub fn function_definition_bindings(&self) -> impl ExactSizeIterator<Item = &Binding> + '_ {
+        let ids = self.function_definition_binding_ids.get_or_init(|| {
+            self.bindings
+                .iter()
+                .filter(|binding| matches!(binding.kind, BindingKind::FunctionDefinition))
+                .map(|binding| binding.id)
+                .collect()
+        });
+        ids.iter().map(|id| &self.bindings[id.index()])
     }
 
     pub fn references(&self) -> &[Reference] {
@@ -1159,6 +1176,7 @@ impl SemanticModel {
         self.unconditional_function_bindings.take();
         self.function_bindings_by_scope.take();
         self.visible_function_call_bindings.take();
+        self.function_definition_binding_ids.take();
     }
 
     fn rebuild_call_graph(&mut self) {
