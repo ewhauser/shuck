@@ -621,10 +621,7 @@ impl<'a> SafeValueIndex<'a> {
                 !self.binding_is_blocked_by_exit_like_function_call(*binding_id, at)
             });
             if self.local_declaration_status_capture_bindings_cover_reference(
-                &bindings,
-                name,
-                at,
-                query,
+                &bindings, name, at, query,
             ) {
                 return true;
             }
@@ -664,12 +661,9 @@ impl<'a> SafeValueIndex<'a> {
         if bindings.is_empty() {
             return safe_numeric_shell_variable(name);
         }
-        if self.local_declaration_status_capture_bindings_cover_reference(
-            &bindings,
-            name,
-            at,
-            query,
-        ) {
+        if self
+            .local_declaration_status_capture_bindings_cover_reference(&bindings, name, at, query)
+        {
             return true;
         }
         let binding_belongs_to_case_cli_scope = case_cli_scope.is_some_and(|scope| {
@@ -728,6 +722,17 @@ impl<'a> SafeValueIndex<'a> {
         let direct_bindings_cover_all_paths = needs_arg_path_coverage
             && !direct_bindings.is_empty()
             && self.bindings_cover_all_paths_to_reference(&direct_bindings, name, at);
+        let unsafe_helper_binding_writes_visible_local = self
+            .enclosing_function_scope_at(at.start.offset)
+            .is_some_and(|scope| {
+                helper_bindings.iter().copied().any(|binding_id| {
+                    self.binding_writes_visible_local_in_scope_before(binding_id, scope, at)
+                        && !self.binding_is_safe(binding_id, at, query, case_cli_scope)
+                })
+            });
+        if unsafe_helper_binding_writes_visible_local {
+            return false;
+        }
         if direct_bindings_cover_all_paths
             && self.enclosing_function_scope_at(at.start.offset).is_some()
             && !self.span_is_exit_or_return_argument(at)
@@ -2124,17 +2129,13 @@ impl<'a> SafeValueIndex<'a> {
         else {
             return false;
         };
-        if self
-            .semantic
-            .ancestor_scopes(binding_scope)
-            .any(|scope| {
-                self.scope_has_visible_initialized_local_binding_before(
-                    &binding.name,
-                    scope,
-                    binding.span,
-                )
-            })
-        {
+        if self.semantic.ancestor_scopes(binding_scope).any(|scope| {
+            self.scope_has_visible_initialized_local_binding_before(
+                &binding.name,
+                scope,
+                binding.span,
+            )
+        }) {
             return false;
         }
 
@@ -2479,6 +2480,11 @@ impl<'a> SafeValueIndex<'a> {
         {
             bindings
                 .retain(|binding_id| self.binding_is_in_scope_or_descendant(*binding_id, scope));
+        }
+        if let Some(scope) = function_scope {
+            bindings.retain(|binding_id| {
+                !self.binding_writes_visible_local_in_scope_before(*binding_id, scope, at)
+            });
         }
         let reference_scope = self.semantic.scope_at(at.start.offset);
         bindings.retain(|binding_id| {
@@ -3075,9 +3081,7 @@ impl<'a> SafeValueIndex<'a> {
         scope: ScopeId,
         at: Span,
     ) -> Vec<BindingId> {
-        if self.scope_has_visible_local_binding_before(name, scope, at) {
-            return Vec::new();
-        }
+        let caller_has_visible_local = self.scope_has_visible_local_binding_before(name, scope, at);
 
         let key = (name.clone(), scope, FactSpan::new(at));
         if let Some(cached) = self.helper_binding_memo.get(&key) {
@@ -3092,7 +3096,9 @@ impl<'a> SafeValueIndex<'a> {
             .into_iter()
             .collect::<FxHashSet<_>>();
 
-        if let Some(caller_bindings) = self.helper_bindings_reaching_all_callers(name, scope) {
+        if !caller_has_visible_local
+            && let Some(caller_bindings) = self.helper_bindings_reaching_all_callers(name, scope)
+        {
             bindings.extend(caller_bindings);
         }
 
@@ -3243,6 +3249,9 @@ impl<'a> SafeValueIndex<'a> {
                 at,
             );
         }
+        if self.scope_has_visible_local_binding_before(name, scope, at) {
+            branch.retain(|binding_id| self.semantic.binding(*binding_id).scope == scope);
+        }
         branch.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
         branch.dedup();
         branch
@@ -3275,8 +3284,11 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn callsite_is_within_guarded_branch(&self, at: Span) -> bool {
-        let call_span = self.command_for_name_word_span(at).map_or(at, |command| command.span());
-        let Some(mut command_id) = self.facts.innermost_command_id_at(call_span.start.offset) else {
+        let call_span = self
+            .command_for_name_word_span(at)
+            .map_or(at, |command| command.span());
+        let Some(mut command_id) = self.facts.innermost_command_id_at(call_span.start.offset)
+        else {
             return false;
         };
         while self.facts.command(command_id).span() != call_span {
@@ -3319,7 +3331,9 @@ impl<'a> SafeValueIndex<'a> {
             return;
         }
 
-        let call_span = self.command_for_name_word_span(at).map_or(at, |command| command.span());
+        let call_span = self
+            .command_for_name_word_span(at)
+            .map_or(at, |command| command.span());
         if !self.bindings_cover_all_paths_to_callsite(&helper_bindings, call_span) {
             return;
         }
@@ -3336,12 +3350,16 @@ impl<'a> SafeValueIndex<'a> {
         scope: ScopeId,
         at: Span,
     ) -> bool {
-        self.semantic.bindings_for(name).iter().copied().any(|binding_id| {
-            let binding = self.semantic.binding(binding_id);
-            binding.scope == scope
-                && binding.span.end.offset <= at.start.offset
-                && binding.attributes.contains(BindingAttributes::LOCAL)
-        })
+        self.semantic
+            .bindings_for(name)
+            .iter()
+            .copied()
+            .any(|binding_id| {
+                let binding = self.semantic.binding(binding_id);
+                binding.scope == scope
+                    && binding.span.end.offset <= at.start.offset
+                    && binding.attributes.contains(BindingAttributes::LOCAL)
+            })
     }
 
     fn scope_has_visible_initialized_local_binding_before(
@@ -3367,18 +3385,55 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         };
 
-        self.semantic.bindings_for(name).iter().copied().any(|binding_id| {
-            let binding = self.semantic.binding(binding_id);
-            let initializes_local_value = match binding.origin {
-                BindingOrigin::Declaration { .. } => binding
-                    .attributes
-                    .intersects(BindingAttributes::DECLARATION_INITIALIZED | BindingAttributes::INTEGER),
-                _ => self.binding_can_supply_parameter_value(binding_id),
-            };
-            binding.scope == scope
-                && binding.span.end.offset <= at.start.offset
-                && binding.span.start.offset >= latest_local_start
-                && initializes_local_value
+        self.semantic
+            .bindings_for(name)
+            .iter()
+            .copied()
+            .any(|binding_id| {
+                let binding = self.semantic.binding(binding_id);
+                let initializes_local_value = match binding.origin {
+                    BindingOrigin::Declaration { .. } => binding.attributes.intersects(
+                        BindingAttributes::DECLARATION_INITIALIZED | BindingAttributes::INTEGER,
+                    ),
+                    _ => self.binding_can_supply_parameter_value(binding_id),
+                };
+                binding.scope == scope
+                    && binding.span.end.offset <= at.start.offset
+                    && binding.span.start.offset >= latest_local_start
+                    && initializes_local_value
+            })
+    }
+
+    fn binding_writes_visible_local_in_scope_before(
+        &self,
+        binding_id: BindingId,
+        scope: ScopeId,
+        at: Span,
+    ) -> bool {
+        let binding = self.semantic.binding(binding_id);
+        if binding.scope == scope
+            || binding.attributes.contains(BindingAttributes::LOCAL)
+            || !self.scope_has_visible_local_binding_before(&binding.name, scope, at)
+            || self.scope_has_visible_local_binding_before(
+                &binding.name,
+                binding.scope,
+                binding.span,
+            )
+        {
+            return false;
+        }
+        let Some(function_kind) = self.named_function_kind(binding.scope) else {
+            return false;
+        };
+
+        function_kind.static_names().iter().any(|function_name| {
+            self.semantic
+                .call_sites_for(function_name)
+                .iter()
+                .any(|site| {
+                    site.scope == scope
+                        && self.call_site_dominates_use(site.span, &binding.name, at)
+                })
         })
     }
 
@@ -3480,14 +3535,17 @@ impl<'a> SafeValueIndex<'a> {
             };
 
             let called_before = function_kind.static_names().iter().any(|function_name| {
-                self.semantic.call_sites_for(function_name).iter().any(|site| {
-                    site.scope == scope
-                        && site.span.start.offset < limit_offset
-                        && self.definition_command_resolves_at_call(
-                            definition_command.id(),
-                            site.span,
-                        )
-                })
+                self.semantic
+                    .call_sites_for(function_name)
+                    .iter()
+                    .any(|site| {
+                        site.scope == scope
+                            && site.span.start.offset < limit_offset
+                            && self.definition_command_resolves_at_call(
+                                definition_command.id(),
+                                site.span,
+                            )
+                    })
             });
             if called_before && seen_scopes.insert(callee_scope) {
                 scopes.push(callee_scope);
@@ -3948,10 +4006,7 @@ impl<'a> SafeValueIndex<'a> {
                     } else {
                         self.reference_is_safe(reference, at, query)
                             || self.slice_reference_static_literals_stay_safe(
-                                reference,
-                                syntax,
-                                at,
-                                query,
+                                reference, syntax, at, query,
                             )
                     }
                 }
@@ -6531,6 +6586,97 @@ move_up $count
             .expect("expected count expansion part");
 
         assert!(!safe_values.part_has_s001_standalone_numeric_argv_exposure(part, part_span));
+    }
+
+    #[test]
+    fn helper_writes_to_caller_local_keep_arguments_unsafe() {
+        let source = "\
+#!/bin/bash
+helper() {
+  value=$1
+}
+
+render() {
+  local value=SAFE
+  helper \"$1\"
+  printf '%s\\n' ${value}
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${value}"
+            })
+            .expect("expected helper-mutated local argument fact");
+        let (part, part_span) = word_fact
+            .parts_with_spans()
+            .find(|(_, span)| span.slice(source) == "${value}")
+            .expect("expected value expansion part");
+        let name = Name::from("value");
+        let helper_bindings = safe_values.called_helper_bindings_for_name(&name, part_span);
+
+        assert_eq!(
+            helper_bindings.len(),
+            1,
+            "expected helper assignment to remain visible through caller local"
+        );
+        assert!(!safe_values.part_is_safe(part, part_span, SafeValueQuery::Argv));
+
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn safe_setup_helper_writes_do_not_suppress_sibling_helper_warnings() {
+        let source = "\
+#!/bin/bash
+setup() {
+  value=SAFE
+}
+
+use_value() {
+  printf '%s\\n' ${value}
+}
+
+main() {
+  local value
+  setup
+  use_value
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${value}"
+            })
+            .expect("expected sibling helper argument fact");
+        let (part, part_span) = word_fact
+            .parts_with_spans()
+            .find(|(_, span)| span.slice(source) == "${value}")
+            .expect("expected value expansion part");
+        let name = Name::from("value");
+        let _ = part;
+        let _ = part_span;
+        let _ = name;
+
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]
