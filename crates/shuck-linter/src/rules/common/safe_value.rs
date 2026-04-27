@@ -11,7 +11,7 @@ use shuck_semantic::{
     AssignmentValueOrigin, BindingAttributes, BindingKind, BindingOrigin, LoopValueOrigin, ScopeId,
     ScopeKind, SemanticAnalysis, SemanticModel, UninitializedCertainty,
 };
-use shuck_semantic::{BindingId, BlockId, ReferenceId, ReferenceKind};
+use shuck_semantic::{BindingId, BlockId, ReferenceId};
 
 use crate::facts::words::analyze_literal_runtime;
 use crate::{ExpansionContext, FactSpan, LinterFacts};
@@ -99,10 +99,6 @@ pub struct SafeValueIndex<'a> {
     maybe_uninitialized_refs: FxHashSet<FactSpan>,
     function_commands_by_span: FxHashMap<FactSpan, crate::facts::CommandId>,
     commands_by_name_word_span: FxHashMap<FactSpan, crate::facts::CommandId>,
-    reference_ids_by_name_span: FxHashMap<(Name, FactSpan), ReferenceId>,
-    block_by_reference: FxHashMap<ReferenceId, BlockId>,
-    block_by_binding: FxHashMap<BindingId, BlockId>,
-    unreachable_blocks: FxHashSet<BlockId>,
     command_cover_memo: RefCell<FxHashMap<(crate::facts::CommandId, Name, FactSpan), bool>>,
     memo: FxHashMap<(FactSpan, FactSpan, SafeValueQuery, Option<ScopeId>), bool>,
     visiting: FxHashSet<(FactSpan, FactSpan, SafeValueQuery, Option<ScopeId>)>,
@@ -143,34 +139,6 @@ impl<'a> SafeValueIndex<'a> {
                 commands_by_name_word_span.insert(FactSpan::new(name_word.span), command.id());
             }
         }
-        let reference_ids_by_name_span = semantic
-            .references()
-            .iter()
-            .filter(|reference| {
-                !matches!(
-                    reference.kind,
-                    ReferenceKind::DeclarationName | ReferenceKind::ImplicitRead
-                )
-            })
-            .map(|reference| {
-                (
-                    (reference.name.clone(), FactSpan::new(reference.span)),
-                    reference.id,
-                )
-            })
-            .collect();
-        let mut block_by_reference = FxHashMap::default();
-        let mut block_by_binding = FxHashMap::default();
-        for block in analysis.cfg().blocks() {
-            for reference_id in &block.references {
-                block_by_reference.insert(*reference_id, block.id);
-            }
-            for binding_id in &block.bindings {
-                block_by_binding.insert(*binding_id, block.id);
-            }
-        }
-        let unreachable_blocks = analysis.cfg().unreachable().iter().copied().collect();
-
         Self {
             semantic,
             analysis,
@@ -181,10 +149,6 @@ impl<'a> SafeValueIndex<'a> {
             maybe_uninitialized_refs,
             function_commands_by_span,
             commands_by_name_word_span,
-            reference_ids_by_name_span,
-            block_by_reference,
-            block_by_binding,
-            unreachable_blocks,
             command_cover_memo: RefCell::new(FxHashMap::default()),
             memo: FxHashMap::default(),
             visiting: FxHashSet::default(),
@@ -991,9 +955,8 @@ impl<'a> SafeValueIndex<'a> {
         binding_id: BindingId,
         ancestor_scope: ScopeId,
     ) -> bool {
-        self.semantic
-            .ancestor_scopes(self.semantic.binding(binding_id).scope)
-            .any(|scope| scope == ancestor_scope)
+        self.analysis
+            .binding_is_in_scope_or_descendant(binding_id, ancestor_scope)
     }
 
     fn is_argument_of_dynamic_command(&self, at: Span) -> bool {
@@ -1366,9 +1329,7 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn enclosing_function_scope_at(&self, offset: usize) -> Option<ScopeId> {
-        self.semantic
-            .ancestor_scopes(self.semantic.scope_at(offset))
-            .find(|scope| matches!(self.semantic.scope(*scope).kind, ScopeKind::Function(_)))
+        self.analysis.enclosing_function_scope_at(offset)
     }
 
     fn binding_is_quoted_static_literal(&self, binding_id: BindingId) -> bool {
@@ -2189,29 +2150,13 @@ impl<'a> SafeValueIndex<'a> {
             return true;
         }
 
-        let cfg = self.analysis.cfg();
         let entry = self
             .enclosing_function_scope_at(at.start.offset)
-            .and_then(|scope| cfg.scope_entry(scope))
-            .unwrap_or_else(|| cfg.entry());
-        let mut stack = vec![entry];
-        let mut seen = FxHashSet::default();
-        while let Some(block_id) = stack.pop() {
-            if cover_blocks.contains(&block_id)
-                || self.unreachable_blocks.contains(&block_id)
-                || !seen.insert(block_id)
-            {
-                continue;
-            }
-            if block_id == reference_block {
-                return false;
-            }
-            for (successor, _) in cfg.successors(block_id) {
-                stack.push(*successor);
-            }
-        }
-
-        true
+            .and_then(|scope| self.analysis.cfg().scope_entry(scope))
+            .unwrap_or_else(|| self.analysis.cfg().entry());
+        let cover_blocks = cover_blocks.iter().copied().collect::<FxHashSet<_>>();
+        self.analysis
+            .blocks_cover_all_paths_to_block(entry, reference_block, &cover_blocks)
     }
 
     fn unset_command_covers_reference(&self, name: &Name, at: Span) -> bool {
@@ -2700,7 +2645,7 @@ impl<'a> SafeValueIndex<'a> {
             return Vec::new();
         };
 
-        let unreachable = &self.unreachable_blocks;
+        let unreachable = self.analysis.unreachable_blocks();
         let candidates = self
             .semantic
             .bindings_for(name)
@@ -2811,7 +2756,7 @@ impl<'a> SafeValueIndex<'a> {
         let mut stack = vec![binding_block];
         let mut seen = FxHashSet::default();
         while let Some(block_id) = stack.pop() {
-            if self.unreachable_blocks.contains(&block_id) || !seen.insert(block_id) {
+            if self.analysis.block_is_unreachable(block_id) || !seen.insert(block_id) {
                 continue;
             }
             for (successor, _) in cfg.successors(block_id) {
@@ -3475,41 +3420,12 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn binding_dominates_reference(&self, binding_id: BindingId, name: &Name, at: Span) -> bool {
-        let Some(reference_id) = self.reference_id_for_name_at(name, at) else {
-            return false;
-        };
-        let Some(reference_block) = self.block_for_reference(reference_id) else {
-            return false;
-        };
-        let Some(binding_block) = self.block_for_binding(binding_id) else {
-            return false;
-        };
-        if binding_block == reference_block {
-            return !self.binding_is_guarded_before_reference(binding_id, at);
-        }
-
-        let cfg = self.analysis.cfg();
-        let mut stack = vec![self.flow_entry_block_for_binding_scopes(
-            &[self.semantic.binding(binding_id).scope],
-            at.start.offset,
-        )];
-        let mut seen = FxHashSet::default();
-        while let Some(block_id) = stack.pop() {
-            if block_id == binding_block
-                || self.unreachable_blocks.contains(&block_id)
-                || !seen.insert(block_id)
-            {
-                continue;
-            }
-            if block_id == reference_block {
-                return false;
-            }
-            for (successor, _) in cfg.successors(block_id) {
-                stack.push(*successor);
-            }
-        }
-
-        true
+        self.analysis.binding_dominates_reference_from_flow_entry(
+            binding_id,
+            name,
+            at,
+            !self.binding_is_guarded_before_reference(binding_id, at),
+        )
     }
 
     fn bindings_cover_all_paths_to_reference(
@@ -3567,31 +3483,16 @@ impl<'a> SafeValueIndex<'a> {
             return true;
         }
 
-        let cfg = self.analysis.cfg();
         let binding_scopes = bindings
             .iter()
             .copied()
             .map(|binding_id| self.semantic.binding(binding_id).scope)
             .collect::<Vec<_>>();
-        let mut stack =
-            vec![self.flow_entry_block_for_binding_scopes(&binding_scopes, at.start.offset)];
-        let mut seen = FxHashSet::default();
-        while let Some(block_id) = stack.pop() {
-            if cover_blocks.contains(&block_id)
-                || self.unreachable_blocks.contains(&block_id)
-                || !seen.insert(block_id)
-            {
-                continue;
-            }
-            if block_id == reference_block {
-                return false;
-            }
-            for (successor, _) in cfg.successors(block_id) {
-                stack.push(*successor);
-            }
-        }
-
-        true
+        let entry = self
+            .analysis
+            .flow_entry_block_for_binding_scopes(&binding_scopes, at.start.offset);
+        self.analysis
+            .blocks_cover_all_paths_to_block(entry, reference_block, &cover_blocks)
     }
 
     fn unset_value_blocks_for_name_before_reference(
@@ -3671,60 +3572,17 @@ impl<'a> SafeValueIndex<'a> {
             .copied()
             .map(|binding_id| self.semantic.binding(binding_id).scope)
             .collect::<Vec<_>>();
-        let mut stack =
-            vec![self.flow_entry_block_for_binding_scopes(&binding_scopes, call_span.start.offset)];
-        let mut seen = FxHashSet::default();
-        while let Some(block_id) = stack.pop() {
-            if cover_blocks.contains(&block_id)
-                || self.unreachable_blocks.contains(&block_id)
-                || !seen.insert(block_id)
-            {
-                continue;
-            }
-            if call_blocks.contains(&block_id) {
-                return false;
-            }
-            for (successor, _) in cfg.successors(block_id) {
-                stack.push(*successor);
-            }
-        }
-
-        true
-    }
-
-    fn flow_entry_block_for_binding_scopes(
-        &self,
-        binding_scopes: &[ScopeId],
-        reference_offset: usize,
-    ) -> BlockId {
-        let cfg = self.analysis.cfg();
-        self.semantic
-            .ancestor_scopes(self.semantic.scope_at(reference_offset))
-            .find_map(|scope| {
-                if !matches!(
-                    self.semantic.scope(scope).kind,
-                    ScopeKind::Function(_) | ScopeKind::File
-                ) {
-                    return None;
-                }
-                binding_scopes
-                    .iter()
-                    .copied()
-                    .all(|binding_scope| {
-                        self.semantic
-                            .ancestor_scopes(binding_scope)
-                            .any(|ancestor| ancestor == scope)
-                    })
-                    .then(|| cfg.scope_entry(scope))
-                    .flatten()
-            })
-            .unwrap_or_else(|| cfg.entry())
+        let entry = self
+            .analysis
+            .flow_entry_block_for_binding_scopes(&binding_scopes, call_span.start.offset);
+        call_blocks.iter().copied().all(|call_block| {
+            self.analysis
+                .blocks_cover_all_paths_to_block(entry, call_block, &cover_blocks)
+        })
     }
 
     fn reference_id_for_name_at(&self, name: &Name, at: Span) -> Option<ReferenceId> {
-        self.reference_ids_by_name_span
-            .get(&(name.clone(), FactSpan::new(at)))
-            .copied()
+        self.analysis.reference_id_for_name_at(name, at)
     }
 
     fn block_for_name_reference_or_virtual_offset(&self, name: &Name, at: Span) -> Option<BlockId> {
@@ -3763,11 +3621,11 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn block_for_binding(&self, binding_id: BindingId) -> Option<BlockId> {
-        self.block_by_binding.get(&binding_id).copied()
+        self.analysis.block_for_binding(binding_id)
     }
 
     fn block_for_reference(&self, reference_id: ReferenceId) -> Option<BlockId> {
-        self.block_by_reference.get(&reference_id).copied()
+        self.analysis.block_for_reference_id(reference_id)
     }
 
     fn transformation_is_safe(
