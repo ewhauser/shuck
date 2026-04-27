@@ -2325,13 +2325,10 @@ pub(super) fn build_suppressed_subscript_reference_spans(
         return FxHashSet::default();
     }
 
-    let references = semantic.references();
     let mut spans =
-        build_subscript_reference_spans_with_filter(references, suppressed_subscript_spans, |_| {
-            true
-        });
+        build_subscript_reference_spans_with_filter(semantic, suppressed_subscript_spans, |_| true);
     spans.extend(build_subscript_reference_spans_with_filter(
-        references,
+        semantic,
         arithmetic_only_suppressed_subscript_spans,
         |reference| matches!(reference.kind, ReferenceKind::ArithmeticRead),
     ));
@@ -2342,15 +2339,13 @@ pub(super) fn build_subscript_later_suppression_reference_spans(
     semantic: &SemanticModel,
     subscript_later_suppression_spans: &[Span],
 ) -> FxHashSet<FactSpan> {
-    build_subscript_reference_spans_with_filter(
-        semantic.references(),
-        subscript_later_suppression_spans,
-        |_| true,
-    )
+    build_subscript_reference_spans_with_filter(semantic, subscript_later_suppression_spans, |_| {
+        true
+    })
 }
 
 fn build_subscript_reference_spans_with_filter(
-    references: &[shuck_semantic::Reference],
+    semantic: &SemanticModel,
     subscript_spans: &[Span],
     mut include_reference: impl FnMut(&shuck_semantic::Reference) -> bool,
 ) -> FxHashSet<FactSpan> {
@@ -2358,76 +2353,12 @@ fn build_subscript_reference_spans_with_filter(
         return FxHashSet::default();
     }
 
-    if references.len().saturating_mul(subscript_spans.len()) <= 4_096 {
-        return build_subscript_reference_spans_linear(
-            references,
-            subscript_spans,
-            include_reference,
-        );
-    }
-
-    let subscript_index = SubscriptSpanIndex::new(subscript_spans);
-    references
+    subscript_spans
         .iter()
+        .flat_map(|span| semantic.references_in_span(*span))
         .filter(|reference| include_reference(reference))
-        .filter(|reference| subscript_index.contains(reference.span))
         .map(|reference| FactSpan::new(reference.span))
         .collect()
-}
-
-fn build_subscript_reference_spans_linear(
-    references: &[shuck_semantic::Reference],
-    subscript_spans: &[Span],
-    mut include_reference: impl FnMut(&shuck_semantic::Reference) -> bool,
-) -> FxHashSet<FactSpan> {
-    references
-        .iter()
-        .filter(|reference| include_reference(reference))
-        .filter(|reference| {
-            subscript_spans
-                .iter()
-                .any(|subscript| span_contains(*subscript, reference.span))
-        })
-        .map(|reference| FactSpan::new(reference.span))
-        .collect()
-}
-
-#[derive(Debug, Default)]
-struct SubscriptSpanIndex {
-    starts: Vec<usize>,
-    prefix_max_ends: Vec<usize>,
-}
-
-impl SubscriptSpanIndex {
-    fn new(subscript_spans: &[Span]) -> Self {
-        let mut bounds = subscript_spans
-            .iter()
-            .map(|span| (span.start.offset, span.end.offset))
-            .collect::<Vec<_>>();
-        bounds.sort_unstable();
-
-        let mut starts = Vec::with_capacity(bounds.len());
-        let mut prefix_max_ends = Vec::with_capacity(bounds.len());
-        let mut max_end = 0usize;
-
-        for (start, end) in bounds {
-            starts.push(start);
-            max_end = max_end.max(end);
-            prefix_max_ends.push(max_end);
-        }
-
-        Self {
-            starts,
-            prefix_max_ends,
-        }
-    }
-
-    fn contains(&self, span: Span) -> bool {
-        let candidate_count = self
-            .starts
-            .partition_point(|start| *start <= span.start.offset);
-        candidate_count > 0 && self.prefix_max_ends[candidate_count - 1] >= span.end.offset
-    }
 }
 
 fn span_contains(outer: Span, inner: Span) -> bool {
@@ -2948,37 +2879,11 @@ fn is_unicode_smart_quote(char: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        SubscriptSpanIndex, arithmetic_expr_has_positional_parameter_operator,
+        arithmetic_expr_has_positional_parameter_operator,
         word_has_unquoted_positional_parameter_operator_neighbors,
     };
-    use shuck_ast::{Command, Position, Span, WordPart};
+    use shuck_ast::{Command, WordPart};
     use shuck_parser::parser::Parser;
-
-    fn span(start: usize, end: usize) -> Span {
-        Span::from_positions(
-            Position {
-                line: 1,
-                column: start + 1,
-                offset: start,
-            },
-            Position {
-                line: 1,
-                column: end + 1,
-                offset: end,
-            },
-        )
-    }
-
-    #[test]
-    fn subscript_span_index_uses_prefix_max_for_containment() {
-        let index = SubscriptSpanIndex::new(&[span(50, 60), span(0, 100), span(120, 130)]);
-
-        assert!(index.contains(span(55, 56)));
-        assert!(index.contains(span(80, 90)));
-        assert!(index.contains(span(99, 100)));
-        assert!(!index.contains(span(100, 101)));
-        assert!(!index.contains(span(110, 115)));
-    }
 
     #[test]
     fn detects_identifier_led_prefixes_before_positional_parameters_in_arithmetic_words() {
