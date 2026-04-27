@@ -22,7 +22,7 @@ use crate::binding::{
     AssignmentValueOrigin, Binding, BindingAttributes, BindingKind, BindingOrigin,
     BuiltinBindingTargetKind, LoopValueOrigin,
 };
-use crate::call_graph::{CallGraph, CallSite, OverwrittenFunction};
+use crate::call_graph::{CallGraph, CallSite, build_call_graph};
 use crate::cfg::{
     FlowContext, IsolatedRegion, RecordedCaseArm, RecordedCommand, RecordedCommandId,
     RecordedCommandInfo, RecordedCommandKind, RecordedCommandRange, RecordedElifBranch,
@@ -237,7 +237,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         builder.mark_scope_completed(ScopeId(0));
         builder.drain_deferred_functions();
 
-        let call_graph = builder.build_call_graph();
+        let call_graph = build_call_graph(
+            &builder.scopes,
+            &builder.bindings,
+            &builder.functions,
+            &builder.call_sites,
+        );
         let heuristic_unused_assignments = builder.compute_heuristic_unused_assignments();
 
         BuildOutput {
@@ -2139,21 +2144,6 @@ fn pattern_group_can_match_empty(kind: PatternGroupKind, patterns: &[Pattern]) -
 
 fn ancestor_scopes(scopes: &[Scope], start: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
     std::iter::successors(Some(start), move |scope| scopes[scope.index()].parent)
-}
-
-fn is_in_function_scope(scopes: &[Scope], scope: ScopeId) -> bool {
-    ancestor_scopes(scopes, scope)
-        .skip(1)
-        .any(|scope| matches!(scopes[scope.index()].kind, ScopeKind::Function(_)))
-}
-
-fn is_in_named_function_scope(scopes: &[Scope], scope: ScopeId, name: &Name) -> bool {
-    ancestor_scopes(scopes, scope).any(|scope| {
-        matches!(
-            &scopes[scope.index()].kind,
-            ScopeKind::Function(function) if function.contains_name(name)
-        )
-    })
 }
 
 fn function_scope_kind(function: &FunctionDef) -> FunctionScopeKind {

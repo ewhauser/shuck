@@ -301,66 +301,6 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         None
     }
 
-    pub(super) fn build_call_graph(&self) -> CallGraph {
-        let mut reachable = FxHashSet::default();
-        let mut worklist = self
-            .call_sites
-            .values()
-            .flat_map(|sites| sites.iter())
-            .filter(|site| !is_in_function_scope(&self.scopes, site.scope))
-            .map(|site| site.callee.clone())
-            .collect::<Vec<_>>();
-
-        while let Some(name) = worklist.pop() {
-            if reachable.contains(name.as_str()) {
-                continue;
-            }
-            for sites in self.call_sites.values() {
-                for site in sites {
-                    if is_in_named_function_scope(&self.scopes, site.scope, &name) {
-                        worklist.push(site.callee.clone());
-                    }
-                }
-            }
-            reachable.insert(name);
-        }
-
-        let uncalled = self
-            .functions
-            .iter()
-            .filter(|(name, _)| !reachable.contains(*name))
-            .flat_map(|(_, bindings)| bindings.iter().copied())
-            .collect();
-
-        let overwritten = self
-            .functions
-            .iter()
-            .flat_map(|(name, bindings)| {
-                bindings.windows(2).map(move |pair| OverwrittenFunction {
-                    name: name.clone(),
-                    first: pair[0],
-                    second: pair[1],
-                    first_called: self
-                        .call_sites
-                        .get(name)
-                        .into_iter()
-                        .flat_map(|sites| sites.iter())
-                        .any(|site| {
-                            let first = self.bindings[pair[0].index()].span.start.offset;
-                            let second = self.bindings[pair[1].index()].span.start.offset;
-                            site.span.start.offset > first && site.span.start.offset < second
-                        }),
-                })
-            })
-            .collect();
-
-        CallGraph {
-            reachable,
-            uncalled,
-            overwritten,
-        }
-    }
-
     pub(super) fn compute_heuristic_unused_assignments(&self) -> Vec<BindingId> {
         self.bindings
             .iter()
