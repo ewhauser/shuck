@@ -301,12 +301,7 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
     }
 
     let mut seen_function_unset_targets = FxHashSet::<Name>::default();
-    for binding in checker
-        .semantic()
-        .bindings()
-        .iter()
-        .filter(|binding| matches!(binding.kind, BindingKind::FunctionDefinition))
-    {
+    for binding in checker.semantic().function_definition_bindings() {
         if !seen_function_unset_targets.insert(binding.name.clone()) {
             continue;
         }
@@ -706,10 +701,7 @@ fn report_compat_cutoff_function_definitions(checker: &mut Checker<'_>) {
     };
     let candidates = checker
         .semantic()
-        .bindings()
-        .iter()
-        .filter(|binding| matches!(binding.kind, BindingKind::FunctionDefinition))
-        .filter(|binding| !matches!(binding.kind, BindingKind::Imported))
+        .function_definition_bindings()
         .filter_map(|binding| {
             let cutoff = first_compat_cutoff_after_binding(
                 checker,
@@ -737,9 +729,7 @@ fn report_compat_cutoff_function_definitions(checker: &mut Checker<'_>) {
 fn report_transient_shadowed_file_scope_definitions(checker: &mut Checker<'_>) {
     let candidates = checker
         .semantic()
-        .bindings()
-        .iter()
-        .filter(|binding| matches!(binding.kind, BindingKind::FunctionDefinition))
+        .function_definition_bindings()
         .filter(|binding| scope_is_file_scope(checker, binding.scope))
         .filter_map(|binding| {
             let first_shadow_offset = checker
