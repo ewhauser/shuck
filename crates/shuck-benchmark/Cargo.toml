@@ -85,3 +85,7 @@ harness = false
 name = "large_corpus_hotspots"
 harness = false
 required-features = ["large-corpus-hotspots"]
+
+[[bench]]
+name = "case_patterns"
+harness = false

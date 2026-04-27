@@ -161,6 +161,10 @@ pub fn benchmark_collect_word_facts(file: &File, source: &str, semantic: &Semant
     facts::words::benchmark_collect_word_facts(file, source, semantic)
 }
 
+#[cfg(feature = "benchmarking")]
+#[doc(hidden)]
+pub use facts::benchmark::CasePatternMatcher as BenchmarkCasePatternMatcher;
+
 /// Builds semantic facts and linter diagnostics for a parsed file at an optional source path.
 pub fn analyze_file_at_path(
     file: &File,
