@@ -4647,6 +4647,38 @@ qm resize 100 scsi0 ${DISK_SIZE}
     }
 
     #[test]
+    fn reports_local_bindings_initialized_via_called_helpers() {
+        let source = "\
+#!/bin/bash
+setup() {
+  mode=NTSC
+}
+
+render() {
+  printf '%s\\n' $mode
+}
+
+main() {
+  local mode
+  setup
+  render
+  printf '%s\\n' $mode
+}
+
+main
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$mode", "$mode"]
+        );
+    }
+
+    #[test]
     fn reports_helper_initialized_bindings_when_other_callers_skip_the_helper() {
         let source = "\
 #!/bin/bash

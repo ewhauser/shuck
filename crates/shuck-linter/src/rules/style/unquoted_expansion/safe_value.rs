@@ -3012,6 +3012,10 @@ impl<'a> SafeValueIndex<'a> {
         scope: ScopeId,
         at: Span,
     ) -> Vec<BindingId> {
+        if self.scope_has_visible_local_binding_before(name, scope, at) {
+            return Vec::new();
+        }
+
         let key = (name.clone(), scope, FactSpan::new(at));
         if let Some(cached) = self.helper_binding_memo.get(&key) {
             return cached.to_vec();
@@ -3195,6 +3199,20 @@ impl<'a> SafeValueIndex<'a> {
         bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
         bindings.dedup();
         bindings
+    }
+
+    fn scope_has_visible_local_binding_before(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        at: Span,
+    ) -> bool {
+        self.semantic.bindings_for(name).iter().copied().any(|binding_id| {
+            let binding = self.semantic.binding(binding_id);
+            binding.scope == scope
+                && binding.span.end.offset <= at.start.offset
+                && binding.attributes.contains(BindingAttributes::LOCAL)
+        })
     }
 
     fn helper_bindings_called_in_scope_before(

@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=18`
-- Individual reviewed records classified below: 24 total (`shellcheck-only=14`, `shuck-only=10`).
+- `reviewed_divergences=16`
+- Individual reviewed records classified below: 20 total (`shellcheck-only=11`, `shuck-only=9`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -18,21 +18,18 @@ When a record is fixed, remove the matching entry from
 `crates/shuck-cli/tests/testdata/corpus-metadata/s001.yaml` in the same change.
 Resolved records should not remain as reviewed divergences.
 
-## [ ] ShellCheck-only: status/return operand shuck marked safe (6)
+## [ ] ShellCheck-only: status/return operand shuck marked safe (4)
 
 - `rvm__rvm__scripts__functions__manage__base_fetch:223:18-25` `$result`
 - `rvm__rvm__scripts__functions__manage__base_fetch:243:24-31` `$result`
 - `rvm__rvm__scripts__functions__manage__base_fetch:251:18-25` `$result`
 - `rvm__rvm__scripts__functions__manage__macruby:145:14-21` `$result`
-- `rvm__rvm__scripts__functions__requirements__osx_brew:485:55-74` `$homebrew_installer`
-- `rvm__rvm__scripts__functions__requirements__osx_brew:486:32-51` `$homebrew_installer`
 
-## [ ] ShellCheck-only: embedded path/URL/composite word (4)
+## [ ] ShellCheck-only: embedded path/URL/composite word (3)
 
 - `233boy__v2ray__src__core.sh:1254:39-43` `$net`
 - `juewuy__ShellCrash__scripts__menus__9_upgrade.sh:651:70-80` `${project}`
 - `juewuy__ShellCrash__scripts__menus__9_upgrade.sh:867:52-62` `${db_type}`
-- `rvm__rvm__scripts__functions__requirements__osx_brew:491:35-51` `${homebrew_repo}`
 
 ## [ ] ShellCheck-only: plain command argument (2)
 
@@ -43,10 +40,6 @@ Resolved records should not remain as reviewed divergences.
 
 - `rvm__rvm__binscripts__rvm-installer:89:24-48` `${rvm_tar_command:-gtar}`
 - `tteck__Proxmox__vm__nextcloud-vm.sh:210:96-99` `$HN`
-
-## [ ] Shuck-only: embedded safe literal/composite word (1)
-
-- `bittorf__kalua__openwrt-addons__etc__init.d__override_uci_vars:418:29-31` `$i`
 
 ## [ ] Shuck-only: simple command argument ShellCheck suppresses (4)
 
