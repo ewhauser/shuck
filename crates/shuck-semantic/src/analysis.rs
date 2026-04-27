@@ -69,6 +69,95 @@ impl<'model> SemanticAnalysis<'model> {
             .copied()
     }
 
+    pub fn resolved_function_call_sites<'analysis>(
+        &'analysis self,
+        name: &'analysis Name,
+    ) -> impl Iterator<Item = (&'analysis CallSite, BindingId)> + 'analysis {
+        self.model.call_sites_for(name).iter().filter_map(|site| {
+            self.visible_function_call_bindings()
+                .get(&SpanKey::new(site.name_span))
+                .copied()
+                .map(|binding| (site, binding))
+        })
+    }
+
+    pub fn function_call_arity_sites<'analysis>(
+        &'analysis self,
+        name: &'analysis Name,
+    ) -> impl Iterator<Item = (&'analysis CallSite, BindingId)> + 'analysis {
+        self.model.call_sites_for(name).iter().filter_map(|site| {
+            self.visible_function_call_bindings()
+                .get(&SpanKey::new(site.name_span))
+                .copied()
+                .or_else(|| self.lexical_function_binding_for_call_offset(name, site))
+                .map(|binding| (site, binding))
+        })
+    }
+
+    pub fn function_scope_for_binding(&self, binding_id: BindingId) -> Option<ScopeId> {
+        self.model
+            .recorded_program
+            .function_body_scopes
+            .get(&binding_id)
+            .copied()
+    }
+
+    pub fn visible_function_binding_defined_before(
+        &self,
+        name: &Name,
+        site_scope: ScopeId,
+        site_offset: usize,
+    ) -> Option<BindingId> {
+        self.model
+            .ancestor_scopes(site_scope)
+            .find_map(|scope| self.latest_function_binding_before(name, scope, site_offset))
+    }
+
+    fn lexical_function_binding_for_call_offset(
+        &self,
+        name: &Name,
+        site: &CallSite,
+    ) -> Option<BindingId> {
+        let scopes = self.model.ancestor_scopes(site.scope).collect::<Vec<_>>();
+
+        scopes
+            .iter()
+            .copied()
+            .find_map(|scope| {
+                self.latest_function_binding_before(name, scope, site.name_span.start.offset)
+            })
+            .or_else(|| {
+                scopes
+                    .iter()
+                    .copied()
+                    .find_map(|scope| self.earliest_function_binding_in_scope(name, scope))
+            })
+    }
+
+    fn latest_function_binding_before(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        offset: usize,
+    ) -> Option<BindingId> {
+        self.model
+            .function_definitions(name)
+            .iter()
+            .copied()
+            .filter(|candidate| self.model.binding(*candidate).scope == scope)
+            .filter(|candidate| self.model.binding(*candidate).span.start.offset < offset)
+            .max_by_key(|candidate| self.model.binding(*candidate).span.start.offset)
+    }
+
+    fn earliest_function_binding_in_scope(&self, name: &Name, scope: ScopeId) -> Option<BindingId> {
+        self.model
+            .function_definitions(name)
+            .iter()
+            .copied()
+            .filter(|candidate| self.model.binding(*candidate).scope == scope)
+            .min_by_key(|candidate| self.model.binding(*candidate).span.start.offset)
+    }
+
     fn function_binding_lookup(&self) -> cfg::FunctionBindingLookup<'_> {
         cfg::FunctionBindingLookup {
             program: &self.model.recorded_program,

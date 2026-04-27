@@ -75,6 +75,7 @@ impl<'a> LinterFactsBuilder<'a> {
 
     fn build(self) -> LinterFacts<'a> {
         let source = self.source;
+        let semantic_analysis = self.semantic.analysis();
         let capacity = estimate_fact_build_capacity(self.file);
         let estimated_word_nodes = capacity.commands.saturating_mul(2);
         let estimated_word_occurrences = capacity.commands.saturating_mul(3);
@@ -464,6 +465,7 @@ impl<'a> LinterFactsBuilder<'a> {
             build_presence_tested_names(&commands, self.source, self.semantic);
         let function_headers = build_function_header_facts(
             self.semantic,
+            &semantic_analysis,
             &functions,
             &commands,
             self.source,
@@ -471,6 +473,7 @@ impl<'a> LinterFactsBuilder<'a> {
         );
         let function_cli_dispatch_facts = build_function_cli_dispatch_facts(
             self.semantic,
+            &semantic_analysis,
             &function_headers,
             self.file,
             self.source,
