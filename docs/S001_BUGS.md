@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=14`
-- Individual reviewed records classified below: 15 total (`shellcheck-only=8`, `shuck-only=7`).
+- `reviewed_divergences=13`
+- Individual reviewed records classified below: 14 total (`shellcheck-only=8`, `shuck-only=6`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -37,14 +37,12 @@ Resolved records should not remain as reviewed divergences.
 - `tteck__Proxmox__vm__nextcloud-vm.sh:210:96-99` `$HN`
   `HN` is the current hostname seed used as a whiptail default value before any user edits.
 
-## [ ] Shuck-only: broader modeling gaps or command-aware ShellCheck suppressions (7)
+## [ ] Shuck-only: broader modeling gaps or command-aware ShellCheck suppressions (6)
 
 - `bats-core__bats-core__libexec__bats-core__bats-format-pretty:78:13-32` `$line_backoff_count`
   `move_up` consumes its first parameter numerically, but Shuck does not yet propagate numeric function-argument contracts back to callers.
 - `bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh:3374:6-27` `${inet_offer_down:-0}`
   ShellCheck stays quiet on this numeric-default conditional proof; Shuck still flags the expansion.
-- `dehydrated-io__dehydrated__dehydrated:1077:85-109` `${account_key_sigalgo:2}`
-  The substring expansion is used to build an openssl `-shaNNN` flag, which ShellCheck suppresses but Shuck still treats as a generic argument.
 - `ko1nksm__shellspec__lib__general.sh:442:15-39` `$shellspec_readfile_data`
   The data is intentionally expanded through `set --` after eval-built escaping, which ShellCheck suppresses but Shuck still flags.
 - `masonr__yet-another-bench-script__yabs.sh:991:12-19` `$GB_URL`

@@ -3947,6 +3947,12 @@ impl<'a> SafeValueIndex<'a> {
                         query == SafeValueQuery::Quoted
                     } else {
                         self.reference_is_safe(reference, at, query)
+                            || self.slice_reference_static_literals_stay_safe(
+                                reference,
+                                syntax,
+                                at,
+                                query,
+                            )
                     }
                 }
                 BourneParameterExpansion::Operation {
@@ -4061,6 +4067,63 @@ impl<'a> SafeValueIndex<'a> {
                     && self.word_is_static_safe_literal(replacement_word_ast, query)
             }
         }
+    }
+
+    fn slice_reference_static_literals_stay_safe(
+        &mut self,
+        reference: &VarRef,
+        slice: &BourneParameterExpansion,
+        at: Span,
+        query: SafeValueQuery,
+    ) -> bool {
+        let BourneParameterExpansion::Slice {
+            offset_word_ast,
+            length_word_ast,
+            ..
+        } = slice
+        else {
+            return false;
+        };
+        let Some(offset_text) = static_word_text(offset_word_ast, self.source) else {
+            return false;
+        };
+        let Ok(offset) = offset_text.parse::<isize>() else {
+            return false;
+        };
+        let length = match length_word_ast {
+            Some(word) => {
+                let Some(length_text) = static_word_text(word, self.source) else {
+                    return false;
+                };
+                let Ok(length) = length_text.parse::<usize>() else {
+                    return false;
+                };
+                Some(length)
+            }
+            None => None,
+        };
+
+        let mut bindings = self.safe_bindings_for_name(&reference.name, at);
+        self.drop_declarations_shadowed_by_covering_loop_bindings(&mut bindings, at);
+        self.drop_outer_bindings_shadowed_by_covering_loop_bindings(&mut bindings, at);
+        self.retain_value_bindings(&mut bindings);
+        if bindings.is_empty() {
+            return false;
+        }
+
+        bindings.into_iter().all(|binding_id| {
+            let Some(word) = self
+                .facts
+                .binding_value(binding_id)
+                .and_then(|value| value.scalar_word())
+            else {
+                return false;
+            };
+            let Some(text) = static_word_text(word, self.source) else {
+                return false;
+            };
+            static_slice_result_is_safe(&text, offset, length, query)
+        })
     }
 
     fn word_is_static_safe_literal(&self, word: &Word, query: SafeValueQuery) -> bool {
@@ -4519,6 +4582,29 @@ fn function_has_terminal_exit(function: &FunctionDef) -> bool {
         stmt_terminal_flow_kind(&function.body),
         TerminalFlowKind::Exit
     )
+}
+
+fn static_slice_result_is_safe(
+    text: &str,
+    offset: isize,
+    length: Option<usize>,
+    query: SafeValueQuery,
+) -> bool {
+    let chars = text.chars().collect::<Vec<_>>();
+    let start = if offset < 0 {
+        let distance = offset.unsigned_abs();
+        chars.len().saturating_sub(distance)
+    } else {
+        offset as usize
+    };
+    if start > chars.len() {
+        return false;
+    }
+    let end = length
+        .map(|length| start.saturating_add(length).min(chars.len()))
+        .unwrap_or(chars.len());
+    let sliced = chars[start..end].iter().collect::<String>();
+    !sliced.is_empty() && query.literal_is_safe(&sliced)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -6697,6 +6783,62 @@ printf '%s\\n' ${debug:+\"a b\"}
             .expect("expected replacement-operator command argument fact");
 
         assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn static_literal_slice_bindings_stay_safe_in_argv_context() {
+        let source = "\
+#!/bin/bash
+if true; then
+  sig=RS256
+else
+  sig=ES512
+fi
+openssl dgst -sha${sig:2} payload
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "-sha${sig:2}"
+            })
+            .expect("expected sliced command argument fact");
+
+        assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn dynamic_slice_bindings_stay_unsafe_in_argv_context() {
+        let source = "\
+#!/bin/bash
+sig=$1
+openssl dgst -sha${sig:2} payload
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "-sha${sig:2}"
+            })
+            .expect("expected sliced command argument fact");
+
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]

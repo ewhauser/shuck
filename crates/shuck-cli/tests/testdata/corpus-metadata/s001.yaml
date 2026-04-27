@@ -27,13 +27,6 @@ reviewed_divergences:
     column: 6
     end_column: 27
     reason: "The numeric default test on inet_offer_down stays quiet in ShellCheck, but Shuck does not preserve that conditional numeric proof here."
-  - side: shuck-only
-    path_suffix: "dehydrated-io__dehydrated__dehydrated"
-    line: 1077
-    end_line: 1077
-    column: 85
-    end_column: 109
-    reason: "The substring expansion is used to build an openssl -shaNNN flag, which ShellCheck suppresses but Shuck still treats as a generic argument."
   - side: shellcheck-only
     path_suffix: "gentoo__gentoo__eclass__tests__toolchain.sh"
     line: 155
