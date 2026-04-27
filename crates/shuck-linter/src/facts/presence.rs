@@ -55,7 +55,6 @@ pub(super) fn build_presence_tested_names(
     let mut references_by_name = FxHashMap::<Name, Vec<PresenceTestReferenceFact>>::default();
     let mut names_by_name = FxHashMap::<Name, Vec<PresenceTestNameFact>>::default();
     let outermost_nested_scopes = build_outermost_nested_presence_scopes(commands);
-    let sorted_reference_indices = sorted_presence_reference_indices(semantic.references());
     let mut command_names = FxHashSet::default();
     let mut c006_command_names = FxHashSet::default();
     let mut command_reference_ids = FxHashSet::default();
@@ -72,8 +71,7 @@ pub(super) fn build_presence_tested_names(
             collect_presence_tested_names_from_simple_test_operands(
                 simple_test.operands(),
                 source,
-                semantic.references(),
-                &sorted_reference_indices,
+                semantic,
                 &mut simple_test_names,
                 &mut command_reference_ids,
                 &mut command_name_spans,
@@ -89,8 +87,7 @@ pub(super) fn build_presence_tested_names(
             collect_presence_tested_names_from_conditional_expr(
                 conditional.root().expression(),
                 source,
-                semantic.references(),
-                &sorted_reference_indices,
+                semantic,
                 &mut conditional_names,
                 &mut command_reference_ids,
                 &mut command_name_spans,
@@ -225,8 +222,7 @@ fn pop_finished_nested_presence_scopes(active_nested_scopes: &mut Vec<Span>, off
 fn collect_presence_tested_names_from_simple_test_operands(
     operands: &[&Word],
     source: &str,
-    references: &[Reference],
-    sorted_reference_indices: &[usize],
+    semantic: &SemanticModel,
     names: &mut FxHashSet<Name>,
     reference_ids: &mut FxHashSet<ReferenceId>,
     name_spans: &mut Vec<(Name, Span)>,
@@ -241,8 +237,7 @@ fn collect_presence_tested_names_from_simple_test_operands(
         let consumed = collect_presence_tested_names_from_simple_test_leaf(
             &operands[index..],
             source,
-            references,
-            sorted_reference_indices,
+            semantic,
             names,
             reference_ids,
             name_spans,
@@ -257,8 +252,7 @@ fn collect_presence_tested_names_from_simple_test_operands(
 fn collect_presence_tested_names_from_simple_test_leaf(
     operands: &[&Word],
     source: &str,
-    references: &[Reference],
-    sorted_reference_indices: &[usize],
+    semantic: &SemanticModel,
     names: &mut FxHashSet<Name>,
     reference_ids: &mut FxHashSet<ReferenceId>,
     name_spans: &mut Vec<(Name, Span)>,
@@ -271,8 +265,7 @@ fn collect_presence_tested_names_from_simple_test_leaf(
         return 1 + collect_presence_tested_names_from_simple_test_leaf(
             &operands[1..],
             source,
-            references,
-            sorted_reference_indices,
+            semantic,
             names,
             reference_ids,
             name_spans,
@@ -294,13 +287,7 @@ fn collect_presence_tested_names_from_simple_test_leaf(
         })
     {
         if let Some(word) = operands.get(1).copied() {
-            record_presence_test_word(
-                word,
-                references,
-                sorted_reference_indices,
-                names,
-                reference_ids,
-            );
+            record_presence_test_word(word, semantic, names, reference_ids);
             return 2;
         }
         return 1;
@@ -312,13 +299,7 @@ fn collect_presence_tested_names_from_simple_test_leaf(
             .copied()
             .is_some_and(|word| is_simple_test_logical_operator(word, source))
     {
-        record_presence_test_word(
-            first,
-            references,
-            sorted_reference_indices,
-            names,
-            reference_ids,
-        );
+        record_presence_test_word(first, semantic, names, reference_ids);
         return 1;
     }
 
@@ -336,8 +317,7 @@ fn is_simple_test_logical_operator(word: &Word, source: &str) -> bool {
 fn collect_presence_tested_names_from_conditional_expr(
     expression: &ConditionalExpr,
     source: &str,
-    references: &[Reference],
-    sorted_reference_indices: &[usize],
+    semantic: &SemanticModel,
     names: &mut FxHashSet<Name>,
     reference_ids: &mut FxHashSet<ReferenceId>,
     name_spans: &mut Vec<(Name, Span)>,
@@ -345,13 +325,9 @@ fn collect_presence_tested_names_from_conditional_expr(
     let expression = strip_parenthesized_conditionals(expression);
 
     match expression {
-        ConditionalExpr::Word(word) => record_presence_test_word(
-            word,
-            references,
-            sorted_reference_indices,
-            names,
-            reference_ids,
-        ),
+        ConditionalExpr::Word(word) => {
+            record_presence_test_word(word, semantic, names, reference_ids)
+        }
         ConditionalExpr::Unary(unary) if unary.op == ConditionalUnaryOp::VariableSet => {
             collect_presence_tested_name_from_conditional_variable_set_operand(
                 &unary.expr,
@@ -364,8 +340,7 @@ fn collect_presence_tested_names_from_conditional_expr(
             collect_presence_tested_names_from_conditional_expr(
                 &unary.expr,
                 source,
-                references,
-                sorted_reference_indices,
+                semantic,
                 names,
                 reference_ids,
                 name_spans,
@@ -377,8 +352,7 @@ fn collect_presence_tested_names_from_conditional_expr(
         {
             collect_presence_tested_names_from_conditional_operand(
                 &unary.expr,
-                references,
-                sorted_reference_indices,
+                semantic,
                 names,
                 reference_ids,
             );
@@ -390,8 +364,7 @@ fn collect_presence_tested_names_from_conditional_expr(
             collect_presence_tested_names_from_conditional_expr(
                 &binary.left,
                 source,
-                references,
-                sorted_reference_indices,
+                semantic,
                 names,
                 reference_ids,
                 name_spans,
@@ -399,8 +372,7 @@ fn collect_presence_tested_names_from_conditional_expr(
             collect_presence_tested_names_from_conditional_expr(
                 &binary.right,
                 source,
-                references,
-                sorted_reference_indices,
+                semantic,
                 names,
                 reference_ids,
                 name_spans,
@@ -464,91 +436,47 @@ fn presence_tested_name_from_variable_set_word(word: &Word, source: &str) -> Opt
 
 fn collect_presence_tested_names_from_conditional_operand(
     expression: &ConditionalExpr,
-    references: &[Reference],
-    sorted_reference_indices: &[usize],
+    semantic: &SemanticModel,
     names: &mut FxHashSet<Name>,
     reference_ids: &mut FxHashSet<ReferenceId>,
 ) {
     let expression = strip_parenthesized_conditionals(expression);
 
     if let ConditionalExpr::Word(word) = expression {
-        record_presence_test_word(
-            word,
-            references,
-            sorted_reference_indices,
-            names,
-            reference_ids,
-        );
+        record_presence_test_word(word, semantic, names, reference_ids);
     }
 }
 
 fn record_presence_test_word(
     word: &Word,
-    references: &[Reference],
-    sorted_reference_indices: &[usize],
+    semantic: &SemanticModel,
     names: &mut FxHashSet<Name>,
     reference_ids: &mut FxHashSet<ReferenceId>,
 ) {
     collect_presence_tested_names_from_word(word, names);
-    collect_presence_test_reference_ids_from_word(
-        &word.parts,
-        references,
-        sorted_reference_indices,
-        reference_ids,
-    );
-}
-
-fn sorted_presence_reference_indices(references: &[Reference]) -> Vec<usize> {
-    let mut indices = references
-        .iter()
-        .enumerate()
-        .filter(|(_, reference)| {
-            !matches!(
-                reference.kind,
-                ReferenceKind::DeclarationName | ReferenceKind::ImplicitRead
-            )
-        })
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-    indices.sort_unstable_by_key(|&index| references[index].span.start.offset);
-    indices
+    collect_presence_test_reference_ids_from_word(&word.parts, semantic, reference_ids);
 }
 
 fn collect_presence_test_reference_ids_from_word(
     parts: &[WordPartNode],
-    references: &[Reference],
-    sorted_reference_indices: &[usize],
+    semantic: &SemanticModel,
     reference_ids: &mut FxHashSet<ReferenceId>,
 ) {
-    collect_presence_test_reference_ids_from_word_parts(
-        parts,
-        references,
-        sorted_reference_indices,
-        reference_ids,
-    );
+    collect_presence_test_reference_ids_from_word_parts(parts, semantic, reference_ids);
 }
 
 fn collect_presence_test_reference_ids_from_word_parts(
     parts: &[WordPartNode],
-    references: &[Reference],
-    sorted_reference_indices: &[usize],
+    semantic: &SemanticModel,
     reference_ids: &mut FxHashSet<ReferenceId>,
 ) {
     for part in parts {
         match &part.kind {
-            WordPart::DoubleQuoted { parts, .. } => collect_presence_test_reference_ids_from_word(
-                parts,
-                references,
-                sorted_reference_indices,
-                reference_ids,
-            ),
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_presence_test_reference_ids_from_word(parts, semantic, reference_ids)
+            }
             WordPart::Variable(_) | WordPart::PrefixMatch { .. } => {
-                collect_presence_test_reference_ids_in_span(
-                    part.span,
-                    references,
-                    sorted_reference_indices,
-                    reference_ids,
-                );
+                collect_presence_test_reference_ids_in_span(part.span, semantic, reference_ids);
             }
             WordPart::ParameterExpansion { reference, .. }
             | WordPart::Length(reference)
@@ -561,15 +489,13 @@ fn collect_presence_test_reference_ids_from_word_parts(
             | WordPart::Transformation { reference, .. } => {
                 collect_presence_test_reference_ids_in_span(
                     reference.span,
-                    references,
-                    sorted_reference_indices,
+                    semantic,
                     reference_ids,
                 );
             }
             WordPart::Parameter(parameter) => collect_presence_test_reference_ids_from_parameter(
                 parameter,
-                references,
-                sorted_reference_indices,
+                semantic,
                 reference_ids,
             ),
             WordPart::Literal(_)
@@ -584,8 +510,7 @@ fn collect_presence_test_reference_ids_from_word_parts(
 
 fn collect_presence_test_reference_ids_from_parameter(
     parameter: &shuck_ast::ParameterExpansion,
-    references: &[Reference],
-    sorted_reference_indices: &[usize],
+    semantic: &SemanticModel,
     reference_ids: &mut FxHashSet<ReferenceId>,
 ) {
     match &parameter.syntax {
@@ -599,16 +524,14 @@ fn collect_presence_test_reference_ids_from_parameter(
             | BourneParameterExpansion::Transformation { reference, .. } => {
                 collect_presence_test_reference_ids_in_span(
                     reference.span,
-                    references,
-                    sorted_reference_indices,
+                    semantic,
                     reference_ids,
                 );
             }
             BourneParameterExpansion::PrefixMatch { .. } => {
                 collect_presence_test_reference_ids_in_span(
                     parameter.span,
-                    references,
-                    sorted_reference_indices,
+                    semantic,
                     reference_ids,
                 );
             }
@@ -617,16 +540,14 @@ fn collect_presence_test_reference_ids_from_parameter(
             shuck_ast::ZshExpansionTarget::Reference(reference) => {
                 collect_presence_test_reference_ids_in_span(
                     reference.span,
-                    references,
-                    sorted_reference_indices,
+                    semantic,
                     reference_ids,
                 );
             }
             shuck_ast::ZshExpansionTarget::Nested(parameter) => {
                 collect_presence_test_reference_ids_from_parameter(
                     parameter,
-                    references,
-                    sorted_reference_indices,
+                    semantic,
                     reference_ids,
                 );
             }
@@ -637,19 +558,14 @@ fn collect_presence_test_reference_ids_from_parameter(
 
 fn collect_presence_test_reference_ids_in_span(
     span: Span,
-    references: &[Reference],
-    sorted_reference_indices: &[usize],
+    semantic: &SemanticModel,
     reference_ids: &mut FxHashSet<ReferenceId>,
 ) {
-    let first_reference = sorted_reference_indices
-        .partition_point(|&index| references[index].span.start.offset < span.start.offset);
-
-    for &index in &sorted_reference_indices[first_reference..] {
-        let reference = &references[index];
-        if reference.span.start.offset > span.end.offset {
-            break;
-        }
-        if contains_span(span, reference.span) {
+    for reference in semantic.references_in_span(span) {
+        if !matches!(
+            reference.kind,
+            ReferenceKind::DeclarationName | ReferenceKind::ImplicitRead
+        ) {
             reference_ids.insert(reference.id);
         }
     }
