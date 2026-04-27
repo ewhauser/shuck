@@ -92,7 +92,9 @@ use std::sync::OnceLock;
 
 use crate::builder::SemanticModelBuilder;
 use crate::call_graph::build_call_graph;
-use crate::cfg::RecordedProgram;
+use crate::cfg::{
+    RecordedCommandKind, RecordedListOperator, RecordedPipelineOperatorKind, RecordedProgram,
+};
 use crate::dataflow::{DataflowContext, DataflowResult, ExactVariableDataflow};
 use crate::runtime::RuntimePrelude;
 use crate::scope::ancestor_scopes;
@@ -438,6 +440,78 @@ pub struct SemanticAnalysis<'model> {
     unreached_functions: OnceLock<Vec<UnreachedFunction>>,
     unreached_functions_shellcheck_compat: OnceLock<Vec<UnreachedFunction>>,
     scope_provided_binding_index: OnceLock<ScopeProvidedBindingIndex>,
+}
+
+/// A flattened logical list command recorded by semantic analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticListCommand {
+    /// Span of the complete logical list command.
+    pub span: Span,
+    /// Commands in execution order, including the first command and each following list item.
+    pub segments: Box<[SemanticListSegment]>,
+}
+
+/// A flattened logical list segment recorded by semantic analysis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticListSegment {
+    /// Span of the segment command.
+    pub command_span: Span,
+    /// Operator that precedes this segment, or `None` for the first segment.
+    pub operator_before: Option<SemanticListOperator>,
+}
+
+/// A logical list operator recorded by semantic analysis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticListOperator {
+    /// Logical operator kind.
+    pub kind: SemanticListOperatorKind,
+    /// Span of the operator token.
+    pub span: Span,
+}
+
+/// Logical list operator kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemanticListOperatorKind {
+    /// `&&`
+    And,
+    /// `||`
+    Or,
+}
+
+/// A flattened pipeline command recorded by semantic analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticPipelineCommand {
+    /// Span of the complete pipeline command.
+    pub span: Span,
+    /// Commands in execution order, including the first command and each following pipeline segment.
+    pub segments: Box<[SemanticPipelineSegment]>,
+}
+
+/// A flattened pipeline segment recorded by semantic analysis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticPipelineSegment {
+    /// Span of the segment command.
+    pub command_span: Span,
+    /// Operator that precedes this segment, or `None` for the first segment.
+    pub operator_before: Option<SemanticPipelineOperator>,
+}
+
+/// A pipeline operator recorded by semantic analysis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticPipelineOperator {
+    /// Pipeline operator kind.
+    pub kind: SemanticPipelineOperatorKind,
+    /// Span of the operator token.
+    pub span: Span,
+}
+
+/// Pipeline operator kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemanticPipelineOperatorKind {
+    /// `|`
+    Pipe,
+    /// `|&`
+    PipeAll,
 }
 
 #[allow(missing_docs)]
@@ -1156,6 +1230,82 @@ impl SemanticModel {
 
     pub fn statement_sequence_commands(&self) -> &[StatementSequenceCommand] {
         self.recorded_program.statement_sequence_commands()
+    }
+
+    /// Returns logical list commands flattened by the semantic traversal.
+    pub fn list_commands(&self) -> Vec<SemanticListCommand> {
+        self.recorded_program
+            .commands()
+            .iter()
+            .filter_map(|command| {
+                let RecordedCommandKind::List { first, rest } = command.kind else {
+                    return None;
+                };
+
+                let rest = self.recorded_program.list_items(rest);
+                let mut segments = Vec::with_capacity(rest.len() + 1);
+                segments.push(SemanticListSegment {
+                    command_span: self.recorded_program.command(first).span,
+                    operator_before: None,
+                });
+                segments.extend(rest.iter().map(|item| SemanticListSegment {
+                    command_span: self.recorded_program.command(item.command).span,
+                    operator_before: Some(SemanticListOperator {
+                        kind: match item.operator {
+                            RecordedListOperator::And => SemanticListOperatorKind::And,
+                            RecordedListOperator::Or => SemanticListOperatorKind::Or,
+                        },
+                        span: item.operator_span,
+                    }),
+                }));
+
+                Some(SemanticListCommand {
+                    span: command.span,
+                    segments: segments.into_boxed_slice(),
+                })
+            })
+            .collect()
+    }
+
+    /// Returns pipeline commands flattened by the semantic traversal.
+    pub fn pipeline_commands(&self) -> Vec<SemanticPipelineCommand> {
+        self.recorded_program
+            .commands()
+            .iter()
+            .filter_map(|command| {
+                let RecordedCommandKind::Pipeline { segments } = command.kind else {
+                    return None;
+                };
+
+                let segments = self
+                    .recorded_program
+                    .pipeline_segments(segments)
+                    .iter()
+                    .map(|segment| SemanticPipelineSegment {
+                        command_span: self.recorded_program.command(segment.command).span,
+                        operator_before: segment.operator_before.map(|operator| {
+                            SemanticPipelineOperator {
+                                kind: match operator.operator {
+                                    RecordedPipelineOperatorKind::Pipe => {
+                                        SemanticPipelineOperatorKind::Pipe
+                                    }
+                                    RecordedPipelineOperatorKind::PipeAll => {
+                                        SemanticPipelineOperatorKind::PipeAll
+                                    }
+                                },
+                                span: operator.span,
+                            }
+                        }),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+
+                Some(SemanticPipelineCommand {
+                    span: command.span,
+                    segments,
+                })
+            })
+            .collect()
     }
 
     pub(crate) fn recorded_program(&self) -> &RecordedProgram {

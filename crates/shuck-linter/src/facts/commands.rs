@@ -1388,8 +1388,48 @@ fn command_id_for_command(
         })
 }
 
-fn command_fact<'a>(commands: &'a [CommandFact<'a>], id: CommandId) -> &'a CommandFact<'a> {
+fn command_fact<'facts, 'a>(
+    commands: &'facts [CommandFact<'a>],
+    id: CommandId,
+) -> &'facts CommandFact<'a> {
     &commands[id.index()]
+}
+
+fn command_fact_for_semantic_span_matching<'facts, 'a>(
+    commands: &'facts [CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+    span: Span,
+    predicate: impl Fn(&CommandFact<'a>) -> bool,
+) -> Option<&'facts CommandFact<'a>> {
+    command_ids_by_span
+        .get(&FactSpan::new(span))
+        .and_then(|entries| {
+            entries
+                .iter()
+                .map(|entry| command_fact(commands, entry.id))
+                .find(|command| predicate(command))
+        })
+        .or_else(|| {
+            commands
+                .iter()
+                .find(|command| {
+                    predicate(command) && FactSpan::new(command.stmt().span) == FactSpan::new(span)
+                })
+        })
+        .or_else(|| {
+            commands
+                .iter()
+                .filter(|command| {
+                    let command_span = command.span();
+                    predicate(command)
+                        && span.start.offset <= command_span.start.offset
+                        && command_span.end.offset <= span.end.offset
+                })
+                .max_by_key(|command| {
+                    let span = command.span();
+                    (span.end.offset, std::cmp::Reverse(span.start.offset))
+                })
+        })
 }
 
 fn command_fact_ref<'facts, 'a>(
