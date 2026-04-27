@@ -26,7 +26,7 @@ fn word_static_text_preserves_multi_part_literals() {
 
 #[test]
 fn structural_commands_skip_synthetic_semantic_commands() {
-    let source = "case \"$x\" in $(echo a)) ;; esac\n";
+    let source = "case \"$x\" in $(echo \"$v\")) ;; esac\n";
     with_facts(source, None, |_output, facts| {
         let commands = facts.structural_commands().collect::<Vec<_>>();
 
@@ -37,6 +37,13 @@ fn structural_commands_skip_synthetic_semantic_commands() {
                 .iter()
                 .any(|candidate| candidate.id() == command.id())
         }));
+        let pattern_command = facts
+            .commands()
+            .iter()
+            .find(|command| command.span().slice(source).starts_with("echo"))
+            .unwrap();
+        let parent = facts.command_parent(pattern_command.id()).unwrap();
+        assert!(parent.span().slice(source).starts_with("case"));
     });
 }
 

@@ -1103,6 +1103,11 @@ fn command_lookup_by_span_and_kind_skips_synthetic_commands() {
             .command_by_span_and_kind(case_span, CommandKind::Compound(CompoundCommandKind::Case))
             .is_some()
     );
+    let case_id = model.command_by_span(case_span).unwrap();
+    assert_eq!(
+        model.command_kind(case_id),
+        CommandKind::Compound(CompoundCommandKind::Case)
+    );
 }
 
 #[test]

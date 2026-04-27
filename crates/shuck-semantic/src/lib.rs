@@ -1317,7 +1317,11 @@ impl SemanticModel {
         self.command_topology()
             .ids_by_syntax_span
             .get(&SpanKey::new(span))
-            .and_then(|ids| ids.first().copied())
+            .and_then(|ids| {
+                ids.iter()
+                    .copied()
+                    .find(|id| self.command_syntax_kind(*id).is_some())
+            })
     }
 
     pub fn command_by_span_and_kind(&self, span: Span, kind: CommandKind) -> Option<CommandId> {
