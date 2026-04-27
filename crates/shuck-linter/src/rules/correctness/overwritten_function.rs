@@ -1,6 +1,6 @@
 use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::static_word_text;
+use shuck_ast::Name;
 use shuck_semantic::{
     BindingKind, BindingOrigin, OverwrittenFunction as SemanticOverwrittenFunction, ScopeId,
     ScopeKind, UnreachedFunction as SemanticUnreachedFunction, UnreachedFunctionReason,
@@ -286,37 +286,6 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
                 });
         }
 
-        if fact.effective_name_is("unset")
-            && let Some(unset) = fact.options().unset()
-            && unset.function_mode
-            && unset.options_parseable()
-        {
-            let mut targets = Vec::new();
-            for word in unset.operand_words() {
-                let Some(text) = static_word_text(word, checker.source()) else {
-                    break;
-                };
-                let target = text.into_owned();
-                if !targets.contains(&target) {
-                    targets.push(target);
-                }
-            }
-
-            if !targets.is_empty()
-                && !command_offset_is_under_dominance_barrier(checker, offset)
-                && !command_offset_is_unreachable(checker, offset)
-            {
-                let scope = fact.scope();
-                let command_fact = CompatUnsetCommandFact { scope, offset };
-                for target in targets {
-                    unset_commands_by_target
-                        .entry(target)
-                        .or_default()
-                        .push(command_fact);
-                }
-            }
-        }
-
         let apparent_loop_body_span = apparent_infinite_loop_body_span(checker, fact.command());
         if is_return || apparent_loop_body_span.is_some() {
             let scope = fact.scope();
@@ -327,6 +296,36 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
                 if let Some(body_span) = apparent_loop_body_span {
                     top_level_loop_candidates.push(CompatLoopCandidate { offset, body_span });
                 }
+            }
+        }
+    }
+
+    let mut seen_function_unset_targets = FxHashSet::<Name>::default();
+    for binding in checker
+        .semantic()
+        .bindings()
+        .iter()
+        .filter(|binding| matches!(binding.kind, BindingKind::FunctionDefinition))
+    {
+        if !seen_function_unset_targets.insert(binding.name.clone()) {
+            continue;
+        }
+
+        for fact in checker
+            .facts()
+            .function_unset_commands_for_name(&binding.name)
+        {
+            let offset = fact.body_span().start.offset;
+            if !command_offset_is_under_dominance_barrier(checker, offset)
+                && !command_offset_is_unreachable(checker, offset)
+            {
+                unset_commands_by_target
+                    .entry(binding.name.to_string())
+                    .or_default()
+                    .push(CompatUnsetCommandFact {
+                        scope: fact.scope(),
+                        offset,
+                    });
             }
         }
     }
@@ -1674,50 +1673,8 @@ fn call_may_resolve_to_binding(
     cfg_span: shuck_ast::Span,
 ) -> bool {
     let binding = checker.semantic().binding(binding_id);
-    if let Some(visible) = checker
-        .semantic()
-        .visible_binding(&binding.name, visibility_span)
-        && visible.id != binding_id
-        && visible.scope != binding.scope
-        && matches!(visible.kind, BindingKind::FunctionDefinition)
-        && visible.span.start.offset < visibility_span.start.offset
-        && checker
-            .semantic()
-            .ancestor_scopes(call_scope)
-            .any(|scope| scope == visible.scope)
-    {
-        return false;
-    }
-
-    let has_visible_shadow = checker
-        .semantic()
-        .visible_binding(&binding.name, visibility_span)
-        .is_some_and(|visible| {
-            visible.id != binding_id
-                && matches!(visible.kind, BindingKind::FunctionDefinition)
-                && visible.span.start.offset < visibility_span.start.offset
-                && checker
-                    .semantic()
-                    .ancestor_scopes(call_scope)
-                    .any(|scope| scope == visible.scope)
-        })
-        || checker
-            .semantic()
-            .function_definitions(&binding.name)
-            .iter()
-            .copied()
-            .any(|other| {
-                if other == binding_id {
-                    return false;
-                }
-                let other_binding = checker.semantic().binding(other);
-                other_binding.span.start.offset < visibility_span.start.offset
-                    && checker
-                        .semantic()
-                        .ancestor_scopes(call_scope)
-                        .any(|scope| scope == other_binding.scope)
-            })
-        || checker.facts().function_headers().iter().any(|header| {
+    let has_prior_shadowing_function_definition =
+        checker.facts().function_headers().iter().any(|header| {
             let Some((name, name_span)) = header.static_name_entry() else {
                 return false;
             };
@@ -1734,33 +1691,16 @@ fn call_may_resolve_to_binding(
                     .any(|ancestor| ancestor == scope)
             })
         });
-    if !has_visible_shadow {
-        return true;
-    }
-    if enclosing_function_scope(checker, call_scope).is_some() {
-        return true;
-    }
 
-    let analysis = checker.semantic_analysis();
-    let mut avoid = analysis.shadow_function_blocks_for_binding(binding_id);
-    avoid.extend(analysis.cfg().script_terminators().iter().copied());
-    let binding_blocks = analysis
-        .reachable_blocks_for_binding(binding_id)
-        .into_iter()
-        .filter(|block| !avoid.contains(block))
-        .collect::<Vec<_>>();
-    let call_blocks = analysis
-        .block_ids_for_span(cfg_span)
-        .iter()
-        .copied()
-        .filter(|block| !analysis.block_is_unreachable(*block))
-        .filter(|block| !avoid.contains(block))
-        .collect::<Vec<_>>();
-    if binding_blocks.is_empty() || call_blocks.is_empty() {
-        return false;
-    }
-
-    analysis.blocks_have_path_avoiding(&binding_blocks, &call_blocks, &avoid)
+    checker
+        .semantic_analysis()
+        .function_call_may_resolve_to_binding(
+            binding_id,
+            call_scope,
+            visibility_span,
+            cfg_span,
+            has_prior_shadowing_function_definition,
+        )
 }
 
 fn call_scope_can_execute_after_offset_before_offset(

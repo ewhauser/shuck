@@ -669,6 +669,12 @@ impl<'a> LinterFactsBuilder<'a> {
         } = build_env_prefix_scope_spans(self.source, &commands);
         let unset_command_ids_by_target_name =
             build_unset_command_ids_by_target_name(&commands, &structural_command_ids, source);
+        let function_unset_command_ids_by_target_name =
+            build_function_unset_command_ids_by_target_name(
+                &commands,
+                &structural_command_ids,
+                source,
+            );
         let word_index = build_word_occurrence_index(
             &commands,
             &word_nodes,
@@ -791,6 +797,7 @@ impl<'a> LinterFactsBuilder<'a> {
             env_prefix_assignment_scope_spans,
             env_prefix_expansion_scope_spans,
             unset_command_ids_by_target_name,
+            function_unset_command_ids_by_target_name,
             presence_tested_names: presence_tested_names.global_names,
             nested_presence_test_spans: presence_tested_names.nested_command_spans_by_name,
             c006_presence_tested_names: presence_tested_names.c006_global_names,
@@ -1174,6 +1181,41 @@ fn build_unset_command_ids_by_target_name(
                     .or_default()
                     .push(command_id);
             }
+        }
+    }
+
+    command_ids_by_name
+}
+
+fn build_function_unset_command_ids_by_target_name(
+    commands: &[CommandFact<'_>],
+    structural_command_ids: &[CommandId],
+    source: &str,
+) -> FxHashMap<Name, Vec<CommandId>> {
+    let mut command_ids_by_name = FxHashMap::<Name, Vec<CommandId>>::default();
+
+    for command_id in structural_command_ids.iter().copied() {
+        let command = &commands[command_id.index()];
+        let Some(unset) = command.options().unset() else {
+            continue;
+        };
+        if !unset.function_mode || !unset.options_parseable() {
+            continue;
+        }
+
+        let mut targets = Vec::new();
+        for word in unset.operand_words() {
+            let Some(text) = static_word_text(word, source) else {
+                break;
+            };
+            let target = Name::from(text.as_ref());
+            if !targets.contains(&target) {
+                targets.push(target);
+            }
+        }
+
+        for target in targets {
+            command_ids_by_name.entry(target).or_default().push(command_id);
         }
     }
 
