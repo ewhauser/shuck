@@ -83,7 +83,7 @@ const HARD_MAX_AST_DEPTH: usize = 100;
 
 /// Auxiliary word reparsing happens while the main parser is already on the stack.
 /// Keep its synthetic parser shallower than the main AST limit.
-const SOURCE_TEXT_WORD_REPARSE_MAX_DEPTH: usize = 32;
+const SOURCE_TEXT_WORD_REPARSE_MAX_DEPTH: usize = 8;
 
 /// Pattern operands can themselves contain parameter expansions with pattern operands.
 /// Keep that source-text reparsing shallow and preserve deeper text literally.
