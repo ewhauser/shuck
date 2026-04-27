@@ -1,6 +1,6 @@
 use shuck_semantic::{Binding, BindingAttributes, BindingKind};
 
-use crate::facts::leading_literal_word_prefix;
+use crate::facts::words::leading_literal_word_prefix;
 use crate::{Checker, Rule, Violation};
 
 pub struct AppendToArrayAsString;

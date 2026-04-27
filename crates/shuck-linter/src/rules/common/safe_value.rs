@@ -13,7 +13,7 @@ use shuck_semantic::{
 };
 use shuck_semantic::{BindingId, BlockId, ReferenceId, ReferenceKind};
 
-use crate::facts::analyze_literal_runtime;
+use crate::facts::words::analyze_literal_runtime;
 use crate::{ExpansionContext, FactSpan, LinterFacts};
 
 type S001FunctionEventKey = Vec<usize>;
