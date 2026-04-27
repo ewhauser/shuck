@@ -769,6 +769,10 @@ fn mapfile_target(args: &[&Word], source: &str) -> Option<MapfileTarget> {
         index += 1;
     }
 
+    if index > args.len() {
+        return None;
+    }
+
     if let Some((name, span)) = args[index..]
         .iter()
         .find_map(|word| named_target_word(word, source))
