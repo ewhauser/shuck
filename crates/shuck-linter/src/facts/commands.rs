@@ -1056,9 +1056,17 @@ fn collect_nested_scope_name_write_uses(
 
 /// Visits commands strictly nested inside `outer`'s span.
 ///
-/// Relies on `commands` being in DFS pre-order, so any command spatially
-/// nested in `outer` appears at a later index. Iteration stops as soon as a
-/// command starts past `outer`'s end offset.
+/// Relies on the DFS pre-order ID layout: any command spatially nested in
+/// `outer` has a higher index, so the search starts at `outer.id().index() +
+/// 1` and stops as soon as a command starts past `outer`'s end offset.
+///
+/// IDs are not strictly source-ordered — a stmt's redirects are visited
+/// after its body, so a leading-redirect substitution like `>"$(a)" cmd
+/// "$(b)"` assigns `b` a smaller ID than `a` even though `a` appears first
+/// in source. The bracketed range therefore filters with full
+/// `contains_span` (start *and* end) so that an arg-substitution at one
+/// index does not pick up its sibling redirect-substitution at a later
+/// index as nested.
 fn for_each_nested_command<'facts, 'a>(
     commands: CommandFacts<'facts, 'a>,
     outer: CommandFactRef<'_, 'a>,
@@ -1073,7 +1081,7 @@ fn for_each_nested_command<'facts, 'a>(
         if other.span().start.offset > outer_span.end.offset {
             break;
         }
-        if other.span().end.offset <= outer_span.end.offset {
+        if contains_span(outer_span, other.span()) {
             visit(other);
         }
     }
