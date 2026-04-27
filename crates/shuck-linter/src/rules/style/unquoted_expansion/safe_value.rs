@@ -8,8 +8,8 @@ use shuck_ast::{
     word_is_standalone_status_capture, word_is_standalone_variable_like,
 };
 use shuck_semantic::{
-    AssignmentValueOrigin, BindingAttributes, BindingKind, BindingOrigin, LoopValueOrigin, ScopeId,
-    ScopeKind, SemanticAnalysis, SemanticModel, UninitializedCertainty,
+    AssignmentValueOrigin, BindingAttributes, BindingKind, BindingOrigin, CallSite,
+    LoopValueOrigin, ScopeId, ScopeKind, SemanticAnalysis, SemanticModel, UninitializedCertainty,
 };
 use shuck_semantic::{BindingId, BlockId, ReferenceId};
 
@@ -1139,6 +1139,25 @@ impl<'a> SafeValueIndex<'a> {
         scope: ScopeId,
     ) -> Option<crate::facts::CommandFactRef<'a, 'a>> {
         self.facts.function_definition_command(scope)
+    }
+
+    fn function_scope_resolves_at_call_site(
+        &self,
+        callee_scope: ScopeId,
+        function_name: &Name,
+        site: &CallSite,
+    ) -> bool {
+        if let Some(binding_id) = self
+            .analysis
+            .visible_function_binding_at_call(function_name, site.name_span)
+        {
+            return self.analysis.function_scope_for_binding(binding_id) == Some(callee_scope);
+        }
+
+        self.function_definition_command_for_scope(callee_scope)
+            .is_some_and(|definition_command| {
+                self.definition_command_resolves_at_call(definition_command.id(), site.span)
+            })
     }
 
     fn s001_reference_function_unset_before_first_call(&mut self, at: Span) -> bool {
@@ -3425,6 +3444,10 @@ impl<'a> SafeValueIndex<'a> {
         let Some(function_kind) = self.named_function_kind(binding.scope) else {
             return false;
         };
+        let Some(definition_command) = self.function_definition_command_for_scope(binding.scope)
+        else {
+            return false;
+        };
 
         function_kind.static_names().iter().any(|function_name| {
             self.semantic
@@ -3432,6 +3455,13 @@ impl<'a> SafeValueIndex<'a> {
                 .iter()
                 .any(|site| {
                     site.scope == scope
+                        && self.function_scope_resolves_at_call_site(
+                            binding.scope,
+                            function_name,
+                            site,
+                        )
+                        && self
+                            .definition_command_resolves_at_call(definition_command.id(), site.span)
                         && self.call_site_dominates_use(site.span, &binding.name, at)
                 })
         })
@@ -3455,7 +3485,13 @@ impl<'a> SafeValueIndex<'a> {
                     .call_sites_for(function_name)
                     .iter()
                     .any(|site| {
-                        site.scope == scope && self.call_site_dominates_use(site.span, name, at)
+                        site.scope == scope
+                            && self.function_scope_resolves_at_call_site(
+                                callee_scope,
+                                function_name,
+                                site,
+                            )
+                            && self.call_site_dominates_use(site.span, name, at)
                     })
             });
             if !called_before {
@@ -6667,16 +6703,44 @@ main() {
                     && fact.span().slice(source) == "${value}"
             })
             .expect("expected sibling helper argument fact");
-        let (part, part_span) = word_fact
-            .parts_with_spans()
-            .find(|(_, span)| span.slice(source) == "${value}")
-            .expect("expected value expansion part");
-        let name = Name::from("value");
-        let _ = part;
-        let _ = part_span;
-        let _ = name;
 
         assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn shadowed_helper_definition_does_not_make_safe_caller_local_unsafe() {
+        let source = "\
+#!/bin/bash
+helper() {
+  value=$1
+}
+
+render() {
+  local value=SAFE
+  helper() {
+    :
+  }
+  helper
+  printf '%s\\n' ${value}
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${value}"
+            })
+            .expect("expected shadowed helper argument fact");
+
+        assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]
