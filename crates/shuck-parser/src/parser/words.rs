@@ -189,7 +189,14 @@ impl<'a> PatternParser<'a> {
                         continue;
                     }
 
-                    if let Some((char_class, next_cursor)) = self.try_parse_char_class(*cursor) {
+                    let starts_unparsed_group = !allow_groups
+                        && stop_at_group_delim
+                        && unparsed_group_depth == 0
+                        && self.starts_unparsed_pattern_group(*cursor);
+
+                    if !starts_unparsed_group
+                        && let Some((char_class, next_cursor)) = self.try_parse_char_class(*cursor)
+                    {
                         self.flush_literal(
                             &mut parts,
                             &mut literal,
@@ -201,7 +208,9 @@ impl<'a> PatternParser<'a> {
                         continue;
                     }
 
-                    if let Some((wildcard, next_cursor)) = self.try_parse_wildcard(*cursor) {
+                    if !starts_unparsed_group
+                        && let Some((wildcard, next_cursor)) = self.try_parse_wildcard(*cursor)
+                    {
                         self.flush_literal(
                             &mut parts,
                             &mut literal,
@@ -213,10 +222,6 @@ impl<'a> PatternParser<'a> {
                         continue;
                     }
 
-                    let starts_unparsed_group = !allow_groups
-                        && stop_at_group_delim
-                        && unparsed_group_depth == 0
-                        && self.starts_unparsed_pattern_group(*cursor);
                     let was_escaped = self.is_escaped(*cursor);
                     let Some((ch, span)) = self.consume_literal_char(cursor) else {
                         break;
@@ -1290,7 +1295,7 @@ impl<'a> Parser<'a> {
 
     fn scan_array_arithmetic_expansion_len_inner(text: &str, scan_depth: usize) -> Option<usize> {
         if scan_depth >= Self::MAX_ARRAY_NESTED_EXPANSION_SCAN_DEPTH {
-            return None;
+            return Self::scan_array_arithmetic_expansion_len_balanced(text);
         }
 
         let mut index = 0usize;
@@ -1349,6 +1354,45 @@ impl<'a> Parser<'a> {
                 '(' if !in_single && !in_double && !was_escaped => depth += 1,
                 ')' if !in_single && !in_double && !was_escaped => {
                     depth -= 1;
+                    index = next_index;
+                    if depth == 0 {
+                        return Some(index);
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+
+            index = next_index;
+        }
+
+        None
+    }
+
+    fn scan_array_arithmetic_expansion_len_balanced(text: &str) -> Option<usize> {
+        let mut index = 0usize;
+        let mut depth = 2usize;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
+
+        while index < text.len() {
+            let ch = text[index..].chars().next()?;
+            let next_index = index + ch.len_utf8();
+            let was_escaped = escaped;
+            if ch == '\\' && !in_single {
+                escaped = !escaped;
+                index = next_index;
+                continue;
+            }
+            escaped = false;
+
+            match ch {
+                '\'' if !in_double && !was_escaped => in_single = !in_single,
+                '"' if !in_single && !was_escaped => in_double = !in_double,
+                '(' if !in_single && !in_double && !was_escaped => depth = depth.saturating_add(1),
+                ')' if !in_single && !in_double && !was_escaped => {
+                    depth = depth.saturating_sub(1);
                     index = next_index;
                     if depth == 0 {
                         return Some(index);

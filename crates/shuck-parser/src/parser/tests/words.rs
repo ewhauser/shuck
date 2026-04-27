@@ -3983,7 +3983,7 @@ fn test_parse_pattern_preserves_dynamic_fragments_inside_extglob() {
 
 #[test]
 fn test_parse_pattern_preserves_delimiters_past_group_depth_limit() {
-    let mut nested = "@(a|b)".to_string();
+    let mut nested = "?(a|b)".to_string();
     for suffix in ["c", "d", "e", "f", "g", "h", "i", "j", "k"] {
         nested = format!("@({nested}|{suffix})");
     }
@@ -4016,7 +4016,7 @@ fn test_parse_pattern_preserves_delimiters_past_group_depth_limit() {
         assert_eq!(patterns[1].render(&input), suffix);
         pattern = &patterns[0];
     }
-    assert_eq!(pattern.render(&input), "@(@(a|b)|c)");
+    assert_eq!(pattern.render(&input), "@(?(a|b)|c)");
 }
 
 #[test]
@@ -7715,6 +7715,30 @@ fn test_parse_zsh_deep_parameter_array_comma_stays_nested() {
         value.span.slice(source),
         "${a:-${b:-${c:-${d:-${e:-x},y}}}}"
     );
+}
+
+#[test]
+fn test_parse_zsh_deep_arithmetic_array_comma_stays_nested() {
+    let mut nested = "$((a, b))".to_string();
+    for _ in 0..5 {
+        nested = format!("$(({nested}))");
+    }
+    let source = format!("values=({nested})\n");
+    let output = Parser::with_dialect(&source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let command = expect_simple(&output.file.body[0]);
+    assert_eq!(command.assignments.len(), 1);
+    let AssignmentValue::Compound(array) = &command.assignments[0].value else {
+        panic!("expected compound assignment value");
+    };
+    assert_eq!(array.elements.len(), 1);
+
+    let ArrayElem::Sequential(value) = &array.elements[0] else {
+        panic!("expected sequential array element");
+    };
+    assert_eq!(value.span.slice(&source), nested);
 }
 
 #[test]
