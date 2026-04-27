@@ -477,6 +477,7 @@ pub struct SemanticModel {
     heuristic_unused_assignments: Vec<BindingId>,
     zsh_option_analysis: Option<ZshOptionAnalysis>,
     assoc_lookup_binding_index: OnceLock<AssocLookupBindingIndex>,
+    references_sorted_by_start: OnceLock<Vec<ReferenceId>>,
 }
 
 /// Lazy analysis view over a `SemanticModel`.
@@ -579,6 +580,7 @@ impl SemanticModel {
             heuristic_unused_assignments: built.heuristic_unused_assignments,
             zsh_option_analysis,
             assoc_lookup_binding_index: OnceLock::new(),
+            references_sorted_by_start: OnceLock::new(),
         }
     }
 
@@ -610,6 +612,25 @@ impl SemanticModel {
 
     pub fn references(&self) -> &[Reference] {
         &self.references
+    }
+
+    /// Yield every reference whose span is fully contained within `outer`.
+    ///
+    /// Backed by a lazily-built index sorted by reference start offset, so a
+    /// per-span query costs `O(log n + matches)` rather than scanning every
+    /// reference in the file.
+    pub fn references_in_span(&self, outer: Span) -> ReferencesInSpan<'_> {
+        let sorted = self
+            .references_sorted_by_start
+            .get_or_init(|| build_references_sorted_by_start(&self.references));
+        let lower = sorted.partition_point(|id| {
+            self.references[id.index()].span.start.offset < outer.start.offset
+        });
+        ReferencesInSpan {
+            references: &self.references,
+            ids: sorted[lower..].iter(),
+            end: outer.end.offset,
+        }
     }
 
     pub fn binding(&self, id: BindingId) -> &Binding {
@@ -1463,6 +1484,40 @@ fn infer_bash_from_shebang(source: &str) -> Option<bool> {
 
 fn contains_offset(span: Span, offset: usize) -> bool {
     span.start.offset <= offset && offset <= span.end.offset
+}
+
+fn build_references_sorted_by_start(references: &[Reference]) -> Vec<ReferenceId> {
+    let mut ids: Vec<ReferenceId> = (0..references.len() as u32).map(ReferenceId).collect();
+    ids.sort_by_key(|id| references[id.index()].span.start.offset);
+    ids
+}
+
+/// Iterator returned by [`SemanticModel::references_in_span`].
+///
+/// Walks the references sorted index forward from the first candidate and
+/// stops as soon as a reference starts past the outer span's end.
+#[derive(Debug, Clone)]
+pub struct ReferencesInSpan<'a> {
+    references: &'a [Reference],
+    ids: std::slice::Iter<'a, ReferenceId>,
+    end: usize,
+}
+
+impl<'a> Iterator for ReferencesInSpan<'a> {
+    type Item = &'a Reference;
+
+    fn next(&mut self) -> Option<&'a Reference> {
+        loop {
+            let id = self.ids.next()?;
+            let reference = &self.references[id.index()];
+            if reference.span.start.offset > self.end {
+                return None;
+            }
+            if reference.span.end.offset <= self.end {
+                return Some(reference);
+            }
+        }
+    }
 }
 
 fn scope_span_width(span: Span) -> usize {

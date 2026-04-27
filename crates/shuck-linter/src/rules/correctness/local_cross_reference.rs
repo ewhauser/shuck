@@ -1,6 +1,7 @@
 use rustc_hash::FxHashMap;
 use shuck_ast::{ArrayElem, Assignment, AssignmentValue, Span};
 use shuck_semantic::ReferenceKind;
+use smallvec::SmallVec;
 
 use crate::{Checker, Rule, Violation};
 
@@ -27,60 +28,58 @@ pub fn local_cross_reference(checker: &mut Checker) {
     checker.report_all_dedup(spans, || LocalCrossReference);
 }
 
-fn declaration_cross_reference_spans(
-    checker: &Checker<'_>,
-    fact: crate::CommandFactRef<'_, '_>,
+fn declaration_cross_reference_spans<'a>(
+    checker: &Checker<'a>,
+    fact: crate::CommandFactRef<'_, 'a>,
 ) -> Vec<Span> {
     let Some(declaration) = fact.declaration() else {
         return Vec::new();
     };
 
-    let mut seen_targets = FxHashMap::default();
+    let semantic = checker.semantic();
+    let mut seen_targets: FxHashMap<&'a str, Span> = FxHashMap::default();
     let mut spans = Vec::new();
+    let mut value_spans: SmallVec<[Span; 4]> = SmallVec::new();
 
     for assignment in declaration.assignment_operands.iter().copied() {
-        for value_span in assignment_value_spans(assignment) {
-            for reference in checker.semantic().references().iter().filter(|reference| {
-                reference.kind != ReferenceKind::DeclarationName
-                    && contains_span(value_span, reference.span)
-            }) {
+        value_spans.clear();
+        push_assignment_value_spans(assignment, &mut value_spans);
+        for value_span in &value_spans {
+            for reference in semantic.references_in_span(*value_span) {
+                if reference.kind == ReferenceKind::DeclarationName {
+                    continue;
+                }
                 if let Some(previous_span) = seen_targets.get(reference.name.as_str()) {
                     spans.push(*previous_span);
                 }
             }
         }
 
-        seen_targets.insert(
-            assignment.target.name.as_str().to_owned(),
-            assignment.target.name_span,
-        );
+        seen_targets.insert(assignment.target.name.as_str(), assignment.target.name_span);
     }
 
     spans
 }
 
-fn assignment_value_spans(assignment: &Assignment) -> Vec<Span> {
+fn push_assignment_value_spans(assignment: &Assignment, spans: &mut SmallVec<[Span; 4]>) {
     match &assignment.value {
-        AssignmentValue::Scalar(word) => vec![word.span],
-        AssignmentValue::Compound(array) => array
-            .elements
-            .iter()
-            .flat_map(array_element_spans)
-            .collect(),
-    }
-}
-
-fn array_element_spans(element: &ArrayElem) -> Vec<Span> {
-    match element {
-        ArrayElem::Sequential(word) => vec![word.span],
-        ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-            vec![key.span(), value.span]
+        AssignmentValue::Scalar(word) => spans.push(word.span),
+        AssignmentValue::Compound(array) => {
+            for element in &array.elements {
+                push_array_element_spans(element, spans);
+            }
         }
     }
 }
 
-fn contains_span(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+fn push_array_element_spans(element: &ArrayElem, spans: &mut SmallVec<[Span; 4]>) {
+    match element {
+        ArrayElem::Sequential(word) => spans.push(word.span),
+        ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+            spans.push(key.span());
+            spans.push(value.span);
+        }
+    }
 }
 
 #[cfg(test)]
