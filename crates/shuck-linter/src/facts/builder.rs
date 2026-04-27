@@ -421,6 +421,8 @@ impl<'a> LinterFactsBuilder<'a> {
         fact_store.word_spans = word_spans;
 
         let command_facts_require_source_order = !command_facts_are_source_ordered(&commands);
+        let command_offset_order =
+            build_command_offset_order(&commands, command_facts_require_source_order);
         let (command_parent_ids, command_child_index) = if !command_facts_require_source_order {
             (
                 command_parent_ids,
@@ -452,8 +454,13 @@ impl<'a> LinterFactsBuilder<'a> {
 
         let presence_tested_names =
             build_presence_tested_names(&commands, self.source, self.semantic);
-        let function_headers =
-            build_function_header_facts(self.semantic, &functions, &commands, self.source);
+        let function_headers = build_function_header_facts(
+            self.semantic,
+            &functions,
+            &commands,
+            self.source,
+            &command_offset_order,
+        );
         let function_cli_dispatch_facts = build_function_cli_dispatch_facts(
             self.semantic,
             &function_headers,
@@ -563,7 +570,7 @@ impl<'a> LinterFactsBuilder<'a> {
             &commands,
             self.source,
             matches!(self.shell, ShellDialect::Bash) && pipefail_enabled_anywhere,
-            command_facts_require_source_order,
+            &command_offset_order,
         );
         let heredoc_summary =
             build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
@@ -719,7 +726,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 .iter()
                 .map(|command| command.span().start.offset)
                 .collect(),
-            command_facts_require_source_order,
+            &command_offset_order,
         );
         let innermost_command_ids_by_binding_offset = build_innermost_command_ids_by_offset(
             &commands,
@@ -728,7 +735,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 .iter()
                 .map(|binding| binding.span.start.offset)
                 .collect(),
-            command_facts_require_source_order,
+            &command_offset_order,
         );
         let command_dominance_barrier_flags = build_command_dominance_barrier_flags(&commands);
         let c006_suppressing_reference_offsets_by_name =
