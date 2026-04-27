@@ -1202,6 +1202,212 @@ helper_value=ready
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
+    fn obscure_zsh_linter_stress_source() -> &'static str {
+        r#"#!/bin/zsh
+() {
+  emulate -L zsh
+  setopt extendedglob
+  local -a matches=(src/**/*.zsh(.N:t:r))
+  print -r -- ${(j:,:)matches}
+} one two
+
+{
+  if [[ -n ${commands[zsh]} ]] {
+    print -r -- ok
+  } elif (( ${+commands[false]} )) {
+    print -r -- maybe
+  } else {
+    print -r -- missing
+  }
+} always {
+  print -r -- cleanup
+}
+
+repeat 2 print -r -- tick
+
+foreach item (alpha beta gamma) {
+  print -r -- ${item:u}
+}
+
+typeset -A colors=(
+  [normal]=black
+  [warning]=yellow
+  [error]=red
+)
+print -r -- ${colors[(i)warn*]} ${colors[(r)r*]}
+colors[(I)e*]=brightred
+
+local target=/tmp/archive.tar.gz
+print -r -- ${${target:t}:r} ${${:-$target}:h}
+print -r -- ${(Q)${:-one\ two}} ${(%)${:-%n@%m}}
+
+local -a words=(one two three)
+print -r -- ${(j:|:)words}
+print -r -- ${(qqq)${(F)words}}
+
+print -r -- **/*.zsh(.DN:t:r)
+print -r -- *(^@N) *(.om[1,3])
+
+diff =(print -r -- left) <(print -r -- right)
+cat > >(sed 's/^/[out] /') <<< ${:-payload}
+
+print -r -- message >out.log >audit.log
+print -r -- quiet &>/dev/null &|
+
+case $OSTYPE in
+  (darwin|freebsd)<->)
+    print -r -- bsd ;|
+  linux(|-gnu))
+    print -r -- linux ;&
+  *)
+    print -r -- other ;;
+esac
+
+if [[ $file == (#b)(*/)([^/]##).(zsh|plugin)(#e) ]]; then
+  print -r -- $match[1] $match[2]
+fi
+
+zparseopts -D -E -F -- \
+  h=help -help=help \
+  v+:=verbose -verbose+:=verbose \
+  o:=output -output:=output
+
+noglob command print -r -- **/*(N)
+whence -m 'z*' >/dev/null
+
+PS1=$'%F{green}%n%f:%~ %# '
+local rendered=${(%)PS1}
+print -r -- $rendered
+
+integer count=${#path}
+(( count += ${+commands[git]} ? path[(I)*bin*] : 0 ))
+print -r -- $count
+
+coproc {
+  print -r -- request
+  read -r reply
+  print -r -- $reply
+}
+"#
+    }
+
+    #[test]
+    fn default_linter_handles_obscure_zsh_syntax_without_parse_rule_diagnostics() {
+        let source = obscure_zsh_linter_stress_source();
+        let path = Path::new("stress.zsh");
+        let diagnostics =
+            crate::test::test_snippet_at_path(path, source, &LinterSettings::default());
+
+        let parse_rules = [
+            Rule::MissingFi,
+            Rule::IfMissingThen,
+            Rule::LoopWithoutEnd,
+            Rule::MissingDoneInForLoop,
+            Rule::DanglingElse,
+            Rule::UntilMissingDo,
+            Rule::IfBracketGlued,
+            Rule::CPrototypeFragment,
+        ];
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !parse_rules.contains(&diagnostic.rule)),
+            "unexpected parse-shaped diagnostics: {diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn native_zsh_portability_rules_ignore_obscure_zsh_syntax() {
+        let source = obscure_zsh_linter_stress_source();
+        let path = Path::new("stress.zsh");
+        let settings = LinterSettings::for_rules([
+            Rule::ZshRedirPipe,
+            Rule::ZshBraceIf,
+            Rule::ZshAlwaysBlock,
+            Rule::ZshFlagExpansion,
+            Rule::NestedZshSubstitution,
+            Rule::ZshNestedExpansion,
+            Rule::ZshPromptBracket,
+            Rule::ZshAssignmentToZero,
+            Rule::ZshParameterFlag,
+            Rule::ZshArraySubscriptInCase,
+            Rule::ZshParameterIndexFlag,
+            Rule::MultiVarForLoop,
+            Rule::ProcessSubstitution,
+            Rule::HereString,
+            Rule::Coproc,
+            Rule::ArrayAssignment,
+            Rule::ArrayReference,
+        ])
+        .with_shell(ShellDialect::Zsh);
+        let diagnostics = crate::test::test_snippet_at_path(path, source, &settings);
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:#?}");
+    }
+
+    #[test]
+    fn sourced_zsh_helper_imports_bindings_after_obscure_native_syntax() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.zsh");
+        let helper = temp.path().join("helper.zsh");
+        fs::write(
+            &main,
+            "\
+#!/bin/zsh
+. ./helper.zsh
+print -r -- \"$helper_value\"
+",
+        )
+        .unwrap();
+        fs::write(
+            &helper,
+            r#"#!/bin/zsh
+() {
+  emulate -L zsh
+  local -a matches=(src/**/*.zsh(.N:t:r))
+  print -r -- ${(j:,:)matches}
+}
+
+{
+  if [[ -n ${commands[zsh]} ]] {
+    print -r -- ok
+  } else {
+    print -r -- missing
+  }
+} always {
+  print -r -- cleanup
+}
+
+typeset -A colors=(
+  [normal]=black
+  [warning]=yellow
+  [error]=red
+)
+print -r -- ${colors[(i)warn*]} ${colors[(r)r*]}
+
+foreach item (alpha beta gamma) {
+  print -r -- ${item:u}
+}
+
+print -r -- **/*.zsh(.DN:t:r)
+print -r -- *(^@N) *(.om[1,3])
+print -r -- quiet &>/dev/null &|
+
+case $OSTYPE in
+  (darwin|freebsd)<->) print -r -- bsd ;|
+  linux(|-gnu)) print -r -- linux ;&
+  *) print -r -- other ;;
+esac
+
+helper_value=ready
+"#,
+        )
+        .unwrap();
+
+        let diagnostics = lint_path_for_rule(&main, Rule::UndefinedVariable);
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
     #[test]
     fn sourced_env_split_bash_helper_prefers_shebang_over_sh_extension() {
         let temp = tempdir().unwrap();
