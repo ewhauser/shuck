@@ -2432,19 +2432,28 @@ impl<'a> SafeValueIndex<'a> {
         self.retain_value_bindings(&mut caller_bindings);
         let mut uncalled_function_bindings = self.uncalled_function_outer_bindings_at_end(name, at);
         self.retain_value_bindings(&mut uncalled_function_bindings);
-        let function_local_binding = self
-            .enclosing_function_scope_at(at.start.offset)
-            .is_some_and(|scope| {
-                bindings
-                    .iter()
-                    .copied()
-                    .any(|binding_id| self.binding_is_in_scope_or_descendant(binding_id, scope))
-            });
+        let function_scope = self.enclosing_function_scope_at(at.start.offset);
+        let function_local_binding = function_scope.is_some_and(|scope| {
+            bindings
+                .iter()
+                .copied()
+                .any(|binding_id| self.binding_is_in_scope_or_descendant(binding_id, scope))
+        });
+        let caller_bindings_refine_outer_bindings =
+            function_scope.is_some() && !function_local_binding && !caller_bindings.is_empty();
         if !uncalled_function_bindings.is_empty() && !function_local_binding {
             bindings = uncalled_function_bindings;
         }
-        if !caller_bindings.is_empty()
-            && self.enclosing_function_scope_at(at.start.offset).is_some()
+        if caller_bindings_refine_outer_bindings
+            && function_scope.is_some()
+            && !self.bindings_are_static_loop_variables(&caller_bindings)
+        {
+            bindings = caller_bindings;
+            bindings.extend(helper_bindings);
+            bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+            bindings.dedup();
+        } else if !caller_bindings.is_empty()
+            && function_scope.is_some()
             && !function_local_binding
             && self.bindings_are_static_loop_variables(&caller_bindings)
         {
@@ -2462,7 +2471,7 @@ impl<'a> SafeValueIndex<'a> {
             bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
             bindings.dedup();
         }
-        if let Some(scope) = self.enclosing_function_scope_at(at.start.offset)
+        if let Some(scope) = function_scope
             && bindings.iter().copied().any(|binding_id| {
                 self.binding_is_in_scope_or_descendant(binding_id, scope)
                     && self.binding_shadows_outer_scope_values(binding_id)
@@ -3224,6 +3233,16 @@ impl<'a> SafeValueIndex<'a> {
         let mut branch = self.visible_bindings_for_name_without_helpers(name, at);
         branch.extend(self.caller_visible_bindings_before(name, scope, at));
         branch.extend(self.called_helper_bindings_before(name, scope, at));
+        if matches!(self.semantic.scope(scope).kind, ScopeKind::File)
+            && self.callsite_is_within_guarded_branch(at)
+        {
+            branch.extend(self.top_level_transitive_helper_bindings_before(name, at));
+            self.drop_outer_bindings_shadowed_by_covering_top_level_helper_bindings(
+                &mut branch,
+                scope,
+                at,
+            );
+        }
         branch.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
         branch.dedup();
         branch
@@ -3253,6 +3272,62 @@ impl<'a> SafeValueIndex<'a> {
         bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
         bindings.dedup();
         bindings
+    }
+
+    fn callsite_is_within_guarded_branch(&self, at: Span) -> bool {
+        let call_span = self.command_for_name_word_span(at).map_or(at, |command| command.span());
+        let Some(mut command_id) = self.facts.innermost_command_id_at(call_span.start.offset) else {
+            return false;
+        };
+        while self.facts.command(command_id).span() != call_span {
+            let Some(parent_id) = self.facts.command_parent_id(command_id) else {
+                return false;
+            };
+            command_id = parent_id;
+        }
+
+        let mut current = self.facts.command_parent_id(command_id);
+        while let Some(command_id) = current {
+            let command = self.facts.command(command_id);
+            if command.span().start.offset < call_span.start.offset
+                && call_span.end.offset <= command.span().end.offset
+                && self.facts.command_is_dominance_barrier(command_id)
+            {
+                return true;
+            }
+            current = self.facts.command_parent_id(command_id);
+        }
+
+        false
+    }
+
+    fn drop_outer_bindings_shadowed_by_covering_top_level_helper_bindings(
+        &self,
+        bindings: &mut Vec<BindingId>,
+        scope: ScopeId,
+        at: Span,
+    ) {
+        let helper_bindings = bindings
+            .iter()
+            .copied()
+            .filter(|binding_id| {
+                let binding_scope = self.semantic.binding(*binding_id).scope;
+                binding_scope != scope && self.scope_is_ancestor(scope, binding_scope)
+            })
+            .collect::<Vec<_>>();
+        if helper_bindings.is_empty() {
+            return;
+        }
+
+        let call_span = self.command_for_name_word_span(at).map_or(at, |command| command.span());
+        if !self.bindings_cover_all_paths_to_callsite(&helper_bindings, call_span) {
+            return;
+        }
+
+        bindings.retain(|binding_id| {
+            let binding_scope = self.semantic.binding(*binding_id).scope;
+            binding_scope != scope || helper_bindings.contains(binding_id)
+        });
     }
 
     fn scope_has_visible_local_binding_before(
@@ -6450,6 +6525,86 @@ safe_path_b
             .expect("expected multi-caller helper-derived argument fact");
 
         assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn top_level_helper_initializers_refine_later_helper_calls() {
+        let source = "\
+#!/bin/bash
+start_reader() {
+  sleep 1 &
+  tarpid=$!
+}
+
+read_disc() {
+  grep $tarpid /dev/null
+}
+
+tarpid=\"\"
+mode=$1
+if [[ $mode == read ]]; then
+  start_reader
+fi
+if [[ $mode == read ]]; then
+  read_disc
+fi
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$tarpid"
+            })
+            .expect("expected helper command argument fact");
+
+        assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn conditional_top_level_helper_initializers_do_not_refine_unconditional_helper_calls() {
+        let source = "\
+#!/bin/bash
+start_reader() {
+  sleep 1 &
+  tarpid=$!
+}
+
+read_disc() {
+  grep $tarpid /dev/null
+}
+
+tarpid=\"\"
+mode=$1
+if [[ $mode == read ]]; then
+  start_reader
+fi
+read_disc
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$tarpid"
+            })
+            .expect("expected helper command argument fact");
+
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]
