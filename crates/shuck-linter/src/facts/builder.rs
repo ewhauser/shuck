@@ -1,7 +1,8 @@
-struct LinterFactsBuilder<'a> {
+struct LinterFactsBuilder<'a, 'analysis> {
     file: &'a File,
     source: &'a str,
     semantic: &'a SemanticModel,
+    semantic_analysis: &'analysis SemanticAnalysis<'a>,
     _indexer: &'a Indexer,
     shell: ShellDialect,
     ambient_shell_options: AmbientShellOptions,
@@ -54,11 +55,12 @@ fn estimate_fact_build_capacity(file: &File) -> FactBuildCapacity {
     capacity
 }
 
-impl<'a> LinterFactsBuilder<'a> {
+impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
     fn new(
         file: &'a File,
         source: &'a str,
         semantic: &'a SemanticModel,
+        semantic_analysis: &'analysis SemanticAnalysis<'a>,
         indexer: &'a Indexer,
         shell: ShellDialect,
         ambient_shell_options: AmbientShellOptions,
@@ -67,6 +69,7 @@ impl<'a> LinterFactsBuilder<'a> {
             file,
             source,
             semantic,
+            semantic_analysis,
             _indexer: indexer,
             shell,
             ambient_shell_options,
@@ -75,7 +78,7 @@ impl<'a> LinterFactsBuilder<'a> {
 
     fn build(self) -> LinterFacts<'a> {
         let source = self.source;
-        let semantic_analysis = self.semantic.analysis();
+        let semantic_analysis = self.semantic_analysis;
         let capacity = estimate_fact_build_capacity(self.file);
         let estimated_word_nodes = capacity.commands.saturating_mul(2);
         let estimated_word_occurrences = capacity.commands.saturating_mul(3);
@@ -467,7 +470,7 @@ impl<'a> LinterFactsBuilder<'a> {
             build_presence_tested_names(&commands, self.source, self.semantic);
         let function_headers = build_function_header_facts(
             self.semantic,
-            &semantic_analysis,
+            semantic_analysis,
             &functions,
             &commands,
             self.source,
@@ -475,7 +478,7 @@ impl<'a> LinterFactsBuilder<'a> {
         );
         let function_cli_dispatch_facts = build_function_cli_dispatch_facts(
             self.semantic,
-            &semantic_analysis,
+            semantic_analysis,
             &function_headers,
             self.file,
             self.source,
