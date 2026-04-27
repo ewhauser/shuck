@@ -492,6 +492,7 @@ impl<'a> Parser<'a> {
 
     /// Parse a fragment against the original source span so part offsets stay
     /// aligned with the surrounding script.
+    #[cfg(test)]
     fn parse_word_fragment(source: &str, text: &str, span: Span) -> Word {
         Self::parse_word_fragment_with_limits(
             source,
