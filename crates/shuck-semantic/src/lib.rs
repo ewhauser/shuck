@@ -1351,7 +1351,7 @@ impl SemanticModel {
             if span.start.offset > offset {
                 break;
             }
-            if offset <= span.end.offset {
+            if offset <= span.end.offset && self.command_syntax_kind(id).is_some() {
                 innermost = Some(id);
             }
         }

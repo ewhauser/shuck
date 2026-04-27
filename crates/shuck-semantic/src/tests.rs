@@ -1120,6 +1120,8 @@ fn command_lookup_by_span_and_kind_skips_synthetic_commands() {
         model.command_kind(case_id),
         CommandKind::Compound(CompoundCommandKind::Case)
     );
+    let innermost_case_id = model.innermost_command_id_at(source.find("case").unwrap());
+    assert_eq!(innermost_case_id, Some(case_id));
 }
 
 #[test]
