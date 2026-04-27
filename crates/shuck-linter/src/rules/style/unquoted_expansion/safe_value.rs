@@ -1071,8 +1071,8 @@ impl<'a> SafeValueIndex<'a> {
                 && !command.is_nested_word_command()
                 && self.command_runs_in_unconditional_flow(command.id(), at)
                 && matches!(
-                    command.command(),
-                    Command::Builtin(BuiltinCommand::Exit(_) | BuiltinCommand::Return(_))
+                    stmt_terminal_flow_kind(command.stmt()),
+                    TerminalFlowKind::Exit | TerminalFlowKind::Stop
                 )
         })
     }

@@ -8,8 +8,8 @@ Current summary from `target/large-corpus-report/latest.log`:
 
 - `implementation_diffs=0`
 - `mapping_issues=0`
-- `reviewed_divergences=21`
-- Individual reviewed records classified below: 27 total (`shellcheck-only=17`, `shuck-only=10`).
+- `reviewed_divergences=20`
+- Individual reviewed records classified below: 26 total (`shellcheck-only=16`, `shuck-only=10`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -18,9 +18,8 @@ When a record is fixed, remove the matching entry from
 `crates/shuck-cli/tests/testdata/corpus-metadata/s001.yaml` in the same change.
 Resolved records should not remain as reviewed divergences.
 
-## [ ] ShellCheck-only: status/return operand shuck marked safe (7)
+## [ ] ShellCheck-only: status/return operand shuck marked safe (6)
 
-- `bittorf__kalua__openwrt-addons__etc__kalua__watch:2096:10-15` `$good`
 - `rvm__rvm__scripts__functions__manage__base_fetch:223:18-25` `$result`
 - `rvm__rvm__scripts__functions__manage__base_fetch:243:24-31` `$result`
 - `rvm__rvm__scripts__functions__manage__base_fetch:251:18-25` `$result`

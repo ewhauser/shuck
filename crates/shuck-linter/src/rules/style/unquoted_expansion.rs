@@ -1058,6 +1058,31 @@ wrapper() {
     }
 
     #[test]
+    fn reports_unquoted_expansions_after_all_branch_returns() {
+        let source = "\
+#!/bin/bash
+wrapper() {
+  local good=0
+  if cond; then
+    return $good
+  else
+    return $good
+  fi
+  return $good
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$good"]
+        );
+    }
+
+    #[test]
     fn reports_unquoted_expansions_after_deferred_exit_like_calls_resolved_by_later_helpers() {
         let source = "\
 #!/bin/sh
