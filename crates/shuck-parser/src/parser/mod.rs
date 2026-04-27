@@ -714,7 +714,10 @@ impl<'a> Parser<'a> {
         let mut cursor = parts[0].span.start.offset;
         for part in parts {
             if part.span.start.offset > cursor
-                && self.input[cursor..part.span.start.offset].contains(['{', '}'])
+                && self
+                    .input
+                    .get(cursor..part.span.start.offset)
+                    .is_some_and(|raw| raw.contains(['{', '}']))
             {
                 return true;
             }
@@ -725,7 +728,10 @@ impl<'a> Parser<'a> {
                 }
                 WordPart::SingleQuoted { .. }
                 | WordPart::DoubleQuoted { .. }
-                | WordPart::ZshQualifiedGlob(_) => part.span.slice(self.input).contains(['{', '}']),
+                | WordPart::ZshQualifiedGlob(_) => self
+                    .input
+                    .get(part.span.start.offset..part.span.end.offset)
+                    .is_some_and(|raw| raw.contains(['{', '}'])),
                 WordPart::Variable(_)
                 | WordPart::CommandSubstitution { .. }
                 | WordPart::ArithmeticExpansion { .. }
@@ -767,7 +773,10 @@ impl<'a> Parser<'a> {
                     );
                 }
                 WordPart::SingleQuoted { .. } => {
-                    Self::push_brace_scan_text(part.span.slice(self.input), part.span.start, out);
+                    if let Some(raw) = self.input.get(part.span.start.offset..part.span.end.offset)
+                    {
+                        Self::push_brace_scan_text(raw, part.span.start, out);
+                    }
                 }
                 WordPart::DoubleQuoted { parts, .. } => {
                     self.collect_brace_scan_chars_from_double_quoted_part(part.span, parts, out);
@@ -819,7 +828,10 @@ impl<'a> Parser<'a> {
                     );
                 }
                 WordPart::SingleQuoted { .. } => {
-                    Self::push_brace_scan_text(part.span.slice(self.input), part.span.start, out);
+                    if let Some(raw) = self.input.get(part.span.start.offset..part.span.end.offset)
+                    {
+                        Self::push_brace_scan_text(raw, part.span.start, out);
+                    }
                 }
                 WordPart::DoubleQuoted { parts, .. } => {
                     self.collect_brace_scan_chars_from_double_quoted_part(part.span, parts, out);
