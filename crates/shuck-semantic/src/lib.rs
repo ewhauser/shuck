@@ -52,7 +52,10 @@ pub use call_graph::{
     CallGraph, CallSite, OverwrittenFunction, UnreachedFunction, UnreachedFunctionReason,
 };
 /// Control-flow graph types and flow-context annotations.
-pub use cfg::{BasicBlock, BlockId, ControlFlowGraph, EdgeKind, FlowContext, UnreachableCauseKind};
+pub use cfg::{
+    BasicBlock, BlockId, ControlFlowGraph, EdgeKind, FlowContext, StatementSequenceCommand,
+    UnreachableCauseKind,
+};
 /// Contract and build-option types used when constructing semantic models.
 pub use contract::{
     ContractCertainty, FileContract, FileEntryBindingInitialization, FileEntryContractCollector,
@@ -89,9 +92,12 @@ use std::sync::OnceLock;
 
 use crate::builder::SemanticModelBuilder;
 use crate::call_graph::build_call_graph;
-use crate::cfg::RecordedProgram;
+use crate::cfg::{
+    RecordedCommandKind, RecordedListOperator, RecordedPipelineOperatorKind, RecordedProgram,
+};
 use crate::dataflow::{DataflowContext, DataflowResult, ExactVariableDataflow};
 use crate::runtime::RuntimePrelude;
+use crate::scope::ancestor_scopes;
 use crate::source_closure::ImportedBindingContractSite;
 use crate::zsh_options::ZshOptionAnalysis;
 
@@ -410,6 +416,11 @@ pub struct SemanticModel {
     zsh_option_analysis: Option<ZshOptionAnalysis>,
     assoc_lookup_binding_index: OnceLock<AssocLookupBindingIndex>,
     references_sorted_by_start: OnceLock<Vec<ReferenceId>>,
+    bindings_sorted_by_start: OnceLock<Vec<BindingId>>,
+    declarations_by_command_span: OnceLock<FxHashMap<SpanKey, usize>>,
+    unconditional_function_bindings: OnceLock<FxHashSet<BindingId>>,
+    function_bindings_by_scope: OnceLock<FxHashMap<ScopeId, SmallVec<[BindingId; 2]>>>,
+    visible_function_call_bindings: OnceLock<FxHashMap<SpanKey, BindingId>>,
 }
 
 /// Lazy analysis view over a `SemanticModel`.
@@ -430,9 +441,78 @@ pub struct SemanticAnalysis<'model> {
     unreached_functions: OnceLock<Vec<UnreachedFunction>>,
     unreached_functions_shellcheck_compat: OnceLock<Vec<UnreachedFunction>>,
     scope_provided_binding_index: OnceLock<ScopeProvidedBindingIndex>,
-    unconditional_function_bindings: OnceLock<FxHashSet<BindingId>>,
-    function_bindings_by_scope: OnceLock<FxHashMap<ScopeId, SmallVec<[BindingId; 2]>>>,
-    visible_function_call_bindings: OnceLock<FxHashMap<SpanKey, BindingId>>,
+}
+
+/// A flattened logical list command recorded by semantic analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticListCommand {
+    /// Span of the complete logical list command.
+    pub span: Span,
+    /// Commands in execution order, including the first command and each following list item.
+    pub segments: Box<[SemanticListSegment]>,
+}
+
+/// A flattened logical list segment recorded by semantic analysis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticListSegment {
+    /// Span of the segment command.
+    pub command_span: Span,
+    /// Operator that precedes this segment, or `None` for the first segment.
+    pub operator_before: Option<SemanticListOperator>,
+}
+
+/// A logical list operator recorded by semantic analysis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticListOperator {
+    /// Logical operator kind.
+    pub kind: SemanticListOperatorKind,
+    /// Span of the operator token.
+    pub span: Span,
+}
+
+/// Logical list operator kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemanticListOperatorKind {
+    /// `&&`
+    And,
+    /// `||`
+    Or,
+}
+
+/// A flattened pipeline command recorded by semantic analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticPipelineCommand {
+    /// Span of the complete pipeline command.
+    pub span: Span,
+    /// Commands in execution order, including the first command and each following pipeline segment.
+    pub segments: Box<[SemanticPipelineSegment]>,
+}
+
+/// A flattened pipeline segment recorded by semantic analysis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticPipelineSegment {
+    /// Span of the segment command.
+    pub command_span: Span,
+    /// Operator that precedes this segment, or `None` for the first segment.
+    pub operator_before: Option<SemanticPipelineOperator>,
+}
+
+/// A pipeline operator recorded by semantic analysis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticPipelineOperator {
+    /// Pipeline operator kind.
+    pub kind: SemanticPipelineOperatorKind,
+    /// Span of the operator token.
+    pub span: Span,
+}
+
+/// Pipeline operator kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemanticPipelineOperatorKind {
+    /// `|`
+    Pipe,
+    /// `|&`
+    PipeAll,
 }
 
 #[allow(missing_docs)]
@@ -515,6 +595,11 @@ impl SemanticModel {
             zsh_option_analysis,
             assoc_lookup_binding_index: OnceLock::new(),
             references_sorted_by_start: OnceLock::new(),
+            bindings_sorted_by_start: OnceLock::new(),
+            declarations_by_command_span: OnceLock::new(),
+            unconditional_function_bindings: OnceLock::new(),
+            function_bindings_by_scope: OnceLock::new(),
+            visible_function_call_bindings: OnceLock::new(),
         }
     }
 
@@ -562,6 +647,24 @@ impl SemanticModel {
         });
         ReferencesInSpan {
             references: &self.references,
+            ids: sorted[lower..].iter(),
+            end: outer.end.offset,
+        }
+    }
+
+    /// Yield every binding whose span is fully contained within `outer`.
+    ///
+    /// Backed by a lazily-built index sorted by binding start offset, so a
+    /// per-span query costs `O(log n + matches)` rather than scanning every
+    /// binding in the file.
+    pub fn bindings_in_span(&self, outer: Span) -> BindingsInSpan<'_> {
+        let sorted = self
+            .bindings_sorted_by_start
+            .get_or_init(|| build_bindings_sorted_by_start(&self.bindings));
+        let lower = sorted
+            .partition_point(|id| self.bindings[id.index()].span.start.offset < outer.start.offset);
+        BindingsInSpan {
+            bindings: &self.bindings,
             ids: sorted[lower..].iter(),
             end: outer.end.offset,
         }
@@ -747,7 +850,7 @@ impl SemanticModel {
     }
 
     pub fn ancestor_scopes(&self, scope: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
-        std::iter::successors(Some(scope), move |scope| self.scopes[scope.index()].parent)
+        ancestor_scopes(&self.scopes, scope)
     }
 
     fn previous_visible_binding_id_in_scope_chain(
@@ -972,6 +1075,7 @@ impl SemanticModel {
 
         self.set_synthetic_reads(dedup_synthetic_reads(synthetic_reads));
         self.set_entry_bindings(entry_bindings);
+        self.invalidate_function_binding_lookup();
         self.resolve_unresolved_references();
         self.rebuild_call_graph();
     }
@@ -1046,8 +1150,15 @@ impl SemanticModel {
                 false,
             );
         }
+        self.invalidate_function_binding_lookup();
         self.resolve_unresolved_references();
         self.rebuild_call_graph();
+    }
+
+    fn invalidate_function_binding_lookup(&mut self) {
+        self.unconditional_function_bindings.take();
+        self.function_bindings_by_scope.take();
+        self.visible_function_call_bindings.take();
     }
 
     fn rebuild_call_graph(&mut self) {
@@ -1113,6 +1224,15 @@ impl SemanticModel {
         &self.declarations
     }
 
+    pub fn declaration_for_command_span(&self, span: Span) -> Option<&Declaration> {
+        let index = self
+            .declarations_by_command_span
+            .get_or_init(|| build_declarations_by_command_span(&self.declarations));
+        index
+            .get(&SpanKey::new(span))
+            .map(|declaration_index| &self.declarations[*declaration_index])
+    }
+
     pub fn source_refs(&self) -> &[SourceRef] {
         &self.source_refs
     }
@@ -1128,6 +1248,86 @@ impl SemanticModel {
             .unwrap_or(&[])
     }
 
+    pub fn statement_sequence_commands(&self) -> &[StatementSequenceCommand] {
+        self.recorded_program.statement_sequence_commands()
+    }
+
+    /// Returns logical list commands flattened by the semantic traversal.
+    pub fn list_commands(&self) -> Vec<SemanticListCommand> {
+        self.recorded_program
+            .commands()
+            .iter()
+            .filter_map(|command| {
+                let RecordedCommandKind::List { first, rest } = command.kind else {
+                    return None;
+                };
+
+                let rest = self.recorded_program.list_items(rest);
+                let mut segments = Vec::with_capacity(rest.len() + 1);
+                segments.push(SemanticListSegment {
+                    command_span: self.recorded_program.command(first).span,
+                    operator_before: None,
+                });
+                segments.extend(rest.iter().map(|item| SemanticListSegment {
+                    command_span: self.recorded_program.command(item.command).span,
+                    operator_before: Some(SemanticListOperator {
+                        kind: match item.operator {
+                            RecordedListOperator::And => SemanticListOperatorKind::And,
+                            RecordedListOperator::Or => SemanticListOperatorKind::Or,
+                        },
+                        span: item.operator_span,
+                    }),
+                }));
+
+                Some(SemanticListCommand {
+                    span: command.span,
+                    segments: segments.into_boxed_slice(),
+                })
+            })
+            .collect()
+    }
+
+    /// Returns pipeline commands flattened by the semantic traversal.
+    pub fn pipeline_commands(&self) -> Vec<SemanticPipelineCommand> {
+        self.recorded_program
+            .commands()
+            .iter()
+            .filter_map(|command| {
+                let RecordedCommandKind::Pipeline { segments } = command.kind else {
+                    return None;
+                };
+
+                let segments = self
+                    .recorded_program
+                    .pipeline_segments(segments)
+                    .iter()
+                    .map(|segment| SemanticPipelineSegment {
+                        command_span: self.recorded_program.command(segment.command).span,
+                        operator_before: segment.operator_before.map(|operator| {
+                            SemanticPipelineOperator {
+                                kind: match operator.operator {
+                                    RecordedPipelineOperatorKind::Pipe => {
+                                        SemanticPipelineOperatorKind::Pipe
+                                    }
+                                    RecordedPipelineOperatorKind::PipeAll => {
+                                        SemanticPipelineOperatorKind::PipeAll
+                                    }
+                                },
+                                span: operator.span,
+                            }
+                        }),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+
+                Some(SemanticPipelineCommand {
+                    span: command.span,
+                    segments,
+                })
+            })
+            .collect()
+    }
+
     pub(crate) fn recorded_program(&self) -> &RecordedProgram {
         &self.recorded_program
     }
@@ -1138,6 +1338,51 @@ impl SemanticModel {
 
     fn set_entry_bindings(&mut self, entry_bindings: Vec<BindingId>) {
         self.entry_bindings = entry_bindings;
+    }
+
+    fn function_binding_lookup(&self) -> cfg::FunctionBindingLookup<'_> {
+        cfg::FunctionBindingLookup {
+            program: &self.recorded_program,
+            scopes: &self.scopes,
+            bindings: &self.bindings,
+            call_sites: &self.call_sites,
+            unconditional_function_bindings: self.unconditional_function_bindings(),
+            function_bindings_by_scope: self.function_binding_scope_index(),
+        }
+    }
+
+    pub(crate) fn visible_function_binding(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        offset: usize,
+    ) -> Option<BindingId> {
+        self.function_binding_lookup()
+            .visible_function_binding(name, scope, offset)
+    }
+
+    fn unconditional_function_bindings(&self) -> &FxHashSet<BindingId> {
+        self.unconditional_function_bindings.get_or_init(|| {
+            cfg::collect_unconditional_function_bindings(
+                &self.recorded_program,
+                &self.command_bindings,
+                &self.bindings,
+            )
+        })
+    }
+
+    pub(crate) fn function_binding_scope_index(
+        &self,
+    ) -> &FxHashMap<ScopeId, SmallVec<[BindingId; 2]>> {
+        self.function_bindings_by_scope
+            .get_or_init(|| cfg::function_bindings_by_scope(&self.recorded_program))
+    }
+
+    pub(crate) fn visible_function_call_bindings(&self) -> &FxHashMap<SpanKey, BindingId> {
+        self.visible_function_call_bindings.get_or_init(|| {
+            self.function_binding_lookup()
+                .visible_function_call_bindings()
+        })
     }
 
     fn dataflow_context<'a>(&'a self, cfg: &'a ControlFlowGraph) -> DataflowContext<'a> {
@@ -1153,6 +1398,7 @@ impl SemanticModel {
             self_referential_assignment_refs: &self.self_referential_assignment_refs,
             resolved: &self.resolved,
             call_sites: &self.call_sites,
+            visible_function_call_bindings: self.visible_function_call_bindings(),
             function_body_scopes: &self.recorded_program.function_body_scopes,
             indirect_targets_by_reference: &self.indirect_targets_by_reference,
             array_like_indirect_expansion_refs: &self.array_like_indirect_expansion_refs,
@@ -1426,6 +1672,20 @@ fn build_references_sorted_by_start(references: &[Reference]) -> Vec<ReferenceId
     ids
 }
 
+fn build_bindings_sorted_by_start(bindings: &[Binding]) -> Vec<BindingId> {
+    let mut ids: Vec<BindingId> = (0..bindings.len() as u32).map(BindingId).collect();
+    ids.sort_by_key(|id| bindings[id.index()].span.start.offset);
+    ids
+}
+
+fn build_declarations_by_command_span(declarations: &[Declaration]) -> FxHashMap<SpanKey, usize> {
+    let mut index = FxHashMap::with_capacity_and_hasher(declarations.len(), Default::default());
+    for (declaration_index, declaration) in declarations.iter().enumerate() {
+        index.insert(SpanKey::new(declaration.span), declaration_index);
+    }
+    index
+}
+
 /// Iterator returned by [`SemanticModel::references_in_span`].
 ///
 /// Walks the references sorted index forward from the first candidate and
@@ -1449,6 +1709,34 @@ impl<'a> Iterator for ReferencesInSpan<'a> {
             }
             if reference.span.end.offset <= self.end {
                 return Some(reference);
+            }
+        }
+    }
+}
+
+/// Iterator returned by [`SemanticModel::bindings_in_span`].
+///
+/// Walks the bindings sorted index forward from the first candidate and
+/// stops as soon as a binding starts past the outer span's end.
+#[derive(Debug, Clone)]
+pub struct BindingsInSpan<'a> {
+    bindings: &'a [Binding],
+    ids: std::slice::Iter<'a, BindingId>,
+    end: usize,
+}
+
+impl<'a> Iterator for BindingsInSpan<'a> {
+    type Item = &'a Binding;
+
+    fn next(&mut self) -> Option<&'a Binding> {
+        loop {
+            let id = self.ids.next()?;
+            let binding = &self.bindings[id.index()];
+            if binding.span.start.offset > self.end {
+                return None;
+            }
+            if binding.span.end.offset <= self.end {
+                return Some(binding);
             }
         }
     }

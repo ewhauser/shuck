@@ -22,231 +22,36 @@ impl StatementFact {
 #[cfg_attr(shuck_profiling, inline(never))]
 pub(super) fn build_statement_facts<'a>(
     commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-    body: &StmtSeq,
+    semantic: &SemanticModel,
 ) -> Vec<StatementFact> {
-    let mut facts = Vec::new();
-    collect_statement_facts_in_stmt_seq(body, commands, command_ids_by_span, &mut facts);
-    facts
+    let command_ids_by_stmt_span = build_command_ids_by_stmt_span(commands);
+
+    semantic
+        .statement_sequence_commands()
+        .iter()
+        .filter_map(|statement| {
+            let command_id =
+                command_ids_by_stmt_span.get(&FactSpan::new(statement.stmt_span()))?;
+            Some(StatementFact {
+                body_span: statement.body_span(),
+                stmt_span: statement.stmt_span(),
+                command_id: *command_id,
+            })
+        })
+        .collect()
 }
 
-fn collect_statement_facts_in_stmt_seq<'a>(
-    body: &StmtSeq,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-    facts: &mut Vec<StatementFact>,
-) {
-    for stmt in &body.stmts {
-        if let Some(id) = command_fact_for_stmt(stmt, commands, command_ids_by_span) {
-            facts.push(StatementFact {
-                body_span: body.span,
-                stmt_span: stmt.span,
-                command_id: id.id(),
-            });
-        }
+fn build_command_ids_by_stmt_span(commands: &[CommandFact<'_>]) -> FxHashMap<FactSpan, CommandId> {
+    let mut command_ids_by_stmt_span = FxHashMap::default();
 
-        collect_statement_sequence_facts_in_command(
-            &stmt.command,
-            commands,
-            command_ids_by_span,
-            facts,
-        );
+    for command in commands {
+        if command.is_nested_word_command() {
+            continue;
+        }
+        command_ids_by_stmt_span
+            .entry(FactSpan::new(command.stmt().span))
+            .or_insert_with(|| command.id());
     }
-}
 
-fn collect_statement_sequence_facts_in_command<'a>(
-    command: &Command,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-    facts: &mut Vec<StatementFact>,
-) {
-    match command {
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
-        Command::Binary(binary) => {
-            collect_statement_sequence_facts_in_stmt(
-                &binary.left,
-                commands,
-                command_ids_by_span,
-                facts,
-            );
-            collect_statement_sequence_facts_in_stmt(
-                &binary.right,
-                commands,
-                command_ids_by_span,
-                facts,
-            );
-        }
-        Command::Compound(command) => match command {
-            CompoundCommand::If(command) => {
-                collect_statement_facts_in_stmt_seq(
-                    &command.condition,
-                    commands,
-                    command_ids_by_span,
-                    facts,
-                );
-                collect_statement_facts_in_stmt_seq(
-                    &command.then_branch,
-                    commands,
-                    command_ids_by_span,
-                    facts,
-                );
-                for (condition, body) in &command.elif_branches {
-                    collect_statement_facts_in_stmt_seq(
-                        condition,
-                        commands,
-                        command_ids_by_span,
-                        facts,
-                    );
-                    collect_statement_facts_in_stmt_seq(body, commands, command_ids_by_span, facts);
-                }
-                if let Some(body) = &command.else_branch {
-                    collect_statement_facts_in_stmt_seq(body, commands, command_ids_by_span, facts);
-                }
-            }
-            CompoundCommand::For(command) => {
-                collect_statement_facts_in_stmt_seq(
-                    &command.body,
-                    commands,
-                    command_ids_by_span,
-                    facts,
-                );
-            }
-            CompoundCommand::Repeat(command) => {
-                collect_statement_facts_in_stmt_seq(
-                    &command.body,
-                    commands,
-                    command_ids_by_span,
-                    facts,
-                );
-            }
-            CompoundCommand::Foreach(command) => {
-                collect_statement_facts_in_stmt_seq(
-                    &command.body,
-                    commands,
-                    command_ids_by_span,
-                    facts,
-                );
-            }
-            CompoundCommand::ArithmeticFor(command) => {
-                collect_statement_facts_in_stmt_seq(
-                    &command.body,
-                    commands,
-                    command_ids_by_span,
-                    facts,
-                );
-            }
-            CompoundCommand::While(command) => {
-                collect_statement_facts_in_stmt_seq(
-                    &command.condition,
-                    commands,
-                    command_ids_by_span,
-                    facts,
-                );
-                collect_statement_facts_in_stmt_seq(
-                    &command.body,
-                    commands,
-                    command_ids_by_span,
-                    facts,
-                );
-            }
-            CompoundCommand::Until(command) => {
-                collect_statement_facts_in_stmt_seq(
-                    &command.condition,
-                    commands,
-                    command_ids_by_span,
-                    facts,
-                );
-                collect_statement_facts_in_stmt_seq(
-                    &command.body,
-                    commands,
-                    command_ids_by_span,
-                    facts,
-                );
-            }
-            CompoundCommand::Case(command) => {
-                for case in &command.cases {
-                    collect_statement_facts_in_stmt_seq(
-                        &case.body,
-                        commands,
-                        command_ids_by_span,
-                        facts,
-                    );
-                }
-            }
-            CompoundCommand::Select(command) => {
-                collect_statement_facts_in_stmt_seq(
-                    &command.body,
-                    commands,
-                    command_ids_by_span,
-                    facts,
-                );
-            }
-            CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
-                collect_statement_facts_in_stmt_seq(body, commands, command_ids_by_span, facts);
-            }
-            CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => {}
-            CompoundCommand::Time(command) => {
-                if let Some(inner) = &command.command {
-                    collect_statement_sequence_facts_in_stmt(
-                        inner,
-                        commands,
-                        command_ids_by_span,
-                        facts,
-                    );
-                }
-            }
-            CompoundCommand::Coproc(command) => {
-                collect_statement_sequence_facts_in_stmt(
-                    &command.body,
-                    commands,
-                    command_ids_by_span,
-                    facts,
-                );
-            }
-            CompoundCommand::Always(command) => {
-                collect_statement_facts_in_stmt_seq(
-                    &command.body,
-                    commands,
-                    command_ids_by_span,
-                    facts,
-                );
-                collect_statement_facts_in_stmt_seq(
-                    &command.always_body,
-                    commands,
-                    command_ids_by_span,
-                    facts,
-                );
-            }
-        },
-        Command::Function(function) => {
-            collect_statement_sequence_facts_in_stmt(
-                &function.body,
-                commands,
-                command_ids_by_span,
-                facts,
-            );
-        }
-        Command::AnonymousFunction(function) => {
-            collect_statement_sequence_facts_in_stmt(
-                &function.body,
-                commands,
-                command_ids_by_span,
-                facts,
-            );
-        }
-    }
-}
-
-fn collect_statement_sequence_facts_in_stmt<'a>(
-    stmt: &Stmt,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-    facts: &mut Vec<StatementFact>,
-) {
-    collect_statement_sequence_facts_in_command(
-        &stmt.command,
-        commands,
-        command_ids_by_span,
-        facts,
-    );
+    command_ids_by_stmt_span
 }

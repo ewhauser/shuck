@@ -84,7 +84,7 @@ impl TokenText<'_> {
 
 /// Classification of one segment inside a lexed shell word.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LexedWordSegmentKind {
+pub(crate) enum LexedWordSegmentKind {
     /// Unquoted or otherwise plain text.
     Plain,
     /// Text from a single-quoted string.
@@ -101,7 +101,7 @@ pub enum LexedWordSegmentKind {
 
 /// One segment of a lexed shell word, optionally backed by source text.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LexedWordSegment<'a> {
+pub(crate) struct LexedWordSegment<'a> {
     kind: LexedWordSegmentKind,
     text: TokenText<'a>,
     span: Option<Span>,
@@ -156,7 +156,7 @@ impl<'a> LexedWordSegment<'a> {
     }
 
     /// Borrow this segment's cooked text.
-    pub fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         self.text.as_str()
     }
 
@@ -165,17 +165,17 @@ impl<'a> LexedWordSegment<'a> {
     }
 
     /// Return the lexical classification of this segment.
-    pub const fn kind(&self) -> LexedWordSegmentKind {
+    pub(crate) const fn kind(&self) -> LexedWordSegmentKind {
         self.kind
     }
 
     /// Return the span of the inner text, if it is tracked.
-    pub const fn span(&self) -> Option<Span> {
+    pub(crate) const fn span(&self) -> Option<Span> {
         self.span
     }
 
     /// Return the span including surrounding quoting syntax when available.
-    pub fn wrapper_span(&self) -> Option<Span> {
+    pub(crate) fn wrapper_span(&self) -> Option<Span> {
         self.wrapper_span.or(self.span)
     }
 
@@ -206,7 +206,7 @@ impl<'a> LexedWordSegment<'a> {
 
 /// Source-backed representation of a shell word produced by the lexer.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LexedWord<'a> {
+pub(crate) struct LexedWord<'a> {
     primary_segment: LexedWordSegment<'a>,
     trailing_segments: Vec<LexedWordSegment<'a>>,
 }
@@ -232,17 +232,17 @@ impl<'a> LexedWord<'a> {
     }
 
     /// Iterate over the segments that make up this word.
-    pub fn segments(&self) -> impl Iterator<Item = &LexedWordSegment<'a>> {
+    pub(crate) fn segments(&self) -> impl Iterator<Item = &LexedWordSegment<'a>> {
         std::iter::once(&self.primary_segment).chain(self.trailing_segments.iter())
     }
 
     /// Return the word text when it is represented by a single segment.
-    pub fn text(&self) -> Option<&str> {
+    pub(crate) fn text(&self) -> Option<&str> {
         self.single_segment().map(LexedWordSegment::as_str)
     }
 
     /// Join all segments into an owned string.
-    pub fn joined_text(&self) -> String {
+    pub(crate) fn joined_text(&self) -> String {
         let mut text = String::new();
         for segment in self.segments() {
             text.push_str(segment.as_str());
@@ -251,7 +251,7 @@ impl<'a> LexedWord<'a> {
     }
 
     /// Return the only segment when this word is not segmented.
-    pub fn single_segment(&self) -> Option<&LexedWordSegment<'a>> {
+    pub(crate) fn single_segment(&self) -> Option<&LexedWordSegment<'a>> {
         self.trailing_segments
             .is_empty()
             .then_some(&self.primary_segment)
@@ -297,7 +297,7 @@ impl<'a> LexedWord<'a> {
 
 /// Kinds of lexer error payloads attached to `TokenKind::Error`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LexerErrorKind {
+pub(crate) enum LexerErrorKind {
     /// Unterminated `$()` command substitution.
     CommandSubstitution,
     /// Unterminated backtick command substitution.
@@ -310,7 +310,7 @@ pub enum LexerErrorKind {
 
 impl LexerErrorKind {
     /// Human-readable message for this lexer error kind.
-    pub const fn message(self) -> &'static str {
+    pub(crate) const fn message(self) -> &'static str {
         match self {
             Self::CommandSubstitution => "unterminated command substitution",
             Self::BacktickSubstitution => "unterminated backtick substitution",
@@ -475,7 +475,7 @@ impl<'a> LexedToken<'a> {
     }
 
     /// Borrow the token text when it is a single-segment word token.
-    pub fn word_text(&self) -> Option<&str> {
+    pub(crate) fn word_text(&self) -> Option<&str> {
         self.kind
             .is_word_like()
             .then_some(())
@@ -486,7 +486,7 @@ impl<'a> LexedToken<'a> {
     }
 
     /// Return an owned string containing the token's word text.
-    pub fn word_string(&self) -> Option<String> {
+    pub(crate) fn word_string(&self) -> Option<String> {
         self.kind
             .is_word_like()
             .then_some(())
@@ -497,7 +497,7 @@ impl<'a> LexedToken<'a> {
     }
 
     /// Borrow the structured word payload for word-like tokens.
-    pub fn word(&self) -> Option<&LexedWord<'a>> {
+    pub(crate) fn word(&self) -> Option<&LexedWord<'a>> {
         match &self.payload {
             TokenPayload::Word(word) => Some(word),
             _ => None,
@@ -505,7 +505,7 @@ impl<'a> LexedToken<'a> {
     }
 
     /// Borrow the original source slice when the token is source-backed and uncooked.
-    pub fn source_slice<'b>(&self, source: &'b str) -> Option<&'b str> {
+    pub(crate) fn source_slice<'b>(&self, source: &'b str) -> Option<&'b str> {
         if !self.kind.is_word_like() || self.flags.has_cooked_text() || self.flags.is_synthetic() {
             return None;
         }
@@ -515,7 +515,7 @@ impl<'a> LexedToken<'a> {
     }
 
     /// Return the file-descriptor payload for redirection tokens that carry one.
-    pub fn fd_value(&self) -> Option<i32> {
+    pub(crate) fn fd_value(&self) -> Option<i32> {
         match self.payload {
             TokenPayload::Fd(fd) => Some(fd),
             _ => None,
@@ -523,7 +523,7 @@ impl<'a> LexedToken<'a> {
     }
 
     /// Return the `(source_fd, target_fd)` payload for descriptor-pair redirections.
-    pub fn fd_pair_value(&self) -> Option<(i32, i32)> {
+    pub(crate) fn fd_pair_value(&self) -> Option<(i32, i32)> {
         match self.payload {
             TokenPayload::FdPair(src_fd, dst_fd) => Some((src_fd, dst_fd)),
             _ => None,
@@ -531,7 +531,7 @@ impl<'a> LexedToken<'a> {
     }
 
     /// Return the lexer error payload when this token represents `TokenKind::Error`.
-    pub fn error_kind(&self) -> Option<LexerErrorKind> {
+    pub(crate) fn error_kind(&self) -> Option<LexerErrorKind> {
         match self.payload {
             TokenPayload::Error(kind) => Some(kind),
             _ => None,
@@ -541,7 +541,7 @@ impl<'a> LexedToken<'a> {
 
 /// Result of reading a heredoc body from the source.
 #[derive(Debug, Clone, PartialEq)]
-pub struct HeredocRead {
+pub(crate) struct HeredocRead {
     /// Decoded heredoc content.
     pub content: String,
     /// Source span covering the heredoc body content.
@@ -742,7 +742,7 @@ impl<'a> Lexer<'a> {
 
     /// Create a new lexer with a custom max substitution nesting depth.
     /// Limits recursion in read_command_subst_into().
-    pub fn with_max_subst_depth(input: &'a str, max_depth: usize) -> Self {
+    pub(super) fn with_max_subst_depth(input: &'a str, max_depth: usize) -> Self {
         Self::with_max_subst_depth_and_profile(
             input,
             max_depth,
@@ -752,7 +752,8 @@ impl<'a> Lexer<'a> {
     }
 
     /// Create a new lexer using the provided shell profile.
-    pub fn with_profile(input: &'a str, shell_profile: &ShellProfile) -> Self {
+    #[cfg(test)]
+    fn with_profile(input: &'a str, shell_profile: &ShellProfile) -> Self {
         let zsh_timeline = (shell_profile.dialect == super::ShellDialect::Zsh)
             .then(|| ZshOptionTimeline::build(input, shell_profile))
             .flatten()
@@ -785,11 +786,6 @@ impl<'a> Lexer<'a> {
             #[cfg(feature = "benchmarking")]
             benchmark_counters: None,
         }
-    }
-
-    /// Get the current position in the input.
-    pub fn position(&self) -> Position {
-        self.position_map.position_uncached(self.offset)
     }
 
     pub(super) fn position_at_offset(&self, offset: usize) -> Position {
@@ -1076,7 +1072,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Get the next source-backed token from the input, preserving line comments.
-    pub fn next_lexed_token_with_comments(&mut self) -> Option<LexedToken<'a>> {
+    pub(super) fn next_lexed_token_with_comments(&mut self) -> Option<LexedToken<'a>> {
         self.skip_whitespace();
         let start = self.current_position();
         let token = self.next_lexed_token_inner(true)?;
@@ -3875,7 +3871,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Read here document content until the delimiter line is found
-    pub fn read_heredoc(&mut self, delimiter: &str, strip_tabs: bool) -> HeredocRead {
+    pub(super) fn read_heredoc(&mut self, delimiter: &str, strip_tabs: bool) -> HeredocRead {
         let mut content = String::with_capacity(64);
         let mut current_line = String::with_capacity(64);
 

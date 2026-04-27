@@ -121,10 +121,11 @@ impl<'a> Checker<'a> {
     }
 
     fn build_facts(&self) -> LinterFacts<'a> {
-        LinterFacts::build_with_shell_and_ambient_shell_options(
+        LinterFacts::build_with_semantic_analysis_shell_and_ambient_shell_options(
             self.file,
             self.source,
             self.semantic,
+            &self.semantic_analysis,
             self.indexer,
             self.shell,
             self.ambient_shell_options,

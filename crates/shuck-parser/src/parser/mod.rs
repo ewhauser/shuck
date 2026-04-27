@@ -23,10 +23,8 @@ use std::{
     sync::Arc,
 };
 
-pub use lexer::{
-    HeredocRead, LexedToken, LexedWord, LexedWordSegment, LexedWordSegmentKind, Lexer,
-    LexerErrorKind,
-};
+pub use lexer::{LexedToken, Lexer};
+pub(crate) use lexer::{LexedWordSegment, LexedWordSegmentKind};
 pub use profile::{ShellDialect, ShellProfile};
 pub use result::{ParseDiagnostic, ParseResult, ParseStatus, SyntaxFacts, ZshCaseGroupPart};
 pub use zsh_options::{OptionValue, ZshEmulationMode, ZshOptionState};
@@ -373,16 +371,6 @@ impl<'a> Parser<'a> {
         )
     }
 
-    /// Return the dialect associated with this parser.
-    pub fn dialect(&self) -> ShellDialect {
-        self.dialect
-    }
-
-    /// Borrow the full shell profile associated with this parser.
-    pub fn shell_profile(&self) -> &ShellProfile {
-        &self.shell_profile
-    }
-
     fn zsh_options_at_offset(&self, offset: usize) -> Option<&ZshOptionState> {
         self.zsh_timeline
             .as_ref()
@@ -434,8 +422,8 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Get the current token's span.
-    pub fn current_span(&self) -> Span {
+    #[cfg(test)]
+    fn current_span(&self) -> Span {
         self.current_span
     }
 
@@ -450,21 +438,6 @@ impl<'a> Parser<'a> {
             start,
             true,
         )
-    }
-
-    /// Classify an already-parsed word as a shell assignment and split its value.
-    ///
-    /// This is the parser-owned entrypoint for downstream analysis that needs
-    /// assignment target/value structure from a `Word` that was parsed as a
-    /// normal command argument.
-    pub fn parse_assignment_word(
-        source: &str,
-        word: Word,
-        explicit_array_kind: Option<ArrayKind>,
-        subscript_interpretation: SubscriptInterpretation,
-    ) -> Option<Assignment> {
-        let mut parser = Parser::new(source);
-        parser.parse_assignment_from_word(word, explicit_array_kind, subscript_interpretation)
     }
 
     /// Classify a contiguous group of already-parsed words as a shell assignment.
@@ -486,19 +459,8 @@ impl<'a> Parser<'a> {
         parser.parse_assignment_from_text(raw, span, explicit_array_kind, subscript_interpretation)
     }
 
-    /// Parse a word string with caller-configured limits.
-    /// Prevents bypass of parser limits in parameter expansion contexts.
-    pub fn parse_word_string_with_limits(input: &str, max_depth: usize, max_fuel: usize) -> Word {
-        Self::parse_word_string_with_limits_and_dialect(
-            input,
-            max_depth,
-            max_fuel,
-            ShellDialect::Bash,
-        )
-    }
-
     /// Parse a word string with caller-configured limits and shell dialect.
-    pub fn parse_word_string_with_limits_and_dialect(
+    fn parse_word_string_with_limits_and_dialect(
         input: &str,
         max_depth: usize,
         max_fuel: usize,
@@ -521,7 +483,7 @@ impl<'a> Parser<'a> {
 
     /// Parse a fragment against the original source span so part offsets stay
     /// aligned with the surrounding script.
-    pub fn parse_word_fragment(source: &str, text: &str, span: Span) -> Word {
+    fn parse_word_fragment(source: &str, text: &str, span: Span) -> Word {
         let mut parser = Parser::new(text);
         let source_backed = span.end.offset <= source.len() && span.slice(source) == text;
         let start = Position::new();

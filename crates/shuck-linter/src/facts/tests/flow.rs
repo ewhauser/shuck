@@ -67,6 +67,24 @@ esac
 }
 
 #[test]
+fn redundant_echo_space_facts_capture_diagnostic_and_edit_spans() {
+    let source = "#!/bin/bash\necho foo    bar    baz\necho foo  bar\n";
+
+    with_facts(source, None, |_, facts| {
+        let facts = facts.redundant_echo_space_facts();
+
+        assert_eq!(facts.len(), 1);
+        assert_eq!(
+            facts[0].diagnostic_span().slice(source),
+            "echo foo    bar    baz"
+        );
+        assert_eq!(facts[0].space_spans().len(), 2);
+        assert_eq!(facts[0].space_spans()[0].slice(source), "    ");
+        assert_eq!(facts[0].space_spans()[1].slice(source), "    ");
+    });
+}
+
+#[test]
 fn commented_continuation_facts_ignore_plain_comment_only_lines() {
     let source = "#!/bin/sh\necho hello \\\n  #world\n  foo\n";
 

@@ -76,6 +76,7 @@ pub(crate) struct DataflowContext<'a> {
     pub(crate) self_referential_assignment_refs: &'a FxHashSet<ReferenceId>,
     pub(crate) resolved: &'a FxHashMap<ReferenceId, BindingId>,
     pub(crate) call_sites: &'a FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    pub(crate) visible_function_call_bindings: &'a FxHashMap<SpanKey, BindingId>,
     pub(crate) function_body_scopes: &'a FxHashMap<BindingId, ScopeId>,
     pub(crate) indirect_targets_by_reference: &'a FxHashMap<ReferenceId, Vec<BindingId>>,
     pub(crate) array_like_indirect_expansion_refs: &'a FxHashSet<ReferenceId>,
@@ -90,6 +91,8 @@ pub(crate) struct ExactVariableDataflow {
     binding_blocks: Vec<Option<BlockId>>,
     reference_blocks: Vec<Option<BlockId>>,
     unreachable_blocks: DenseBitSet,
+    forward_block_order: OnceLock<Box<[BlockId]>>,
+    backward_block_order: OnceLock<Box<[BlockId]>>,
     reaching_definitions: OnceLock<DenseReachingDefinitions>,
     initialized_name_states: OnceLock<DenseInitializedNameStates>,
     c006_initialized_name_states: OnceLock<DenseInitializedNameStates>,
@@ -97,6 +100,16 @@ pub(crate) struct ExactVariableDataflow {
 }
 
 impl ExactVariableDataflow {
+    fn forward_block_order(&self, cfg: &ControlFlowGraph) -> &[BlockId] {
+        self.forward_block_order
+            .get_or_init(|| compute_reverse_postorder(cfg))
+    }
+
+    fn backward_block_order(&self, cfg: &ControlFlowGraph) -> &[BlockId] {
+        self.backward_block_order
+            .get_or_init(|| compute_postorder(cfg))
+    }
+
     fn reaching_definitions<'a>(
         &'a self,
         context: &DataflowContext<'_>,
@@ -107,6 +120,7 @@ impl ExactVariableDataflow {
                 context.bindings,
                 &self.binding_data,
                 context.entry_bindings,
+                self.forward_block_order(context.cfg),
             )
         })
     }
@@ -121,6 +135,7 @@ impl ExactVariableDataflow {
                 context.bindings,
                 &self.binding_data,
                 context.entry_bindings,
+                self.forward_block_order(context.cfg),
             )
         })
     }
@@ -147,6 +162,7 @@ impl ExactVariableDataflow {
                 &self.binding_data,
                 context.entry_bindings,
                 &extra_initialized_names,
+                self.forward_block_order(context.cfg),
             )
         })
     }
@@ -251,6 +267,8 @@ pub(crate) fn build_exact_variable_dataflow(
         binding_blocks,
         reference_blocks,
         unreachable_blocks,
+        forward_block_order: OnceLock::new(),
+        backward_block_order: OnceLock::new(),
         reaching_definitions: OnceLock::new(),
         initialized_name_states: OnceLock::new(),
         c006_initialized_name_states: OnceLock::new(),
@@ -531,13 +549,13 @@ fn analyze_unused_assignments_exact(
     let (read_plans, callers_by_callee) = build_scope_read_plans(
         context.cfg,
         context.scopes,
-        context.bindings,
         context.references,
         context.synthetic_reads,
         &exact.reference_blocks,
         &reference_name_ids,
         &synthetic_read_name_ids,
         context.call_sites,
+        context.visible_function_call_bindings,
         context.function_body_scopes,
         exact.names.len(),
     );
@@ -1135,44 +1153,36 @@ fn mark_used_bindings_with_backward_liveness(
     let mut live_out = SlotLiveMatrix::new(block_count, slots.len());
     let mut outgoing = SlotLiveSet::new(slots.len());
     let mut incoming = SlotLiveSet::new(slots.len());
-    let mut changed = true;
+    let backward_order = exact.backward_block_order(context.cfg);
 
-    while changed {
-        changed = false;
-        for block in context.cfg.blocks().iter().rev() {
-            let block_index = block.id.index();
-            outgoing.clear();
-            for (successor, _) in context.cfg.successors(block.id) {
-                outgoing.union_with_slice(live_in.set(successor.index()));
-            }
+    run_backward_dataflow_worklist(context.cfg, backward_order, |block_id| {
+        let block_index = block_id.index();
+        outgoing.clear();
+        for (successor, _) in context.cfg.successors(block_id) {
+            outgoing.union_with_slice(live_in.set(successor.index()));
+        }
 
-            incoming.copy_from_slice(outgoing.as_slice());
-            if !exact.unreachable_blocks.contains(block_index)
-                || options.report_unreachable_assignments
-            {
-                for event in events[block_index].iter().rev() {
-                    apply_unused_assignment_event(
-                        context,
-                        options,
-                        reference_name_ids,
-                        synthetic_read_name_ids,
-                        transitive_reads,
-                        &slots,
-                        &mut incoming,
-                        used_bindings,
-                        event.kind,
-                    );
-                }
-            }
-
-            if live_out.replace_if_changed(block_index, &outgoing) {
-                changed = true;
-            }
-            if live_in.replace_if_changed(block_index, &incoming) {
-                changed = true;
+        incoming.copy_from_slice(outgoing.as_slice());
+        if !exact.unreachable_blocks.contains(block_index) || options.report_unreachable_assignments
+        {
+            for event in events[block_index].iter().rev() {
+                apply_unused_assignment_event(
+                    context,
+                    options,
+                    reference_name_ids,
+                    synthetic_read_name_ids,
+                    transitive_reads,
+                    &slots,
+                    &mut incoming,
+                    used_bindings,
+                    event.kind,
+                );
             }
         }
-    }
+
+        live_out.replace_if_changed(block_index, &outgoing);
+        live_in.replace_if_changed(block_index, &incoming)
+    });
 }
 
 fn build_unused_assignment_events(
@@ -1363,12 +1373,22 @@ impl DenseBitSet {
         self.words[word] |= 1usize << bit;
     }
 
+    fn remove(&mut self, index: usize) {
+        let word = index / Self::WORD_BITS;
+        let bit = index % Self::WORD_BITS;
+        self.words[word] &= !(1usize << bit);
+    }
+
     fn contains(&self, index: usize) -> bool {
         let word = index / Self::WORD_BITS;
         let bit = index % Self::WORD_BITS;
         self.words
             .get(word)
             .is_some_and(|word| (word & (1usize << bit)) != 0)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.words.iter().all(|word| *word == 0)
     }
 
     fn clear(&mut self) {
@@ -1704,11 +1724,131 @@ fn command_block_for_span(cfg: &ControlFlowGraph, span: Span) -> Option<BlockId>
     cfg.block_ids_for_span(span).last().copied()
 }
 
+fn compute_reverse_postorder(cfg: &ControlFlowGraph) -> Box<[BlockId]> {
+    compute_block_order(cfg, BlockOrderKind::ReversePostorder)
+}
+
+fn compute_postorder(cfg: &ControlFlowGraph) -> Box<[BlockId]> {
+    compute_block_order(cfg, BlockOrderKind::Postorder)
+}
+
+#[derive(Clone, Copy)]
+enum BlockOrderKind {
+    ReversePostorder,
+    Postorder,
+}
+
+fn compute_block_order(cfg: &ControlFlowGraph, kind: BlockOrderKind) -> Box<[BlockId]> {
+    let block_count = cfg.blocks().len();
+    let mut visited = DenseBitSet::new(block_count);
+    let mut order: Vec<BlockId> = Vec::with_capacity(block_count);
+
+    let mut sources: Vec<BlockId> = Vec::new();
+    sources.push(cfg.entry());
+    sources.extend(cfg.scope_entries.values().copied());
+    for block in cfg.blocks() {
+        if cfg.predecessors(block.id).is_empty() {
+            sources.push(block.id);
+        }
+    }
+
+    enum Frame {
+        Enter(BlockId),
+        Exit(BlockId),
+    }
+    let mut stack: Vec<Frame> = Vec::new();
+    for source in sources {
+        if visited.contains(source.index()) {
+            continue;
+        }
+        stack.push(Frame::Enter(source));
+        while let Some(frame) = stack.pop() {
+            match frame {
+                Frame::Enter(block) => {
+                    if visited.contains(block.index()) {
+                        continue;
+                    }
+                    visited.insert(block.index());
+                    stack.push(Frame::Exit(block));
+                    for (successor, _) in cfg.successors(block) {
+                        if !visited.contains(successor.index()) {
+                            stack.push(Frame::Enter(*successor));
+                        }
+                    }
+                }
+                Frame::Exit(block) => order.push(block),
+            }
+        }
+    }
+
+    for block in cfg.blocks() {
+        if !visited.contains(block.id.index()) {
+            order.push(block.id);
+        }
+    }
+
+    if matches!(kind, BlockOrderKind::ReversePostorder) {
+        order.reverse();
+    }
+    order.into_boxed_slice()
+}
+
+fn run_forward_dataflow_worklist<F>(cfg: &ControlFlowGraph, rpo: &[BlockId], mut transfer: F)
+where
+    F: FnMut(BlockId) -> bool,
+{
+    let block_count = cfg.blocks().len();
+    let mut dirty = DenseBitSet::new(block_count);
+    for block in rpo {
+        dirty.insert(block.index());
+    }
+
+    while !dirty.is_empty() {
+        for &block in rpo {
+            if !dirty.contains(block.index()) {
+                continue;
+            }
+            dirty.remove(block.index());
+            if transfer(block) {
+                for (successor, _) in cfg.successors(block) {
+                    dirty.insert(successor.index());
+                }
+            }
+        }
+    }
+}
+
+fn run_backward_dataflow_worklist<F>(cfg: &ControlFlowGraph, postorder: &[BlockId], mut transfer: F)
+where
+    F: FnMut(BlockId) -> bool,
+{
+    let block_count = cfg.blocks().len();
+    let mut dirty = DenseBitSet::new(block_count);
+    for block in postorder {
+        dirty.insert(block.index());
+    }
+
+    while !dirty.is_empty() {
+        for &block in postorder {
+            if !dirty.contains(block.index()) {
+                continue;
+            }
+            dirty.remove(block.index());
+            if transfer(block) {
+                for predecessor in cfg.predecessors(block) {
+                    dirty.insert(predecessor.index());
+                }
+            }
+        }
+    }
+}
+
 fn compute_reaching_definitions_dense(
     cfg: &ControlFlowGraph,
     bindings: &[Binding],
     binding_data: &DenseBindingData,
     entry_bindings: &[BindingId],
+    forward_order: &[BlockId],
 ) -> DenseReachingDefinitions {
     let entry_blocks = entry_binding_root_blocks(cfg);
     let block_count = cfg.blocks().len();
@@ -1774,34 +1914,27 @@ fn compute_reaching_definitions_dense(
     let mut incoming = DenseBitSet::new(binding_count);
     let mut carried = DenseBitSet::new(binding_count);
     let mut outgoing = DenseBitSet::new(binding_count);
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for block in cfg.blocks() {
-            let block_index = block.id.index();
-            incoming.clear();
-            for predecessor in cfg.predecessors(block.id) {
-                incoming.union_with(&reaching_out[predecessor.index()]);
-            }
-            if entry_blocks.contains(&block.id) {
-                for binding in entry_bindings {
-                    incoming.insert(binding.index());
-                }
-            }
 
-            carried.copy_from(&incoming);
-            carried.subtract_with(&kill_sets[block_index]);
-            outgoing.copy_from(&gen_sets[block_index]);
-            outgoing.union_with(&carried);
-
-            if reaching_in[block_index].replace_if_changed(&incoming) {
-                changed = true;
-            }
-            if reaching_out[block_index].replace_if_changed(&outgoing) {
-                changed = true;
+    run_forward_dataflow_worklist(cfg, forward_order, |block_id| {
+        let block_index = block_id.index();
+        incoming.clear();
+        for predecessor in cfg.predecessors(block_id) {
+            incoming.union_with(&reaching_out[predecessor.index()]);
+        }
+        if entry_blocks.contains(&block_id) {
+            for binding in entry_bindings {
+                incoming.insert(binding.index());
             }
         }
-    }
+
+        carried.copy_from(&incoming);
+        carried.subtract_with(&kill_sets[block_index]);
+        outgoing.copy_from(&gen_sets[block_index]);
+        outgoing.union_with(&carried);
+
+        reaching_in[block_index].replace_if_changed(&incoming);
+        reaching_out[block_index].replace_if_changed(&outgoing)
+    });
 
     DenseReachingDefinitions {
         reaching_in,
@@ -1814,6 +1947,7 @@ fn compute_initialized_name_states_dense(
     bindings: &[Binding],
     binding_data: &DenseBindingData,
     entry_bindings: &[BindingId],
+    forward_order: &[BlockId],
 ) -> DenseInitializedNameStates {
     compute_initialized_name_states_dense_with_extra_name_gens(
         cfg,
@@ -1821,6 +1955,7 @@ fn compute_initialized_name_states_dense(
         binding_data,
         entry_bindings,
         &[],
+        forward_order,
     )
 }
 
@@ -1830,6 +1965,7 @@ fn compute_initialized_name_states_dense_with_extra_name_gens(
     binding_data: &DenseBindingData,
     entry_bindings: &[BindingId],
     extra_initialized_names: &[(BlockId, NameId)],
+    forward_order: &[BlockId],
 ) -> DenseInitializedNameStates {
     let entry_blocks = entry_binding_root_blocks(cfg);
     let block_count = cfg.blocks().len();
@@ -1890,65 +2026,53 @@ fn compute_initialized_name_states_dense_with_extra_name_gens(
     let mut incoming_definite = DenseBitSet::new(name_count);
     let mut outgoing_maybe = DenseBitSet::new(name_count);
     let mut outgoing_definite = DenseBitSet::new(name_count);
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for block in cfg.blocks() {
-            let block_index = block.id.index();
 
-            incoming_maybe.clear();
-            for predecessor in cfg.predecessors(block.id) {
-                incoming_maybe.union_with(&maybe_out[predecessor.index()]);
-            }
-            if entry_blocks.contains(&block.id) {
-                incoming_maybe.union_with(&entry_maybe);
-            }
+    run_forward_dataflow_worklist(cfg, forward_order, |block_id| {
+        let block_index = block_id.index();
 
-            let predecessors = cfg.predecessors(block.id);
-            let uses_virtual_entry_boundary = entry_blocks.contains(&block.id)
-                && predecessors.iter().all(|predecessor| {
-                    cfg.successors(*predecessor)
-                        .iter()
-                        .any(|(successor, kind)| {
-                            *successor == block.id && *kind == EdgeKind::LoopBack
-                        })
-                });
-            if uses_virtual_entry_boundary {
-                incoming_definite.copy_from(&entry_definite);
-            } else if let Some(first_predecessor) = predecessors.first() {
-                incoming_definite.copy_from(&definite_out[first_predecessor.index()]);
-            } else {
-                incoming_definite.clear();
-            }
-            for (predecessor_index, predecessor) in predecessors.iter().enumerate() {
-                if !uses_virtual_entry_boundary && predecessor_index == 0 {
-                    continue;
-                }
-                incoming_definite.intersect_with(&definite_out[predecessor.index()]);
-            }
-
-            outgoing_maybe.copy_from(&incoming_maybe);
-            outgoing_maybe.subtract_with(&overwritten_names[block_index]);
-            outgoing_maybe.union_with(&maybe_gen[block_index]);
-
-            outgoing_definite.copy_from(&incoming_definite);
-            outgoing_definite.subtract_with(&overwritten_names[block_index]);
-            outgoing_definite.union_with(&definite_gen[block_index]);
-
-            if maybe_in[block_index].replace_if_changed(&incoming_maybe) {
-                changed = true;
-            }
-            if maybe_out[block_index].replace_if_changed(&outgoing_maybe) {
-                changed = true;
-            }
-            if definite_in[block_index].replace_if_changed(&incoming_definite) {
-                changed = true;
-            }
-            if definite_out[block_index].replace_if_changed(&outgoing_definite) {
-                changed = true;
-            }
+        incoming_maybe.clear();
+        for predecessor in cfg.predecessors(block_id) {
+            incoming_maybe.union_with(&maybe_out[predecessor.index()]);
         }
-    }
+        if entry_blocks.contains(&block_id) {
+            incoming_maybe.union_with(&entry_maybe);
+        }
+
+        let predecessors = cfg.predecessors(block_id);
+        let uses_virtual_entry_boundary = entry_blocks.contains(&block_id)
+            && predecessors.iter().all(|predecessor| {
+                cfg.successors(*predecessor)
+                    .iter()
+                    .any(|(successor, kind)| *successor == block_id && *kind == EdgeKind::LoopBack)
+            });
+        if uses_virtual_entry_boundary {
+            incoming_definite.copy_from(&entry_definite);
+        } else if let Some(first_predecessor) = predecessors.first() {
+            incoming_definite.copy_from(&definite_out[first_predecessor.index()]);
+        } else {
+            incoming_definite.clear();
+        }
+        for (predecessor_index, predecessor) in predecessors.iter().enumerate() {
+            if !uses_virtual_entry_boundary && predecessor_index == 0 {
+                continue;
+            }
+            incoming_definite.intersect_with(&definite_out[predecessor.index()]);
+        }
+
+        outgoing_maybe.copy_from(&incoming_maybe);
+        outgoing_maybe.subtract_with(&overwritten_names[block_index]);
+        outgoing_maybe.union_with(&maybe_gen[block_index]);
+
+        outgoing_definite.copy_from(&incoming_definite);
+        outgoing_definite.subtract_with(&overwritten_names[block_index]);
+        outgoing_definite.union_with(&definite_gen[block_index]);
+
+        maybe_in[block_index].replace_if_changed(&incoming_maybe);
+        definite_in[block_index].replace_if_changed(&incoming_definite);
+        let maybe_out_changed = maybe_out[block_index].replace_if_changed(&outgoing_maybe);
+        let definite_out_changed = definite_out[block_index].replace_if_changed(&outgoing_definite);
+        maybe_out_changed || definite_out_changed
+    });
 
     DenseInitializedNameStates {
         maybe_in,
@@ -2194,18 +2318,21 @@ fn reachable_blocks_dense(
 fn build_scope_read_plans(
     cfg: &ControlFlowGraph,
     scopes: &[Scope],
-    bindings: &[Binding],
     references: &[Reference],
     synthetic_reads: &[SyntheticRead],
     reference_blocks: &[Option<BlockId>],
     reference_name_ids: &[NameId],
     synthetic_read_name_ids: &[NameId],
     call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    visible_function_call_bindings: &FxHashMap<SpanKey, BindingId>,
     function_body_scopes: &FxHashMap<BindingId, ScopeId>,
     name_count: usize,
 ) -> (Vec<ScopeReadPlan>, Vec<Vec<CallerReadSite>>) {
-    let calls_by_scope =
-        resolved_calls_by_scope(scopes, bindings, call_sites, function_body_scopes);
+    let calls_by_scope = resolved_calls_by_scope(
+        call_sites,
+        visible_function_call_bindings,
+        function_body_scopes,
+    );
     let mut plans = scopes
         .iter()
         .map(|scope| ScopeReadPlan::new(name_count, matches!(scope.kind, ScopeKind::Function(_))))
@@ -2634,21 +2761,17 @@ fn function_binding_certainty(binding: &Binding) -> Option<ContractCertainty> {
 }
 
 fn resolved_calls_by_scope(
-    scopes: &[Scope],
-    bindings: &[Binding],
     call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    visible_function_call_bindings: &FxHashMap<SpanKey, BindingId>,
     function_scopes: &FxHashMap<BindingId, ScopeId>,
 ) -> FxHashMap<ScopeId, Vec<ResolvedCallSite>> {
     let mut calls_by_scope: FxHashMap<ScopeId, Vec<ResolvedCallSite>> = FxHashMap::default();
-    for (name, sites) in call_sites {
+    for sites in call_sites.values() {
         for site in sites {
-            let Some(function_binding) = visible_function_binding(
-                scopes,
-                bindings,
-                name,
-                site.scope,
-                site.span.start.offset,
-            ) else {
+            let Some(function_binding) = visible_function_call_bindings
+                .get(&SpanKey::new(site.name_span))
+                .copied()
+            else {
                 continue;
             };
             let Some(callee_scope) = function_scopes.get(&function_binding).copied() else {
@@ -2670,42 +2793,6 @@ fn resolved_calls_by_scope(
     calls_by_scope
 }
 
-fn visible_function_binding(
-    scopes: &[Scope],
-    bindings: &[Binding],
-    name: &Name,
-    scope: ScopeId,
-    offset: usize,
-) -> Option<BindingId> {
-    for scope_id in ancestor_scopes(scopes, scope) {
-        let Some(candidates) = scopes[scope_id.index()].bindings.get(name) else {
-            continue;
-        };
-
-        if scope_id != scope {
-            if let Some(binding) = candidates.iter().rev().copied().find(|binding| {
-                matches!(
-                    bindings[binding.index()].kind,
-                    BindingKind::FunctionDefinition
-                )
-            }) {
-                return Some(binding);
-            }
-            continue;
-        }
-
-        for binding in candidates.iter().rev().copied() {
-            let candidate = &bindings[binding.index()];
-            if matches!(candidate.kind, BindingKind::FunctionDefinition)
-                && candidate.span.start.offset <= offset
-            {
-                return Some(binding);
-            }
-        }
-    }
-    None
-}
-
 fn is_function_escape_candidate(binding: &Binding, scopes: &[Scope]) -> bool {
     matches!(scopes[binding.scope.index()].kind, ScopeKind::Function(_))
         && !binding.attributes.contains(BindingAttributes::LOCAL)
@@ -2715,13 +2802,14 @@ fn is_function_escape_candidate(binding: &Binding, scopes: &[Scope]) -> bool {
         )
 }
 
-fn ancestor_scopes(scopes: &[Scope], start: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
-    std::iter::successors(Some(start), move |scope| scopes[scope.index()].parent)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SemanticModel;
+    use shuck_ast::Name;
+    use shuck_indexer::Indexer;
+    use shuck_parser::parser::Parser;
+    use smallvec::smallvec;
 
     #[test]
     fn future_reads_contain_after_until_ignores_backwards_intervals() {
@@ -2745,5 +2833,46 @@ mod tests {
             &[plan],
             &transitive_reads,
         ));
+    }
+
+    #[test]
+    fn resolved_calls_by_scope_ignores_conditionally_installed_functions() {
+        let source = "\
+outer() {
+  if false; then
+    use_flag() { printf '%s\\n' \"$flag\"; }
+  fi
+  flag=1
+  use_flag
+}
+outer
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build(&output.file, source, &indexer);
+        let name = Name::from("use_flag");
+        let mut call_sites = FxHashMap::default();
+        call_sites.insert(
+            name.clone(),
+            smallvec![model.call_sites_for(&name)[0].clone()],
+        );
+        let mut function_scopes = FxHashMap::default();
+        for binding in model.function_definitions(&name) {
+            if let Some(scope) = model.analysis().function_scope_for_binding(*binding) {
+                function_scopes.insert(*binding, scope);
+            }
+        }
+
+        let calls_by_scope = resolved_calls_by_scope(
+            &call_sites,
+            model.visible_function_call_bindings(),
+            &function_scopes,
+        );
+
+        assert!(
+            calls_by_scope.is_empty(),
+            "resolved calls: {:?}",
+            calls_by_scope
+        );
     }
 }

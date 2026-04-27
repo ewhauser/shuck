@@ -1,4 +1,3 @@
-use shuck_ast::Span;
 use shuck_semantic::{Binding, BindingAttributes, BindingKind, DeclarationBuiltin, ScopeKind};
 
 use crate::{Checker, Rule, ShellDialect, Violation};
@@ -34,9 +33,8 @@ pub fn local_top_level(checker: &mut Checker) {
         })
         .filter_map(|declaration| {
             let binding_scopes = semantic
-                .bindings()
-                .iter()
-                .filter(|binding| local_binding_belongs_to_declaration(binding, declaration.span))
+                .bindings_in_span(declaration.span)
+                .filter(|binding| local_binding_belongs_to_declaration_kind(binding))
                 .map(|binding| binding.scope)
                 .collect::<Vec<_>>();
 
@@ -63,13 +61,7 @@ pub fn local_top_level(checker: &mut Checker) {
     checker.report_all_dedup(spans, || LocalTopLevel);
 }
 
-fn local_binding_belongs_to_declaration(binding: &Binding, declaration_span: Span) -> bool {
-    if binding.span.start.offset < declaration_span.start.offset
-        || binding.span.end.offset > declaration_span.end.offset
-    {
-        return false;
-    }
-
+fn local_binding_belongs_to_declaration_kind(binding: &Binding) -> bool {
     matches!(
         binding.kind,
         BindingKind::Declaration(DeclarationBuiltin::Local)

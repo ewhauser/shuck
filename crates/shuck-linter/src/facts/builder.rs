@@ -1,7 +1,8 @@
-struct LinterFactsBuilder<'a> {
+struct LinterFactsBuilder<'a, 'analysis> {
     file: &'a File,
     source: &'a str,
     semantic: &'a SemanticModel,
+    semantic_analysis: &'analysis SemanticAnalysis<'a>,
     _indexer: &'a Indexer,
     shell: ShellDialect,
     ambient_shell_options: AmbientShellOptions,
@@ -54,11 +55,12 @@ fn estimate_fact_build_capacity(file: &File) -> FactBuildCapacity {
     capacity
 }
 
-impl<'a> LinterFactsBuilder<'a> {
+impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
     fn new(
         file: &'a File,
         source: &'a str,
         semantic: &'a SemanticModel,
+        semantic_analysis: &'analysis SemanticAnalysis<'a>,
         indexer: &'a Indexer,
         shell: ShellDialect,
         ambient_shell_options: AmbientShellOptions,
@@ -67,6 +69,7 @@ impl<'a> LinterFactsBuilder<'a> {
             file,
             source,
             semantic,
+            semantic_analysis,
             _indexer: indexer,
             shell,
             ambient_shell_options,
@@ -75,7 +78,7 @@ impl<'a> LinterFactsBuilder<'a> {
 
     fn build(self) -> LinterFacts<'a> {
         let source = self.source;
-        let semantic_analysis = self.semantic.analysis();
+        let semantic_analysis = self.semantic_analysis;
         let capacity = estimate_fact_build_capacity(self.file);
         let estimated_word_nodes = capacity.commands.saturating_mul(2);
         let estimated_word_occurrences = capacity.commands.saturating_mul(3);
@@ -119,7 +122,6 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut pattern_charclass_spans = Vec::new();
         let mut arithmetic_summary = ArithmeticFactSummary::default();
         let mut surface_fragments = SurfaceFragmentSink::new(self.source);
-        let semantic_declaration_index = build_semantic_declaration_index(self.semantic);
         let mut functions = Vec::with_capacity(capacity.functions);
         let mut function_body_without_braces_spans = Vec::with_capacity(capacity.functions);
         let redundant_return_status_spans = Vec::new();
@@ -172,7 +174,6 @@ impl<'a> LinterFactsBuilder<'a> {
                 collect_binding_values(
                     visit.command,
                     self.semantic,
-                    &semantic_declaration_index,
                     self.source,
                     &mut binding_values,
                 );
@@ -290,7 +291,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 let declaration_assignment_probes = build_declaration_assignment_probes(
                     visit.command,
                     &normalized,
-                    &semantic_declaration_index,
+                    self.semantic,
                     self.source,
                     command_zsh_options.as_ref(),
                 );
@@ -463,11 +464,15 @@ impl<'a> LinterFactsBuilder<'a> {
             self.source,
         );
 
-        let presence_tested_names =
-            build_presence_tested_names(&commands, self.source, self.semantic);
+        let presence_tested_names = build_presence_tested_names(
+            &commands,
+            &command_offset_order,
+            self.source,
+            self.semantic,
+        );
         let function_headers = build_function_header_facts(
             self.semantic,
-            &semantic_analysis,
+            semantic_analysis,
             &functions,
             &commands,
             self.source,
@@ -475,7 +480,7 @@ impl<'a> LinterFactsBuilder<'a> {
         );
         let function_cli_dispatch_facts = build_function_cli_dispatch_facts(
             self.semantic,
-            &semantic_analysis,
+            semantic_analysis,
             &function_headers,
             self.file,
             self.source,
@@ -524,7 +529,12 @@ impl<'a> LinterFactsBuilder<'a> {
         let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
         let case_pattern_impossible_spans =
             build_case_pattern_impossible_spans(&commands, self.source);
-        let pipelines = build_pipeline_facts(&commands, &command_ids_by_span, &command_child_index);
+        let pipelines = build_pipeline_facts(
+            &commands,
+            self.semantic,
+            &command_ids_by_span,
+            &command_child_index,
+        );
         populate_scope_fact_ranges(
             &mut commands,
             &mut fact_store,
@@ -546,8 +556,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 self.source,
             );
         annotate_conditional_assignment_value_paths(self.semantic, &lists, &mut binding_values);
-        let statement_facts =
-            build_statement_facts(&commands, &command_ids_by_span, &self.file.body);
+        let statement_facts = build_statement_facts(&commands, self.semantic);
         let background_semicolon_spans =
             build_background_semicolon_spans(&commands, &case_items, self.source);
         let single_test_subshell_spans =
@@ -833,6 +842,7 @@ impl<'a> LinterFactsBuilder<'a> {
             possible_variable_misspelling_use_scan: OnceLock::new(),
             possible_variable_misspelling_index: OnceLock::new(),
             possible_variable_misspelling_scope_compat_name_uses: OnceLock::new(),
+            redundant_echo_space_facts: OnceLock::new(),
             suppressed_subscript_reference_spans,
             subscript_later_suppression_reference_spans,
             compound_assignment_value_word_spans,

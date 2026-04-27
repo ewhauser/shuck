@@ -29,6 +29,7 @@ pub struct LinterFacts<'a> {
     possible_variable_misspelling_use_scan: OnceLock<bool>,
     possible_variable_misspelling_index: OnceLock<PossibleVariableMisspellingIndex>,
     possible_variable_misspelling_scope_compat_name_uses: OnceLock<Vec<ComparableNameUse>>,
+    redundant_echo_space_facts: OnceLock<Vec<RedundantEchoSpaceFact>>,
     suppressed_subscript_reference_spans: FxHashSet<FactSpan>,
     subscript_later_suppression_reference_spans: FxHashSet<FactSpan>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
@@ -175,7 +176,36 @@ impl<'a> LinterFacts<'a> {
         shell: ShellDialect,
         ambient_shell_options: AmbientShellOptions,
     ) -> Self {
-        LinterFactsBuilder::new(file, source, semantic, indexer, shell, ambient_shell_options)
+        let semantic_analysis = semantic.analysis();
+        Self::build_with_semantic_analysis_shell_and_ambient_shell_options(
+            file,
+            source,
+            semantic,
+            &semantic_analysis,
+            indexer,
+            shell,
+            ambient_shell_options,
+        )
+    }
+
+    pub(crate) fn build_with_semantic_analysis_shell_and_ambient_shell_options(
+        file: &'a File,
+        source: &'a str,
+        semantic: &'a SemanticModel,
+        semantic_analysis: &SemanticAnalysis<'a>,
+        indexer: &'a Indexer,
+        shell: ShellDialect,
+        ambient_shell_options: AmbientShellOptions,
+    ) -> Self {
+        LinterFactsBuilder::new(
+            file,
+            source,
+            semantic,
+            semantic_analysis,
+            indexer,
+            shell,
+            ambient_shell_options,
+        )
         .build()
     }
 
@@ -302,6 +332,11 @@ impl<'a> LinterFacts<'a> {
     pub fn command_parent(&self, id: CommandId) -> Option<CommandFactRef<'_, 'a>> {
         self.command_parent_id(id)
             .map(|parent_id| self.command(parent_id))
+    }
+
+    pub fn redundant_echo_space_facts(&self) -> &[RedundantEchoSpaceFact] {
+        self.redundant_echo_space_facts
+            .get_or_init(|| build_redundant_echo_space_facts(self))
     }
 
     pub fn function_definition_command(&self, scope: ScopeId) -> Option<CommandFactRef<'_, 'a>> {

@@ -650,16 +650,16 @@ fn collect_ast_facts(model: &SemanticModel) -> AstFacts {
             continue;
         }
 
+        let name = Name::from(name);
+        let is_source_builtin = matches!(name.as_str(), "source" | ".");
         facts.calls.push(CallInfo {
-            name: Name::from(name),
+            name,
             scope: model.scope_at(command.span.start.offset),
             span: command.span,
             args: info.static_args.to_vec(),
         });
 
-        if matches!(name, "source" | ".")
-            && let Some(template) = info.source_path_template.clone()
-        {
+        if is_source_builtin && let Some(template) = info.source_path_template.clone() {
             facts.source_templates_use_positional_args |=
                 source_template_uses_positional_args(&template);
             facts
@@ -1066,7 +1066,7 @@ fn resolve_literal_call_args_by_scope(
 
     for call in calls {
         let Some(function_binding) =
-            visible_function_binding(model, &call.name, call.scope, call.span.start.offset)
+            model.visible_function_binding(&call.name, call.scope, call.span.start.offset)
         else {
             continue;
         };
@@ -1085,28 +1085,6 @@ fn resolve_literal_call_args_by_scope(
     }
 
     resolved
-}
-
-fn visible_function_binding(
-    model: &SemanticModel,
-    name: &Name,
-    scope: ScopeId,
-    offset: usize,
-) -> Option<BindingId> {
-    for scope_id in model.ancestor_scopes(scope) {
-        let Some(candidates) = model.scopes()[scope_id.index()].bindings.get(name) else {
-            continue;
-        };
-        for binding in candidates.iter().rev().copied() {
-            let candidate = model.binding(binding);
-            if matches!(candidate.kind, crate::BindingKind::FunctionDefinition)
-                && candidate.span.start.offset <= offset
-            {
-                return Some(binding);
-            }
-        }
-    }
-    None
 }
 
 fn resolve_helper_paths(
@@ -1457,6 +1435,75 @@ coproc loader { . \"$2\"; }
 
         assert_eq!(source_call_count, 2);
         assert_eq!(facts.source_templates.len(), 2);
+    }
+
+    #[test]
+    fn resolve_literal_call_args_by_scope_uses_visible_parent_function_bindings() {
+        let source = "\
+outer() {
+  inner() { load_helper ./helper.sh; }
+  load_helper() { . \"$1\"; }
+  inner
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build(&output.file, source, &indexer);
+        let facts = collect_ast_facts(&model);
+        let args_by_scope = resolve_literal_call_args_by_scope(&model, &facts.calls);
+        let name = Name::from("load_helper");
+        let binding = model.function_definitions(&name)[0];
+        let scope = model
+            .analysis()
+            .function_scope_for_binding(binding)
+            .expect("expected function scope");
+
+        assert_eq!(
+            args_by_scope.get(&scope),
+            Some(&vec![vec![Some("./helper.sh".to_owned())]])
+        );
+    }
+
+    #[test]
+    fn resolve_literal_call_args_by_scope_tracks_wrapper_expanded_calls() {
+        let source = "\
+load_helper() { . \"$1\"; }
+noglob load_helper ./helper.sh
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build(&output.file, source, &indexer);
+        let facts = collect_ast_facts(&model);
+        let args_by_scope = resolve_literal_call_args_by_scope(&model, &facts.calls);
+        let name = Name::from("load_helper");
+        let binding = model.function_definitions(&name)[0];
+        let scope = model
+            .analysis()
+            .function_scope_for_binding(binding)
+            .expect("expected function scope");
+
+        assert_eq!(
+            args_by_scope.get(&scope),
+            Some(&vec![vec![Some("./helper.sh".to_owned())]])
+        );
+    }
+
+    #[test]
+    fn shell_precommand_wrappers_do_not_create_source_template_facts() {
+        let source = "\
+#!/bin/bash
+command . \"$1\"
+builtin source \"$2\"
+noglob source \"$3\"
+";
+        let output = Parser::with_dialect(source, ShellDialect::Bash)
+            .parse()
+            .unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build(&output.file, source, &indexer);
+        let facts = collect_ast_facts(&model);
+
+        assert!(facts.source_templates.is_empty());
     }
 
     #[test]

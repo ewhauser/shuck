@@ -23,6 +23,22 @@ pub struct CommandFact<'a> {
     conditional: Option<ConditionalFact<'a>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct RedundantEchoSpaceFact {
+    diagnostic_span: Span,
+    space_spans: Vec<Span>,
+}
+
+impl RedundantEchoSpaceFact {
+    pub fn diagnostic_span(&self) -> Span {
+        self.diagnostic_span
+    }
+
+    pub fn space_spans(&self) -> &[Span] {
+        &self.space_spans
+    }
+}
+
 impl<'a> CommandFact<'a> {
     pub fn id(&self) -> CommandId {
         self.id
@@ -663,6 +679,62 @@ fn background_semicolon_span(
     let start = position_at_offset(source, semicolon_offset)?;
     let end = position_at_offset(source, semicolon_offset + 1)?;
     Some(Span::from_positions(start, end))
+}
+
+fn build_redundant_echo_space_facts(facts: &LinterFacts<'_>) -> Vec<RedundantEchoSpaceFact> {
+    facts
+        .structural_commands()
+        .filter_map(|command| redundant_echo_space_fact(command, facts.source))
+        .collect()
+}
+
+fn redundant_echo_space_fact(
+    command: CommandFactRef<'_, '_>,
+    source: &str,
+) -> Option<RedundantEchoSpaceFact> {
+    if !command.effective_name_is("echo") || !command.wrappers().is_empty() {
+        return None;
+    }
+
+    let args = command.body_args();
+    let space_spans = args
+        .windows(2)
+        .filter_map(|pair| repeated_echo_argument_space_span(pair[0].span, pair[1].span, source))
+        .collect::<Vec<_>>();
+    if space_spans.is_empty() {
+        return None;
+    }
+
+    let name = command.body_name_word()?;
+    let last = args.last()?;
+    Some(RedundantEchoSpaceFact {
+        diagnostic_span: Span::from_positions(name.span.start, last.span.end),
+        space_spans,
+    })
+}
+
+fn repeated_echo_argument_space_span(left: Span, right: Span, source: &str) -> Option<Span> {
+    if left.end.line != right.start.line {
+        return None;
+    }
+
+    // Some spans can collapse a backslash-newline continuation onto one logical
+    // line. S037 only cares about repeated spaces on the same physical line.
+    let context_start = source[..left.end.offset]
+        .char_indices()
+        .next_back()
+        .map_or(left.end.offset, |(idx, _)| idx);
+    let context = source.get(context_start..right.start.offset)?;
+    if context.chars().any(|ch| matches!(ch, '\n' | '\r')) {
+        return None;
+    }
+
+    let gap = source.get(left.end.offset..right.start.offset)?;
+    if gap.len() < 4 || !gap.chars().all(|ch| ch == ' ') {
+        return None;
+    }
+
+    Some(Span::from_positions(left.end, right.start))
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
@@ -1316,8 +1388,48 @@ fn command_id_for_command(
         })
 }
 
-fn command_fact<'a>(commands: &'a [CommandFact<'a>], id: CommandId) -> &'a CommandFact<'a> {
+fn command_fact<'facts, 'a>(
+    commands: &'facts [CommandFact<'a>],
+    id: CommandId,
+) -> &'facts CommandFact<'a> {
     &commands[id.index()]
+}
+
+fn command_fact_for_semantic_span_matching<'facts, 'a>(
+    commands: &'facts [CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+    span: Span,
+    predicate: impl Fn(&CommandFact<'a>) -> bool,
+) -> Option<&'facts CommandFact<'a>> {
+    command_ids_by_span
+        .get(&FactSpan::new(span))
+        .and_then(|entries| {
+            entries
+                .iter()
+                .map(|entry| command_fact(commands, entry.id))
+                .find(|command| predicate(command))
+        })
+        .or_else(|| {
+            commands
+                .iter()
+                .find(|command| {
+                    predicate(command) && FactSpan::new(command.stmt().span) == FactSpan::new(span)
+                })
+        })
+        .or_else(|| {
+            commands
+                .iter()
+                .filter(|command| {
+                    let command_span = command.span();
+                    predicate(command)
+                        && span.start.offset <= command_span.start.offset
+                        && command_span.end.offset <= span.end.offset
+                })
+                .max_by_key(|command| {
+                    let span = command.span();
+                    (span.end.offset, std::cmp::Reverse(span.start.offset))
+                })
+        })
 }
 
 fn command_fact_ref<'facts, 'a>(

@@ -8,10 +8,9 @@ use shuck_ast::{
     CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclOperand, File,
     FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, LiteralText, Name,
     NormalizedCommand, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
-    PatternGroupKind, PatternPart, PatternPartNode, Position, SourceText, Span,
-    StaticCommandWrapperTarget, Stmt, StmtSeq, Subscript, SubscriptInterpretation, VarRef, Word,
-    WordPart, WordPartNode, WrapperKind, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
-    normalize_command_words, static_command_name_text, static_command_wrapper_target_index,
+    PatternGroupKind, PatternPart, PatternPartNode, Position, SourceText, Span, Stmt, StmtSeq,
+    Subscript, SubscriptInterpretation, VarRef, Word, WordPart, WordPartNode, WrapperKind,
+    ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment, normalize_command_words,
     static_word_text, try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;
@@ -26,12 +25,13 @@ use crate::call_graph::{CallGraph, CallSite, build_call_graph};
 use crate::cfg::{
     FlowContext, IsolatedRegion, RecordedCaseArm, RecordedCommand, RecordedCommandId,
     RecordedCommandInfo, RecordedCommandKind, RecordedCommandRange, RecordedElifBranch,
-    RecordedListItem, RecordedListOperator, RecordedPipelineSegment, RecordedProgram,
-    RecordedZshCommandEffect, RecordedZshOptionUpdate,
+    RecordedListItem, RecordedListOperator, RecordedPipelineOperator, RecordedPipelineOperatorKind,
+    RecordedPipelineSegment, RecordedProgram, RecordedZshCommandEffect, RecordedZshOptionUpdate,
 };
 use crate::declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 use crate::reference::{Reference, ReferenceKind};
 use crate::runtime::RuntimePrelude;
+use crate::scope::ancestor_scopes;
 use crate::source_closure::source_path_template;
 use crate::source_ref::{
     SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution,
@@ -2142,10 +2142,6 @@ fn pattern_group_can_match_empty(kind: PatternGroupKind, patterns: &[Pattern]) -
     }
 }
 
-fn ancestor_scopes(scopes: &[Scope], start: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
-    std::iter::successors(Some(start), move |scope| scopes[scope.index()].parent)
-}
-
 fn function_scope_kind(function: &FunctionDef) -> FunctionScopeKind {
     let names = function.static_names().cloned().collect::<Vec<_>>();
     if names.is_empty() {
@@ -2186,25 +2182,54 @@ fn command_span_from_compound(command: &CompoundCommand) -> Span {
     }
 }
 
-fn collect_pipeline_segments<'a>(stmt: &'a Stmt, out: &mut SmallVec<[&'a Stmt; 4]>) {
+struct PipelineSegmentInput<'a> {
+    operator_before: Option<RecordedPipelineOperator>,
+    stmt: &'a Stmt,
+}
+
+fn collect_pipeline_segments<'a>(
+    stmt: &'a Stmt,
+    operator_before: Option<RecordedPipelineOperator>,
+    out: &mut SmallVec<[PipelineSegmentInput<'a>; 4]>,
+) {
     match &stmt.command {
         Command::Binary(command) if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
-            collect_pipeline_segments(&command.left, out);
-            collect_pipeline_segments(&command.right, out);
+            collect_pipeline_segments(&command.left, operator_before, out);
+            collect_pipeline_segments(
+                &command.right,
+                Some(RecordedPipelineOperator {
+                    operator: recorded_pipeline_operator(command.op),
+                    span: command.op_span,
+                }),
+                out,
+            );
         }
-        _ => out.push(stmt),
+        _ => out.push(PipelineSegmentInput {
+            operator_before,
+            stmt,
+        }),
+    }
+}
+
+fn recorded_pipeline_operator(op: BinaryOp) -> RecordedPipelineOperatorKind {
+    match op {
+        BinaryOp::Pipe => RecordedPipelineOperatorKind::Pipe,
+        BinaryOp::PipeAll => RecordedPipelineOperatorKind::PipeAll,
+        BinaryOp::And | BinaryOp::Or => {
+            unreachable!("logical operators are not valid in pipelines")
+        }
     }
 }
 
 fn collect_logical_segments<'a>(
     stmt: &'a Stmt,
     commands: &mut SmallVec<[&'a Stmt; 4]>,
-    operators: &mut SmallVec<[RecordedListOperator; 4]>,
+    operators: &mut SmallVec<[(RecordedListOperator, Span); 4]>,
 ) {
     match &stmt.command {
         Command::Binary(command) if matches!(command.op, BinaryOp::And | BinaryOp::Or) => {
             collect_logical_segments(&command.left, commands, operators);
-            operators.push(recorded_list_operator(command.op));
+            operators.push((recorded_list_operator(command.op), command.op_span));
             collect_logical_segments(&command.right, commands, operators);
         }
         _ => commands.push(stmt),
@@ -2328,25 +2353,19 @@ fn braced_parameter_end_offset(
     None
 }
 
-fn source_line(source: &str, target_line: usize) -> Option<(usize, &str)> {
-    if target_line == 0 {
-        return None;
-    }
-
-    let mut line_start = 0;
-    for (index, line) in source.split_inclusive('\n').enumerate() {
-        let line_number = index + 1;
-        if line_number == target_line {
-            let line = line.strip_suffix('\n').unwrap_or(line);
-            let line = line.strip_suffix('\r').unwrap_or(line);
-            return Some((line_start, line));
-        }
-        line_start += line.len();
-    }
-
-    if target_line == source.split_inclusive('\n').count() + 1 && line_start == source.len() {
-        return Some((line_start, ""));
-    }
-
-    None
+fn source_line<'a>(
+    source: &'a str,
+    line_start_offsets: &[usize],
+    target_line: usize,
+) -> Option<(usize, &'a str)> {
+    let line_index = target_line.checked_sub(1)?;
+    let line_start = *line_start_offsets.get(line_index)?;
+    let line_end = line_start_offsets
+        .get(line_index + 1)
+        .copied()
+        .unwrap_or(source.len());
+    let line = source.get(line_start..line_end)?;
+    let line = line.strip_suffix('\n').unwrap_or(line);
+    let line = line.strip_suffix('\r').unwrap_or(line);
+    Some((line_start, line))
 }

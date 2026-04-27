@@ -1,8 +1,10 @@
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct RedundantSpacesInEcho;
 
 impl Violation for RedundantSpacesInEcho {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::RedundantSpacesInEcho
     }
@@ -10,71 +12,40 @@ impl Violation for RedundantSpacesInEcho {
     fn message(&self) -> String {
         "quote repeated spaces to avoid them collapsing into one".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("collapse repeated spaces between echo arguments".to_owned())
+    }
 }
 
 pub fn redundant_spaces_in_echo(checker: &mut Checker) {
-    let source = checker.source();
-    let spans = checker
+    let diagnostics = checker
         .facts()
-        .structural_commands()
-        .filter(|fact| fact.effective_name_is("echo"))
-        .filter(|fact| fact.wrappers().is_empty())
-        .filter_map(|fact| {
-            if has_repeated_argument_spaces(fact.body_args(), source) {
-                fact.body_name_word()
-                    .and_then(|name| command_span(name, fact.body_args()))
-            } else {
-                None
-            }
+        .redundant_echo_space_facts()
+        .iter()
+        .map(|fact| {
+            crate::Diagnostic::new(RedundantSpacesInEcho, fact.diagnostic_span()).with_fix(
+                Fix::safe_edits(
+                    fact.space_spans()
+                        .iter()
+                        .copied()
+                        .map(|span| Edit::replacement(" ", span)),
+                ),
+            )
         })
         .collect::<Vec<_>>();
 
-    checker.report_all(spans, || RedundantSpacesInEcho);
-}
-
-fn has_repeated_argument_spaces(words: &[&shuck_ast::Word], source: &str) -> bool {
-    words
-        .windows(2)
-        .any(|pair| repeated_space_gap(pair[0].span, pair[1].span, source))
-}
-
-fn repeated_space_gap(left: shuck_ast::Span, right: shuck_ast::Span, source: &str) -> bool {
-    if left.end.line != right.start.line {
-        return false;
+    for diagnostic in diagnostics {
+        checker.report_diagnostic(diagnostic);
     }
-
-    // Some spans can collapse a backslash-newline continuation onto one logical
-    // line. S037 only cares about repeated spaces on the same physical line.
-    let context_start = source[..left.end.offset]
-        .char_indices()
-        .next_back()
-        .map_or(left.end.offset, |(idx, _)| idx);
-    let Some(context) = source.get(context_start..right.start.offset) else {
-        return false;
-    };
-    if context.chars().any(|ch| matches!(ch, '\n' | '\r')) {
-        return false;
-    }
-
-    let Some(gap) = source.get(left.end.offset..right.start.offset) else {
-        return false;
-    };
-
-    gap.len() >= 4 && gap.chars().all(|ch| ch == ' ')
-}
-
-fn command_span(name: &shuck_ast::Word, args: &[&shuck_ast::Word]) -> Option<shuck_ast::Span> {
-    let last = args.last()?;
-    Some(shuck_ast::Span::from_positions(
-        name.span.start,
-        last.span.end,
-    ))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule, ShellDialect};
+    use std::path::Path;
+
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect, assert_diagnostics_diff};
 
     #[test]
     fn reports_repeated_spaces_between_echo_arguments() {
@@ -188,5 +159,64 @@ echo café    bar
                 .collect::<Vec<_>>(),
             vec!["echo café    bar"]
         );
+    }
+
+    #[test]
+    fn applies_safe_fix_to_repeated_echo_spaces() {
+        let source = "\
+#!/bin/bash
+echo foo    bar
+echo -n    \"foo\"
+echo a    b    c
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::RedundantSpacesInEcho),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 3);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+echo foo bar
+echo -n \"foo\"
+echo a b c
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_non_redundant_echo_spacing_unchanged_when_fixing() {
+        let source = "\
+#!/bin/sh
+echo foo  bar
+echo    foo
+command echo foo    bar
+builtin echo foo    bar
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::RedundantSpacesInEcho).with_shell(ShellDialect::Sh),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshots_safe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("style").join("S037.sh").as_path(),
+            &LinterSettings::for_rule(Rule::RedundantSpacesInEcho),
+            Applicability::Safe,
+        )?;
+
+        assert_diagnostics_diff!("S037_fix_S037.sh", result);
+        Ok(())
     }
 }

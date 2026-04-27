@@ -4,6 +4,7 @@ use shuck_parser::ZshEmulationMode;
 use smallvec::{SmallVec, smallvec};
 use std::marker::PhantomData;
 
+use crate::scope::ancestor_scopes;
 use crate::source_closure::SourcePathTemplate;
 use crate::{Binding, BindingId, BindingKind, CallSite, ReferenceId, Scope, ScopeId, SpanKey};
 
@@ -166,6 +167,7 @@ pub(crate) struct RecordedProgram {
     function_bodies: FxHashMap<ScopeId, RecordedCommandRange>,
     commands: Vec<RecordedCommand>,
     command_sequence_items: Vec<RecordedCommandId>,
+    statement_sequence_commands: Vec<StatementSequenceCommand>,
     isolated_regions: Vec<IsolatedRegion>,
     case_arms: Vec<RecordedCaseArm>,
     pipeline_segments: Vec<RecordedPipelineSegment>,
@@ -174,6 +176,22 @@ pub(crate) struct RecordedProgram {
     pub(crate) command_infos: FxHashMap<SpanKey, RecordedCommandInfo>,
     pub(crate) function_body_scopes: FxHashMap<BindingId, ScopeId>,
     pub(crate) call_command_spans: FxHashMap<SpanKey, Span>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StatementSequenceCommand {
+    body_span: Span,
+    stmt_span: Span,
+}
+
+impl StatementSequenceCommand {
+    pub fn body_span(&self) -> Span {
+        self.body_span
+    }
+
+    pub fn stmt_span(&self) -> Span {
+        self.stmt_span
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -316,6 +334,7 @@ pub(crate) struct RecordedCaseArm {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RecordedPipelineSegment {
+    pub(crate) operator_before: Option<RecordedPipelineOperator>,
     pub(crate) scope: ScopeId,
     pub(crate) command: RecordedCommandId,
 }
@@ -323,7 +342,20 @@ pub(crate) struct RecordedPipelineSegment {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RecordedListItem {
     pub(crate) operator: RecordedListOperator,
+    pub(crate) operator_span: Span,
     pub(crate) command: RecordedCommandId,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RecordedPipelineOperator {
+    pub(crate) operator: RecordedPipelineOperatorKind,
+    pub(crate) span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RecordedPipelineOperatorKind {
+    Pipe,
+    PipeAll,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -401,6 +433,18 @@ impl RecordedProgram {
 
     pub(crate) fn commands_in(&self, range: RecordedCommandRange) -> &[RecordedCommandId] {
         range.slice(&self.command_sequence_items)
+    }
+
+    pub fn statement_sequence_commands(&self) -> &[StatementSequenceCommand] {
+        &self.statement_sequence_commands
+    }
+
+    pub(crate) fn push_statement_sequence_command(&mut self, body_span: Span, stmt_span: Span) {
+        self.statement_sequence_commands
+            .push(StatementSequenceCommand {
+                body_span,
+                stmt_span,
+            });
     }
 
     pub(crate) fn nested_regions(&self, range: RecordedRegionRange) -> &[IsolatedRegion] {
@@ -705,6 +749,24 @@ pub(crate) struct FunctionBindingLookup<'a> {
 }
 
 impl FunctionBindingLookup<'_> {
+    pub(crate) fn visible_function_binding(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        offset: usize,
+    ) -> Option<BindingId> {
+        let mut resolver = FunctionCallResolver {
+            program: self.program,
+            scopes: self.scopes,
+            bindings: self.bindings,
+            call_sites: self.call_sites,
+            unconditional_function_bindings: self.unconditional_function_bindings,
+            function_bindings_by_scope: self.function_bindings_by_scope,
+            entry_before_offset_cache: FxHashMap::default(),
+        };
+        resolver.visible_function_binding(name, scope, offset)
+    }
+
     pub(crate) fn visible_function_call_bindings(&self) -> FxHashMap<SpanKey, BindingId> {
         let mut resolver = FunctionCallResolver {
             program: self.program,
@@ -1305,10 +1367,6 @@ impl FunctionCallResolver<'_> {
                     && candidate.span.start.offset <= offset
             })
     }
-}
-
-fn ancestor_scopes(scopes: &[Scope], start: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
-    std::iter::successors(Some(start), move |scope| scopes[scope.index()].parent)
 }
 
 struct SequenceResult {

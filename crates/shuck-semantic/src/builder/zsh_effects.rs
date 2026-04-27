@@ -26,25 +26,16 @@ pub(super) fn recorded_simple_command_info(
     let words = std::iter::once(&command.name)
         .chain(command.args.iter())
         .collect::<Vec<_>>();
-    let mut static_callee =
-        static_command_name_text(&command.name, source).map(|name| name.into_owned());
-    let static_args = command
-        .args
-        .iter()
-        .map(|word| static_word_text(word, source).map(|text| text.into_owned()))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-    let source_path_template = static_callee
+    let normalized = normalize_command_words(&words, source)
+        .expect("recorded simple commands always include a command name");
+    let static_callee = recorded_static_callee(&normalized).map(ToOwned::to_owned);
+    let static_args = recorded_static_args(command, &normalized, source);
+    let source_path_template = normalized
+        .literal_name
         .as_deref()
         .filter(|name| matches!(*name, "source" | "."))
         .and_then(|_| command.args.first())
         .and_then(|word| source_path_template(word, source, bash_runtime_vars_enabled));
-
-    if static_callee.as_deref() == Some("noglob") {
-        static_callee = words
-            .get(1)
-            .and_then(|word| static_command_name_text(word, source).map(|name| name.into_owned()));
-    }
 
     let mut info = RecordedCommandInfo {
         static_callee,
@@ -52,13 +43,15 @@ pub(super) fn recorded_simple_command_info(
         source_path_template,
         zsh_effects: Vec::new(),
     };
-    let Some((effect_callee, effect_index)) = normalize_recorded_zsh_effect_command(&words, source)
-    else {
+    let Some(effect_command) = normalized_zsh_effect_command(&normalized, source) else {
         return info;
     };
-    let args = words.get(effect_index + 1..).unwrap_or(&[]);
+    let Some(effect_callee) = effect_command.effective_name.as_deref() else {
+        return info;
+    };
+    let args = effect_command.body_args();
 
-    match effect_callee.as_str() {
+    match effect_callee {
         "emulate" => info.zsh_effects = parse_emulate_effects(args, source),
         "setopt" => {
             info.zsh_effects = vec![RecordedZshCommandEffect::SetOptions {
@@ -86,37 +79,63 @@ pub(super) fn recorded_simple_command_info(
     info
 }
 
-pub(super) fn normalize_recorded_zsh_effect_command(
-    words: &[&Word],
-    source: &str,
-) -> Option<(String, usize)> {
-    let mut index = 0usize;
-
-    while let Some(word) = words.get(index) {
-        let text = static_word_text(word, source)?;
-        if is_recorded_assignment_word(&text) {
-            index += 1;
-            continue;
-        }
-
-        match static_command_wrapper_target_index(words.len(), index, text.as_ref(), |word_index| {
-            static_word_text(words[word_index], source)
-        }) {
-            StaticCommandWrapperTarget::NotWrapper => return Some((text.into_owned(), index)),
-            StaticCommandWrapperTarget::Wrapper {
-                target_index: Some(target_index),
-            } => {
-                index = target_index;
-                continue;
-            }
-            StaticCommandWrapperTarget::Wrapper { target_index: None } => return None,
-        }
+fn recorded_static_callee<'a>(normalized: &'a NormalizedCommand<'a>) -> Option<&'a str> {
+    if normalized.wrappers == [WrapperKind::Noglob] {
+        return normalized.effective_name.as_deref();
     }
-
-    None
+    normalized.literal_name.as_deref()
 }
 
-pub(super) fn is_recorded_assignment_word(word: &str) -> bool {
+fn recorded_static_args(
+    command: &shuck_ast::SimpleCommand,
+    normalized: &NormalizedCommand<'_>,
+    source: &str,
+) -> Box<[Option<String>]> {
+    if normalized.wrappers == [WrapperKind::Noglob] {
+        return normalized
+            .body_args()
+            .iter()
+            .map(|word| static_word_text(word, source).map(|text| text.into_owned()))
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+    }
+    command
+        .args
+        .iter()
+        .map(|word| static_word_text(word, source).map(|text| text.into_owned()))
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+}
+
+fn normalized_zsh_effect_command<'a>(
+    command: &NormalizedCommand<'a>,
+    source: &'a str,
+) -> Option<NormalizedCommand<'a>> {
+    if !normalized_command_can_have_zsh_effects(command) {
+        return None;
+    }
+
+    let effect_start = command
+        .body_words
+        .iter()
+        .position(|word| {
+            static_word_text(word, source).is_none_or(|text| !is_recorded_assignment_word(&text))
+        })
+        .unwrap_or(command.body_words.len());
+    let effect_command = normalize_command_words(&command.body_words[effect_start..], source)?;
+    normalized_command_can_have_zsh_effects(&effect_command).then_some(effect_command)
+}
+
+fn normalized_command_can_have_zsh_effects(command: &NormalizedCommand<'_>) -> bool {
+    command.wrappers.iter().all(|wrapper| {
+        matches!(
+            wrapper,
+            WrapperKind::Command | WrapperKind::Builtin | WrapperKind::Noglob | WrapperKind::Exec
+        )
+    })
+}
+
+fn is_recorded_assignment_word(word: &str) -> bool {
     let Some((name, _value)) = word.split_once('=') else {
         return false;
     };

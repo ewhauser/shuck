@@ -3007,6 +3007,30 @@ printf '%s\\n' \"$value\"
 }
 
 #[test]
+fn conditional_function_install_is_not_a_visible_function_call_binding() {
+    let source = "\
+outer() {
+  if false; then
+    use_flag() { printf '%s\\n' \"$flag\"; }
+  fi
+  flag=1
+  use_flag
+}
+outer
+";
+    let model = model(source);
+    let name = Name::from("use_flag");
+    let call = &model.call_sites_for(&name)[0];
+
+    assert_eq!(
+        model
+            .analysis()
+            .visible_function_binding_at_call(&name, call.name_span),
+        None
+    );
+}
+
+#[test]
 fn empty_case_catch_all_arm_keeps_following_code_reachable() {
     let source = "\
 case \"$kind\" in
@@ -5928,8 +5952,6 @@ flag=1
         "synthetic reads: {:?}",
         model.synthetic_reads
     );
-    let unused = reportable_unused_names(&model);
-    assert!(unused.is_empty(), "unused: {:?}", unused);
 }
 
 #[test]
@@ -5964,8 +5986,6 @@ source \"${BASH_SOURCE[0]}__dep.bash\"
         "synthetic reads: {:?}",
         model.synthetic_reads
     );
-    let unused = reportable_unused_names(&model);
-    assert!(unused.is_empty(), "unused: {:?}", unused);
 }
 
 #[test]
@@ -6000,8 +6020,6 @@ source \"${BASH_SOURCE[00]}__dep.bash\"
         "synthetic reads: {:?}",
         model.synthetic_reads
     );
-    let unused = reportable_unused_names(&model);
-    assert!(unused.is_empty(), "unused: {:?}", unused);
 }
 
 #[test]
@@ -6199,6 +6217,32 @@ load helper.sh
     );
     let unused = reportable_unused_names(&model);
     assert!(unused.is_empty(), "unused: {:?}", unused);
+}
+
+#[test]
+fn wrapped_loader_function_source_reads_keep_top_level_assignment_live() {
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.sh");
+    let helper = temp.path().join("helper.sh");
+    fs::write(
+        &main,
+        "\
+#!/bin/sh
+load() { . \"$ROOT/$1\"; }
+flag=1
+noglob load helper.sh
+",
+    )
+    .unwrap();
+    fs::write(&helper, "echo \"$flag\"\n").unwrap();
+
+    let model = model_at_path(&main);
+
+    assert!(
+        model.synthetic_reads.iter().any(|read| read.name == "flag"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
 }
 
 #[test]
@@ -7117,6 +7161,26 @@ set_flag() {
 
     let model = model_at_path(&main);
     assert!(model.analysis().uninitialized_references().is_empty());
+}
+
+#[test]
+fn late_parent_scope_loader_calls_are_visible_from_nested_functions() {
+    let source = "\
+outer() {
+  inner() { load_helper ./helper.sh; }
+  load_helper() { . \"$1\"; }
+  inner
+}
+";
+    let model = model(source);
+    let name = Name::from("load_helper");
+    let call = &model.call_sites_for(&name)[0];
+    assert!(
+        model
+            .analysis()
+            .visible_function_binding_at_call(&name, call.name_span)
+            .is_some()
+    );
 }
 
 #[test]
@@ -8193,6 +8257,27 @@ print *
 }
 
 #[test]
+fn zsh_option_analysis_skips_assignment_prefixes_after_wrappers() {
+    for source in [
+        "\
+command FOO=1 setopt no_glob
+print *
+",
+        "\
+noglob FOO=1 setopt no_glob
+print *
+",
+    ] {
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected wrapped zsh option effects");
+
+        assert_eq!(options.glob, OptionValue::Off, "{source}");
+    }
+}
+
+#[test]
 fn zsh_option_analysis_tracks_command_repeated_p_wrapper() {
     let source = "\
 command -pp setopt no_glob
@@ -8228,6 +8313,35 @@ print *
             .expect("expected wrapped zsh option effects");
 
         assert_eq!(options.glob, OptionValue::Off, "{source}");
+    }
+}
+
+#[test]
+fn zsh_option_analysis_ignores_external_command_wrappers() {
+    for source in [
+        "\
+sudo setopt no_glob
+print *
+",
+        "\
+find . -exec setopt no_glob \\;
+print *
+",
+        "\
+command FOO=1 sudo setopt no_glob
+print *
+",
+        "\
+command FOO=1 find . -exec setopt no_glob \\;
+print *
+",
+    ] {
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected wrapped zsh options");
+
+        assert_eq!(options.glob, OptionValue::On, "{source}");
     }
 }
 

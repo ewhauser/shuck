@@ -10,7 +10,12 @@ use shuck_parser::parser::{Parser, ShellDialect};
 
 const OILS_DIR: &str = "tests/testdata/oils";
 const EXPECTATIONS_PATH: &str = "tests/testdata/oils_expectations.json";
-const ZSH_FIXTURE_FILES: &[&str] = &["zsh-idioms.test.sh", "zsh-large-corpus-regressions.test.sh"];
+const ZSH_FIXTURE_FILES: &[&str] = &[
+    "zsh-idioms.test.sh",
+    "zsh-large-corpus-regressions.test.sh",
+    "zsh-obscure-syntax.test.sh",
+];
+const DEFAULT_ONLY_SKIP_FILES: &[&str] = &["oils/zsh-obscure-syntax.test.sh"];
 const ZSH_DEFAULT_PARSE_ERR_FILES: &[&str] = &["oils/zsh-large-corpus-regressions.test.sh"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -139,6 +144,28 @@ fn zsh_fixture_cases_match_parser_expectations_in_zsh_mode() {
         skipped_cases,
         failures.join("\n")
     );
+}
+
+#[test]
+fn zsh_only_default_skips_do_not_disable_zsh_mode_cases() {
+    let expectations_path = manifest_dir().join(EXPECTATIONS_PATH);
+    let expectations = load_expectations(&expectations_path);
+    let path = manifest_dir()
+        .join(OILS_DIR)
+        .join("zsh-obscure-syntax.test.sh");
+    let source = fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+    let spec_file = parse_spec_file(&path, &source);
+
+    assert!(!spec_file.cases.is_empty());
+    for spec_case in &spec_file.cases {
+        assert_eq!(
+            zsh_expectation_for(&expectations, &spec_file.path, &spec_case.name),
+            Expectation::ParseOk,
+            "{} should stay active in zsh-mode parser tests",
+            spec_case.name
+        );
+    }
 }
 
 fn load_selected_spec_files(oils_dir: &Path, filenames: &[&str]) -> Vec<SpecFile> {
@@ -356,6 +383,10 @@ fn expectation_for(
     file_path: &str,
     case_name: &str,
 ) -> Expectation {
+    if DEFAULT_ONLY_SKIP_FILES.contains(&file_path) {
+        return Expectation::Skip;
+    }
+
     if ZSH_DEFAULT_PARSE_ERR_FILES.contains(&file_path) {
         return expectations
             .get(file_path)

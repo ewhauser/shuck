@@ -60,7 +60,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         recorded.reserve(commands.len());
         for stmt in commands.iter() {
-            recorded.push(self.visit_stmt(stmt, flow));
+            let command = self.visit_stmt(stmt, flow);
+            self.recorded_program
+                .push_statement_sequence_command(commands.span, stmt.span);
+            recorded.push(command);
         }
     }
 
@@ -358,17 +361,26 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         mut flow: FlowState,
     ) -> RecordedCommandId {
         flow.in_subshell = true;
-        let mut commands = SmallVec::<[&Stmt; 4]>::new();
-        collect_pipeline_segments(&command.left, &mut commands);
-        collect_pipeline_segments(&command.right, &mut commands);
+        let mut commands = SmallVec::<[PipelineSegmentInput<'a>; 4]>::new();
+        collect_pipeline_segments(&command.left, None, &mut commands);
+        collect_pipeline_segments(
+            &command.right,
+            Some(RecordedPipelineOperator {
+                operator: recorded_pipeline_operator(command.op),
+                span: command.op_span,
+            }),
+            &mut commands,
+        );
 
         let mut segments = Vec::with_capacity(commands.len());
-        for stmt in commands {
+        for segment in commands {
+            let stmt = segment.stmt;
             let scope = self.push_scope(ScopeKind::Pipeline, self.current_scope(), stmt.span);
             let recorded = self.visit_stmt(stmt, flow);
             self.pop_scope(scope);
             self.mark_scope_completed(scope);
             segments.push(RecordedPipelineSegment {
+                operator_before: segment.operator_before,
                 scope,
                 command: recorded,
             });
@@ -387,10 +399,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         command: &'a BinaryCommand,
         flow: FlowState,
     ) -> RecordedCommandId {
-        let mut operators = SmallVec::<[RecordedListOperator; 4]>::new();
+        let mut operators = SmallVec::<[(RecordedListOperator, Span); 4]>::new();
         let mut commands = SmallVec::<[&Stmt; 4]>::new();
         collect_logical_segments(&command.left, &mut commands, &mut operators);
-        operators.push(recorded_list_operator(command.op));
+        operators.push((recorded_list_operator(command.op), command.op_span));
         collect_logical_segments(&command.right, &mut commands, &mut operators);
 
         let mut recorded = SmallVec::<[RecordedCommandId; 4]>::with_capacity(commands.len());
@@ -411,7 +423,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             operators
                 .into_iter()
                 .zip(recorded)
-                .map(|(operator, command)| RecordedListItem { operator, command })
+                .map(|((operator, operator_span), command)| RecordedListItem {
+                    operator,
+                    operator_span,
+                    command,
+                })
                 .collect(),
         );
 
