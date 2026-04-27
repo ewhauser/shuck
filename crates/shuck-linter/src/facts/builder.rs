@@ -551,8 +551,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 self.source,
             );
         annotate_conditional_assignment_value_paths(self.semantic, &lists, &mut binding_values);
-        let statement_facts =
-            build_statement_facts(&commands, &command_ids_by_span, &self.file.body);
+        let statement_facts = build_statement_facts(&commands, self.semantic);
         let background_semicolon_spans =
             build_background_semicolon_spans(&commands, &case_items, self.source);
         let single_test_subshell_spans =
