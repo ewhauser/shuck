@@ -2645,8 +2645,7 @@ impl<'a> SafeValueIndex<'a> {
             return Vec::new();
         };
 
-        let cfg = self.analysis.cfg();
-        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let unreachable = self.analysis.unreachable_blocks();
         let candidates = self
             .semantic
             .bindings_for(name)
@@ -2757,7 +2756,7 @@ impl<'a> SafeValueIndex<'a> {
         let mut stack = vec![binding_block];
         let mut seen = FxHashSet::default();
         while let Some(block_id) = stack.pop() {
-            if self.analysis.cfg().unreachable().contains(&block_id) || !seen.insert(block_id) {
+            if self.analysis.block_is_unreachable(block_id) || !seen.insert(block_id) {
                 continue;
             }
             for (successor, _) in cfg.successors(block_id) {

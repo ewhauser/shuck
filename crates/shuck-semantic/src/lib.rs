@@ -482,6 +482,7 @@ pub struct SemanticAnalysis<'model> {
     unused_assignments_shellcheck_compat: OnceLock<Vec<BindingId>>,
     uninitialized_references: OnceLock<Vec<UninitializedReference>>,
     dead_code: OnceLock<Vec<DeadCode>>,
+    unreachable_blocks: OnceLock<FxHashSet<BlockId>>,
     overwritten_functions: OnceLock<Vec<OverwrittenFunction>>,
     unreached_functions: OnceLock<Vec<UnreachedFunction>>,
     unreached_functions_shellcheck_compat: OnceLock<Vec<UnreachedFunction>>,
@@ -1290,6 +1291,7 @@ impl<'model> SemanticAnalysis<'model> {
             unused_assignments_shellcheck_compat: OnceLock::new(),
             uninitialized_references: OnceLock::new(),
             dead_code: OnceLock::new(),
+            unreachable_blocks: OnceLock::new(),
             overwritten_functions: OnceLock::new(),
             unreached_functions: OnceLock::new(),
             unreached_functions_shellcheck_compat: OnceLock::new(),
@@ -1311,6 +1313,19 @@ impl<'model> SemanticAnalysis<'model> {
                 &self.model.call_sites,
             )
         })
+    }
+
+    /// Returns the CFG's unreachable blocks as an indexed set.
+    #[doc(hidden)]
+    pub fn unreachable_blocks(&self) -> &FxHashSet<BlockId> {
+        self.unreachable_blocks
+            .get_or_init(|| self.cfg().unreachable().iter().copied().collect())
+    }
+
+    /// Returns whether a CFG block is unreachable.
+    #[doc(hidden)]
+    pub fn block_is_unreachable(&self, block_id: BlockId) -> bool {
+        self.unreachable_blocks().contains(&block_id)
     }
 
     pub fn visible_function_binding_at_call(
@@ -1566,7 +1581,7 @@ impl<'model> SemanticAnalysis<'model> {
         }
 
         let cfg = self.cfg();
-        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let unreachable = self.unreachable_blocks();
         let mut stack = vec![entry];
         let mut seen = FxHashSet::default();
         while let Some(block_id) = stack.pop() {
