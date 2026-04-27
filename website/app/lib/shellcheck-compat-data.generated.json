@@ -4,7 +4,7 @@
     "repoKey": "233boy__v2ray",
     "url": "https://github.com/233boy/v2ray",
     "status": "known_issues",
-    "issueCount": 5
+    "issueCount": 1
   },
   {
     "repo": "89luca89/distrobox",
@@ -17,22 +17,22 @@
     "repo": "acmesh-official/acme.sh",
     "repoKey": "acmesh-official__acme.sh",
     "url": "https://github.com/acmesh-official/acme.sh",
-    "status": "known_issues",
-    "issueCount": 5
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "alexanderepstein/Bash-Snippets",
     "repoKey": "alexanderepstein__Bash-Snippets",
     "url": "https://github.com/alexanderepstein/Bash-Snippets",
-    "status": "known_issues",
-    "issueCount": 13
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "alpinelinux/aports",
     "repoKey": "alpinelinux__aports",
     "url": "https://github.com/alpinelinux/aports",
-    "status": "known_issues",
-    "issueCount": 6
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "angristan/openvpn-install",
@@ -52,15 +52,15 @@
     "repo": "asdf-vm/asdf",
     "repoKey": "asdf-vm__asdf",
     "url": "https://github.com/asdf-vm/asdf",
-    "status": "known_issues",
-    "issueCount": 2
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "awslabs/git-secrets",
     "repoKey": "awslabs__git-secrets",
     "url": "https://github.com/awslabs/git-secrets",
-    "status": "known_issues",
-    "issueCount": 1
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "basecamp/omarchy",
@@ -73,43 +73,43 @@
     "repo": "Bash-it/bash-it",
     "repoKey": "Bash-it__bash-it",
     "url": "https://github.com/Bash-it/bash-it",
-    "status": "known_issues",
-    "issueCount": 10
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "bats-core/bats-core",
     "repoKey": "bats-core__bats-core",
     "url": "https://github.com/bats-core/bats-core",
     "status": "known_issues",
-    "issueCount": 5
+    "issueCount": 1
   },
   {
     "repo": "bin456789/reinstall",
     "repoKey": "bin456789__reinstall",
     "url": "https://github.com/bin456789/reinstall",
-    "status": "known_issues",
-    "issueCount": 1
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "bitnami/containers",
     "repoKey": "bitnami__containers",
     "url": "https://github.com/bitnami/containers",
-    "status": "known_issues",
-    "issueCount": 3
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "bittorf/kalua",
     "repoKey": "bittorf__kalua",
     "url": "https://github.com/bittorf/kalua",
     "status": "known_issues",
-    "issueCount": 56
+    "issueCount": 1
   },
   {
     "repo": "CISOfy/lynis",
     "repoKey": "CISOfy__lynis",
     "url": "https://github.com/CISOfy/lynis",
-    "status": "known_issues",
-    "issueCount": 1
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "client9/shlib",
@@ -122,57 +122,57 @@
     "repo": "community-scripts/ProxmoxVE",
     "repoKey": "community-scripts__ProxmoxVE",
     "url": "https://github.com/community-scripts/ProxmoxVE",
-    "status": "known_issues",
-    "issueCount": 30
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "dehydrated-io/dehydrated",
     "repoKey": "dehydrated-io__dehydrated",
     "url": "https://github.com/dehydrated-io/dehydrated",
-    "status": "known_issues",
-    "issueCount": 3
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "docker-library/official-images",
     "repoKey": "docker-library__official-images",
     "url": "https://github.com/docker-library/official-images",
-    "status": "known_issues",
-    "issueCount": 1
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "docker-mailserver/docker-mailserver",
     "repoKey": "docker-mailserver__docker-mailserver",
     "url": "https://github.com/docker-mailserver/docker-mailserver",
-    "status": "known_issues",
-    "issueCount": 1
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "docker/docker-bench-security",
     "repoKey": "docker__docker-bench-security",
     "url": "https://github.com/docker/docker-bench-security",
-    "status": "known_issues",
-    "issueCount": 1
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "dockur/windows",
     "repoKey": "dockur__windows",
     "url": "https://github.com/dockur/windows",
-    "status": "known_issues",
-    "issueCount": 3
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "dokku/dokku",
     "repoKey": "dokku__dokku",
     "url": "https://github.com/dokku/dokku",
-    "status": "known_issues",
-    "issueCount": 18
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "dylanaraps/neofetch",
     "repoKey": "dylanaraps__neofetch",
     "url": "https://github.com/dylanaraps/neofetch",
-    "status": "known_issues",
-    "issueCount": 6
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "dylanaraps/pure-bash-bible",
@@ -192,36 +192,36 @@
     "repo": "fideloper/Vaprobash",
     "repoKey": "fideloper__Vaprobash",
     "url": "https://github.com/fideloper/Vaprobash",
-    "status": "known_issues",
-    "issueCount": 2
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "GameServerManagers/LinuxGSM",
     "repoKey": "GameServerManagers__LinuxGSM",
     "url": "https://github.com/GameServerManagers/LinuxGSM",
-    "status": "known_issues",
-    "issueCount": 13
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "gentoo/gentoo",
     "repoKey": "gentoo__gentoo",
     "url": "https://github.com/gentoo/gentoo",
     "status": "known_issues",
-    "issueCount": 27
+    "issueCount": 1
   },
   {
     "repo": "google/oss-fuzz",
     "repoKey": "google__oss-fuzz",
     "url": "https://github.com/google/oss-fuzz",
-    "status": "known_issues",
-    "issueCount": 14
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "HariSekhon/DevOps-Bash-tools",
     "repoKey": "HariSekhon__DevOps-Bash-tools",
     "url": "https://github.com/HariSekhon/DevOps-Bash-tools",
-    "status": "known_issues",
-    "issueCount": 7
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "helmuthdu/aui",
@@ -248,8 +248,8 @@
     "repo": "itzg/docker-minecraft-server",
     "repoKey": "itzg__docker-minecraft-server",
     "url": "https://github.com/itzg/docker-minecraft-server",
-    "status": "known_issues",
-    "issueCount": 2
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "jessfraz/dotfiles",
@@ -270,28 +270,28 @@
     "repoKey": "juewuy__ShellCrash",
     "url": "https://github.com/juewuy/ShellCrash",
     "status": "known_issues",
-    "issueCount": 14
+    "issueCount": 2
   },
   {
     "repo": "ko1nksm/shellspec",
     "repoKey": "ko1nksm__shellspec",
     "url": "https://github.com/ko1nksm/shellspec",
     "status": "known_issues",
-    "issueCount": 11
+    "issueCount": 1
   },
   {
     "repo": "kward/shunit2",
     "repoKey": "kward__shunit2",
     "url": "https://github.com/kward/shunit2",
-    "status": "known_issues",
-    "issueCount": 2
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "leebaird/discover",
     "repoKey": "leebaird__discover",
     "url": "https://github.com/leebaird/discover",
-    "status": "known_issues",
-    "issueCount": 3
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "lmc999/RegionRestrictionCheck",
@@ -312,7 +312,7 @@
     "repoKey": "masonr__yet-another-bench-script",
     "url": "https://github.com/masonr/yet-another-bench-script",
     "status": "known_issues",
-    "issueCount": 3
+    "issueCount": 1
   },
   {
     "repo": "mathiasbynens/dotfiles",
@@ -325,15 +325,15 @@
     "repo": "megastep/makeself",
     "repoKey": "megastep__makeself",
     "url": "https://github.com/megastep/makeself",
-    "status": "known_issues",
-    "issueCount": 4
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "moovweb/gvm",
     "repoKey": "moovweb__gvm",
     "url": "https://github.com/moovweb/gvm",
     "status": "known_issues",
-    "issueCount": 10
+    "issueCount": 1
   },
   {
     "repo": "nextcloud/docker",
@@ -346,15 +346,15 @@
     "repo": "nvie/gitflow",
     "repoKey": "nvie__gitflow",
     "url": "https://github.com/nvie/gitflow",
-    "status": "known_issues",
-    "issueCount": 1
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "nvm-sh/nvm",
     "repoKey": "nvm-sh__nvm",
     "url": "https://github.com/nvm-sh/nvm",
-    "status": "known_issues",
-    "issueCount": 11
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "Nyr/openvpn-install",
@@ -381,15 +381,15 @@
     "repo": "openrc/openrc",
     "repoKey": "openrc__openrc",
     "url": "https://github.com/openrc/openrc",
-    "status": "known_issues",
-    "issueCount": 5
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "openvpn/easy-rsa",
     "repoKey": "openvpn__easy-rsa",
     "url": "https://github.com/openvpn/easy-rsa",
-    "status": "known_issues",
-    "issueCount": 3
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "p8952/bocker",
@@ -410,14 +410,14 @@
     "repoKey": "pi-hole__pi-hole",
     "url": "https://github.com/pi-hole/pi-hole",
     "status": "known_issues",
-    "issueCount": 5
+    "issueCount": 1
   },
   {
     "repo": "pyenv/pyenv",
     "repoKey": "pyenv__pyenv",
     "url": "https://github.com/pyenv/pyenv",
-    "status": "known_issues",
-    "issueCount": 2
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "pystardust/ani-cli",
@@ -430,8 +430,8 @@
     "repo": "quickemu-project/quickemu",
     "repoKey": "quickemu-project__quickemu",
     "url": "https://github.com/quickemu-project/quickemu",
-    "status": "known_issues",
-    "issueCount": 1
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "rbenv/rbenv",
@@ -445,35 +445,35 @@
     "repoKey": "RetroPie__RetroPie-Setup",
     "url": "https://github.com/RetroPie/RetroPie-Setup",
     "status": "known_issues",
-    "issueCount": 11
+    "issueCount": 1
   },
   {
     "repo": "romkatv/powerlevel10k",
     "repoKey": "romkatv__powerlevel10k",
     "url": "https://github.com/romkatv/powerlevel10k",
-    "status": "known_issues",
-    "issueCount": 5
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "rupa/z",
     "repoKey": "rupa__z",
     "url": "https://github.com/rupa/z",
-    "status": "known_issues",
-    "issueCount": 1
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "rvm/rvm",
     "repoKey": "rvm__rvm",
     "url": "https://github.com/rvm/rvm",
     "status": "known_issues",
-    "issueCount": 94
+    "issueCount": 2
   },
   {
     "repo": "scop/bash-completion",
     "repoKey": "scop__bash-completion",
     "url": "https://github.com/scop/bash-completion",
-    "status": "known_issues",
-    "issueCount": 8
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "sickcodes/Docker-OSX",
@@ -486,8 +486,8 @@
     "repo": "SlackBuildsOrg/slackbuilds",
     "repoKey": "SlackBuildsOrg__slackbuilds",
     "url": "https://github.com/SlackBuildsOrg/slackbuilds",
-    "status": "known_issues",
-    "issueCount": 25
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "sorin-ionescu/prezto",
@@ -500,36 +500,36 @@
     "repo": "spiritLHLS/one-click-installation-script",
     "repoKey": "spiritLHLS__one-click-installation-script",
     "url": "https://github.com/spiritLHLS/one-click-installation-script",
-    "status": "known_issues",
-    "issueCount": 1
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "sstephenson/bats",
     "repoKey": "sstephenson__bats",
     "url": "https://github.com/sstephenson/bats",
-    "status": "known_issues",
-    "issueCount": 1
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "super-linter/super-linter",
     "repoKey": "super-linter__super-linter",
     "url": "https://github.com/super-linter/super-linter",
-    "status": "known_issues",
-    "issueCount": 1
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "swoodford/aws",
     "repoKey": "swoodford__aws",
     "url": "https://github.com/swoodford/aws",
     "status": "known_issues",
-    "issueCount": 5
+    "issueCount": 1
   },
   {
     "repo": "termux/termux-packages",
     "repoKey": "termux__termux-packages",
     "url": "https://github.com/termux/termux-packages",
-    "status": "known_issues",
-    "issueCount": 22
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "thoughtbot/dotfiles",
@@ -542,15 +542,15 @@
     "repo": "tj/git-extras",
     "repoKey": "tj__git-extras",
     "url": "https://github.com/tj/git-extras",
-    "status": "known_issues",
-    "issueCount": 4
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "tj/n",
     "repoKey": "tj__n",
     "url": "https://github.com/tj/n",
-    "status": "known_issues",
-    "issueCount": 1
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "tmux-plugins/tmux-resurrect",
@@ -571,14 +571,14 @@
     "repoKey": "tteck__Proxmox",
     "url": "https://github.com/tteck/Proxmox",
     "status": "known_issues",
-    "issueCount": 22
+    "issueCount": 1
   },
   {
     "repo": "v1s1t0r1sh3r3/airgeddon",
     "repoKey": "v1s1t0r1sh3r3__airgeddon",
     "url": "https://github.com/v1s1t0r1sh3r3/airgeddon",
     "status": "known_issues",
-    "issueCount": 2
+    "issueCount": 1
   },
   {
     "repo": "v2fly/fhs-install-v2ray",
@@ -592,14 +592,14 @@
     "repoKey": "void-linux__void-packages",
     "url": "https://github.com/void-linux/void-packages",
     "status": "known_issues",
-    "issueCount": 15
+    "issueCount": 1
   },
   {
     "repo": "xwmx/nb",
     "repoKey": "xwmx__nb",
     "url": "https://github.com/xwmx/nb",
-    "status": "known_issues",
-    "issueCount": 7
+    "status": "passes",
+    "issueCount": 0
   },
   {
     "repo": "zdharma-continuum/zinit",
