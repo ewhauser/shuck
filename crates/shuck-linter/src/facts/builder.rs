@@ -245,6 +245,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 collect_arithmetic_update_operator_spans_in_command(
                     visit.command,
                     self.semantic,
+                    self.semantic_artifacts,
                     scope,
                     self.source,
                     &mut arithmetic_update_operator_spans,
@@ -268,6 +269,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                         collect_arithmetic_update_operator_spans_in_heredoc_body(
                             &heredoc.body.parts,
                             self.semantic,
+                            self.semantic_artifacts,
                             self.source,
                             &mut arithmetic_update_operator_spans,
                         );

@@ -1811,6 +1811,53 @@ echo ${foo:-$((10#1))}
 }
 
 #[test]
+fn collects_arithmetic_update_operator_spans_in_nested_heredoc_command_bodies() {
+    let source = "\
+#!/bin/bash
+cat <<EOF
+$(printf '%s' \"$(printf '%s' \"$((i++))\")\")
+${value:-$(printf '%s' \"$(printf '%s' \"$((--j))\")\")}
+EOF
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+
+    assert_eq!(
+        facts
+            .arithmetic_update_operator_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["++", "--"]
+    );
+}
+
+#[test]
+fn collects_arithmetic_update_operator_spans_in_nested_redirect_target_bodies() {
+    let source = "\
+#!/bin/bash
+cat <<EOF
+$(printf '%s' \"$((i++))\" > \"$(printf '%s' \"$((--j))\")\")
+EOF
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+
+    assert_eq!(
+        facts
+            .arithmetic_update_operator_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["++", "--"]
+    );
+}
+
+#[test]
 fn ignores_base_prefix_like_parameter_trim_operands() {
     let source = "\
 #!/bin/bash
