@@ -214,8 +214,7 @@ impl<'model> SemanticAnalysis<'model> {
     #[doc(hidden)]
     pub fn enclosing_function_scope_at(&self, offset: usize) -> Option<ScopeId> {
         self.model
-            .ancestor_scopes(self.model.scope_at(offset))
-            .find(|scope| matches!(self.model.scope(*scope).kind, ScopeKind::Function(_)))
+            .enclosing_function_scope(self.model.scope_at(offset))
     }
 
     /// Returns whether a binding's scope is `ancestor_scope` or nested below it.
@@ -226,8 +225,7 @@ impl<'model> SemanticAnalysis<'model> {
         ancestor_scope: ScopeId,
     ) -> bool {
         self.model
-            .ancestor_scopes(self.model.binding(binding_id).scope)
-            .any(|scope| scope == ancestor_scope)
+            .scope_is_in_scope_or_descendant(self.model.binding(binding_id).scope, ancestor_scope)
     }
 
     /// Returns the entry block that covers the common runtime scope of `binding_scopes`.
@@ -252,8 +250,7 @@ impl<'model> SemanticAnalysis<'model> {
                     .copied()
                     .all(|binding_scope| {
                         self.model
-                            .ancestor_scopes(binding_scope)
-                            .any(|ancestor| ancestor == scope)
+                            .scope_is_in_scope_or_descendant(binding_scope, scope)
                     })
                     .then(|| cfg.scope_entry(scope))
                     .flatten()
