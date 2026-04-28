@@ -11,8 +11,6 @@ pub(crate) struct ProjectRun<T, S>
 where
     T: Clone + Serialize + DeserializeOwned,
 {
-    #[allow(dead_code)]
-    pub project_root: ProjectRoot,
     pub files: Vec<DiscoveredFile>,
     pub settings: S,
     pub cache: Option<PackageCache<T>>,
@@ -119,7 +117,6 @@ where
         };
 
         runs.push(ProjectRun {
-            project_root,
             files,
             settings,
             cache,

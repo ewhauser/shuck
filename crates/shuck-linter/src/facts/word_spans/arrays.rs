@@ -1,11 +1,5 @@
 use super::*;
 
-pub fn array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_array_expansion_part_spans(word, &mut spans);
-    spans
-}
-
 pub fn collect_array_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
     collect_array_expansion_spans(&word.parts, false, false, spans);
 }
@@ -42,24 +36,12 @@ pub fn collect_direct_all_elements_array_expansion_part_spans(
     collect_direct_all_elements_array_expansion_spans(&word.parts, word.span, source, spans);
 }
 
-pub fn unquoted_all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_unquoted_all_elements_array_expansion_part_spans(word, source, &mut spans);
-    spans
-}
-
 pub fn collect_unquoted_all_elements_array_expansion_part_spans(
     word: &Word,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
     collect_unquoted_all_elements_array_expansion_spans(&word.parts, false, source, spans);
-}
-
-pub fn word_all_elements_array_slice_spans(word: &Word) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_all_elements_array_slice_spans(&word.parts, false, false, &mut spans);
-    spans
 }
 
 pub fn word_quoted_all_elements_array_slice_spans(word: &Word) -> Vec<Span> {
@@ -76,22 +58,10 @@ pub fn word_has_direct_all_elements_array_expansion_in_source(word: &Word, sourc
     !direct_all_elements_array_expansion_part_spans(word, source).is_empty()
 }
 
-pub fn word_all_elements_array_slice_span_in_source(word: &Word, source: &str) -> Option<Span> {
-    word_all_elements_array_slice_spans(word)
-        .into_iter()
-        .find(|span| !span_is_escaped(*span, source))
-}
-
 pub fn word_quoted_unindexed_bash_source_span_in_source(word: &Word, source: &str) -> Option<Span> {
     let mut spans = Vec::new();
     collect_quoted_unindexed_bash_source_spans(&word.parts, false, source, &mut spans);
     spans.into_iter().next()
-}
-
-pub fn unquoted_array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_unquoted_array_expansion_part_spans(word, &mut spans);
-    spans
 }
 
 pub fn collect_unquoted_array_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
@@ -126,22 +96,6 @@ pub fn word_positional_at_splat_spans(word: &Word) -> Vec<Span> {
 
 pub fn word_is_pure_positional_at_splat(word: &Word) -> bool {
     parts_are_pure_positional_at_splat(&word.parts)
-}
-
-pub fn word_folded_positional_at_splat_span(word: &Word) -> Option<Span> {
-    let spans = word_positional_at_splat_spans(word);
-    if spans.is_empty() {
-        return None;
-    }
-    if spans.len() == 1 && word_has_single_positional_at_splat_part(word) {
-        return None;
-    }
-
-    spans.into_iter().next()
-}
-
-pub fn word_has_folded_positional_at_splat(word: &Word) -> bool {
-    word_folded_positional_at_splat_span(word).is_some()
 }
 
 pub fn word_positional_at_splat_span_in_source(word: &Word, source: &str) -> Option<Span> {
@@ -1453,22 +1407,74 @@ pub(crate) fn all_elements_array_expansion_is_standalone(word: &Word, source: &s
 
 #[cfg(test)]
 mod tests {
+    use shuck_ast::{Span, Word};
     use shuck_parser::parser::Parser;
 
     use super::{
-        all_elements_array_expansion_part_spans, array_expansion_part_spans,
-        unquoted_all_elements_array_expansion_part_spans, unquoted_array_expansion_part_spans,
-        word_all_elements_array_slice_span_in_source, word_all_elements_array_slice_spans,
-        word_folded_all_elements_array_span_in_source, word_folded_positional_at_splat_span,
+        all_elements_array_expansion_part_spans, collect_all_elements_array_slice_spans,
+        collect_array_expansion_part_spans,
+        collect_unquoted_all_elements_array_expansion_part_spans,
+        collect_unquoted_array_expansion_part_spans, span_is_escaped,
+        word_folded_all_elements_array_span_in_source,
         word_folded_positional_at_splat_span_in_source,
         word_has_direct_all_elements_array_expansion_in_source,
-        word_has_folded_positional_at_splat, word_has_quoted_all_elements_array_slice,
+        word_has_quoted_all_elements_array_slice, word_has_single_positional_at_splat_part,
         word_is_pure_positional_at_splat, word_positional_at_splat_span_in_source,
         word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
         word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
         word_unquoted_star_parameter_spans, word_unquoted_star_splat_spans,
     };
-    use crate::facts::word_spans::scalar_expansion_part_spans;
+    use crate::facts::word_spans::collect_scalar_expansion_part_spans;
+
+    fn array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
+        let mut spans = Vec::new();
+        collect_array_expansion_part_spans(word, &mut spans);
+        spans
+    }
+
+    fn unquoted_all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+        let mut spans = Vec::new();
+        collect_unquoted_all_elements_array_expansion_part_spans(word, source, &mut spans);
+        spans
+    }
+
+    fn word_all_elements_array_slice_spans(word: &Word) -> Vec<Span> {
+        let mut spans = Vec::new();
+        collect_all_elements_array_slice_spans(&word.parts, false, false, &mut spans);
+        spans
+    }
+
+    fn word_all_elements_array_slice_span_in_source(word: &Word, source: &str) -> Option<Span> {
+        word_all_elements_array_slice_spans(word)
+            .into_iter()
+            .find(|span| !span_is_escaped(*span, source))
+    }
+
+    fn unquoted_array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
+        let mut spans = Vec::new();
+        collect_unquoted_array_expansion_part_spans(word, &mut spans);
+        spans
+    }
+
+    fn word_folded_positional_at_splat_span(word: &Word) -> Option<Span> {
+        let spans = word_positional_at_splat_spans(word);
+        if spans.is_empty() || (spans.len() == 1 && word_has_single_positional_at_splat_part(word))
+        {
+            return None;
+        }
+
+        spans.into_iter().next()
+    }
+
+    fn word_has_folded_positional_at_splat(word: &Word) -> bool {
+        word_folded_positional_at_splat_span(word).is_some()
+    }
+
+    fn scalar_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
+        let mut spans = Vec::new();
+        collect_scalar_expansion_part_spans(word, &mut spans);
+        spans
+    }
 
     #[test]
     fn array_expansion_spans_only_return_array_like_parts() {

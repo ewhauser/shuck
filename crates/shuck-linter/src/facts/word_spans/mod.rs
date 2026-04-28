@@ -1,8 +1,8 @@
 use shuck_ast::{
     ArithmeticExpr, BourneParameterExpansion, CaseItem, CommandSubstitutionSyntax, ConditionalExpr,
-    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind,
-    PatternPart, Position, PrefixMatchKind, Span, SubscriptSelector, VarRef, Word, WordPart,
-    WordPartNode, ZshExpansionTarget,
+    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position,
+    PrefixMatchKind, Span, SubscriptSelector, VarRef, Word, WordPart, WordPartNode,
+    ZshExpansionTarget,
 };
 
 use super::BacktickEscapedParameter;
@@ -19,7 +19,7 @@ mod zsh;
 pub use arrays::*;
 pub(crate) use backticks::{
     backtick_double_escaped_parameter_spans, backtick_escaped_parameter_reference_spans,
-    backtick_escaped_parameters, backtick_shell_comment_can_start, backtick_substitution_spans,
+    backtick_escaped_parameters, backtick_substitution_spans,
     shellcheck_collapsed_backtick_part_span,
 };
 pub use command_substitution::*;

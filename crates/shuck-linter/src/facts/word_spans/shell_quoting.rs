@@ -22,22 +22,6 @@ pub fn double_quoted_scalar_affix_span(word: &Word) -> Option<Span> {
         .flatten()
 }
 
-pub fn word_shell_quoting_literal_span(word: &Word, source: &str) -> Option<Span> {
-    let mut excluded = Vec::new();
-    collect_literal_scan_exclusions(&word.parts, &mut excluded);
-
-    merge_adjacent_spans(
-        word_literal_scan_segments_excluding_expansions(word, source),
-        source,
-    )
-    .into_iter()
-    .find_map(|span| {
-        let normalized = normalize_shell_quoting_segment_span(word, span, source);
-        text_contains_shell_quoting_literals(normalized.slice(source))
-            .then(|| shell_quoting_literal_run_span(word, normalized, &excluded, source))
-    })
-}
-
 pub fn word_shell_quoting_literal_run_span_in_source(word: &Word, source: &str) -> Option<Span> {
     let text = word.span.slice(source);
     let mut cursor = if word.is_fully_double_quoted() && text.starts_with('"') {
@@ -154,34 +138,6 @@ pub fn word_nested_dynamic_double_quote_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
-pub(crate) fn normalize_shell_quoting_segment_span(word: &Word, span: Span, source: &str) -> Span {
-    let mut start = span.start;
-    let mut end = span.end;
-    let text = span.slice(source);
-    if word.is_fully_double_quoted() {
-        if span.start.offset == word.span.start.offset && text.starts_with('"') {
-            start = start.advanced_by("\"");
-        }
-        if span.end.offset == word.span.end.offset && text.ends_with('"') {
-            end = span.start.advanced_by(&text[..text.len() - 1]);
-        }
-    }
-
-    let normalized = Span::from_positions(start, end);
-    let normalized_text = normalized.slice(source);
-    if normalized_text.ends_with('\\')
-        && let Some(next) = source
-            .get(normalized.end.offset..)
-            .and_then(|tail| tail.chars().next())
-        && matches!(next, '"' | '\'')
-    {
-        let quote = if next == '"' { "\"" } else { "'" };
-        return Span::from_positions(normalized.start, normalized.end.advanced_by(quote));
-    }
-
-    normalized
-}
-
 pub(crate) fn text_contains_shell_quoting_literals(text: &str) -> bool {
     if text.contains(['"', '\'']) {
         return true;
@@ -224,30 +180,6 @@ pub(crate) fn text_position_is_escaped(text: &str, offset: usize) -> bool {
     }
 
     backslashes % 2 == 1
-}
-
-pub(crate) fn shell_quoting_literal_run_span(
-    word: &Word,
-    span: Span,
-    excluded: &[Span],
-    source: &str,
-) -> Span {
-    let start = excluded
-        .iter()
-        .copied()
-        .filter(|excluded_span| excluded_span.start.offset < span.start.offset)
-        .map(|excluded_span| excluded_span.end)
-        .max_by_key(|position| position.offset)
-        .unwrap_or(word.span.start);
-    let end = excluded
-        .iter()
-        .copied()
-        .filter(|excluded_span| excluded_span.start.offset > start.offset)
-        .map(|excluded_span| excluded_span.start)
-        .min_by_key(|position| position.offset)
-        .unwrap_or(word.span.end);
-
-    normalize_shell_quoting_segment_span(word, Span::from_positions(start, end), source)
 }
 
 pub(crate) fn word_shell_quoting_segment_span_in_source(
@@ -473,6 +405,7 @@ pub(crate) fn neighbor_is_literal(part: Option<&WordPartNode>) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use shuck_ast::{Span, Word};
     use shuck_parser::parser::Parser;
 
     use super::{
@@ -481,8 +414,21 @@ mod tests {
         word_unquoted_word_after_single_quoted_segment_spans,
     };
     use crate::facts::word_spans::{
-        unquoted_command_substitution_part_spans_in_source, unquoted_scalar_expansion_part_spans,
+        collect_unquoted_command_substitution_part_spans_in_source,
+        collect_unquoted_scalar_expansion_part_spans,
     };
+
+    fn unquoted_scalar_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
+        let mut spans = Vec::new();
+        collect_unquoted_scalar_expansion_part_spans(word, &mut spans);
+        spans
+    }
+
+    fn unquoted_command_substitution_part_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
+        let mut spans = Vec::new();
+        collect_unquoted_command_substitution_part_spans_in_source(word, source, &mut spans);
+        spans
+    }
 
     #[test]
     fn word_unquoted_word_after_single_quoted_segment_spans_tracks_literal_suffix_words() {

@@ -16,7 +16,6 @@ mod presence;
 pub(crate) mod surface;
 #[cfg(test)]
 mod tests;
-#[allow(dead_code)]
 pub(crate) mod word_spans;
 
 use self::word_spans::{expansion_part_spans, word_unbraced_variable_before_bracket_spans};
