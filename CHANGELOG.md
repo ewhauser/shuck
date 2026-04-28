@@ -1,5 +1,71 @@
 # Changelog
 
+## [0.0.26](https://github.com/ewhauser/shuck/compare/v0.0.25...v0.0.26) (2026-04-28)
+
+
+### Bug Fixes
+
+* **linter:** reduce S001 reviewed divergences ([#674](https://github.com/ewhauser/shuck/issues/674)) ([b1e790e](https://github.com/ewhauser/shuck/commit/b1e790e83bc1f00e45158fcce2dd26f90d71ead8))
+* **semantic:** exclude synthetic ids from public commands iteration ([#689](https://github.com/ewhauser/shuck/issues/689)) ([51a745c](https://github.com/ewhauser/shuck/commit/51a745c87193f503b94b8a1926f7e65ce5f613b3))
+* **semantic:** resolve alias function flow ([#714](https://github.com/ewhauser/shuck/issues/714)) ([a868986](https://github.com/ewhauser/shuck/commit/a868986a70b2b3119de02d7c73780d4e7dc4de36))
+
+
+### Performance
+
+* **ast:** add ASCII fast path to Position::advanced_by ([#718](https://github.com/ewhauser/shuck/issues/718)) ([639c717](https://github.com/ewhauser/shuck/commit/639c7174c0a429eaa929d9b5f081b4b1ca6029ea))
+* **linter:** binary-search commands contained in pipeline span ([#723](https://github.com/ewhauser/shuck/issues/723)) ([242b837](https://github.com/ewhauser/shuck/commit/242b837746fe7883c9f11600f286c56685651f96))
+* **linter:** borrow list segment assignment target from source ([#721](https://github.com/ewhauser/shuck/issues/721)) ([9d1c424](https://github.com/ewhauser/shuck/commit/9d1c424f047a7907e098bd72752dfde914659e7c))
+* **linter:** borrow pipeline segment names from source ([#719](https://github.com/ewhauser/shuck/issues/719)) ([d70e7f5](https://github.com/ewhauser/shuck/commit/d70e7f506bc672f3ece5d75a54dcb9c0d7d21617))
+* **linter:** drop redundant command-fact source-order scan ([#702](https://github.com/ewhauser/shuck/issues/702)) ([c729eaa](https://github.com/ewhauser/shuck/commit/c729eaadcdf0a6bc3691eca87fe7edef57399944))
+* **linter:** index suppression command spans once per file ([#686](https://github.com/ewhauser/shuck/issues/686)) ([cdcf89e](https://github.com/ewhauser/shuck/commit/cdcf89e6abebe7ce5eda144bd0dd9495587875b3))
+* **linter:** reuse semantic body indexes for arithmetic scans ([#734](https://github.com/ewhauser/shuck/issues/734)) ([e1dcca2](https://github.com/ewhauser/shuck/commit/e1dcca26b6d2cb9420b0778bdb38db933ac71076))
+* **linter:** reuse semantic command body indexes ([#733](https://github.com/ewhauser/shuck/issues/733)) ([1f74c9c](https://github.com/ewhauser/shuck/commit/1f74c9c537355de337333892e3f9d19c3a3a2ed5))
+* **linter:** tighten array-assignment split scalar expansion scan ([#708](https://github.com/ewhauser/shuck/issues/708)) ([964db94](https://github.com/ewhauser/shuck/commit/964db94e394b6c54a32d57a128eb949e079636fb))
+* **semantic:** avoid condition context rescans ([#731](https://github.com/ewhauser/shuck/issues/731)) ([388c9d5](https://github.com/ewhauser/shuck/commit/388c9d5bf902a93cade0dfb5c16bf97ba11a127c))
+* **semantic:** cache function-definition bindings index ([#685](https://github.com/ewhauser/shuck/issues/685)) ([1b51fdf](https://github.com/ewhauser/shuck/commit/1b51fdf59547f68ba8012bb9f4aa1b3483fc3994))
+* **semantic:** hoist escaped-template scan to per-word ([#716](https://github.com/ewhauser/shuck/issues/716)) ([495cae1](https://github.com/ewhauser/shuck/commit/495cae17375a5abbef27af7754d676125adb710b))
+* **semantic:** index callees by enclosing function in call graph BFS ([#715](https://github.com/ewhauser/shuck/issues/715)) ([0c5c7e3](https://github.com/ewhauser/shuck/commit/0c5c7e3f9e1697544c14ecd5b35ce83d423c6904))
+* **semantic:** use dense visited bitset for cfg reachability DFS ([#713](https://github.com/ewhauser/shuck/issues/713)) ([35b370e](https://github.com/ewhauser/shuck/commit/35b370e1a86ca5d617fbc32bee9b31e8fc6ae140))
+
+
+### Documentation
+
+* **indexer:** document public API contracts ([#707](https://github.com/ewhauser/shuck/issues/707)) ([605bba5](https://github.com/ewhauser/shuck/commit/605bba5911e460f24d6d193f081ab7e0b05733cb))
+* **parser:** document public API surface ([#705](https://github.com/ewhauser/shuck/issues/705)) ([1a5ff2b](https://github.com/ewhauser/shuck/commit/1a5ff2b2c8ae8d19997625036ac15ade0e54d558))
+
+
+### Refactor
+
+* **linter:** consolidate command substitution word traversal ([#697](https://github.com/ewhauser/shuck/issues/697)) ([d0c4c74](https://github.com/ewhauser/shuck/commit/d0c4c745a720424790e601b78a86e86741d96702))
+* **linter:** remove checker AST accessor ([#732](https://github.com/ewhauser/shuck/issues/732)) ([ae6050e](https://github.com/ewhauser/shuck/commit/ae6050e4100d1aaabda3950b28c30c0d8b9e56b6))
+* **linter:** reuse command topology facts ([#701](https://github.com/ewhauser/shuck/issues/701)) ([8972c79](https://github.com/ewhauser/shuck/commit/8972c79c7ed3dfcc82645e7d5f5eab648203fd0e))
+* **linter:** reuse semantic command child index ([#727](https://github.com/ewhauser/shuck/issues/727)) ([b02fd74](https://github.com/ewhauser/shuck/commit/b02fd744e83348dd28fbf0b5c3bd3ae5ca1618df))
+* **linter:** reuse semantic function scope checks ([#698](https://github.com/ewhauser/shuck/issues/698)) ([3be31d9](https://github.com/ewhauser/shuck/commit/3be31d9be51e590a35113f0d7882bb0a1dbad430))
+* **linter:** reuse semantic function scope lookup ([#709](https://github.com/ewhauser/shuck/issues/709)) ([53e8232](https://github.com/ewhauser/shuck/commit/53e8232723064d91f3f1e3047090601cfded2716))
+* **linter:** reuse semantic function scope lookup ([#710](https://github.com/ewhauser/shuck/issues/710)) ([bd9439c](https://github.com/ewhauser/shuck/commit/bd9439c3e2580f2a349e6b785680c96035b821a4))
+* **linter:** reuse semantic reference span lookup ([#690](https://github.com/ewhauser/shuck/issues/690)) ([14552b5](https://github.com/ewhauser/shuck/commit/14552b5f1eaf41ce07f5f9480674972595c4000c))
+* **linter:** reuse semantic reference span lookups ([#695](https://github.com/ewhauser/shuck/issues/695)) ([ae11246](https://github.com/ewhauser/shuck/commit/ae11246f419453cbcddd87b6a63322c72de8a00c))
+* **linter:** share binding visibility helpers ([#703](https://github.com/ewhauser/shuck/issues/703)) ([01242ce](https://github.com/ewhauser/shuck/commit/01242ce7603923df2433cb2e9ebffeb4f6f19a3b))
+* **semantic:** centralize assoc binding lookup ([#691](https://github.com/ewhauser/shuck/issues/691)) ([12b1dbd](https://github.com/ewhauser/shuck/commit/12b1dbdeb514224d3da9559792f3c2b0fa162a21))
+* **semantic:** centralize function call resolution ([#694](https://github.com/ewhauser/shuck/issues/694)) ([f7dda8d](https://github.com/ewhauser/shuck/commit/f7dda8d2cc96b441790659edb06ab8c44362eced))
+* **semantic:** centralize scope predicates ([#700](https://github.com/ewhauser/shuck/issues/700)) ([84fd1ae](https://github.com/ewhauser/shuck/commit/84fd1ae6fa690a0b81ab6a7c0df1bc1895351ec3))
+* **semantic:** centralize transient scope boundaries ([#712](https://github.com/ewhauser/shuck/issues/712)) ([bdf5afd](https://github.com/ewhauser/shuck/commit/bdf5afdb2bcafe129a987f773b4e583175bb3772))
+* **semantic:** consolidate CFG reachability traversal ([#693](https://github.com/ewhauser/shuck/issues/693)) ([3e98f75](https://github.com/ewhauser/shuck/commit/3e98f759031888f106a60fa045230ac8a2a8003c))
+* **semantic:** consolidate enclosing function scope lookup ([#711](https://github.com/ewhauser/shuck/issues/711)) ([e4b6160](https://github.com/ewhauser/shuck/commit/e4b616048d3799d773434b43930fedabcb7565ac))
+* **semantic:** expose function binding lookup ([#692](https://github.com/ewhauser/shuck/issues/692)) ([295702b](https://github.com/ewhauser/shuck/commit/295702bd3d89a0549fd64a76533359c9e51cc697))
+* **semantic:** expose nested function scope query ([#729](https://github.com/ewhauser/shuck/issues/729)) ([36517f6](https://github.com/ewhauser/shuck/commit/36517f674486d2859dd935c15e0aaed95270f9f1))
+* **semantic:** expose visible candidate bindings ([#696](https://github.com/ewhauser/shuck/issues/696)) ([979cc52](https://github.com/ewhauser/shuck/commit/979cc523deddac31e0941e388e207553cb5da102))
+* **semantic:** extract safe value flow queries ([#724](https://github.com/ewhauser/shuck/issues/724)) ([c3ec9fa](https://github.com/ewhauser/shuck/commit/c3ec9fa9533d703577aca8c65df35eec9707490d))
+* **semantic:** index bindings by definition span ([#726](https://github.com/ewhauser/shuck/issues/726)) ([2624d2b](https://github.com/ewhauser/shuck/commit/2624d2b43831b5476026f1816131aa2c4bfb3849))
+* **semantic:** index command contexts for linter facts ([#730](https://github.com/ewhauser/shuck/issues/730)) ([6932536](https://github.com/ewhauser/shuck/commit/6932536c0a6c7b0dabecb4a6fcb6f942e76321ae))
+* **semantic:** move command containment queries out of linter ([#720](https://github.com/ewhauser/shuck/issues/720)) ([52d0a01](https://github.com/ewhauser/shuck/commit/52d0a012e5aa1111c274166f91e67d092da75309))
+* **semantic:** move env-prefix reference queries into semantic ([#717](https://github.com/ewhauser/shuck/issues/717)) ([952c7e9](https://github.com/ewhauser/shuck/commit/952c7e9e3eefb4824b6504fff12e8831da4cc059))
+* **semantic:** move reference summary queries out of linter ([#722](https://github.com/ewhauser/shuck/issues/722)) ([a8ec3b6](https://github.com/ewhauser/shuck/commit/a8ec3b67379f8e7fc708185976aa09bcdac3b47c))
+* **semantic:** move safe-value flow queries ([#706](https://github.com/ewhauser/shuck/issues/706)) ([6750771](https://github.com/ewhauser/shuck/commit/6750771b6264abc13ff88fa0ab9457b2b6aadff2))
+* **semantic:** own command topology ([#687](https://github.com/ewhauser/shuck/issues/687)) ([c53dfb2](https://github.com/ewhauser/shuck/commit/c53dfb2fe8e4c3f92f38de9f4fce99137cacb50e))
+* **semantic:** own function call reachability ([#704](https://github.com/ewhauser/shuck/issues/704)) ([49b23a6](https://github.com/ewhauser/shuck/commit/49b23a63671095d4492ee21662f730ff6427b566))
+* **semantic:** share resolved function call scope lookup ([#728](https://github.com/ewhauser/shuck/issues/728)) ([b297c42](https://github.com/ewhauser/shuck/commit/b297c4280559223e80b60631d1038ca8383be91a))
+
 ## [0.0.25](https://github.com/ewhauser/shuck/compare/v0.0.24...v0.0.25) (2026-04-27)
 
 
