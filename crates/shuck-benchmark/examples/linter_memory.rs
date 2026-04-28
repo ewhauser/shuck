@@ -50,8 +50,11 @@ impl Frame {
         self.reallocation_count += other.reallocation_count;
         self.total_allocated_bytes += other.total_allocated_bytes;
         self.total_reallocated_bytes += other.total_reallocated_bytes;
+        let carried_live_bytes = self.current_live_bytes.max(0) as u64;
+        self.peak_live_bytes = self
+            .peak_live_bytes
+            .max(carried_live_bytes + other.peak_live_bytes);
         self.current_live_bytes += other.current_live_bytes;
-        self.peak_live_bytes = self.peak_live_bytes.max(other.peak_live_bytes);
     }
 }
 

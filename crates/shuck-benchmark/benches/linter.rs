@@ -9,6 +9,7 @@ use shuck_linter::{
     first_statement_line, lint_file, parse_directives,
 };
 use shuck_parser::parser::ParseResult;
+use shuck_semantic::SemanticModel;
 
 configure_benchmark_allocator!();
 
@@ -16,16 +17,19 @@ struct PreparedFactsInput {
     source: &'static str,
     output: ParseResult,
     indexer: Indexer,
+    semantic: SemanticModel,
 }
 
 fn prepare_facts_input(source: &'static str) -> PreparedFactsInput {
     let output = parse_fixture(source);
     let indexer = Indexer::new(source, &output);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer).into_semantic();
 
     PreparedFactsInput {
         source,
         output,
         indexer,
+        semantic,
     }
 }
 
@@ -53,11 +57,10 @@ fn build_normalized_commands(input: &PreparedFactsInput) -> usize {
 }
 
 fn build_word_facts(input: &PreparedFactsInput) -> usize {
-    let semantic = LinterSemanticArtifacts::build(&input.output.file, input.source, &input.indexer);
     black_box(benchmark_collect_word_facts(
         &input.output.file,
         input.source,
-        semantic.semantic(),
+        &input.semantic,
     ))
 }
 
