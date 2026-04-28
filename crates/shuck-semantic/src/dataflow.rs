@@ -52,6 +52,7 @@ pub struct DeadCode {
     pub cause_kind: UnreachableCauseKind,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataflowResult {
     pub unused_assignments: Vec<UnusedAssignment>,
@@ -60,8 +61,8 @@ pub struct DataflowResult {
     pub(crate) unused_assignment_ids: Vec<BindingId>,
 }
 
+#[cfg(test)]
 impl DataflowResult {
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn unused_assignment_ids(&self) -> &[BindingId] {
         &self.unused_assignment_ids
     }
@@ -279,6 +280,7 @@ pub(crate) fn build_exact_variable_dataflow(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn analyze(
     context: &DataflowContext<'_>,
     exact: &ExactVariableDataflow,

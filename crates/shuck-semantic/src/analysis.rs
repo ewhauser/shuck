@@ -10,6 +10,7 @@ impl<'model> SemanticAnalysis<'model> {
             model,
             cfg: OnceLock::new(),
             exact_variable_dataflow: OnceLock::new(),
+            #[cfg(test)]
             dataflow: OnceLock::new(),
             unused_assignments: OnceLock::new(),
             unused_assignments_shellcheck_compat: OnceLock::new(),
@@ -207,7 +208,7 @@ impl<'model> SemanticAnalysis<'model> {
         })
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn dataflow(&self) -> &DataflowResult {
         self.dataflow.get_or_init(|| {
             let cfg = self.cfg();

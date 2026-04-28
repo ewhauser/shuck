@@ -111,7 +111,9 @@ use crate::call_graph::build_call_graph;
 use crate::cfg::{
     RecordedCommandKind, RecordedListOperator, RecordedPipelineOperatorKind, RecordedProgram,
 };
-use crate::dataflow::{DataflowContext, DataflowResult, ExactVariableDataflow};
+#[cfg(test)]
+use crate::dataflow::DataflowResult;
+use crate::dataflow::{DataflowContext, ExactVariableDataflow};
 use crate::function_resolution::FunctionBindingLookup;
 use crate::runtime::RuntimePrelude;
 use crate::scope::{ancestor_scopes, enclosing_function_scope};
@@ -646,6 +648,7 @@ pub struct SemanticAnalysis<'model> {
     model: &'model SemanticModel,
     cfg: OnceLock<ControlFlowGraph>,
     exact_variable_dataflow: OnceLock<ExactVariableDataflow>,
+    #[cfg(test)]
     dataflow: OnceLock<DataflowResult>,
     unused_assignments: OnceLock<Vec<BindingId>>,
     unused_assignments_shellcheck_compat: OnceLock<Vec<BindingId>>,

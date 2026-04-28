@@ -1,6 +1,5 @@
-use std::env;
-use std::fs;
-use std::path::PathBuf;
+#[cfg(not(test))]
+use std::{env, fs, path::PathBuf};
 
 use serde::Deserialize;
 
@@ -85,6 +84,7 @@ fn parse_rule_metadata(
     Ok((metadata, shellcheck_code, shellcheck_level))
 }
 
+#[cfg(not(test))]
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(shuck_profiling)");
     println!("cargo:rerun-if-env-changed=PROFILE");

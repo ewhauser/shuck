@@ -3,6 +3,7 @@
 #![no_main]
 
 mod common;
+mod formatter_consistency_common;
 
 use libfuzzer_sys::{Corpus, fuzz_target};
 
@@ -12,8 +13,8 @@ fuzz_target!(|data: &[u8]| -> Corpus {
         Err(reject) => return reject,
     };
 
-    for case in common::FORMAT_CASES {
-        common::compare_formatting_invariants(input, case);
+    for case in formatter_consistency_common::FORMAT_CASES {
+        formatter_consistency_common::compare_formatting_invariants(input, case);
     }
 
     Corpus::Keep

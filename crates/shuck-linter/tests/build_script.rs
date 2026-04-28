@@ -1,6 +1,4 @@
 mod build_script {
-    #![allow(dead_code)]
-
     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/build.rs"));
 
     #[test]
