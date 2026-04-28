@@ -2516,6 +2516,50 @@ f() {
 }
 
 #[test]
+fn visible_candidate_bindings_for_reference_returns_visible_scope_chain() {
+    let source = "\
+#!/bin/bash
+value=outer
+f() {
+  local value=inner
+  printf '%s\\n' \"$value\"
+}
+";
+    let model = model(source);
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.kind == ReferenceKind::Expansion && reference.name == "value")
+        .unwrap();
+    let candidates = model.visible_candidate_bindings_for_reference(reference);
+    let value_bindings = model.bindings_for(&Name::from("value"));
+
+    assert_eq!(candidates, vec![value_bindings[1], value_bindings[0]]);
+}
+
+#[test]
+fn visible_candidate_bindings_for_reference_falls_back_to_prior_outer_scope_bindings() {
+    let source = "\
+#!/bin/bash
+first() {
+  target=(one two)
+}
+second() {
+  printf '%s\\n' \"$target\"
+}
+";
+    let model = model(source);
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.kind == ReferenceKind::Expansion && reference.name == "target")
+        .unwrap();
+    let candidates = model.visible_candidate_bindings_for_reference(reference);
+
+    assert_eq!(candidates, model.bindings_for(&Name::from("target")));
+}
+
+#[test]
 fn assoc_lookup_binding_prefers_visible_assoc_declarations_and_respects_local_shadowing() {
     let model = model(
         "\

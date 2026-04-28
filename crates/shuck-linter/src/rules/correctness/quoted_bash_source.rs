@@ -131,7 +131,10 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
         {
             binding_ids.push(binding.id);
         }
-        for binding_id in candidate_binding_ids_for_reference(self.semantic, reference) {
+        for binding_id in self
+            .semantic
+            .visible_candidate_bindings_for_reference(reference)
+        {
             if seen.insert(binding_id) {
                 binding_ids.push(binding_id);
             }
@@ -248,8 +251,10 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
             }
 
             for test in self.facts.presence_test_names(name) {
-                let binding_id =
-                    resolve_binding_visible_at(self.semantic, name, test.tested_span());
+                let binding_id = self
+                    .semantic
+                    .visible_binding(name, test.tested_span())
+                    .map(|binding| binding.id);
                 by_binding
                     .entry(binding_id)
                     .or_default()
@@ -640,56 +645,6 @@ fn binding_suppresses_same_command_array_read(binding: &Binding, assignment_only
         || (matches!(binding.kind, BindingKind::ReadTarget)
             && binding.attributes.contains(BindingAttributes::ARRAY))
         || (matches!(binding.kind, BindingKind::ArrayAssignment) && assignment_only)
-}
-
-fn resolve_binding_visible_at(
-    semantic: &shuck_semantic::SemanticModel,
-    name: &shuck_ast::Name,
-    tested_span: Span,
-) -> Option<BindingId> {
-    semantic
-        .bindings_for(name)
-        .iter()
-        .copied()
-        .rev()
-        .find(|binding_id| semantic.binding_visible_at(*binding_id, tested_span))
-}
-
-fn candidate_binding_ids_for_reference(
-    semantic: &shuck_semantic::SemanticModel,
-    reference: &Reference,
-) -> Vec<BindingId> {
-    let all_bindings = semantic.bindings_for(&reference.name);
-    let binding_ids = semantic
-        .ancestor_scopes(reference.scope)
-        .filter_map(|scope| {
-            all_bindings.iter().copied().rev().find(|binding_id| {
-                let binding = semantic.binding(*binding_id);
-                binding.scope == scope && semantic.binding_visible_at(*binding_id, reference.span)
-            })
-        })
-        .collect::<Vec<_>>();
-    if !binding_ids.is_empty() {
-        return binding_ids;
-    }
-
-    semantic
-        .ancestor_scopes(reference.scope)
-        .skip(1)
-        .filter_map(|scope| {
-            all_bindings.iter().copied().rev().find(|binding_id| {
-                let binding = semantic.binding(*binding_id);
-                binding.scope == scope && semantic.binding_visible_at(*binding_id, reference.span)
-            })
-        })
-        .chain(all_bindings.iter().copied().filter(|binding_id| {
-            let binding = semantic.binding(*binding_id);
-            binding.scope != reference.scope
-                && binding.span.start.offset < reference.span.start.offset
-        }))
-        .collect::<FxHashSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>()
 }
 
 fn is_bash_runtime_array_name(name: &str) -> bool {
