@@ -324,6 +324,22 @@ impl<'a> LinterFacts<'a> {
         precomputed_command_id_for_offset(&self.innermost_command_ids_by_offset, offset)
     }
 
+    pub(crate) fn innermost_command_id_containing_offset(&self, offset: usize) -> Option<CommandId> {
+        self.commands
+            .iter()
+            .filter(|command| {
+                command.span().start.offset <= offset && offset <= command.span().end.offset
+            })
+            .max_by(|left, right| {
+                left.span()
+                    .start
+                    .offset
+                    .cmp(&right.span().start.offset)
+                    .then_with(|| right.span().end.offset.cmp(&left.span().end.offset))
+            })
+            .map(CommandFact::id)
+    }
+
     pub(crate) fn innermost_command_at_binding_offset(
         &self,
         offset: usize,

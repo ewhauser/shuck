@@ -32,8 +32,7 @@ pub fn quoted_bash_source(checker: &mut Checker) {
                 .filter(move |reference| reference.span == span)
         })
         .collect::<Vec<_>>();
-    let mut context =
-        QuotedBashSourceContext::new(checker.facts(), semantic, &candidate_references);
+    let mut context = QuotedBashSourceContext::new(checker.facts(), semantic);
     let spans = candidate_references
         .into_iter()
         .filter(|reference| context.reference_is_array_like(reference))
@@ -47,7 +46,6 @@ struct QuotedBashSourceContext<'a, 'src> {
     facts: &'a LinterFacts<'src>,
     semantic: &'a shuck_semantic::SemanticModel,
     local_declarations: LocalDeclarationIndex,
-    innermost_command_ids_by_offset: FxHashMap<usize, Option<CommandId>>,
     simple_command_ancestors_by_offset: FxHashMap<usize, Vec<SimpleCommandAncestor>>,
     same_command_writers_by_name: FxHashMap<Name, Vec<BindingId>>,
     presence_test_ends_by_name_binding: FxHashMap<Name, FxHashMap<Option<BindingId>, Vec<usize>>>,
@@ -59,38 +57,11 @@ struct QuotedBashSourceContext<'a, 'src> {
 }
 
 impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
-    fn new(
-        facts: &'a LinterFacts<'src>,
-        semantic: &'a shuck_semantic::SemanticModel,
-        candidate_references: &[&Reference],
-    ) -> Self {
-        let mut command_query_offsets = candidate_references
-            .iter()
-            .map(|reference| reference.span.start.offset)
-            .collect::<Vec<_>>();
-        command_query_offsets.extend(
-            semantic
-                .bindings()
-                .iter()
-                .filter(|binding| {
-                    matches!(
-                        binding.kind,
-                        BindingKind::ArrayAssignment
-                            | BindingKind::MapfileTarget
-                            | BindingKind::ReadTarget
-                    )
-                })
-                .map(|binding| binding.span.start.offset),
-        );
-
+    fn new(facts: &'a LinterFacts<'src>, semantic: &'a shuck_semantic::SemanticModel) -> Self {
         Self {
             facts,
             semantic,
             local_declarations: LocalDeclarationIndex::build(semantic),
-            innermost_command_ids_by_offset: build_innermost_command_ids_by_offset(
-                facts.commands(),
-                command_query_offsets,
-            ),
             simple_command_ancestors_by_offset: FxHashMap::default(),
             same_command_writers_by_name: FxHashMap::default(),
             presence_test_ends_by_name_binding: FxHashMap::default(),
@@ -317,11 +288,7 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
             .entry(offset)
             .or_insert_with(|| {
                 let mut ancestors = Vec::new();
-                let mut current = self
-                    .innermost_command_ids_by_offset
-                    .get(&offset)
-                    .copied()
-                    .flatten();
+                let mut current = self.facts.innermost_command_id_containing_offset(offset);
                 while let Some(command_id) = current {
                     let command = self.facts.command(command_id);
                     if matches!(command.command(), Command::Simple(_)) {
@@ -493,80 +460,6 @@ impl LocalDeclarationIndex {
             span.start.offset,
             span.end.offset,
         ))
-    }
-}
-
-#[derive(Clone, Copy)]
-struct OpenCommand {
-    end_offset: usize,
-    id: CommandId,
-}
-
-fn build_innermost_command_ids_by_offset(
-    commands: crate::facts::CommandFacts<'_, '_>,
-    mut offsets: Vec<usize>,
-) -> FxHashMap<usize, Option<CommandId>> {
-    if offsets.is_empty() {
-        return FxHashMap::default();
-    }
-
-    offsets.sort_unstable();
-    offsets.dedup();
-
-    let mut command_spans = commands
-        .iter()
-        .map(|command| (command.span(), command.id()))
-        .collect::<Vec<_>>();
-    if command_spans
-        .windows(2)
-        .any(|window| compare_command_offset_entries(window[0], window[1]).is_gt())
-    {
-        command_spans.sort_unstable_by(|left, right| compare_command_offset_entries(*left, *right));
-    }
-
-    let mut command_ids_by_offset = FxHashMap::default();
-    let mut active_commands = Vec::new();
-    let mut next_command = 0;
-    for offset in offsets {
-        pop_finished_commands(&mut active_commands, offset);
-
-        while let Some((span, id)) = command_spans.get(next_command).copied() {
-            if span.start.offset > offset {
-                break;
-            }
-
-            pop_finished_commands(&mut active_commands, span.start.offset);
-            active_commands.push(OpenCommand {
-                end_offset: span.end.offset,
-                id,
-            });
-            next_command += 1;
-        }
-
-        pop_finished_commands(&mut active_commands, offset);
-        command_ids_by_offset.insert(offset, active_commands.last().map(|command| command.id));
-    }
-
-    command_ids_by_offset
-}
-
-fn compare_command_offset_entries(
-    (left_span, _left_id): (Span, CommandId),
-    (right_span, _right_id): (Span, CommandId),
-) -> std::cmp::Ordering {
-    left_span
-        .start
-        .offset
-        .cmp(&right_span.start.offset)
-        .then_with(|| right_span.end.offset.cmp(&left_span.end.offset))
-}
-
-fn pop_finished_commands(active_commands: &mut Vec<OpenCommand>, offset: usize) {
-    while active_commands
-        .last()
-        .is_some_and(|command| command.end_offset < offset)
-    {
-        active_commands.pop();
     }
 }
 
