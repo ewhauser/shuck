@@ -4966,6 +4966,43 @@ use
 }
 
 #[test]
+fn value_flow_resolves_multi_name_function_alias_fallbacks() {
+    let source = "\
+#!/bin/zsh
+use() {
+  itunes
+  print $foo
+}
+function music itunes() {
+  foo=1
+}
+use
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let binding = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment))
+        .expect("expected foo binding");
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "foo")
+        .expect("expected foo reference");
+    let analysis = model.analysis();
+    let mut value_flow = analysis.value_flow();
+
+    assert_eq!(
+        value_flow.nonlocal_value_bindings_from_called_functions_before(
+            &reference.name,
+            reference.scope,
+            reference.span,
+        ),
+        vec![binding.id]
+    );
+}
+
+#[test]
 fn value_flow_uses_path_covering_alternate_function_definitions() {
     let source = "\
 #!/bin/bash
