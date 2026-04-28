@@ -335,56 +335,16 @@ fn collect_command_substitution_comparable_name_uses(
     allow_quoted_derived_words: bool,
     uses: &mut Vec<ComparableNameUse>,
 ) {
-    for visit in iter_commands(
-        body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-    ) {
-        visit_command_substitution_loop_header_words(visit.command, &mut |word| {
-            if !allow_quoted_derived_words
-                && analyze_word(word, source, None).quote == WordQuote::FullyQuoted
-            {
-                return;
-            }
-            if let Some(mut name_use) = standalone_comparable_name_use(word, source) {
-                name_use.mark_derived();
-                uses.push(name_use);
-            }
-        });
-        visit_command_argument_words_for_substitutions(visit.command, source, &mut |word| {
-            if !allow_quoted_derived_words
-                && analyze_word(word, source, None).quote == WordQuote::FullyQuoted
-            {
-                return;
-            }
-            if let Some(mut name_use) = standalone_comparable_name_use(word, source) {
-                name_use.mark_derived();
-                uses.push(name_use);
-            }
-        });
-    }
-}
-
-fn visit_command_substitution_loop_header_words<'a>(
-    command: &'a Command,
-    visitor: &mut impl FnMut(&'a Word),
-) {
-    match command {
-        Command::Compound(CompoundCommand::For(command)) => {
-            if let Some(words) = &command.words {
-                for word in words {
-                    visitor(word);
-                }
-            }
+    visit_command_substitution_candidate_words(body, source, &mut |word| {
+        if !allow_quoted_derived_words && analyze_word(word, source, None).quote == WordQuote::FullyQuoted
+        {
+            return;
         }
-        Command::Compound(CompoundCommand::Select(command)) => {
-            for word in &command.words {
-                visitor(word);
-            }
+        if let Some(mut name_use) = standalone_comparable_name_use(word, source) {
+            name_use.mark_derived();
+            uses.push(name_use);
         }
-        _ => {}
-    }
+    });
 }
 
 fn standalone_comparable_name_use(word: &Word, source: &str) -> Option<ComparableNameUse> {

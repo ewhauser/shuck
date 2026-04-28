@@ -56,6 +56,43 @@ fn iter_commands<'a>(
     visits.into_iter()
 }
 
+fn visit_command_substitution_candidate_words<'a>(
+    body: &'a StmtSeq,
+    source: &str,
+    visitor: &mut impl FnMut(&'a Word),
+) {
+    for visit in iter_commands(
+        body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    ) {
+        visit_command_substitution_loop_header_words(visit.command, visitor);
+        visit_command_argument_words_for_substitutions(visit.command, source, visitor);
+    }
+}
+
+fn visit_command_substitution_loop_header_words<'a>(
+    command: &'a Command,
+    visitor: &mut impl FnMut(&'a Word),
+) {
+    match command {
+        Command::Compound(CompoundCommand::For(command)) => {
+            if let Some(words) = &command.words {
+                for word in words {
+                    visitor(word);
+                }
+            }
+        }
+        Command::Compound(CompoundCommand::Select(command)) => {
+            for word in &command.words {
+                visitor(word);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn zsh_glob_patterns(glob: &shuck_ast::ZshQualifiedGlob) -> impl Iterator<Item = &Pattern> + '_ {
     glob.segments.iter().filter_map(|segment| match segment {
         ZshGlobSegment::Pattern(pattern) => Some(pattern),
