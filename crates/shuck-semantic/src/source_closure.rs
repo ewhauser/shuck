@@ -613,7 +613,6 @@ struct CallInfo {
     name: Name,
     scope: ScopeId,
     span: Span,
-    call_site_span: Span,
     args: Vec<Option<String>>,
 }
 
@@ -653,19 +652,10 @@ fn collect_ast_facts(model: &SemanticModel) -> AstFacts {
 
         let name = Name::from(name);
         let is_source_builtin = matches!(name.as_str(), "source" | ".");
-        let call_site_span = model
-            .call_sites_for(&name)
-            .iter()
-            .find(|site| {
-                crate::cfg::recorded_command_span_for_call_site(program, site) == command.span
-            })
-            .map(|site| site.span)
-            .unwrap_or(command.span);
         facts.calls.push(CallInfo {
             name,
             scope: model.scope_at(command.span.start.offset),
             span: command.span,
-            call_site_span,
             args: info.static_args.to_vec(),
         });
 
@@ -1076,18 +1066,11 @@ fn resolve_literal_call_args_by_scope(
     let analysis = model.analysis();
 
     for call in calls {
-        let function_binding = analysis
-            .function_call_arity_sites(&call.name)
-            .find(|(site, _)| site.span == call.call_site_span)
-            .map(|(_, binding)| binding)
-            .or_else(|| {
-                analysis.visible_function_binding_in_call_context(
-                    &call.name,
-                    call.scope,
-                    call.span.start.offset,
-                )
-            });
-        let Some(function_binding) = function_binding else {
+        let Some(function_binding) = analysis.visible_function_binding_in_call_context(
+            &call.name,
+            call.scope,
+            call.span.start.offset,
+        ) else {
             continue;
         };
         let Some(callee_scope) = analysis.function_scope_for_binding(function_binding) else {
@@ -1501,6 +1484,27 @@ noglob load_helper ./helper.sh
             args_by_scope.get(&scope),
             Some(&vec![vec![Some("./helper.sh".to_owned())]])
         );
+    }
+
+    #[test]
+    fn resolve_literal_call_args_by_scope_ignores_calls_before_function_definition() {
+        let source = "\
+load_helper ./helper.sh
+load_helper() { . \"$1\"; }
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build(&output.file, source, &indexer);
+        let facts = collect_ast_facts(&model);
+        let args_by_scope = resolve_literal_call_args_by_scope(&model, &facts.calls);
+        let name = Name::from("load_helper");
+        let binding = model.function_definitions(&name)[0];
+        let scope = model
+            .analysis()
+            .function_scope_for_binding(binding)
+            .expect("expected function scope");
+
+        assert_eq!(args_by_scope.get(&scope), None);
     }
 
     #[test]
