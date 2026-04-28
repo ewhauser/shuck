@@ -180,7 +180,31 @@ struct CommandTopology {
     ids_by_syntax_span: FxHashMap<SpanKey, SmallVec<[CommandId; 1]>>,
     parent_ids: Vec<Option<CommandId>>,
     child_ids: Vec<Vec<CommandId>>,
+    syntax_backed_parent_ids: Vec<Option<CommandId>>,
+    syntax_backed_child_ids: Vec<Vec<CommandId>>,
     offset_order: Vec<CommandId>,
+    containing_offset_entries: Vec<CommandContainingOffsetEntry>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CommandContainingOffsetEntry {
+    start_offset: usize,
+    end_offset: usize,
+    id: CommandId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum CommandContainingOffsetEventKind {
+    End,
+    Start,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CommandContainingOffsetEvent {
+    offset: usize,
+    end_offset: usize,
+    id: CommandId,
+    kind: CommandContainingOffsetEventKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1570,6 +1594,14 @@ impl SemanticModel {
         &self.command_topology().child_ids[id.index()]
     }
 
+    pub fn syntax_backed_command_parent_id(&self, id: CommandId) -> Option<CommandId> {
+        self.command_topology().syntax_backed_parent_ids[id.index()]
+    }
+
+    pub fn syntax_backed_command_children(&self, id: CommandId) -> &[CommandId] {
+        &self.command_topology().syntax_backed_child_ids[id.index()]
+    }
+
     pub fn innermost_command_id_at(&self, offset: usize) -> Option<CommandId> {
         let topology = self.command_topology();
         let mut innermost = None;
@@ -1583,6 +1615,17 @@ impl SemanticModel {
             }
         }
         innermost
+    }
+
+    pub fn innermost_command_id_containing_offset(&self, offset: usize) -> Option<CommandId> {
+        let topology = self.command_topology();
+        let upper_bound = topology
+            .containing_offset_entries
+            .partition_point(|entry| entry.start_offset <= offset);
+        let entry = topology
+            .containing_offset_entries
+            .get(upper_bound.checked_sub(1)?)?;
+        (offset <= entry.end_offset).then_some(entry.id)
     }
 
     /// Returns logical list commands flattened by the semantic traversal.
@@ -1880,6 +1923,12 @@ fn build_command_topology(model: &SemanticModel) -> CommandTopology {
         .into_iter()
         .filter(|id| program.command(*id).syntax_kind.is_some())
         .collect::<Vec<_>>();
+    let syntax_backed_parent_ids =
+        build_syntax_backed_command_parent_ids(model, &syntax_backed_ids, &parent_ids);
+    let syntax_backed_child_ids =
+        build_command_child_ids(command_count, &syntax_backed_ids, &syntax_backed_parent_ids);
+    let containing_offset_entries =
+        build_command_containing_offset_entries(model, &syntax_backed_ids);
 
     CommandTopology {
         syntax_backed_ids,
@@ -1887,8 +1936,130 @@ fn build_command_topology(model: &SemanticModel) -> CommandTopology {
         ids_by_syntax_span,
         parent_ids,
         child_ids,
+        syntax_backed_parent_ids,
+        syntax_backed_child_ids,
         offset_order,
+        containing_offset_entries,
     }
+}
+
+fn build_syntax_backed_command_parent_ids(
+    model: &SemanticModel,
+    syntax_backed_ids: &[CommandId],
+    parent_ids: &[Option<CommandId>],
+) -> Vec<Option<CommandId>> {
+    let mut syntax_backed_parent_ids = vec![None; parent_ids.len()];
+    for id in syntax_backed_ids.iter().copied() {
+        let mut current = parent_ids[id.index()];
+        while let Some(parent) = current {
+            if model.command_syntax_kind(parent).is_some() {
+                syntax_backed_parent_ids[id.index()] = Some(parent);
+                break;
+            }
+            current = parent_ids[parent.index()];
+        }
+    }
+    syntax_backed_parent_ids
+}
+
+fn build_command_child_ids(
+    command_count: usize,
+    command_ids: &[CommandId],
+    parent_ids: &[Option<CommandId>],
+) -> Vec<Vec<CommandId>> {
+    let mut child_ids = vec![Vec::new(); command_count];
+    for child in command_ids.iter().copied() {
+        if let Some(parent) = parent_ids[child.index()] {
+            child_ids[parent.index()].push(child);
+        }
+    }
+    child_ids
+}
+
+fn build_command_containing_offset_entries(
+    model: &SemanticModel,
+    syntax_backed_ids: &[CommandId],
+) -> Vec<CommandContainingOffsetEntry> {
+    let mut events = syntax_backed_ids
+        .iter()
+        .copied()
+        .flat_map(|id| {
+            let span = model.command_span(id);
+            [
+                CommandContainingOffsetEvent {
+                    offset: span.start.offset,
+                    end_offset: span.end.offset,
+                    id,
+                    kind: CommandContainingOffsetEventKind::Start,
+                },
+                CommandContainingOffsetEvent {
+                    offset: span.end.offset.saturating_add(1),
+                    end_offset: span.end.offset,
+                    id,
+                    kind: CommandContainingOffsetEventKind::End,
+                },
+            ]
+        })
+        .collect::<Vec<_>>();
+    events.sort_unstable_by(|left, right| {
+        left.offset
+            .cmp(&right.offset)
+            .then_with(|| left.kind.cmp(&right.kind))
+            .then_with(|| right.end_offset.cmp(&left.end_offset))
+            .then_with(|| left.id.index().cmp(&right.id.index()))
+    });
+
+    let mut entries = Vec::new();
+    let mut active = Vec::<CommandId>::new();
+    let mut index = 0;
+    while let Some(event) = events.get(index).copied() {
+        let offset = event.offset;
+        while events.get(index).is_some_and(|event| {
+            event.offset == offset && event.kind == CommandContainingOffsetEventKind::End
+        }) {
+            let id = events[index].id;
+            active.retain(|active_id| *active_id != id);
+            index += 1;
+        }
+        while events.get(index).is_some_and(|event| {
+            event.offset == offset && event.kind == CommandContainingOffsetEventKind::Start
+        }) {
+            active.push(events[index].id);
+            index += 1;
+        }
+
+        let Some(next_offset) = events.get(index).map(|event| event.offset) else {
+            break;
+        };
+        if offset < next_offset
+            && let Some(id) = active.last().copied()
+        {
+            push_command_containing_offset_entry(&mut entries, offset, next_offset - 1, id);
+        }
+    }
+
+    entries
+}
+
+fn push_command_containing_offset_entry(
+    entries: &mut Vec<CommandContainingOffsetEntry>,
+    start_offset: usize,
+    end_offset: usize,
+    id: CommandId,
+) {
+    if let Some(last) = entries.last_mut()
+        && last.id == id
+        && last.end_offset.saturating_add(1) == start_offset
+    {
+        last.end_offset = end_offset;
+        return;
+    }
+
+    entries.push(CommandContainingOffsetEntry {
+        start_offset,
+        end_offset,
+        id,
+    });
 }
 
 fn attach_containing_command_parents(
