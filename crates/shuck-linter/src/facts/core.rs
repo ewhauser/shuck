@@ -129,13 +129,35 @@ pub(crate) struct CommandChildIndex {
 }
 
 impl CommandChildIndex {
-    fn from_parent_lists(children_by_parent: Vec<Vec<CommandId>>) -> Self {
-        let total_children = children_by_parent.iter().map(Vec::len).sum();
+    fn from_semantic_syntax_backed_children(
+        semantic: &SemanticModel,
+        command_fact_indices_by_id: &[Option<usize>],
+    ) -> Self {
+        let total_children = semantic
+            .commands()
+            .iter()
+            .copied()
+            .map(|parent| {
+                semantic
+                    .syntax_backed_command_children(parent)
+                    .iter()
+                    .copied()
+                    .filter(|child| command_fact_exists(command_fact_indices_by_id, *child))
+                    .count()
+            })
+            .sum();
         let mut ids = ListArena::with_capacity(total_children);
-        let mut by_parent = Vec::with_capacity(children_by_parent.len());
+        let mut by_parent = Vec::with_capacity(semantic.command_count());
+        by_parent.resize_with(semantic.command_count(), IdRange::empty);
 
-        for children in children_by_parent {
-            by_parent.push(ids.push_many(children));
+        for parent in semantic.commands().iter().copied() {
+            by_parent[parent.index()] = ids.push_many(
+                semantic
+                    .syntax_backed_command_children(parent)
+                    .iter()
+                    .copied()
+                    .filter(|child| command_fact_exists(command_fact_indices_by_id, *child)),
+            );
         }
 
         Self { ids, by_parent }
@@ -147,6 +169,12 @@ impl CommandChildIndex {
             .copied()
             .map_or(&[], |range| self.ids.get(range))
     }
+}
+
+fn command_fact_exists(command_fact_indices_by_id: &[Option<usize>], id: CommandId) -> bool {
+    command_fact_indices_by_id
+        .get(id.index())
+        .is_some_and(Option::is_some)
 }
 
 impl<'a> FactStore<'a> {

@@ -439,9 +439,10 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     .is_some_and(Option::is_some)
             })
             .collect::<Vec<_>>();
-        let command_child_ids_by_parent =
-            build_linter_command_child_ids_by_parent(self.semantic, &command_fact_indices_by_id);
-        let command_child_index = CommandChildIndex::from_parent_lists(command_child_ids_by_parent);
+        let command_child_index = CommandChildIndex::from_semantic_syntax_backed_children(
+            self.semantic,
+            &command_fact_indices_by_id,
+        );
 
         populate_linebreak_in_test_facts(&mut commands, self.source);
         populate_substitution_fact_ranges(
@@ -961,28 +962,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             conditional_portability,
         }
     }
-}
-
-fn build_linter_command_child_ids_by_parent(
-    semantic: &SemanticModel,
-    command_fact_indices_by_id: &[Option<usize>],
-) -> Vec<Vec<CommandId>> {
-    let mut children_by_parent = vec![Vec::new(); semantic.command_count()];
-    for child in semantic.commands().iter().copied() {
-        if !command_fact_exists(command_fact_indices_by_id, child) {
-            continue;
-        }
-        if let Some(parent) = semantic.syntax_backed_command_parent_id(child) {
-            children_by_parent[parent.index()].push(child);
-        }
-    }
-    children_by_parent
-}
-
-fn command_fact_exists(command_fact_indices_by_id: &[Option<usize>], id: CommandId) -> bool {
-    command_fact_indices_by_id
-        .get(id.index())
-        .is_some_and(Option::is_some)
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
