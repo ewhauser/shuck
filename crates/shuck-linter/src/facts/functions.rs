@@ -366,6 +366,7 @@ fn build_function_parameter_fallback_spans(
 
 fn build_completion_registered_function_command_flags(
     semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
     commands: &[CommandFact<'_>],
     command_fact_indices_by_id: &[Option<usize>],
     lists: &[ListFact<'_>],
@@ -381,7 +382,8 @@ fn build_completion_registered_function_command_flags(
 
     let mut flags = vec![false; function_command_slot_count(commands)];
     for command in commands {
-        flags[command.id().index()] = enclosing_function_scope(semantic, command.scope())
+        flags[command.id().index()] = semantic_analysis
+            .enclosing_function_scope_at(command.span().start.offset)
             .is_some_and(|scope| registered_scopes.contains(&scope));
     }
     flags
@@ -822,6 +824,7 @@ fn is_plausible_shell_function_name(name: &str) -> bool {
 
 fn build_function_positional_parameter_facts(
     semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
     commands: &[CommandFact<'_>],
     positional_parameter_fragments: &[PositionalParameterFragmentFact],
 ) -> FxHashMap<ScopeId, FunctionPositionalParameterFacts> {
@@ -868,7 +871,9 @@ fn build_function_positional_parameter_facts(
                 continue;
             }
 
-            let Some(scope) = enclosing_function_scope(semantic, reference.scope) else {
+            let Some(scope) =
+                semantic_analysis.enclosing_function_scope_at(reference.span.start.offset)
+            else {
                 continue;
             };
 
@@ -884,7 +889,8 @@ fn build_function_positional_parameter_facts(
             continue;
         }
 
-        let Some(scope) = enclosing_function_scope(semantic, reference.scope) else {
+        let Some(scope) = semantic_analysis.enclosing_function_scope_at(reference.span.start.offset)
+        else {
             continue;
         };
 
@@ -898,17 +904,18 @@ fn build_function_positional_parameter_facts(
             continue;
         }
 
-        let fragment_scope = semantic.scope_at(fragment.span().start.offset);
+        let fragment_offset = fragment.span().start.offset;
+        let fragment_scope = semantic.scope_at(fragment_offset);
         if reference_has_local_positional_reset(
             semantic,
             fragment_scope,
-            fragment.span().start.offset,
+            fragment_offset,
             &local_reset_offsets_by_scope,
         ) {
             continue;
         }
 
-        let Some(scope) = enclosing_function_scope(semantic, fragment_scope) else {
+        let Some(scope) = semantic_analysis.enclosing_function_scope_at(fragment_offset) else {
             continue;
         };
 
@@ -935,15 +942,6 @@ fn build_function_positional_parameter_facts(
     }
 
     facts
-}
-
-fn enclosing_function_scope(semantic: &SemanticModel, scope: ScopeId) -> Option<ScopeId> {
-    semantic.ancestor_scopes(scope).find(|scope| {
-        matches!(
-            semantic.scope_kind(*scope),
-            shuck_semantic::ScopeKind::Function(_)
-        )
-    })
 }
 
 fn enclosing_function_scope_for_positional_reset(

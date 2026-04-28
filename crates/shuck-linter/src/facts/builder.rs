@@ -566,6 +566,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let completion_registered_function_command_flags =
             build_completion_registered_function_command_flags(
                 self.semantic,
+                semantic_analysis,
                 &commands,
                 &command_fact_indices_by_id,
                 &lists,
@@ -663,6 +664,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         } = surface_fragments.finish();
         let function_positional_parameter_facts = build_function_positional_parameter_facts(
             self.semantic,
+            semantic_analysis,
             &commands,
             &positional_parameters,
         );
