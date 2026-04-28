@@ -4,6 +4,7 @@ use shuck_ast::Span;
 use smallvec::SmallVec;
 
 use crate::dense_bit_set::DenseBitSet;
+use crate::function_resolution::resolved_function_calls_with_callee_scope;
 use crate::reachability::block_reaches_without;
 use crate::runtime::RuntimePrelude;
 use crate::{
@@ -2628,26 +2629,19 @@ fn resolved_calls_by_scope(
     function_scopes: &FxHashMap<BindingId, ScopeId>,
 ) -> FxHashMap<ScopeId, Vec<ResolvedCallSite>> {
     let mut calls_by_scope: FxHashMap<ScopeId, Vec<ResolvedCallSite>> = FxHashMap::default();
-    for sites in call_sites.values() {
-        for site in sites {
-            let Some(function_binding) = visible_function_call_bindings
-                .get(&SpanKey::new(site.name_span))
-                .copied()
-            else {
-                continue;
-            };
-            let Some(callee_scope) = function_scopes.get(&function_binding).copied() else {
-                continue;
-            };
-            calls_by_scope
-                .entry(site.scope)
-                .or_default()
-                .push(ResolvedCallSite {
-                    offset: site.span.start.offset,
-                    span: site.span,
-                    callee_scope,
-                });
-        }
+    for call in resolved_function_calls_with_callee_scope(
+        call_sites,
+        visible_function_call_bindings,
+        function_scopes,
+    ) {
+        calls_by_scope
+            .entry(call.site.scope)
+            .or_default()
+            .push(ResolvedCallSite {
+                offset: call.site.span.start.offset,
+                span: call.site.span,
+                callee_scope: call.callee_scope,
+            });
     }
     for calls in calls_by_scope.values_mut() {
         calls.sort_by_key(|call| call.offset);
