@@ -12,9 +12,10 @@ use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
 use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile, ZshOptionState};
 
+use crate::function_resolution::lexically_visible_function_binding_in_scope;
 use crate::{
-    BindingId, BindingKind, ContractCertainty, FileContract, FunctionContract, FunctionScopeKind,
-    ProvidedBinding, ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel, SourcePathResolver,
+    ContractCertainty, FileContract, FunctionContract, FunctionScopeKind, ProvidedBinding,
+    ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel, SourcePathResolver,
     SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution, SpanKey, SyntheticRead,
     build_semantic_model_base, infer_explicit_parse_dialect_from_source,
 };
@@ -526,13 +527,20 @@ fn visible_imported_function_contract<'a>(
     offset: usize,
 ) -> Option<&'a ImportedFunctionContractSite> {
     for scope_id in model.ancestor_scopes(scope) {
-        let local = visible_local_function_binding_in_scope(model, name, scope_id, scope, offset)
-            .map(|binding| {
-                (
-                    VisibleFunctionTarget::Local,
-                    model.binding(binding).span.start.offset,
-                )
-            });
+        let local = lexically_visible_function_binding_in_scope(
+            model.scopes(),
+            model.bindings(),
+            name,
+            scope_id,
+            scope,
+            offset,
+        )
+        .map(|binding| {
+            (
+                VisibleFunctionTarget::Local,
+                model.binding(binding).span.start.offset,
+            )
+        });
         let imported =
             visible_imported_function_in_scope(imported_functions, name, scope_id, scope, offset)
                 .map(|site| {
@@ -561,30 +569,6 @@ fn visible_imported_function_contract<'a>(
     }
 
     None
-}
-
-fn visible_local_function_binding_in_scope(
-    model: &SemanticModel,
-    name: &Name,
-    target_scope: ScopeId,
-    call_scope: ScopeId,
-    offset: usize,
-) -> Option<BindingId> {
-    let candidates = model.scopes()[target_scope.index()].bindings.get(name)?;
-    if target_scope != call_scope {
-        return candidates.iter().rev().copied().find(|binding| {
-            matches!(
-                model.binding(*binding).kind,
-                BindingKind::FunctionDefinition
-            )
-        });
-    }
-
-    candidates.iter().rev().copied().find(|binding| {
-        let candidate = model.binding(*binding);
-        matches!(candidate.kind, BindingKind::FunctionDefinition)
-            && candidate.span.start.offset <= offset
-    })
 }
 
 fn visible_imported_function_in_scope<'a>(

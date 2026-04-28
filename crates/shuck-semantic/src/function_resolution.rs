@@ -375,16 +375,38 @@ impl FunctionCallResolver<'_> {
         scope: ScopeId,
         offset: usize,
     ) -> Option<BindingId> {
-        self.scopes[scope.index()]
-            .bindings
-            .get(name)?
-            .iter()
-            .rev()
-            .copied()
-            .find(|binding| {
-                let candidate = &self.bindings[binding.index()];
-                matches!(candidate.kind, BindingKind::FunctionDefinition)
-                    && candidate.span.start.offset <= offset
-            })
+        lexically_visible_function_binding_in_scope(
+            self.scopes,
+            self.bindings,
+            name,
+            scope,
+            scope,
+            offset,
+        )
     }
+}
+
+pub(crate) fn lexically_visible_function_binding_in_scope(
+    scopes: &[Scope],
+    bindings: &[Binding],
+    name: &Name,
+    target_scope: ScopeId,
+    call_scope: ScopeId,
+    offset: usize,
+) -> Option<BindingId> {
+    let candidates = scopes[target_scope.index()].bindings.get(name)?;
+    if target_scope != call_scope {
+        return candidates.iter().rev().copied().find(|binding| {
+            matches!(
+                bindings[binding.index()].kind,
+                BindingKind::FunctionDefinition
+            )
+        });
+    }
+
+    candidates.iter().rev().copied().find(|binding| {
+        let candidate = &bindings[binding.index()];
+        matches!(candidate.kind, BindingKind::FunctionDefinition)
+            && candidate.span.start.offset <= offset
+    })
 }
