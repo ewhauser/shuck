@@ -411,7 +411,11 @@ struct EnvPrefixScopeSpans {
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn build_env_prefix_scope_spans(source: &str, commands: &[CommandFact<'_>]) -> EnvPrefixScopeSpans {
+fn build_env_prefix_scope_spans(
+    source: &str,
+    semantic: &SemanticModel,
+    commands: &[CommandFact<'_>],
+) -> EnvPrefixScopeSpans {
     let mut scope_spans = EnvPrefixScopeSpans::default();
     let mut seen_assignment_scope_spans = FxHashSet::default();
     let mut seen_expansion_scope_spans = FxHashSet::default();
@@ -421,6 +425,7 @@ fn build_env_prefix_scope_spans(source: &str, commands: &[CommandFact<'_>]) -> E
             continue;
         }
 
+        let command_span = command.span();
         let assignments = command_assignments(command.command());
         let broken_legacy_bracket_tail = match command.command() {
             Command::Simple(simple) => broken_legacy_bracket_tail(simple, source),
@@ -435,7 +440,12 @@ fn build_env_prefix_scope_spans(source: &str, commands: &[CommandFact<'_>]) -> E
         for (index, assignment) in assignments.iter().enumerate() {
             let span_key = FactSpan::new(assignment.target.name_span);
             let earlier_prefix_uses_name = assignments.iter().take(index).any(|other| {
-                assignment_mentions_name_outside_nested_commands(other, &assignment.target.name)
+                assignment_mentions_name_outside_nested_commands(
+                    semantic,
+                    command_span,
+                    other,
+                    &assignment.target.name,
+                )
             });
             let later_prefix_uses_name =
                 assignments
@@ -444,6 +454,8 @@ fn build_env_prefix_scope_spans(source: &str, commands: &[CommandFact<'_>]) -> E
                     .skip(index + 1)
                     .any(|(other_index, other)| {
                         assignment_mentions_name_outside_nested_commands(
+                            semantic,
+                            command_span,
                             other,
                             &assignment.target.name,
                         ) || match (command.command(), broken_legacy_bracket_tail) {
@@ -451,6 +463,8 @@ fn build_env_prefix_scope_spans(source: &str, commands: &[CommandFact<'_>]) -> E
                                 if tail.assignment_index == other_index =>
                             {
                                 broken_legacy_bracket_tail_mentions_name(
+                                    semantic,
+                                    command_span,
                                     simple,
                                     tail,
                                     &assignment.target.name,
@@ -469,6 +483,7 @@ fn build_env_prefix_scope_spans(source: &str, commands: &[CommandFact<'_>]) -> E
                         }
                     });
             let body_uses_name = command_body_mentions_name_outside_nested_commands(
+                semantic,
                 command,
                 source,
                 &assignment.target.name,
@@ -490,6 +505,8 @@ fn build_env_prefix_scope_spans(source: &str, commands: &[CommandFact<'_>]) -> E
                 }
 
                 let _ = visit_assignment_reference_spans_outside_nested_commands(
+                    semantic,
+                    command_span,
                     other,
                     &assignment.target.name,
                     &mut |span| {
@@ -507,6 +524,8 @@ fn build_env_prefix_scope_spans(source: &str, commands: &[CommandFact<'_>]) -> E
                         if tail.assignment_index == other_index =>
                     {
                         let _ = visit_broken_legacy_bracket_tail_reference_spans(
+                            semantic,
+                            command_span,
                             simple,
                             tail,
                             &assignment.target.name,
@@ -537,6 +556,8 @@ fn build_env_prefix_scope_spans(source: &str, commands: &[CommandFact<'_>]) -> E
                 other_index != index && other.target.name == assignment.target.name
             }) {
                 let _ = visit_assignment_reference_spans_outside_nested_commands(
+                    semantic,
+                    command_span,
                     assignment,
                     &assignment.target.name,
                     &mut |span| {
@@ -551,6 +572,7 @@ fn build_env_prefix_scope_spans(source: &str, commands: &[CommandFact<'_>]) -> E
             }
 
             let _ = visit_command_body_reference_spans_outside_nested_commands(
+                semantic,
                 command,
                 source,
                 &assignment.target.name,
@@ -637,25 +659,39 @@ fn assignment_is_broken_legacy_bracket_arithmetic(assignment: &Assignment) -> bo
     )
 }
 
-fn assignment_mentions_name_outside_nested_commands(assignment: &Assignment, name: &Name) -> bool {
-    visit_assignment_reference_spans_outside_nested_commands(assignment, name, &mut |_span| {
-        ControlFlow::Break(())
-    })
+fn assignment_mentions_name_outside_nested_commands(
+    semantic: &SemanticModel,
+    command_span: Span,
+    assignment: &Assignment,
+    name: &Name,
+) -> bool {
+    visit_assignment_reference_spans_outside_nested_commands(
+        semantic,
+        command_span,
+        assignment,
+        name,
+        &mut |_span| ControlFlow::Break(()),
+    )
     .is_break()
 }
 
 fn command_body_mentions_name_outside_nested_commands(
+    semantic: &SemanticModel,
     fact: &CommandFact<'_>,
     source: &str,
     name: &Name,
 ) -> bool {
-    visit_command_body_reference_spans_outside_nested_commands(fact, source, name, &mut |_span| {
-        ControlFlow::Break(())
-    })
+    visit_command_body_reference_spans_outside_nested_commands(
+        semantic,
+        fact,
+        source,
+        name,
+        &mut |_span| ControlFlow::Break(()),
+    )
     .is_break()
 }
 
-fn simple_command_body_words<'a>(
+pub(super) fn simple_command_body_words<'a>(
     command: &'a SimpleCommand,
     source: &'a str,
 ) -> impl Iterator<Item = &'a Word> {
@@ -667,54 +703,41 @@ fn simple_command_body_words<'a>(
 }
 
 fn broken_legacy_bracket_tail_mentions_name(
+    semantic: &SemanticModel,
+    command_span: Span,
     command: &SimpleCommand,
     tail: BrokenLegacyBracketTail,
     name: &Name,
 ) -> bool {
-    visit_broken_legacy_bracket_tail_reference_spans(command, tail, name, &mut |_span| {
-        ControlFlow::Break(())
-    })
+    visit_broken_legacy_bracket_tail_reference_spans(
+        semantic,
+        command_span,
+        command,
+        tail,
+        name,
+        &mut |_span| ControlFlow::Break(()),
+    )
     .is_break()
 }
 
 fn visit_assignment_reference_spans_outside_nested_commands(
+    semantic: &SemanticModel,
+    command_span: Span,
     assignment: &Assignment,
     name: &Name,
     visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
-    visit_subscript_reference_spans_outside_nested_commands(
-        assignment.target.subscript.as_deref(),
+    visit_named_command_reference_spans_in_subspan(
+        semantic,
+        command_span,
+        assignment.span,
         name,
         visit,
-    )?;
-
-    match &assignment.value {
-        AssignmentValue::Scalar(word) => {
-            visit_word_reference_spans_outside_nested_commands(word, name, visit)
-        }
-        AssignmentValue::Compound(array) => {
-            for element in &array.elements {
-                match element {
-                    ArrayElem::Sequential(word) => {
-                        visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
-                    }
-                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-                        visit_subscript_reference_spans_outside_nested_commands(
-                            Some(key),
-                            name,
-                            visit,
-                        )?;
-                        visit_word_reference_spans_outside_nested_commands(value, name, visit)?;
-                    }
-                }
-            }
-
-            ControlFlow::Continue(())
-        }
-    }
+    )
 }
 
 fn visit_command_body_reference_spans_outside_nested_commands(
+    semantic: &SemanticModel,
     fact: &CommandFact<'_>,
     source: &str,
     name: &Name,
@@ -723,27 +746,40 @@ fn visit_command_body_reference_spans_outside_nested_commands(
     match fact.command() {
         Command::Simple(command) => {
             for word in simple_command_body_words(command, source) {
-                visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
+                visit_named_command_reference_spans_in_subspan(
+                    semantic,
+                    fact.span(),
+                    word.span,
+                    name,
+                    visit,
+                )?;
             }
         }
         Command::Builtin(command) => {
             for word in builtin_words(command) {
-                visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
+                visit_named_command_reference_spans_in_subspan(
+                    semantic,
+                    fact.span(),
+                    word.span,
+                    name,
+                    visit,
+                )?;
             }
         }
         Command::Decl(command) => {
             for operand in &command.operands {
-                match operand {
-                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                        visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
-                    }
-                    DeclOperand::Assignment(assignment) => {
-                        visit_assignment_reference_spans_outside_nested_commands(
-                            assignment, name, visit,
-                        )?;
-                    }
-                    DeclOperand::Name(_) => {}
-                }
+                let span = match operand {
+                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => word.span,
+                    DeclOperand::Assignment(assignment) => assignment.span,
+                    DeclOperand::Name(_) => continue,
+                };
+                visit_named_command_reference_spans_in_subspan(
+                    semantic,
+                    fact.span(),
+                    span,
+                    name,
+                    visit,
+                )?;
             }
         }
         Command::Binary(_)
@@ -753,26 +789,43 @@ fn visit_command_body_reference_spans_outside_nested_commands(
     }
 
     for word in fact.redirects().iter().filter_map(Redirect::word_target) {
-        visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
+        visit_named_command_reference_spans_in_subspan(
+            semantic,
+            fact.span(),
+            word.span,
+            name,
+            visit,
+        )?;
     }
 
     ControlFlow::Continue(())
 }
 
 fn visit_broken_legacy_bracket_tail_reference_spans(
+    semantic: &SemanticModel,
+    command_span: Span,
     command: &SimpleCommand,
     tail: BrokenLegacyBracketTail,
     name: &Name,
     visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
-    for word in std::iter::once(&command.name)
-        .chain(command.args.iter())
-        .take(tail.synthetic_word_count.saturating_sub(1))
-    {
-        visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
-    }
+    let Some(span) = broken_legacy_bracket_tail_span(command, tail) else {
+        return ControlFlow::Continue(());
+    };
 
-    ControlFlow::Continue(())
+    visit_named_command_reference_spans_in_subspan(semantic, command_span, span, name, visit)
+}
+
+fn broken_legacy_bracket_tail_span(
+    command: &SimpleCommand,
+    tail: BrokenLegacyBracketTail,
+) -> Option<Span> {
+    let mut words = std::iter::once(&command.name)
+        .chain(command.args.iter())
+        .take(tail.synthetic_word_count.saturating_sub(1));
+    let first = words.next()?;
+    let last = words.last().unwrap_or(first);
+    Some(Span::from_positions(first.span.start, last.span.end))
 }
 
 fn builtin_words(command: &BuiltinCommand) -> Vec<&Word> {
@@ -804,6 +857,39 @@ fn builtin_words(command: &BuiltinCommand) -> Vec<&Word> {
         }
     }
     words
+}
+
+fn visit_named_command_reference_spans_in_subspan(
+    semantic: &SemanticModel,
+    command_span: Span,
+    subspan: Span,
+    name: &Name,
+    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
+) -> ControlFlow<()> {
+    for reference in semantic.references_in_command_span(command_span, subspan) {
+        if &reference.name == name && reference_kind_counts_as_env_prefix_command_read(reference.kind)
+        {
+            visit(reference.span)?;
+        }
+    }
+
+    ControlFlow::Continue(())
+}
+
+fn reference_kind_counts_as_env_prefix_command_read(kind: shuck_semantic::ReferenceKind) -> bool {
+    matches!(
+        kind,
+        shuck_semantic::ReferenceKind::Expansion
+            | shuck_semantic::ReferenceKind::ParameterExpansion
+            | shuck_semantic::ReferenceKind::Length
+            | shuck_semantic::ReferenceKind::ArrayAccess
+            | shuck_semantic::ReferenceKind::IndirectExpansion
+            | shuck_semantic::ReferenceKind::ArithmeticRead
+            | shuck_semantic::ReferenceKind::ParameterPattern
+            | shuck_semantic::ReferenceKind::ParameterSliceArithmetic
+            | shuck_semantic::ReferenceKind::ConditionalOperand
+            | shuck_semantic::ReferenceKind::RequiredRead
+    )
 }
 
 fn assignment_is_identity_self_copy(assignment: &Assignment) -> bool {
@@ -853,327 +939,6 @@ fn parameter_is_plain_access_to_name(parameter: &ParameterExpansion, name: &Name
         }
         _ => false,
     }
-}
-
-fn visit_subscript_reference_spans_outside_nested_commands(
-    subscript: Option<&Subscript>,
-    name: &Name,
-    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
-) -> ControlFlow<()> {
-    let Some(subscript) = subscript else {
-        return ControlFlow::Continue(());
-    };
-
-    if let Some(word) = subscript.word_ast() {
-        visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
-    }
-    if let Some(expr) = subscript.arithmetic_ast.as_ref() {
-        visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
-    }
-
-    ControlFlow::Continue(())
-}
-
-fn visit_word_reference_spans_outside_nested_commands(
-    word: &Word,
-    name: &Name,
-    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
-) -> ControlFlow<()> {
-    for part in &word.parts {
-        visit_word_part_reference_spans_outside_nested_commands(part, name, visit)?;
-    }
-
-    ControlFlow::Continue(())
-}
-
-fn visit_word_part_reference_spans_outside_nested_commands(
-    part: &WordPartNode,
-    name: &Name,
-    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
-) -> ControlFlow<()> {
-    match &part.kind {
-        WordPart::Literal(_)
-        | WordPart::SingleQuoted { .. }
-        | WordPart::ZshQualifiedGlob(_)
-        | WordPart::PrefixMatch { .. } => {}
-        WordPart::DoubleQuoted { parts, .. } => {
-            for part in parts {
-                visit_word_part_reference_spans_outside_nested_commands(part, name, visit)?;
-            }
-        }
-        WordPart::Variable(variable) => {
-            if variable == name {
-                visit(part.span)?;
-            }
-        }
-        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
-        WordPart::ArithmeticExpansion {
-            expression_ast,
-            expression_word_ast,
-            ..
-        } => {
-            if let Some(expr) = expression_ast.as_ref() {
-                visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
-            }
-            visit_word_reference_spans_outside_nested_commands(expression_word_ast, name, visit)?;
-        }
-        WordPart::Parameter(parameter) => {
-            visit_parameter_reference_spans_outside_nested_commands(
-                parameter, part.span, name, visit,
-            )?;
-        }
-        WordPart::ParameterExpansion {
-            reference,
-            operand_word_ast,
-            ..
-        } => {
-            visit_var_ref_reference_spans_outside_nested_commands(
-                reference, part.span, name, visit,
-            )?;
-            if let Some(word) = operand_word_ast.as_ref() {
-                visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
-            }
-        }
-        WordPart::Length(reference)
-        | WordPart::ArrayAccess(reference)
-        | WordPart::ArrayLength(reference)
-        | WordPart::ArrayIndices(reference)
-        | WordPart::Transformation { reference, .. } => {
-            visit_var_ref_reference_spans_outside_nested_commands(
-                reference, part.span, name, visit,
-            )?;
-        }
-        WordPart::Substring {
-            reference,
-            offset_ast,
-            offset_word_ast,
-            length_ast,
-            length_word_ast,
-            ..
-        }
-        | WordPart::ArraySlice {
-            reference,
-            offset_ast,
-            offset_word_ast,
-            length_ast,
-            length_word_ast,
-            ..
-        } => {
-            visit_var_ref_reference_spans_outside_nested_commands(
-                reference, part.span, name, visit,
-            )?;
-            if let Some(expr) = offset_ast.as_ref() {
-                visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
-            }
-            visit_word_reference_spans_outside_nested_commands(offset_word_ast, name, visit)?;
-            if let Some(expr) = length_ast.as_ref() {
-                visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
-            }
-            if let Some(word) = length_word_ast.as_ref() {
-                visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
-            }
-        }
-        WordPart::IndirectExpansion {
-            reference,
-            operand_word_ast,
-            ..
-        } => {
-            visit_var_ref_reference_spans_outside_nested_commands(
-                reference, part.span, name, visit,
-            )?;
-            if let Some(word) = operand_word_ast.as_ref() {
-                visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
-            }
-        }
-    }
-
-    ControlFlow::Continue(())
-}
-
-fn visit_parameter_reference_spans_outside_nested_commands(
-    parameter: &ParameterExpansion,
-    span: Span,
-    name: &Name,
-    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
-) -> ControlFlow<()> {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
-            BourneParameterExpansion::Access { reference }
-            | BourneParameterExpansion::Length { reference }
-            | BourneParameterExpansion::Indices { reference }
-            | BourneParameterExpansion::Transformation { reference, .. } => {
-                visit_var_ref_reference_spans_outside_nested_commands(
-                    reference, span, name, visit,
-                )?;
-            }
-            BourneParameterExpansion::Indirect {
-                reference,
-                operand_word_ast,
-                ..
-            }
-            | BourneParameterExpansion::Operation {
-                reference,
-                operand_word_ast,
-                ..
-            } => {
-                visit_var_ref_reference_spans_outside_nested_commands(
-                    reference, span, name, visit,
-                )?;
-                if let Some(word) = operand_word_ast.as_ref() {
-                    visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
-                }
-            }
-            BourneParameterExpansion::Slice {
-                reference,
-                offset_ast,
-                length_ast,
-                ..
-            } => {
-                visit_var_ref_reference_spans_outside_nested_commands(
-                    reference, span, name, visit,
-                )?;
-                if let Some(expr) = offset_ast.as_ref() {
-                    visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
-                }
-                if let Some(expr) = length_ast.as_ref() {
-                    visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
-                }
-            }
-            BourneParameterExpansion::PrefixMatch { .. } => {}
-        },
-        ParameterExpansionSyntax::Zsh(syntax) => {
-            visit_zsh_target_reference_spans_outside_nested_commands(
-                &syntax.target,
-                span,
-                name,
-                visit,
-            )?;
-        }
-    }
-
-    ControlFlow::Continue(())
-}
-
-fn visit_zsh_target_reference_spans_outside_nested_commands(
-    target: &ZshExpansionTarget,
-    span: Span,
-    name: &Name,
-    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
-) -> ControlFlow<()> {
-    match target {
-        ZshExpansionTarget::Reference(reference) => {
-            visit_var_ref_reference_spans_outside_nested_commands(reference, span, name, visit)?;
-        }
-        ZshExpansionTarget::Nested(parameter) => {
-            visit_parameter_reference_spans_outside_nested_commands(parameter, span, name, visit)?;
-        }
-        ZshExpansionTarget::Word(word) => {
-            visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
-        }
-        ZshExpansionTarget::Empty => {}
-    }
-
-    ControlFlow::Continue(())
-}
-
-fn visit_var_ref_reference_spans_outside_nested_commands(
-    reference: &VarRef,
-    span: Span,
-    name: &Name,
-    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
-) -> ControlFlow<()> {
-    if reference.name == *name {
-        visit(span)?;
-    }
-
-    visit_subscript_reference_spans_outside_nested_commands(
-        reference.subscript.as_deref(),
-        name,
-        visit,
-    )
-}
-
-fn visit_arithmetic_reference_spans_outside_nested_commands(
-    expression: &ArithmeticExprNode,
-    name: &Name,
-    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
-) -> ControlFlow<()> {
-    match &expression.kind {
-        ArithmeticExpr::Number(_) => {}
-        ArithmeticExpr::Variable(variable) => {
-            if variable == name {
-                visit(expression.span)?;
-            }
-        }
-        ArithmeticExpr::Indexed {
-            name: variable,
-            index,
-        } => {
-            if variable == name {
-                visit(expression.span)?;
-            }
-            visit_arithmetic_reference_spans_outside_nested_commands(index, name, visit)?;
-        }
-        ArithmeticExpr::ShellWord(word) => {
-            visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
-        }
-        ArithmeticExpr::Parenthesized { expression } => {
-            visit_arithmetic_reference_spans_outside_nested_commands(expression, name, visit)?;
-        }
-        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
-            visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
-        }
-        ArithmeticExpr::Binary { left, right, .. } => {
-            visit_arithmetic_reference_spans_outside_nested_commands(left, name, visit)?;
-            visit_arithmetic_reference_spans_outside_nested_commands(right, name, visit)?;
-        }
-        ArithmeticExpr::Conditional {
-            condition,
-            then_expr,
-            else_expr,
-        } => {
-            visit_arithmetic_reference_spans_outside_nested_commands(condition, name, visit)?;
-            visit_arithmetic_reference_spans_outside_nested_commands(then_expr, name, visit)?;
-            visit_arithmetic_reference_spans_outside_nested_commands(else_expr, name, visit)?;
-        }
-        ArithmeticExpr::Assignment { target, value, .. } => {
-            visit_arithmetic_lvalue_reference_spans_outside_nested_commands(
-                target,
-                expression.span,
-                name,
-                visit,
-            )?;
-            visit_arithmetic_reference_spans_outside_nested_commands(value, name, visit)?;
-        }
-    }
-
-    ControlFlow::Continue(())
-}
-
-fn visit_arithmetic_lvalue_reference_spans_outside_nested_commands(
-    target: &ArithmeticLvalue,
-    span: Span,
-    name: &Name,
-    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
-) -> ControlFlow<()> {
-    match target {
-        ArithmeticLvalue::Variable(variable) => {
-            if variable == name {
-                visit(span)?;
-            }
-        }
-        ArithmeticLvalue::Indexed {
-            name: variable,
-            index,
-        } => {
-            if variable == name {
-                visit(span)?;
-            }
-            visit_arithmetic_reference_spans_outside_nested_commands(index, name, visit)?;
-        }
-    }
-
-    ControlFlow::Continue(())
 }
 
 fn push_fact_span(span: Span, spans: &mut Vec<Span>, seen: &mut FxHashSet<FactSpan>) {

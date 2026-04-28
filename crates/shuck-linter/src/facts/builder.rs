@@ -702,7 +702,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let EnvPrefixScopeSpans {
             assignment_scope_spans: env_prefix_assignment_scope_spans,
             expansion_scope_spans: env_prefix_expansion_scope_spans,
-        } = build_env_prefix_scope_spans(self.source, &commands);
+        } = build_env_prefix_scope_spans(self.source, self.semantic, &commands);
         let unset_command_ids_by_target_name = build_unset_command_ids_by_target_name(
             &commands,
             &command_fact_indices_by_id,

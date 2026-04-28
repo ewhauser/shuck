@@ -8888,6 +8888,40 @@ echo \"${ordinary_missing}/out\"
 }
 
 #[test]
+fn references_in_command_span_filters_to_direct_references_in_the_requested_subspan() {
+    let source = "\
+#!/bin/bash
+foo=\"$foo\" cmd \"$foo\" \"$(printf '%s' \"$foo\")\"
+";
+    let output = Parser::new(source).parse().unwrap();
+    let model = model(source);
+    let command_id = command_id_starting_with(&model, source, "foo=\"$foo\" cmd").unwrap();
+    let command_span = model.command_span(command_id);
+    let Command::Simple(command) = &output.file.body[0].command else {
+        panic!("expected simple command");
+    };
+    let assignment_span = command.assignments[0].span;
+    let body_word_span = command.args[0].span;
+
+    let assignment_refs = model
+        .references_in_command_span(command_span, assignment_span)
+        .map(|reference| reference.span.slice(source))
+        .collect::<Vec<_>>();
+    let body_refs = model
+        .references_in_command_span(command_span, body_word_span)
+        .map(|reference| reference.span.slice(source))
+        .collect::<Vec<_>>();
+    let command_refs = model
+        .references_in_command_span(command_span, command_span)
+        .map(|reference| reference.span.slice(source))
+        .collect::<Vec<_>>();
+
+    assert_eq!(assignment_refs, vec!["$foo"]);
+    assert_eq!(body_refs, vec!["$foo"]);
+    assert_eq!(command_refs, vec!["$foo", "$foo"]);
+}
+
+#[test]
 fn unreachable_references_are_still_uninitialized_reads() {
     let source = "\
 #!/bin/bash
