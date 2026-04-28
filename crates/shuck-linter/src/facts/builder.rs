@@ -478,6 +478,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             .collect::<FxHashMap<_, _>>();
         let case_cli_reachable_function_scopes = build_case_cli_reachable_function_scopes(
             self.semantic,
+            semantic_analysis,
             &function_headers,
             &function_cli_dispatch_facts,
             &commands,

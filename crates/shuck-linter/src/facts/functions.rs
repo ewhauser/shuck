@@ -239,6 +239,7 @@ fn build_function_cli_dispatch_facts(
 #[cfg_attr(shuck_profiling, inline(never))]
 fn build_case_cli_reachable_function_scopes(
     semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
     function_headers: &[FunctionHeaderFact<'_>],
     function_cli_dispatch_facts: &FxHashMap<ScopeId, FunctionCliDispatchFacts>,
     commands: &[CommandFact<'_>],
@@ -269,12 +270,7 @@ fn build_case_cli_reachable_function_scopes(
         .iter()
         .filter_map(|header| {
             let scope = header.function_scope()?;
-            let nested = semantic
-                .scope(scope)
-                .parent
-                .and_then(|parent| semantic.enclosing_function_scope(parent))
-                .is_some();
-            (nested
+            (semantic_analysis.function_scope_is_nested(scope)
                 || dispatcher_offset
                     .is_some_and(|offset| header.function().span.start.offset < offset)
                 || top_level_exit_offset
