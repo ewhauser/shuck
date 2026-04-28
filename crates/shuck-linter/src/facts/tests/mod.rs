@@ -3,7 +3,6 @@ use shuck_ast::{BinaryOp, CommandSubstitutionSyntax, ConditionalBinaryOp, Name};
 use shuck_indexer::Indexer;
 use shuck_parser::parser::{Parser, ShellDialect as ParseShellDialect};
 use shuck_semantic::BindingAttributes;
-use shuck_semantic::SemanticModel;
 use std::path::Path;
 
 #[allow(unused_imports)]
@@ -16,7 +15,7 @@ use super::{
 };
 use crate::WrapperKind;
 use crate::facts::surface::PositionalParameterFragmentKind;
-use crate::{LinterFacts, ShellDialect};
+use crate::{LinterFacts, LinterSemanticArtifacts, ShellDialect};
 
 mod assignments;
 mod braces;

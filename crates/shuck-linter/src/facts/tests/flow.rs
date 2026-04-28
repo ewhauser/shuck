@@ -115,7 +115,7 @@ fn builds_command_facts_for_wrapped_and_nested_commands() {
     let source = "#!/bin/bash\ncommand printf '%s\\n' \"$(echo hi)\"\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let outer = facts
@@ -158,7 +158,7 @@ fn exposes_structural_commands_and_id_lookups() {
     let source = "#!/bin/bash\necho \"$(printf x)\"\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let structural = facts
@@ -192,7 +192,7 @@ fn precomputes_innermost_command_ids_for_nested_offsets() {
     let source = "#!/bin/bash\necho \"$(printf '%s' \"$(uname)\")\"\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let outer_id = facts

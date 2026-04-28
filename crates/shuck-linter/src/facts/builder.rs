@@ -4,6 +4,7 @@ struct LinterFactsBuilder<'a, 'analysis> {
     semantic: &'a SemanticModel,
     semantic_analysis: &'analysis SemanticAnalysis<'a>,
     _indexer: &'a Indexer,
+    command_visits_by_id: &'a [Option<CommandVisit<'a>>],
     shell: ShellDialect,
     ambient_shell_options: AmbientShellOptions,
 }
@@ -35,23 +36,17 @@ struct HeredocFactSummary {
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
-fn estimate_fact_build_capacity(file: &File) -> FactBuildCapacity {
+fn estimate_fact_build_capacity(semantic: &SemanticModel) -> FactBuildCapacity {
     let mut capacity = FactBuildCapacity::default();
-    walk_commands(
-        &file.body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit, context| {
-            capacity.commands += 1;
-            if !context.nested_word_command {
-                capacity.structural_commands += 1;
-            }
-            if matches!(visit.command, Command::Function(_)) {
-                capacity.functions += 1;
-            }
-        },
-    );
+    for context in semantic.command_contexts() {
+        capacity.commands += 1;
+        if context.is_structural() {
+            capacity.structural_commands += 1;
+        }
+        if context.kind() == shuck_semantic::CommandKind::Function {
+            capacity.functions += 1;
+        }
+    }
     capacity
 }
 
@@ -59,7 +54,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
     fn new(
         file: &'a File,
         source: &'a str,
-        semantic: &'a SemanticModel,
+        semantic: &'a LinterSemanticArtifacts<'a>,
         semantic_analysis: &'analysis SemanticAnalysis<'a>,
         indexer: &'a Indexer,
         shell: ShellDialect,
@@ -68,9 +63,10 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         Self {
             file,
             source,
-            semantic,
+            semantic: semantic.semantic(),
             semantic_analysis,
             _indexer: indexer,
+            command_visits_by_id: semantic.command_visits_by_id(),
             shell,
             ambient_shell_options,
         }
@@ -79,7 +75,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
     fn build(self) -> LinterFacts<'a> {
         let source = self.source;
         let semantic_analysis = self.semantic_analysis;
-        let capacity = estimate_fact_build_capacity(self.file);
+        let capacity = estimate_fact_build_capacity(self.semantic);
         let estimated_word_nodes = capacity.commands.saturating_mul(2);
         let estimated_word_occurrences = capacity.commands.saturating_mul(3);
 
@@ -128,25 +124,32 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let mut arithmetic_update_operator_spans = Vec::new();
         let mut base_prefix_arithmetic_spans = Vec::new();
 
-        walk_commands(
-            &self.file.body,
-            CommandWalkOptions {
-                descend_nested_word_commands: true,
-            },
-            &mut |visit, context| {
+        let mut command_contexts = self.semantic.command_contexts().collect::<Vec<_>>();
+        command_contexts.sort_unstable_by(|left, right| {
+            let left_span = left.syntax_span();
+            let right_span = right.syntax_span();
+            left_span
+                .start
+                .offset
+                .cmp(&right_span.start.offset)
+                .then_with(|| right_span.end.offset.cmp(&left_span.end.offset))
+                .then_with(|| left.id().index().cmp(&right.id().index()))
+        });
+        for context in command_contexts {
+            let id = context.id();
+            let Some(visit) = self
+                .command_visits_by_id
+                .get(id.index())
+                .and_then(|visit| *visit)
+            else {
+                continue;
+            };
                 let key = FactSpan::new(command_span(visit.command));
-                let id = self
-                    .semantic
-                    .command_by_span_and_kind(
-                        command_span(visit.command),
-                        shuck_semantic::CommandKind::from_command(visit.command),
-                    )
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "semantic command id must exist for command span {:?}",
-                            command_span(visit.command)
-                        )
-                    });
+                debug_assert_eq!(context.syntax_span(), command_span(visit.command));
+                debug_assert_eq!(
+                    context.kind(),
+                    shuck_semantic::CommandKind::from_command(visit.command)
+                );
                 let lookup_kind = command_lookup_kind(visit.command);
                 let entries = command_ids_by_span.entry(key).or_default();
                 let previous = entries.iter().find(|entry| entry.kind == lookup_kind);
@@ -156,10 +159,10 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     id,
                 });
 
-                if context.in_if_condition {
+                if context.is_in_if_condition() {
                     if_condition_command_ids.insert(id);
                 }
-                if context.in_elif_condition {
+                if context.is_in_elif_condition() {
                     elif_condition_command_ids.insert(id);
                 }
                 collect_binding_values(
@@ -190,7 +193,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 );
                 let normalized = command::normalize_command(visit.command, self.source);
                 let command_start_offset = command_span(visit.command).start.offset;
-                let scope = self.semantic.scope_at(command_start_offset);
+                let scope = context.scope();
                 let command_zsh_options = effective_command_zsh_options(
                     self.semantic,
                     command_start_offset,
@@ -199,7 +202,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 if let Some(name_word) = normalized.body_name_word() {
                     command_ids_by_name_word_span.insert(FactSpan::new(name_word.span), id);
                 }
-                let nested_word_command = context.nested_word_command;
+                let nested_word_command = context.is_nested_word_command();
                 build_word_facts_for_command(
                     visit,
                     self.source,
@@ -410,8 +413,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                         | Command::AnonymousFunction(_) => {}
                     }
                 }
-            },
-        );
+        }
 
         arithmetic_update_operator_spans
             .sort_unstable_by_key(|span| (span.start.offset, span.end.offset));

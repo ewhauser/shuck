@@ -4,15 +4,15 @@ use rustc_hash::FxHashSet;
 use shuck_ast::TextSize;
 use shuck_ast::{File, Span};
 use shuck_indexer::Indexer;
-use shuck_semantic::{SemanticAnalysis, SemanticModel};
+use shuck_semantic::SemanticAnalysis;
 
 use crate::{
-    AmbientShellOptions, Diagnostic, LinterFacts, LinterRuleOptions, Rule, RuleSet, ShellDialect,
-    SuppressionIndex, Violation, rules,
+    AmbientShellOptions, Diagnostic, LinterFacts, LinterRuleOptions, LinterSemanticArtifacts, Rule,
+    RuleSet, ShellDialect, SuppressionIndex, Violation, rules,
 };
 
 pub struct Checker<'a> {
-    semantic: &'a SemanticModel,
+    semantic: &'a LinterSemanticArtifacts<'a>,
     semantic_analysis: SemanticAnalysis<'a>,
     indexer: &'a Indexer,
     file: &'a File,
@@ -51,7 +51,7 @@ impl<'a> Checker<'a> {
     pub fn new(
         file: &'a File,
         source: &'a str,
-        semantic: &'a SemanticModel,
+        semantic: &'a LinterSemanticArtifacts<'a>,
         indexer: &'a Indexer,
         rules: &'a RuleSet,
         shell: ShellDialect,
@@ -63,7 +63,7 @@ impl<'a> Checker<'a> {
     ) -> Self {
         Self {
             semantic,
-            semantic_analysis: semantic.analysis(),
+            semantic_analysis: semantic.semantic().analysis(),
             indexer,
             file,
             source,
@@ -80,8 +80,8 @@ impl<'a> Checker<'a> {
         }
     }
 
-    pub fn semantic(&self) -> &'a SemanticModel {
-        self.semantic
+    pub fn semantic(&self) -> &'a shuck_semantic::SemanticModel {
+        self.semantic.semantic()
     }
 
     pub fn semantic_analysis(&self) -> &SemanticAnalysis<'a> {

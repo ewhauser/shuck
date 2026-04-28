@@ -61,8 +61,9 @@ pub use call_graph::{
 };
 /// Control-flow graph types and flow-context annotations.
 pub use cfg::{
-    BasicBlock, BlockId, BuiltinCommandKind, CommandId, CommandKind, CompoundCommandKind,
-    ControlFlowGraph, EdgeKind, FlowContext, StatementSequenceCommand, UnreachableCauseKind,
+    BasicBlock, BlockId, BuiltinCommandKind, CommandConditionRole, CommandId, CommandKind,
+    CompoundCommandKind, ControlFlowGraph, EdgeKind, FlowContext, StatementSequenceCommand,
+    UnreachableCauseKind,
 };
 /// Contract and build-option types used when constructing semantic models.
 pub use contract::{
@@ -99,7 +100,7 @@ pub use source_ref::{SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceR
 pub use value_flow::SemanticValueFlow;
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{Command, File, Name, Span};
+use shuck_ast::{Command, File, Name, Span, Stmt};
 use shuck_indexer::Indexer;
 use smallvec::{Array, SmallVec};
 use std::path::{Path, PathBuf};
@@ -177,6 +178,7 @@ impl SpanKey {
 struct CommandTopology {
     syntax_backed_ids: Vec<CommandId>,
     structural_ids: Vec<CommandId>,
+    contexts: Vec<Option<SemanticCommandContext>>,
     ids_by_syntax_span: FxHashMap<SpanKey, SmallVec<[CommandId; 1]>>,
     parent_ids: Vec<Option<CommandId>>,
     child_ids: Vec<Vec<CommandId>>,
@@ -184,6 +186,79 @@ struct CommandTopology {
     syntax_backed_child_ids: Vec<Vec<CommandId>>,
     offset_order: Vec<CommandId>,
     containing_offset_entries: Vec<CommandContainingOffsetEntry>,
+}
+
+/// Syntax-backed command metadata derived during semantic traversal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticCommandContext {
+    id: CommandId,
+    span: Span,
+    syntax_span: Span,
+    kind: CommandKind,
+    scope: ScopeId,
+    flow: FlowContext,
+    structural: bool,
+    nested_word_command: bool,
+    in_if_condition: bool,
+    in_elif_condition: bool,
+    condition_role: Option<CommandConditionRole>,
+}
+
+impl SemanticCommandContext {
+    /// Semantic command identifier.
+    pub fn id(&self) -> CommandId {
+        self.id
+    }
+
+    /// Statement span including redirects.
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    /// Span of the syntactic command node.
+    pub fn syntax_span(&self) -> Span {
+        self.syntax_span
+    }
+
+    /// Syntax command kind.
+    pub fn kind(&self) -> CommandKind {
+        self.kind
+    }
+
+    /// Scope active at the command.
+    pub fn scope(&self) -> ScopeId {
+        self.scope
+    }
+
+    /// Flow context active at the command.
+    pub fn flow(&self) -> FlowContext {
+        self.flow
+    }
+
+    /// Whether this command is part of the structural command stream.
+    pub fn is_structural(&self) -> bool {
+        self.structural
+    }
+
+    /// Whether this command came from a command-like expansion in a word.
+    pub fn is_nested_word_command(&self) -> bool {
+        self.nested_word_command
+    }
+
+    /// Whether this command is inside an `if` or `elif` condition list.
+    pub fn is_in_if_condition(&self) -> bool {
+        self.in_if_condition
+    }
+
+    /// Whether this command is inside an `elif` condition list.
+    pub fn is_in_elif_condition(&self) -> bool {
+        self.in_elif_condition
+    }
+
+    /// Condition-list role inherited from surrounding shell syntax, if any.
+    pub fn condition_role(&self) -> Option<CommandConditionRole> {
+        self.condition_role
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -297,10 +372,19 @@ impl SyntheticRead {
 }
 
 #[doc(hidden)]
-pub trait TraversalObserver {
+pub trait TraversalObserver<'a> {
     fn enter_command(&mut self, _command: &Command, _scope: ScopeId, _flow: FlowContext) {}
 
     fn exit_command(&mut self, _command: &Command, _scope: ScopeId) {}
+
+    fn recorded_command(
+        &mut self,
+        _id: CommandId,
+        _stmt: &'a Stmt,
+        _scope: ScopeId,
+        _flow: FlowContext,
+    ) {
+    }
 
     fn record_binding(&mut self, _binding: &Binding) {}
 
@@ -310,7 +394,7 @@ pub trait TraversalObserver {
 #[doc(hidden)]
 pub struct NoopTraversalObserver;
 
-impl TraversalObserver for NoopTraversalObserver {}
+impl<'a> TraversalObserver<'a> for NoopTraversalObserver {}
 
 #[doc(hidden)]
 pub trait SourcePathResolver {
@@ -1682,6 +1766,35 @@ impl SemanticModel {
         &self.command_topology().structural_ids
     }
 
+    pub fn command_context(&self, id: CommandId) -> Option<&SemanticCommandContext> {
+        self.command_topology()
+            .contexts
+            .get(id.index())
+            .and_then(Option::as_ref)
+    }
+
+    pub fn command_contexts(&self) -> impl Iterator<Item = &SemanticCommandContext> {
+        self.command_topology()
+            .contexts
+            .iter()
+            .filter_map(Option::as_ref)
+    }
+
+    pub fn structural_command_contexts(&self) -> impl Iterator<Item = &SemanticCommandContext> {
+        self.command_contexts()
+            .filter(|context| context.is_structural())
+    }
+
+    pub fn command_condition_role(&self, id: CommandId) -> Option<CommandConditionRole> {
+        self.command_context(id)
+            .and_then(SemanticCommandContext::condition_role)
+    }
+
+    pub fn command_is_nested_word_command(&self, id: CommandId) -> bool {
+        self.command_context(id)
+            .is_some_and(SemanticCommandContext::is_nested_word_command)
+    }
+
     pub fn command_span(&self, id: CommandId) -> Span {
         self.recorded_program.command(id).span
     }
@@ -2060,10 +2173,19 @@ fn build_command_topology(model: &SemanticModel) -> CommandTopology {
         build_command_child_ids(command_count, &syntax_backed_ids, &syntax_backed_parent_ids);
     let containing_offset_entries =
         build_command_containing_offset_entries(model, &syntax_backed_ids);
+    let condition_contexts = build_command_condition_contexts(program, command_count, &parent_ids);
+    let contexts = build_command_contexts(
+        model,
+        &syntax_backed_ids,
+        &structural_ids,
+        &nested_region_command_ids,
+        &condition_contexts,
+    );
 
     CommandTopology {
         syntax_backed_ids,
         structural_ids,
+        contexts,
         ids_by_syntax_span,
         parent_ids,
         child_ids,
@@ -2072,6 +2194,197 @@ fn build_command_topology(model: &SemanticModel) -> CommandTopology {
         offset_order,
         containing_offset_entries,
     }
+}
+
+fn build_command_contexts(
+    model: &SemanticModel,
+    syntax_backed_ids: &[CommandId],
+    structural_ids: &[CommandId],
+    nested_region_command_ids: &FxHashSet<CommandId>,
+    condition_contexts: &[CommandConditionContext],
+) -> Vec<Option<SemanticCommandContext>> {
+    let program = model.recorded_program();
+    let structural_ids = structural_ids.iter().copied().collect::<FxHashSet<_>>();
+    let mut contexts = vec![None; program.commands().len()];
+    for id in syntax_backed_ids.iter().copied() {
+        let command = program.command(id);
+        let Some(kind) = command.syntax_kind else {
+            continue;
+        };
+        let Some(scope) = command.scope else {
+            continue;
+        };
+        let Some(flow) = command.flow_context else {
+            continue;
+        };
+        contexts[id.index()] = Some(SemanticCommandContext {
+            id,
+            span: command.span,
+            syntax_span: command.syntax_span,
+            kind,
+            scope,
+            flow,
+            structural: structural_ids.contains(&id),
+            nested_word_command: nested_region_command_ids.contains(&id),
+            in_if_condition: condition_contexts
+                .get(id.index())
+                .is_some_and(|context| context.in_if_condition),
+            in_elif_condition: condition_contexts
+                .get(id.index())
+                .is_some_and(|context| context.in_elif_condition),
+            condition_role: condition_contexts
+                .get(id.index())
+                .and_then(|context| context.role),
+        });
+    }
+    contexts
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct CommandConditionContext {
+    role: Option<CommandConditionRole>,
+    role_owner: Option<CommandId>,
+    in_if_condition: bool,
+    in_elif_condition: bool,
+}
+
+fn build_command_condition_contexts(
+    program: &RecordedProgram,
+    command_count: usize,
+    parent_ids: &[Option<CommandId>],
+) -> Vec<CommandConditionContext> {
+    let mut contexts = vec![CommandConditionContext::default(); command_count];
+    for id in (0..command_count).map(|index| CommandId(index as u32)) {
+        record_command_condition_contexts(program, id, parent_ids, &mut contexts);
+    }
+    contexts
+}
+
+fn record_command_condition_contexts(
+    program: &RecordedProgram,
+    id: CommandId,
+    parent_ids: &[Option<CommandId>],
+    contexts: &mut [CommandConditionContext],
+) {
+    match program.command(id).kind {
+        RecordedCommandKind::If {
+            condition,
+            elif_branches,
+            ..
+        } => {
+            assign_condition_context_recursive(
+                program,
+                condition,
+                ConditionAssignment {
+                    owner: id,
+                    role: CommandConditionRole::If,
+                    in_if_condition: true,
+                    in_elif_condition: false,
+                },
+                parent_ids,
+                contexts,
+            );
+            for branch in program.elif_branches(elif_branches) {
+                assign_condition_context_recursive(
+                    program,
+                    branch.condition,
+                    ConditionAssignment {
+                        owner: id,
+                        role: CommandConditionRole::Elif,
+                        in_if_condition: true,
+                        in_elif_condition: true,
+                    },
+                    parent_ids,
+                    contexts,
+                );
+            }
+        }
+        RecordedCommandKind::While { condition, .. } => {
+            assign_condition_context_recursive(
+                program,
+                condition,
+                ConditionAssignment {
+                    owner: id,
+                    role: CommandConditionRole::While,
+                    in_if_condition: false,
+                    in_elif_condition: false,
+                },
+                parent_ids,
+                contexts,
+            );
+        }
+        RecordedCommandKind::Until { condition, .. } => {
+            assign_condition_context_recursive(
+                program,
+                condition,
+                ConditionAssignment {
+                    owner: id,
+                    role: CommandConditionRole::Until,
+                    in_if_condition: false,
+                    in_elif_condition: false,
+                },
+                parent_ids,
+                contexts,
+            );
+        }
+        RecordedCommandKind::Linear
+        | RecordedCommandKind::Break { .. }
+        | RecordedCommandKind::Continue { .. }
+        | RecordedCommandKind::Return
+        | RecordedCommandKind::Exit
+        | RecordedCommandKind::List { .. }
+        | RecordedCommandKind::For { .. }
+        | RecordedCommandKind::Select { .. }
+        | RecordedCommandKind::ArithmeticFor { .. }
+        | RecordedCommandKind::Case { .. }
+        | RecordedCommandKind::BraceGroup { .. }
+        | RecordedCommandKind::Subshell { .. }
+        | RecordedCommandKind::Pipeline { .. } => {}
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ConditionAssignment {
+    owner: CommandId,
+    role: CommandConditionRole,
+    in_if_condition: bool,
+    in_elif_condition: bool,
+}
+
+fn assign_condition_context_recursive(
+    program: &RecordedProgram,
+    range: crate::cfg::RecordedCommandRange,
+    assignment: ConditionAssignment,
+    parent_ids: &[Option<CommandId>],
+    contexts: &mut [CommandConditionContext],
+) {
+    for command in commands_in_range_recursive(program, range) {
+        let context = &mut contexts[command.index()];
+        if context
+            .role_owner
+            .is_none_or(|existing| command_is_descendant_of(assignment.owner, existing, parent_ids))
+        {
+            context.role = Some(assignment.role);
+            context.role_owner = Some(assignment.owner);
+        }
+        context.in_if_condition |= assignment.in_if_condition;
+        context.in_elif_condition |= assignment.in_elif_condition;
+    }
+}
+
+fn command_is_descendant_of(
+    descendant: CommandId,
+    ancestor: CommandId,
+    parent_ids: &[Option<CommandId>],
+) -> bool {
+    let mut current = Some(descendant);
+    while let Some(id) = current {
+        if id == ancestor {
+            return true;
+        }
+        current = parent_ids[id.index()];
+    }
+    false
 }
 
 fn build_syntax_backed_command_parent_ids(
@@ -2458,11 +2771,11 @@ fn compare_command_ids_by_syntax_span(
 }
 
 #[doc(hidden)]
-pub fn build_with_observer(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    observer: &mut dyn TraversalObserver,
+pub fn build_with_observer<'a>(
+    file: &'a File,
+    source: &'a str,
+    indexer: &'a Indexer,
+    observer: &mut dyn TraversalObserver<'a>,
 ) -> SemanticModel {
     build_with_observer_with_options(
         file,
@@ -2474,33 +2787,33 @@ pub fn build_with_observer(
 }
 
 #[doc(hidden)]
-pub fn build_with_observer_with_options(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    observer: &mut dyn TraversalObserver,
+pub fn build_with_observer_with_options<'a>(
+    file: &'a File,
+    source: &'a str,
+    indexer: &'a Indexer,
+    observer: &mut dyn TraversalObserver<'a>,
     options: SemanticBuildOptions<'_>,
 ) -> SemanticModel {
     build_semantic_model(file, source, indexer, observer, options)
 }
 
 #[doc(hidden)]
-pub fn build_with_observer_at_path(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    observer: &mut dyn TraversalObserver,
+pub fn build_with_observer_at_path<'a>(
+    file: &'a File,
+    source: &'a str,
+    indexer: &'a Indexer,
+    observer: &mut dyn TraversalObserver<'a>,
     source_path: Option<&Path>,
 ) -> SemanticModel {
     build_with_observer_at_path_with_resolver(file, source, indexer, observer, source_path, None)
 }
 
 #[doc(hidden)]
-pub fn build_with_observer_at_path_with_resolver(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    observer: &mut dyn TraversalObserver,
+pub fn build_with_observer_at_path_with_resolver<'a>(
+    file: &'a File,
+    source: &'a str,
+    indexer: &'a Indexer,
+    observer: &mut dyn TraversalObserver<'a>,
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> SemanticModel {
@@ -2521,11 +2834,11 @@ pub fn build_with_observer_at_path_with_resolver(
     )
 }
 
-fn build_semantic_model(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    observer: &mut dyn TraversalObserver,
+fn build_semantic_model<'a>(
+    file: &'a File,
+    source: &'a str,
+    indexer: &'a Indexer,
+    observer: &mut dyn TraversalObserver<'a>,
     options: SemanticBuildOptions<'_>,
 ) -> SemanticModel {
     let SemanticBuildOptions {
@@ -2600,14 +2913,14 @@ fn build_semantic_model(
     model
 }
 
-pub(crate) fn build_semantic_model_base<'a>(
-    file: &File,
-    source: &str,
-    indexer: &Indexer,
-    observer: &'a mut dyn TraversalObserver,
+pub(crate) fn build_semantic_model_base<'a, 'observer>(
+    file: &'a File,
+    source: &'a str,
+    indexer: &'a Indexer,
+    observer: &'observer mut dyn TraversalObserver<'a>,
     source_path: Option<&Path>,
     shell_profile: Option<ShellProfile>,
-    file_entry_contract_collector: Option<&'a mut dyn FileEntryContractCollector>,
+    file_entry_contract_collector: Option<&'observer mut dyn FileEntryContractCollector>,
 ) -> SemanticModel {
     let shell_profile = shell_profile.unwrap_or_else(|| infer_shell_profile(source, source_path));
     let built = SemanticModelBuilder::build(

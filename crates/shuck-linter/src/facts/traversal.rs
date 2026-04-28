@@ -27,10 +27,20 @@ struct CommandWalkOptions {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct CommandVisit<'a> {
-    stmt: &'a Stmt,
-    command: &'a Command,
-    redirects: &'a [Redirect],
+pub(super) struct CommandVisit<'a> {
+    pub(super) stmt: &'a Stmt,
+    pub(super) command: &'a Command,
+    pub(super) redirects: &'a [Redirect],
+}
+
+impl<'a> CommandVisit<'a> {
+    pub(super) fn new(stmt: &'a Stmt) -> Self {
+        Self {
+            stmt,
+            command: &stmt.command,
+            redirects: &stmt.redirects,
+        }
+    }
 }
 
 fn walk_commands<'a, F>(commands: &'a StmtSeq, options: CommandWalkOptions, visitor: &mut F)
@@ -302,11 +312,7 @@ fn collect_command_visit<'a, F>(
     F: FnMut(CommandVisit<'a>, CommandTraversalContext),
 {
     visitor(
-        CommandVisit {
-            stmt,
-            command: &stmt.command,
-            redirects: &stmt.redirects,
-        },
+        CommandVisit::new(stmt),
         context,
     );
 
