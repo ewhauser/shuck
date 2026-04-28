@@ -760,6 +760,44 @@ impl SemanticModel {
         self.previous_visible_binding(name, at, None)
     }
 
+    /// Return binding candidates for a reference using lexical visibility first,
+    /// then prior same-name bindings outside the reference scope.
+    pub fn visible_candidate_bindings_for_reference(
+        &self,
+        reference: &Reference,
+    ) -> Vec<BindingId> {
+        let all_bindings = self.bindings_for(&reference.name);
+        let binding_ids = self
+            .ancestor_scopes(reference.scope)
+            .filter_map(|scope| {
+                all_bindings.iter().copied().rev().find(|binding_id| {
+                    let binding = self.binding(*binding_id);
+                    binding.scope == scope && self.binding_visible_at(*binding_id, reference.span)
+                })
+            })
+            .collect::<Vec<_>>();
+        if !binding_ids.is_empty() {
+            return binding_ids;
+        }
+
+        self.ancestor_scopes(reference.scope)
+            .skip(1)
+            .filter_map(|scope| {
+                all_bindings.iter().copied().rev().find(|binding_id| {
+                    let binding = self.binding(*binding_id);
+                    binding.scope == scope && self.binding_visible_at(*binding_id, reference.span)
+                })
+            })
+            .chain(all_bindings.iter().copied().filter(|binding_id| {
+                let binding = self.binding(*binding_id);
+                binding.scope != reference.scope
+                    && binding.span.start.offset < reference.span.start.offset
+            }))
+            .collect::<FxHashSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+    }
+
     #[doc(hidden)]
     pub fn binding_visible_at(&self, binding_id: BindingId, at: Span) -> bool {
         let binding = self.binding(binding_id);
