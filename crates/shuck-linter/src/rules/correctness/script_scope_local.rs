@@ -1,4 +1,4 @@
-use shuck_semantic::{Binding, BindingAttributes, BindingKind, DeclarationBuiltin, ScopeKind};
+use shuck_semantic::{Binding, BindingAttributes, BindingKind, DeclarationBuiltin};
 
 use crate::{Checker, Rule, ShellDialect, Violation};
 
@@ -20,6 +20,7 @@ pub fn local_top_level(checker: &mut Checker) {
     }
 
     let semantic = checker.semantic();
+    let semantic_analysis = checker.semantic_analysis();
     let spans = semantic
         .declarations()
         .iter()
@@ -32,27 +33,27 @@ pub fn local_top_level(checker: &mut Checker) {
             })
         })
         .filter_map(|declaration| {
-            let binding_scopes = semantic
+            let binding_offsets = semantic
                 .bindings_in_span(declaration.span)
                 .filter(|binding| local_binding_belongs_to_declaration_kind(binding))
-                .map(|binding| binding.scope)
+                .map(|binding| binding.span.start.offset)
                 .collect::<Vec<_>>();
 
-            if binding_scopes
-                .iter()
-                .any(|scope| matches!(semantic.scope_kind(*scope), ScopeKind::Function(_)))
-            {
+            if binding_offsets.iter().any(|offset| {
+                semantic_analysis
+                    .enclosing_function_scope_at(*offset)
+                    .is_some()
+            }) {
                 return None;
             }
 
-            if !binding_scopes.is_empty() {
+            if !binding_offsets.is_empty() {
                 return Some(declaration.span);
             }
 
-            let scope = semantic.scope_at(declaration.span.start.offset);
-            let inside_function = semantic
-                .ancestor_scopes(scope)
-                .any(|scope| matches!(semantic.scope_kind(scope), ScopeKind::Function(_)));
+            let inside_function = semantic_analysis
+                .enclosing_function_scope_at(declaration.span.start.offset)
+                .is_some();
 
             (!inside_function).then_some(declaration.span)
         })

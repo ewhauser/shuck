@@ -1,5 +1,3 @@
-use shuck_semantic::ScopeKind;
-
 use crate::{Checker, DeclarationKind, Rule, Violation};
 
 pub struct ExportCommandSubstitution {
@@ -69,11 +67,10 @@ fn should_report_s010_declaration(
         return true;
     }
 
-    let scope = checker.semantic().scope_at(span.start.offset);
     let inside_function = checker
-        .semantic()
-        .ancestor_scopes(scope)
-        .any(|scope| matches!(checker.semantic().scope_kind(scope), ScopeKind::Function(_)));
+        .semantic_analysis()
+        .enclosing_function_scope_at(span.start.offset)
+        .is_some();
 
     !inside_function
 }

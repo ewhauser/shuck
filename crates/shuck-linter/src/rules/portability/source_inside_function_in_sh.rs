@@ -1,5 +1,5 @@
 use shuck_ast::Span;
-use shuck_semantic::{ScopeKind, SourceRef, SourceRefKind};
+use shuck_semantic::{SourceRef, SourceRefKind};
 
 use crate::{Checker, CommandFactRef, Rule, ShellDialect, Violation};
 
@@ -55,9 +55,8 @@ fn same_start(left: Span, right: Span) -> bool {
 }
 
 fn inside_function(checker: &Checker<'_>, span: Span) -> bool {
-    let scope = checker.semantic().scope_at(span.start.offset);
     checker
-        .semantic()
-        .ancestor_scopes(scope)
-        .any(|scope| matches!(checker.semantic().scope_kind(scope), ScopeKind::Function(_)))
+        .semantic_analysis()
+        .enclosing_function_scope_at(span.start.offset)
+        .is_some()
 }

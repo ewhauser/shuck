@@ -1,5 +1,4 @@
 use shuck_ast::{BuiltinCommand, Command, Span};
-use shuck_semantic::ScopeKind;
 
 use crate::{Checker, Rule, Violation};
 
@@ -46,13 +45,10 @@ pub(crate) fn loop_control_violations(
             _ => None,
         })
         .filter(|(command_span, _, keyword)| {
-            let scope = checker.semantic().scope_at(command_span.start.offset);
-            let inside_function = checker.semantic().ancestor_scopes(scope).any(|ancestor| {
-                matches!(
-                    checker.semantic().scope_kind(ancestor),
-                    ScopeKind::Function(_)
-                )
-            });
+            let inside_function = checker
+                .semantic_analysis()
+                .enclosing_function_scope_at(command_span.start.offset)
+                .is_some();
             let in_subshell = checker
                 .semantic()
                 .flow_context_at(command_span)
