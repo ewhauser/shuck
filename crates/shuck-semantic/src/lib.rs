@@ -2173,7 +2173,7 @@ fn build_command_topology(model: &SemanticModel) -> CommandTopology {
         build_command_child_ids(command_count, &syntax_backed_ids, &syntax_backed_parent_ids);
     let containing_offset_entries =
         build_command_containing_offset_entries(model, &syntax_backed_ids);
-    let condition_contexts = build_command_condition_contexts(program, command_count);
+    let condition_contexts = build_command_condition_contexts(program, command_count, &parent_ids);
     let contexts = build_command_contexts(
         model,
         &syntax_backed_ids,
@@ -2243,6 +2243,7 @@ fn build_command_contexts(
 #[derive(Debug, Clone, Copy, Default)]
 struct CommandConditionContext {
     role: Option<CommandConditionRole>,
+    role_owner: Option<CommandId>,
     in_if_condition: bool,
     in_elif_condition: bool,
 }
@@ -2250,10 +2251,11 @@ struct CommandConditionContext {
 fn build_command_condition_contexts(
     program: &RecordedProgram,
     command_count: usize,
+    parent_ids: &[Option<CommandId>],
 ) -> Vec<CommandConditionContext> {
     let mut contexts = vec![CommandConditionContext::default(); command_count];
     for id in (0..command_count).map(|index| CommandId(index as u32)) {
-        record_command_condition_contexts(program, id, &mut contexts);
+        record_command_condition_contexts(program, id, parent_ids, &mut contexts);
     }
     contexts
 }
@@ -2261,6 +2263,7 @@ fn build_command_condition_contexts(
 fn record_command_condition_contexts(
     program: &RecordedProgram,
     id: CommandId,
+    parent_ids: &[Option<CommandId>],
     contexts: &mut [CommandConditionContext],
 ) {
     match program.command(id).kind {
@@ -2272,18 +2275,26 @@ fn record_command_condition_contexts(
             assign_condition_context_recursive(
                 program,
                 condition,
-                CommandConditionRole::If,
-                true,
-                false,
+                ConditionAssignment {
+                    owner: id,
+                    role: CommandConditionRole::If,
+                    in_if_condition: true,
+                    in_elif_condition: false,
+                },
+                parent_ids,
                 contexts,
             );
             for branch in program.elif_branches(elif_branches) {
                 assign_condition_context_recursive(
                     program,
                     branch.condition,
-                    CommandConditionRole::Elif,
-                    true,
-                    true,
+                    ConditionAssignment {
+                        owner: id,
+                        role: CommandConditionRole::Elif,
+                        in_if_condition: true,
+                        in_elif_condition: true,
+                    },
+                    parent_ids,
                     contexts,
                 );
             }
@@ -2292,9 +2303,13 @@ fn record_command_condition_contexts(
             assign_condition_context_recursive(
                 program,
                 condition,
-                CommandConditionRole::While,
-                false,
-                false,
+                ConditionAssignment {
+                    owner: id,
+                    role: CommandConditionRole::While,
+                    in_if_condition: false,
+                    in_elif_condition: false,
+                },
+                parent_ids,
                 contexts,
             );
         }
@@ -2302,9 +2317,13 @@ fn record_command_condition_contexts(
             assign_condition_context_recursive(
                 program,
                 condition,
-                CommandConditionRole::Until,
-                false,
-                false,
+                ConditionAssignment {
+                    owner: id,
+                    role: CommandConditionRole::Until,
+                    in_if_condition: false,
+                    in_elif_condition: false,
+                },
+                parent_ids,
                 contexts,
             );
         }
@@ -2324,22 +2343,48 @@ fn record_command_condition_contexts(
     }
 }
 
-fn assign_condition_context_recursive(
-    program: &RecordedProgram,
-    range: crate::cfg::RecordedCommandRange,
+#[derive(Debug, Clone, Copy)]
+struct ConditionAssignment {
+    owner: CommandId,
     role: CommandConditionRole,
     in_if_condition: bool,
     in_elif_condition: bool,
+}
+
+fn assign_condition_context_recursive(
+    program: &RecordedProgram,
+    range: crate::cfg::RecordedCommandRange,
+    assignment: ConditionAssignment,
+    parent_ids: &[Option<CommandId>],
     contexts: &mut [CommandConditionContext],
 ) {
     for command in commands_in_range_recursive(program, range) {
         let context = &mut contexts[command.index()];
-        if context.role.is_none() {
-            context.role = Some(role);
+        if context
+            .role_owner
+            .is_none_or(|existing| command_is_descendant_of(assignment.owner, existing, parent_ids))
+        {
+            context.role = Some(assignment.role);
+            context.role_owner = Some(assignment.owner);
         }
-        context.in_if_condition |= in_if_condition;
-        context.in_elif_condition |= in_elif_condition;
+        context.in_if_condition |= assignment.in_if_condition;
+        context.in_elif_condition |= assignment.in_elif_condition;
     }
+}
+
+fn command_is_descendant_of(
+    descendant: CommandId,
+    ancestor: CommandId,
+    parent_ids: &[Option<CommandId>],
+) -> bool {
+    let mut current = Some(descendant);
+    while let Some(id) = current {
+        if id == ancestor {
+            return true;
+        }
+        current = parent_ids[id.index()];
+    }
+    false
 }
 
 fn build_syntax_backed_command_parent_ids(

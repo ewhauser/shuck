@@ -2526,6 +2526,7 @@ cat < <(process)
 if outer; then ok; elif alt; then fallback; fi
 while guard; do break; done
 until stop; do done_cmd; done
+while if nested_guard; then :; elif nested_alt; then :; fi; do :; done
 cat <<EOF
 $(heredoc_cmd)
 EOF
@@ -2581,6 +2582,22 @@ EOF
         .command_context(command_id_starting_with(&model, source, "stop").unwrap())
         .unwrap();
     assert_eq!(stop.condition_role(), Some(CommandConditionRole::Until));
+
+    let nested_guard = model
+        .command_context(command_id_starting_with(&model, source, "nested_guard").unwrap())
+        .unwrap();
+    assert_eq!(
+        nested_guard.condition_role(),
+        Some(CommandConditionRole::If)
+    );
+
+    let nested_alt = model
+        .command_context(command_id_starting_with(&model, source, "nested_alt").unwrap())
+        .unwrap();
+    assert_eq!(
+        nested_alt.condition_role(),
+        Some(CommandConditionRole::Elif)
+    );
 
     let heredoc = model
         .command_context(command_id_starting_with(&model, source, "heredoc_cmd").unwrap())

@@ -44,6 +44,15 @@ impl Frame {
             .peak_live_bytes
             .max(self.current_live_bytes.max(0) as u64);
     }
+
+    fn merge_sequential(&mut self, other: Frame) {
+        self.allocation_count += other.allocation_count;
+        self.reallocation_count += other.reallocation_count;
+        self.total_allocated_bytes += other.total_allocated_bytes;
+        self.total_reallocated_bytes += other.total_reallocated_bytes;
+        self.current_live_bytes += other.current_live_bytes;
+        self.peak_live_bytes = self.peak_live_bytes.max(other.peak_live_bytes);
+    }
 }
 
 #[derive(Debug, Default)]
@@ -171,24 +180,21 @@ impl From<Frame> for MemoryMetrics {
 
 struct PreparedInput {
     source: &'static str,
-    output: &'static ParseResult,
-    indexer: &'static Indexer,
-    semantic: LinterSemanticArtifacts<'static>,
+    output: ParseResult,
+    indexer: Indexer,
     shell: ShellDialect,
 }
 
 impl PreparedInput {
     fn new(source: &'static str) -> Self {
-        let output = Box::leak(Box::new(parse_fixture(source)));
-        let indexer = Box::leak(Box::new(Indexer::new(source, output)));
-        let semantic = LinterSemanticArtifacts::build(&output.file, source, indexer);
+        let output = parse_fixture(source);
+        let indexer = Indexer::new(source, &output);
         let shell = ShellDialect::infer(source, None);
 
         Self {
             source,
             output,
             indexer,
-            semantic,
             shell,
         }
     }
@@ -206,41 +212,57 @@ struct CaseReport {
     check_metrics: MemoryMetrics,
 }
 
-fn facts_size(input: &PreparedInput) -> usize {
-    let facts = LinterFacts::build_with_shell_and_ambient_shell_options(
-        &input.output.file,
-        input.source,
-        &input.semantic,
-        input.indexer,
-        input.shell,
-        Default::default(),
-    );
+fn measured_facts_size(input: &PreparedInput) -> (Frame, usize) {
+    let semantic = LinterSemanticArtifacts::build(&input.output.file, input.source, &input.indexer);
+    measure(|| {
+        let facts = LinterFacts::build_with_shell_and_ambient_shell_options(
+            &input.output.file,
+            input.source,
+            &semantic,
+            &input.indexer,
+            input.shell,
+            Default::default(),
+        );
 
-    facts.commands().len()
-        + facts.word_facts().count()
-        + facts.single_quoted_fragments().len()
-        + facts.backtick_fragments().len()
-        + facts.pattern_charclass_spans().len()
-        + facts.substring_expansion_fragments().len()
-        + facts.case_modification_fragments().len()
-        + facts.replacement_expansion_fragments().len()
+        facts.commands().len()
+            + facts.word_facts().count()
+            + facts.single_quoted_fragments().len()
+            + facts.backtick_fragments().len()
+            + facts.pattern_charclass_spans().len()
+            + facts.substring_expansion_fragments().len()
+            + facts.case_modification_fragments().len()
+            + facts.replacement_expansion_fragments().len()
+    })
 }
 
-fn check_diagnostics(input: &PreparedInput, settings: &LinterSettings) -> usize {
-    let checker = Checker::new(
-        &input.output.file,
-        input.source,
-        &input.semantic,
-        input.indexer,
-        &settings.rules,
-        input.shell,
-        settings.ambient_shell_options,
-        settings.report_environment_style_names,
-        settings.rule_options.clone(),
-        None,
-        None,
-    );
-    checker.check().len()
+fn measured_check_diagnostics(input: &PreparedInput, settings: &LinterSettings) -> (Frame, usize) {
+    let semantic = LinterSemanticArtifacts::build(&input.output.file, input.source, &input.indexer);
+    measure(|| {
+        let checker = Checker::new(
+            &input.output.file,
+            input.source,
+            &semantic,
+            &input.indexer,
+            &settings.rules,
+            input.shell,
+            settings.ambient_shell_options,
+            settings.report_environment_style_names,
+            settings.rule_options.clone(),
+            None,
+            None,
+        );
+        checker.check().len()
+    })
+}
+
+fn sum_measured(values: impl IntoIterator<Item = (Frame, usize)>) -> (Frame, usize) {
+    let mut total_frame = Frame::default();
+    let mut total_count = 0;
+    for (frame, count) in values {
+        total_frame.merge_sequential(frame);
+        total_count += count;
+    }
+    (total_frame, total_count)
 }
 
 fn single_case_report(case_name: &str) -> Option<CaseReport> {
@@ -262,13 +284,12 @@ fn single_case_report(case_name: &str) -> Option<CaseReport> {
         .map(|input| input.output.file.body.len())
         .sum();
 
-    let (facts_frame, fact_count) = measure(|| inputs.iter().map(facts_size).sum());
-    let (check_frame, diagnostic_count) = measure(|| {
+    let (facts_frame, fact_count) = sum_measured(inputs.iter().map(measured_facts_size));
+    let (check_frame, diagnostic_count) = sum_measured(
         inputs
             .iter()
-            .map(|input| check_diagnostics(input, &settings))
-            .sum()
-    });
+            .map(|input| measured_check_diagnostics(input, &settings)),
+    );
 
     Some(CaseReport {
         case: case.name.to_string(),
