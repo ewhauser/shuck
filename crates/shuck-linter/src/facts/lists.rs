@@ -22,16 +22,16 @@ pub enum ListSegmentKind {
 }
 
 #[derive(Debug, Clone)]
-pub struct ListSegmentFact {
+pub struct ListSegmentFact<'a> {
     command_id: CommandId,
     span: Span,
     kind: ListSegmentKind,
-    assignment_target: Option<Box<str>>,
+    assignment_target: Option<&'a str>,
     assignment_span: Option<Span>,
     assignment_is_declaration: bool,
 }
 
-impl ListSegmentFact {
+impl<'a> ListSegmentFact<'a> {
     pub fn command_id(&self) -> CommandId {
         self.command_id
     }
@@ -44,8 +44,8 @@ impl ListSegmentFact {
         self.kind
     }
 
-    pub fn assignment_target(&self) -> Option<&str> {
-        self.assignment_target.as_deref()
+    pub fn assignment_target(&self) -> Option<&'a str> {
+        self.assignment_target
     }
 
     pub fn assignment_span(&self) -> Option<Span> {
@@ -70,7 +70,7 @@ pub struct ListFact<'a> {
     key: FactSpan,
     command: &'a BinaryCommand,
     operators: Box<[ListOperatorFact]>,
-    segments: Box<[ListSegmentFact]>,
+    segments: Box<[ListSegmentFact<'a>]>,
     mixed_short_circuit_span: Option<Span>,
     mixed_short_circuit_kind: Option<MixedShortCircuitKind>,
 }
@@ -92,7 +92,7 @@ impl<'a> ListFact<'a> {
         &self.operators
     }
 
-    pub fn segments(&self) -> &[ListSegmentFact] {
+    pub fn segments(&self) -> &[ListSegmentFact<'a>] {
         &self.segments
     }
 
@@ -199,7 +199,7 @@ fn build_list_segment_facts<'a>(
     command_relationships: CommandRelationshipContext<'_, 'a>,
     parent_id: CommandId,
     source: &str,
-) -> Option<Box<[ListSegmentFact]>> {
+) -> Option<Box<[ListSegmentFact<'a>]>> {
     let mut segments = Vec::new();
     collect_list_segment_facts(
         command,
@@ -216,7 +216,7 @@ fn collect_list_segment_facts<'a>(
     command_relationships: CommandRelationshipContext<'_, 'a>,
     parent_id: CommandId,
     source: &str,
-    segments: &mut Vec<ListSegmentFact>,
+    segments: &mut Vec<ListSegmentFact<'a>>,
 ) -> Option<()> {
     collect_list_stmt_segment_facts(
         &command.left,
@@ -240,7 +240,7 @@ fn collect_list_stmt_segment_facts<'a>(
     command_relationships: CommandRelationshipContext<'_, 'a>,
     parent_id: CommandId,
     source: &str,
-    segments: &mut Vec<ListSegmentFact>,
+    segments: &mut Vec<ListSegmentFact<'a>>,
 ) -> Option<()> {
     if let Command::Binary(binary) = &stmt.command
         && matches!(binary.op, BinaryOp::And | BinaryOp::Or)
@@ -260,11 +260,7 @@ fn collect_list_stmt_segment_facts<'a>(
     let fact = command_relationships.child_or_lookup_fact(parent_id, stmt)?;
     let id = fact.id();
     let assignment_info = list_segment_assignment_info(fact);
-    let assignment_target = assignment_info
-        .as_ref()
-        .map(|info| info.target)
-        .map(str::to_owned)
-        .map(String::into_boxed_str);
+    let assignment_target = assignment_info.as_ref().map(|info| info.target);
     let assignment_is_declaration = assignment_info
         .as_ref()
         .is_some_and(|info| info.is_declaration);
@@ -296,7 +292,7 @@ fn list_segment_is_condition(fact: &CommandFact<'_>) -> bool {
         || matches!(fact.effective_or_literal_name(), Some("true" | "false"))
 }
 
-fn list_segment_assignment_target<'a>(fact: &'a CommandFact<'a>) -> Option<&'a str> {
+fn list_segment_assignment_target<'a>(fact: &CommandFact<'a>) -> Option<&'a str> {
     list_segment_assignment_info(fact).map(|info| info.target)
 }
 
@@ -308,7 +304,7 @@ struct ListSegmentAssignmentInfo<'a> {
 }
 
 fn list_segment_assignment_info<'a>(
-    fact: &'a CommandFact<'a>,
+    fact: &CommandFact<'a>,
 ) -> Option<ListSegmentAssignmentInfo<'a>> {
     match fact.command() {
         Command::Simple(command)
@@ -362,7 +358,7 @@ fn declaration_assignment_info<'a>(
 }
 
 fn classify_mixed_short_circuit_kind(
-    segments: &[ListSegmentFact],
+    segments: &[ListSegmentFact<'_>],
     operators: &[ListOperatorFact],
 ) -> MixedShortCircuitKind {
     if segments
@@ -378,7 +374,7 @@ fn classify_mixed_short_circuit_kind(
 }
 
 fn matches_assignment_ternary(
-    segments: &[ListSegmentFact],
+    segments: &[ListSegmentFact<'_>],
     operators: &[ListOperatorFact],
 ) -> bool {
     let [condition, then_branch, else_branch] = segments else {
