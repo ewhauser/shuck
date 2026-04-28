@@ -1762,11 +1762,9 @@ fn collect_binding_values<'a>(
         let AssignmentValue::Scalar(word) = &assignment.value else {
             continue;
         };
-        if let Some(binding_id) = binding_value_definition_id_for_name(
-            semantic,
-            &assignment.target.name,
-            assignment.target.name_span,
-        ) {
+        if let Some(binding_id) =
+            binding_value_definition_id_for_span(semantic, assignment.target.name_span)
+        {
             binding_values.insert(binding_id, BindingValueFact::scalar(word));
         }
     }
@@ -1778,11 +1776,9 @@ fn collect_binding_values<'a>(
         let AssignmentValue::Scalar(word) = &assignment.value else {
             continue;
         };
-        if let Some(binding_id) = binding_value_definition_id_for_name(
-            semantic,
-            &assignment.target.name,
-            assignment.target.name_span,
-        ) {
+        if let Some(binding_id) =
+            binding_value_definition_id_for_span(semantic, assignment.target.name_span)
+        {
             binding_values.insert(binding_id, BindingValueFact::scalar(word));
         }
     }
@@ -1792,7 +1788,7 @@ fn collect_binding_values<'a>(
     {
         for operand in &declaration.operands {
             let SemanticDeclarationOperand::Assignment {
-                name,
+                name: _,
                 name_span,
                 value_span,
                 ..
@@ -1805,9 +1801,7 @@ fn collect_binding_values<'a>(
             };
             let standalone_status_or_pid_capture =
                 word_span_is_standalone_status_or_pid_capture(word, *value_span);
-            if let Some(binding_id) =
-                binding_value_definition_id_for_name(semantic, name, *name_span)
-            {
+            if let Some(binding_id) = binding_value_definition_id_for_span(semantic, *name_span) {
                 binding_values.insert(
                     binding_id,
                     BindingValueFact::scalar_with_status_or_pid_capture(
@@ -1826,9 +1820,9 @@ fn collect_binding_values<'a>(
             };
             let values = words.iter().collect::<Vec<_>>().into_boxed_slice();
             for target in &command.targets {
-                if let Some(name) = &target.name
+                if target.name.is_some()
                     && let Some(binding_id) =
-                        binding_value_definition_id_for_name(semantic, name, target.span)
+                        binding_value_definition_id_for_span(semantic, target.span)
                 {
                     binding_values.insert(
                         binding_id,
@@ -1838,11 +1832,9 @@ fn collect_binding_values<'a>(
             }
         }
         Command::Compound(CompoundCommand::Foreach(command)) => {
-            if let Some(binding_id) = binding_value_definition_id_for_name(
-                semantic,
-                &command.variable,
-                command.variable_span,
-            ) {
+            if let Some(binding_id) =
+                binding_value_definition_id_for_span(semantic, command.variable_span)
+            {
                 binding_values.insert(
                     binding_id,
                     BindingValueFact::from_loop_words(
@@ -1852,11 +1844,9 @@ fn collect_binding_values<'a>(
             }
         }
         Command::Compound(CompoundCommand::Select(command)) => {
-            if let Some(binding_id) = binding_value_definition_id_for_name(
-                semantic,
-                &command.variable,
-                command.variable_span,
-            ) {
+            if let Some(binding_id) =
+                binding_value_definition_id_for_span(semantic, command.variable_span)
+            {
                 binding_values.insert(
                     binding_id,
                     BindingValueFact::from_loop_words(
@@ -1869,17 +1859,11 @@ fn collect_binding_values<'a>(
     }
 }
 
-fn binding_value_definition_id_for_name(
+fn binding_value_definition_id_for_span(
     semantic: &SemanticModel,
-    name: &Name,
     span: Span,
 ) -> Option<BindingId> {
-    semantic
-        .bindings_for(name)
-        .iter()
-        .rev()
-        .copied()
-        .find(|binding_id| semantic.binding(*binding_id).span == span)
+    semantic.binding_for_definition_span(span)
 }
 
 fn binding_value_visible_id_for_name(

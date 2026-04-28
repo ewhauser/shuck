@@ -533,6 +533,7 @@ pub struct SemanticModel {
     command_topology: OnceLock<CommandTopology>,
     references_sorted_by_start: OnceLock<Vec<ReferenceId>>,
     bindings_sorted_by_start: OnceLock<Vec<BindingId>>,
+    bindings_by_definition_span: OnceLock<FxHashMap<SpanKey, BindingId>>,
     guarded_or_defaulting_reference_offsets_by_name: OnceLock<FxHashMap<Name, Box<[usize]>>>,
     declarations_by_command_span: OnceLock<FxHashMap<SpanKey, usize>>,
     unconditional_function_bindings: OnceLock<FxHashSet<BindingId>>,
@@ -721,6 +722,7 @@ impl SemanticModel {
             command_topology: OnceLock::new(),
             references_sorted_by_start: OnceLock::new(),
             bindings_sorted_by_start: OnceLock::new(),
+            bindings_by_definition_span: OnceLock::new(),
             guarded_or_defaulting_reference_offsets_by_name: OnceLock::new(),
             declarations_by_command_span: OnceLock::new(),
             unconditional_function_bindings: OnceLock::new(),
@@ -906,6 +908,13 @@ impl SemanticModel {
 
     pub fn binding(&self, id: BindingId) -> &Binding {
         &self.bindings[id.index()]
+    }
+
+    pub fn binding_for_definition_span(&self, span: Span) -> Option<BindingId> {
+        let index = self
+            .bindings_by_definition_span
+            .get_or_init(|| build_bindings_by_definition_span(&self.bindings));
+        index.get(&SpanKey::new(span)).copied()
     }
 
     pub fn reference(&self, id: ReferenceId) -> &Reference {
@@ -1407,6 +1416,7 @@ impl SemanticModel {
         if !origin_paths.is_empty() {
             self.import_origins_by_binding.insert(id, origin_paths);
         }
+        self.bindings_by_definition_span.take();
         id
     }
 
@@ -2761,6 +2771,14 @@ fn build_declarations_by_command_span(declarations: &[Declaration]) -> FxHashMap
     let mut index = FxHashMap::with_capacity_and_hasher(declarations.len(), Default::default());
     for (declaration_index, declaration) in declarations.iter().enumerate() {
         index.insert(SpanKey::new(declaration.span), declaration_index);
+    }
+    index
+}
+
+fn build_bindings_by_definition_span(bindings: &[Binding]) -> FxHashMap<SpanKey, BindingId> {
+    let mut index = FxHashMap::with_capacity_and_hasher(bindings.len(), Default::default());
+    for binding in bindings {
+        index.insert(SpanKey::new(binding.span), binding.id);
     }
     index
 }
