@@ -8,8 +8,9 @@ use shuck_ast::{
     word_is_standalone_status_capture, word_is_standalone_variable_like,
 };
 use shuck_semantic::{
-    AssignmentValueOrigin, BindingAttributes, BindingKind, BindingOrigin, LoopValueOrigin, ScopeId,
-    ScopeKind, SemanticAnalysis, SemanticModel, SemanticValueFlow, UninitializedCertainty,
+    AssignmentValueOrigin, BindingAttributes, BindingKind, BindingOrigin, CallSite,
+    LoopValueOrigin, ScopeId, ScopeKind, SemanticAnalysis, SemanticModel, SemanticValueFlow,
+    UninitializedCertainty,
 };
 use shuck_semantic::{BindingId, BlockId, ReferenceId};
 
@@ -1137,6 +1138,20 @@ impl<'a> SafeValueIndex<'a> {
         scope: ScopeId,
     ) -> Option<crate::facts::CommandFactRef<'a, 'a>> {
         self.facts.function_definition_command(scope)
+    }
+
+    fn function_scope_resolves_at_call_site(&self, callee_scope: ScopeId, site: &CallSite) -> bool {
+        if let Some(binding_id) = self
+            .analysis
+            .visible_function_binding_at_call(&site.callee, site.name_span)
+        {
+            return self.analysis.function_scope_for_binding(binding_id) == Some(callee_scope);
+        }
+
+        self.function_definition_command_for_scope(callee_scope)
+            .is_some_and(|definition_command| {
+                self.definition_command_resolves_at_call(definition_command.id(), site.span)
+            })
     }
 
     fn s001_reference_function_unset_before_first_call(&mut self, at: Span) -> bool {
@@ -3216,13 +3231,16 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         };
 
-        self.named_function_call_sites(binding.scope)
+        self.value_flow
+            .borrow()
+            .named_function_call_sites(binding.scope)
             .into_iter()
-            .any(|(caller_scope, span)| {
-                caller_scope == scope
-                    && self.scope_has_visible_local_binding_before(&binding.name, scope, span)
-                    && self.definition_command_resolves_at_call(definition_command.id(), span)
-                    && self.call_site_dominates_use(span, &binding.name, at)
+            .any(|site| {
+                site.scope == scope
+                    && self.function_scope_resolves_at_call_site(binding.scope, &site)
+                    && self.scope_has_visible_local_binding_before(&binding.name, scope, site.span)
+                    && self.definition_command_resolves_at_call(definition_command.id(), site.span)
+                    && self.call_site_dominates_use(site.span, &binding.name, at)
             })
     }
 
@@ -6353,6 +6371,58 @@ render() {
             .expect("expected shadowed helper argument fact");
 
         assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn shadowed_helper_call_site_does_not_count_as_outer_helper_write() {
+        let source = "\
+#!/bin/bash
+helper() {
+  value=$1
+}
+
+render() {
+  local value=SAFE
+  helper() {
+    :
+  }
+  helper
+  printf '%s\\n' ${value}
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+        let safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${value}"
+            })
+            .expect("expected local argument fact");
+        let render_scope = analysis
+            .enclosing_function_scope_at(word_fact.span().start.offset)
+            .expect("expected render scope");
+        let outer_helper_binding = semantic
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "value"
+                    && binding.scope != render_scope
+                    && matches!(binding.kind, shuck_semantic::BindingKind::Assignment)
+            })
+            .expect("expected outer helper binding");
+
+        assert!(!safe_values.binding_writes_visible_local_in_scope_before(
+            outer_helper_binding.id,
+            render_scope,
+            word_fact.span(),
+        ));
     }
 
     #[test]
