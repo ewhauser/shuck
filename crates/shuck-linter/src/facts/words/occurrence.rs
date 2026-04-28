@@ -848,30 +848,13 @@ pub(super) fn build_unquoted_command_argument_use_offsets(
         return FxHashMap::default();
     }
 
-    let references = semantic.references();
-    let mut reference_indices = references
-        .iter()
-        .enumerate()
-        .filter(|(_, reference)| {
-            !matches!(
-                reference.kind,
-                shuck_semantic::ReferenceKind::DeclarationName
-            )
-        })
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-    reference_indices.sort_unstable_by_key(|&index| references[index].span.start.offset);
-
     let mut offsets_by_name = FxHashMap::<Name, Vec<usize>>::default();
     for word_span in unquoted_command_argument_word_spans {
-        let first_reference = reference_indices
-            .partition_point(|&index| references[index].span.start.offset < word_span.start.offset);
-        for &index in &reference_indices[first_reference..] {
-            let reference = &references[index];
-            if reference.span.start.offset > word_span.end.offset {
-                break;
-            }
-            if !contains_span(word_span, reference.span) {
+        for reference in semantic.references_in_span(word_span) {
+            if matches!(
+                reference.kind,
+                shuck_semantic::ReferenceKind::DeclarationName
+            ) {
                 continue;
             }
 
