@@ -524,8 +524,16 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
             return self.analysis.function_scope_for_binding(binding_id) == Some(callee_scope);
         }
 
-        self.function_binding_for_scope(callee_scope)
-            .is_some_and(|binding_id| {
+        let Some(function_kind) = self.named_function_kind(callee_scope) else {
+            return false;
+        };
+        if !function_kind.contains_name(function_name) {
+            return false;
+        }
+
+        self.function_bindings_for_scope(callee_scope)
+            .into_iter()
+            .any(|binding_id| {
                 self.function_binding_may_resolve_at_call(binding_id, function_name, site)
             })
     }
@@ -556,19 +564,26 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
     }
 
     fn function_definition_command_for_binding(&self, binding_id: BindingId) -> Option<CommandId> {
+        let binding_scope = self.analysis.function_scope_for_binding(binding_id)?;
+        let binding_span = self.model().binding(binding_id).span;
         self.model().commands().iter().copied().find(|command_id| {
-            self.model().function_definition_binding_for_command_span(
-                self.model().command_span(*command_id),
-            ) == Some(binding_id)
+            let command_span = self.model().command_span(*command_id);
+            span_contains(command_span, binding_span)
+                && self
+                    .model()
+                    .function_definition_binding_for_command_span(command_span)
+                    .and_then(|candidate| self.analysis.function_scope_for_binding(candidate))
+                    == Some(binding_scope)
         })
     }
 
-    fn function_binding_for_scope(&self, scope: ScopeId) -> Option<BindingId> {
+    fn function_bindings_for_scope(&self, scope: ScopeId) -> Vec<BindingId> {
         self.model()
             .recorded_program
             .function_body_scopes
             .iter()
-            .find_map(|(binding_id, body_scope)| (*body_scope == scope).then_some(*binding_id))
+            .filter_map(|(binding_id, body_scope)| (*body_scope == scope).then_some(*binding_id))
+            .collect()
     }
 
     fn possible_function_bindings_cover_call(
@@ -743,4 +758,8 @@ fn binding_is_name_only_declaration(binding: &Binding) -> bool {
         && !binding
             .attributes
             .contains(BindingAttributes::DECLARATION_INITIALIZED)
+}
+
+fn span_contains(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
 }
