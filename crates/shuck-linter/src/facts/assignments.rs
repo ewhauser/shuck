@@ -867,12 +867,29 @@ fn visit_named_command_reference_spans_in_subspan(
     visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
     for reference in semantic.references_in_command_span(command_span, subspan) {
-        if &reference.name == name {
+        if &reference.name == name && reference_kind_counts_as_env_prefix_command_read(reference.kind)
+        {
             visit(reference.span)?;
         }
     }
 
     ControlFlow::Continue(())
+}
+
+fn reference_kind_counts_as_env_prefix_command_read(kind: shuck_semantic::ReferenceKind) -> bool {
+    matches!(
+        kind,
+        shuck_semantic::ReferenceKind::Expansion
+            | shuck_semantic::ReferenceKind::ParameterExpansion
+            | shuck_semantic::ReferenceKind::Length
+            | shuck_semantic::ReferenceKind::ArrayAccess
+            | shuck_semantic::ReferenceKind::IndirectExpansion
+            | shuck_semantic::ReferenceKind::ArithmeticRead
+            | shuck_semantic::ReferenceKind::ParameterPattern
+            | shuck_semantic::ReferenceKind::ParameterSliceArithmetic
+            | shuck_semantic::ReferenceKind::ConditionalOperand
+            | shuck_semantic::ReferenceKind::RequiredRead
+    )
 }
 
 fn assignment_is_identity_self_copy(assignment: &Assignment) -> bool {

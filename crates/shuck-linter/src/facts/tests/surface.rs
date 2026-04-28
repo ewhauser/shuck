@@ -993,6 +993,36 @@ foo=\"$foo\" foo=2 cmd
 }
 
 #[test]
+fn prompt_expansion_refs_do_not_create_env_prefix_scope_spans() {
+    let source = "\
+#!/bin/bash
+x=1 declare PS1='$x'
+x=1 export PS4=\"+ \\${x} \"
+";
+
+    with_facts(source, None, |_, facts| {
+        assert!(
+            facts.env_prefix_assignment_scope_spans().is_empty(),
+            "unexpected assignment scope spans: {:?}",
+            facts
+                .env_prefix_assignment_scope_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            facts.env_prefix_expansion_scope_spans().is_empty(),
+            "unexpected expansion scope spans: {:?}",
+            facts
+                .env_prefix_expansion_scope_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    });
+}
+
+#[test]
 fn builds_word_facts_with_contexts_hosts_and_anchor_spans() {
     let source = "\
 #!/bin/bash
