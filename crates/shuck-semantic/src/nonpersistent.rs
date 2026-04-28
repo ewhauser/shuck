@@ -167,10 +167,7 @@ impl SemanticModel {
                 .or_insert(CandidateNonpersistentAssignment {
                     binding_id: binding.id,
                     effective_local: binding_effectively_targets_local(self, binding),
-                    enclosing_function_scope: enclosing_function_scope_for_scope(
-                        self,
-                        binding.scope,
-                    ),
+                    enclosing_function_scope: self.enclosing_function_scope(binding.scope),
                     assignment_span: binding.span,
                     subshell_start: nonpersistent_scope.span.start.offset,
                     subshell_end: nonpersistent_scope.span.end.offset,
@@ -280,8 +277,7 @@ impl SemanticModel {
             let event_command_index =
                 precomputed_command_index_for_offset(&command_offsets, reference.span.start.offset);
             let resolved = self.resolved_binding(reference.id);
-            let reference_function_scope =
-                enclosing_function_scope_for_scope(self, reference.scope);
+            let reference_function_scope = self.enclosing_function_scope(reference.scope);
             if let Some(candidate) = candidates.iter().rev().find(|candidate| {
                 reference.span.start.offset > candidate.subshell_end
                     && !has_intervening_persistent_reset(
@@ -331,8 +327,7 @@ impl SemanticModel {
                 .and_then(|index| context.commands.get(index))
                 .map(|command| command.span.end.offset)
                 .unwrap_or(synthetic_read.span().start.offset);
-            let synthetic_function_scope =
-                enclosing_function_scope_for_scope(self, synthetic_read.scope());
+            let synthetic_function_scope = self.enclosing_function_scope(synthetic_read.scope());
             if let Some(candidate) = candidates.iter().rev().find(|candidate| {
                 synthetic_read.span().start.offset > candidate.subshell_end
                     && !same_command_prefix_reset
@@ -364,7 +359,7 @@ impl SemanticModel {
                 .unwrap_or(&[]);
             let event_command_index =
                 precomputed_command_index_for_offset(&command_offsets, read.span.start.offset);
-            let read_function_scope = enclosing_function_scope_for_scope(self, read.scope);
+            let read_function_scope = self.enclosing_function_scope(read.scope);
             if let Some(candidate) = candidates.iter().rev().find(|candidate| {
                 read.span.start.offset > candidate.subshell_end
                     && candidate_allows_unresolved_later_use(candidate, read_function_scope)
@@ -400,7 +395,7 @@ impl SemanticModel {
                 .get(&binding.name)
                 .map(Vec::as_slice)
                 .unwrap_or(&[]);
-            let binding_function_scope = enclosing_function_scope_for_scope(self, binding.scope);
+            let binding_function_scope = self.enclosing_function_scope(binding.scope);
             if let Some(candidate) = candidates.iter().rev().find(|candidate| {
                 binding.span.start.offset > candidate.subshell_end
                     && candidate_allows_unresolved_later_use(candidate, binding_function_scope)
@@ -573,20 +568,13 @@ fn binding_effectively_targets_local(semantic: &SemanticModel, binding: &Binding
         return true;
     }
 
-    let binding_function_scope = enclosing_function_scope_for_scope(semantic, binding.scope);
+    let binding_function_scope = semantic.enclosing_function_scope(binding.scope);
     semantic
         .previous_visible_binding(&binding.name, binding.span, Some(binding.span))
         .is_some_and(|previous| {
             previous.attributes.contains(BindingAttributes::LOCAL)
-                && enclosing_function_scope_for_scope(semantic, previous.scope)
-                    == binding_function_scope
+                && semantic.enclosing_function_scope(previous.scope) == binding_function_scope
         })
-}
-
-fn enclosing_function_scope_for_scope(semantic: &SemanticModel, scope: ScopeId) -> Option<ScopeId> {
-    semantic
-        .ancestor_scopes(scope)
-        .find(|scope| matches!(semantic.scope_kind(*scope), ScopeKind::Function(_)))
 }
 
 fn has_intervening_persistent_reset(

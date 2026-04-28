@@ -1043,6 +1043,13 @@ impl SemanticModel {
         &self.scopes[scope.index()].kind
     }
 
+    fn scope_is_transient(&self, scope: ScopeId) -> bool {
+        matches!(
+            self.scope_kind(scope),
+            ScopeKind::Subshell | ScopeKind::CommandSubstitution | ScopeKind::Pipeline
+        )
+    }
+
     pub fn ancestor_scopes(&self, scope: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
         ancestor_scopes(&self.scopes, scope)
     }
@@ -1059,6 +1066,37 @@ impl SemanticModel {
     pub fn enclosing_function_scope(&self, scope: ScopeId) -> Option<ScopeId> {
         self.ancestor_scopes(scope)
             .find(|scope| matches!(self.scope(*scope).kind, ScopeKind::Function(_)))
+    }
+
+    #[doc(hidden)]
+    pub fn transient_ancestor_scopes_within_function(
+        &self,
+        scope: ScopeId,
+    ) -> impl Iterator<Item = ScopeId> + '_ {
+        self.ancestor_scopes(scope)
+            .take_while(|scope_id| !matches!(self.scope_kind(*scope_id), ScopeKind::Function(_)))
+            .filter(|scope_id| self.scope_is_transient(*scope_id))
+    }
+
+    #[doc(hidden)]
+    pub fn innermost_transient_scope_within_function(&self, scope: ScopeId) -> Option<ScopeId> {
+        self.transient_ancestor_scopes_within_function(scope).next()
+    }
+
+    #[doc(hidden)]
+    pub fn enclosing_function_scope_without_transient_boundary(
+        &self,
+        scope: ScopeId,
+    ) -> Option<ScopeId> {
+        if self
+            .transient_ancestor_scopes_within_function(scope)
+            .next()
+            .is_some()
+        {
+            None
+        } else {
+            self.enclosing_function_scope(scope)
+        }
     }
 
     fn previous_visible_binding_id_in_scope_chain(

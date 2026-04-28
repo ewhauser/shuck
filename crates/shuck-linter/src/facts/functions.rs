@@ -833,8 +833,7 @@ fn build_function_positional_parameter_facts(
         }
 
         let offset = command.span().start.offset;
-        if let Some(scope) = innermost_nonpersistent_scope_within_function(semantic, command.scope())
-        {
+        if let Some(scope) = semantic.innermost_transient_scope_within_function(command.scope()) {
             local_reset_offsets_by_scope
                 .entry(scope)
                 .or_default()
@@ -918,8 +917,7 @@ fn build_function_positional_parameter_facts(
     }
 
     for command in commands {
-        let Some(scope) =
-            enclosing_function_scope_for_positional_reset(semantic, command.scope())
+        let Some(scope) = semantic.enclosing_function_scope_without_transient_boundary(command.scope())
         else {
             continue;
         };
@@ -936,66 +934,19 @@ fn build_function_positional_parameter_facts(
     facts
 }
 
-fn enclosing_function_scope_for_positional_reset(
-    semantic: &SemanticModel,
-    scope: ScopeId,
-) -> Option<ScopeId> {
-    for scope in semantic.ancestor_scopes(scope) {
-        match semantic.scope_kind(scope) {
-            shuck_semantic::ScopeKind::Function(_) => return Some(scope),
-            shuck_semantic::ScopeKind::Subshell
-            | shuck_semantic::ScopeKind::CommandSubstitution
-            | shuck_semantic::ScopeKind::Pipeline => return None,
-            shuck_semantic::ScopeKind::File => {}
-        }
-    }
-
-    None
-}
-
-fn innermost_nonpersistent_scope_within_function(
-    semantic: &SemanticModel,
-    scope: ScopeId,
-) -> Option<ScopeId> {
-    for scope in semantic.ancestor_scopes(scope) {
-        match semantic.scope_kind(scope) {
-            shuck_semantic::ScopeKind::Subshell
-            | shuck_semantic::ScopeKind::CommandSubstitution
-            | shuck_semantic::ScopeKind::Pipeline => return Some(scope),
-            shuck_semantic::ScopeKind::Function(_) => return None,
-            shuck_semantic::ScopeKind::File => {}
-        }
-    }
-
-    None
-}
-
 fn reference_has_local_positional_reset(
     semantic: &SemanticModel,
     scope: ScopeId,
     offset: usize,
     local_reset_offsets_by_scope: &FxHashMap<ScopeId, Vec<usize>>,
 ) -> bool {
-    for scope in semantic.ancestor_scopes(scope) {
-        match semantic.scope_kind(scope) {
-            shuck_semantic::ScopeKind::Subshell
-            | shuck_semantic::ScopeKind::CommandSubstitution
-            | shuck_semantic::ScopeKind::Pipeline => {
-                if local_reset_offsets_by_scope
-                    .get(&scope)
-                    .is_some_and(|offsets| {
-                        offsets.iter().any(|reset_offset| *reset_offset < offset)
-                    })
-                {
-                    return true;
-                }
-            }
-            shuck_semantic::ScopeKind::Function(_) => return false,
-            shuck_semantic::ScopeKind::File => {}
-        }
-    }
-
-    false
+    semantic
+        .transient_ancestor_scopes_within_function(scope)
+        .any(|transient_scope| {
+            local_reset_offsets_by_scope
+                .get(&transient_scope)
+                .is_some_and(|offsets| offsets.iter().any(|reset_offset| *reset_offset < offset))
+        })
 }
 
 fn positional_parameter_index(name: &str) -> Option<usize> {

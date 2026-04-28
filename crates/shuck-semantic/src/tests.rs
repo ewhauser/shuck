@@ -1817,6 +1817,74 @@ printf '%s\\n' \"$(
 }
 
 #[test]
+fn function_scope_boundary_helpers_ignore_outer_transient_ancestors() {
+    let source = "\
+printf '%s\\n' \"$(
+  caller() {
+    printf '%s\\n' \"$1\"
+  }
+  caller
+)\"
+";
+    let model = model(source);
+    let scope = model.scope_at(
+        span_for_nth(source, "printf '%s\\n' \"$1\"", 0)
+            .start
+            .offset,
+    );
+
+    assert!(
+        model
+            .transient_ancestor_scopes_within_function(scope)
+            .next()
+            .is_none()
+    );
+    assert!(
+        model
+            .innermost_transient_scope_within_function(scope)
+            .is_none()
+    );
+    assert_eq!(
+        model.enclosing_function_scope_without_transient_boundary(scope),
+        model.enclosing_function_scope(scope)
+    );
+}
+
+#[test]
+fn function_scope_boundary_helpers_stop_at_in_function_transient_scopes() {
+    let source = "\
+caller() {
+  value=\"$(
+    printf '%s\\n' \"$1\"
+  )\"
+}
+";
+    let model = model(source);
+    let scope = model.scope_at(
+        span_for_nth(source, "printf '%s\\n' \"$1\"", 0)
+            .start
+            .offset,
+    );
+    let transients = model
+        .transient_ancestor_scopes_within_function(scope)
+        .collect::<Vec<_>>();
+
+    assert_eq!(transients.len(), 1);
+    assert!(matches!(
+        model.scope_kind(transients[0]),
+        ScopeKind::CommandSubstitution
+    ));
+    assert_eq!(
+        model.innermost_transient_scope_within_function(scope),
+        Some(transients[0])
+    );
+    assert_eq!(
+        model.enclosing_function_scope_without_transient_boundary(scope),
+        None
+    );
+}
+
+#[test]
 fn function_call_reachability_finds_direct_call_before_cutoff() {
     let source = "\
 target() { :; }
