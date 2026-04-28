@@ -6386,10 +6386,10 @@ render() {
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
-        let analysis = semantic.analysis();
+        let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
+        let analysis = semantic.semantic().analysis();
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
-        let safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+        let safe_values = SafeValueIndex::build(semantic.semantic(), &analysis, &facts, source);
 
         let word_fact = facts
             .word_facts()
@@ -6403,6 +6403,7 @@ render() {
             .enclosing_function_scope_at(word_fact.span().start.offset)
             .expect("expected render scope");
         let outer_helper_binding = semantic
+            .semantic()
             .bindings()
             .iter()
             .find(|binding| {
