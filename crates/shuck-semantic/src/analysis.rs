@@ -34,6 +34,7 @@ impl<'model> SemanticAnalysis<'model> {
                 &self.model.scopes,
                 &self.model.bindings,
                 &self.model.call_sites,
+                self.model.visible_function_call_bindings(),
             )
         })
     }
@@ -89,6 +90,17 @@ impl<'model> SemanticAnalysis<'model> {
                 .or_else(|| self.lexical_function_binding_for_call_offset(name, site))
                 .map(|binding| (site, binding))
         })
+    }
+
+    pub(crate) fn visible_function_binding_in_call_context(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        offset: usize,
+    ) -> Option<BindingId> {
+        self.model
+            .function_binding_lookup()
+            .visible_function_binding(name, scope, offset)
     }
 
     pub fn function_scope_for_binding(&self, binding_id: BindingId) -> Option<ScopeId> {
