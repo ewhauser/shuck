@@ -1,5 +1,6 @@
 use shuck_ast::Name;
-use shuck_semantic::{BindingKind, Reference, ReferenceKind};
+use shuck_ast::Span;
+use shuck_semantic::{Binding, BindingAttributes, BindingKind, Reference, ReferenceKind};
 
 use crate::Checker;
 
@@ -75,6 +76,58 @@ pub(super) fn has_same_name_defining_bindings(checker: &Checker<'_>, name: &Name
         .iter()
         .copied()
         .any(|binding_id| is_sc2154_defining_binding(checker.semantic().binding(binding_id).kind))
+}
+
+pub(super) fn has_visible_function_name_binding(
+    checker: &Checker<'_>,
+    name: &Name,
+    at: Span,
+) -> bool {
+    let semantic = checker.semantic();
+    let scope = semantic.scope_at(at.start.offset);
+    if checker
+        .semantic_analysis()
+        .visible_function_binding_defined_before(name, scope, at.start.offset)
+        .is_some()
+    {
+        return true;
+    }
+
+    semantic
+        .bindings_for(name)
+        .iter()
+        .copied()
+        .any(|binding_id| {
+            let binding = semantic.binding(binding_id);
+            binding
+                .attributes
+                .contains(BindingAttributes::IMPORTED_FUNCTION)
+                && semantic.binding_visible_at(binding_id, at)
+        })
+}
+
+pub(super) fn binding_defines_variable_name_at(
+    checker: &Checker<'_>,
+    binding: &Binding,
+    at: Span,
+) -> bool {
+    if binding_is_function_name(binding) {
+        return false;
+    }
+
+    let imported_binding = binding
+        .attributes
+        .intersects(BindingAttributes::IMPORTED_POSSIBLE | BindingAttributes::IMPORTED_FILE_ENTRY)
+        || matches!(binding.kind, BindingKind::Imported);
+
+    !imported_binding || checker.semantic().binding_visible_at(binding.id, at)
+}
+
+fn binding_is_function_name(binding: &Binding) -> bool {
+    binding
+        .attributes
+        .contains(BindingAttributes::IMPORTED_FUNCTION)
+        || matches!(binding.kind, BindingKind::FunctionDefinition)
 }
 
 fn is_shell_special_parameter(name: &str) -> bool {

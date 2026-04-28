@@ -7,6 +7,8 @@ use shuck_semantic::{
 
 use crate::{Checker, ComparableNameUseKind, Rule, ShellDialect, Violation, WrapperKind};
 
+use super::variable_reference_common::has_visible_function_name_binding;
+
 pub struct ArrayToStringConversion;
 
 impl Violation for ArrayToStringConversion {
@@ -448,30 +450,8 @@ fn command_name_has_visible_function_binding(
     name: &str,
     at: shuck_ast::Span,
 ) -> bool {
-    let semantic = checker.semantic();
     let name = Name::from(name);
-
-    if semantic
-        .function_definitions(&name)
-        .iter()
-        .copied()
-        .any(|binding_id| semantic.binding_visible_at(binding_id, at))
-    {
-        return true;
-    }
-
-    semantic
-        .bindings_for(&name)
-        .iter()
-        .rev()
-        .copied()
-        .any(|binding_id| {
-            let binding = semantic.binding(binding_id);
-            binding
-                .attributes
-                .contains(BindingAttributes::IMPORTED_FUNCTION)
-                && semantic.binding_visible_at(binding_id, at)
-        })
+    has_visible_function_name_binding(checker, &name, at)
 }
 
 fn command_forces_builtin_resolution(
