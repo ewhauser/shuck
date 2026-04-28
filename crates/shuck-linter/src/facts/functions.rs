@@ -269,11 +269,7 @@ fn build_case_cli_reachable_function_scopes(
                 .copied()
                 .flatten()
                 .is_none()
-                && semantic
-                    .ancestor_scopes(command.scope())
-                    .all(|scope| {
-                        !matches!(semantic.scope(scope).kind, shuck_semantic::ScopeKind::Function(_))
-                    })
+                && semantic.enclosing_function_scope(command.scope()).is_none()
                 && command_fact_is_standalone_exit(command)
         })
         .map(|command| command.span().start.offset)
@@ -284,11 +280,10 @@ fn build_case_cli_reachable_function_scopes(
         .filter_map(|header| {
             let scope = header.function_scope()?;
             let nested = semantic
-                .ancestor_scopes(scope)
-                .skip(1)
-                .any(|ancestor| {
-                    matches!(semantic.scope(ancestor).kind, shuck_semantic::ScopeKind::Function(_))
-                });
+                .scope(scope)
+                .parent
+                .and_then(|parent| semantic.enclosing_function_scope(parent))
+                .is_some();
             (nested
                 || dispatcher_offset
                     .is_some_and(|offset| header.function().span.start.offset < offset)
