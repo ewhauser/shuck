@@ -1264,30 +1264,41 @@ fn populate_array_assignment_split_scalar_expansion_spans(
     fact_store: &mut FactStore<'_>,
     word_ids: &[WordOccurrenceId],
 ) {
-    let mut scratch = Vec::new();
+    if word_ids.is_empty() {
+        return;
+    }
+    let has_brace_expansion = shell_has_brace_expansion(shell);
+    let mut split_sensitive_spans = Vec::new();
+    let mut use_replacement_spans = Vec::new();
+    let mut brace_expansion_spans = Vec::new();
     for id in word_ids.iter().copied() {
         collect_array_assignment_split_scalar_expansion_spans(
-            shell,
             id,
             commands,
             word_nodes,
             word_occurrences,
             fact_store,
-            &mut scratch,
+            has_brace_expansion,
+            &mut split_sensitive_spans,
+            &mut use_replacement_spans,
+            &mut brace_expansion_spans,
         );
         word_occurrences[id.index()].array_assignment_split_scalar_expansion_spans =
-            fact_store.word_spans.push_many(scratch.drain(..));
+            fact_store.word_spans.push_many(split_sensitive_spans.drain(..));
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_array_assignment_split_scalar_expansion_spans(
-    shell: ShellDialect,
     id: WordOccurrenceId,
     commands: &[CommandFact<'_>],
     word_nodes: &[WordNode<'_>],
     word_occurrences: &[WordOccurrence],
     fact_store: &FactStore<'_>,
+    has_brace_expansion: bool,
     split_sensitive_spans: &mut Vec<Span>,
+    use_replacement_spans: &mut Vec<Span>,
+    brace_expansion_spans: &mut Vec<Span>,
 ) {
     split_sensitive_spans.clear();
     let fact = &word_occurrences[id.index()];
@@ -1299,38 +1310,58 @@ fn collect_array_assignment_split_scalar_expansion_spans(
             .iter()
             .copied(),
     );
-    let use_replacement_spans = collect_array_assignment_use_replacement_expansion_spans(word);
-    let brace_expansion_spans = word
-        .brace_syntax()
-        .iter()
-        .copied()
-        .filter(|_| shell_has_brace_expansion(shell))
-        .filter(|brace| brace.expands())
-        .map(|brace| brace.span)
-        .collect::<Vec<_>>();
+
     let fact_span = occurrence_span(word_nodes, fact);
     let unquoted_command_substitution_spans =
         fact_store.word_spans(derived.unquoted_command_substitution_spans);
 
     if !unquoted_command_substitution_spans.is_empty() {
-        for command in commands {
-            if contains_span_strictly(fact_span, command.span())
-                && unquoted_command_substitution_spans
-                    .iter()
-                    .any(|span| contains_span_strictly(*span, command.span()))
+        // commands is sorted by start offset (compare_command_facts_by_offset),
+        // so binary-search the subrange whose start lies inside fact_span.
+        let start =
+            commands.partition_point(|c| c.span().start.offset < fact_span.start.offset);
+        for command in &commands[start..] {
+            let command_span = command.span();
+            if command_span.start.offset > fact_span.end.offset {
+                break;
+            }
+            if !contains_span_strictly(fact_span, command_span) {
+                continue;
+            }
+            if !unquoted_command_substitution_spans
+                .iter()
+                .any(|span| contains_span_strictly(*span, command_span))
             {
-                for nested_id in fact_store.word_occurrence_ids_for_command(command.id()) {
-                    let nested = &word_occurrences[nested_id.index()];
-                    let nested_derived = word_node_derived(&word_nodes[nested.node_id.index()]);
-                    split_sensitive_spans.extend(
-                        fact_store
-                            .word_spans(nested_derived.scalar_expansion_spans)
-                            .iter()
-                            .copied(),
-                    );
-                }
+                continue;
+            }
+            for nested_id in fact_store.word_occurrence_ids_for_command(command.id()) {
+                let nested = &word_occurrences[nested_id.index()];
+                let nested_derived = word_node_derived(&word_nodes[nested.node_id.index()]);
+                split_sensitive_spans.extend(
+                    fact_store
+                        .word_spans(nested_derived.scalar_expansion_spans)
+                        .iter()
+                        .copied(),
+                );
             }
         }
+    }
+
+    if split_sensitive_spans.is_empty() {
+        return;
+    }
+
+    use_replacement_spans.clear();
+    collect_use_replacement_expansion_spans(&word.parts, use_replacement_spans);
+
+    brace_expansion_spans.clear();
+    if has_brace_expansion {
+        brace_expansion_spans.extend(
+            word.brace_syntax()
+                .iter()
+                .filter(|brace| brace.expands())
+                .map(|brace| brace.span),
+        );
     }
 
     split_sensitive_spans.retain(|span| {
