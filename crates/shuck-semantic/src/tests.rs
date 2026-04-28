@@ -5790,7 +5790,7 @@ relay() {
     local_resets.insert(transient_scope, vec![reset_offset]);
 
     let with_resets = model.function_positional_reference_summary(&local_resets);
-    assert!(with_resets.get(&greet_scope).is_none());
+    assert!(!with_resets.contains_key(&greet_scope));
     assert_eq!(
         with_resets
             .get(&relay_scope)
