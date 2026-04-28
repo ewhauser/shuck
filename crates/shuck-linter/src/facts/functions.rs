@@ -181,15 +181,10 @@ fn build_function_header_facts<'a>(
 fn build_function_cli_dispatch_facts(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
-    function_headers: &[FunctionHeaderFact<'_>],
     file: &File,
     source: &str,
 ) -> FxHashMap<ScopeId, FunctionCliDispatchFacts> {
     let mut facts = FxHashMap::<ScopeId, FunctionCliDispatchFacts>::default();
-    let scopes_by_binding = function_headers
-        .iter()
-        .filter_map(|header| Some((header.binding_id()?, header.function_scope()?)))
-        .collect::<FxHashMap<_, _>>();
 
     for pair in file.body.as_slice().windows(2) {
         let [case_stmt, trailing_exit_stmt] = pair else {
@@ -226,7 +221,7 @@ fn build_function_cli_dispatch_facts(
                 ) else {
                     continue;
                 };
-                let Some(scope) = scopes_by_binding.get(&binding_id).copied() else {
+                let Some(scope) = semantic_analysis.function_scope_for_binding(binding_id) else {
                     continue;
                 };
 
