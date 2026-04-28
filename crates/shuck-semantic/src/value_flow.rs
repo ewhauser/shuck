@@ -526,9 +526,41 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
 
         self.function_binding_for_scope(callee_scope)
             .is_some_and(|binding_id| {
-                let binding = self.model().binding(binding_id);
-                binding.name == *function_name && binding.span.end.offset <= site.span.start.offset
+                self.function_binding_may_resolve_at_call(binding_id, function_name, site)
             })
+    }
+
+    fn function_binding_may_resolve_at_call(
+        &self,
+        binding_id: BindingId,
+        function_name: &Name,
+        site: &CallSite,
+    ) -> bool {
+        let Some(scope) = self.analysis.function_scope_for_binding(binding_id) else {
+            return false;
+        };
+        let Some(function_kind) = self.named_function_kind(scope) else {
+            return false;
+        };
+        if !function_kind.contains_name(function_name) {
+            return false;
+        }
+
+        if let Some(definition_command) = self.function_definition_command_for_binding(binding_id)
+            && self.definition_command_resolves_at_call(definition_command, site.span)
+        {
+            return true;
+        }
+
+        self.possible_function_bindings_cover_call(function_name, binding_id, site)
+    }
+
+    fn function_definition_command_for_binding(&self, binding_id: BindingId) -> Option<CommandId> {
+        self.model().commands().iter().copied().find(|command_id| {
+            self.model().function_definition_binding_for_command_span(
+                self.model().command_span(*command_id),
+            ) == Some(binding_id)
+        })
     }
 
     fn function_binding_for_scope(&self, scope: ScopeId) -> Option<BindingId> {
@@ -537,6 +569,86 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
             .function_body_scopes
             .iter()
             .find_map(|(binding_id, body_scope)| (*body_scope == scope).then_some(*binding_id))
+    }
+
+    fn possible_function_bindings_cover_call(
+        &self,
+        function_name: &Name,
+        binding_id: BindingId,
+        site: &CallSite,
+    ) -> bool {
+        let candidates = self
+            .model()
+            .function_definitions(function_name)
+            .iter()
+            .copied()
+            .filter(|candidate| {
+                self.function_definition_command_for_binding(*candidate)
+                    .is_some_and(|command_id| {
+                        self.definition_command_scope_can_reach_call(command_id, site.span)
+                            && self.model().command_span(command_id).end.offset
+                                <= site.span.start.offset
+                    })
+            })
+            .collect::<Vec<_>>();
+        candidates.len() > 1
+            && candidates.contains(&binding_id)
+            && self.value_bindings_cover_all_paths_to_span(&candidates, site.span)
+    }
+
+    fn definition_command_resolves_at_call(&self, command_id: CommandId, call_span: Span) -> bool {
+        if !self.definition_command_is_visible_at_call(command_id, call_span) {
+            return false;
+        }
+
+        let command_span = self.model().command_span(command_id);
+        let definition_scope = self
+            .analysis
+            .enclosing_function_scope_at(command_span.start.offset);
+        let call_scope = self
+            .analysis
+            .enclosing_function_scope_at(call_span.start.offset);
+
+        if definition_scope.is_none() && call_scope.is_some() {
+            return true;
+        }
+
+        command_span.end.offset <= call_span.start.offset
+    }
+
+    fn definition_command_scope_can_reach_call(
+        &self,
+        command_id: CommandId,
+        call_span: Span,
+    ) -> bool {
+        let command_span = self.model().command_span(command_id);
+        let command_scope = self
+            .analysis
+            .enclosing_function_scope_at(command_span.start.offset);
+        let call_scope = self
+            .analysis
+            .enclosing_function_scope_at(call_span.start.offset);
+        command_scope.is_none() || command_scope == call_scope
+    }
+
+    fn definition_command_is_visible_at_call(
+        &self,
+        command_id: CommandId,
+        call_span: Span,
+    ) -> bool {
+        if !self.definition_command_scope_can_reach_call(command_id, call_span) {
+            return false;
+        }
+
+        let mut parent_id = self.model().command_parent_id(command_id);
+        while let Some(id) = parent_id {
+            if self.command_is_dominance_barrier(id) {
+                return false;
+            }
+            parent_id = self.model().command_parent_id(id);
+        }
+
+        true
     }
 
     fn call_site_dominates_offset(&self, call_span: Span, limit_offset: usize) -> bool {

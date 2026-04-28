@@ -4629,6 +4629,120 @@ use() {
 }
 
 #[test]
+fn value_flow_ignores_conditionally_installed_called_functions() {
+    let source = "\
+#!/bin/bash
+if cond; then
+  setfoo() {
+    foo=1
+  }
+fi
+use() {
+  setfoo
+  printf '%s\\n' \"$foo\"
+}
+";
+    let model = model(source);
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "foo")
+        .expect("expected foo reference");
+    let analysis = model.analysis();
+    let mut value_flow = analysis.value_flow();
+
+    assert!(
+        value_flow
+            .nonlocal_value_bindings_from_called_functions_before(
+                &reference.name,
+                reference.scope,
+                reference.span,
+            )
+            .is_empty()
+    );
+}
+
+#[test]
+fn value_flow_uses_visible_top_level_functions_from_function_bodies() {
+    let source = "\
+#!/bin/bash
+use() {
+  setfoo
+  printf '%s\\n' \"$foo\"
+}
+setfoo() {
+  foo=1
+}
+use
+";
+    let model = model(source);
+    let binding = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment))
+        .expect("expected foo binding");
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "foo")
+        .expect("expected foo reference");
+    let analysis = model.analysis();
+    let mut value_flow = analysis.value_flow();
+
+    assert_eq!(
+        value_flow.nonlocal_value_bindings_from_called_functions_before(
+            &reference.name,
+            reference.scope,
+            reference.span,
+        ),
+        vec![binding.id]
+    );
+}
+
+#[test]
+fn value_flow_uses_path_covering_alternate_function_definitions() {
+    let source = "\
+#!/bin/bash
+if cond; then
+  setfoo() {
+    foo=1
+  }
+else
+  setfoo() {
+    foo=2
+  }
+fi
+use() {
+  setfoo
+  printf '%s\\n' \"$foo\"
+}
+";
+    let model = model(source);
+    let bindings = model
+        .bindings()
+        .iter()
+        .filter(|binding| binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment))
+        .map(|binding| binding.id)
+        .collect::<Vec<_>>();
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "foo")
+        .expect("expected foo reference");
+    let analysis = model.analysis();
+    let mut value_flow = analysis.value_flow();
+
+    assert_eq!(
+        value_flow.nonlocal_value_bindings_from_called_functions_before(
+            &reference.name,
+            reference.scope,
+            reference.span,
+        ),
+        bindings
+    );
+}
+
+#[test]
 fn value_flow_detects_binding_paths_do_not_cover_span() {
     let source = "\
 #!/bin/bash
