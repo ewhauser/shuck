@@ -1193,6 +1193,20 @@ time timed
                 .and_then(|fact| fact.effective_name()),
             Some("right")
         );
+        assert_eq!(
+            facts
+                .innermost_command_id_containing_offset(brace_offset + 2)
+                .map(|id| facts.command(id))
+                .and_then(|fact| fact.effective_name()),
+            Some("brace_inner")
+        );
+        assert_eq!(
+            facts
+                .innermost_command_id_containing_offset(right_offset + 2)
+                .map(|id| facts.command(id))
+                .and_then(|fact| fact.effective_name()),
+            Some("right")
+        );
     });
 }
 

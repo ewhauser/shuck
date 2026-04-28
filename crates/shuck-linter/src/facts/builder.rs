@@ -836,6 +836,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             command_ids_by_name_word_span,
             innermost_command_ids_by_offset,
             innermost_command_ids_by_binding_offset,
+            command_containing_offset_index: OnceLock::new(),
             command_parent_ids,
             command_dominance_barrier_flags,
             if_condition_command_ids,
