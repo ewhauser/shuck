@@ -3,7 +3,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::Name;
 use shuck_semantic::{
     BindingKind, BindingOrigin, OverwrittenFunction as SemanticOverwrittenFunction, ScopeId,
-    ScopeKind, UnreachedFunction as SemanticUnreachedFunction, UnreachedFunctionReason,
+    UnreachedFunction as SemanticUnreachedFunction, UnreachedFunctionReason,
 };
 
 #[derive(Clone, Copy)]
@@ -515,7 +515,7 @@ fn add_compat_activation_edge(
         persistent: !scope_has_transient_ancestor(checker, call_scope),
     };
     edges_by_caller
-        .entry(enclosing_function_scope(checker, call_scope))
+        .entry(checker.semantic().enclosing_function_scope(call_scope))
         .or_default()
         .push(edge);
 }
@@ -547,7 +547,7 @@ impl CompatActivationIndex {
         before_offset: usize,
         persistent: bool,
     ) -> bool {
-        let Some(function_scope) = enclosing_function_scope(checker, scope) else {
+        let Some(function_scope) = checker.semantic().enclosing_function_scope(scope) else {
             return true;
         };
         self.activations_by_scope
@@ -568,7 +568,7 @@ impl CompatActivationIndex {
         before_offset: usize,
         persistent: bool,
     ) -> bool {
-        let Some(function_scope) = enclosing_function_scope(checker, scope) else {
+        let Some(function_scope) = checker.semantic().enclosing_function_scope(scope) else {
             return true;
         };
         self.activations_by_scope
@@ -651,7 +651,9 @@ fn build_compat_unset_facts(
     let mut function_targets = FxHashMap::<String, FxHashSet<shuck_ast::Name>>::default();
     for (target, command_facts) in unset_commands_by_target {
         for command_fact in command_facts {
-            if let Some(function_scope) = enclosing_function_scope(checker, command_fact.scope)
+            if let Some(function_scope) = checker
+                .semantic()
+                .enclosing_function_scope(command_fact.scope)
                 && let Some(function_names) = function_names_by_scope.get(&function_scope)
             {
                 function_targets
@@ -1169,7 +1171,7 @@ fn command_scope_can_run_between_offsets(
         );
     }
 
-    let Some(function_scope) = enclosing_function_scope(checker, scope) else {
+    let Some(function_scope) = checker.semantic().enclosing_function_scope(scope) else {
         return true;
     };
     if !visiting.contains(&function_scope)
@@ -1281,7 +1283,7 @@ fn command_scope_can_run_before_offset(
         return activation_index.scope_can_run_before_offset(checker, scope, before_offset, false);
     }
 
-    let Some(function_scope) = enclosing_function_scope(checker, scope) else {
+    let Some(function_scope) = checker.semantic().enclosing_function_scope(scope) else {
         return true;
     };
     if !visiting.contains(&function_scope)
@@ -1329,7 +1331,7 @@ fn command_scope_can_run_persistently_before_offset(
         return activation_index.scope_can_run_before_offset(checker, scope, before_offset, true);
     }
 
-    let Some(function_scope) = enclosing_function_scope(checker, scope) else {
+    let Some(function_scope) = checker.semantic().enclosing_function_scope(scope) else {
         return true;
     };
     if !visiting.insert(function_scope) {
@@ -1435,7 +1437,7 @@ fn command_scope_can_run_persistently_between_offsets(
         );
     }
 
-    let Some(function_scope) = enclosing_function_scope(checker, scope) else {
+    let Some(function_scope) = checker.semantic().enclosing_function_scope(scope) else {
         return true;
     };
     if !visiting.insert(function_scope) {
@@ -1538,7 +1540,11 @@ fn call_scope_can_execute_persistently_after_offset_before_offset(
         return false;
     }
 
-    if enclosing_function_scope(checker, call_scope).is_none() {
+    if checker
+        .semantic()
+        .enclosing_function_scope(call_scope)
+        .is_none()
+    {
         return call_offset > after_offset;
     }
 
@@ -1706,7 +1712,11 @@ fn call_scope_can_execute_after_offset_before_offset(
         return false;
     }
 
-    if enclosing_function_scope(checker, call_scope).is_none() {
+    if checker
+        .semantic()
+        .enclosing_function_scope(call_scope)
+        .is_none()
+    {
         return call_offset > after_offset;
     }
 
@@ -1718,15 +1728,6 @@ fn call_scope_can_execute_after_offset_before_offset(
         reach,
         visiting,
     )
-}
-
-fn enclosing_function_scope(checker: &Checker<'_>, scope: ScopeId) -> Option<ScopeId> {
-    checker.semantic().ancestor_scopes(scope).find(|scope_id| {
-        matches!(
-            checker.semantic().scope_kind(*scope_id),
-            ScopeKind::Function(_)
-        )
-    })
 }
 
 fn report_function_definition(
@@ -1861,7 +1862,7 @@ fn has_top_level_return_after(checker: &Checker<'_>, after_offset: usize) -> boo
 }
 
 fn enclosing_function_scope_can_run_persistently(checker: &Checker<'_>, scope: ScopeId) -> bool {
-    if enclosing_function_scope(checker, scope).is_none() {
+    if checker.semantic().enclosing_function_scope(scope).is_none() {
         return false;
     }
 
@@ -1893,7 +1894,7 @@ fn has_direct_call_inside_enclosing_function(
     binding_id: shuck_semantic::BindingId,
 ) -> bool {
     let binding = checker.semantic().binding(binding_id);
-    let Some(enclosing_scope) = enclosing_function_scope(checker, binding.scope) else {
+    let Some(enclosing_scope) = checker.semantic().enclosing_function_scope(binding.scope) else {
         return false;
     };
 
@@ -1923,7 +1924,9 @@ fn has_direct_call_inside_enclosing_function(
         .into_iter()
         .flat_map(|facts| facts.iter())
         .any(|fact| {
-            call_is_inside_scope(checker, fact.scope, enclosing_scope)
+            checker
+                .semantic()
+                .scope_is_in_scope_or_descendant(fact.scope, enclosing_scope)
                 && call_may_resolve_to_binding_cached(
                     checker, &mut reach, binding_id, fact.scope, fact.span, fact.span,
                 )
@@ -1941,7 +1944,9 @@ fn has_direct_call_inside_enclosing_function(
             .call_sites_for(&binding.name)
             .iter()
             .any(|site| {
-                call_is_inside_scope(checker, site.scope, enclosing_scope)
+                checker
+                    .semantic()
+                    .scope_is_in_scope_or_descendant(site.scope, enclosing_scope)
                     && call_may_resolve_to_binding_cached(
                         checker,
                         &mut reach,
@@ -1961,14 +1966,6 @@ fn has_direct_call_inside_enclosing_function(
             })
 }
 
-fn call_is_inside_scope(checker: &Checker<'_>, scope: ScopeId, ancestor_scope: ScopeId) -> bool {
-    scope == ancestor_scope
-        || checker
-            .semantic()
-            .ancestor_scopes(scope)
-            .any(|scope| scope == ancestor_scope)
-}
-
 fn call_scope_can_execute_inside_boundary_after_offset_before_offset(
     checker: &Checker<'_>,
     call_scope: ScopeId,
@@ -1981,7 +1978,7 @@ fn call_scope_can_execute_inside_boundary_after_offset_before_offset(
         return false;
     }
 
-    let Some(function_scope) = enclosing_function_scope(checker, call_scope) else {
+    let Some(function_scope) = checker.semantic().enclosing_function_scope(call_scope) else {
         return call_offset > window.after_offset;
     };
     if function_scope == window.boundary_scope {
@@ -2000,13 +1997,16 @@ fn command_scope_can_run_inside_boundary_between_offsets(
     reach: &mut CompatReachState<'_>,
     visiting: &mut FxHashSet<ScopeId>,
 ) -> bool {
-    let Some(function_scope) = enclosing_function_scope(checker, scope) else {
+    let Some(function_scope) = checker.semantic().enclosing_function_scope(scope) else {
         return true;
     };
     if function_scope == window.boundary_scope {
         return true;
     }
-    if !call_is_inside_scope(checker, function_scope, window.boundary_scope) {
+    if !checker
+        .semantic()
+        .scope_is_in_scope_or_descendant(function_scope, window.boundary_scope)
+    {
         return false;
     }
     if !visiting.insert(function_scope) {
@@ -2052,7 +2052,9 @@ fn has_call_to_function_binding_inside_boundary_between_offsets(
         .any(|fact| {
             let call_offset = fact.span.start.offset;
             call_offset <= window.before_offset
-                && call_is_inside_scope(checker, fact.scope, window.boundary_scope)
+                && checker
+                    .semantic()
+                    .scope_is_in_scope_or_descendant(fact.scope, window.boundary_scope)
                 && call_may_resolve_to_binding_cached(
                     checker,
                     reach,
@@ -2077,7 +2079,9 @@ fn has_call_to_function_binding_inside_boundary_between_offsets(
             .any(|site| {
                 let call_offset = site.name_span.start.offset;
                 call_offset <= window.before_offset
-                    && call_is_inside_scope(checker, site.scope, window.boundary_scope)
+                    && checker
+                        .semantic()
+                        .scope_is_in_scope_or_descendant(site.scope, window.boundary_scope)
                     && call_may_resolve_to_binding_cached(
                         checker,
                         reach,
@@ -2151,7 +2155,7 @@ fn enclosing_function_has_reportable_c063_diagnostic(
     checker: &Checker<'_>,
     scope: ScopeId,
 ) -> bool {
-    let Some(enclosing_scope) = enclosing_function_scope(checker, scope) else {
+    let Some(enclosing_scope) = checker.semantic().enclosing_function_scope(scope) else {
         return false;
     };
     let enclosing_bindings = checker

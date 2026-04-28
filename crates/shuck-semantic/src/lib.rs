@@ -1040,6 +1040,20 @@ impl SemanticModel {
         ancestor_scopes(&self.scopes, scope)
     }
 
+    pub fn scope_is_in_scope_or_descendant(&self, scope: ScopeId, ancestor_scope: ScopeId) -> bool {
+        self.ancestor_scopes(scope)
+            .any(|scope| scope == ancestor_scope)
+    }
+
+    pub fn scope_is_descendant_of(&self, scope: ScopeId, ancestor_scope: ScopeId) -> bool {
+        scope != ancestor_scope && self.scope_is_in_scope_or_descendant(scope, ancestor_scope)
+    }
+
+    pub fn enclosing_function_scope(&self, scope: ScopeId) -> Option<ScopeId> {
+        self.ancestor_scopes(scope)
+            .find(|scope| matches!(self.scope(*scope).kind, ScopeKind::Function(_)))
+    }
+
     fn previous_visible_binding_id_in_scope_chain(
         &self,
         name: &Name,

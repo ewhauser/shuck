@@ -2168,8 +2168,9 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         let at_scope = self.semantic.scope_at(at.start.offset);
-        let reference_is_in_binding_scope =
-            at_scope == binding_scope || self.scope_is_ancestor(binding_scope, at_scope);
+        let reference_is_in_binding_scope = self
+            .semantic
+            .scope_is_in_scope_or_descendant(at_scope, binding_scope);
         let relevant_call_sites = self
             .named_function_call_sites(binding_scope)
             .into_iter()
@@ -3003,18 +3004,11 @@ impl<'a> SafeValueIndex<'a> {
             ) {
                 return false;
             }
-            !covering_loop_scopes
-                .iter()
-                .any(|(_, loop_scope)| self.scope_is_ancestor(binding.scope, *loop_scope))
+            !covering_loop_scopes.iter().any(|(_, loop_scope)| {
+                self.semantic
+                    .scope_is_descendant_of(*loop_scope, binding.scope)
+            })
         });
-    }
-
-    fn scope_is_ancestor(&self, ancestor: ScopeId, scope: ScopeId) -> bool {
-        ancestor != scope
-            && self
-                .semantic
-                .ancestor_scopes(scope)
-                .any(|candidate| candidate == ancestor)
     }
 
     fn called_helper_bindings_for_name(&mut self, name: &Name, at: Span) -> Vec<BindingId> {
@@ -3363,7 +3357,7 @@ impl<'a> SafeValueIndex<'a> {
             .copied()
             .filter(|binding_id| {
                 let binding_scope = self.semantic.binding(*binding_id).scope;
-                binding_scope != scope && self.scope_is_ancestor(scope, binding_scope)
+                self.semantic.scope_is_descendant_of(binding_scope, scope)
             })
             .collect::<Vec<_>>();
         if helper_bindings.is_empty() {
