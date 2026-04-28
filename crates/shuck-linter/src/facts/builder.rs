@@ -428,12 +428,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             .collect::<Vec<_>>();
         commands.sort_unstable_by(compare_command_facts_by_offset);
         let command_fact_indices_by_id = build_command_fact_indices_by_id(&commands);
-        let command_facts_require_source_order = !command_facts_are_source_ordered(&commands);
-        let command_offset_order = build_command_offset_order(
-            &commands,
-            &command_fact_indices_by_id,
-            command_facts_require_source_order,
-        );
         let structural_command_ids = self
             .semantic
             .structural_commands()
@@ -466,8 +460,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
 
         let presence_tested_names = build_presence_tested_names(
             &commands,
-            &command_fact_indices_by_id,
-            &command_offset_order,
             self.source,
             self.semantic,
         );
@@ -478,7 +470,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &commands,
             &command_fact_indices_by_id,
             self.source,
-            &command_offset_order,
         );
         let function_cli_dispatch_facts = build_function_cli_dispatch_facts(
             self.semantic,
@@ -786,22 +777,18 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         );
         let innermost_command_ids_by_offset = build_innermost_command_ids_by_offset(
             &commands,
-            &command_fact_indices_by_id,
             commands
                 .iter()
                 .map(|command| command.span().start.offset)
                 .collect(),
-            &command_offset_order,
         );
         let innermost_command_ids_by_binding_offset = build_innermost_command_ids_by_offset(
             &commands,
-            &command_fact_indices_by_id,
             self.semantic
                 .bindings()
                 .iter()
                 .map(|binding| binding.span.start.offset)
                 .collect(),
-            &command_offset_order,
         );
         let command_dominance_barrier_flags = build_command_dominance_barrier_flags(&commands);
         let c006_suppressing_reference_offsets_by_name =

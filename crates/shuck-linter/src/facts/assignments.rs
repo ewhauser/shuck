@@ -1464,9 +1464,7 @@ fn escaped_braced_parameter_names(text: &str) -> Vec<String> {
 #[cfg_attr(shuck_profiling, inline(never))]
 fn build_innermost_command_ids_by_offset(
     commands: &[CommandFact<'_>],
-    command_fact_indices_by_id: &[Option<usize>],
     mut offsets: Vec<usize>,
-    command_order: &CommandOffsetOrder,
 ) -> CommandOffsetLookup {
     if offsets.is_empty() {
         return CommandOffsetLookup::default();
@@ -1481,9 +1479,8 @@ fn build_innermost_command_ids_by_offset(
     for offset in offsets {
         pop_finished_commands(&mut active_commands, offset);
 
-        while let Some((span, id)) =
-            command_order.entry(commands, command_fact_indices_by_id, next_command)
-        {
+        while let Some(command) = commands.get(next_command) {
+            let span = command.span();
             if span.start.offset > offset {
                 break;
             }
@@ -1491,7 +1488,7 @@ fn build_innermost_command_ids_by_offset(
             pop_finished_commands(&mut active_commands, span.start.offset);
             active_commands.push(OpenCommand {
                 end_offset: span.end.offset,
-                id,
+                id: command.id(),
             });
             next_command += 1;
         }
@@ -1508,51 +1505,6 @@ fn build_innermost_command_ids_by_offset(
     CommandOffsetLookup { entries }
 }
 
-pub(crate) enum CommandOffsetOrder {
-    SourceOrdered,
-    Sorted(Vec<CommandId>),
-}
-
-impl CommandOffsetOrder {
-    pub(super) fn entry(
-        &self,
-        commands: &[CommandFact<'_>],
-        command_fact_indices_by_id: &[Option<usize>],
-        index: usize,
-    ) -> Option<(Span, CommandId)> {
-        match self {
-            Self::SourceOrdered => {
-                let command = commands.get(index)?;
-                Some((command.span(), command.id()))
-            }
-            Self::Sorted(order) => {
-                let id = order.get(index).copied()?;
-                Some(command_offset_entry(commands, command_fact_indices_by_id, id))
-            }
-        }
-    }
-}
-
-#[cfg_attr(shuck_profiling, inline(never))]
-fn build_command_offset_order(
-    commands: &[CommandFact<'_>],
-    command_fact_indices_by_id: &[Option<usize>],
-    require_source_order: bool,
-) -> CommandOffsetOrder {
-    if !require_source_order {
-        return CommandOffsetOrder::SourceOrdered;
-    }
-
-    let mut command_order = commands.iter().map(CommandFact::id).collect::<Vec<_>>();
-    command_order.sort_unstable_by(|left, right| {
-        compare_command_offset_entries(
-            command_offset_entry(commands, command_fact_indices_by_id, *left),
-            command_offset_entry(commands, command_fact_indices_by_id, *right),
-        )
-    });
-    CommandOffsetOrder::Sorted(command_order)
-}
-
 #[derive(Debug, Default, Clone)]
 struct CommandOffsetLookup {
     entries: Vec<CommandOffsetLookupEntry>,
@@ -1562,29 +1514,6 @@ struct CommandOffsetLookup {
 struct CommandOffsetLookupEntry {
     offset: usize,
     id: CommandId,
-}
-
-fn compare_command_offset_entries(
-    (left_span, left_id): (Span, CommandId),
-    (right_span, right_id): (Span, CommandId),
-) -> std::cmp::Ordering {
-    left_span
-        .start
-        .offset
-        .cmp(&right_span.start.offset)
-        .then_with(|| right_span.end.offset.cmp(&left_span.end.offset))
-        .then_with(|| right_id.index().cmp(&left_id.index()))
-}
-
-fn command_offset_entry(
-    commands: &[CommandFact<'_>],
-    command_fact_indices_by_id: &[Option<usize>],
-    id: CommandId,
-) -> (Span, CommandId) {
-    (
-        command_fact(commands, command_fact_indices_by_id, id).span(),
-        id,
-    )
 }
 
 fn precomputed_command_id_for_offset(
