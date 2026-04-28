@@ -439,13 +439,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     .is_some_and(Option::is_some)
             })
             .collect::<Vec<_>>();
-        let command_parent_ids =
-            build_linter_command_parent_ids(self.semantic, &command_fact_indices_by_id);
-        let command_child_ids_by_parent = build_linter_command_child_ids_by_parent(
-            self.semantic,
-            &command_parent_ids,
-            &command_fact_indices_by_id,
-        );
+        let command_child_ids_by_parent =
+            build_linter_command_child_ids_by_parent(self.semantic, &command_fact_indices_by_id);
         let command_child_index = CommandChildIndex::from_parent_lists(command_child_ids_by_parent);
 
         populate_linebreak_in_test_facts(&mut commands, self.source);
@@ -486,7 +481,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &function_headers,
             &function_cli_dispatch_facts,
             &commands,
-            &command_parent_ids,
         );
         collect_condition_status_capture_from_sequences(
             &self.file.body,
@@ -827,6 +821,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 &backtick_substitution_spans,
             );
         LinterFacts {
+            semantic: self.semantic,
             source,
             commands,
             command_fact_indices_by_id,
@@ -835,8 +830,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             command_ids_by_name_word_span,
             innermost_command_ids_by_offset,
             innermost_command_ids_by_binding_offset,
-            command_containing_offset_index: OnceLock::new(),
-            command_parent_ids,
             command_dominance_barrier_flags,
             if_condition_command_ids,
             elif_condition_command_ids,
@@ -971,47 +964,16 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
     }
 }
 
-fn build_linter_command_parent_ids(
-    semantic: &SemanticModel,
-    command_fact_indices_by_id: &[Option<usize>],
-) -> Vec<Option<CommandId>> {
-    let mut parent_ids = vec![None; semantic.command_count()];
-    for id in semantic.commands().iter().copied() {
-        if !command_fact_exists(command_fact_indices_by_id, id) {
-            continue;
-        }
-        parent_ids[id.index()] =
-            nearest_fact_backed_semantic_parent(semantic, command_fact_indices_by_id, id);
-    }
-    parent_ids
-}
-
-fn nearest_fact_backed_semantic_parent(
-    semantic: &SemanticModel,
-    command_fact_indices_by_id: &[Option<usize>],
-    id: CommandId,
-) -> Option<CommandId> {
-    let mut current = semantic.command_parent_id(id);
-    while let Some(parent) = current {
-        if command_fact_exists(command_fact_indices_by_id, parent) {
-            return Some(parent);
-        }
-        current = semantic.command_parent_id(parent);
-    }
-    None
-}
-
 fn build_linter_command_child_ids_by_parent(
     semantic: &SemanticModel,
-    command_parent_ids: &[Option<CommandId>],
     command_fact_indices_by_id: &[Option<usize>],
 ) -> Vec<Vec<CommandId>> {
-    let mut children_by_parent = vec![Vec::new(); command_parent_ids.len()];
+    let mut children_by_parent = vec![Vec::new(); semantic.command_count()];
     for child in semantic.commands().iter().copied() {
         if !command_fact_exists(command_fact_indices_by_id, child) {
             continue;
         }
-        if let Some(parent) = command_parent_ids[child.index()] {
+        if let Some(parent) = semantic.syntax_backed_command_parent_id(child) {
             children_by_parent[parent.index()].push(child);
         }
     }

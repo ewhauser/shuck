@@ -242,7 +242,6 @@ fn build_case_cli_reachable_function_scopes(
     function_headers: &[FunctionHeaderFact<'_>],
     function_cli_dispatch_facts: &FxHashMap<ScopeId, FunctionCliDispatchFacts>,
     commands: &[CommandFact<'_>],
-    command_parent_ids: &[Option<CommandId>],
 ) -> FxHashSet<ScopeId> {
     let dispatcher_offset = function_headers
         .iter()
@@ -259,11 +258,7 @@ fn build_case_cli_reachable_function_scopes(
     let top_level_exit_offset = commands
         .iter()
         .filter(|command| {
-            command_parent_ids
-                .get(command.id().index())
-                .copied()
-                .flatten()
-                .is_none()
+            semantic.syntax_backed_command_parent_id(command.id()).is_none()
                 && semantic.enclosing_function_scope(command.scope()).is_none()
                 && command_fact_is_standalone_exit(command)
         })

@@ -498,7 +498,10 @@ impl<'a> SafeValueIndex<'a> {
         let mut current = self
             .facts
             .innermost_command_id_at(span.start.offset)
-            .or_else(|| self.innermost_command_id_containing_offset(span.start.offset));
+            .or_else(|| {
+                self.facts
+                    .innermost_command_id_containing_offset(span.start.offset)
+            });
         while let Some(command_id) = current {
             if matches!(
                 self.facts.command(command_id).command(),
@@ -524,7 +527,10 @@ impl<'a> SafeValueIndex<'a> {
         let mut current = self
             .facts
             .innermost_command_id_at(span.start.offset)
-            .or_else(|| self.innermost_command_id_containing_offset(span.start.offset));
+            .or_else(|| {
+                self.facts
+                    .innermost_command_id_containing_offset(span.start.offset)
+            });
         while let Some(command_id) = current {
             if let Command::Compound(CompoundCommand::If(command)) =
                 self.facts.command(command_id).command()
@@ -980,7 +986,10 @@ impl<'a> SafeValueIndex<'a> {
     fn span_is_exit_or_return_argument(&self, at: Span) -> bool {
         self.facts
             .innermost_command_id_at(at.start.offset)
-            .or_else(|| self.innermost_command_id_containing_offset(at.start.offset))
+            .or_else(|| {
+                self.facts
+                    .innermost_command_id_containing_offset(at.start.offset)
+            })
             .is_some_and(|command_id| {
                 let command = self.facts.command(command_id);
                 match command.command() {
@@ -1012,7 +1021,10 @@ impl<'a> SafeValueIndex<'a> {
     fn span_is_return_argument(&self, at: Span) -> bool {
         self.facts
             .innermost_command_id_at(at.start.offset)
-            .or_else(|| self.innermost_command_id_containing_offset(at.start.offset))
+            .or_else(|| {
+                self.facts
+                    .innermost_command_id_containing_offset(at.start.offset)
+            })
             .is_some_and(|command_id| {
                 let command = self.facts.command(command_id);
                 match command.command() {
@@ -3680,31 +3692,14 @@ impl<'a> SafeValueIndex<'a> {
         let command_id = self
             .facts
             .innermost_command_id_at(at.start.offset)
-            .or_else(|| self.innermost_command_id_containing_offset(at.start.offset))?;
+            .or_else(|| {
+                self.facts
+                    .innermost_command_id_containing_offset(at.start.offset)
+            })?;
         self.analysis
             .block_ids_for_span(self.facts.command(command_id).span())
             .first()
             .copied()
-    }
-
-    fn innermost_command_id_containing_offset(
-        &self,
-        offset: usize,
-    ) -> Option<crate::facts::CommandId> {
-        self.facts
-            .commands()
-            .iter()
-            .filter(|command| {
-                command.span().start.offset <= offset && offset <= command.span().end.offset
-            })
-            .max_by(|left, right| {
-                left.span()
-                    .start
-                    .offset
-                    .cmp(&right.span().start.offset)
-                    .then_with(|| right.span().end.offset.cmp(&left.span().end.offset))
-            })
-            .map(|command| command.id())
     }
 
     fn block_for_binding(&self, binding_id: BindingId) -> Option<BlockId> {
