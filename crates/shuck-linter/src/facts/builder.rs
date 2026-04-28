@@ -1,6 +1,7 @@
 struct LinterFactsBuilder<'a, 'analysis> {
     file: &'a File,
     source: &'a str,
+    semantic_artifacts: &'a LinterSemanticArtifacts<'a>,
     semantic: &'a SemanticModel,
     semantic_analysis: &'analysis SemanticAnalysis<'a>,
     _indexer: &'a Indexer,
@@ -63,6 +64,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         Self {
             file,
             source,
+            semantic_artifacts: semantic,
             semantic: semantic.semantic(),
             semantic_analysis,
             _indexer: indexer,
@@ -453,6 +455,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &command_fact_indices_by_id,
             &command_ids_by_span,
             &command_child_index,
+            self.semantic_artifacts,
             self.source,
         );
 

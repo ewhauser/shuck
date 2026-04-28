@@ -2537,6 +2537,7 @@ EOF
         .command_context(command_id_starting_with(&model, source, "echo").unwrap())
         .unwrap();
     assert!(!echo.is_nested_word_command());
+    assert_eq!(echo.nested_word_command_depth(), 0);
     assert!(echo.is_structural());
     assert_eq!(echo.condition_role(), None);
 
@@ -2544,12 +2545,14 @@ EOF
         .command_context(command_id_starting_with(&model, source, "if probe").unwrap())
         .unwrap();
     assert!(nested_if.is_nested_word_command());
+    assert_eq!(nested_if.nested_word_command_depth(), 1);
     assert_eq!(nested_if.condition_role(), None);
 
     let probe = model
         .command_context(command_id_starting_with(&model, source, "probe").unwrap())
         .unwrap();
     assert!(probe.is_nested_word_command());
+    assert_eq!(probe.nested_word_command_depth(), 1);
     assert!(probe.is_in_if_condition());
     assert!(!probe.is_in_elif_condition());
     assert_eq!(probe.condition_role(), Some(CommandConditionRole::If));
@@ -2558,11 +2561,13 @@ EOF
         .command_context(command_id_starting_with(&model, source, "process").unwrap())
         .unwrap();
     assert!(process.is_nested_word_command());
+    assert_eq!(process.nested_word_command_depth(), 1);
 
     let outer = model
         .command_context(command_id_starting_with(&model, source, "outer").unwrap())
         .unwrap();
     assert!(!outer.is_nested_word_command());
+    assert_eq!(outer.nested_word_command_depth(), 0);
     assert!(outer.is_in_if_condition());
     assert_eq!(outer.condition_role(), Some(CommandConditionRole::If));
 
@@ -2603,6 +2608,7 @@ EOF
         .command_context(command_id_starting_with(&model, source, "heredoc_cmd").unwrap())
         .unwrap();
     assert!(heredoc.is_nested_word_command());
+    assert_eq!(heredoc.nested_word_command_depth(), 1);
 }
 
 #[test]
