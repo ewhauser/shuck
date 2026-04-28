@@ -4,7 +4,12 @@ use shuck_ast::{
     HeredocBodyPartNode, Pattern, PatternPart, PatternPartNode, Redirect, RedirectKind, Stmt,
     StmtSeq, Subscript, TextRange, TextSize, VarRef, Word, WordPart, WordPartNode, ZshGlobSegment,
 };
-/// A syntactic region that affects lint rule behavior.
+/// A syntactic region that affects source interpretation.
+///
+/// Region kinds describe contexts where downstream tools should interpret bytes
+/// differently from ordinary shell source. For example, formatters and lint
+/// rules often need to suppress word-splitting assumptions inside quotes or
+/// avoid scanning heredoc bodies as command syntax.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegionKind {
     /// Text inside single quotes.
@@ -28,6 +33,16 @@ struct IndexedRegion {
 }
 
 /// Byte ranges of syntactic regions where special rules apply.
+///
+/// `RegionIndex` stores one sorted range list per commonly queried region type
+/// plus a combined list for queries that need the innermost containing region.
+/// Ranges are byte ranges in the original source and are half-open: the start
+/// byte is included and the end byte is excluded.
+///
+/// Region ranges generally include the syntactic delimiters represented by the
+/// parser span, such as quote characters or substitution delimiters. Callers
+/// that need only the interior text should trim delimiters using source-aware
+/// logic at the call site.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegionIndex {
     single_quoted: Vec<TextRange>,
@@ -41,19 +56,32 @@ pub struct RegionIndex {
 }
 
 impl RegionIndex {
-    /// Build from source text and the parsed file.
+    /// Build a region index from source text and a parsed file.
+    ///
+    /// `source` is accepted for API symmetry with the other indexes and future
+    /// source-sensitive region collection, but current region construction is
+    /// driven by AST spans from `file`. `source` and `file` should describe the
+    /// same parsed text.
     pub fn new(source: &str, file: &File) -> Self {
         let mut collector = RegionCollector::new(source);
         collector.visit_file(file);
         collector.finish()
     }
 
-    /// Return the innermost region containing the given byte offset, if any.
+    /// Return the innermost region kind containing `offset`, if any.
+    ///
+    /// If multiple regions contain the same byte, the smallest containing range
+    /// wins. Ties prefer the region that starts later, matching the same
+    /// innermost rule used by [`Self::region_with_range_at`].
     pub fn region_at(&self, offset: TextSize) -> Option<RegionKind> {
         self.region_with_range_at(offset).map(|(kind, _)| kind)
     }
 
-    /// Return the innermost region kind and range containing the given byte offset, if any.
+    /// Return the innermost region kind and range containing `offset`, if any.
+    ///
+    /// The returned range is the original half-open byte range stored for that
+    /// region. This is useful when a caller needs both the classification and
+    /// the bounds of the syntactic context that produced it.
     pub fn region_with_range_at(&self, offset: TextSize) -> Option<(RegionKind, TextRange)> {
         let mut best: Option<IndexedRegion> = None;
         let end = self
@@ -75,34 +103,52 @@ impl RegionIndex {
         best.map(|region| (region.kind, region.range))
     }
 
-    /// Check if a byte offset falls inside any quoted region.
+    /// Return whether `offset` falls inside any quoted region.
+    ///
+    /// This includes single quotes, double quotes, and bodies of heredocs whose
+    /// delimiter was quoted.
     pub fn is_quoted(&self, offset: TextSize) -> bool {
         contains_any(&self.single_quoted, offset)
             || contains_any(&self.double_quoted, offset)
             || contains_any(&self.quoted_heredocs, offset)
     }
 
-    /// Check if a byte offset falls inside a heredoc body.
+    /// Return whether `offset` falls inside any heredoc body.
+    ///
+    /// Both quoted and unquoted heredoc bodies count as heredoc regions.
     pub fn is_heredoc(&self, offset: TextSize) -> bool {
         contains_any(&self.heredocs, offset)
     }
 
-    /// Check if a byte offset falls inside a quoted heredoc body.
+    /// Return whether `offset` falls inside a quoted heredoc body.
+    ///
+    /// A heredoc is considered quoted when its delimiter was quoted, which means
+    /// the shell treats the body more like literal text.
     pub fn is_quoted_heredoc(&self, offset: TextSize) -> bool {
         contains_any(&self.quoted_heredocs, offset)
     }
 
-    /// Check if a byte offset falls inside a command substitution.
+    /// Return whether `offset` falls inside a command substitution.
+    ///
+    /// This covers command substitutions represented by parser spans, including
+    /// nested substitutions inside words and heredoc bodies.
     pub fn is_command_substitution(&self, offset: TextSize) -> bool {
         contains_any(&self.command_substitutions, offset)
     }
 
-    /// Check if a byte offset falls inside an arithmetic context.
+    /// Return whether `offset` falls inside an arithmetic context.
+    ///
+    /// Arithmetic contexts include arithmetic commands, arithmetic `for`
+    /// headers, and arithmetic expansions represented by parser spans.
     pub fn is_arithmetic(&self, offset: TextSize) -> bool {
         contains_any(&self.arithmetic, offset)
     }
 
-    /// All heredoc body ranges.
+    /// Return all heredoc body ranges in source order.
+    ///
+    /// The ranges are half-open byte ranges and include both quoted and unquoted
+    /// heredoc bodies. The returned slice borrows from the index and does not
+    /// allocate.
     pub fn heredoc_ranges(&self) -> &[TextRange] {
         &self.heredocs
     }
