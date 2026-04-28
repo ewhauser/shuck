@@ -474,7 +474,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let function_cli_dispatch_facts = build_function_cli_dispatch_facts(
             self.semantic,
             semantic_analysis,
-            &function_headers,
             self.file,
             self.source,
         );
