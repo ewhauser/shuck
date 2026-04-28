@@ -1,10 +1,3 @@
-fn collect_array_assignment_use_replacement_expansion_spans(word: &Word) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_use_replacement_expansion_spans(&word.parts, &mut spans);
-    sort_and_dedup_spans(&mut spans);
-    spans
-}
-
 fn collect_use_replacement_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
     for part in parts {
         match &part.kind {
