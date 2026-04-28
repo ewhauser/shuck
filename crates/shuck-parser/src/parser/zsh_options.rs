@@ -1,4 +1,9 @@
-/// Tri-state option value used when modeling zsh option state.
+/// Tri-state value for a parser-visible zsh option.
+///
+/// `Unknown` is used when the parser cannot prove a single value, for example
+/// after merging control-flow paths that set an option differently. Consumers
+/// should only branch on [`OptionValue::On`] or [`OptionValue::Off`] when the
+/// corresponding `is_definitely_*` helper returns `true`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum OptionValue {
     /// The option is enabled.
@@ -22,6 +27,10 @@ impl OptionValue {
     }
 
     /// Merge two option values, preserving certainty only when they agree.
+    ///
+    /// This is intended for conservative flow joins: `On + On` remains `On`,
+    /// `Off + Off` remains `Off`, and every mixed or unknown combination
+    /// becomes [`OptionValue::Unknown`].
     pub const fn merge(self, other: Self) -> Self {
         match (self, other) {
             (Self::On, Self::On) => Self::On,
@@ -32,6 +41,9 @@ impl OptionValue {
 }
 
 /// Target emulation mode for zsh's `emulate` behavior.
+///
+/// The parser uses this to derive the option snapshot implied by commands such
+/// as `emulate sh` or `emulate ksh`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ZshEmulationMode {
     /// Native zsh behavior.
@@ -44,62 +56,71 @@ pub enum ZshEmulationMode {
     Csh,
 }
 
-/// Snapshot of zsh option state used by the parser and lexer.
+/// Snapshot of parser-visible zsh option state.
+///
+/// The fields here intentionally cover options that can change syntax,
+/// tokenization, or word interpretation. They are not a full zsh runtime option
+/// table. Use [`ZshOptionState::zsh_default`] for native zsh parsing, then
+/// apply `setopt`, `unsetopt`, or `emulate` effects when a caller has already
+/// discovered them.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ZshOptionState {
-    /// State of the `sh_word_split` option.
+    /// Whether unquoted parameter expansion is treated as eligible for
+    /// shell-style word splitting.
     pub sh_word_split: OptionValue,
-    /// State of the `glob_subst` option.
+    /// Whether parameter expansion results are treated as glob patterns.
     pub glob_subst: OptionValue,
-    /// State of the `rc_expand_param` option.
+    /// Whether array parameters can participate in brace-like expansion.
     pub rc_expand_param: OptionValue,
-    /// State of the `glob` option.
+    /// Whether ordinary filename generation is enabled.
     pub glob: OptionValue,
-    /// State of the `nomatch` option.
+    /// Whether unmatched filename-generation patterns are treated as errors.
     pub nomatch: OptionValue,
-    /// State of the `null_glob` option.
+    /// Whether unmatched filename-generation patterns can expand to nothing.
     pub null_glob: OptionValue,
-    /// State of the `csh_null_glob` option.
+    /// Whether csh-style null glob handling is enabled.
     pub csh_null_glob: OptionValue,
-    /// State of the `extended_glob` option.
+    /// Whether zsh extended glob operators are enabled.
     pub extended_glob: OptionValue,
-    /// State of the `ksh_glob` option.
+    /// Whether ksh-style glob operators are enabled.
     pub ksh_glob: OptionValue,
-    /// State of the `sh_glob` option.
+    /// Whether sh-compatible glob parsing is enabled.
     pub sh_glob: OptionValue,
-    /// State of the `bare_glob_qual` option.
+    /// Whether unparenthesized zsh glob qualifiers are enabled.
     pub bare_glob_qual: OptionValue,
-    /// State of the `glob_dots` option.
+    /// Whether glob patterns match dotfiles without an explicit dot.
     pub glob_dots: OptionValue,
-    /// State of the `equals` option.
+    /// Whether leading `=` words are eligible for command-path expansion.
     pub equals: OptionValue,
-    /// State of the `magic_equal_subst` option.
+    /// Whether assignment-like words can apply `=` expansion after the first
+    /// equals sign.
     pub magic_equal_subst: OptionValue,
-    /// State of the `sh_file_expansion` option.
+    /// Whether file expansion follows sh-compatible ordering.
     pub sh_file_expansion: OptionValue,
-    /// State of the `glob_assign` option.
+    /// Whether assignment values can be parsed as glob assignments.
     pub glob_assign: OptionValue,
-    /// State of the `ignore_braces` option.
+    /// Whether brace characters should be treated literally instead of as zsh
+    /// brace syntax.
     pub ignore_braces: OptionValue,
-    /// State of the `ignore_close_braces` option.
+    /// Whether unmatched closing braces should be treated literally.
     pub ignore_close_braces: OptionValue,
-    /// State of the `brace_ccl` option.
+    /// Whether character-class brace expansion syntax is enabled.
     pub brace_ccl: OptionValue,
-    /// State of the `ksh_arrays` option.
+    /// Whether array indexing follows ksh-style zero-based behavior.
     pub ksh_arrays: OptionValue,
-    /// State of the `ksh_zero_subscript` option.
+    /// Whether subscript zero is accepted with ksh-style array semantics.
     pub ksh_zero_subscript: OptionValue,
-    /// State of the `short_loops` option.
+    /// Whether zsh short loop forms are accepted.
     pub short_loops: OptionValue,
-    /// State of the `short_repeat` option.
+    /// Whether zsh short `repeat` forms are accepted.
     pub short_repeat: OptionValue,
-    /// State of the `rc_quotes` option.
+    /// Whether doubled single quotes are decoded inside single-quoted strings.
     pub rc_quotes: OptionValue,
-    /// State of the `interactive_comments` option.
+    /// Whether `#` starts comments in interactive-style zsh parsing contexts.
     pub interactive_comments: OptionValue,
-    /// State of the `c_bases` option.
+    /// Whether C-style numeric base prefixes are accepted in arithmetic text.
     pub c_bases: OptionValue,
-    /// State of the `octal_zeroes` option.
+    /// Whether leading zeroes are interpreted as octal arithmetic literals.
     pub octal_zeroes: OptionValue,
 }
 
@@ -136,6 +157,9 @@ enum ZshOptionField {
 
 impl ZshOptionState {
     /// Default zsh option state used for native zsh parsing.
+    ///
+    /// This is the parser's baseline before source-level commands such as
+    /// `emulate`, `setopt`, and `unsetopt` are considered.
     pub const fn zsh_default() -> Self {
         Self {
             sh_word_split: OptionValue::Off,
@@ -168,7 +192,11 @@ impl ZshOptionState {
         }
     }
 
-    /// Option state implied by `emulate <mode>`.
+    /// Return the option state implied by `emulate <mode>`.
+    ///
+    /// This models the subset of emulation effects that the parser currently
+    /// needs. Callers can further refine the returned state with
+    /// [`ZshOptionState::apply_setopt`] and [`ZshOptionState::apply_unsetopt`].
     pub fn for_emulate(mode: ZshEmulationMode) -> Self {
         let mut state = Self::zsh_default();
         match mode {
@@ -198,16 +226,20 @@ impl ZshOptionState {
         state
     }
 
-    /// Apply a zsh `setopt`-style option name.
+    /// Apply a zsh `setopt`-style option name to this snapshot.
     ///
-    /// Returns `true` when the option name was recognized.
+    /// Names are matched with zsh-style aliases, underscores, and `no_`
+    /// prefixes where supported by this parser. Returns `true` when the option
+    /// name was recognized and this snapshot was updated.
     pub fn apply_setopt(&mut self, name: &str) -> bool {
         self.apply_named_option(name, true)
     }
 
-    /// Apply a zsh `unsetopt`-style option name.
+    /// Apply a zsh `unsetopt`-style option name to this snapshot.
     ///
-    /// Returns `true` when the option name was recognized.
+    /// Names are matched with zsh-style aliases, underscores, and `no_`
+    /// prefixes where supported by this parser. Returns `true` when the option
+    /// name was recognized and this snapshot was updated.
     pub fn apply_unsetopt(&mut self, name: &str) -> bool {
         self.apply_named_option(name, false)
     }
@@ -277,6 +309,9 @@ impl ZshOptionState {
     }
 
     /// Merge two option snapshots field by field.
+    ///
+    /// Each field preserves a definite value only when both inputs agree. This
+    /// is useful for conservative joins across control-flow paths.
     pub fn merge(&self, other: &Self) -> Self {
         let mut merged = Self::zsh_default();
         for field in ZshOptionField::ALL {

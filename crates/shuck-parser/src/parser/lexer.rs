@@ -330,6 +330,10 @@ pub(crate) enum TokenPayload<'a> {
 }
 
 /// Token produced by the shell lexer.
+///
+/// Public consumers can inspect the token kind and source span. Word payloads,
+/// descriptor payloads, and lexer recovery details are currently parser-internal
+/// so the lexer can evolve without expanding the public API.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LexedToken<'a> {
     /// Token kind used by the parser.
@@ -707,7 +711,11 @@ impl<'a> PositionMap<'a> {
     }
 }
 
-/// Lexer for bash scripts.
+/// Source-backed lexer for shell scripts.
+///
+/// The public lexer surface is intended for lower-level tooling and
+/// benchmarks. It tokenizes using the default bash profile; use the parser
+/// constructors when dialect or zsh option state matters.
 #[derive(Clone)]
 pub struct Lexer<'a> {
     #[allow(dead_code)] // Stored for error reporting in future
@@ -731,7 +739,7 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    /// Create a new lexer for the given input.
+    /// Create a new bash-profile lexer for the given input.
     pub fn new(input: &'a str) -> Self {
         Self::with_max_subst_depth_and_profile(
             input,
@@ -824,8 +832,11 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Get the next token kind from the input without decoding or materializing
-    /// any payload text.
+    /// Get the next token kind from the input.
+    ///
+    /// This skips whitespace and line comments, matching
+    /// [`Lexer::next_lexed_token`]. It is useful for callers that only need the
+    /// token stream shape.
     pub fn next_token_kind(&mut self) -> Option<TokenKind> {
         self.next_lexed_token().map(|token| token.kind)
     }
@@ -1064,6 +1075,10 @@ impl<'a> Lexer<'a> {
     }
 
     /// Get the next source-backed token from the input, skipping line comments.
+    ///
+    /// Returned tokens expose their [`TokenKind`] and source [`Span`]. Comments
+    /// are omitted from this public stream; the parser uses an internal variant
+    /// when it needs to preserve them for AST attachment.
     pub fn next_lexed_token(&mut self) -> Option<LexedToken<'a>> {
         self.skip_whitespace();
         let start = self.current_position();

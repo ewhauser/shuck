@@ -93,6 +93,10 @@ const SOURCE_TEXT_PATTERN_REPARSE_MAX_DEPTH: usize = 4;
 const DEFAULT_MAX_PARSER_OPERATIONS: usize = 100_000;
 
 /// Returns whether `text` parses as a nontrivial arithmetic expression.
+///
+/// Plain numbers and plain variable names are considered trivial. The helper
+/// returns `false` for empty text and for text that cannot be parsed inside a
+/// shell arithmetic command.
 pub fn text_looks_like_nontrivial_arithmetic_expression(text: &str) -> bool {
     let text = text.trim();
     if text.is_empty() {
@@ -122,7 +126,10 @@ pub fn text_looks_like_nontrivial_arithmetic_expression(text: &str) -> bool {
 }
 
 /// Returns whether `text` parses as an arithmetic expression without variable
-/// references or assignments.
+/// references, subscripts, shell words, or assignments.
+///
+/// This is useful when a caller needs a purely self-contained arithmetic value.
+/// Invalid or empty text returns `false`.
 pub fn text_is_self_contained_arithmetic_expression(text: &str) -> bool {
     let text = text.trim();
     if text.is_empty() {
@@ -221,11 +228,17 @@ impl<'a> Parser<'a> {
     }
 
     /// Create a new parser for the given input and shell dialect.
+    ///
+    /// This uses [`ShellProfile::native`] for the selected dialect. Use
+    /// [`Parser::with_profile`] when zsh option state is known.
     pub fn with_dialect(input: &'a str, dialect: ShellDialect) -> Self {
         Self::with_profile(input, ShellProfile::native(dialect))
     }
 
     /// Create a new parser for the given input and full shell profile.
+    ///
+    /// Profiles allow callers to provide parser-visible zsh option state in
+    /// addition to the broad shell dialect.
     pub fn with_profile(input: &'a str, shell_profile: ShellProfile) -> Self {
         Self::with_limits_and_profile(
             input,
@@ -235,7 +248,10 @@ impl<'a> Parser<'a> {
         )
     }
 
-    /// Create a new parser with a custom maximum AST depth.
+    /// Create a new bash parser with a custom maximum AST depth.
+    ///
+    /// The requested depth is clamped to the parser's hard safety cap. Hitting
+    /// the limit produces a non-clean [`ParseResult`] rather than panicking.
     pub fn with_max_depth(input: &'a str, max_depth: usize) -> Self {
         Self::with_limits_and_profile(
             input,
@@ -245,7 +261,10 @@ impl<'a> Parser<'a> {
         )
     }
 
-    /// Create a new parser with a custom fuel limit.
+    /// Create a new bash parser with a custom fuel limit.
+    ///
+    /// Fuel bounds the number of parser operations. Exhaustion produces a
+    /// terminal parse error in the returned [`ParseResult`].
     pub fn with_fuel(input: &'a str, max_fuel: usize) -> Self {
         Self::with_limits_and_profile(
             input,
@@ -255,11 +274,11 @@ impl<'a> Parser<'a> {
         )
     }
 
-    /// Create a new parser with custom depth and fuel limits.
+    /// Create a new bash parser with custom depth and fuel limits.
     ///
-    /// `max_depth` is clamped to `HARD_MAX_AST_DEPTH` (500)
-    /// to prevent stack overflow from misconfiguration. Even if the caller passes
-    /// `max_depth = 1_000_000`, the parser will cap it at 500.
+    /// `max_depth` is clamped to the parser's hard safety cap to prevent stack
+    /// overflow from misconfiguration. `max_fuel` bounds parser operations.
+    /// Either limit can produce a non-clean [`ParseResult`].
     pub fn with_limits(input: &'a str, max_depth: usize, max_fuel: usize) -> Self {
         Self::with_limits_and_profile(
             input,
@@ -270,6 +289,10 @@ impl<'a> Parser<'a> {
     }
 
     /// Create a new parser with custom depth, fuel, and dialect settings.
+    ///
+    /// This uses [`ShellProfile::native`] for `dialect`; use
+    /// [`Parser::with_limits_and_profile`] when explicit zsh option state is
+    /// available.
     pub fn with_limits_and_dialect(
         input: &'a str,
         max_depth: usize,
@@ -280,6 +303,9 @@ impl<'a> Parser<'a> {
     }
 
     /// Create a new parser with custom depth, fuel, and shell-profile settings.
+    ///
+    /// This is the most explicit constructor for embedders that need both
+    /// resource limits and parser-visible shell option state.
     pub fn with_limits_and_profile(
         input: &'a str,
         max_depth: usize,
@@ -436,8 +462,11 @@ impl<'a> Parser<'a> {
         self.current_span
     }
 
-    /// Parse a string as a word (handling $var, $((expr)), ${...}, etc.).
-    /// Used by the interpreter to expand operands in parameter expansions lazily.
+    /// Parse a standalone shell word string.
+    ///
+    /// This handles shell word constructs such as parameter expansion, command
+    /// substitution, arithmetic expansion, and quoting. The returned word is
+    /// positioned as if `input` started at the beginning of a file.
     pub fn parse_word_string(input: &str) -> Word {
         let mut parser = Parser::new(input);
         let start = Position::new();

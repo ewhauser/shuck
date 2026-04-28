@@ -267,7 +267,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse the input and return the AST, recovery diagnostics, and syntax facts.
+    /// Parse the configured input.
+    ///
+    /// The returned [`ParseResult`] contains the best AST the parser could
+    /// produce, plus recovery diagnostics and syntax facts. Use
+    /// [`ParseResult::is_ok`] when a caller needs to reject recovered parses.
     pub fn parse(mut self) -> ParseResult {
         self.parse_impl()
     }

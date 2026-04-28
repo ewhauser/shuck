@@ -1,6 +1,10 @@
 use super::ZshOptionState;
 
-/// Supported shell dialects for parsing.
+/// Supported shell dialects for parser syntax decisions.
+///
+/// Dialects select which grammar extensions the parser accepts. They do not
+/// try to model every runtime behavior of a shell; use [`ShellProfile`] when
+/// zsh option state also matters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ShellDialect {
     /// POSIX-style parsing used for `sh`, `dash`, and generic portable shell input.
@@ -32,7 +36,11 @@ pub(super) struct DialectFeatures {
 }
 
 impl ShellDialect {
-    /// Infer a shell dialect from a command or shebang name.
+    /// Infer a parser dialect from a command name, shebang interpreter name,
+    /// or user-facing shell selector.
+    ///
+    /// Unknown names fall back to [`ShellDialect::Bash`], matching Shuck's
+    /// default parsing mode.
     pub fn from_name(name: &str) -> Self {
         match name.trim().to_ascii_lowercase().as_str() {
             "sh" | "dash" | "ksh" | "posix" => Self::Posix,
@@ -108,17 +116,25 @@ impl ShellDialect {
     }
 }
 
-/// Dialect plus optional zsh option state used to configure the lexer and parser.
+/// Complete shell parsing profile.
+///
+/// A profile combines the broad syntax dialect with any option state that
+/// changes tokenization or grammar. Today only zsh carries parser-visible
+/// options; non-zsh profiles ignore the [`ShellProfile::options`] field.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ShellProfile {
     /// Shell dialect to parse.
     pub dialect: ShellDialect,
-    /// Optional zsh option state, used only for zsh parsing.
+    /// Optional zsh option state, used only when [`ShellProfile::dialect`] is
+    /// [`ShellDialect::Zsh`].
     pub options: Option<ZshOptionState>,
 }
 
 impl ShellProfile {
-    /// Build a native profile for `dialect`.
+    /// Build the parser's native profile for `dialect`.
+    ///
+    /// Native zsh profiles include [`ZshOptionState::zsh_default`]. Other
+    /// dialects carry no option state.
     pub fn native(dialect: ShellDialect) -> Self {
         Self {
             dialect,
@@ -127,6 +143,10 @@ impl ShellProfile {
     }
 
     /// Build a profile with explicit zsh option state.
+    ///
+    /// The provided options are retained only for [`ShellDialect::Zsh`]. For
+    /// other dialects, this returns a profile with `options: None` because
+    /// their parser behavior is not currently option-sensitive.
     pub fn with_zsh_options(dialect: ShellDialect, options: ZshOptionState) -> Self {
         Self {
             dialect,
@@ -135,6 +155,9 @@ impl ShellProfile {
     }
 
     /// Borrow the zsh option state, if this profile carries one.
+    ///
+    /// Callers should treat `None` as "no parser-visible zsh option state",
+    /// not as "all options are unknown".
     pub fn zsh_options(&self) -> Option<&ZshOptionState> {
         self.options.as_ref()
     }
