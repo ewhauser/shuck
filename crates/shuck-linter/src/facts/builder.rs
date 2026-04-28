@@ -986,17 +986,15 @@ fn build_linter_command_parent_ids(
     semantic: &SemanticModel,
     command_fact_indices_by_id: &[Option<usize>],
 ) -> Vec<Option<CommandId>> {
-    semantic
-        .commands()
-        .iter()
-        .copied()
-        .map(|id| {
-            if !command_fact_exists(command_fact_indices_by_id, id) {
-                return None;
-            }
-            nearest_fact_backed_semantic_parent(semantic, command_fact_indices_by_id, id)
-        })
-        .collect()
+    let mut parent_ids = vec![None; semantic.command_count()];
+    for id in semantic.commands().iter().copied() {
+        if !command_fact_exists(command_fact_indices_by_id, id) {
+            continue;
+        }
+        parent_ids[id.index()] =
+            nearest_fact_backed_semantic_parent(semantic, command_fact_indices_by_id, id);
+    }
+    parent_ids
 }
 
 fn nearest_fact_backed_semantic_parent(

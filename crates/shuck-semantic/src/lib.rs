@@ -121,7 +121,7 @@ impl SpanKey {
 
 #[derive(Debug)]
 struct CommandTopology {
-    ids: Vec<CommandId>,
+    syntax_backed_ids: Vec<CommandId>,
     structural_ids: Vec<CommandId>,
     ids_by_syntax_span: FxHashMap<SpanKey, SmallVec<[CommandId; 1]>>,
     parent_ids: Vec<Option<CommandId>>,
@@ -1293,7 +1293,7 @@ impl SemanticModel {
     }
 
     pub fn commands(&self) -> &[CommandId] {
-        &self.command_topology().ids
+        &self.command_topology().syntax_backed_ids
     }
 
     pub fn structural_commands(&self) -> &[CommandId] {
@@ -1659,8 +1659,13 @@ fn build_command_topology(model: &SemanticModel) -> CommandTopology {
     offset_order
         .sort_unstable_by(|left, right| compare_command_ids_by_syntax_span(model, *left, *right));
 
+    let syntax_backed_ids = ids
+        .into_iter()
+        .filter(|id| program.command(*id).syntax_kind.is_some())
+        .collect::<Vec<_>>();
+
     CommandTopology {
-        ids,
+        syntax_backed_ids,
         structural_ids,
         ids_by_syntax_span,
         parent_ids,

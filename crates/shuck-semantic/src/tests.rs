@@ -1125,6 +1125,16 @@ fn command_lookup_by_span_and_kind_skips_synthetic_commands() {
 }
 
 #[test]
+fn commands_iter_filters_synthetic_ids_so_command_kind_is_safe() {
+    let source = "case \"$x\" in $(echo a)) ;; esac\n";
+    let model = model(source);
+
+    for id in model.commands().iter().copied() {
+        let _ = model.command_kind(id);
+    }
+}
+
+#[test]
 fn command_topology_preserves_nested_region_immediate_parents() {
     let source = "echo >\"$(a | b)\"\n";
     let model = model(source);
