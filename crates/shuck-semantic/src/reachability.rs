@@ -1488,14 +1488,14 @@ fn block_reaches_avoiding_many(
     first_avoid: &FxHashSet<BlockId>,
     second_avoid: &FxHashSet<BlockId>,
 ) -> bool {
-    let mut visited = vec![false; cfg.blocks().len()];
+    let mut visited = DenseBitSet::new(cfg.blocks().len());
     let mut stack = vec![start];
     while let Some(block) = stack.pop() {
         let idx = block.index();
-        if visited[idx] {
+        if visited.contains(idx) {
             continue;
         }
-        visited[idx] = true;
+        visited.insert(idx);
         if block == end {
             return true;
         }
