@@ -104,6 +104,44 @@ use crate::zsh_options::ZshOptionAnalysis;
 const MAX_FUNCTIONS_FOR_TERMINATION_REACHABILITY: usize = 200;
 const MAX_TERMINATION_REACHABILITY_WORK: usize = 20_000;
 
+struct AssocCallerSeenNames {
+    inline: SmallVec<[Name; 8]>,
+    hashed: Option<FxHashSet<Name>>,
+}
+
+impl AssocCallerSeenNames {
+    const HASH_THRESHOLD: usize = 32;
+
+    fn new() -> Self {
+        Self {
+            inline: SmallVec::new(),
+            hashed: None,
+        }
+    }
+
+    fn insert(&mut self, name: &Name) -> bool {
+        if let Some(hashed) = &mut self.hashed {
+            return hashed.insert(name.clone());
+        }
+
+        if self.inline.iter().any(|seen_name| seen_name == name) {
+            return false;
+        }
+
+        if self.inline.len() < Self::HASH_THRESHOLD {
+            self.inline.push(name.clone());
+            return true;
+        }
+
+        let mut hashed =
+            FxHashSet::with_capacity_and_hasher(Self::HASH_THRESHOLD * 2, Default::default());
+        hashed.extend(self.inline.drain(..));
+        let inserted = hashed.insert(name.clone());
+        self.hashed = Some(hashed);
+        inserted
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct SpanKey {
     start: usize,
@@ -832,6 +870,77 @@ impl SemanticModel {
                 self.previous_visible_binding_id_in_scope(scope, name, at.start.offset, None)
             })
             .map(|binding_id| self.binding(binding_id))
+    }
+
+    /// Returns whether an associative binding is visible for a contextual array lookup.
+    pub fn assoc_binding_visible_for_lookup(
+        &self,
+        name: &Name,
+        current_scope: ScopeId,
+        at: Span,
+    ) -> bool {
+        if let Some(visible) = self.assoc_binding_visible_in_scope(name, current_scope, at) {
+            return visible;
+        }
+
+        self.assoc_binding_visible_from_named_callers(name, current_scope)
+    }
+
+    fn assoc_binding_visible_in_scope(
+        &self,
+        name: &Name,
+        current_scope: ScopeId,
+        at: Span,
+    ) -> Option<bool> {
+        self.visible_binding_for_assoc_lookup(name, current_scope, at)
+            .map(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
+    }
+
+    fn assoc_binding_visible_from_named_callers(
+        &self,
+        name: &Name,
+        current_scope: ScopeId,
+    ) -> bool {
+        let Some(function_names) = self.named_function_scope_names(current_scope) else {
+            return false;
+        };
+
+        let mut seen = AssocCallerSeenNames::new();
+        let mut worklist = SmallVec::<[Name; 4]>::new();
+        worklist.extend(function_names.iter().cloned());
+
+        while let Some(function_name) = worklist.pop() {
+            if !seen.insert(&function_name) {
+                continue;
+            }
+
+            for call_site in self.call_sites_for(&function_name) {
+                if let Some(binding) = self.visible_binding_for_assoc_lookup(
+                    name,
+                    call_site.scope,
+                    call_site.name_span,
+                ) {
+                    if binding.attributes.contains(BindingAttributes::ASSOC) {
+                        return true;
+                    }
+                    continue;
+                }
+
+                if let Some(caller_names) = self.named_function_scope_names(call_site.scope) {
+                    worklist.extend(caller_names.iter().cloned());
+                }
+            }
+        }
+
+        false
+    }
+
+    fn named_function_scope_names(&self, scope: ScopeId) -> Option<&[Name]> {
+        self.ancestor_scopes(scope)
+            .find_map(|scope_id| match &self.scope(scope_id).kind {
+                ScopeKind::Function(FunctionScopeKind::Named(names)) => Some(names.as_slice()),
+                _ => None,
+            })
     }
 
     pub fn defined_anywhere(&self, name: &Name) -> bool {
