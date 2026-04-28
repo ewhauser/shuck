@@ -15,6 +15,12 @@ pub(crate) struct FunctionBindingLookup<'a> {
     pub(crate) function_bindings_by_scope: &'a FxHashMap<ScopeId, SmallVec<[BindingId; 2]>>,
 }
 
+pub(crate) struct ResolvedFunctionCall<'a> {
+    pub(crate) site: &'a CallSite,
+    pub(crate) binding: BindingId,
+    pub(crate) callee_scope: ScopeId,
+}
+
 impl FunctionBindingLookup<'_> {
     pub(crate) fn visible_function_binding(
         &self,
@@ -59,6 +65,28 @@ impl FunctionBindingLookup<'_> {
 
         call_bindings
     }
+}
+
+pub(crate) fn resolved_function_calls_with_callee_scope<'a>(
+    call_sites: &'a FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    visible_function_call_bindings: &'a FxHashMap<SpanKey, BindingId>,
+    function_body_scopes: &'a FxHashMap<BindingId, ScopeId>,
+) -> impl Iterator<Item = ResolvedFunctionCall<'a>> + 'a {
+    call_sites
+        .values()
+        .flat_map(|sites| sites.iter())
+        .filter_map(move |site| {
+            let binding = visible_function_call_bindings
+                .get(&SpanKey::new(site.name_span))
+                .copied()?;
+            let callee_scope = function_body_scopes.get(&binding).copied()?;
+
+            Some(ResolvedFunctionCall {
+                site,
+                binding,
+                callee_scope,
+            })
+        })
 }
 
 pub(crate) fn function_bindings_by_scope(

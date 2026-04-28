@@ -6323,6 +6323,43 @@ main() {
 }
 
 #[test]
+fn resolved_function_calls_feed_dataflow_and_script_termination() {
+    let source = "\
+reader() {
+  printf '%s\\n' \"$value\"
+}
+exit_script() {
+  exit 0
+}
+main() {
+  value=ok
+  reader
+  exit_script
+  printf '%s\\n' never
+}
+main
+";
+    let model = model(source);
+    let analysis = model.analysis();
+    let unused = binding_names(&model, analysis.dataflow().unused_assignment_ids());
+    let unreachable = analysis
+        .dead_code()
+        .iter()
+        .flat_map(|entry| entry.unreachable.iter())
+        .map(|span| span.slice(source).trim_end().to_owned())
+        .collect::<Vec<_>>();
+
+    assert!(
+        !unused.iter().any(|name| name == "value"),
+        "unused bindings: {unused:?}"
+    );
+    assert!(
+        unreachable.contains(&"printf '%s\\n' never".to_owned()),
+        "unreachable spans: {unreachable:?}"
+    );
+}
+
+#[test]
 fn condition_body_after_script_terminating_condition_is_dead() {
     let source = "\
 if exit 0; then
