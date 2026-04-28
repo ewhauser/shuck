@@ -10,17 +10,29 @@ use shuck_ast::{
 use crate::LineIndex;
 
 /// A source comment with resolved positional metadata.
+///
+/// Comments are discovered from parser output rather than by rescanning the
+/// source text. This keeps nested comments from command substitutions and other
+/// parsed shell constructs aligned with the AST that downstream analysis sees.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexedComment {
-    /// Byte range of the comment in source (including the `#`).
+    /// Byte range of the comment in source, including the `#` marker.
     pub range: TextRange,
-    /// The 1-based line number this comment appears on.
+    /// The 1-based physical line number this comment appears on.
     pub line: usize,
-    /// Whether this comment is the only non-whitespace content on its line.
+    /// Whether this comment is the only non-horizontal-whitespace content on its line.
+    ///
+    /// Spaces, tabs, and carriage returns before or after the comment are
+    /// ignored for this classification.
     pub is_own_line: bool,
 }
 
-/// Comment ranges and position metadata.
+/// Comment ranges and line-oriented lookup metadata.
+///
+/// The index stores comments in source order and keeps a compact per-line range
+/// table so callers can ask for comments on a line without scanning the full
+/// comment list. It includes shebang-style comments when the parser represents
+/// them as comments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommentIndex {
     comments: Vec<IndexedComment>,
@@ -28,7 +40,12 @@ pub struct CommentIndex {
 }
 
 impl CommentIndex {
-    /// Build from AST-owned comments and source text.
+    /// Build a comment index from AST-owned comments and source text.
+    ///
+    /// `source`, `line_index`, and `file` must describe the same parsed source.
+    /// Comments with ranges outside `source` or on invalid UTF-8 boundaries are
+    /// skipped defensively, then the remaining comments are sorted by source
+    /// range before line lookup metadata is built.
     pub fn new(source: &str, line_index: &LineIndex, file: &File) -> Self {
         let mut comments = Vec::new();
         collect_file_comments(file, &mut comments);
@@ -93,12 +110,18 @@ impl CommentIndex {
         }
     }
 
-    /// All comments in source order.
+    /// Return all indexed comments in source order.
+    ///
+    /// The returned slice is stable for the lifetime of the index and does not
+    /// allocate.
     pub fn comments(&self) -> &[IndexedComment] {
         &self.comments
     }
 
-    /// Comments on a specific 1-based line.
+    /// Return comments on a specific 1-based line.
+    ///
+    /// Invalid line numbers return an empty slice. The returned comments retain
+    /// source order and borrow from the index.
     pub fn comments_on_line(&self, line: usize) -> &[IndexedComment] {
         let Some(range) = line
             .checked_sub(1)
@@ -110,7 +133,10 @@ impl CommentIndex {
         &self.comments[range.start..range.end]
     }
 
-    /// Whether the given byte offset falls inside a comment.
+    /// Return whether `offset` falls inside a comment range.
+    ///
+    /// Comment ranges are half-open: the start byte is included and the end byte
+    /// is excluded.
     pub fn is_comment(&self, offset: TextSize) -> bool {
         let index = self
             .comments

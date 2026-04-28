@@ -3,8 +3,21 @@
 
 //! Positional and structural indexes over parsed shell scripts.
 //!
-//! The indexer complements `shuck-parser` by building efficient lookup tables for line numbers,
-//! comments, syntactic regions, and continuation lines.
+//! The indexer complements `shuck-parser` by building compact lookup tables for
+//! source lines, comments, syntactic regions, heredoc bodies, and physical line
+//! continuations. It is intended to be built once from parser output and then
+//! shared by semantic analysis, lint rules, suppressions, formatters, and report
+//! rendering.
+//!
+//! All positions are byte offsets represented with `shuck_ast::TextSize` and
+//! `shuck_ast::TextRange`. The crate does not build a character index: callers
+//! that need display columns should combine these byte offsets with the original
+//! source text at the UI boundary.
+//!
+//! [`Indexer`] is the preferred construction path when parser output is
+//! available. The lower-level indexes are also exported for integrations that
+//! only need line mapping or that already have an AST-shaped source of comments
+//! or regions.
 mod comment_index;
 #[allow(missing_docs)]
 mod line_index;
@@ -22,6 +35,15 @@ use shuck_ast::TextSize;
 use shuck_parser::parser::ParseResult;
 
 /// Pre-computed positional and structural index over a parsed shell script.
+///
+/// `Indexer` owns the line, comment, and syntactic-region indexes for one source
+/// file. It also filters raw backslash-newline candidates into the continuation
+/// lines that matter to shell analysis: continuations in comments, quoted text,
+/// and heredoc bodies are excluded.
+///
+/// Build one `Indexer` for a parse result and pass references to downstream
+/// analysis code. Query methods borrow precomputed data and do not walk the AST,
+/// rescan the full source, or allocate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Indexer {
     line_index: LineIndex,
@@ -31,7 +53,12 @@ pub struct Indexer {
 }
 
 impl Indexer {
-    /// Build an index from parser output and the original source text.
+    /// Build all indexes from parser output and the original source text.
+    ///
+    /// `source` must be the exact text used to produce `output`; ranges in the
+    /// parse result are interpreted as byte offsets into that string. Mismatched
+    /// source text can make line and region queries meaningless, even though the
+    /// constructor defensively avoids panicking on malformed comment ranges.
     pub fn new(source: &str, output: &ParseResult) -> Self {
         let line_index = LineIndex::new(source);
         let comment_index = CommentIndex::new(source, &line_index, &output.file);
@@ -47,27 +74,46 @@ impl Indexer {
         }
     }
 
-    /// The line index for the source text.
+    /// Return the line index for this source text.
+    ///
+    /// This is useful for converting diagnostic byte offsets to 1-based line
+    /// numbers or for extracting line-local snippets from the original source.
     pub fn line_index(&self) -> &LineIndex {
         &self.line_index
     }
 
-    /// The comment index extracted from the parsed file.
+    /// Return the comment index extracted from parser-owned comments.
+    ///
+    /// Comments are exposed in source order and include parser-recognized
+    /// comments inside nested shell constructs.
     pub fn comment_index(&self) -> &CommentIndex {
         &self.comment_index
     }
 
-    /// The syntactic region index for quoted, heredoc, and related spans.
+    /// Return the syntactic region index for quoted, heredoc, and related spans.
+    ///
+    /// Region lookups are intended for rules and formatters that need to avoid
+    /// interpreting bytes the same way in every syntactic context.
     pub fn region_index(&self) -> &RegionIndex {
         &self.region_index
     }
 
-    /// Byte offsets of the start of each continuation line.
+    /// Return byte offsets for the start of each semantic continuation line.
+    ///
+    /// Each offset points at the first byte of a physical line that continues
+    /// the previous one because that previous line ended with an active
+    /// backslash-newline. Continuations inside comments, quotes, and heredocs
+    /// are filtered out.
     pub fn continuation_line_starts(&self) -> &[TextSize] {
         &self.continuation_lines
     }
 
-    /// Whether the given byte offset is on a continuation line.
+    /// Return whether `offset` is on a semantic continuation line.
+    ///
+    /// The query first maps `offset` to its containing 1-based line, then checks
+    /// whether that line starts at one of [`Self::continuation_line_starts`].
+    /// Offsets past the final byte of the source are treated according to the
+    /// last indexed line.
     pub fn is_continuation(&self, offset: TextSize) -> bool {
         let line = self.line_index.line_number(offset);
         let Some(line_start) = self.line_index.line_start(line) else {

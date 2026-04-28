@@ -1,6 +1,10 @@
 use shuck_ast::{TextRange, TextSize};
 
-/// Maps between byte offsets and source lines.
+/// Maps between byte offsets and 1-based source lines.
+///
+/// `LineIndex` stores the byte offset of each physical line start in the source
+/// text. It intentionally uses byte offsets, not character columns, so lookups
+/// stay cheap and match parser spans exactly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LineIndex {
     line_starts: Vec<TextSize>,
@@ -8,7 +12,15 @@ pub struct LineIndex {
 }
 
 impl LineIndex {
-    /// Build from source text.
+    /// Build a line index from source text.
+    ///
+    /// Empty source is treated as one empty line starting at byte offset `0`.
+    /// Every byte immediately after `\n` is recorded as the start of the next
+    /// line, including a trailing empty line when the source ends in a newline.
+    ///
+    /// This constructor also records raw backslash-newline candidates for
+    /// [`crate::Indexer`]. Those raw candidates are filtered later against
+    /// comments, quotes, and heredocs before becoming semantic continuations.
     pub fn new(source: &str) -> Self {
         let bytes = source.as_bytes();
         let mut line_starts = Vec::new();
@@ -32,17 +44,29 @@ impl LineIndex {
     }
 
     /// Return the 1-based line number containing `offset`.
+    ///
+    /// `offset` is a byte offset into the source. Offsets at a line start belong
+    /// to that new line, while offsets past the final indexed line map to the
+    /// last line. This method does not validate that `offset` is within the
+    /// original source length.
     pub fn line_number(&self, offset: TextSize) -> usize {
         self.line_starts.partition_point(|start| *start <= offset)
     }
 
-    /// Return the byte offset of the start of the given 1-based line.
+    /// Return the byte offset of the start of a 1-based line.
+    ///
+    /// Returns `None` for line `0` or for lines beyond the indexed source.
     pub fn line_start(&self, line: usize) -> Option<TextSize> {
         line.checked_sub(1)
             .and_then(|index| self.line_starts.get(index).copied())
     }
 
-    /// Return the byte range of the given 1-based line (excluding newline).
+    /// Return the byte range of a 1-based line, excluding its trailing newline.
+    ///
+    /// `source` must be the same text used to construct the index. The returned
+    /// range starts at [`Self::line_start`] and ends before a trailing `\n` when
+    /// present; a preceding `\r` is left in the range so callers can decide how
+    /// to handle CRLF display. Returns `None` for invalid line numbers.
     pub fn line_range(&self, line: usize, source: &str) -> Option<TextRange> {
         let start = self.line_start(line)?;
         let line_index = line.checked_sub(1)?;
@@ -62,7 +86,9 @@ impl LineIndex {
         Some(TextRange::new(start, end))
     }
 
-    /// Return the total number of lines.
+    /// Return the number of physical lines recorded for the source.
+    ///
+    /// The count is always at least `1`, even for empty source.
     pub fn line_count(&self) -> usize {
         self.line_starts.len()
     }
