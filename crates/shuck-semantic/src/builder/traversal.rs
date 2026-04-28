@@ -124,7 +124,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let command_has_name = simple_command_has_name(command, self.source);
         for assignment in &command.assignments {
             if command_has_name {
-                self.visit_assignment_value_into(assignment, flow, &mut nested_regions);
+                self.visit_assignment_reads_into(assignment, flow, &mut nested_regions);
             } else {
                 self.visit_assignment_into(
                     assignment,
@@ -260,7 +260,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
         for assignment in assignments {
-            self.visit_assignment_value_into(assignment, flow, &mut nested_regions);
+            self.visit_assignment_reads_into(assignment, flow, &mut nested_regions);
         }
         if let Some(word) = primary_word {
             self.visit_word_into(word, WordVisitKind::Expansion, flow, &mut nested_regions);
@@ -281,7 +281,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) -> CommandId {
         let mut nested_regions = Vec::new();
         for assignment in &command.assignments {
-            self.visit_assignment_value_into(assignment, flow, &mut nested_regions);
+            self.visit_assignment_reads_into(assignment, flow, &mut nested_regions);
         }
 
         let builtin = declaration_builtin(&command.variant);

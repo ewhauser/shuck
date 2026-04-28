@@ -1,6 +1,22 @@
 use super::*;
 
 impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
+    pub(super) fn visit_assignment_reads_into(
+        &mut self,
+        assignment: &'a Assignment,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        self.visit_var_ref_subscript_words(
+            Some(&assignment.target.name),
+            assignment.target.subscript.as_deref(),
+            WordVisitKind::Expansion,
+            flow,
+            nested_regions,
+        );
+        self.visit_assignment_value_into(assignment, flow, nested_regions);
+    }
+
     pub(super) fn visit_assignment_into(
         &mut self,
         assignment: &'a Assignment,
@@ -10,14 +26,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
         let reference_start = self.references.len();
-        self.visit_var_ref_subscript_words(
-            Some(&assignment.target.name),
-            assignment.target.subscript.as_deref(),
-            WordVisitKind::Expansion,
-            flow,
-            nested_regions,
-        );
-        self.visit_assignment_value_into(assignment, flow, nested_regions);
+        self.visit_assignment_reads_into(assignment, flow, nested_regions);
         let (kind, scope) = declaration_kind.unwrap_or_else(|| {
             let kind = if assignment.append {
                 BindingKind::AppendAssignment
