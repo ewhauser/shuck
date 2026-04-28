@@ -92,10 +92,6 @@ impl<'a> Checker<'a> {
         self.indexer
     }
 
-    pub fn ast(&self) -> &'a File {
-        self.file
-    }
-
     pub fn source(&self) -> &'a str {
         self.source
     }
