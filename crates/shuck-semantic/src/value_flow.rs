@@ -735,11 +735,10 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
 
     fn function_bindings_for_scope(&self, scope: ScopeId) -> Vec<BindingId> {
         self.model()
-            .recorded_program
-            .function_body_scopes
-            .iter()
-            .filter_map(|(binding_id, body_scope)| (*body_scope == scope).then_some(*binding_id))
-            .collect()
+            .function_binding_scope_index()
+            .get(&scope)
+            .map(|bindings| bindings.iter().copied().collect())
+            .unwrap_or_default()
     }
 
     fn possible_function_bindings_cover_call(
