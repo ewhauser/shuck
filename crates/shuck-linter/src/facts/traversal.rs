@@ -61,7 +61,7 @@ where
     );
 }
 
-#[cfg(any(test, feature = "benchmarking"))]
+#[cfg(test)]
 fn iter_commands<'a>(
     commands: &'a StmtSeq,
     options: CommandWalkOptions,
@@ -79,10 +79,10 @@ fn visit_command_substitution_candidate_words<'a>(
     source: &str,
     visitor: &mut impl FnMut(&'a Word),
 ) {
-    for visit in semantic.command_visits_in_body(body, true) {
+    semantic.for_each_command_visit_in_body(body, true, |visit| {
         visit_command_substitution_loop_header_words(visit.command, visitor);
         visit_command_argument_words_for_substitutions(visit.command, source, visitor);
-    }
+    });
 }
 
 fn visit_command_substitution_loop_header_words<'a>(

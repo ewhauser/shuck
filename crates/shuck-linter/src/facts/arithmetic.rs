@@ -1192,7 +1192,7 @@ fn collect_arithmetic_update_operator_spans_in_nested_command_body(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    for visit in semantic_artifacts.command_visits_in_body(body, true) {
+    semantic_artifacts.for_each_command_visit_in_body(body, true, |visit| {
         let scope = semantic.scope_at(visit.stmt.span.start.offset);
         collect_arithmetic_update_operator_spans_in_command(
             visit.command,
@@ -1217,7 +1217,7 @@ fn collect_arithmetic_update_operator_spans_in_nested_command_body(
                 );
             }
         }
-    }
+    });
 }
 
 fn collect_arithmetic_update_operator_spans_in_subscript(
