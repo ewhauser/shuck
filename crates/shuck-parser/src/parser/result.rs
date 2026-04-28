@@ -3,17 +3,24 @@ use shuck_ast::{File, Span};
 use crate::error::Error;
 
 /// Overall outcome of a parse attempt.
+///
+/// A parse can produce an AST even when recovery diagnostics were needed.
+/// Check [`ParseResult::is_ok`] when a caller requires a fully clean parse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParseStatus {
     /// The parse completed without recovery diagnostics.
     Clean,
     /// The parse completed, but required recovery diagnostics.
     Recovered,
-    /// The parse failed with a terminal error.
+    /// The parse stopped after a terminal error.
     Fatal,
 }
 
 /// One branch separator recognized inside a zsh `case` pattern group.
+///
+/// These separators are exposed as syntax facts because they describe source
+/// surface that downstream tools may need even when the AST normalizes the
+/// surrounding pattern structure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ZshCaseGroupPart {
     /// Index of the owning pattern part within the parsed pattern.
@@ -23,6 +30,10 @@ pub struct ZshCaseGroupPart {
 }
 
 /// Additional parser-owned facts that are useful to downstream consumers.
+///
+/// These facts preserve parser discoveries that are awkward to represent
+/// directly in the shared AST but are still relevant to linting, formatting, or
+/// source remapping.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SyntaxFacts {
     /// Spans of zsh brace-style `if` bodies.
@@ -34,6 +45,8 @@ pub struct SyntaxFacts {
 }
 
 /// A parser diagnostic emitted while recovering from invalid input.
+///
+/// Diagnostics use Shuck-authored wording and source spans in the parsed input.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseDiagnostic {
     /// Human-readable diagnostic message.
@@ -42,8 +55,11 @@ pub struct ParseDiagnostic {
     pub span: Span,
 }
 
-/// The result of parsing a script, including any recovery diagnostics and
-/// syntax facts collected along the way.
+/// The result of parsing a script.
+///
+/// `ParseResult` always carries the best AST the parser produced. Inspect
+/// [`ParseResult::status`] or [`ParseResult::is_ok`] before assuming it was a
+/// clean parse.
 #[derive(Debug, Clone)]
 pub struct ParseResult {
     /// Parsed syntax tree for the file.

@@ -99,7 +99,12 @@ pub(super) enum Command {
     AnonymousFunction(AnonymousFunctionCommand, SmallVec<[Redirect; 1]>),
 }
 
-/// Parser for bash scripts.
+/// Stateful parser for shell scripts.
+///
+/// Construct a parser with one of the `Parser::with_*` constructors and then
+/// call `parse` to obtain a [`super::ParseResult`]. The parser is single-use:
+/// `parse` consumes the value so internal recovery state cannot leak between
+/// parses.
 #[derive(Clone)]
 pub struct Parser<'a> {
     pub(super) input: &'a str,
