@@ -67,6 +67,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             let command = self.visit_stmt(stmt, flow);
             self.recorded_program
                 .push_statement_sequence_command(commands.span, stmt.span);
+            self.observer
+                .recorded_statement_sequence_command(commands.span, stmt.span, command);
             recorded.push(command);
         }
     }

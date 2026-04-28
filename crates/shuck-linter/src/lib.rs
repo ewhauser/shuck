@@ -105,8 +105,8 @@ pub use suppression::{
 /// Trait implemented by rule-specific diagnostic payloads.
 pub use violation::Violation;
 
-use rustc_hash::FxHashSet;
-use shuck_ast::{File, Position, Span, Stmt, TextSize};
+use rustc_hash::{FxHashMap, FxHashSet};
+use shuck_ast::{File, Position, Span, Stmt, StmtSeq, TextSize};
 use shuck_indexer::{Indexer, LineIndex};
 use shuck_parser::parser::{ParseResult, Parser};
 use shuck_semantic::{
@@ -128,6 +128,7 @@ pub struct AnalysisResult {
 pub struct LinterSemanticArtifacts<'a> {
     semantic: SemanticModel,
     command_visits_by_id: Vec<Option<facts::CommandVisit<'a>>>,
+    direct_command_ids_by_body_span: FxHashMap<facts::FactSpan, Vec<CommandId>>,
 }
 
 impl<'a> LinterSemanticArtifacts<'a> {
@@ -148,7 +149,8 @@ impl<'a> LinterSemanticArtifacts<'a> {
             build_with_observer_with_options(file, source, indexer, &mut observer, options);
         Self {
             semantic,
-            command_visits_by_id: observer.into_command_visits_by_id(),
+            command_visits_by_id: observer.command_visits_by_id,
+            direct_command_ids_by_body_span: observer.direct_command_ids_by_body_span,
         }
     }
 
@@ -165,6 +167,52 @@ impl<'a> LinterSemanticArtifacts<'a> {
     pub(crate) fn command_visits_by_id(&self) -> &[Option<facts::CommandVisit<'a>>] {
         &self.command_visits_by_id
     }
+
+    pub(crate) fn command_visits_in_body(
+        &self,
+        body: &StmtSeq,
+        descend_nested_word_commands: bool,
+    ) -> Vec<facts::CommandVisit<'a>> {
+        let Some(root_ids) = self
+            .direct_command_ids_by_body_span
+            .get(&facts::FactSpan::new(body.span))
+        else {
+            return Vec::new();
+        };
+        let baseline_depth = root_ids
+            .iter()
+            .filter_map(|id| self.semantic.command_context(*id))
+            .map(|context| context.nested_word_command_depth())
+            .min()
+            .unwrap_or(0);
+        let mut visits = Vec::new();
+        let mut stack = root_ids.iter().rev().copied().collect::<Vec<_>>();
+        while let Some(id) = stack.pop() {
+            let Some(context) = self.semantic.command_context(id) else {
+                continue;
+            };
+            if !descend_nested_word_commands && context.nested_word_command_depth() > baseline_depth
+            {
+                continue;
+            }
+            if let Some(visit) = self
+                .command_visits_by_id
+                .get(id.index())
+                .and_then(|visit| *visit)
+            {
+                visits.push(visit);
+            }
+            for child in self
+                .semantic
+                .syntax_backed_command_children(id)
+                .iter()
+                .rev()
+            {
+                stack.push(*child);
+            }
+        }
+        visits
+    }
 }
 
 impl Deref for LinterSemanticArtifacts<'_> {
@@ -178,12 +226,7 @@ impl Deref for LinterSemanticArtifacts<'_> {
 #[derive(Default)]
 struct LintTraversalObserver<'a> {
     command_visits_by_id: Vec<Option<facts::CommandVisit<'a>>>,
-}
-
-impl<'a> LintTraversalObserver<'a> {
-    fn into_command_visits_by_id(self) -> Vec<Option<facts::CommandVisit<'a>>> {
-        self.command_visits_by_id
-    }
+    direct_command_ids_by_body_span: FxHashMap<facts::FactSpan, Vec<CommandId>>,
 }
 
 impl<'a> TraversalObserver<'a> for LintTraversalObserver<'a> {
@@ -198,6 +241,18 @@ impl<'a> TraversalObserver<'a> for LintTraversalObserver<'a> {
             self.command_visits_by_id.resize(id.index() + 1, None);
         }
         self.command_visits_by_id[id.index()] = Some(facts::CommandVisit::new(stmt));
+    }
+
+    fn recorded_statement_sequence_command(
+        &mut self,
+        body_span: Span,
+        _stmt_span: Span,
+        id: CommandId,
+    ) {
+        self.direct_command_ids_by_body_span
+            .entry(facts::FactSpan::new(body_span))
+            .or_default()
+            .push(id);
     }
 }
 
@@ -637,7 +692,7 @@ fn ceil_char_boundary(source: &str, offset: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shuck_ast::{Command, Position, Span};
+    use shuck_ast::{Command, Position, Span, StmtSeq, WordPart, WordPartNode};
     use shuck_parser::Error as ParseError;
     use shuck_parser::parser::{
         ParseDiagnostic, ParseStatus, Parser, ShellDialect as ParseDialect, SyntaxFacts,
@@ -707,6 +762,77 @@ mod tests {
         format!(
             "{shebang}\nprintf '%s\\n' \"$IFS\" \"$USER\" \"$HOME\" \"$SHELL\" \"$PWD\" \"$TERM\" \"$PATH\" \"$CDPATH\" \"$LANG\" \"$LC_ALL\" \"$LC_TIME\" \"$SUDO_USER\" \"$DOAS_USER\"\nprintf '%s\\n' \"$LINENO\" \"$FUNCNAME\" \"${{BASH_SOURCE[0]}}\" \"${{BASH_LINENO[0]}}\" \"$RANDOM\" \"${{BASH_REMATCH[0]}}\" \"$READLINE_LINE\" \"$BASH_VERSION\" \"${{BASH_VERSINFO[0]}}\" \"$OSTYPE\" \"$HISTCONTROL\" \"$HISTSIZE\"\n"
         )
+    }
+
+    fn first_command_substitution_body(parts: &[WordPartNode]) -> Option<&StmtSeq> {
+        for part in parts {
+            match &part.kind {
+                WordPart::CommandSubstitution { body, .. }
+                | WordPart::ProcessSubstitution { body, .. } => return Some(body),
+                WordPart::DoubleQuoted { parts, .. } => {
+                    if let Some(body) = first_command_substitution_body(parts) {
+                        return Some(body);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn simple_command_names(visits: Vec<facts::CommandVisit<'_>>, source: &str) -> Vec<String> {
+        visits
+            .into_iter()
+            .filter_map(|visit| {
+                let Command::Simple(command) = visit.command else {
+                    return None;
+                };
+                let span = command.name.span;
+                Some(source[span.start.offset..span.end.offset].to_owned())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn linter_semantic_artifacts_iterate_body_commands_without_deeper_nested_words() {
+        let source = "echo \"$(if probe; then printf \"$(inner)\"; fi)\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
+        let Command::Simple(command) = &output.file.body.stmts[0].command else {
+            panic!("expected simple command");
+        };
+        let body = first_command_substitution_body(&command.args[0].parts)
+            .expect("expected command substitution body");
+
+        let same_body_names =
+            simple_command_names(semantic.command_visits_in_body(body, false), source);
+        let nested_names =
+            simple_command_names(semantic.command_visits_in_body(body, true), source);
+
+        assert_eq!(same_body_names, vec!["probe", "printf"]);
+        assert_eq!(nested_names, vec!["probe", "printf", "inner"]);
+    }
+
+    #[test]
+    fn linter_semantic_artifacts_keep_function_body_nested_depths() {
+        let source = "echo \"$(f() { printf \"$(inner)\"; }; f)\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
+        let Command::Simple(command) = &output.file.body.stmts[0].command else {
+            panic!("expected simple command");
+        };
+        let body = first_command_substitution_body(&command.args[0].parts)
+            .expect("expected command substitution body");
+
+        let same_body_names =
+            simple_command_names(semantic.command_visits_in_body(body, false), source);
+        let nested_names =
+            simple_command_names(semantic.command_visits_in_body(body, true), source);
+
+        assert_eq!(same_body_names, vec!["printf", "f"]);
+        assert_eq!(nested_names, vec!["printf", "inner", "f"]);
     }
 
     #[test]

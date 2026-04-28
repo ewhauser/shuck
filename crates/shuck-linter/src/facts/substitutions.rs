@@ -155,6 +155,7 @@ fn populate_substitution_fact_ranges<'a>(
     command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
+    semantic: &LinterSemanticArtifacts<'a>,
     source: &str,
 ) {
     for index in 0..commands.len() {
@@ -169,6 +170,7 @@ fn populate_substitution_fact_ranges<'a>(
                 command_facts,
                 command_ids_by_span,
                 command_child_index,
+                semantic,
                 source,
             )
         };
@@ -181,6 +183,7 @@ fn build_command_substitution_facts<'a>(
     commands: CommandFacts<'_, 'a>,
     command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
+    semantic: &LinterSemanticArtifacts<'a>,
     source: &str,
 ) -> Vec<SubstitutionFact> {
     let mut substitutions = Vec::new();
@@ -194,6 +197,7 @@ fn build_command_substitution_facts<'a>(
             command_child_index,
         ),
         host_command_id: fact.id(),
+        semantic,
         source,
     };
 
@@ -303,6 +307,7 @@ struct SubstitutionFactBuildContext<'a, 'b> {
     commands: CommandFacts<'b, 'a>,
     command_relationships: CommandRelationshipContext<'b, 'a>,
     host_command_id: CommandId,
+    semantic: &'b LinterSemanticArtifacts<'a>,
     source: &'b str,
 }
 
@@ -328,6 +333,7 @@ fn collect_or_update_substitution_facts_from_occurrences<'a>(
             context.commands,
             context.command_relationships,
             context.host_command_id,
+            context.semantic,
             context.source,
         );
         substitution_index.insert(key, substitutions.len());
@@ -542,15 +548,10 @@ fn classify_substitution_body<'a>(
     commands: CommandFacts<'_, 'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
     parent_id: CommandId,
+    semantic: &LinterSemanticArtifacts<'a>,
     source: &str,
 ) -> SubstitutionBodyFacts {
-    let visits = iter_commands(
-        body,
-        CommandWalkOptions {
-            descend_nested_word_commands: false,
-        },
-    )
-    .collect::<Vec<_>>();
+    let visits = semantic.command_visits_in_body(body, false);
     let redirect_summary =
         summarize_stmt_seq_redirects(body, parent_id, commands, command_relationships, source);
 
@@ -568,6 +569,7 @@ fn classify_substitution_body<'a>(
             parent_id,
             commands,
             command_relationships,
+            semantic,
             source,
         )
         .into_boxed_slice(),
@@ -1080,15 +1082,11 @@ fn substitution_body_processed_ls_pipeline_spans<'a>(
     parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
+    semantic: &LinterSemanticArtifacts<'a>,
     source: &str,
 ) -> Vec<Span> {
     let mut spans = Vec::new();
-    for visit in iter_commands(
-        body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-    ) {
+    for visit in semantic.command_visits_in_body(body, true) {
         collect_processed_ls_pipeline_spans_in_stmt(
             visit.stmt,
             parent_id,

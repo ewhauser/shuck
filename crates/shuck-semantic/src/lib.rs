@@ -199,6 +199,7 @@ pub struct SemanticCommandContext {
     flow: FlowContext,
     structural: bool,
     nested_word_command: bool,
+    nested_word_command_depth: usize,
     in_if_condition: bool,
     in_elif_condition: bool,
     condition_role: Option<CommandConditionRole>,
@@ -243,6 +244,11 @@ impl SemanticCommandContext {
     /// Whether this command came from a command-like expansion in a word.
     pub fn is_nested_word_command(&self) -> bool {
         self.nested_word_command
+    }
+
+    /// Number of command-like word-expansion regions enclosing this command.
+    pub fn nested_word_command_depth(&self) -> usize {
+        self.nested_word_command_depth
     }
 
     /// Whether this command is inside an `if` or `elif` condition list.
@@ -383,6 +389,14 @@ pub trait TraversalObserver<'a> {
         _stmt: &'a Stmt,
         _scope: ScopeId,
         _flow: FlowContext,
+    ) {
+    }
+
+    fn recorded_statement_sequence_command(
+        &mut self,
+        _body_span: Span,
+        _stmt_span: Span,
+        _id: CommandId,
     ) {
     }
 
@@ -2132,6 +2146,7 @@ fn build_command_topology(model: &SemanticModel) -> CommandTopology {
     let mut parent_ids = vec![None; command_count];
     let mut child_ids = vec![Vec::new(); command_count];
     let mut nested_region_command_ids = FxHashSet::default();
+    let mut nested_region_root_command_ids = FxHashSet::default();
 
     for id in ids.iter().copied() {
         let command = program.command(id);
@@ -2145,6 +2160,7 @@ fn build_command_topology(model: &SemanticModel) -> CommandTopology {
             &mut parent_ids,
             &mut child_ids,
             &mut nested_region_command_ids,
+            &mut nested_region_root_command_ids,
         );
     }
     let structural_parent_ids = parent_ids.clone();
@@ -2152,6 +2168,12 @@ fn build_command_topology(model: &SemanticModel) -> CommandTopology {
 
     attach_function_body_commands(model, &ids, &mut parent_ids, &mut child_ids);
     attach_containing_command_parents(model, &ids, &mut parent_ids, &mut child_ids);
+    let nested_region_depths = build_nested_region_depths(
+        command_count,
+        &parent_ids,
+        &child_ids,
+        &nested_region_root_command_ids,
+    );
 
     let mut structural_ids = ids
         .iter()
@@ -2186,6 +2208,7 @@ fn build_command_topology(model: &SemanticModel) -> CommandTopology {
         &syntax_backed_ids,
         &structural_ids,
         &nested_region_command_ids,
+        &nested_region_depths,
         &condition_contexts,
     );
 
@@ -2208,6 +2231,7 @@ fn build_command_contexts(
     syntax_backed_ids: &[CommandId],
     structural_ids: &[CommandId],
     nested_region_command_ids: &FxHashSet<CommandId>,
+    nested_region_depths: &[usize],
     condition_contexts: &[CommandConditionContext],
 ) -> Vec<Option<SemanticCommandContext>> {
     let program = model.recorded_program();
@@ -2233,6 +2257,7 @@ fn build_command_contexts(
             flow,
             structural: structural_ids.contains(&id),
             nested_word_command: nested_region_command_ids.contains(&id),
+            nested_word_command_depth: nested_region_depths[id.index()],
             in_if_condition: condition_contexts
                 .get(id.index())
                 .is_some_and(|context| context.in_if_condition),
@@ -2570,6 +2595,7 @@ fn record_command_children(
     parent_ids: &mut [Option<CommandId>],
     child_ids: &mut [Vec<CommandId>],
     nested_region_command_ids: &mut FxHashSet<CommandId>,
+    nested_region_root_command_ids: &mut FxHashSet<CommandId>,
 ) {
     let command = program.command(parent);
     for region in program.nested_regions(command.nested_regions) {
@@ -2577,6 +2603,7 @@ fn record_command_children(
             nested_region_command_ids.insert(child);
         }
         for child in program.commands_in(region.commands).iter().copied() {
+            nested_region_root_command_ids.insert(child);
             assign_command_parent(parent, child, parent_ids, child_ids);
         }
     }
@@ -2672,6 +2699,34 @@ fn would_create_command_parent_cycle(
         current = parent_ids[id.index()];
     }
     false
+}
+
+fn build_nested_region_depths(
+    command_count: usize,
+    parent_ids: &[Option<CommandId>],
+    child_ids: &[Vec<CommandId>],
+    nested_region_root_command_ids: &FxHashSet<CommandId>,
+) -> Vec<usize> {
+    let mut depths = vec![0; command_count];
+    let mut stack = Vec::new();
+    for index in (0..command_count).rev() {
+        let id = CommandId(index as u32);
+        if parent_ids[id.index()].is_none() {
+            stack.push((id, 0));
+        }
+    }
+    while let Some((id, depth)) = stack.pop() {
+        depths[id.index()] = depth;
+        for child in child_ids[id.index()].iter().rev().copied() {
+            let child_depth = if nested_region_root_command_ids.contains(&child) {
+                depth + 1
+            } else {
+                depth
+            };
+            stack.push((child, child_depth));
+        }
+    }
+    depths
 }
 
 fn commands_in_range_recursive(
