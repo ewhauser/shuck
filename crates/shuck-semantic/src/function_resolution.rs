@@ -3,7 +3,7 @@ use shuck_ast::{Name, Span};
 use smallvec::SmallVec;
 
 use crate::cfg::{CommandId, RecordedCommandKind, RecordedCommandRange, RecordedProgram};
-use crate::scope::ancestor_scopes;
+use crate::scope::{ancestor_scopes, enclosing_scope_matching};
 use crate::{Binding, BindingId, BindingKind, CallSite, Scope, ScopeId, SpanKey};
 
 pub(crate) struct FunctionBindingLookup<'a> {
@@ -332,8 +332,9 @@ impl FunctionCallResolver<'_> {
     }
 
     fn enclosing_function_scope(&self, scope: ScopeId) -> Option<ScopeId> {
-        ancestor_scopes(self.scopes, scope)
-            .find(|scope_id| self.function_bindings_by_scope.contains_key(scope_id))
+        enclosing_scope_matching(self.scopes, scope, |scope_id, _| {
+            self.function_bindings_by_scope.contains_key(&scope_id)
+        })
     }
 
     fn scope_has_ancestor(&self, scope: ScopeId, ancestor: ScopeId) -> bool {
