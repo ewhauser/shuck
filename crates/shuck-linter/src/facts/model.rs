@@ -4,7 +4,7 @@ pub struct LinterFacts<'a> {
     commands: Vec<CommandFact<'a>>,
     command_fact_indices_by_id: Vec<Option<usize>>,
     structural_command_ids: Vec<CommandId>,
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     command_ids_by_span: CommandLookupIndex,
     command_ids_by_name_word_span: FxHashMap<FactSpan, CommandId>,
     innermost_command_ids_by_offset: CommandOffsetLookup,
@@ -378,12 +378,12 @@ impl<'a> LinterFacts<'a> {
             .unwrap_or(false)
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     fn command_id_for_stmt(&self, stmt: &Stmt) -> Option<CommandId> {
         self.command_id_for_command(&stmt.command)
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     fn command_id_for_command(&self, command: &Command) -> Option<CommandId> {
         command_id_for_command(command, &self.command_ids_by_span)
     }

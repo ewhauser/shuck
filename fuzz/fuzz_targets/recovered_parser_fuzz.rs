@@ -3,6 +3,7 @@
 #![no_main]
 
 mod common;
+mod recovered_common;
 
 use libfuzzer_sys::{Corpus, fuzz_target};
 use shuck_ast::Span;
@@ -14,8 +15,8 @@ fuzz_target!(|data: &[u8]| -> Corpus {
         Err(reject) => return reject,
     };
 
-    for dialect in common::PARSER_DIALECTS {
-        let (recovered, _indexer) = common::recovered_parse_and_index(input, dialect);
+    for dialect in recovered_common::PARSER_DIALECTS {
+        let (recovered, _indexer) = recovered_common::recovered_parse_and_index(input, dialect);
         validate_recovered_parse(input, &recovered);
     }
 
@@ -23,7 +24,7 @@ fuzz_target!(|data: &[u8]| -> Corpus {
 });
 
 fn validate_recovered_parse(source: &str, parse_result: &ParseResult) {
-    common::assert_span_valid(parse_result.file.span, source);
+    recovered_common::assert_span_valid(parse_result.file.span, source);
     if parse_result.status != ParseStatus::Fatal {
         assert_eq!(
             parse_result.file.span.end.offset,
@@ -33,7 +34,7 @@ fn validate_recovered_parse(source: &str, parse_result: &ParseResult) {
     }
 
     for diagnostic in &parse_result.diagnostics {
-        common::assert_span_valid(diagnostic.span, source);
+        recovered_common::assert_span_valid(diagnostic.span, source);
         assert!(
             !diagnostic.message.trim().is_empty(),
             "recovered parse diagnostics must have a message"
@@ -41,15 +42,15 @@ fn validate_recovered_parse(source: &str, parse_result: &ParseResult) {
     }
 
     for span in &parse_result.syntax_facts.zsh_brace_if_spans {
-        common::assert_span_valid(*span, source);
+        recovered_common::assert_span_valid(*span, source);
     }
 
     for span in &parse_result.syntax_facts.zsh_always_spans {
-        common::assert_span_valid(*span, source);
+        recovered_common::assert_span_valid(*span, source);
     }
 
     for part in &parse_result.syntax_facts.zsh_case_group_parts {
-        common::assert_span_valid(part.span, source);
+        recovered_common::assert_span_valid(part.span, source);
     }
 
     match parse_result.status {
@@ -85,6 +86,6 @@ fn validate_recovered_parse(source: &str, parse_result: &ParseResult) {
 }
 
 fn validate_non_overlapping_root_span(span: Span, source: &str) {
-    common::assert_span_valid(span, source);
+    recovered_common::assert_span_valid(span, source);
     assert_eq!(span.start.offset, 0, "root span should start at offset 0");
 }

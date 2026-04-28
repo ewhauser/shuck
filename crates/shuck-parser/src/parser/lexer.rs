@@ -718,7 +718,6 @@ impl<'a> PositionMap<'a> {
 /// constructors when dialect or zsh option state matters.
 #[derive(Clone)]
 pub struct Lexer<'a> {
-    #[allow(dead_code)] // Stored for error reporting in future
     input: &'a str,
     /// Current byte offset in the input/reinjected stream.
     offset: usize,

@@ -118,7 +118,6 @@ impl FunctionCliDispatchFacts {
         self.exported_from_case_cli
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn dispatcher_span(self) -> Option<Span> {
         self.dispatcher_span
     }

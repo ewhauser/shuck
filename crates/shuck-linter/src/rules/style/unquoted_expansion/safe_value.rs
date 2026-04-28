@@ -237,7 +237,7 @@ impl<'a> SafeValueIndex<'a> {
             .insert(FactSpan::new(span), certainty);
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub fn word_occurrence_is_safe(
         &mut self,
         fact: crate::WordOccurrenceRef<'_, 'a>,

@@ -3,8 +3,6 @@
 //! These types define the abstract syntax tree for bash scripts.
 //! All command nodes include source location spans for error messages and $LINENO.
 
-#![allow(dead_code)]
-
 use crate::{
     Name,
     span::{Position, Span, TextRange},

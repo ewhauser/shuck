@@ -834,6 +834,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             commands,
             command_fact_indices_by_id,
             structural_command_ids,
+            #[cfg(test)]
             command_ids_by_span,
             command_ids_by_name_word_span,
             innermost_command_ids_by_offset,

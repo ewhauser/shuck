@@ -37,8 +37,6 @@ pub(crate) struct EscapeScanMatch {
     source_kind: EscapeScanSourceKind,
     grep_style_argument: bool,
     tr_operand_argument: bool,
-    #[cfg_attr(not(test), allow(dead_code))]
-    host_contains_single_quoted_fragment: bool,
     inside_single_quoted_fragment: bool,
 }
 
@@ -63,11 +61,6 @@ impl EscapeScanMatch {
         self.tr_operand_argument
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn host_contains_single_quoted_fragment(self) -> bool {
-        self.host_contains_single_quoted_fragment
-    }
-
     pub(crate) fn inside_single_quoted_fragment(self) -> bool {
         self.inside_single_quoted_fragment
     }
@@ -78,7 +71,6 @@ struct EscapeScanMatchContext {
     source_kind: EscapeScanSourceKind,
     grep_style_argument: bool,
     tr_operand_argument: bool,
-    host_contains_single_quoted_fragment: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -134,11 +126,6 @@ pub(super) fn build_escape_scan_matches(
         }
 
         let word = occurrence_word(nodes, fact);
-        let host_contains_single_quoted_fragment = span_contains_single_quoted_fragment(
-            occurrence_span(nodes, fact),
-            &single_quoted_bounds,
-        );
-
         span_buffer.clear();
         word_spans::collect_word_literal_part_spans_excluding_parameter_operator_tails(
             word,
@@ -154,7 +141,6 @@ pub(super) fn build_escape_scan_matches(
                     source_kind: EscapeScanSourceKind::WordLiteralPart,
                     grep_style_argument,
                     tr_operand_argument,
-                    host_contains_single_quoted_fragment,
                 },
                 &single_quoted_bounds,
             );
@@ -189,10 +175,6 @@ pub(super) fn build_escape_scan_matches(
                     nodes,
                     fact,
                 ),
-                host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
-                    occurrence_span(nodes, fact),
-                    &single_quoted_bounds,
-                ),
             },
             &single_quoted_bounds,
         );
@@ -215,11 +197,6 @@ pub(super) fn build_escape_scan_matches(
             continue;
         }
 
-        let host_contains_single_quoted_fragment = span_contains_single_quoted_fragment(
-            occurrence_span(nodes, fact),
-            &single_quoted_bounds,
-        );
-
         span_buffer.clear();
         word_spans::collect_word_literal_scan_segments_excluding_expansions(
             occurrence_word(nodes, fact),
@@ -235,7 +212,6 @@ pub(super) fn build_escape_scan_matches(
                     source_kind: EscapeScanSourceKind::RedirectLiteralSegment,
                     grep_style_argument,
                     tr_operand_argument,
-                    host_contains_single_quoted_fragment,
                 },
                 &single_quoted_bounds,
             );
@@ -258,10 +234,6 @@ pub(super) fn build_escape_scan_matches(
                 source_kind: EscapeScanSourceKind::DynamicPathCommandName,
                 grep_style_argument: false,
                 tr_operand_argument: false,
-                host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
-                    span,
-                    &single_quoted_bounds,
-                ),
             },
             &single_quoted_bounds,
         );
@@ -276,10 +248,6 @@ pub(super) fn build_escape_scan_matches(
                 source_kind: EscapeScanSourceKind::PatternLiteral,
                 grep_style_argument: false,
                 tr_operand_argument: false,
-                host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
-                    *span,
-                    &single_quoted_bounds,
-                ),
             },
             &single_quoted_bounds,
         );
@@ -299,10 +267,6 @@ pub(super) fn build_escape_scan_matches(
                 source_kind,
                 grep_style_argument: false,
                 tr_operand_argument: false,
-                host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
-                    *span,
-                    &single_quoted_bounds,
-                ),
             },
             &single_quoted_bounds,
         );
@@ -317,10 +281,6 @@ pub(super) fn build_escape_scan_matches(
                 source_kind: EscapeScanSourceKind::BacktickFragment,
                 grep_style_argument: false,
                 tr_operand_argument: false,
-                host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
-                    fragment.span(),
-                    &single_quoted_bounds,
-                ),
             },
             &single_quoted_bounds,
         );
@@ -404,8 +364,6 @@ fn append_escape_scan_matches(
             source_kind: match_context.source_kind,
             grep_style_argument: match_context.grep_style_argument,
             tr_operand_argument: match_context.tr_operand_argument,
-            host_contains_single_quoted_fragment: match_context
-                .host_contains_single_quoted_fragment,
             inside_single_quoted_fragment: span_within_single_quoted_fragment(
                 report_span,
                 single_quoted_bounds,
@@ -451,15 +409,6 @@ fn is_regex_like_context(context: Option<ExpansionContext>) -> bool {
         context,
         Some(ExpansionContext::RegexOperand | ExpansionContext::StringTestOperand)
     )
-}
-
-fn span_contains_single_quoted_fragment(span: Span, bounds: &[SingleQuotedFragmentBounds]) -> bool {
-    let span_start = span.start.offset;
-    let span_end = span.end.offset;
-    let index = bounds.partition_point(|b| b.start < span_start);
-    bounds
-        .get(index)
-        .is_some_and(|b| b.start <= span_end && b.end <= span_end)
 }
 
 fn span_within_single_quoted_fragment(span: Span, bounds: &[SingleQuotedFragmentBounds]) -> bool {
@@ -637,7 +586,6 @@ echo "$(printf prefix'quoted'\n)"
                     .find(|escape| {
                         escape.escaped_byte() == b'n'
                             && escape.source_kind() == EscapeScanSourceKind::WordLiteralPart
-                            && escape.host_contains_single_quoted_fragment()
                     })
                     .expect("expected nested command word match");
 
