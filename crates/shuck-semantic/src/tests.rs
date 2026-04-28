@@ -550,6 +550,20 @@ fn function_definition_binding_lookup_uses_the_command_span() {
 }
 
 #[test]
+fn binding_lookup_uses_the_definition_span() {
+    let source = "foo=1\nbar=2\n";
+    let model = model(source);
+
+    for name in [Name::from("foo"), Name::from("bar")] {
+        let binding_id = model.bindings_for(&name)[0];
+        assert_eq!(
+            model.binding_for_definition_span(model.binding(binding_id).span),
+            Some(binding_id)
+        );
+    }
+}
+
+#[test]
 fn zsh_multi_name_function_lookup_works_through_any_alias() {
     let source = "flag=1\nfunction music itunes() { echo \"$flag\"; }\nitunes\n";
     let model = model_with_dialect(source, ShellDialect::Zsh);
