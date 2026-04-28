@@ -109,7 +109,7 @@ use crate::cfg::{
 use crate::dataflow::{DataflowContext, DataflowResult, ExactVariableDataflow};
 use crate::function_resolution::FunctionBindingLookup;
 use crate::runtime::RuntimePrelude;
-use crate::scope::ancestor_scopes;
+use crate::scope::{ancestor_scopes, enclosing_function_scope};
 use crate::source_closure::ImportedBindingContractSite;
 use crate::zsh_options::ZshOptionAnalysis;
 
@@ -1057,8 +1057,7 @@ impl SemanticModel {
     }
 
     pub fn enclosing_function_scope(&self, scope: ScopeId) -> Option<ScopeId> {
-        self.ancestor_scopes(scope)
-            .find(|scope| matches!(self.scope(*scope).kind, ScopeKind::Function(_)))
+        enclosing_function_scope(&self.scopes, scope)
     }
 
     fn previous_visible_binding_id_in_scope_chain(

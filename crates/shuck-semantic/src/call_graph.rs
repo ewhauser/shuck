@@ -3,7 +3,7 @@ use shuck_ast::{Name, Span};
 use smallvec::SmallVec;
 
 use crate::binding::Binding;
-use crate::scope::ancestor_scopes;
+use crate::scope::{ancestor_scopes, enclosing_function_scope};
 use crate::{BindingId, Scope, ScopeId, ScopeKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,8 +108,7 @@ pub(crate) fn build_call_graph(
 }
 
 fn is_in_function_scope(scopes: &[Scope], scope: ScopeId) -> bool {
-    ancestor_scopes(scopes, scope)
-        .any(|scope| matches!(scopes[scope.index()].kind, ScopeKind::Function(_)))
+    enclosing_function_scope(scopes, scope).is_some()
 }
 
 fn is_in_named_function_scope(scopes: &[Scope], scope: ScopeId, name: &Name) -> bool {

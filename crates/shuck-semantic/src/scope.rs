@@ -19,6 +19,23 @@ pub(crate) fn ancestor_scopes(
     std::iter::successors(Some(start), move |scope| scopes[scope.index()].parent)
 }
 
+pub(crate) fn enclosing_scope_matching<F>(
+    scopes: &[Scope],
+    start: ScopeId,
+    mut matches_scope: F,
+) -> Option<ScopeId>
+where
+    F: FnMut(ScopeId, &Scope) -> bool,
+{
+    ancestor_scopes(scopes, start).find(|scope| matches_scope(*scope, &scopes[scope.index()]))
+}
+
+pub(crate) fn enclosing_function_scope(scopes: &[Scope], start: ScopeId) -> Option<ScopeId> {
+    enclosing_scope_matching(scopes, start, |_, scope| {
+        matches!(scope.kind, ScopeKind::Function(_))
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Scope {
     pub id: ScopeId,
