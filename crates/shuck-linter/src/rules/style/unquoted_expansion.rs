@@ -1058,6 +1058,31 @@ wrapper() {
     }
 
     #[test]
+    fn reports_unquoted_expansions_after_all_branch_returns() {
+        let source = "\
+#!/bin/bash
+wrapper() {
+  local good=0
+  if cond; then
+    return $good
+  else
+    return $good
+  fi
+  return $good
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$good"]
+        );
+    }
+
+    #[test]
     fn reports_unquoted_expansions_after_deferred_exit_like_calls_resolved_by_later_helpers() {
         let source = "\
 #!/bin/sh
@@ -3358,6 +3383,26 @@ exit $?
     }
 
     #[test]
+    fn skips_nested_local_status_capture_returns() {
+        let source = "\
+#!/bin/sh
+prompt_set() {
+  face() {
+    local rc=$?
+
+    case \"$rc\" in
+      0) printf '%s' \"$1\" ;;
+      *) printf '%s' \"$2\" ; return $rc ;;
+    esac
+  }
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn skips_name_only_local_option_bindings() {
         let source = "\
 #!/bin/bash
@@ -3461,12 +3506,49 @@ cleanup() {
     }
 
     #[test]
+    fn skips_subshell_status_return_operands_with_safe_base() {
+        let source = "\
+#!/bin/bash
+cleanup()
+(
+  \\typeset __result
+  __result=0
+  run_task \"$@\" || __result=$?
+  next_step && final_step || __result=$?
+  return ${__result}
+)
+invoke_cleanup() {
+  cleanup \"$@\"
+}
+invoke_cleanup \"$@\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn skips_pid_capture_bindings() {
         let source = "\
 #!/bin/bash
 long_running_task &
 tarpid=$!
 counter=$(ps -A | grep $tarpid | wc -l)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_exit_arguments_with_only_numeric_bindings() {
+        let source = "\
+#!/bin/bash
+exit_code=1
+if [[ \"$1\" = retry ]]; then
+  exit_code=2
+fi
+exit ${exit_code}
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
@@ -4495,6 +4577,227 @@ fi
                 .collect::<Vec<_>>(),
             vec!["${DISK_SIZE}"]
         );
+    }
+
+    #[test]
+    fn reports_top_level_arguments_after_branch_unsafe_helper_calls() {
+        let source = "\
+#!/bin/bash
+DISK_SIZE=\"32G\"
+
+advanced_settings() {
+  DISK_SIZE=\"$(get_size)\"
+}
+
+start_script() {
+  if choose; then
+    :
+  else
+    advanced_settings
+  fi
+}
+
+start_script
+qm resize 100 scsi0 ${DISK_SIZE}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${DISK_SIZE}"]
+        );
+    }
+
+    #[test]
+    fn reports_top_level_arguments_after_recursive_unsafe_helper_calls() {
+        let source = "\
+#!/bin/bash
+DISK_SIZE=\"32G\"
+
+advanced_settings() {
+  if choose_again; then
+    advanced_settings
+  fi
+  DISK_SIZE=\"$(get_size)\"
+}
+
+start_script() {
+  if choose; then
+    :
+  else
+    advanced_settings
+  fi
+}
+
+start_script
+qm resize 100 scsi0 ${DISK_SIZE}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${DISK_SIZE}"]
+        );
+    }
+
+    #[test]
+    fn reports_local_bindings_initialized_via_called_helpers() {
+        let source = "\
+#!/bin/bash
+setup() {
+  mode=NTSC
+}
+
+render() {
+  printf '%s\\n' $mode
+}
+
+main() {
+  local mode
+  setup
+  render
+  printf '%s\\n' $mode
+}
+
+main
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$mode", "$mode"]
+        );
+    }
+
+    #[test]
+    fn reports_status_capture_returns_into_caller_locals() {
+        let source = "\
+#!/bin/bash
+outer() {
+  local result=0
+  inner
+}
+
+inner() {
+  false ||
+  {
+    result=$?
+    return $result
+  }
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$result"]
+        );
+    }
+
+    #[test]
+    fn reports_subshell_status_capture_returns_into_caller_locals() {
+        let source = "\
+#!/bin/bash
+outer() {
+  local result=0
+  inner
+}
+
+inner() {
+  (
+    false ||
+    {
+      result=$?
+      return $result
+    }
+  )
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$result"]
+        );
+    }
+
+    #[test]
+    fn skips_sequential_status_capture_returns_into_caller_locals() {
+        let source = "\
+#!/bin/bash
+outer() {
+  local result=0
+  inner
+}
+
+inner() {
+  false
+  result=$?
+  return $result
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_subshell_sequential_status_capture_returns_into_caller_locals() {
+        let source = "\
+#!/bin/bash
+outer() {
+  local result=0
+  inner
+}
+
+inner() {
+  (
+    false
+    result=$?
+    return $result
+  )
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_branch_status_capture_when_caller_local_is_uninitialized() {
+        let source = "\
+#!/bin/bash
+outer() {
+  local result
+  inner
+}
+
+inner() {
+  false ||
+  {
+    result=$?
+    return $result
+  }
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]

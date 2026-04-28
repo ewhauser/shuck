@@ -5214,8 +5214,8 @@
     "status": "implemented",
     "hasKnownShellcheckDivergences": false,
     "severity": "Warning",
-    "fixStatus": "planned",
-    "fixAvailability": "none",
+    "fixStatus": "implemented",
+    "fixAvailability": "always",
     "fixSafety": "safe",
     "fixDescription": "Collapse the repeated spaces between `echo` arguments to a single separator space.",
     "examples": [
