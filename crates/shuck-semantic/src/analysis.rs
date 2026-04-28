@@ -179,6 +179,13 @@ impl<'model> SemanticAnalysis<'model> {
             .map(|(scope, bindings)| (*scope, bindings.as_slice()))
     }
 
+    pub fn direct_function_call_reachability<'analysis>(
+        &'analysis self,
+        supplemental_calls: impl IntoIterator<Item = FunctionCallCandidate>,
+    ) -> DirectFunctionCallReachability<'analysis, 'model> {
+        DirectFunctionCallReachability::new(self, supplemental_calls)
+    }
+
     #[doc(hidden)]
     pub fn block_ids_for_span(&self, span: Span) -> &[BlockId] {
         self.cfg().block_ids_for_span(span)

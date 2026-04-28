@@ -1,6 +1,6 @@
 use super::*;
 use crate::cfg::build_control_flow_graph;
-use shuck_ast::{Command, CompoundCommand};
+use shuck_ast::{Command, CompoundCommand, Position, Span};
 use shuck_indexer::Indexer;
 use shuck_parser::parser::{Parser, ShellDialect};
 use std::fs;
@@ -31,6 +31,20 @@ fn model_with_profile(source: &str, profile: ShellProfile) -> SemanticModel {
             ..SemanticBuildOptions::default()
         },
     )
+}
+
+fn span_for_nth(source: &str, needle: &str, index: usize) -> Span {
+    let start_offset = source
+        .match_indices(needle)
+        .nth(index)
+        .map(|(offset, _)| offset)
+        .unwrap();
+    let start = Position::new().advanced_by(&source[..start_offset]);
+    Span::from_positions(start, start.advanced_by(needle))
+}
+
+fn function_binding_id(model: &SemanticModel, name: &str, index: usize) -> BindingId {
+    model.function_definitions(&Name::from(name))[index]
 }
 
 fn command_id_starting_with(
@@ -1800,6 +1814,146 @@ printf '%s\\n' \"$(
     let site = &model.call_sites_for(&Name::from("target"))[0];
 
     assert!(analysis.call_site_runs_in_transient_context(site.scope));
+}
+
+#[test]
+fn function_call_reachability_finds_direct_call_before_cutoff() {
+    let source = "\
+target() { :; }
+target
+exit
+";
+    let model = model(source);
+    let binding = function_binding_id(&model, "target", 0);
+    let cutoff = span_for_nth(source, "exit", 0).start.offset;
+    let analysis = model.analysis();
+    let mut reachability = analysis.direct_function_call_reachability(Vec::new());
+
+    assert!(reachability.binding_has_reachable_direct_call(
+        binding,
+        DirectFunctionCallWindow::before_offset(cutoff)
+    ));
+}
+
+#[test]
+fn function_call_reachability_respects_between_offsets() {
+    let source = "\
+target() { :; }
+echo before
+target
+exit
+";
+    let model = model(source);
+    let binding = function_binding_id(&model, "target", 0);
+    let after = span_for_nth(source, "echo", 0).start.offset;
+    let before = span_for_nth(source, "exit", 0).start.offset;
+    let early_before = span_for_nth(source, "target", 1).start.offset - 1;
+    let analysis = model.analysis();
+    let mut reachability = analysis.direct_function_call_reachability(Vec::new());
+
+    assert!(reachability.binding_has_reachable_direct_call(
+        binding,
+        DirectFunctionCallWindow::between_offsets(after, before)
+    ));
+    assert!(!reachability.binding_has_reachable_direct_call(
+        binding,
+        DirectFunctionCallWindow::between_offsets(after, early_before)
+    ));
+}
+
+#[test]
+fn function_call_reachability_persistent_query_excludes_transient_calls() {
+    let source = "\
+target() { :; }
+value=$(target)
+";
+    let model = model(source);
+    let binding = function_binding_id(&model, "target", 0);
+    let analysis = model.analysis();
+    let mut reachability = analysis.direct_function_call_reachability(Vec::new());
+
+    assert!(reachability.binding_has_reachable_direct_call(
+        binding,
+        DirectFunctionCallWindow::before_offset(source.len())
+    ));
+    assert!(!reachability.binding_has_reachable_direct_call(
+        binding,
+        DirectFunctionCallWindow::before_offset(source.len()).persistent()
+    ));
+}
+
+#[test]
+fn function_call_reachability_follows_nested_function_activation() {
+    let source = "\
+target() { :; }
+wrapper() {
+  target
+}
+wrapper
+";
+    let model = model(source);
+    let binding = function_binding_id(&model, "target", 0);
+    let analysis = model.analysis();
+    let mut reachability = analysis.direct_function_call_reachability(Vec::new());
+
+    assert!(reachability.binding_has_reachable_direct_call(
+        binding,
+        DirectFunctionCallWindow::before_offset(source.len())
+    ));
+}
+
+#[test]
+fn function_call_reachability_blocks_prior_shadowed_binding() {
+    let source = "\
+target() { : old; }
+target() { : new; }
+target
+";
+    let model = model(source);
+    let first = function_binding_id(&model, "target", 0);
+    let second = function_binding_id(&model, "target", 1);
+    let analysis = model.analysis();
+    let mut reachability = analysis.direct_function_call_reachability(Vec::new());
+
+    assert!(!reachability.binding_has_reachable_direct_call(
+        first,
+        DirectFunctionCallWindow::before_offset(source.len())
+    ));
+    assert!(reachability.binding_has_reachable_direct_call(
+        second,
+        DirectFunctionCallWindow::before_offset(source.len())
+    ));
+}
+
+#[test]
+fn function_call_reachability_uses_supplemental_call_candidates() {
+    let source = "\
+target() { :; }
+command target
+";
+    let model = model(source);
+    let binding = function_binding_id(&model, "target", 0);
+    let target_span = span_for_nth(source, "target", 1);
+    let command_span = span_for_nth(source, "command target", 0);
+    let supplemental = vec![FunctionCallCandidate {
+        callee: Name::from("target"),
+        scope: model.scope_at(target_span.start.offset),
+        name_span: target_span,
+        command_span,
+    }];
+
+    let analysis = model.analysis();
+    let mut without_supplemental = analysis.direct_function_call_reachability(Vec::new());
+    assert!(!without_supplemental.binding_has_reachable_direct_call(
+        binding,
+        DirectFunctionCallWindow::before_offset(source.len())
+    ));
+
+    let mut with_supplemental = analysis.direct_function_call_reachability(supplemental);
+    assert!(with_supplemental.binding_has_reachable_direct_call(
+        binding,
+        DirectFunctionCallWindow::before_offset(source.len())
+    ));
 }
 
 #[test]

@@ -2,7 +2,9 @@ use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::Name;
 use shuck_semantic::{
-    BindingKind, BindingOrigin, OverwrittenFunction as SemanticOverwrittenFunction, ScopeId,
+    BindingId, BindingKind, BindingOrigin, DirectFunctionCallReachability,
+    DirectFunctionCallWindow, FunctionCallCandidate, FunctionCallPersistence,
+    OverwrittenFunction as SemanticOverwrittenFunction, ScopeId,
     UnreachedFunction as SemanticUnreachedFunction, UnreachedFunctionReason,
 };
 
@@ -143,12 +145,6 @@ struct FunctionCutoff {
 }
 
 #[derive(Clone, Copy)]
-struct CompatCallFact {
-    scope: ScopeId,
-    span: shuck_ast::Span,
-}
-
-#[derive(Clone, Copy)]
 struct CompatUnsetCommandFact {
     scope: ScopeId,
     offset: usize,
@@ -168,7 +164,6 @@ struct CompatTopLevelControlFacts {
 }
 
 struct CompatStructuralFacts {
-    call_facts_by_name: CompatCallFactsByName,
     unset_commands_by_target: CompatUnsetCommandsByTarget,
     scopes_by_offset: FxHashMap<usize, ScopeId>,
     function_definition_offsets: FxHashSet<usize>,
@@ -182,18 +177,7 @@ struct CompatLoopCandidate {
     body_span: shuck_ast::Span,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct CompatCallResolutionKey {
-    binding: shuck_semantic::BindingId,
-    call_scope: ScopeId,
-    visibility_start: usize,
-    visibility_end: usize,
-    cfg_start: usize,
-    cfg_end: usize,
-}
-
-type CompatCallFactsByName = FxHashMap<String, Vec<CompatCallFact>>;
-type CompatFunctionBindingsByScope = FxHashMap<ScopeId, Vec<shuck_semantic::BindingId>>;
+type CompatFunctionBindingsByScope = FxHashMap<ScopeId, Vec<BindingId>>;
 type CompatUnsetCommandsByTarget = FxHashMap<String, Vec<CompatUnsetCommandFact>>;
 type CompatUnsetterFunctionsByTarget = FxHashMap<String, Vec<shuck_ast::Name>>;
 
@@ -202,51 +186,7 @@ struct CompatUnsetFacts {
     functions_by_target: CompatUnsetterFunctionsByTarget,
 }
 
-struct CompatReachState<'a> {
-    scope_run_cache: &'a mut FxHashMap<(ScopeId, usize), bool>,
-    scope_between_cache: &'a mut FxHashMap<(ScopeId, usize, usize), bool>,
-    call_resolution_cache: &'a mut FxHashMap<CompatCallResolutionKey, bool>,
-    call_facts_by_name: &'a CompatCallFactsByName,
-    function_bindings_by_scope: &'a CompatFunctionBindingsByScope,
-    activation_index: Option<&'a CompatActivationIndex>,
-}
-
-#[derive(Clone, Copy)]
-struct BoundaryCallWindow {
-    after_offset: usize,
-    before_offset: usize,
-    boundary_scope: ScopeId,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct CompatScopeActivation {
-    activation_offset: usize,
-    required_before_offset: usize,
-    persistent: bool,
-}
-
-struct CompatActivationIndex {
-    activations_by_scope: FxHashMap<ScopeId, Vec<CompatScopeActivation>>,
-}
-
-#[derive(Clone, Copy)]
-struct CompatActivationEdge {
-    target_scope: ScopeId,
-    target_binding_offset: usize,
-    call_offset: usize,
-    persistent: bool,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct CompatActivationEdgeKey {
-    target_binding: shuck_semantic::BindingId,
-    target_scope: ScopeId,
-    call_scope: ScopeId,
-    call_offset: usize,
-}
-
 fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts {
-    let mut calls = CompatCallFactsByName::default();
     let mut unset_commands_by_target = CompatUnsetCommandsByTarget::default();
     let mut scopes_by_offset = FxHashMap::<usize, ScopeId>::default();
     let mut function_definition_offsets = FxHashSet::<usize>::default();
@@ -273,17 +213,6 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
         let is_return = fact.effective_name_is("return");
         if is_return {
             return_offsets.insert(offset);
-        }
-
-        if !is_function && let Some(name) = fact.effective_name() {
-            let scope = fact.scope();
-            calls
-                .entry(name.to_owned())
-                .or_default()
-                .push(CompatCallFact {
-                    scope,
-                    span: fact.body_span(),
-                });
         }
 
         let apparent_loop_body_span = apparent_infinite_loop_body_span(checker, fact.command());
@@ -337,7 +266,6 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
         .collect();
 
     CompatStructuralFacts {
-        call_facts_by_name: calls,
         unset_commands_by_target,
         scopes_by_offset,
         function_definition_offsets,
@@ -349,244 +277,39 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
     }
 }
 
+fn build_supplemental_function_call_candidates(
+    checker: &Checker<'_>,
+) -> Vec<FunctionCallCandidate> {
+    checker
+        .facts()
+        .structural_commands()
+        .filter(|fact| !matches!(fact.command(), shuck_ast::Command::Function(_)))
+        .filter_map(|fact| {
+            let callee = fact.effective_name()?;
+            Some(FunctionCallCandidate {
+                callee: Name::from(callee),
+                scope: fact.scope(),
+                name_span: fact.body_span(),
+                command_span: fact.body_span(),
+            })
+        })
+        .collect()
+}
+
+fn build_direct_function_call_reachability<'checker, 'model>(
+    checker: &'checker Checker<'model>,
+) -> DirectFunctionCallReachability<'checker, 'model> {
+    checker
+        .semantic_analysis()
+        .direct_function_call_reachability(build_supplemental_function_call_candidates(checker))
+}
+
 fn build_compat_function_bindings_by_scope(checker: &Checker<'_>) -> CompatFunctionBindingsByScope {
     checker
         .semantic_analysis()
         .function_bindings_by_scope()
         .map(|(scope, bindings)| (scope, bindings.to_vec()))
         .collect()
-}
-
-fn build_compat_activation_index(
-    checker: &Checker<'_>,
-    call_facts_by_name: &CompatCallFactsByName,
-    function_bindings_by_scope: &CompatFunctionBindingsByScope,
-    call_resolution_cache: &mut FxHashMap<CompatCallResolutionKey, bool>,
-) -> CompatActivationIndex {
-    let edges_by_caller = build_compat_activation_edges_by_caller(
-        checker,
-        call_facts_by_name,
-        function_bindings_by_scope,
-        call_resolution_cache,
-    );
-    let mut index = CompatActivationIndex {
-        activations_by_scope: FxHashMap::default(),
-    };
-    let mut pending = Vec::new();
-
-    for edge in edges_by_caller
-        .get(&None)
-        .into_iter()
-        .flat_map(|edges| edges.iter())
-    {
-        if edge.call_offset <= edge.target_binding_offset {
-            continue;
-        }
-        let activation = CompatScopeActivation {
-            activation_offset: edge.call_offset,
-            required_before_offset: edge.call_offset,
-            persistent: edge.persistent,
-        };
-        if index.insert(edge.target_scope, activation) {
-            pending.push((edge.target_scope, activation));
-        }
-    }
-
-    while let Some((scope, activation)) = pending.pop() {
-        if !index.contains(scope, activation) {
-            continue;
-        }
-        for edge in edges_by_caller
-            .get(&Some(scope))
-            .into_iter()
-            .flat_map(|edges| edges.iter())
-        {
-            if activation.activation_offset <= edge.target_binding_offset {
-                continue;
-            }
-            let next = CompatScopeActivation {
-                activation_offset: activation.activation_offset,
-                required_before_offset: activation.required_before_offset.max(edge.call_offset),
-                persistent: activation.persistent && edge.persistent,
-            };
-            if index.insert(edge.target_scope, next) {
-                pending.push((edge.target_scope, next));
-            }
-        }
-    }
-
-    index
-}
-
-fn build_compat_activation_edges_by_caller(
-    checker: &Checker<'_>,
-    call_facts_by_name: &CompatCallFactsByName,
-    function_bindings_by_scope: &CompatFunctionBindingsByScope,
-    call_resolution_cache: &mut FxHashMap<CompatCallResolutionKey, bool>,
-) -> FxHashMap<Option<ScopeId>, Vec<CompatActivationEdge>> {
-    let mut edges_by_caller = FxHashMap::<Option<ScopeId>, Vec<CompatActivationEdge>>::default();
-    let mut seen_edges = FxHashSet::<CompatActivationEdgeKey>::default();
-
-    for (target_scope, binding_ids) in function_bindings_by_scope {
-        for target_binding in binding_ids {
-            let binding = checker.semantic().binding(*target_binding);
-            for fact in call_facts_by_name
-                .get(binding.name.as_str())
-                .into_iter()
-                .flat_map(|facts| facts.iter())
-            {
-                add_compat_activation_edge(
-                    checker,
-                    *target_binding,
-                    *target_scope,
-                    binding.span.start.offset,
-                    fact.scope,
-                    fact.span.start.offset,
-                    fact.span,
-                    fact.span,
-                    call_resolution_cache,
-                    &mut seen_edges,
-                    &mut edges_by_caller,
-                );
-            }
-            for site in checker.semantic().call_sites_for(&binding.name) {
-                add_compat_activation_edge(
-                    checker,
-                    *target_binding,
-                    *target_scope,
-                    binding.span.start.offset,
-                    site.scope,
-                    site.name_span.start.offset,
-                    site.name_span,
-                    site.span,
-                    call_resolution_cache,
-                    &mut seen_edges,
-                    &mut edges_by_caller,
-                );
-            }
-        }
-    }
-
-    edges_by_caller
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "keeps activation edge construction local"
-)]
-fn add_compat_activation_edge(
-    checker: &Checker<'_>,
-    target_binding: shuck_semantic::BindingId,
-    target_scope: ScopeId,
-    target_binding_offset: usize,
-    call_scope: ScopeId,
-    call_offset: usize,
-    visibility_span: shuck_ast::Span,
-    cfg_span: shuck_ast::Span,
-    call_resolution_cache: &mut FxHashMap<CompatCallResolutionKey, bool>,
-    seen_edges: &mut FxHashSet<CompatActivationEdgeKey>,
-    edges_by_caller: &mut FxHashMap<Option<ScopeId>, Vec<CompatActivationEdge>>,
-) {
-    if !call_may_resolve_to_binding_cached_in(
-        call_resolution_cache,
-        checker,
-        target_binding,
-        call_scope,
-        visibility_span,
-        cfg_span,
-    ) {
-        return;
-    }
-
-    let key = CompatActivationEdgeKey {
-        target_binding,
-        target_scope,
-        call_scope,
-        call_offset,
-    };
-    if !seen_edges.insert(key) {
-        return;
-    }
-
-    let edge = CompatActivationEdge {
-        target_scope,
-        target_binding_offset,
-        call_offset,
-        persistent: !scope_has_transient_ancestor(checker, call_scope),
-    };
-    edges_by_caller
-        .entry(checker.semantic().enclosing_function_scope(call_scope))
-        .or_default()
-        .push(edge);
-}
-
-impl CompatActivationIndex {
-    fn insert(&mut self, scope: ScopeId, activation: CompatScopeActivation) -> bool {
-        let activations = self.activations_by_scope.entry(scope).or_default();
-        if activations
-            .iter()
-            .any(|existing| activation_dominates(*existing, activation))
-        {
-            return false;
-        }
-        activations.retain(|existing| !activation_dominates(activation, *existing));
-        activations.push(activation);
-        true
-    }
-
-    fn contains(&self, scope: ScopeId, activation: CompatScopeActivation) -> bool {
-        self.activations_by_scope
-            .get(&scope)
-            .is_some_and(|activations| activations.contains(&activation))
-    }
-
-    fn scope_can_run_before_offset(
-        &self,
-        checker: &Checker<'_>,
-        scope: ScopeId,
-        before_offset: usize,
-        persistent: bool,
-    ) -> bool {
-        let Some(function_scope) = checker.semantic().enclosing_function_scope(scope) else {
-            return true;
-        };
-        self.activations_by_scope
-            .get(&function_scope)
-            .is_some_and(|activations| {
-                activations.iter().any(|activation| {
-                    activation.required_before_offset <= before_offset
-                        && (!persistent || activation.persistent)
-                })
-            })
-    }
-
-    fn scope_can_run_between_offsets(
-        &self,
-        checker: &Checker<'_>,
-        scope: ScopeId,
-        after_offset: usize,
-        before_offset: usize,
-        persistent: bool,
-    ) -> bool {
-        let Some(function_scope) = checker.semantic().enclosing_function_scope(scope) else {
-            return true;
-        };
-        self.activations_by_scope
-            .get(&function_scope)
-            .is_some_and(|activations| {
-                activations.iter().any(|activation| {
-                    activation.activation_offset > after_offset
-                        && activation.required_before_offset <= before_offset
-                        && (!persistent || activation.persistent)
-                })
-            })
-    }
-}
-
-fn activation_dominates(left: CompatScopeActivation, right: CompatScopeActivation) -> bool {
-    left.activation_offset >= right.activation_offset
-        && left.required_before_offset <= right.required_before_offset
-        && (left.persistent || !right.persistent)
 }
 
 fn build_compat_script_terminator_facts(
@@ -676,9 +399,6 @@ fn build_compat_unset_facts(
 }
 
 fn report_compat_cutoff_function_definitions(checker: &mut Checker<'_>) {
-    let mut scope_run_cache = FxHashMap::default();
-    let mut scope_between_cache = FxHashMap::default();
-    let mut call_resolution_cache = FxHashMap::default();
     let structural_facts = build_compat_structural_facts(checker);
     let function_bindings_by_scope = build_compat_function_bindings_by_scope(checker);
     let unset_facts = build_compat_unset_facts(
@@ -687,20 +407,8 @@ fn report_compat_cutoff_function_definitions(checker: &mut Checker<'_>) {
         &structural_facts.unset_commands_by_target,
     );
     let script_terminators = build_compat_script_terminator_facts(checker, &structural_facts);
-    let activation_index = build_compat_activation_index(
-        checker,
-        &structural_facts.call_facts_by_name,
-        &function_bindings_by_scope,
-        &mut call_resolution_cache,
-    );
-    let mut reach = CompatReachState {
-        scope_run_cache: &mut scope_run_cache,
-        scope_between_cache: &mut scope_between_cache,
-        call_resolution_cache: &mut call_resolution_cache,
-        call_facts_by_name: &structural_facts.call_facts_by_name,
-        function_bindings_by_scope: &function_bindings_by_scope,
-        activation_index: Some(&activation_index),
-    };
+    let mut reach = build_direct_function_call_reachability(checker);
+    reach.enable_activation_index();
     let candidates = checker
         .semantic()
         .function_definition_bindings()
@@ -713,13 +421,8 @@ fn report_compat_cutoff_function_definitions(checker: &mut Checker<'_>) {
                 &script_terminators,
                 &structural_facts.top_level_control,
             )?;
-            (!has_direct_call_to_binding_before_offset_cached(
-                checker,
-                binding.id,
-                cutoff.offset,
-                &mut reach,
-            ))
-            .then(|| (binding.id, binding.name.to_string(), cutoff.reason))
+            (!binding_has_direct_call_before_offset(&mut reach, binding.id, cutoff.offset))
+                .then(|| (binding.id, binding.name.to_string(), cutoff.reason))
         })
         .collect::<Vec<_>>();
 
@@ -782,8 +485,8 @@ fn report_transient_shadowed_file_scope_definitions(checker: &mut Checker<'_>) {
 
 fn first_compat_cutoff_after_binding(
     checker: &Checker<'_>,
-    binding_id: shuck_semantic::BindingId,
-    reach: &mut CompatReachState<'_>,
+    binding_id: BindingId,
+    reach: &mut DirectFunctionCallReachability<'_, '_>,
     unset_facts: &CompatUnsetFacts,
     script_terminators: &[CompatScriptTerminatorFact],
     top_level_control: &CompatTopLevelControlFacts,
@@ -839,7 +542,7 @@ fn unset_function_cutoff_offsets(
     checker: &Checker<'_>,
     name: &str,
     after_offset: usize,
-    reach: &mut CompatReachState<'_>,
+    reach: &mut DirectFunctionCallReachability<'_, '_>,
     unset_facts: &CompatUnsetFacts,
 ) -> Vec<usize> {
     let mut offsets = unset_facts
@@ -850,12 +553,10 @@ fn unset_function_cutoff_offsets(
         .filter(|fact| {
             fact.offset > after_offset
                 && !command_offset_is_under_dominance_barrier(checker, fact.offset)
-                && command_scope_can_run_persistently_before_offset(
-                    checker,
+                && reach.scope_can_run_before_offset(
                     fact.scope,
                     fact.offset,
-                    reach,
-                    &mut FxHashSet::default(),
+                    FunctionCallPersistence::PersistentOnly,
                 )
         })
         .map(|fact| fact.offset)
@@ -877,12 +578,10 @@ fn unset_function_cutoff_offsets(
                     !command_offset_is_under_dominance_barrier(checker, site.name_span.start.offset)
                 })
                 .filter(|site| {
-                    command_scope_can_run_persistently_before_offset(
-                        checker,
+                    reach.scope_can_run_before_offset(
                         site.scope,
                         site.name_span.start.offset,
-                        reach,
-                        &mut FxHashSet::default(),
+                        FunctionCallPersistence::PersistentOnly,
                     )
                 })
                 .map(|site| site.name_span.start.offset),
@@ -920,9 +619,9 @@ fn command_offset_is_unreachable(checker: &Checker<'_>, offset: usize) -> bool {
 
 fn compat_script_terminator_offsets(
     checker: &Checker<'_>,
-    binding_id: shuck_semantic::BindingId,
+    binding_id: BindingId,
     after_offset: usize,
-    reach: &mut CompatReachState<'_>,
+    reach: &mut DirectFunctionCallReachability<'_, '_>,
     script_terminators: &[CompatScriptTerminatorFact],
 ) -> Vec<usize> {
     let binding = checker.semantic().binding(binding_id);
@@ -955,24 +654,20 @@ fn terminator_scope_can_cut_off_binding(
     binding_is_file_scope: bool,
     terminator_scope: ScopeId,
     terminator_offset: usize,
-    reach: &mut CompatReachState<'_>,
+    reach: &mut DirectFunctionCallReachability<'_, '_>,
 ) -> bool {
     if binding_is_file_scope && !checker.semantic_analysis().cfg().script_always_terminates() {
         return false;
     }
 
-    command_scope_can_run_before_offset(
-        checker,
+    reach.scope_can_run_before_offset(
         binding_scope,
         terminator_offset,
-        reach,
-        &mut FxHashSet::default(),
-    ) && command_scope_can_run_before_offset(
-        checker,
+        FunctionCallPersistence::Any,
+    ) && reach.scope_can_run_before_offset(
         terminator_scope,
         terminator_offset,
-        reach,
-        &mut FxHashSet::default(),
+        FunctionCallPersistence::Any,
     )
 }
 
@@ -988,751 +683,41 @@ fn scope_has_transient_ancestor(checker: &Checker<'_>, scope: ScopeId) -> bool {
 
 fn has_direct_call_to_binding_before_offset(
     checker: &Checker<'_>,
-    binding_id: shuck_semantic::BindingId,
+    binding_id: BindingId,
     before_offset: usize,
 ) -> bool {
-    let mut scope_run_cache = FxHashMap::default();
-    let mut scope_between_cache = FxHashMap::default();
-    let mut call_resolution_cache = FxHashMap::default();
-    let structural_facts = build_compat_structural_facts(checker);
-    let function_bindings_by_scope = build_compat_function_bindings_by_scope(checker);
-    let mut reach = CompatReachState {
-        scope_run_cache: &mut scope_run_cache,
-        scope_between_cache: &mut scope_between_cache,
-        call_resolution_cache: &mut call_resolution_cache,
-        call_facts_by_name: &structural_facts.call_facts_by_name,
-        function_bindings_by_scope: &function_bindings_by_scope,
-        activation_index: None,
-    };
-    has_direct_call_to_binding_before_offset_cached(checker, binding_id, before_offset, &mut reach)
+    let mut reach = build_direct_function_call_reachability(checker);
+    binding_has_direct_call_before_offset(&mut reach, binding_id, before_offset)
 }
 
-fn has_direct_call_to_binding_before_offset_cached(
-    checker: &Checker<'_>,
-    binding_id: shuck_semantic::BindingId,
+fn binding_has_direct_call_before_offset(
+    reach: &mut DirectFunctionCallReachability<'_, '_>,
+    binding_id: BindingId,
     before_offset: usize,
-    reach: &mut CompatReachState<'_>,
 ) -> bool {
-    let binding = checker.semantic().binding(binding_id);
-    let mut visiting = FxHashSet::default();
-    reach
-        .call_facts_by_name
-        .get(binding.name.as_str())
-        .into_iter()
-        .flat_map(|facts| facts.iter())
-        .any(|fact| {
-            call_may_resolve_to_binding_cached(
-                checker, reach, binding_id, fact.scope, fact.span, fact.span,
-            ) && call_can_reach_binding_before_offset(
-                checker,
-                fact.scope,
-                fact.span.start.offset,
-                binding.span.start.offset,
-                before_offset,
-                reach,
-                &mut visiting,
-            )
-        })
-        || checker
-            .semantic()
-            .call_sites_for(&binding.name)
-            .iter()
-            .any(|site| {
-                call_may_resolve_to_binding_cached(
-                    checker,
-                    reach,
-                    binding_id,
-                    site.scope,
-                    site.name_span,
-                    site.span,
-                ) && call_can_reach_binding_before_offset(
-                    checker,
-                    site.scope,
-                    site.name_span.start.offset,
-                    binding.span.start.offset,
-                    before_offset,
-                    reach,
-                    &mut visiting,
-                )
-            })
+    reach.binding_has_reachable_direct_call(
+        binding_id,
+        DirectFunctionCallWindow::before_offset(before_offset),
+    )
 }
 
 fn has_non_transient_direct_call_to_binding_between_offsets(
     checker: &Checker<'_>,
-    binding_id: shuck_semantic::BindingId,
+    binding_id: BindingId,
     after_offset: usize,
     before_offset: usize,
 ) -> bool {
-    let mut scope_run_cache = FxHashMap::default();
-    let mut scope_between_cache = FxHashMap::default();
-    let mut call_resolution_cache = FxHashMap::default();
-    let structural_facts = build_compat_structural_facts(checker);
-    let function_bindings_by_scope = build_compat_function_bindings_by_scope(checker);
-    let mut reach = CompatReachState {
-        scope_run_cache: &mut scope_run_cache,
-        scope_between_cache: &mut scope_between_cache,
-        call_resolution_cache: &mut call_resolution_cache,
-        call_facts_by_name: &structural_facts.call_facts_by_name,
-        function_bindings_by_scope: &function_bindings_by_scope,
-        activation_index: None,
-    };
-    let mut visiting = FxHashSet::default();
-    let binding = checker.semantic().binding(binding_id);
-
-    reach
-        .call_facts_by_name
-        .get(binding.name.as_str())
-        .into_iter()
-        .flat_map(|facts| facts.iter())
-        .any(|fact| {
-            let call_offset = fact.span.start.offset;
-            call_offset <= before_offset
-                && !scope_has_transient_ancestor(checker, fact.scope)
-                && call_may_resolve_to_binding_cached(
-                    checker, &mut reach, binding_id, fact.scope, fact.span, fact.span,
-                )
-                && call_scope_can_execute_after_offset_before_offset(
-                    checker,
-                    fact.scope,
-                    call_offset,
-                    after_offset,
-                    before_offset,
-                    &mut reach,
-                    &mut visiting,
-                )
-        })
-        || checker
-            .semantic()
-            .call_sites_for(&binding.name)
-            .iter()
-            .any(|site| {
-                let call_offset = site.name_span.start.offset;
-                call_offset <= before_offset
-                    && !scope_has_transient_ancestor(checker, site.scope)
-                    && call_may_resolve_to_binding_cached(
-                        checker,
-                        &mut reach,
-                        binding_id,
-                        site.scope,
-                        site.name_span,
-                        site.span,
-                    )
-                    && call_scope_can_execute_after_offset_before_offset(
-                        checker,
-                        site.scope,
-                        call_offset,
-                        after_offset,
-                        before_offset,
-                        &mut reach,
-                        &mut visiting,
-                    )
-            })
-}
-
-fn call_can_reach_binding_before_offset(
-    checker: &Checker<'_>,
-    call_scope: ScopeId,
-    call_offset: usize,
-    binding_offset: usize,
-    before_offset: usize,
-    reach: &mut CompatReachState<'_>,
-    visiting: &mut FxHashSet<ScopeId>,
-) -> bool {
-    if call_offset > before_offset {
-        return false;
-    }
-
-    call_scope_can_execute_after_offset_before_offset(
-        checker,
-        call_scope,
-        call_offset,
-        binding_offset,
-        before_offset,
-        reach,
-        visiting,
-    )
-}
-
-fn command_scope_can_run_between_offsets(
-    checker: &Checker<'_>,
-    scope: ScopeId,
-    after_offset: usize,
-    before_offset: usize,
-    reach: &mut CompatReachState<'_>,
-    visiting: &mut FxHashSet<ScopeId>,
-) -> bool {
-    if let Some(activation_index) = reach.activation_index {
-        return activation_index.scope_can_run_between_offsets(
-            checker,
-            scope,
-            after_offset,
-            before_offset,
-            false,
-        );
-    }
-
-    let Some(function_scope) = checker.semantic().enclosing_function_scope(scope) else {
-        return true;
-    };
-    if !visiting.contains(&function_scope)
-        && let Some(cached) =
-            reach
-                .scope_between_cache
-                .get(&(function_scope, after_offset, before_offset))
-    {
-        return *cached;
-    }
-    if !visiting.insert(function_scope) {
-        return false;
-    }
-
-    let can_run = reach
-        .function_bindings_by_scope
-        .get(&function_scope)
-        .into_iter()
-        .flat_map(|bindings| bindings.iter())
-        .any(|function_binding| {
-            has_call_to_function_binding_between_offsets(
-                checker,
-                *function_binding,
-                after_offset,
-                before_offset,
-                reach,
-                visiting,
-            )
-        });
-
-    visiting.remove(&function_scope);
-    reach
-        .scope_between_cache
-        .insert((function_scope, after_offset, before_offset), can_run);
-    can_run
-}
-
-fn has_call_to_function_binding_between_offsets(
-    checker: &Checker<'_>,
-    function_binding: shuck_semantic::BindingId,
-    after_offset: usize,
-    before_offset: usize,
-    reach: &mut CompatReachState<'_>,
-    visiting: &mut FxHashSet<ScopeId>,
-) -> bool {
-    let binding = checker.semantic().binding(function_binding);
-    let required_after = after_offset.max(binding.span.start.offset);
-    reach
-        .call_facts_by_name
-        .get(binding.name.as_str())
-        .into_iter()
-        .flat_map(|facts| facts.iter())
-        .any(|fact| {
-            let call_offset = fact.span.start.offset;
-            call_offset <= before_offset
-                && call_may_resolve_to_binding_cached(
-                    checker,
-                    reach,
-                    function_binding,
-                    fact.scope,
-                    fact.span,
-                    fact.span,
-                )
-                && call_scope_can_execute_after_offset_before_offset(
-                    checker,
-                    fact.scope,
-                    call_offset,
-                    required_after,
-                    before_offset,
-                    reach,
-                    visiting,
-                )
-        })
-        || checker
-            .semantic()
-            .call_sites_for(&binding.name)
-            .iter()
-            .any(|site| {
-                let call_offset = site.name_span.start.offset;
-                call_offset <= before_offset
-                    && call_may_resolve_to_binding_cached(
-                        checker,
-                        reach,
-                        function_binding,
-                        site.scope,
-                        site.name_span,
-                        site.span,
-                    )
-                    && call_scope_can_execute_after_offset_before_offset(
-                        checker,
-                        site.scope,
-                        call_offset,
-                        required_after,
-                        before_offset,
-                        reach,
-                        visiting,
-                    )
-            })
-}
-
-fn command_scope_can_run_before_offset(
-    checker: &Checker<'_>,
-    scope: ScopeId,
-    before_offset: usize,
-    reach: &mut CompatReachState<'_>,
-    visiting: &mut FxHashSet<ScopeId>,
-) -> bool {
-    if let Some(activation_index) = reach.activation_index {
-        return activation_index.scope_can_run_before_offset(checker, scope, before_offset, false);
-    }
-
-    let Some(function_scope) = checker.semantic().enclosing_function_scope(scope) else {
-        return true;
-    };
-    if !visiting.contains(&function_scope)
-        && let Some(cached) = reach.scope_run_cache.get(&(function_scope, before_offset))
-    {
-        return *cached;
-    }
-    if !visiting.insert(function_scope) {
-        return false;
-    }
-
-    let can_run = reach
-        .function_bindings_by_scope
-        .get(&function_scope)
-        .into_iter()
-        .flat_map(|bindings| bindings.iter())
-        .any(|function_binding| {
-            has_call_to_function_binding_before_offset(
-                checker,
-                *function_binding,
-                before_offset,
-                reach,
-                visiting,
-            )
-        });
-
-    visiting.remove(&function_scope);
-    reach
-        .scope_run_cache
-        .insert((function_scope, before_offset), can_run);
-    can_run
-}
-
-fn command_scope_can_run_persistently_before_offset(
-    checker: &Checker<'_>,
-    scope: ScopeId,
-    before_offset: usize,
-    reach: &mut CompatReachState<'_>,
-    visiting: &mut FxHashSet<ScopeId>,
-) -> bool {
-    if scope_has_transient_ancestor(checker, scope) {
-        return false;
-    }
-    if let Some(activation_index) = reach.activation_index {
-        return activation_index.scope_can_run_before_offset(checker, scope, before_offset, true);
-    }
-
-    let Some(function_scope) = checker.semantic().enclosing_function_scope(scope) else {
-        return true;
-    };
-    if !visiting.insert(function_scope) {
-        return false;
-    }
-
-    let can_run = reach
-        .function_bindings_by_scope
-        .get(&function_scope)
-        .into_iter()
-        .flat_map(|bindings| bindings.iter())
-        .any(|function_binding| {
-            has_persistent_call_to_function_binding_before_offset(
-                checker,
-                *function_binding,
-                before_offset,
-                reach,
-                visiting,
-            )
-        });
-
-    visiting.remove(&function_scope);
-    can_run
-}
-
-fn has_persistent_call_to_function_binding_before_offset(
-    checker: &Checker<'_>,
-    function_binding: shuck_semantic::BindingId,
-    before_offset: usize,
-    reach: &mut CompatReachState<'_>,
-    visiting: &mut FxHashSet<ScopeId>,
-) -> bool {
-    let binding = checker.semantic().binding(function_binding);
-    reach
-        .call_facts_by_name
-        .get(binding.name.as_str())
-        .into_iter()
-        .flat_map(|facts| facts.iter())
-        .any(|fact| {
-            fact.span.start.offset <= before_offset
-                && call_may_resolve_to_binding_cached(
-                    checker,
-                    reach,
-                    function_binding,
-                    fact.scope,
-                    fact.span,
-                    fact.span,
-                )
-                && call_scope_can_execute_persistently_after_offset_before_offset(
-                    checker,
-                    fact.scope,
-                    fact.span.start.offset,
-                    binding.span.start.offset,
-                    before_offset,
-                    reach,
-                    visiting,
-                )
-        })
-        || checker
-            .semantic()
-            .call_sites_for(&binding.name)
-            .iter()
-            .any(|site| {
-                site.name_span.start.offset <= before_offset
-                    && call_may_resolve_to_binding_cached(
-                        checker,
-                        reach,
-                        function_binding,
-                        site.scope,
-                        site.name_span,
-                        site.span,
-                    )
-                    && call_scope_can_execute_persistently_after_offset_before_offset(
-                        checker,
-                        site.scope,
-                        site.name_span.start.offset,
-                        binding.span.start.offset,
-                        before_offset,
-                        reach,
-                        visiting,
-                    )
-            })
-}
-
-fn command_scope_can_run_persistently_between_offsets(
-    checker: &Checker<'_>,
-    scope: ScopeId,
-    after_offset: usize,
-    before_offset: usize,
-    reach: &mut CompatReachState<'_>,
-    visiting: &mut FxHashSet<ScopeId>,
-) -> bool {
-    if scope_has_transient_ancestor(checker, scope) {
-        return false;
-    }
-    if let Some(activation_index) = reach.activation_index {
-        return activation_index.scope_can_run_between_offsets(
-            checker,
-            scope,
-            after_offset,
-            before_offset,
-            true,
-        );
-    }
-
-    let Some(function_scope) = checker.semantic().enclosing_function_scope(scope) else {
-        return true;
-    };
-    if !visiting.insert(function_scope) {
-        return false;
-    }
-
-    let can_run = reach
-        .function_bindings_by_scope
-        .get(&function_scope)
-        .into_iter()
-        .flat_map(|bindings| bindings.iter())
-        .any(|function_binding| {
-            has_persistent_call_to_function_binding_between_offsets(
-                checker,
-                *function_binding,
-                after_offset,
-                before_offset,
-                reach,
-                visiting,
-            )
-        });
-
-    visiting.remove(&function_scope);
-    can_run
-}
-
-fn has_persistent_call_to_function_binding_between_offsets(
-    checker: &Checker<'_>,
-    function_binding: shuck_semantic::BindingId,
-    after_offset: usize,
-    before_offset: usize,
-    reach: &mut CompatReachState<'_>,
-    visiting: &mut FxHashSet<ScopeId>,
-) -> bool {
-    let binding = checker.semantic().binding(function_binding);
-    let required_after = after_offset.max(binding.span.start.offset);
-    reach
-        .call_facts_by_name
-        .get(binding.name.as_str())
-        .into_iter()
-        .flat_map(|facts| facts.iter())
-        .any(|fact| {
-            let call_offset = fact.span.start.offset;
-            call_offset <= before_offset
-                && call_may_resolve_to_binding_cached(
-                    checker,
-                    reach,
-                    function_binding,
-                    fact.scope,
-                    fact.span,
-                    fact.span,
-                )
-                && call_scope_can_execute_persistently_after_offset_before_offset(
-                    checker,
-                    fact.scope,
-                    call_offset,
-                    required_after,
-                    before_offset,
-                    reach,
-                    visiting,
-                )
-        })
-        || checker
-            .semantic()
-            .call_sites_for(&binding.name)
-            .iter()
-            .any(|site| {
-                let call_offset = site.name_span.start.offset;
-                call_offset <= before_offset
-                    && call_may_resolve_to_binding_cached(
-                        checker,
-                        reach,
-                        function_binding,
-                        site.scope,
-                        site.name_span,
-                        site.span,
-                    )
-                    && call_scope_can_execute_persistently_after_offset_before_offset(
-                        checker,
-                        site.scope,
-                        call_offset,
-                        required_after,
-                        before_offset,
-                        reach,
-                        visiting,
-                    )
-            })
-}
-
-fn call_scope_can_execute_persistently_after_offset_before_offset(
-    checker: &Checker<'_>,
-    call_scope: ScopeId,
-    call_offset: usize,
-    after_offset: usize,
-    before_offset: usize,
-    reach: &mut CompatReachState<'_>,
-    visiting: &mut FxHashSet<ScopeId>,
-) -> bool {
-    if call_offset > before_offset || scope_has_transient_ancestor(checker, call_scope) {
-        return false;
-    }
-
-    if checker
-        .semantic()
-        .enclosing_function_scope(call_scope)
-        .is_none()
-    {
-        return call_offset > after_offset;
-    }
-
-    command_scope_can_run_persistently_between_offsets(
-        checker,
-        call_scope,
-        after_offset,
-        before_offset,
-        reach,
-        visiting,
-    )
-}
-
-fn has_call_to_function_binding_before_offset(
-    checker: &Checker<'_>,
-    function_binding: shuck_semantic::BindingId,
-    before_offset: usize,
-    reach: &mut CompatReachState<'_>,
-    visiting: &mut FxHashSet<ScopeId>,
-) -> bool {
-    let binding = checker.semantic().binding(function_binding);
-    reach
-        .call_facts_by_name
-        .get(binding.name.as_str())
-        .into_iter()
-        .flat_map(|facts| facts.iter())
-        .any(|fact| {
-            fact.span.start.offset <= before_offset
-                && call_may_resolve_to_binding_cached(
-                    checker,
-                    reach,
-                    function_binding,
-                    fact.scope,
-                    fact.span,
-                    fact.span,
-                )
-                && call_scope_can_execute_after_offset_before_offset(
-                    checker,
-                    fact.scope,
-                    fact.span.start.offset,
-                    binding.span.start.offset,
-                    before_offset,
-                    reach,
-                    visiting,
-                )
-        })
-        || checker
-            .semantic()
-            .call_sites_for(&binding.name)
-            .iter()
-            .any(|site| {
-                site.name_span.start.offset <= before_offset
-                    && call_may_resolve_to_binding_cached(
-                        checker,
-                        reach,
-                        function_binding,
-                        site.scope,
-                        site.name_span,
-                        site.span,
-                    )
-                    && call_scope_can_execute_after_offset_before_offset(
-                        checker,
-                        site.scope,
-                        site.name_span.start.offset,
-                        binding.span.start.offset,
-                        before_offset,
-                        reach,
-                        visiting,
-                    )
-            })
-}
-
-fn call_may_resolve_to_binding_cached(
-    checker: &Checker<'_>,
-    reach: &mut CompatReachState<'_>,
-    binding_id: shuck_semantic::BindingId,
-    call_scope: ScopeId,
-    visibility_span: shuck_ast::Span,
-    cfg_span: shuck_ast::Span,
-) -> bool {
-    call_may_resolve_to_binding_cached_in(
-        reach.call_resolution_cache,
-        checker,
+    let mut reach = build_direct_function_call_reachability(checker);
+    reach.binding_has_reachable_direct_call(
         binding_id,
-        call_scope,
-        visibility_span,
-        cfg_span,
-    )
-}
-
-fn call_may_resolve_to_binding_cached_in(
-    call_resolution_cache: &mut FxHashMap<CompatCallResolutionKey, bool>,
-    checker: &Checker<'_>,
-    binding_id: shuck_semantic::BindingId,
-    call_scope: ScopeId,
-    visibility_span: shuck_ast::Span,
-    cfg_span: shuck_ast::Span,
-) -> bool {
-    let key = CompatCallResolutionKey {
-        binding: binding_id,
-        call_scope,
-        visibility_start: visibility_span.start.offset,
-        visibility_end: visibility_span.end.offset,
-        cfg_start: cfg_span.start.offset,
-        cfg_end: cfg_span.end.offset,
-    };
-    if let Some(cached) = call_resolution_cache.get(&key) {
-        return *cached;
-    }
-
-    let resolved =
-        call_may_resolve_to_binding(checker, binding_id, call_scope, visibility_span, cfg_span);
-    call_resolution_cache.insert(key, resolved);
-    resolved
-}
-
-fn call_may_resolve_to_binding(
-    checker: &Checker<'_>,
-    binding_id: shuck_semantic::BindingId,
-    call_scope: ScopeId,
-    visibility_span: shuck_ast::Span,
-    cfg_span: shuck_ast::Span,
-) -> bool {
-    let binding = checker.semantic().binding(binding_id);
-    let has_prior_shadowing_function_definition =
-        checker.facts().function_headers().iter().any(|header| {
-            let Some((name, name_span)) = header.static_name_entry() else {
-                return false;
-            };
-            if name != &binding.name || name_span.start.offset >= visibility_span.start.offset {
-                return false;
-            }
-            if header.binding_id() == Some(binding_id) {
-                return false;
-            }
-            header.function_scope().is_some_and(|scope| {
-                checker
-                    .semantic()
-                    .ancestor_scopes(call_scope)
-                    .any(|ancestor| ancestor == scope)
-            })
-        });
-
-    checker
-        .semantic_analysis()
-        .function_call_may_resolve_to_binding(
-            binding_id,
-            call_scope,
-            visibility_span,
-            cfg_span,
-            has_prior_shadowing_function_definition,
-        )
-}
-
-fn call_scope_can_execute_after_offset_before_offset(
-    checker: &Checker<'_>,
-    call_scope: ScopeId,
-    call_offset: usize,
-    after_offset: usize,
-    before_offset: usize,
-    reach: &mut CompatReachState<'_>,
-    visiting: &mut FxHashSet<ScopeId>,
-) -> bool {
-    if call_offset > before_offset {
-        return false;
-    }
-
-    if checker
-        .semantic()
-        .enclosing_function_scope(call_scope)
-        .is_none()
-    {
-        return call_offset > after_offset;
-    }
-
-    command_scope_can_run_between_offsets(
-        checker,
-        call_scope,
-        after_offset,
-        before_offset,
-        reach,
-        visiting,
+        DirectFunctionCallWindow::between_offsets(after_offset, before_offset)
+            .require_non_transient_call(),
     )
 }
 
 fn report_function_definition(
     checker: &mut Checker<'_>,
-    binding_id: shuck_semantic::BindingId,
+    binding_id: BindingId,
     name: String,
     reason: FunctionNotReachedReason,
 ) {
@@ -1866,239 +851,22 @@ fn enclosing_function_scope_can_run_persistently(checker: &Checker<'_>, scope: S
         return false;
     }
 
-    let mut scope_run_cache = FxHashMap::default();
-    let mut scope_between_cache = FxHashMap::default();
-    let mut call_resolution_cache = FxHashMap::default();
-    let structural_facts = build_compat_structural_facts(checker);
-    let function_bindings_by_scope = build_compat_function_bindings_by_scope(checker);
-    let mut reach = CompatReachState {
-        scope_run_cache: &mut scope_run_cache,
-        scope_between_cache: &mut scope_between_cache,
-        call_resolution_cache: &mut call_resolution_cache,
-        call_facts_by_name: &structural_facts.call_facts_by_name,
-        function_bindings_by_scope: &function_bindings_by_scope,
-        activation_index: None,
-    };
-
-    command_scope_can_run_persistently_before_offset(
-        checker,
-        scope,
-        usize::MAX,
-        &mut reach,
-        &mut FxHashSet::default(),
-    )
+    let mut reach = build_direct_function_call_reachability(checker);
+    reach.scope_can_run_before_offset(scope, usize::MAX, FunctionCallPersistence::PersistentOnly)
 }
 
-fn has_direct_call_inside_enclosing_function(
-    checker: &Checker<'_>,
-    binding_id: shuck_semantic::BindingId,
-) -> bool {
+fn has_direct_call_inside_enclosing_function(checker: &Checker<'_>, binding_id: BindingId) -> bool {
     let binding = checker.semantic().binding(binding_id);
     let Some(enclosing_scope) = checker.semantic().enclosing_function_scope(binding.scope) else {
         return false;
     };
 
-    let mut scope_run_cache = FxHashMap::default();
-    let mut scope_between_cache = FxHashMap::default();
-    let mut call_resolution_cache = FxHashMap::default();
-    let structural_facts = build_compat_structural_facts(checker);
-    let function_bindings_by_scope = build_compat_function_bindings_by_scope(checker);
-    let mut reach = CompatReachState {
-        scope_run_cache: &mut scope_run_cache,
-        scope_between_cache: &mut scope_between_cache,
-        call_resolution_cache: &mut call_resolution_cache,
-        call_facts_by_name: &structural_facts.call_facts_by_name,
-        function_bindings_by_scope: &function_bindings_by_scope,
-        activation_index: None,
-    };
-    let mut visiting = FxHashSet::default();
-    let window = BoundaryCallWindow {
-        after_offset: binding.span.start.offset,
-        before_offset: usize::MAX,
-        boundary_scope: enclosing_scope,
-    };
-
-    reach
-        .call_facts_by_name
-        .get(binding.name.as_str())
-        .into_iter()
-        .flat_map(|facts| facts.iter())
-        .any(|fact| {
-            checker
-                .semantic()
-                .scope_is_in_scope_or_descendant(fact.scope, enclosing_scope)
-                && call_may_resolve_to_binding_cached(
-                    checker, &mut reach, binding_id, fact.scope, fact.span, fact.span,
-                )
-                && call_scope_can_execute_inside_boundary_after_offset_before_offset(
-                    checker,
-                    fact.scope,
-                    fact.span.start.offset,
-                    window,
-                    &mut reach,
-                    &mut visiting,
-                )
-        })
-        || checker
-            .semantic()
-            .call_sites_for(&binding.name)
-            .iter()
-            .any(|site| {
-                checker
-                    .semantic()
-                    .scope_is_in_scope_or_descendant(site.scope, enclosing_scope)
-                    && call_may_resolve_to_binding_cached(
-                        checker,
-                        &mut reach,
-                        binding_id,
-                        site.scope,
-                        site.name_span,
-                        site.span,
-                    )
-                    && call_scope_can_execute_inside_boundary_after_offset_before_offset(
-                        checker,
-                        site.scope,
-                        site.name_span.start.offset,
-                        window,
-                        &mut reach,
-                        &mut visiting,
-                    )
-            })
-}
-
-fn call_scope_can_execute_inside_boundary_after_offset_before_offset(
-    checker: &Checker<'_>,
-    call_scope: ScopeId,
-    call_offset: usize,
-    window: BoundaryCallWindow,
-    reach: &mut CompatReachState<'_>,
-    visiting: &mut FxHashSet<ScopeId>,
-) -> bool {
-    if call_offset > window.before_offset {
-        return false;
-    }
-
-    let Some(function_scope) = checker.semantic().enclosing_function_scope(call_scope) else {
-        return call_offset > window.after_offset;
-    };
-    if function_scope == window.boundary_scope {
-        return call_offset > window.after_offset;
-    }
-
-    command_scope_can_run_inside_boundary_between_offsets(
-        checker, call_scope, window, reach, visiting,
+    let mut reach = build_direct_function_call_reachability(checker);
+    reach.binding_has_reachable_direct_call(
+        binding_id,
+        DirectFunctionCallWindow::between_offsets(binding.span.start.offset, usize::MAX)
+            .within_scope(enclosing_scope),
     )
-}
-
-fn command_scope_can_run_inside_boundary_between_offsets(
-    checker: &Checker<'_>,
-    scope: ScopeId,
-    window: BoundaryCallWindow,
-    reach: &mut CompatReachState<'_>,
-    visiting: &mut FxHashSet<ScopeId>,
-) -> bool {
-    let Some(function_scope) = checker.semantic().enclosing_function_scope(scope) else {
-        return true;
-    };
-    if function_scope == window.boundary_scope {
-        return true;
-    }
-    if !checker
-        .semantic()
-        .scope_is_in_scope_or_descendant(function_scope, window.boundary_scope)
-    {
-        return false;
-    }
-    if !visiting.insert(function_scope) {
-        return false;
-    }
-
-    let can_run = reach
-        .function_bindings_by_scope
-        .get(&function_scope)
-        .into_iter()
-        .flat_map(|bindings| bindings.iter())
-        .any(|function_binding| {
-            has_call_to_function_binding_inside_boundary_between_offsets(
-                checker,
-                *function_binding,
-                window,
-                reach,
-                visiting,
-            )
-        });
-
-    visiting.remove(&function_scope);
-    can_run
-}
-
-fn has_call_to_function_binding_inside_boundary_between_offsets(
-    checker: &Checker<'_>,
-    function_binding: shuck_semantic::BindingId,
-    window: BoundaryCallWindow,
-    reach: &mut CompatReachState<'_>,
-    visiting: &mut FxHashSet<ScopeId>,
-) -> bool {
-    let binding = checker.semantic().binding(function_binding);
-    let nested_window = BoundaryCallWindow {
-        after_offset: window.after_offset.max(binding.span.start.offset),
-        ..window
-    };
-    reach
-        .call_facts_by_name
-        .get(binding.name.as_str())
-        .into_iter()
-        .flat_map(|facts| facts.iter())
-        .any(|fact| {
-            let call_offset = fact.span.start.offset;
-            call_offset <= window.before_offset
-                && checker
-                    .semantic()
-                    .scope_is_in_scope_or_descendant(fact.scope, window.boundary_scope)
-                && call_may_resolve_to_binding_cached(
-                    checker,
-                    reach,
-                    function_binding,
-                    fact.scope,
-                    fact.span,
-                    fact.span,
-                )
-                && call_scope_can_execute_inside_boundary_after_offset_before_offset(
-                    checker,
-                    fact.scope,
-                    call_offset,
-                    nested_window,
-                    reach,
-                    visiting,
-                )
-        })
-        || checker
-            .semantic()
-            .call_sites_for(&binding.name)
-            .iter()
-            .any(|site| {
-                let call_offset = site.name_span.start.offset;
-                call_offset <= window.before_offset
-                    && checker
-                        .semantic()
-                        .scope_is_in_scope_or_descendant(site.scope, window.boundary_scope)
-                    && call_may_resolve_to_binding_cached(
-                        checker,
-                        reach,
-                        function_binding,
-                        site.scope,
-                        site.name_span,
-                        site.span,
-                    )
-                    && call_scope_can_execute_inside_boundary_after_offset_before_offset(
-                        checker,
-                        site.scope,
-                        call_offset,
-                        nested_window,
-                        reach,
-                        visiting,
-                    )
-            })
 }
 
 fn has_apparent_infinite_loop_after(checker: &Checker<'_>, offset: usize) -> bool {
@@ -2191,13 +959,7 @@ fn enclosing_function_has_reportable_c063_diagnostic(
     has_unreached_diagnostic || has_overwrite_diagnostic || has_compat_cutoff_diagnostic
 }
 
-fn compat_cutoff_would_report_binding(
-    checker: &Checker<'_>,
-    binding_id: shuck_semantic::BindingId,
-) -> bool {
-    let mut scope_run_cache = FxHashMap::default();
-    let mut scope_between_cache = FxHashMap::default();
-    let mut call_resolution_cache = FxHashMap::default();
+fn compat_cutoff_would_report_binding(checker: &Checker<'_>, binding_id: BindingId) -> bool {
     let structural_facts = build_compat_structural_facts(checker);
     let function_bindings_by_scope = build_compat_function_bindings_by_scope(checker);
     let unset_facts = build_compat_unset_facts(
@@ -2206,14 +968,7 @@ fn compat_cutoff_would_report_binding(
         &structural_facts.unset_commands_by_target,
     );
     let script_terminators = build_compat_script_terminator_facts(checker, &structural_facts);
-    let mut reach = CompatReachState {
-        scope_run_cache: &mut scope_run_cache,
-        scope_between_cache: &mut scope_between_cache,
-        call_resolution_cache: &mut call_resolution_cache,
-        call_facts_by_name: &structural_facts.call_facts_by_name,
-        function_bindings_by_scope: &function_bindings_by_scope,
-        activation_index: None,
-    };
+    let mut reach = build_direct_function_call_reachability(checker);
     let Some(cutoff) = first_compat_cutoff_after_binding(
         checker,
         binding_id,
@@ -2225,7 +980,7 @@ fn compat_cutoff_would_report_binding(
         return false;
     };
 
-    !has_direct_call_to_binding_before_offset_cached(checker, binding_id, cutoff.offset, &mut reach)
+    !binding_has_direct_call_before_offset(&mut reach, binding_id, cutoff.offset)
 }
 
 #[cfg(test)]
