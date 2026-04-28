@@ -1524,10 +1524,10 @@ fn is_bash_file_slurp_command(command: &Command, redirects: &[Redirect], source:
     )
 }
 
-fn visit_command_argument_words_for_substitutions(
-    command: &Command,
+fn visit_command_argument_words_for_substitutions<'a>(
+    command: &'a Command,
     source: &str,
-    visitor: &mut impl FnMut(&Word),
+    visitor: &mut impl FnMut(&'a Word),
 ) {
     match command {
         Command::Simple(command) => {
@@ -1763,7 +1763,7 @@ fn visit_decl_operand_words_for_substitutions(
     }
 }
 
-fn visit_words_for_substitutions(words: &[Word], visitor: &mut impl FnMut(&Word)) {
+fn visit_words_for_substitutions<'a>(words: &'a [Word], visitor: &mut impl FnMut(&'a Word)) {
     for word in words {
         visitor(word);
     }

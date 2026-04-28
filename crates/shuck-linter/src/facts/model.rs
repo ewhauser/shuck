@@ -1173,29 +1173,14 @@ fn collect_scope_compat_command_substitution_name_uses(
     allow_quoted_derived_words: bool,
     uses: &mut Vec<ComparableNameUse>,
 ) {
-    for visit in iter_commands(
-        body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-    ) {
-        visit_command_substitution_loop_header_words(visit.command, &mut |word| {
-            push_scope_compat_command_substitution_word_use(
-                word,
-                source,
-                allow_quoted_derived_words,
-                uses,
-            );
-        });
-        visit_command_argument_words_for_substitutions(visit.command, source, &mut |word| {
-            push_scope_compat_command_substitution_word_use(
-                word,
-                source,
-                allow_quoted_derived_words,
-                uses,
-            );
-        });
-    }
+    visit_command_substitution_candidate_words(body, source, &mut |word| {
+        push_scope_compat_command_substitution_word_use(
+            word,
+            source,
+            allow_quoted_derived_words,
+            uses,
+        );
+    });
 }
 
 fn push_scope_compat_command_substitution_word_use(
