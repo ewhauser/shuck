@@ -648,7 +648,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         } = surface_fragments.finish();
         let function_positional_parameter_facts = build_function_positional_parameter_facts(
             self.semantic,
-            semantic_analysis,
             &commands,
             &positional_parameters,
         );
@@ -790,7 +789,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 &commands,
                 &command_fact_indices_by_id,
                 &innermost_command_ids_by_offset,
-                &subscript_later_suppression_reference_spans,
+                &subscript_later_suppression_spans,
             );
 
         let mut backtick_substitution_spans = word_spans::backtick_substitution_spans(source);
@@ -1065,23 +1064,27 @@ fn build_c006_suppressing_reference_offsets_by_name(
     commands: &[CommandFact<'_>],
     command_fact_indices_by_id: &[Option<usize>],
     innermost_command_ids_by_offset: &CommandOffsetLookup,
-    subscript_later_suppression_reference_spans: &FxHashSet<FactSpan>,
+    subscript_later_suppression_spans: &[Span],
 ) -> FxHashMap<Name, Vec<usize>> {
-    let mut offsets_by_name = FxHashMap::<Name, Vec<usize>>::default();
+    let mut offsets_by_name = semantic
+        .guarded_or_defaulting_reference_offsets_by_name()
+        .iter()
+        .map(|(name, offsets)| (name.clone(), offsets.to_vec()))
+        .collect::<FxHashMap<_, _>>();
 
-    for reference in semantic.references() {
-        if c006_reference_suppresses_later_references(
-            semantic,
-            commands,
-            command_fact_indices_by_id,
-            innermost_command_ids_by_offset,
-            subscript_later_suppression_reference_spans,
-            reference,
-        ) {
-            offsets_by_name
-                .entry(reference.name.clone())
-                .or_default()
-                .push(reference.span.start.offset);
+    for span in subscript_later_suppression_spans {
+        for reference in semantic.references_in_span(*span) {
+            if c006_subscript_reference_suppresses_later_references(
+                commands,
+                command_fact_indices_by_id,
+                innermost_command_ids_by_offset,
+                reference,
+            ) {
+                offsets_by_name
+                    .entry(reference.name.clone())
+                    .or_default()
+                    .push(reference.span.start.offset);
+            }
         }
     }
 
@@ -1093,36 +1096,12 @@ fn build_c006_suppressing_reference_offsets_by_name(
     offsets_by_name
 }
 
-fn c006_reference_suppresses_later_references(
-    semantic: &SemanticModel,
-    commands: &[CommandFact<'_>],
-    command_fact_indices_by_id: &[Option<usize>],
-    innermost_command_ids_by_offset: &CommandOffsetLookup,
-    subscript_later_suppression_reference_spans: &FxHashSet<FactSpan>,
-    reference: &Reference,
-) -> bool {
-    semantic.is_guarded_parameter_reference(reference.id)
-        || semantic.is_defaulting_parameter_operand_reference(reference.id)
-        || c006_subscript_reference_suppresses_later_references(
-            commands,
-            command_fact_indices_by_id,
-            innermost_command_ids_by_offset,
-            subscript_later_suppression_reference_spans,
-            reference,
-        )
-}
-
 fn c006_subscript_reference_suppresses_later_references(
     commands: &[CommandFact<'_>],
     command_fact_indices_by_id: &[Option<usize>],
     innermost_command_ids_by_offset: &CommandOffsetLookup,
-    subscript_later_suppression_reference_spans: &FxHashSet<FactSpan>,
     reference: &Reference,
 ) -> bool {
-    if !subscript_later_suppression_reference_spans.contains(&FactSpan::new(reference.span)) {
-        return false;
-    }
-
     precomputed_command_id_for_offset(
         innermost_command_ids_by_offset,
         reference.span.start.offset,

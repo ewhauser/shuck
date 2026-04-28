@@ -234,6 +234,33 @@ pub struct SyntheticRead {
     pub(crate) name: Name,
 }
 
+/// Summary of positional-parameter reads reachable from a function scope.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FunctionPositionalReferenceSummary {
+    required_arg_count: usize,
+    uses_unprotected_positional_parameters: bool,
+}
+
+#[allow(missing_docs)]
+impl FunctionPositionalReferenceSummary {
+    pub fn required_arg_count(self) -> usize {
+        self.required_arg_count
+    }
+
+    pub fn uses_unprotected_positional_parameters(self) -> bool {
+        self.uses_unprotected_positional_parameters
+    }
+
+    fn record_required_arg_count(&mut self, index: usize) {
+        self.required_arg_count = self.required_arg_count.max(index);
+        self.uses_unprotected_positional_parameters = true;
+    }
+
+    fn record_use(&mut self) {
+        self.uses_unprotected_positional_parameters = true;
+    }
+}
+
 /// Behavior flags for unused-assignment analysis.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct UnusedAssignmentAnalysisOptions {
@@ -506,6 +533,7 @@ pub struct SemanticModel {
     command_topology: OnceLock<CommandTopology>,
     references_sorted_by_start: OnceLock<Vec<ReferenceId>>,
     bindings_sorted_by_start: OnceLock<Vec<BindingId>>,
+    guarded_or_defaulting_reference_offsets_by_name: OnceLock<FxHashMap<Name, Box<[usize]>>>,
     declarations_by_command_span: OnceLock<FxHashMap<SpanKey, usize>>,
     unconditional_function_bindings: OnceLock<FxHashSet<BindingId>>,
     function_bindings_by_scope: OnceLock<FxHashMap<ScopeId, SmallVec<[BindingId; 2]>>>,
@@ -693,6 +721,7 @@ impl SemanticModel {
             command_topology: OnceLock::new(),
             references_sorted_by_start: OnceLock::new(),
             bindings_sorted_by_start: OnceLock::new(),
+            guarded_or_defaulting_reference_offsets_by_name: OnceLock::new(),
             declarations_by_command_span: OnceLock::new(),
             unconditional_function_bindings: OnceLock::new(),
             function_bindings_by_scope: OnceLock::new(),
@@ -744,6 +773,68 @@ impl SemanticModel {
 
     pub fn references(&self) -> &[Reference] {
         &self.references
+    }
+
+    /// Returns guarded or defaulting reference offsets grouped by variable name.
+    ///
+    /// Backed by a lazily-built summary so repeated undefined-variable suppression
+    /// checks can reuse the same grouped offsets instead of rescanning `references()`.
+    pub fn guarded_or_defaulting_reference_offsets_by_name(
+        &self,
+    ) -> &FxHashMap<Name, Box<[usize]>> {
+        self.guarded_or_defaulting_reference_offsets_by_name
+            .get_or_init(|| {
+                build_guarded_or_defaulting_reference_offsets_by_name(
+                    &self.references,
+                    &self.guarded_parameter_refs,
+                    &self.defaulting_parameter_operand_refs,
+                )
+            })
+    }
+
+    /// Summarize unguarded positional-parameter reads by enclosing function scope.
+    ///
+    /// Callers can pass transient-scope `set --` offsets to exclude reads that are
+    /// masked by a nested local positional reset.
+    pub fn function_positional_reference_summary(
+        &self,
+        local_reset_offsets_by_scope: &FxHashMap<ScopeId, Vec<usize>>,
+    ) -> FxHashMap<ScopeId, FunctionPositionalReferenceSummary> {
+        let mut summaries = FxHashMap::<ScopeId, FunctionPositionalReferenceSummary>::default();
+
+        for (name, reference_ids) in &self.reference_index {
+            let Some(kind) = positional_parameter_reference_kind(name.as_str()) else {
+                continue;
+            };
+
+            for reference_id in reference_ids {
+                let reference = &self.references[reference_id.index()];
+                if self.is_guarded_parameter_reference(reference.id)
+                    || reference_has_local_positional_reset(
+                        self,
+                        reference.scope,
+                        reference.span.start.offset,
+                        local_reset_offsets_by_scope,
+                    )
+                {
+                    continue;
+                }
+
+                let Some(function_scope) = self.enclosing_function_scope(reference.scope) else {
+                    continue;
+                };
+
+                let entry = summaries.entry(function_scope).or_default();
+                match kind {
+                    PositionalParameterReferenceKind::Indexed(index) => {
+                        entry.record_required_arg_count(index);
+                    }
+                    PositionalParameterReferenceKind::Special => entry.record_use(),
+                }
+            }
+        }
+
+        summaries
     }
 
     /// Yield every reference whose span is fully contained within `outer`.
@@ -2569,10 +2660,71 @@ fn build_references_sorted_by_start(references: &[Reference]) -> Vec<ReferenceId
     ids
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PositionalParameterReferenceKind {
+    Indexed(usize),
+    Special,
+}
+
+fn positional_parameter_reference_kind(name: &str) -> Option<PositionalParameterReferenceKind> {
+    match name {
+        "@" | "*" | "#" => Some(PositionalParameterReferenceKind::Special),
+        "0" => None,
+        _ if name.chars().all(|ch| ch.is_ascii_digit()) => name
+            .parse::<usize>()
+            .ok()
+            .map(PositionalParameterReferenceKind::Indexed),
+        _ => None,
+    }
+}
+
+fn reference_has_local_positional_reset(
+    semantic: &SemanticModel,
+    scope: ScopeId,
+    offset: usize,
+    local_reset_offsets_by_scope: &FxHashMap<ScopeId, Vec<usize>>,
+) -> bool {
+    semantic
+        .transient_ancestor_scopes_within_function(scope)
+        .any(|transient_scope| {
+            local_reset_offsets_by_scope
+                .get(&transient_scope)
+                .is_some_and(|offsets| offsets.iter().any(|reset_offset| *reset_offset < offset))
+        })
+}
+
 fn build_bindings_sorted_by_start(bindings: &[Binding]) -> Vec<BindingId> {
     let mut ids: Vec<BindingId> = (0..bindings.len() as u32).map(BindingId).collect();
     ids.sort_by_key(|id| bindings[id.index()].span.start.offset);
     ids
+}
+
+fn build_guarded_or_defaulting_reference_offsets_by_name(
+    references: &[Reference],
+    guarded_parameter_refs: &FxHashSet<ReferenceId>,
+    defaulting_parameter_operand_refs: &FxHashSet<ReferenceId>,
+) -> FxHashMap<Name, Box<[usize]>> {
+    let mut offsets_by_name = FxHashMap::<Name, Vec<usize>>::default();
+
+    for reference in references {
+        if guarded_parameter_refs.contains(&reference.id)
+            || defaulting_parameter_operand_refs.contains(&reference.id)
+        {
+            offsets_by_name
+                .entry(reference.name.clone())
+                .or_default()
+                .push(reference.span.start.offset);
+        }
+    }
+
+    offsets_by_name
+        .into_iter()
+        .map(|(name, mut offsets)| {
+            offsets.sort_unstable();
+            offsets.dedup();
+            (name, offsets.into_boxed_slice())
+        })
+        .collect()
 }
 
 fn build_declarations_by_command_span(declarations: &[Declaration]) -> FxHashMap<SpanKey, usize> {
