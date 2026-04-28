@@ -33,7 +33,11 @@ pub fn append_to_array_as_string(checker: &mut Checker) {
                 return None;
             }
 
-            let prior_binding = previous_visible_binding(semantic, binding)?;
+            let prior_binding = semantic.previous_visible_binding(
+                &binding.name,
+                binding.span,
+                Some(binding.span),
+            )?;
             if !binding_is_array_like(prior_binding) {
                 return None;
             }
@@ -46,33 +50,6 @@ pub fn append_to_array_as_string(checker: &mut Checker) {
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || AppendToArrayAsString);
-}
-
-fn previous_visible_binding<'a>(
-    semantic: &'a shuck_semantic::SemanticModel,
-    binding: &Binding,
-) -> Option<&'a Binding> {
-    for scope_id in semantic.ancestor_scopes(binding.scope) {
-        let Some(scope) = semantic.scopes().iter().find(|scope| scope.id == scope_id) else {
-            continue;
-        };
-        let Some(candidates) = scope.bindings.get(&binding.name) else {
-            continue;
-        };
-
-        for candidate_id in candidates.iter().rev() {
-            let candidate = semantic.binding(*candidate_id);
-
-            if candidate.id == binding.id {
-                continue;
-            }
-            if candidate.span.start.offset <= binding.span.start.offset {
-                return Some(candidate);
-            }
-        }
-    }
-
-    None
 }
 
 fn binding_is_array_like(binding: &Binding) -> bool {

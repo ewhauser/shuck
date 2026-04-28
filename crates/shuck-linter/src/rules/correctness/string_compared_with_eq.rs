@@ -1,8 +1,9 @@
 use shuck_ast::{ConditionalBinaryOp, Name, Span, is_shell_variable_name, static_word_text};
 use shuck_parser::text_is_self_contained_arithmetic_expression;
-use shuck_semantic::{BindingAttributes, BindingKind};
 
 use crate::{Checker, ConditionalNodeFact, ConditionalOperandFact, Rule, Violation, WordQuote};
+
+use super::variable_reference_common::binding_defines_variable_name_at;
 
 pub struct StringComparedWithEq;
 
@@ -125,23 +126,8 @@ fn looks_like_defined_variable_name(checker: &Checker<'_>, text: &str, span: Spa
         .copied()
         .any(|binding_id| {
             let binding = checker.semantic().binding(binding_id);
-            if binding
-                .attributes
-                .contains(BindingAttributes::IMPORTED_FUNCTION)
-                || matches!(binding.kind, BindingKind::FunctionDefinition)
-            {
-                return false;
-            }
-
-            if binding.span.start.offset == span.start.offset {
-                return false;
-            }
-
-            let imported_binding = binding.attributes.intersects(
-                BindingAttributes::IMPORTED_POSSIBLE | BindingAttributes::IMPORTED_FILE_ENTRY,
-            ) || matches!(binding.kind, BindingKind::Imported);
-
-            !imported_binding || checker.semantic().binding_visible_at(binding_id, span)
+            binding.span.start.offset != span.start.offset
+                && binding_defines_variable_name_at(checker, binding, span)
         })
 }
 
