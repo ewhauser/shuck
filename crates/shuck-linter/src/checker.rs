@@ -17,6 +17,7 @@ pub struct Checker<'a> {
     indexer: &'a Indexer,
     file: &'a File,
     source: &'a str,
+    command_visits_by_id: Vec<Option<crate::facts::CommandVisit<'a>>>,
     facts: OnceLock<LinterFacts<'a>>,
     rules: &'a RuleSet,
     shell: ShellDialect,
@@ -61,12 +62,44 @@ impl<'a> Checker<'a> {
         suppression_index: Option<&'a SuppressionIndex>,
         first_parse_error: Option<(usize, usize)>,
     ) -> Self {
+        Self::new_with_command_visits(
+            file,
+            source,
+            semantic,
+            indexer,
+            &[],
+            rules,
+            shell,
+            ambient_shell_options,
+            report_environment_style_names,
+            rule_options,
+            suppression_index,
+            first_parse_error,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_with_command_visits(
+        file: &'a File,
+        source: &'a str,
+        semantic: &'a SemanticModel,
+        indexer: &'a Indexer,
+        command_visits_by_id: &[Option<crate::facts::CommandVisit<'a>>],
+        rules: &'a RuleSet,
+        shell: ShellDialect,
+        ambient_shell_options: AmbientShellOptions,
+        report_environment_style_names: bool,
+        rule_options: LinterRuleOptions,
+        suppression_index: Option<&'a SuppressionIndex>,
+        first_parse_error: Option<(usize, usize)>,
+    ) -> Self {
         Self {
             semantic,
             semantic_analysis: semantic.analysis(),
             indexer,
             file,
             source,
+            command_visits_by_id: command_visits_by_id.to_vec(),
             facts: OnceLock::new(),
             rules,
             shell,
@@ -121,12 +154,24 @@ impl<'a> Checker<'a> {
     }
 
     fn build_facts(&self) -> LinterFacts<'a> {
+        if self.command_visits_by_id.is_empty() {
+            return LinterFacts::build_with_shell_and_ambient_shell_options(
+                self.file,
+                self.source,
+                self.semantic,
+                self.indexer,
+                self.shell,
+                self.ambient_shell_options,
+            );
+        }
+
         LinterFacts::build_with_semantic_analysis_shell_and_ambient_shell_options(
             self.file,
             self.source,
             self.semantic,
             &self.semantic_analysis,
             self.indexer,
+            &self.command_visits_by_id,
             self.shell,
             self.ambient_shell_options,
         )

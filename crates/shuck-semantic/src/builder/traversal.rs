@@ -23,6 +23,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             span,
             syntax_span: span,
             syntax_kind: None,
+            scope: None,
+            flow_context: None,
             nested_regions,
             kind,
         })
@@ -85,6 +87,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.recorded_program.command_mut(recorded).span = span;
         self.recorded_program.command_mut(recorded).syntax_kind =
             Some(CommandKind::from_command(&stmt.command));
+        self.recorded_program.command_mut(recorded).scope = Some(scope);
+        self.recorded_program.command_mut(recorded).flow_context = Some(context);
         let info = recorded_command_info(&stmt.command, self.source, self.runtime.bash_enabled());
         if !info.is_empty() {
             self.recorded_program
@@ -99,6 +103,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
 
         self.command_stack.pop();
+        self.observer
+            .recorded_command(recorded, stmt, scope, context);
         self.observer.exit_command(&stmt.command, scope);
         recorded
     }

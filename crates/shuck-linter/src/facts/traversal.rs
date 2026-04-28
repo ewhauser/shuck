@@ -27,10 +27,20 @@ struct CommandWalkOptions {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct CommandVisit<'a> {
-    stmt: &'a Stmt,
-    command: &'a Command,
-    redirects: &'a [Redirect],
+pub(super) struct CommandVisit<'a> {
+    pub(super) stmt: &'a Stmt,
+    pub(super) command: &'a Command,
+    pub(super) redirects: &'a [Redirect],
+}
+
+impl<'a> CommandVisit<'a> {
+    pub(super) fn new(stmt: &'a Stmt) -> Self {
+        Self {
+            stmt,
+            command: &stmt.command,
+            redirects: &stmt.redirects,
+        }
+    }
 }
 
 fn walk_commands<'a, F>(commands: &'a StmtSeq, options: CommandWalkOptions, visitor: &mut F)
@@ -43,6 +53,28 @@ where
         CommandTraversalContext::default(),
         visitor,
     );
+}
+
+fn collect_command_visits_by_id<'a>(
+    file: &'a File,
+    semantic: &SemanticModel,
+) -> Vec<Option<CommandVisit<'a>>> {
+    let mut visits = vec![None; semantic.command_count()];
+    walk_commands(
+        &file.body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |visit, _| {
+            if let Some(id) = semantic.command_by_span_and_kind(
+                command_span(visit.command),
+                shuck_semantic::CommandKind::from_command(visit.command),
+            ) {
+                visits[id.index()] = Some(visit);
+            }
+        },
+    );
+    visits
 }
 
 fn iter_commands<'a>(
@@ -302,11 +334,7 @@ fn collect_command_visit<'a, F>(
     F: FnMut(CommandVisit<'a>, CommandTraversalContext),
 {
     visitor(
-        CommandVisit {
-            stmt,
-            command: &stmt.command,
-            redirects: &stmt.redirects,
-        },
+        CommandVisit::new(stmt),
         context,
     );
 

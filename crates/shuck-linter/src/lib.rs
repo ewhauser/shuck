@@ -106,12 +106,12 @@ pub use suppression::{
 pub use violation::Violation;
 
 use rustc_hash::FxHashSet;
-use shuck_ast::{File, Position, Span, TextSize};
+use shuck_ast::{File, Position, Span, Stmt, TextSize};
 use shuck_indexer::{Indexer, LineIndex};
 use shuck_parser::parser::{ParseResult, Parser};
 use shuck_semantic::{
-    SemanticBuildOptions, SemanticModel, SourcePathResolver, TraversalObserver,
-    build_with_observer_with_options,
+    FlowContext, ScopeId, SemanticBuildOptions, SemanticModel, SourcePathResolver,
+    TraversalObserver, build_with_observer_with_options,
 };
 use std::path::Path;
 
@@ -124,17 +124,35 @@ pub struct AnalysisResult {
 }
 
 #[derive(Default)]
-struct LintTraversalObserver {
+struct LintTraversalObserver<'a> {
     diagnostics: Vec<Diagnostic>,
+    command_visits_by_id: Vec<Option<facts::CommandVisit<'a>>>,
 }
 
-impl LintTraversalObserver {
+impl<'a> LintTraversalObserver<'a> {
     fn into_diagnostics(self) -> Vec<Diagnostic> {
         self.diagnostics
     }
+
+    fn command_visits_by_id(&self) -> &[Option<facts::CommandVisit<'a>>] {
+        &self.command_visits_by_id
+    }
 }
 
-impl TraversalObserver for LintTraversalObserver {}
+impl<'a> TraversalObserver<'a> for LintTraversalObserver<'a> {
+    fn recorded_command(
+        &mut self,
+        id: CommandId,
+        stmt: &'a Stmt,
+        _scope: ScopeId,
+        _flow: FlowContext,
+    ) {
+        if self.command_visits_by_id.len() <= id.index() {
+            self.command_visits_by_id.resize(id.index() + 1, None);
+        }
+        self.command_visits_by_id[id.index()] = Some(facts::CommandVisit::new(stmt));
+    }
+}
 
 /// Builds semantic facts and linter diagnostics for a parsed file.
 pub fn analyze_file(
@@ -249,21 +267,25 @@ fn analyze_file_at_path_with_resolver_and_shell(
             resolve_source_closure: settings.resolve_source_closure,
         },
     );
-    let checker = Checker::new(
-        file,
-        source,
-        &semantic,
-        indexer,
-        &settings.rules,
-        shell,
-        settings.ambient_shell_options,
-        settings.report_environment_style_names,
-        settings.rule_options.clone(),
-        suppression_index,
-        first_parse_error,
-    );
+    let checker_diagnostics = {
+        let checker = Checker::new_with_command_visits(
+            file,
+            source,
+            &semantic,
+            indexer,
+            observer.command_visits_by_id(),
+            &settings.rules,
+            shell,
+            settings.ambient_shell_options,
+            settings.report_environment_style_names,
+            settings.rule_options.clone(),
+            suppression_index,
+            first_parse_error,
+        );
+        checker.check()
+    };
     let mut diagnostics = observer.into_diagnostics();
-    diagnostics.extend(checker.check());
+    diagnostics.extend(checker_diagnostics);
     for diagnostic in &mut diagnostics {
         if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
             diagnostic.severity = severity;

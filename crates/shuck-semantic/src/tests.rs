@@ -2505,6 +2505,76 @@ done
 }
 
 #[test]
+fn command_contexts_track_nested_words_and_condition_roles() {
+    let source = "\
+echo $(if probe; then inner; fi)
+cat < <(process)
+if outer; then ok; elif alt; then fallback; fi
+while guard; do break; done
+until stop; do done_cmd; done
+cat <<EOF
+$(heredoc_cmd)
+EOF
+";
+    let model = model(source);
+
+    let echo = model
+        .command_context(command_id_starting_with(&model, source, "echo").unwrap())
+        .unwrap();
+    assert!(!echo.is_nested_word_command());
+    assert!(echo.is_structural());
+    assert_eq!(echo.condition_role(), None);
+
+    let nested_if = model
+        .command_context(command_id_starting_with(&model, source, "if probe").unwrap())
+        .unwrap();
+    assert!(nested_if.is_nested_word_command());
+    assert_eq!(nested_if.condition_role(), None);
+
+    let probe = model
+        .command_context(command_id_starting_with(&model, source, "probe").unwrap())
+        .unwrap();
+    assert!(probe.is_nested_word_command());
+    assert!(probe.is_in_if_condition());
+    assert!(!probe.is_in_elif_condition());
+    assert_eq!(probe.condition_role(), Some(CommandConditionRole::If));
+
+    let process = model
+        .command_context(command_id_starting_with(&model, source, "process").unwrap())
+        .unwrap();
+    assert!(process.is_nested_word_command());
+
+    let outer = model
+        .command_context(command_id_starting_with(&model, source, "outer").unwrap())
+        .unwrap();
+    assert!(!outer.is_nested_word_command());
+    assert!(outer.is_in_if_condition());
+    assert_eq!(outer.condition_role(), Some(CommandConditionRole::If));
+
+    let alt = model
+        .command_context(command_id_starting_with(&model, source, "alt").unwrap())
+        .unwrap();
+    assert!(alt.is_in_if_condition());
+    assert!(alt.is_in_elif_condition());
+    assert_eq!(alt.condition_role(), Some(CommandConditionRole::Elif));
+
+    let guard = model
+        .command_context(command_id_starting_with(&model, source, "guard").unwrap())
+        .unwrap();
+    assert_eq!(guard.condition_role(), Some(CommandConditionRole::While));
+
+    let stop = model
+        .command_context(command_id_starting_with(&model, source, "stop").unwrap())
+        .unwrap();
+    assert_eq!(stop.condition_role(), Some(CommandConditionRole::Until));
+
+    let heredoc = model
+        .command_context(command_id_starting_with(&model, source, "heredoc_cmd").unwrap())
+        .unwrap();
+    assert!(heredoc.is_nested_word_command());
+}
+
+#[test]
 fn detects_overwritten_assignments_and_possible_uninitialized_reads() {
     let overwritten_source = "VAR=x\nVAR=y\necho $VAR\n";
     let overwritten = model(overwritten_source);

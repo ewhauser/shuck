@@ -37,13 +37,21 @@ pub enum EdgeKind {
     NestedRegion,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct FlowContext {
     pub in_function: bool,
     pub loop_depth: u32,
     pub in_subshell: bool,
     pub in_block: bool,
     pub exit_status_checked: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandConditionRole {
+    If,
+    Elif,
+    While,
+    Until,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -353,6 +361,8 @@ pub(crate) struct RecordedCommand {
     pub(crate) span: Span,
     pub(crate) syntax_span: Span,
     pub(crate) syntax_kind: Option<CommandKind>,
+    pub(crate) scope: Option<ScopeId>,
+    pub(crate) flow_context: Option<FlowContext>,
     pub(crate) nested_regions: RecordedRegionRange,
     pub(crate) kind: RecordedCommandKind,
 }
