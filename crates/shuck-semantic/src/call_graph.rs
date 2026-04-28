@@ -3,7 +3,7 @@ use shuck_ast::{Name, Span};
 use smallvec::SmallVec;
 
 use crate::binding::Binding;
-use crate::scope::{ancestor_scopes, enclosing_function_scope};
+use crate::scope::ancestor_scopes;
 use crate::{BindingId, Scope, ScopeId, ScopeKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,26 +50,37 @@ pub(crate) fn build_call_graph(
     functions: &FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
 ) -> CallGraph {
-    let mut reachable = FxHashSet::default();
-    let mut worklist = call_sites
-        .values()
-        .flat_map(|sites| sites.iter())
-        .filter(|site| !is_in_function_scope(scopes, site.scope))
-        .map(|site| site.callee.clone())
-        .collect::<Vec<_>>();
-
-    while let Some(name) = worklist.pop() {
-        if reachable.contains(name.as_str()) {
-            continue;
-        }
-        for sites in call_sites.values() {
-            for site in sites {
-                if is_in_named_function_scope(scopes, site.scope, &name) {
-                    worklist.push(site.callee.clone());
+    let mut callees_by_enclosing_function: FxHashMap<Name, Vec<Name>> = FxHashMap::default();
+    let mut top_level_callees: Vec<Name> = Vec::new();
+    for sites in call_sites.values() {
+        for site in sites {
+            let mut saw_function_ancestor = false;
+            for ancestor in ancestor_scopes(scopes, site.scope) {
+                if let ScopeKind::Function(function) = &scopes[ancestor.index()].kind {
+                    saw_function_ancestor = true;
+                    for fn_name in function.static_names() {
+                        callees_by_enclosing_function
+                            .entry(fn_name.clone())
+                            .or_default()
+                            .push(site.callee.clone());
+                    }
                 }
             }
+            if !saw_function_ancestor {
+                top_level_callees.push(site.callee.clone());
+            }
         }
-        reachable.insert(name);
+    }
+
+    let mut reachable = FxHashSet::default();
+    let mut worklist = top_level_callees;
+    while let Some(name) = worklist.pop() {
+        if !reachable.insert(name.clone()) {
+            continue;
+        }
+        if let Some(callees) = callees_by_enclosing_function.get(&name) {
+            worklist.extend(callees.iter().cloned());
+        }
     }
 
     let uncalled = functions
@@ -105,17 +116,4 @@ pub(crate) fn build_call_graph(
         uncalled,
         overwritten,
     }
-}
-
-fn is_in_function_scope(scopes: &[Scope], scope: ScopeId) -> bool {
-    enclosing_function_scope(scopes, scope).is_some()
-}
-
-fn is_in_named_function_scope(scopes: &[Scope], scope: ScopeId, name: &Name) -> bool {
-    ancestor_scopes(scopes, scope).any(|scope| {
-        matches!(
-            &scopes[scope.index()].kind,
-            ScopeKind::Function(function) if function.contains_name(name)
-        )
-    })
 }
