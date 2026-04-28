@@ -2606,6 +2606,25 @@ EOF
 }
 
 #[test]
+fn condition_contexts_do_not_flow_into_function_bodies() {
+    let source = "if helper() { echo body; }; then :; fi\n";
+    let model = model(source);
+
+    let helper = model
+        .command_context(command_id_starting_with(&model, source, "helper").unwrap())
+        .unwrap();
+    assert!(helper.is_in_if_condition());
+    assert_eq!(helper.condition_role(), Some(CommandConditionRole::If));
+
+    let body = model
+        .command_context(command_id_starting_with(&model, source, "echo body").unwrap())
+        .unwrap();
+    assert!(!body.is_in_if_condition());
+    assert!(!body.is_in_elif_condition());
+    assert_eq!(body.condition_role(), None);
+}
+
+#[test]
 fn detects_overwritten_assignments_and_possible_uninitialized_reads() {
     let overwritten_source = "VAR=x\nVAR=y\necho $VAR\n";
     let overwritten = model(overwritten_source);
