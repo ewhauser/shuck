@@ -941,15 +941,20 @@ fn escaped_braced_literal_reference_names(text: &str, span: Span) -> Vec<(Name, 
     references
 }
 
-fn span_is_escaped_parameter_template_name(word_span: Span, span: Span, source: &str) -> bool {
-    if span.start.offset < word_span.start.offset || span.start.offset >= word_span.end.offset {
-        return false;
+pub(super) fn escaped_parameter_template_body_starts(
+    word_span: Span,
+    source: &str,
+) -> SmallVec<[usize; 2]> {
+    let mut starts = SmallVec::new();
+    if word_span.start.offset >= word_span.end.offset {
+        return starts;
+    }
+    let text = word_span.slice(source);
+    if !text.contains("\\${") {
+        return starts;
     }
 
-    let text = word_span.slice(source);
-    let relative_offset = span.start.offset - word_span.start.offset;
     let mut index = 0usize;
-
     while index < text.len() {
         if text[index..].starts_with("\\${") {
             let dollar_offset = index + '\\'.len_utf8();
@@ -958,14 +963,13 @@ fn span_is_escaped_parameter_template_name(word_span: Span, span: Span, source: 
             {
                 let body_start = dollar_offset + "${".len();
                 let body_end = end_offset.saturating_sub('}'.len_utf8());
-                if relative_offset == body_start
-                    && relative_offset < body_end
-                    && text[relative_offset..]
+                if body_start < body_end
+                    && text[body_start..]
                         .chars()
                         .next()
                         .is_some_and(is_name_start_character)
                 {
-                    return true;
+                    starts.push(word_span.start.offset + body_start);
                 }
                 index = end_offset;
                 continue;
@@ -978,7 +982,7 @@ fn span_is_escaped_parameter_template_name(word_span: Span, span: Span, source: 
         index += ch.len_utf8();
     }
 
-    false
+    starts
 }
 
 fn escaped_parameter_template_end(text: &str, dollar_offset: usize) -> Option<usize> {

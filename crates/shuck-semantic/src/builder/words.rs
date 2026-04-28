@@ -185,8 +185,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
+        let escaped_template_starts =
+            escaped_parameter_template_body_starts(word_span, self.source);
         for part in parts {
-            if span_is_escaped_parameter_template_name(word_span, part.span, self.source) {
+            if !escaped_template_starts.is_empty()
+                && escaped_template_starts.contains(&part.span.start.offset)
+            {
                 continue;
             }
             self.visit_word_part(&part.kind, part.span, kind, flow, nested_regions);
