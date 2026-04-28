@@ -9,7 +9,8 @@ use shuck_ast::{
 };
 use shuck_semantic::{
     AssignmentValueOrigin, BindingAttributes, BindingKind, BindingOrigin, CallSite,
-    LoopValueOrigin, ScopeId, ScopeKind, SemanticAnalysis, SemanticModel, UninitializedCertainty,
+    LoopValueOrigin, ScopeId, ScopeKind, SemanticAnalysis, SemanticModel, SemanticValueFlow,
+    UninitializedCertainty,
 };
 use shuck_semantic::{BindingId, BlockId, ReferenceId};
 
@@ -92,14 +93,13 @@ impl SafeValueQuery {
 pub struct SafeValueIndex<'a> {
     semantic: &'a SemanticModel,
     analysis: &'a SemanticAnalysis<'a>,
+    value_flow: RefCell<SemanticValueFlow<'a, 'a>>,
     facts: &'a LinterFacts<'a>,
     source: &'a str,
     command_cover_memo: RefCell<FxHashMap<(crate::facts::CommandId, Name, FactSpan), bool>>,
     memo: FxHashMap<(FactSpan, FactSpan, SafeValueQuery, Option<ScopeId>), bool>,
     visiting: FxHashSet<(FactSpan, FactSpan, SafeValueQuery, Option<ScopeId>)>,
     binding_value_stack: Vec<BindingId>,
-    helper_binding_memo: FxHashMap<(Name, ScopeId, FactSpan), Box<[BindingId]>>,
-    helper_binding_visiting: FxHashSet<(Name, ScopeId, FactSpan)>,
     s001_unset_before_call_memo: FxHashMap<ScopeId, bool>,
     #[cfg(test)]
     uninitialized_reference_overrides: FxHashMap<FactSpan, UninitializedCertainty>,
@@ -115,14 +115,13 @@ impl<'a> SafeValueIndex<'a> {
         Self {
             semantic,
             analysis,
+            value_flow: RefCell::new(analysis.value_flow()),
             facts,
             source,
             command_cover_memo: RefCell::new(FxHashMap::default()),
             memo: FxHashMap::default(),
             visiting: FxHashSet::default(),
             binding_value_stack: Vec::new(),
-            helper_binding_memo: FxHashMap::default(),
-            helper_binding_visiting: FxHashSet::default(),
             s001_unset_before_call_memo: FxHashMap::default(),
             #[cfg(test)]
             uninitialized_reference_overrides: FxHashMap::default(),
@@ -2701,25 +2700,26 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn visible_bindings_for_name_without_helpers(&self, name: &Name, at: Span) -> Vec<BindingId> {
-        let mut bindings = self.analysis.reaching_bindings_for_name(name, at);
-        self.retain_value_bindings(&mut bindings);
-        if self.reference_id_for_name_at(name, at).is_none() {
-            let virtual_bindings = self.virtual_reaching_bindings_for_name(name, at);
-            if !virtual_bindings.is_empty() {
-                bindings = virtual_bindings;
-            }
-        }
-        if bindings.is_empty()
-            && let Some(binding_id) = self.latest_visible_value_binding_for_name(name, at)
-        {
-            bindings.push(binding_id);
-        }
+        let synthetic_use_block = self
+            .reference_id_for_name_at(name, at)
+            .is_none()
+            .then(|| self.block_for_name_reference_or_virtual_offset(name, at))
+            .flatten();
+        let mut bindings = self
+            .value_flow
+            .borrow()
+            .reaching_value_bindings_for_name_with_synthetic_use_block(
+                name,
+                at,
+                synthetic_use_block,
+            );
         if let Some(current_binding) = self.current_binding_value_for_name(name) {
             if bindings.contains(&current_binding) {
-                bindings = self
-                    .analysis
-                    .visible_bindings_bypassing(name, current_binding, at);
-                self.retain_value_bindings(&mut bindings);
+                bindings = self.value_flow.borrow().reaching_value_bindings_bypassing(
+                    name,
+                    current_binding,
+                    at,
+                );
                 if bindings.is_empty()
                     && let Some(previous) = self.semantic.previous_visible_binding(
                         name,
@@ -2736,10 +2736,10 @@ impl<'a> SafeValueIndex<'a> {
             return bindings;
         }
         if bindings.len() == 1 {
-            let mut expanded = self
-                .analysis
-                .visible_bindings_bypassing(name, bindings[0], at);
-            self.retain_value_bindings(&mut expanded);
+            let mut expanded =
+                self.value_flow
+                    .borrow()
+                    .reaching_value_bindings_bypassing(name, bindings[0], at);
             if !expanded.is_empty() {
                 expanded.push(bindings[0]);
                 expanded
@@ -2757,123 +2757,9 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn binding_can_supply_parameter_value(&self, binding_id: BindingId) -> bool {
-        let binding = self.semantic.binding(binding_id);
-        match binding.origin {
-            BindingOrigin::FunctionDefinition { .. } => false,
-            BindingOrigin::Declaration { .. } => {
-                self.binding_is_name_only_declaration(binding_id)
-                    || binding.attributes.intersects(
-                        BindingAttributes::DECLARATION_INITIALIZED | BindingAttributes::INTEGER,
-                    )
-            }
-            _ => true,
-        }
-    }
-
-    fn latest_visible_value_binding_for_name(&self, name: &Name, at: Span) -> Option<BindingId> {
-        self.semantic
-            .bindings_for(name)
-            .iter()
-            .copied()
-            .filter(|binding_id| self.binding_can_supply_parameter_value(*binding_id))
-            .filter(|binding_id| self.semantic.binding_visible_at(*binding_id, at))
-            .max_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset)
-    }
-
-    fn virtual_reaching_bindings_for_name(&self, name: &Name, at: Span) -> Vec<BindingId> {
-        let Some(reference_block) = self.block_for_name_reference_or_virtual_offset(name, at)
-        else {
-            return Vec::new();
-        };
-
-        let unreachable = self.analysis.unreachable_blocks();
-        let candidates = self
-            .semantic
-            .bindings_for(name)
-            .iter()
-            .copied()
-            .filter(|binding_id| self.binding_can_supply_parameter_value(*binding_id))
-            .filter(|binding_id| self.semantic.binding_visible_at(*binding_id, at))
-            .filter_map(|binding_id| {
-                let block_id = self.block_for_binding(binding_id)?;
-                (!unreachable.contains(&block_id)).then_some((binding_id, block_id))
-            })
-            .collect::<Vec<_>>();
-
-        let mut bindings = candidates
-            .iter()
-            .copied()
-            .filter(|(binding_id, binding_block)| {
-                !self.binding_is_shadowed_before_virtual_reference(
-                    *binding_id,
-                    *binding_block,
-                    at,
-                    &candidates,
-                ) && self.binding_block_reaches_virtual_reference(
-                    *binding_id,
-                    *binding_block,
-                    reference_block,
-                    &candidates,
-                    unreachable,
-                )
-            })
-            .map(|(binding_id, _)| binding_id)
-            .collect::<Vec<_>>();
-        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
-        bindings.dedup();
-        bindings
-    }
-
-    fn binding_is_shadowed_before_virtual_reference(
-        &self,
-        binding_id: BindingId,
-        binding_block: BlockId,
-        at: Span,
-        candidates: &[(BindingId, BlockId)],
-    ) -> bool {
-        let binding = self.semantic.binding(binding_id);
-        candidates.iter().any(|(other_id, other_block)| {
-            *other_id != binding_id && *other_block == binding_block && {
-                let other = self.semantic.binding(*other_id);
-                other.span.start.offset > binding.span.start.offset
-                    && other.span.start.offset < at.start.offset
-            }
-        })
-    }
-
-    fn binding_block_reaches_virtual_reference(
-        &self,
-        binding_id: BindingId,
-        binding_block: BlockId,
-        reference_block: BlockId,
-        candidates: &[(BindingId, BlockId)],
-        unreachable: &FxHashSet<BlockId>,
-    ) -> bool {
-        let blocked_blocks = candidates
-            .iter()
-            .copied()
-            .filter(|(other_id, _)| *other_id != binding_id)
-            .map(|(_, block_id)| block_id)
-            .collect::<FxHashSet<_>>();
-        let cfg = self.analysis.cfg();
-        let mut stack = vec![binding_block];
-        let mut seen = FxHashSet::default();
-        while let Some(block_id) = stack.pop() {
-            if block_id != binding_block && blocked_blocks.contains(&block_id) {
-                continue;
-            }
-            if block_id == reference_block {
-                return true;
-            }
-            if unreachable.contains(&block_id) || !seen.insert(block_id) {
-                continue;
-            }
-            for (successor, _) in cfg.successors(block_id) {
-                stack.push(*successor);
-            }
-        }
-
-        false
+        self.value_flow
+            .borrow()
+            .binding_can_supply_parameter_value(binding_id)
     }
 
     fn future_binding_can_reach_reference(
@@ -3120,71 +3006,9 @@ impl<'a> SafeValueIndex<'a> {
         scope: ScopeId,
         at: Span,
     ) -> Vec<BindingId> {
-        let caller_has_visible_local = self.scope_has_visible_local_binding_before(name, scope, at);
-
-        let key = (name.clone(), scope, FactSpan::new(at));
-        if let Some(cached) = self.helper_binding_memo.get(&key) {
-            return cached.to_vec();
-        }
-        if !self.helper_binding_visiting.insert(key.clone()) {
-            return Vec::new();
-        }
-
-        let mut bindings = self
-            .helper_bindings_called_in_scope_before(name, scope, at)
-            .into_iter()
-            .collect::<FxHashSet<_>>();
-
-        if !caller_has_visible_local
-            && let Some(caller_bindings) = self.helper_bindings_reaching_all_callers(name, scope)
-        {
-            bindings.extend(caller_bindings);
-        }
-
-        self.helper_binding_visiting.remove(&key);
-        let mut bindings = bindings.into_iter().collect::<Vec<_>>();
-        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
-        bindings.dedup();
-        self.helper_binding_memo
-            .insert(key, bindings.clone().into_boxed_slice());
-        bindings
-    }
-
-    fn helper_bindings_reaching_all_callers(
-        &mut self,
-        name: &Name,
-        scope: ScopeId,
-    ) -> Option<FxHashSet<BindingId>> {
-        let function_kind = self.named_function_kind(scope)?;
-        let mut caller_sites = Vec::new();
-        let mut seen_sites = FxHashSet::default();
-
-        for function_name in function_kind.static_names() {
-            for site in self.semantic.call_sites_for(function_name) {
-                if site.scope == scope {
-                    continue;
-                }
-                if seen_sites.insert((site.scope, site.span.start.offset, site.span.end.offset)) {
-                    caller_sites.push(site.clone());
-                }
-            }
-        }
-
-        let mut saw_caller = false;
-        let mut union = FxHashSet::default();
-        for site in caller_sites {
-            saw_caller = true;
-            let branch = self
-                .caller_branch_bindings_before(name, site.scope, site.span)
-                .into_iter()
-                .collect::<FxHashSet<_>>();
-            if branch.is_empty() {
-                return Some(FxHashSet::default());
-            }
-            union.extend(branch);
-        }
-
-        saw_caller.then_some(union)
+        self.value_flow
+            .borrow_mut()
+            .nonlocal_value_bindings_from_called_functions_before(name, scope, at)
     }
 
     fn helper_outer_bindings_cover_all_caller_paths(
@@ -3276,7 +3100,11 @@ impl<'a> SafeValueIndex<'a> {
         at: Span,
     ) -> Vec<BindingId> {
         let mut branch = self.visible_bindings_for_name_without_helpers(name, at);
-        branch.extend(self.caller_visible_bindings_before(name, scope, at));
+        branch.extend(
+            self.value_flow
+                .borrow()
+                .ancestor_value_bindings_before(name, scope, at),
+        );
         branch.extend(self.called_helper_bindings_before(name, scope, at));
         if matches!(self.semantic.scope(scope).kind, ScopeKind::File)
             && self.callsite_is_within_guarded_branch(at)
@@ -3294,32 +3122,6 @@ impl<'a> SafeValueIndex<'a> {
         branch.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
         branch.dedup();
         branch
-    }
-
-    fn caller_visible_bindings_before(
-        &self,
-        name: &Name,
-        scope: ScopeId,
-        at: Span,
-    ) -> Vec<BindingId> {
-        let visible_scopes = self
-            .semantic
-            .ancestor_scopes(scope)
-            .collect::<FxHashSet<_>>();
-        let mut bindings = self
-            .semantic
-            .bindings_for(name)
-            .iter()
-            .copied()
-            .filter(|binding_id| {
-                let binding = self.semantic.binding(*binding_id);
-                visible_scopes.contains(&binding.scope)
-                    && binding.span.end.offset <= at.start.offset
-            })
-            .collect::<Vec<_>>();
-        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
-        bindings.dedup();
-        bindings
     }
 
     fn callsite_is_within_guarded_branch(&self, at: Span) -> bool {
@@ -3492,49 +3294,6 @@ impl<'a> SafeValueIndex<'a> {
         })
     }
 
-    fn helper_bindings_called_in_scope_before(
-        &self,
-        name: &Name,
-        scope: ScopeId,
-        at: Span,
-    ) -> Vec<BindingId> {
-        let mut bindings = Vec::new();
-
-        for callee_scope in self.helper_scopes_providing_name(name) {
-            let Some(function_kind) = self.named_function_kind(callee_scope) else {
-                continue;
-            };
-
-            let called_before = function_kind.static_names().iter().any(|function_name| {
-                self.semantic
-                    .call_sites_for(function_name)
-                    .iter()
-                    .any(|site| {
-                        site.scope == scope
-                            && self.function_scope_resolves_at_call_site(
-                                callee_scope,
-                                function_name,
-                                site,
-                            )
-                            && self.call_site_dominates_use(site.span, name, at)
-                    })
-            });
-            if !called_before {
-                continue;
-            }
-
-            bindings.extend(self.semantic.bindings_for(name).iter().copied().filter(
-                |binding_id| {
-                    let binding = self.semantic.binding(*binding_id);
-                    binding.scope == callee_scope
-                        && !binding.attributes.contains(BindingAttributes::LOCAL)
-                },
-            ));
-        }
-
-        bindings
-    }
-
     fn collect_transitive_helper_bindings_before(
         &self,
         name: &Name,
@@ -3621,40 +3380,9 @@ impl<'a> SafeValueIndex<'a> {
         scope: ScopeId,
         limit_offset: usize,
     ) -> Vec<ScopeId> {
-        let mut scopes = Vec::new();
-        let mut seen_scopes = FxHashSet::default();
-
-        for header in self.facts.function_headers() {
-            let Some(callee_scope) = header.function_scope() else {
-                continue;
-            };
-            let Some(function_kind) = self.named_function_kind(callee_scope) else {
-                continue;
-            };
-            let Some(definition_command) = self.facts.function_definition_command(callee_scope)
-            else {
-                continue;
-            };
-
-            let called_before = function_kind.static_names().iter().any(|function_name| {
-                self.semantic
-                    .call_sites_for(function_name)
-                    .iter()
-                    .any(|site| {
-                        site.scope == scope
-                            && self.call_site_dominates_offset(site.span, limit_offset)
-                            && self.definition_command_resolves_at_call(
-                                definition_command.id(),
-                                site.span,
-                            )
-                    })
-            });
-            if called_before && seen_scopes.insert(callee_scope) {
-                scopes.push(callee_scope);
-            }
-        }
-
-        scopes
+        self.value_flow
+            .borrow()
+            .called_function_scopes_before(scope, limit_offset)
     }
 
     fn function_scope_end_offset(&self, scope: ScopeId) -> Option<usize> {
@@ -3921,48 +3649,29 @@ impl<'a> SafeValueIndex<'a> {
         bindings: &[BindingId],
         call_span: Span,
     ) -> bool {
-        let cfg = self.analysis.cfg();
-        let call_blocks = cfg
+        let call_blocks = self
+            .analysis
+            .cfg()
             .blocks()
             .iter()
             .filter(|block| block.commands.contains(&call_span))
             .map(|block| block.id)
             .collect::<FxHashSet<_>>();
-        if call_blocks.is_empty() {
-            return true;
-        }
-
-        let cover_blocks = bindings
+        let cover_bindings = bindings
             .iter()
             .copied()
-            .filter_map(|binding_id| {
-                let binding_block = self.block_for_binding(binding_id)?;
-                if (call_blocks.contains(&binding_block)
-                    && self.binding_is_guarded_before_reference(binding_id, call_span))
-                    || self.binding_is_one_sided_short_circuit_assignment(binding_id)
-                {
-                    None
-                } else {
-                    Some(binding_block)
-                }
+            .filter(|binding_id| {
+                let Some(binding_block) = self.block_for_binding(*binding_id) else {
+                    return false;
+                };
+                !((call_blocks.contains(&binding_block)
+                    && self.binding_is_guarded_before_reference(*binding_id, call_span))
+                    || self.binding_is_one_sided_short_circuit_assignment(*binding_id))
             })
-            .collect::<FxHashSet<_>>();
-        if !cover_blocks.is_disjoint(&call_blocks) {
-            return true;
-        }
-
-        let binding_scopes = bindings
-            .iter()
-            .copied()
-            .map(|binding_id| self.semantic.binding(binding_id).scope)
             .collect::<Vec<_>>();
-        let entry = self
-            .analysis
-            .flow_entry_block_for_binding_scopes(&binding_scopes, call_span.start.offset);
-        call_blocks.iter().copied().all(|call_block| {
-            self.analysis
-                .blocks_cover_all_paths_to_block(entry, call_block, &cover_blocks)
-        })
+        self.value_flow
+            .borrow()
+            .value_bindings_cover_all_paths_to_span(&cover_bindings, call_span)
     }
 
     fn reference_id_for_name_at(&self, name: &Name, at: Span) -> Option<ReferenceId> {

@@ -42,6 +42,8 @@ mod uninitialized;
 #[allow(missing_docs)]
 mod unused;
 #[allow(missing_docs)]
+mod value_flow;
+#[allow(missing_docs)]
 mod zsh_options;
 
 /// Binding types and provenance metadata discovered during semantic analysis.
@@ -84,6 +86,8 @@ pub use scope::{FunctionScopeKind, Scope, ScopeId, ScopeKind};
 pub use shuck_parser::{OptionValue, ShellProfile, ZshEmulationMode, ZshOptionState};
 /// Source-reference records and resolution state.
 pub use source_ref::{SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution};
+/// Value-flow query object built over semantic bindings, call sites, CFG, and dataflow.
+pub use value_flow::SemanticValueFlow;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command, File, Name, Span};

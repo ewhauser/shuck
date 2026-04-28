@@ -4477,6 +4477,183 @@ printf '%s\\n' \"$foo\"
 }
 
 #[test]
+fn value_flow_returns_real_reference_reaching_value_bindings() {
+    let source = "\
+#!/bin/bash
+foo=1
+foo=2
+printf '%s\\n' \"$foo\"
+";
+    let model = model(source);
+    let bindings = model
+        .bindings()
+        .iter()
+        .filter(|binding| binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment))
+        .map(|binding| binding.id)
+        .collect::<Vec<_>>();
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "foo")
+        .expect("expected foo reference");
+    let analysis = model.analysis();
+    let value_flow = analysis.value_flow();
+
+    assert_eq!(
+        value_flow.reaching_value_bindings_for_name(&reference.name, reference.span),
+        vec![bindings[1]]
+    );
+}
+
+#[test]
+fn value_flow_returns_synthetic_use_site_value_bindings() {
+    let source = "\
+#!/bin/bash
+foo=1
+if cond; then
+  foo=2
+fi
+printf done
+";
+    let model = model(source);
+    let printf = command_id_starting_with(&model, source, "printf").expect("expected printf");
+    let bindings = model
+        .bindings()
+        .iter()
+        .filter(|binding| binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment))
+        .map(|binding| binding.id)
+        .collect::<Vec<_>>();
+    let analysis = model.analysis();
+    let value_flow = analysis.value_flow();
+
+    assert_eq!(
+        value_flow.reaching_value_bindings_for_name(&Name::from("foo"), model.command_span(printf)),
+        bindings
+    );
+}
+
+#[test]
+fn value_flow_can_bypass_one_reaching_binding() {
+    let source = "\
+#!/bin/bash
+foo=1
+if cond; then
+  foo=2
+fi
+printf '%s\\n' \"$foo\"
+";
+    let model = model(source);
+    let bindings = model
+        .bindings()
+        .iter()
+        .filter(|binding| binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment))
+        .map(|binding| binding.id)
+        .collect::<Vec<_>>();
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "foo")
+        .expect("expected foo reference");
+    let analysis = model.analysis();
+    let value_flow = analysis.value_flow();
+
+    assert_eq!(
+        value_flow.reaching_value_bindings_bypassing(&reference.name, bindings[1], reference.span),
+        vec![bindings[0]]
+    );
+}
+
+#[test]
+fn value_flow_returns_ancestor_bindings_before_scope_site() {
+    let source = "\
+#!/bin/bash
+foo=1
+use() {
+  printf '%s\\n' \"$foo\"
+}
+";
+    let model = model(source);
+    let binding = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment))
+        .expect("expected foo binding");
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "foo")
+        .expect("expected foo reference");
+    let analysis = model.analysis();
+    let value_flow = analysis.value_flow();
+
+    assert_eq!(
+        value_flow.ancestor_value_bindings_before(&reference.name, reference.scope, reference.span),
+        vec![binding.id]
+    );
+}
+
+#[test]
+fn value_flow_returns_nonlocal_bindings_from_called_functions() {
+    let source = "\
+#!/bin/bash
+setfoo() {
+  foo=1
+}
+use() {
+  setfoo
+  printf '%s\\n' \"$foo\"
+}
+";
+    let model = model(source);
+    let binding = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment))
+        .expect("expected foo binding");
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "foo")
+        .expect("expected foo reference");
+    let analysis = model.analysis();
+    let mut value_flow = analysis.value_flow();
+
+    assert_eq!(
+        value_flow.nonlocal_value_bindings_from_called_functions_before(
+            &reference.name,
+            reference.scope,
+            reference.span,
+        ),
+        vec![binding.id]
+    );
+}
+
+#[test]
+fn value_flow_detects_binding_paths_do_not_cover_span() {
+    let source = "\
+#!/bin/bash
+if cond; then
+  foo=1
+fi
+printf '%s\\n' \"$foo\"
+";
+    let model = model(source);
+    let binding = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment))
+        .expect("expected foo binding");
+    let printf = command_id_starting_with(&model, source, "printf").expect("expected printf");
+    let analysis = model.analysis();
+    let value_flow = analysis.value_flow();
+
+    assert!(
+        !value_flow
+            .value_bindings_cover_all_paths_to_span(&[binding.id], model.command_span(printf))
+    );
+}
+
+#[test]
 fn ifs_assignments_are_treated_as_implicitly_used() {
     let source = "\
 #!/bin/bash
