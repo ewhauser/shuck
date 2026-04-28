@@ -1269,6 +1269,19 @@ impl SemanticModel {
             .map(|declaration_index| &self.declarations[*declaration_index])
     }
 
+    pub fn function_definition_binding_for_command_span(&self, span: Span) -> Option<BindingId> {
+        self.command_bindings
+            .get(&SpanKey::new(span))
+            .and_then(|bindings| {
+                bindings.iter().copied().find(|binding_id| {
+                    matches!(
+                        self.bindings[binding_id.index()].kind,
+                        BindingKind::FunctionDefinition
+                    )
+                })
+            })
+    }
+
     pub fn source_refs(&self) -> &[SourceRef] {
         &self.source_refs
     }
