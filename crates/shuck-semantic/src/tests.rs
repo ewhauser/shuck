@@ -509,6 +509,33 @@ fn zsh_multi_name_functions_bind_each_static_alias() {
 }
 
 #[test]
+fn function_definition_binding_lookup_uses_the_command_span() {
+    let source = "build() { :; }\nbuild() { echo later; }\n";
+    let model = model(source);
+    let name = Name::from("build");
+    let definitions = model.function_definitions(&name);
+    assert_eq!(definitions.len(), 2);
+
+    let function_commands = model
+        .commands()
+        .iter()
+        .copied()
+        .filter(|command| model.command_kind(*command) == CommandKind::Function)
+        .collect::<Vec<_>>();
+    assert_eq!(function_commands.len(), 2);
+
+    for (command, definition) in function_commands
+        .into_iter()
+        .zip(definitions.iter().copied())
+    {
+        assert_eq!(
+            model.function_definition_binding_for_command_span(model.command_span(command)),
+            Some(definition)
+        );
+    }
+}
+
+#[test]
 fn zsh_multi_name_function_lookup_works_through_any_alias() {
     let source = "flag=1\nfunction music itunes() { echo \"$flag\"; }\nitunes\n";
     let model = model_with_dialect(source, ShellDialect::Zsh);

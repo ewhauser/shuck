@@ -160,7 +160,8 @@ fn build_function_header_facts<'a>(
         .iter()
         .copied()
         .map(|input| {
-            let binding_id = function_header_binding_id(semantic, input.function);
+            let binding_id = semantic
+                .function_definition_binding_for_command_span(semantic.command_span(input.command_id));
             let scope_id =
                 binding_id.and_then(|binding_id| semantic_analysis.function_scope_for_binding(binding_id));
             let call_arity = binding_id
@@ -623,18 +624,6 @@ fn function_call_diagnostic_span(
     }
 
     trim_trailing_whitespace_span(command.stmt().span, source)
-}
-
-fn function_header_binding_id(
-    semantic: &SemanticModel,
-    function: &FunctionDef,
-) -> Option<BindingId> {
-    let (name, name_span) = function.static_name_entries().next()?;
-    semantic
-        .function_definitions(name)
-        .iter()
-        .copied()
-        .find(|binding_id| semantic.binding(*binding_id).span == name_span)
 }
 
 fn first_positional_dispatch_in_commands(commands: &StmtSeq) -> Option<Span> {
