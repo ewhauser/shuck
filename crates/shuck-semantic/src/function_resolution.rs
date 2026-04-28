@@ -21,6 +21,32 @@ pub(crate) struct ResolvedFunctionCall<'a> {
     pub(crate) callee_scope: ScopeId,
 }
 
+pub(crate) fn call_payloads_by_callee_scope<'a, I, P>(
+    lookup: &FunctionBindingLookup<'_>,
+    function_body_scopes: &FxHashMap<BindingId, ScopeId>,
+    calls: I,
+) -> FxHashMap<ScopeId, Vec<P>>
+where
+    I: IntoIterator<Item = (&'a Name, ScopeId, usize, P)>,
+{
+    let mut grouped = FxHashMap::default();
+
+    for (name, scope, offset, payload) in calls {
+        let Some(function_binding) = lookup.visible_function_binding(name, scope, offset) else {
+            continue;
+        };
+        let Some(callee_scope) = function_body_scopes.get(&function_binding).copied() else {
+            continue;
+        };
+        grouped
+            .entry(callee_scope)
+            .or_insert_with(Vec::new)
+            .push(payload);
+    }
+
+    grouped
+}
+
 impl FunctionBindingLookup<'_> {
     pub(crate) fn visible_function_binding(
         &self,

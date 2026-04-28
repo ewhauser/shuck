@@ -93,17 +93,6 @@ impl<'model> SemanticAnalysis<'model> {
         })
     }
 
-    pub(crate) fn visible_function_binding_in_call_context(
-        &self,
-        name: &Name,
-        scope: ScopeId,
-        offset: usize,
-    ) -> Option<BindingId> {
-        self.model
-            .function_binding_lookup()
-            .visible_function_binding(name, scope, offset)
-    }
-
     pub fn function_scope_for_binding(&self, binding_id: BindingId) -> Option<ScopeId> {
         self.model
             .recorded_program
