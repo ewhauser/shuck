@@ -613,6 +613,7 @@ struct CallInfo {
     name: Name,
     scope: ScopeId,
     span: Span,
+    call_site_span: Span,
     args: Vec<Option<String>>,
 }
 
@@ -652,10 +653,19 @@ fn collect_ast_facts(model: &SemanticModel) -> AstFacts {
 
         let name = Name::from(name);
         let is_source_builtin = matches!(name.as_str(), "source" | ".");
+        let call_site_span = model
+            .call_sites_for(&name)
+            .iter()
+            .find(|site| {
+                crate::cfg::recorded_command_span_for_call_site(program, site) == command.span
+            })
+            .map(|site| site.span)
+            .unwrap_or(command.span);
         facts.calls.push(CallInfo {
             name,
             scope: model.scope_at(command.span.start.offset),
             span: command.span,
+            call_site_span,
             args: info.static_args.to_vec(),
         });
 
@@ -1063,19 +1073,24 @@ fn resolve_literal_call_args_by_scope(
     calls: &[CallInfo],
 ) -> FxHashMap<ScopeId, Vec<Vec<Option<String>>>> {
     let mut resolved = FxHashMap::default();
+    let analysis = model.analysis();
 
     for call in calls {
-        let Some(function_binding) =
-            model.visible_function_binding(&call.name, call.scope, call.span.start.offset)
-        else {
+        let function_binding = analysis
+            .function_call_arity_sites(&call.name)
+            .find(|(site, _)| site.span == call.call_site_span)
+            .map(|(_, binding)| binding)
+            .or_else(|| {
+                analysis.visible_function_binding_in_call_context(
+                    &call.name,
+                    call.scope,
+                    call.span.start.offset,
+                )
+            });
+        let Some(function_binding) = function_binding else {
             continue;
         };
-        let Some(callee_scope) = model
-            .recorded_program()
-            .function_body_scopes
-            .get(&function_binding)
-            .copied()
-        else {
+        let Some(callee_scope) = analysis.function_scope_for_binding(function_binding) else {
             continue;
         };
         resolved

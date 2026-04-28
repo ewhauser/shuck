@@ -8208,6 +8208,7 @@ echo done
         &model.scopes,
         &model.bindings,
         &model.call_sites,
+        model.visible_function_call_bindings(),
     );
 
     assert!(!cfg.block_ids_for_span(conditional.span).is_empty());
@@ -8253,6 +8254,7 @@ echo done
         &model.scopes,
         &model.bindings,
         &model.call_sites,
+        model.visible_function_call_bindings(),
     );
 
     assert!(!cfg.block_ids_for_span(conditional.span).is_empty());

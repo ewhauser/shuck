@@ -24,6 +24,8 @@ mod declaration;
 #[allow(missing_docs)]
 mod dense_bit_set;
 #[allow(missing_docs)]
+mod function_resolution;
+#[allow(missing_docs)]
 mod nonpersistent;
 #[allow(missing_docs)]
 mod reachability;
@@ -98,6 +100,7 @@ use crate::cfg::{
     RecordedCommandKind, RecordedListOperator, RecordedPipelineOperatorKind, RecordedProgram,
 };
 use crate::dataflow::{DataflowContext, DataflowResult, ExactVariableDataflow};
+use crate::function_resolution::FunctionBindingLookup;
 use crate::runtime::RuntimePrelude;
 use crate::scope::ancestor_scopes;
 use crate::source_closure::ImportedBindingContractSite;
@@ -1653,8 +1656,8 @@ impl SemanticModel {
         self.entry_bindings = entry_bindings;
     }
 
-    fn function_binding_lookup(&self) -> cfg::FunctionBindingLookup<'_> {
-        cfg::FunctionBindingLookup {
+    fn function_binding_lookup(&self) -> FunctionBindingLookup<'_> {
+        FunctionBindingLookup {
             program: &self.recorded_program,
             scopes: &self.scopes,
             bindings: &self.bindings,
@@ -1664,19 +1667,9 @@ impl SemanticModel {
         }
     }
 
-    pub(crate) fn visible_function_binding(
-        &self,
-        name: &Name,
-        scope: ScopeId,
-        offset: usize,
-    ) -> Option<BindingId> {
-        self.function_binding_lookup()
-            .visible_function_binding(name, scope, offset)
-    }
-
     fn unconditional_function_bindings(&self) -> &FxHashSet<BindingId> {
         self.unconditional_function_bindings.get_or_init(|| {
-            cfg::collect_unconditional_function_bindings(
+            function_resolution::collect_unconditional_function_bindings(
                 &self.recorded_program,
                 &self.command_bindings,
                 &self.bindings,
@@ -1688,7 +1681,7 @@ impl SemanticModel {
         &self,
     ) -> &FxHashMap<ScopeId, SmallVec<[BindingId; 2]>> {
         self.function_bindings_by_scope
-            .get_or_init(|| cfg::function_bindings_by_scope(&self.recorded_program))
+            .get_or_init(|| function_resolution::function_bindings_by_scope(&self.recorded_program))
     }
 
     pub(crate) fn visible_function_call_bindings(&self) -> &FxHashMap<SpanKey, BindingId> {
