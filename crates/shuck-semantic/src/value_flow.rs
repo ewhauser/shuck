@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use super::*;
 
 #[derive(Debug)]
@@ -5,6 +7,9 @@ pub struct SemanticValueFlow<'analysis, 'model> {
     analysis: &'analysis SemanticAnalysis<'model>,
     nonlocal_binding_memo: FxHashMap<(Name, ScopeId, SpanKey), Box<[BindingId]>>,
     nonlocal_binding_visiting: FxHashSet<(Name, ScopeId, SpanKey)>,
+    named_function_call_sites_memo: RefCell<FxHashMap<ScopeId, Box<[CallSite]>>>,
+    resolved_named_function_call_sites_memo: RefCell<FxHashMap<ScopeId, Box<[CallSite]>>>,
+    function_definition_command_memo: RefCell<FxHashMap<ScopeId, Option<CommandId>>>,
 }
 
 impl<'model> SemanticAnalysis<'model> {
@@ -19,6 +24,9 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
             analysis,
             nonlocal_binding_memo: FxHashMap::default(),
             nonlocal_binding_visiting: FxHashSet::default(),
+            named_function_call_sites_memo: RefCell::new(FxHashMap::default()),
+            resolved_named_function_call_sites_memo: RefCell::new(FxHashMap::default()),
+            function_definition_command_memo: RefCell::new(FxHashMap::default()),
         }
     }
 
@@ -99,6 +107,18 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         bindings
     }
 
+    pub fn helper_value_bindings_before(&mut self, name: &Name, at: Span) -> Vec<BindingId> {
+        let mut bindings = self
+            .model()
+            .ancestor_scopes(self.model().scope_at(at.start.offset))
+            .flat_map(|scope| {
+                self.nonlocal_value_bindings_from_called_functions_before(name, scope, at)
+            })
+            .collect::<Vec<_>>();
+        self.sort_and_dedup_bindings(&mut bindings);
+        bindings
+    }
+
     pub fn nonlocal_value_bindings_from_called_functions_before(
         &mut self,
         name: &Name,
@@ -135,6 +155,34 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         bindings
     }
 
+    pub fn named_function_call_sites(&self, scope: ScopeId) -> Vec<CallSite> {
+        if let Some(cached) = self.named_function_call_sites_memo.borrow().get(&scope) {
+            return cached.to_vec();
+        }
+
+        let Some(function_kind) = self.named_function_kind(scope) else {
+            return Vec::new();
+        };
+
+        let mut caller_sites = Vec::new();
+        let mut seen_sites = FxHashSet::default();
+        for function_name in function_kind.static_names() {
+            for site in self.model().call_sites_for(function_name) {
+                if site.scope == scope {
+                    continue;
+                }
+                if seen_sites.insert((site.scope, site.span.start.offset, site.span.end.offset)) {
+                    caller_sites.push(site.clone());
+                }
+            }
+        }
+
+        self.named_function_call_sites_memo
+            .borrow_mut()
+            .insert(scope, caller_sites.clone().into_boxed_slice());
+        caller_sites
+    }
+
     pub fn called_function_scopes_before(
         &self,
         scope: ScopeId,
@@ -166,6 +214,79 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         }
 
         scopes.sort_by_key(|scope| self.model().scope(*scope).span.start.offset);
+        scopes
+    }
+
+    pub fn called_function_scopes_before_relaxed(
+        &self,
+        scope: ScopeId,
+        limit_offset: usize,
+    ) -> Vec<ScopeId> {
+        let mut scopes = Vec::new();
+        let mut seen_scopes = FxHashSet::default();
+
+        for (&_function_binding, &callee_scope) in
+            &self.model().recorded_program.function_body_scopes
+        {
+            let Some(function_kind) = self.named_function_kind(callee_scope) else {
+                continue;
+            };
+            let Some(definition_command) = self.function_definition_command_for_scope(callee_scope)
+            else {
+                continue;
+            };
+
+            let called_before = function_kind.static_names().iter().any(|function_name| {
+                self.model()
+                    .call_sites_for(function_name)
+                    .iter()
+                    .any(|site| {
+                        site.scope == scope
+                            && site.span.start.offset < limit_offset
+                            && self
+                                .definition_command_resolves_at_call(definition_command, site.span)
+                    })
+            });
+            if called_before && seen_scopes.insert(callee_scope) {
+                scopes.push(callee_scope);
+            }
+        }
+
+        scopes.sort_by_key(|callee_scope| self.model().scope(*callee_scope).span.start.offset);
+        scopes
+    }
+
+    pub fn transitively_called_function_scopes_before(
+        &self,
+        scope: ScopeId,
+        limit_offset: usize,
+    ) -> Vec<ScopeId> {
+        let mut seen_scopes = FxHashSet::default();
+        let mut scopes = Vec::new();
+        self.collect_transitively_called_function_scopes_before(
+            scope,
+            limit_offset,
+            false,
+            &mut seen_scopes,
+            &mut scopes,
+        );
+        scopes
+    }
+
+    pub fn transitively_called_function_scopes_before_relaxed(
+        &self,
+        scope: ScopeId,
+        limit_offset: usize,
+    ) -> Vec<ScopeId> {
+        let mut seen_scopes = FxHashSet::default();
+        let mut scopes = Vec::new();
+        self.collect_transitively_called_function_scopes_before(
+            scope,
+            limit_offset,
+            true,
+            &mut seen_scopes,
+            &mut scopes,
+        );
         scopes
     }
 
@@ -415,10 +536,40 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         name: &Name,
         scope: ScopeId,
     ) -> Option<FxHashSet<BindingId>> {
-        let function_kind = self.named_function_kind(scope)?;
+        let caller_sites = self.resolved_named_function_call_sites(scope);
+
+        let mut saw_caller = false;
+        let mut union = FxHashSet::default();
+        for site in caller_sites {
+            saw_caller = true;
+            let branch = self
+                .caller_value_bindings_before(name, site.scope, site.span)
+                .into_iter()
+                .collect::<FxHashSet<_>>();
+            if branch.is_empty() {
+                return Some(FxHashSet::default());
+            }
+            union.extend(branch);
+        }
+
+        saw_caller.then_some(union)
+    }
+
+    fn resolved_named_function_call_sites(&self, scope: ScopeId) -> Vec<CallSite> {
+        if let Some(cached) = self
+            .resolved_named_function_call_sites_memo
+            .borrow()
+            .get(&scope)
+        {
+            return cached.to_vec();
+        }
+
+        let Some(function_kind) = self.named_function_kind(scope) else {
+            return Vec::new();
+        };
+
         let mut caller_sites = Vec::new();
         let mut seen_sites = FxHashSet::default();
-
         for function_name in function_kind.static_names() {
             for site in self.model().call_sites_for(function_name) {
                 if site.scope == scope {
@@ -433,24 +584,13 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
             }
         }
 
-        let mut saw_caller = false;
-        let mut union = FxHashSet::default();
-        for site in caller_sites {
-            saw_caller = true;
-            let branch = self
-                .caller_branch_value_bindings_before(name, site.scope, site.span)
-                .into_iter()
-                .collect::<FxHashSet<_>>();
-            if branch.is_empty() {
-                return Some(FxHashSet::default());
-            }
-            union.extend(branch);
-        }
-
-        saw_caller.then_some(union)
+        self.resolved_named_function_call_sites_memo
+            .borrow_mut()
+            .insert(scope, caller_sites.clone().into_boxed_slice());
+        caller_sites
     }
 
-    fn caller_branch_value_bindings_before(
+    pub fn caller_value_bindings_before(
         &mut self,
         name: &Name,
         scope: ScopeId,
@@ -577,6 +717,22 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         })
     }
 
+    fn function_definition_command_for_scope(&self, scope: ScopeId) -> Option<CommandId> {
+        if let Some(cached) = self.function_definition_command_memo.borrow().get(&scope) {
+            return *cached;
+        }
+
+        let command_id = self
+            .function_bindings_for_scope(scope)
+            .into_iter()
+            .filter_map(|binding_id| self.function_definition_command_for_binding(binding_id))
+            .min_by_key(|command_id| self.model().command_span(*command_id).start.offset);
+        self.function_definition_command_memo
+            .borrow_mut()
+            .insert(scope, command_id);
+        command_id
+    }
+
     fn function_bindings_for_scope(&self, scope: ScopeId) -> Vec<BindingId> {
         self.model()
             .recorded_program
@@ -701,6 +857,40 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         }
 
         true
+    }
+
+    fn collect_transitively_called_function_scopes_before(
+        &self,
+        scope: ScopeId,
+        limit_offset: usize,
+        relaxed: bool,
+        seen_scopes: &mut FxHashSet<ScopeId>,
+        scopes: &mut Vec<ScopeId>,
+    ) {
+        let callee_scopes = if relaxed {
+            self.called_function_scopes_before_relaxed(scope, limit_offset)
+        } else {
+            self.called_function_scopes_before(scope, limit_offset)
+        };
+
+        for callee_scope in callee_scopes {
+            if !seen_scopes.insert(callee_scope) {
+                continue;
+            }
+            scopes.push(callee_scope);
+
+            let next_limit_offset = self
+                .function_definition_command_for_scope(callee_scope)
+                .map(|command_id| self.model().command_span(command_id).end.offset)
+                .unwrap_or_else(|| self.model().scope(callee_scope).span.end.offset);
+            self.collect_transitively_called_function_scopes_before(
+                callee_scope,
+                next_limit_offset,
+                relaxed,
+                seen_scopes,
+                scopes,
+            );
+        }
     }
 
     fn command_is_dominance_barrier(&self, command_id: CommandId) -> bool {

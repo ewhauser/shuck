@@ -5045,6 +5045,100 @@ use
 }
 
 #[test]
+fn value_flow_returns_helper_bindings_visible_at_reference() {
+    let source = "\
+#!/bin/bash
+setfoo() {
+  foo=1
+}
+use() {
+  setfoo
+  printf '%s\\n' \"$foo\"
+}
+";
+    let model = model(source);
+    let binding = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment))
+        .expect("expected foo binding");
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "foo")
+        .expect("expected foo reference");
+    let analysis = model.analysis();
+    let mut value_flow = analysis.value_flow();
+
+    assert_eq!(
+        value_flow.helper_value_bindings_before(&reference.name, reference.span),
+        vec![binding.id]
+    );
+}
+
+#[test]
+fn value_flow_named_function_call_sites_resolve_alias_fallbacks() {
+    let source = "\
+#!/bin/zsh
+use() {
+  itunes
+  print $foo
+}
+function music itunes() {
+  foo=1
+}
+use
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let helper_scope = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment))
+        .map(|binding| binding.scope)
+        .expect("expected helper scope");
+    let analysis = model.analysis();
+    let value_flow = analysis.value_flow();
+    let call_sites = value_flow.named_function_call_sites(helper_scope);
+
+    assert_eq!(call_sites.len(), 1);
+    assert_eq!(call_sites[0].callee.as_str(), "itunes");
+}
+
+#[test]
+fn value_flow_tracks_transitive_called_function_scopes_before() {
+    let source = "\
+#!/bin/bash
+first() {
+  second
+}
+second() {
+  foo=1
+}
+first
+printf '%s\\n' \"$foo\"
+";
+    let model = model(source);
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "foo")
+        .expect("expected foo reference");
+    let helper_scope = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment))
+        .map(|binding| binding.scope)
+        .expect("expected helper scope");
+    let analysis = model.analysis();
+    let value_flow = analysis.value_flow();
+    let caller_scope = model.scope_at(reference.span.start.offset);
+    let callee_scopes = value_flow
+        .transitively_called_function_scopes_before(caller_scope, reference.span.start.offset);
+
+    assert!(callee_scopes.contains(&helper_scope));
+}
+
+#[test]
 fn value_flow_uses_path_covering_alternate_function_definitions() {
     let source = "\
 #!/bin/bash
