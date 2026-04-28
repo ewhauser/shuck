@@ -1514,12 +1514,6 @@ impl<'facts, 'a> CommandRelationshipContext<'facts, 'a> {
 
 }
 
-fn command_facts_are_source_ordered(commands: &[CommandFact<'_>]) -> bool {
-    commands
-        .windows(2)
-        .all(|window| compare_command_facts_by_offset(&window[0], &window[1]).is_le())
-}
-
 fn build_command_fact_indices_by_id(commands: &[CommandFact<'_>]) -> Vec<Option<usize>> {
     let len = commands
         .iter()

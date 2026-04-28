@@ -216,13 +216,11 @@ fn precomputes_innermost_command_ids_for_nested_offsets() {
 
     let command_ids_by_offset = super::build_innermost_command_ids_by_offset(
         facts.commands().raw(),
-        &facts.command_fact_indices_by_id,
         vec![
             source.find("echo").expect("expected echo offset"),
             source.find("printf").expect("expected printf offset"),
             source.find("uname").expect("expected uname offset"),
         ],
-        &super::CommandOffsetOrder::SourceOrdered,
     );
 
     assert_eq!(

@@ -143,7 +143,6 @@ fn build_function_header_facts<'a>(
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
     source: &str,
-    command_offset_order: &CommandOffsetOrder,
 ) -> Vec<FunctionHeaderFact<'a>> {
     let call_arity_by_binding = build_function_call_arity_facts(
         semantic_analysis,
@@ -154,7 +153,6 @@ fn build_function_header_facts<'a>(
         commands,
         command_fact_indices_by_id,
         source,
-        command_offset_order,
     );
     functions
         .iter()
@@ -552,7 +550,6 @@ fn build_function_call_arity_facts<'a>(
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
     source: &str,
-    command_offset_order: &CommandOffsetOrder,
 ) -> FxHashMap<BindingId, FunctionCallArityFacts> {
     let mut facts = FxHashMap::<BindingId, FunctionCallArityFacts>::default();
     let mut seen_names = FxHashSet::default();
@@ -579,12 +576,7 @@ fn build_function_call_arity_facts<'a>(
         return facts;
     }
 
-    let command_ids_by_offset = build_innermost_command_ids_by_offset(
-        commands,
-        command_fact_indices_by_id,
-        offsets,
-        command_offset_order,
-    );
+    let command_ids_by_offset = build_innermost_command_ids_by_offset(commands, offsets);
 
     for name in unique_function_names {
         for (site, binding_id) in semantic_analysis.function_call_arity_sites(name) {
