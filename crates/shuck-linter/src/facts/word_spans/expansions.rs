@@ -6,12 +6,6 @@ pub fn expansion_part_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
-pub fn active_expansion_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_active_expansion_spans_in_source(word, source, &mut spans);
-    spans
-}
-
 pub fn collect_active_expansion_spans_in_source(word: &Word, source: &str, spans: &mut Vec<Span>) {
     collect_expansion_spans(&word.parts, spans);
     normalize_command_substitution_spans(spans, source);
@@ -26,20 +20,8 @@ pub fn collect_active_expansion_spans_in_source(word: &Word, source: &str, spans
     spans.dedup();
 }
 
-pub fn scalar_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_scalar_expansion_part_spans(word, &mut spans);
-    spans
-}
-
 pub fn collect_scalar_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
     collect_scalar_expansion_spans(&word.parts, false, false, spans);
-}
-
-pub fn unquoted_scalar_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_unquoted_scalar_expansion_part_spans(word, &mut spans);
-    spans
 }
 
 pub fn collect_unquoted_scalar_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
@@ -52,15 +34,6 @@ pub fn word_double_quoted_scalar_only_expansion_spans(word: &Word) -> Vec<Span> 
         .then_some(spans)
         .filter(|spans| !spans.is_empty())
         .unwrap_or_default()
-}
-
-pub fn word_literal_part_spans_excluding_parameter_operator_tails(
-    word: &Word,
-    source: &str,
-) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_word_literal_part_spans_excluding_parameter_operator_tails(word, source, &mut spans);
-    spans
 }
 
 pub fn collect_word_literal_part_spans_excluding_parameter_operator_tails(
@@ -88,14 +61,6 @@ pub fn word_has_single_literal_part(word: &Word) -> bool {
         word.parts.as_slice(),
         [part] if matches!(part.kind, WordPart::Literal(_))
     )
-}
-
-pub fn word_literal_scan_segments_excluding_expansions(word: &Word, source: &str) -> Vec<Span> {
-    let mut excluded = Vec::new();
-    collect_literal_scan_exclusions(&word.parts, &mut excluded);
-    let mut spans = Vec::new();
-    collect_scan_span_excluding(word.span, &excluded, source, &mut spans);
-    spans
 }
 
 pub fn collect_word_literal_scan_segments_excluding_expansions(
@@ -388,12 +353,19 @@ pub(crate) fn collect_literal_scan_exclusions(parts: &[WordPartNode], excluded: 
 
 #[cfg(test)]
 mod tests {
+    use shuck_ast::{Span, Word};
     use shuck_parser::parser::Parser;
 
     use super::{
-        scalar_expansion_part_spans, word_double_quoted_scalar_only_expansion_spans,
+        collect_scalar_expansion_part_spans, word_double_quoted_scalar_only_expansion_spans,
         word_unquoted_assign_default_spans,
     };
+
+    fn scalar_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
+        let mut spans = Vec::new();
+        collect_scalar_expansion_part_spans(word, &mut spans);
+        spans
+    }
 
     #[test]
     fn scalar_expansion_spans_ignore_array_splats_and_command_substitutions() {

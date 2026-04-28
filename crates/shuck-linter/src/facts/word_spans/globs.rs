@@ -40,16 +40,6 @@ pub fn word_suspicious_bracket_glob_spans(word: &Word, source: &str) -> Vec<Span
         .collect()
 }
 
-pub fn word_has_unquoted_brace_expansion(word: &Word, source: &str) -> bool {
-    parts_have_unquoted_brace_expansion(&word.parts, source, false)
-}
-
-pub fn word_unquoted_escaped_pipe_or_brace_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_unquoted_escaped_pipe_or_brace_spans(&word.parts, source, false, &mut spans);
-    spans
-}
-
 pub fn word_unbraced_variable_before_bracket_spans(word: &Word, source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_unbraced_variable_before_bracket_spans(&word.parts, source, &mut spans);
@@ -153,22 +143,6 @@ pub fn word_exactly_one_extglob_span(word: &Word, source: &str) -> Option<Span> 
         let (start, end) = find_exactly_one_extglob_bounds(&surface)?;
         word_surface_span_from_bounds(word, source, &source_offsets, start, end)
     })
-}
-
-pub fn conditional_exactly_one_extglob_span(
-    expression: &ConditionalExpr,
-    source: &str,
-) -> Option<Span> {
-    match expression {
-        ConditionalExpr::Binary(expr) => conditional_exactly_one_extglob_span(&expr.left, source)
-            .or_else(|| conditional_exactly_one_extglob_span(&expr.right, source)),
-        ConditionalExpr::Unary(expr) => conditional_exactly_one_extglob_span(&expr.expr, source),
-        ConditionalExpr::Parenthesized(expr) => {
-            conditional_exactly_one_extglob_span(&expr.expr, source)
-        }
-        ConditionalExpr::Pattern(pattern) => pattern_exactly_one_extglob_span(pattern, source),
-        ConditionalExpr::Word(_) | ConditionalExpr::Regex(_) | ConditionalExpr::VarRef(_) => None,
-    }
 }
 
 pub fn conditional_suspicious_bracket_glob_spans(
@@ -355,104 +329,6 @@ pub(crate) fn collect_unquoted_glob_pattern_spans(
     }
 
     flush_literal_run(&mut literal_run_start, &mut literal_run_end, spans);
-}
-
-pub(crate) fn parts_have_unquoted_brace_expansion(
-    parts: &[WordPartNode],
-    source: &str,
-    in_double_quotes: bool,
-) -> bool {
-    for part in parts {
-        match &part.kind {
-            WordPart::DoubleQuoted { parts, .. } => {
-                if parts_have_unquoted_brace_expansion(parts, source, true) {
-                    return true;
-                }
-            }
-            WordPart::Literal(_) if !in_double_quotes => {
-                if literal_contains_brace_expansion(part.span.slice(source)) {
-                    return true;
-                }
-            }
-            WordPart::Literal(_)
-            | WordPart::SingleQuoted { .. }
-            | WordPart::Variable(_)
-            | WordPart::CommandSubstitution { .. }
-            | WordPart::ProcessSubstitution { .. }
-            | WordPart::ArithmeticExpansion { .. }
-            | WordPart::Parameter(_)
-            | WordPart::ParameterExpansion { .. }
-            | WordPart::Length(_)
-            | WordPart::ArrayAccess(_)
-            | WordPart::ArrayLength(_)
-            | WordPart::ArrayIndices(_)
-            | WordPart::Substring { .. }
-            | WordPart::ArraySlice { .. }
-            | WordPart::IndirectExpansion { .. }
-            | WordPart::PrefixMatch { .. }
-            | WordPart::Transformation { .. }
-            | WordPart::ZshQualifiedGlob(_) => {}
-        }
-    }
-
-    false
-}
-
-pub(crate) fn literal_contains_brace_expansion(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    let mut index = 0usize;
-
-    while index < bytes.len() {
-        if bytes[index] == b'\\' {
-            index = (index + 2).min(bytes.len());
-            continue;
-        }
-
-        if bytes[index] != b'{' {
-            index += 1;
-            continue;
-        }
-
-        let mut depth = 1usize;
-        let mut saw_comma = false;
-        let mut saw_range = false;
-        let mut cursor = index + 1;
-        while cursor < bytes.len() {
-            if bytes[cursor] == b'\\' {
-                cursor = (cursor + 2).min(bytes.len());
-                continue;
-            }
-
-            match bytes[cursor] {
-                b'{' => depth += 1,
-                b'}' => {
-                    depth = depth.saturating_sub(1);
-                    if depth == 0 {
-                        if saw_comma || saw_range {
-                            return true;
-                        }
-                        break;
-                    }
-                }
-                b',' if depth == 1 => saw_comma = true,
-                b'.' if depth == 1
-                    && cursor + 1 < bytes.len()
-                    && bytes[cursor + 1] == b'.'
-                    && !byte_is_backslash_escaped(bytes, cursor)
-                    && !byte_is_backslash_escaped(bytes, cursor + 1) =>
-                {
-                    saw_range = true;
-                    cursor += 1;
-                }
-                _ => {}
-            }
-            cursor += 1;
-        }
-
-        index += 1;
-    }
-
-    false
 }
 
 pub(crate) fn literal_glob_pattern_spans(span: Span, source: &str) -> Vec<Span> {
@@ -946,36 +822,6 @@ pub(crate) fn word_has_only_literal_parts(parts: &[WordPartNode]) -> bool {
         .all(|part| matches!(part.kind, WordPart::Literal(_)))
 }
 
-pub(crate) fn pattern_exactly_one_extglob_span(pattern: &Pattern, source: &str) -> Option<Span> {
-    for part in &pattern.parts {
-        match &part.kind {
-            PatternPart::Group { kind, patterns } => {
-                if *kind == PatternGroupKind::ExactlyOne {
-                    return Some(part.span);
-                }
-
-                if let Some(span) = patterns
-                    .iter()
-                    .find_map(|pattern| pattern_exactly_one_extglob_span(pattern, source))
-                {
-                    return Some(span);
-                }
-            }
-            PatternPart::Word(word) => {
-                if let Some(span) = word_exactly_one_extglob_span(word, source) {
-                    return Some(span);
-                }
-            }
-            PatternPart::Literal(_)
-            | PatternPart::AnyString
-            | PatternPart::AnyChar
-            | PatternPart::CharClass(_) => {}
-        }
-    }
-
-    None
-}
-
 pub(crate) fn text_has_variable_subscript(text: &str) -> bool {
     let bytes = text.as_bytes();
     let mut index = 0usize;
@@ -1183,66 +1029,6 @@ pub(crate) fn is_name_continue(byte: u8) -> bool {
     is_name_start(byte) || byte.is_ascii_digit()
 }
 
-pub(crate) fn collect_unquoted_escaped_pipe_or_brace_spans(
-    parts: &[WordPartNode],
-    source: &str,
-    quoted: bool,
-    spans: &mut Vec<Span>,
-) {
-    for part in parts {
-        match &part.kind {
-            WordPart::SingleQuoted { .. } => {}
-            WordPart::DoubleQuoted { parts, .. } => {
-                collect_unquoted_escaped_pipe_or_brace_spans(parts, source, true, spans);
-            }
-            WordPart::Literal(_) if !quoted => {
-                spans.extend(literal_escaped_pipe_or_brace_spans(part.span, source));
-            }
-            WordPart::Literal(_)
-            | WordPart::Variable(_)
-            | WordPart::CommandSubstitution { .. }
-            | WordPart::ArithmeticExpansion { .. }
-            | WordPart::Parameter(_)
-            | WordPart::ParameterExpansion { .. }
-            | WordPart::Length(_)
-            | WordPart::ArrayAccess(_)
-            | WordPart::ArrayLength(_)
-            | WordPart::ArrayIndices(_)
-            | WordPart::Substring { .. }
-            | WordPart::ArraySlice { .. }
-            | WordPart::IndirectExpansion { .. }
-            | WordPart::PrefixMatch { .. }
-            | WordPart::ProcessSubstitution { .. }
-            | WordPart::Transformation { .. }
-            | WordPart::ZshQualifiedGlob(_) => {}
-        }
-    }
-}
-
-pub(crate) fn literal_escaped_pipe_or_brace_spans(span: Span, source: &str) -> Vec<Span> {
-    let text = span.slice(source);
-    let bytes = text.as_bytes();
-    if bytes.len() < 2 {
-        return Vec::new();
-    }
-
-    let mut spans = Vec::new();
-    for index in 0..(bytes.len() - 1) {
-        if bytes[index] != b'\\' || byte_is_backslash_escaped(bytes, index) {
-            continue;
-        }
-        if !matches!(bytes[index + 1], b'|' | b'{' | b'}') {
-            continue;
-        }
-
-        let start = span.start.advanced_by(&text[..index]);
-        let end = span.start.advanced_by(&text[..index + 2]);
-        spans.push(Span::from_positions(start, end));
-    }
-
-    spans
-}
-
 #[cfg(test)]
 mod tests {
     use shuck_ast::Span;
@@ -1250,8 +1036,7 @@ mod tests {
 
     use super::{
         find_extglob_bounds, word_caret_negated_bracket_spans, word_exactly_one_extglob_span,
-        word_has_unquoted_brace_expansion, word_starts_with_extglob,
-        word_suspicious_bracket_glob_spans, word_unquoted_escaped_pipe_or_brace_spans_in_source,
+        word_starts_with_extglob, word_suspicious_bracket_glob_spans,
         word_unquoted_glob_pattern_spans, word_unquoted_glob_pattern_spans_outside_brace_expansion,
     };
 
@@ -1516,40 +1301,5 @@ echo [ab] [a-z] [123] [1,2] [bar] [[:alpha:]] [![:digit:]] [:lower:] [a-zA-Z_] [
             .collect::<Vec<_>>();
 
         assert!(spans.is_empty(), "spans: {spans:?}");
-    }
-
-    #[test]
-    fn word_has_unquoted_brace_expansion_detects_sequence_forms() {
-        let source = "echo {foo,bar} {1..3} ${dir}/{a..c}*.txt\n";
-        let output = Parser::new(source).parse().unwrap();
-        let command = &output.file.body[0].command;
-        let shuck_ast::Command::Simple(command) = command else {
-            panic!("expected simple command");
-        };
-
-        assert!(word_has_unquoted_brace_expansion(&command.args[0], source));
-        assert!(word_has_unquoted_brace_expansion(&command.args[1], source));
-        assert!(word_has_unquoted_brace_expansion(&command.args[2], source));
-    }
-
-    #[test]
-    fn word_unquoted_escaped_pipe_or_brace_spans_track_only_unquoted_literal_sequences() {
-        let source = "\
-printf '%s\\n' mode\\|verbose token\\{a,b\\} token\\}end \"mode\\|verbose\" 'token\\{a,b\\}'
-";
-        let output = Parser::new(source).parse().unwrap();
-        let command = &output.file.body[0].command;
-        let shuck_ast::Command::Simple(command) = command else {
-            panic!("expected simple command");
-        };
-
-        let spans = command
-            .args
-            .iter()
-            .flat_map(|word| word_unquoted_escaped_pipe_or_brace_spans_in_source(word, source))
-            .map(|span| span.slice(source))
-            .collect::<Vec<_>>();
-
-        assert_eq!(spans, vec!["\\|", "\\{", "\\}", "\\}"]);
     }
 }

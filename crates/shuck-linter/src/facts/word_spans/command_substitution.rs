@@ -1,17 +1,5 @@
 use super::*;
 
-pub fn command_substitution_part_spans(word: &Word) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_command_substitution_spans(&word.parts, &mut spans);
-    spans
-}
-
-pub fn command_substitution_part_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_command_substitution_part_spans_in_source(word, source, &mut spans);
-    spans
-}
-
 pub fn collect_command_substitution_part_spans_in_source(
     word: &Word,
     source: &str,
@@ -39,12 +27,6 @@ pub fn unquoted_command_substitution_part_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
-pub fn unquoted_command_substitution_part_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_unquoted_command_substitution_part_spans_in_source(word, source, &mut spans);
-    spans
-}
-
 pub fn collect_unquoted_command_substitution_part_spans_in_source(
     word: &Word,
     source: &str,
@@ -52,17 +34,6 @@ pub fn collect_unquoted_command_substitution_part_spans_in_source(
 ) {
     collect_unquoted_command_substitution_spans(&word.parts, false, spans);
     normalize_command_substitution_spans(spans, source);
-}
-
-pub fn unquoted_dollar_paren_command_substitution_part_spans_in_source(
-    word: &Word,
-    source: &str,
-) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_unquoted_dollar_paren_command_substitution_part_spans_in_source(
-        word, source, &mut spans,
-    );
-    spans
 }
 
 pub fn collect_unquoted_dollar_paren_command_substitution_part_spans_in_source(
@@ -305,12 +276,30 @@ pub(crate) fn widen_backtick_command_substitution_span(span: Span, source: &str)
 
 #[cfg(test)]
 mod tests {
+    use shuck_ast::{Span, Word};
     use shuck_parser::parser::Parser;
 
     use super::{
-        command_substitution_part_spans,
-        unquoted_dollar_paren_command_substitution_part_spans_in_source,
+        collect_command_substitution_spans,
+        collect_unquoted_dollar_paren_command_substitution_part_spans_in_source,
     };
+
+    fn command_substitution_part_spans(word: &Word) -> Vec<Span> {
+        let mut spans = Vec::new();
+        collect_command_substitution_spans(&word.parts, &mut spans);
+        spans
+    }
+
+    fn unquoted_dollar_paren_command_substitution_part_spans_in_source(
+        word: &Word,
+        source: &str,
+    ) -> Vec<Span> {
+        let mut spans = Vec::new();
+        collect_unquoted_dollar_paren_command_substitution_part_spans_in_source(
+            word, source, &mut spans,
+        );
+        spans
+    }
 
     #[test]
     fn command_substitution_spans_use_inner_part_ranges() {

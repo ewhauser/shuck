@@ -1,15 +1,5 @@
 use super::*;
 
-pub fn unescaped_backtick_command_substitution_span(span: Span, source: &str) -> Option<Span> {
-    let normalized = normalize_command_substitution_span(span, source);
-    let text = normalized.slice(source);
-    if !text.starts_with('`') || !text.ends_with('`') || span_is_escaped(normalized, source) {
-        return None;
-    }
-
-    Some(normalized)
-}
-
 pub(crate) fn shellcheck_collapsed_backtick_part_span(
     span: Span,
     source: &str,
@@ -18,11 +8,6 @@ pub(crate) fn shellcheck_collapsed_backtick_part_span(
     let deescaped =
         shellcheck_deescaped_backtick_part_span(span, source, backtick_spans).unwrap_or(span);
     collapse_backtick_continuation_span(deescaped, source, backtick_spans).unwrap_or(deescaped)
-}
-
-pub(crate) fn shellcheck_collapsed_backtick_part_span_in_source(span: Span, source: &str) -> Span {
-    let backtick_spans = backtick_substitution_spans(source);
-    shellcheck_collapsed_backtick_part_span(span, source, &backtick_spans)
 }
 
 pub(crate) fn collapse_backtick_continuation_span(
@@ -978,57 +963,6 @@ pub(crate) fn continued_line_chain_start(
         .flatten()
 }
 
-pub(crate) fn line_has_escaped_newline_continuation(line: &str) -> bool {
-    let line = line.strip_suffix('\r').unwrap_or(line);
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut in_comment = false;
-    let mut previous_char = None;
-    let mut trailing_backslashes = 0usize;
-
-    for ch in line.chars() {
-        if in_comment {
-            trailing_backslashes = 0;
-            continue;
-        }
-
-        if in_single_quote {
-            if ch == '\'' {
-                in_single_quote = false;
-            }
-            previous_char = Some(ch);
-            trailing_backslashes = 0;
-            continue;
-        }
-
-        let backslash_escaped = trailing_backslashes % 2 == 1;
-        match ch {
-            '\'' if !in_double_quote && !backslash_escaped => {
-                in_single_quote = true;
-                trailing_backslashes = 0;
-            }
-            '"' if !backslash_escaped => {
-                in_double_quote = !in_double_quote;
-                trailing_backslashes = 0;
-            }
-            '#' if !in_double_quote && backtick_shell_comment_can_start(previous_char) => {
-                in_comment = true;
-                trailing_backslashes = 0;
-            }
-            '\\' => {
-                trailing_backslashes += 1;
-            }
-            _ => {
-                trailing_backslashes = 0;
-            }
-        }
-
-        previous_char = Some(ch);
-    }
-
-    !in_comment && !in_single_quote && trailing_backslashes % 2 == 1
-}
-
 pub(crate) fn shellcheck_collapsed_position(
     chain_start: Position,
     target: Position,
@@ -1082,9 +1016,14 @@ mod tests {
 
     use super::{
         backtick_double_escaped_parameter_spans, backtick_escaped_parameters,
-        backtick_substitution_spans, shellcheck_collapsed_backtick_part_span_in_source,
+        backtick_substitution_spans, shellcheck_collapsed_backtick_part_span,
     };
     use crate::facts::word_spans::position_at_offset;
+
+    fn shellcheck_collapsed_backtick_part_span_in_source(span: Span, source: &str) -> Span {
+        let backtick_spans = backtick_substitution_spans(source);
+        shellcheck_collapsed_backtick_part_span(span, source, &backtick_spans)
+    }
 
     #[test]
     fn shellcheck_collapsed_backtick_part_span_in_source_ignores_single_quoted_backticks() {
