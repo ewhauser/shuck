@@ -304,6 +304,29 @@ impl<'facts, 'a> CommandFacts<'facts, 'a> {
         }
     }
 
+    /// Iterate commands whose span is fully contained in `outer`.
+    ///
+    /// Relies on `self.commands` being sorted by `span.start.offset` ascending,
+    /// which `LinterFactsBuilder::build` enforces. Uses a binary search to skip
+    /// commands that start before `outer`, then walks forward only as far as
+    /// the outer span reaches.
+    pub(crate) fn contained_in(
+        self,
+        outer: Span,
+    ) -> impl Iterator<Item = CommandFactRef<'facts, 'a>> {
+        let start_offset = outer.start.offset;
+        let end_offset = outer.end.offset;
+        let start = self
+            .commands
+            .partition_point(|fact| fact.span().start.offset < start_offset);
+        let store = self.store;
+        self.commands[start..]
+            .iter()
+            .take_while(move |fact| fact.span().start.offset <= end_offset)
+            .filter(move |fact| fact.span().end.offset <= end_offset)
+            .map(move |fact| CommandFactRef::new(fact, store))
+    }
+
     pub fn first(self) -> Option<CommandFactRef<'facts, 'a>> {
         self.get(0)
     }

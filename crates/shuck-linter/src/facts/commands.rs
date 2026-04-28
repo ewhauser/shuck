@@ -886,10 +886,7 @@ fn build_pipeline_scope_summaries<'a>(
         let mut source_words = Vec::new();
         let mut name_reads = Vec::new();
         let mut heredoc_name_reads = Vec::new();
-        for command in commands
-            .iter()
-            .filter(|command| contains_span(pipeline.span(), command.span()))
-        {
+        for command in commands.contained_in(pipeline.span()) {
             collect_own_scope_read_source_words(
                 command,
                 if_condition_command_ids,
