@@ -944,12 +944,32 @@ pub(super) fn collect_arithmetic_update_operator_spans_from_parts(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    collect_arithmetic_update_operator_spans_from_parts_impl(parts, semantic, source, spans, false);
+    collect_arithmetic_update_operator_spans_from_parts_impl(
+        parts, semantic, None, source, spans, false,
+    );
+}
+
+pub(super) fn collect_arithmetic_update_operator_spans_from_parts_with_nested_commands(
+    parts: &[WordPartNode],
+    semantic: &SemanticModel,
+    semantic_artifacts: &LinterSemanticArtifacts<'_>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_arithmetic_update_operator_spans_from_parts_impl(
+        parts,
+        semantic,
+        Some(semantic_artifacts),
+        source,
+        spans,
+        true,
+    );
 }
 
 pub(super) fn collect_arithmetic_update_operator_spans_from_parts_impl(
     parts: &[WordPartNode],
     semantic: &SemanticModel,
+    semantic_artifacts: Option<&LinterSemanticArtifacts<'_>>,
     source: &str,
     spans: &mut Vec<Span>,
     include_nested_commands: bool,
@@ -960,6 +980,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_from_parts_impl(
                 collect_arithmetic_update_operator_spans_from_parts_impl(
                     parts,
                     semantic,
+                    semantic_artifacts,
                     source,
                     spans,
                     include_nested_commands,
@@ -976,6 +997,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_from_parts_impl(
                     collect_arithmetic_update_operator_spans_from_parts_impl(
                         &expression_word_ast.parts,
                         semantic,
+                        semantic_artifacts,
                         source,
                         spans,
                         include_nested_commands,
@@ -986,6 +1008,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_from_parts_impl(
                 collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
                     parameter,
                     semantic,
+                    semantic_artifacts,
                     source,
                     spans,
                     include_nested_commands,
@@ -999,6 +1022,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_from_parts_impl(
                 collect_arithmetic_update_operator_spans_in_var_ref_impl(
                     reference,
                     semantic,
+                    semantic_artifacts,
                     source,
                     spans,
                     include_nested_commands,
@@ -1006,6 +1030,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_from_parts_impl(
                 collect_arithmetic_update_operator_spans_in_parameter_operator_impl(
                     operator,
                     semantic,
+                    semantic_artifacts,
                     source,
                     spans,
                     include_nested_commands,
@@ -1020,6 +1045,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_from_parts_impl(
                 collect_arithmetic_update_operator_spans_in_var_ref_impl(
                     reference,
                     semantic,
+                    semantic_artifacts,
                     source,
                     spans,
                     include_nested_commands,
@@ -1044,6 +1070,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_from_parts_impl(
                 collect_arithmetic_update_operator_spans_in_var_ref_impl(
                     reference,
                     semantic,
+                    semantic_artifacts,
                     source,
                     spans,
                     include_nested_commands,
@@ -1054,6 +1081,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_from_parts_impl(
                     collect_arithmetic_update_operator_spans_from_parts_impl(
                         &offset_word_ast.parts,
                         semantic,
+                        semantic_artifacts,
                         source,
                         spans,
                         include_nested_commands,
@@ -1065,6 +1093,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_from_parts_impl(
                     collect_arithmetic_update_operator_spans_from_parts_impl(
                         &length_word_ast.parts,
                         semantic,
+                        semantic_artifacts,
                         source,
                         spans,
                         include_nested_commands,
@@ -1079,8 +1108,14 @@ pub(super) fn collect_arithmetic_update_operator_spans_from_parts_impl(
             WordPart::CommandSubstitution { body, .. }
             | WordPart::ProcessSubstitution { body, .. } => {
                 if include_nested_commands {
+                    let semantic_artifacts = semantic_artifacts
+                        .expect("nested command arithmetic scans require semantic artifacts");
                     collect_arithmetic_update_operator_spans_in_nested_command_body(
-                        body, semantic, source, spans,
+                        body,
+                        semantic_artifacts,
+                        semantic,
+                        source,
+                        spans,
                     );
                 }
             }
@@ -1095,13 +1130,14 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_var_ref(
     spans: &mut Vec<Span>,
 ) {
     collect_arithmetic_update_operator_spans_in_var_ref_impl(
-        reference, semantic, source, spans, false,
+        reference, semantic, None, source, spans, false,
     );
 }
 
 pub(super) fn collect_arithmetic_update_operator_spans_in_var_ref_impl(
     reference: &VarRef,
     semantic: &SemanticModel,
+    semantic_artifacts: Option<&LinterSemanticArtifacts<'_>>,
     source: &str,
     spans: &mut Vec<Span>,
     include_nested_commands: bool,
@@ -1117,6 +1153,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_var_ref_impl(
         collect_arithmetic_update_operator_spans_from_parts_impl(
             &word.parts,
             semantic,
+            semantic_artifacts,
             source,
             spans,
             include_nested_commands,
@@ -1127,17 +1164,24 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_var_ref_impl(
 pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_with_nested_commands(
     parameter: &ParameterExpansion,
     semantic: &SemanticModel,
+    semantic_artifacts: &LinterSemanticArtifacts<'_>,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
     collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
-        parameter, semantic, source, spans, true,
+        parameter,
+        semantic,
+        Some(semantic_artifacts),
+        source,
+        spans,
+        true,
     );
 }
 
 pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
     parameter: &ParameterExpansion,
     semantic: &SemanticModel,
+    semantic_artifacts: Option<&LinterSemanticArtifacts<'_>>,
     source: &str,
     spans: &mut Vec<Span>,
     include_nested_commands: bool,
@@ -1151,6 +1195,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_im
                 collect_arithmetic_update_operator_spans_in_var_ref_impl(
                     reference,
                     semantic,
+                    semantic_artifacts,
                     source,
                     spans,
                     include_nested_commands,
@@ -1165,6 +1210,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_im
                 collect_arithmetic_update_operator_spans_in_var_ref_impl(
                     reference,
                     semantic,
+                    semantic_artifacts,
                     source,
                     spans,
                     include_nested_commands,
@@ -1173,6 +1219,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_im
                     collect_arithmetic_update_operator_spans_in_parameter_operator_impl(
                         operator,
                         semantic,
+                        semantic_artifacts,
                         source,
                         spans,
                         include_nested_commands,
@@ -1182,6 +1229,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_im
                     collect_arithmetic_update_operator_spans_from_parts_impl(
                         &operand_word_ast.parts,
                         semantic,
+                        semantic_artifacts,
                         source,
                         spans,
                         include_nested_commands,
@@ -1197,6 +1245,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_im
                 collect_arithmetic_update_operator_spans_in_var_ref_impl(
                     reference,
                     semantic,
+                    semantic_artifacts,
                     source,
                     spans,
                     include_nested_commands,
@@ -1204,6 +1253,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_im
                 collect_arithmetic_update_operator_spans_in_parameter_operator_impl(
                     operator,
                     semantic,
+                    semantic_artifacts,
                     source,
                     spans,
                     include_nested_commands,
@@ -1212,6 +1262,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_im
                     collect_arithmetic_update_operator_spans_from_parts_impl(
                         &operand_word_ast.parts,
                         semantic,
+                        semantic_artifacts,
                         source,
                         spans,
                         include_nested_commands,
@@ -1229,6 +1280,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_im
                 collect_arithmetic_update_operator_spans_in_var_ref_impl(
                     reference,
                     semantic,
+                    semantic_artifacts,
                     source,
                     spans,
                     include_nested_commands,
@@ -1239,6 +1291,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_im
                     collect_arithmetic_update_operator_spans_from_parts_impl(
                         &offset_word_ast.parts,
                         semantic,
+                        semantic_artifacts,
                         source,
                         spans,
                         include_nested_commands,
@@ -1250,6 +1303,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_im
                     collect_arithmetic_update_operator_spans_from_parts_impl(
                         &length_word_ast.parts,
                         semantic,
+                        semantic_artifacts,
                         source,
                         spans,
                         include_nested_commands,
@@ -1263,6 +1317,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_im
                 collect_arithmetic_update_operator_spans_in_var_ref_impl(
                     reference,
                     semantic,
+                    semantic_artifacts,
                     source,
                     spans,
                     include_nested_commands,
@@ -1272,6 +1327,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_im
                 collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
                     parameter,
                     semantic,
+                    semantic_artifacts,
                     source,
                     spans,
                     include_nested_commands,
@@ -1281,6 +1337,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_im
                 collect_arithmetic_update_operator_spans_from_parts_impl(
                     &word.parts,
                     semantic,
+                    semantic_artifacts,
                     source,
                     spans,
                     include_nested_commands,
@@ -1294,6 +1351,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_expansion_im
 pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_operator_impl(
     operator: &ParameterOp,
     semantic: &SemanticModel,
+    semantic_artifacts: Option<&LinterSemanticArtifacts<'_>>,
     source: &str,
     spans: &mut Vec<Span>,
     include_nested_commands: bool,
@@ -1309,6 +1367,7 @@ pub(super) fn collect_arithmetic_update_operator_spans_in_parameter_operator_imp
         } => collect_arithmetic_update_operator_spans_from_parts_impl(
             &replacement_word_ast.parts,
             semantic,
+            semantic_artifacts,
             source,
             spans,
             include_nested_commands,
