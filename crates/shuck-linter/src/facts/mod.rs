@@ -63,7 +63,7 @@ use shuck_indexer::Indexer;
 #[cfg(test)]
 use shuck_parser::parser::Parser;
 use shuck_semantic::{
-    Binding, BindingId, BindingKind, Declaration, DeclarationBuiltin,
+    Binding, BindingId, BindingKind, CaseCliDispatch, Declaration, DeclarationBuiltin,
     DeclarationOperand as SemanticDeclarationOperand, NonpersistentAssignmentAnalysisContext,
     NonpersistentAssignmentAnalysisOptions, NonpersistentAssignmentCommandContext,
     NonpersistentAssignmentExtraRead, OptionValue, Reference, ReferenceId, ReferenceKind, ScopeId,

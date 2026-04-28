@@ -613,6 +613,42 @@ fn semantic_analysis_exposes_function_scope_and_call_arity_bindings() {
 }
 
 #[test]
+fn semantic_analysis_exposes_case_cli_dispatch_reachability() {
+    let source = "\
+#!/bin/sh
+start() { echo hi; }
+case \"$1\" in
+  start) \"$1\" ;;
+esac
+exit $?
+late() { echo later; }
+";
+    let output = Parser::with_dialect(source, ShellDialect::Bash)
+        .parse()
+        .unwrap();
+    let indexer = Indexer::new(source, &output);
+    let model = SemanticModel::build(&output.file, source, &indexer);
+    let analysis = model.analysis();
+    let start_binding = model.function_definitions(&Name::from("start"))[0];
+    let start_scope = analysis
+        .function_scope_for_binding(start_binding)
+        .expect("expected start function scope");
+    let late_binding = model.function_definitions(&Name::from("late"))[0];
+    let late_scope = analysis
+        .function_scope_for_binding(late_binding)
+        .expect("expected late function scope");
+
+    let dispatches = analysis.case_cli_dispatches(&output.file, source);
+    assert_eq!(dispatches.len(), 1);
+    assert_eq!(dispatches[0].function_scope(), start_scope);
+    assert_eq!(dispatches[0].dispatcher_span().slice(source), "\"$1\"");
+
+    let reachable = analysis.case_cli_reachable_function_scopes(&output.file, &dispatches);
+    assert!(reachable.contains(&start_scope));
+    assert!(!reachable.contains(&late_scope));
+}
+
+#[test]
 fn zsh_parameter_modifiers_still_register_references() {
     let model = model_with_profile("print ${(m)foo}\n", ShellProfile::native(ShellDialect::Zsh));
     let unresolved = unresolved_names(&model);

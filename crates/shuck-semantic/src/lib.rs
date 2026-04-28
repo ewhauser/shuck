@@ -99,6 +99,32 @@ pub use source_ref::{SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceR
 /// Value-flow query object built over semantic bindings, call sites, CFG, and dataflow.
 pub use value_flow::SemanticValueFlow;
 
+/// A function scope reached through a top-level `case "$1"` style CLI dispatcher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CaseCliDispatch {
+    function_scope: ScopeId,
+    dispatcher_span: Span,
+}
+
+impl CaseCliDispatch {
+    fn new(function_scope: ScopeId, dispatcher_span: Span) -> Self {
+        Self {
+            function_scope,
+            dispatcher_span,
+        }
+    }
+
+    /// The function body scope selected by the dispatcher.
+    pub fn function_scope(self) -> ScopeId {
+        self.function_scope
+    }
+
+    /// The span of the dynamic positional command used for dispatch.
+    pub fn dispatcher_span(self) -> Span {
+        self.dispatcher_span
+    }
+}
+
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command, File, Name, Span, Stmt};
 use shuck_indexer::Indexer;
