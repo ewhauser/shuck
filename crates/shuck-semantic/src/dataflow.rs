@@ -3,6 +3,8 @@ use shuck_ast::Name;
 use shuck_ast::Span;
 use smallvec::SmallVec;
 
+use crate::dense_bit_set::DenseBitSet;
+use crate::reachability::block_reaches_without;
 use crate::runtime::RuntimePrelude;
 use crate::{
     Binding, BindingAttributes, BindingId, BindingKind, BlockId, CallSite, ContractCertainty,
@@ -1353,117 +1355,6 @@ fn union_name_reads_into_live_slots(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct DenseBitSet {
-    words: Vec<usize>,
-}
-
-impl DenseBitSet {
-    const WORD_BITS: usize = usize::BITS as usize;
-
-    fn new(bit_len: usize) -> Self {
-        Self {
-            words: vec![0; bit_len.div_ceil(Self::WORD_BITS)],
-        }
-    }
-
-    fn insert(&mut self, index: usize) {
-        let word = index / Self::WORD_BITS;
-        let bit = index % Self::WORD_BITS;
-        self.words[word] |= 1usize << bit;
-    }
-
-    fn remove(&mut self, index: usize) {
-        let word = index / Self::WORD_BITS;
-        let bit = index % Self::WORD_BITS;
-        self.words[word] &= !(1usize << bit);
-    }
-
-    fn contains(&self, index: usize) -> bool {
-        let word = index / Self::WORD_BITS;
-        let bit = index % Self::WORD_BITS;
-        self.words
-            .get(word)
-            .is_some_and(|word| (word & (1usize << bit)) != 0)
-    }
-
-    fn is_empty(&self) -> bool {
-        self.words.iter().all(|word| *word == 0)
-    }
-
-    fn clear(&mut self) {
-        self.words.fill(0);
-    }
-
-    fn copy_from(&mut self, other: &Self) {
-        debug_assert_eq!(self.words.len(), other.words.len());
-        self.words.copy_from_slice(&other.words);
-    }
-
-    fn replace_if_changed(&mut self, other: &Self) -> bool {
-        debug_assert_eq!(self.words.len(), other.words.len());
-        if self.words == other.words {
-            false
-        } else {
-            self.copy_from(other);
-            true
-        }
-    }
-
-    fn union_with(&mut self, other: &Self) {
-        debug_assert_eq!(self.words.len(), other.words.len());
-        for (word, other_word) in self.words.iter_mut().zip(&other.words) {
-            *word |= *other_word;
-        }
-    }
-
-    fn subtract_with(&mut self, other: &Self) {
-        debug_assert_eq!(self.words.len(), other.words.len());
-        for (word, other_word) in self.words.iter_mut().zip(&other.words) {
-            *word &= !*other_word;
-        }
-    }
-
-    fn intersect_with(&mut self, other: &Self) {
-        debug_assert_eq!(self.words.len(), other.words.len());
-        for (word, other_word) in self.words.iter_mut().zip(&other.words) {
-            *word &= *other_word;
-        }
-    }
-
-    fn iter_ones(&self) -> DenseBitSetIter<'_> {
-        DenseBitSetIter {
-            words: &self.words,
-            word_index: 0,
-            current_word: 0,
-        }
-    }
-}
-
-struct DenseBitSetIter<'a> {
-    words: &'a [usize],
-    word_index: usize,
-    current_word: usize,
-}
-
-impl Iterator for DenseBitSetIter<'_> {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if self.current_word != 0 {
-                let bit = self.current_word.trailing_zeros() as usize;
-                self.current_word &= self.current_word - 1;
-                return Some((self.word_index - 1) * DenseBitSet::WORD_BITS + bit);
-            }
-
-            let next_word = self.words.get(self.word_index).copied()?;
-            self.current_word = next_word;
-            self.word_index += 1;
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct NameId(u32);
 
@@ -2673,35 +2564,6 @@ fn future_reads_contain_after_without_shadow(
 
         block_reaches_without(cfg, binding_block, event_block, shadow_block)
     })
-}
-
-fn block_reaches_without(
-    cfg: &ControlFlowGraph,
-    start: BlockId,
-    end: BlockId,
-    avoided: BlockId,
-) -> bool {
-    if start == avoided {
-        return false;
-    }
-
-    let mut visited = DenseBitSet::new(cfg.blocks().len());
-    let mut stack = vec![start];
-
-    while let Some(block) = stack.pop() {
-        if block == avoided || visited.contains(block.index()) {
-            continue;
-        }
-        visited.insert(block.index());
-        if block == end {
-            return true;
-        }
-        for (successor, _) in cfg.successors(block) {
-            stack.push(*successor);
-        }
-    }
-
-    false
 }
 
 fn binding_initializes_name(binding: &Binding) -> Option<ContractCertainty> {

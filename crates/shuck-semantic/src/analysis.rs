@@ -1,7 +1,7 @@
 use super::*;
 use crate::cfg::build_control_flow_graph;
 use crate::dataflow;
-use crate::reachability::block_reaches_without;
+use crate::reachability::{block_reaches_unless, block_reaches_without};
 
 #[allow(missing_docs)]
 impl<'model> SemanticAnalysis<'model> {
@@ -257,30 +257,11 @@ impl<'model> SemanticAnalysis<'model> {
         target: BlockId,
         cover_blocks: &FxHashSet<BlockId>,
     ) -> bool {
-        if cover_blocks.contains(&target) {
-            return true;
-        }
-
         let cfg = self.cfg();
         let unreachable = self.unreachable_blocks();
-        let mut stack = vec![entry];
-        let mut seen = FxHashSet::default();
-        while let Some(block_id) = stack.pop() {
-            if cover_blocks.contains(&block_id)
-                || unreachable.contains(&block_id)
-                || !seen.insert(block_id)
-            {
-                continue;
-            }
-            if block_id == target {
-                return false;
-            }
-            for (successor, _) in cfg.successors(block_id) {
-                stack.push(*successor);
-            }
-        }
-
-        true
+        !block_reaches_unless(cfg, entry, target, |block| {
+            cover_blocks.contains(&block) || unreachable.contains(&block)
+        })
     }
 
     /// Returns true when a binding's CFG block dominates a named reference from the relevant

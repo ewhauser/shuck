@@ -22,6 +22,8 @@ mod dataflow;
 #[allow(missing_docs)]
 mod declaration;
 #[allow(missing_docs)]
+mod dense_bit_set;
+#[allow(missing_docs)]
 mod nonpersistent;
 #[allow(missing_docs)]
 mod reachability;

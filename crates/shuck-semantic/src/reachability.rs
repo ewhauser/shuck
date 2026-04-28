@@ -1,4 +1,5 @@
 use super::*;
+use crate::dense_bit_set::DenseBitSet;
 
 struct OverwriteWindow<'a> {
     first: BindingId,
@@ -1604,17 +1605,27 @@ pub(crate) fn block_reaches_without(
     end: BlockId,
     avoided: BlockId,
 ) -> bool {
-    if start == avoided {
+    block_reaches_unless(cfg, start, end, |block| block == avoided)
+}
+
+pub(crate) fn block_reaches_unless(
+    cfg: &ControlFlowGraph,
+    start: BlockId,
+    end: BlockId,
+    mut is_blocked: impl FnMut(BlockId) -> bool,
+) -> bool {
+    if is_blocked(start) {
         return false;
     }
 
-    let mut visited = FxHashSet::default();
+    let mut visited = DenseBitSet::new(cfg.blocks().len());
     let mut stack = vec![start];
 
     while let Some(block) = stack.pop() {
-        if block == avoided || !visited.insert(block) {
+        if is_blocked(block) || visited.contains(block.index()) {
             continue;
         }
+        visited.insert(block.index());
         if block == end {
             return true;
         }
