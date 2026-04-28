@@ -14,31 +14,24 @@ configure_benchmark_allocator!();
 
 struct PreparedFactsInput {
     source: &'static str,
-    output: &'static ParseResult,
-    indexer: &'static Indexer,
-    semantic: LinterSemanticArtifacts<'static>,
+    output: ParseResult,
+    indexer: Indexer,
 }
 
 fn prepare_facts_input(source: &'static str) -> PreparedFactsInput {
-    let output = Box::leak(Box::new(parse_fixture(source)));
-    let indexer = Box::leak(Box::new(Indexer::new(source, output)));
-    let semantic = LinterSemanticArtifacts::build(&output.file, source, indexer);
+    let output = parse_fixture(source);
+    let indexer = Indexer::new(source, &output);
 
     PreparedFactsInput {
         source,
         output,
         indexer,
-        semantic,
     }
 }
 
 fn build_linter_facts(input: &PreparedFactsInput) -> usize {
-    let facts = LinterFacts::build(
-        &input.output.file,
-        input.source,
-        &input.semantic,
-        input.indexer,
-    );
+    let semantic = LinterSemanticArtifacts::build(&input.output.file, input.source, &input.indexer);
+    let facts = LinterFacts::build(&input.output.file, input.source, &semantic, &input.indexer);
 
     black_box(
         facts.commands().len()
@@ -60,10 +53,11 @@ fn build_normalized_commands(input: &PreparedFactsInput) -> usize {
 }
 
 fn build_word_facts(input: &PreparedFactsInput) -> usize {
+    let semantic = LinterSemanticArtifacts::build(&input.output.file, input.source, &input.indexer);
     black_box(benchmark_collect_word_facts(
         &input.output.file,
         input.source,
-        input.semantic.semantic(),
+        semantic.semantic(),
     ))
 }
 
