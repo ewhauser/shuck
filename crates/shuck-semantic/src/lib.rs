@@ -741,6 +741,36 @@ impl SemanticModel {
         }
     }
 
+    /// Yield direct references for `command_span` whose spans are fully contained within `outer`.
+    ///
+    /// References recorded for nested commands are excluded because semantic
+    /// stores them against their own command spans instead of the enclosing
+    /// command.
+    pub fn references_in_command_span(
+        &self,
+        command_span: Span,
+        outer: Span,
+    ) -> CommandReferencesInSpan<'_> {
+        let command_span = self
+            .command_references
+            .contains_key(&SpanKey::new(command_span))
+            .then_some(command_span)
+            .or_else(|| {
+                self.command_by_span(command_span)
+                    .map(|id| self.command_span(id))
+            });
+        let ids = command_span
+            .filter(|span| contains_span(*span, outer))
+            .and_then(|span| self.command_references.get(&SpanKey::new(span)))
+            .map(SmallVec::as_slice)
+            .unwrap_or(&[]);
+        CommandReferencesInSpan {
+            references: &self.references,
+            ids: ids.iter(),
+            outer,
+        }
+    }
+
     /// Yield every binding whose span is fully contained within `outer`.
     ///
     /// Backed by a lazily-built index sorted by binding start offset, so a
@@ -2397,6 +2427,31 @@ impl<'a> Iterator for ReferencesInSpan<'a> {
                 return None;
             }
             if reference.span.end.offset <= self.end {
+                return Some(reference);
+            }
+        }
+    }
+}
+
+/// Iterator returned by [`SemanticModel::references_in_command_span`].
+///
+/// Walks the direct reference ids recorded for a single command and yields
+/// only those fully contained within the requested subspan.
+#[derive(Debug, Clone)]
+pub struct CommandReferencesInSpan<'a> {
+    references: &'a [Reference],
+    ids: std::slice::Iter<'a, ReferenceId>,
+    outer: Span,
+}
+
+impl<'a> Iterator for CommandReferencesInSpan<'a> {
+    type Item = &'a Reference;
+
+    fn next(&mut self) -> Option<&'a Reference> {
+        loop {
+            let id = self.ids.next()?;
+            let reference = &self.references[id.index()];
+            if contains_span(self.outer, reference.span) {
                 return Some(reference);
             }
         }
