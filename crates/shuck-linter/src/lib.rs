@@ -168,16 +168,28 @@ impl<'a> LinterSemanticArtifacts<'a> {
         &self.command_visits_by_id
     }
 
+    #[cfg(test)]
     pub(crate) fn command_visits_in_body(
         &self,
         body: &StmtSeq,
         descend_nested_word_commands: bool,
     ) -> Vec<facts::CommandVisit<'a>> {
-        let Some(root_ids) = self
-            .direct_command_ids_by_body_span
-            .get(&facts::FactSpan::new(body.span))
-        else {
-            return Vec::new();
+        let mut visits = Vec::new();
+        self.for_each_command_visit_in_body(body, descend_nested_word_commands, |visit| {
+            visits.push(visit);
+        });
+        visits
+    }
+
+    pub(crate) fn for_each_command_visit_in_body(
+        &self,
+        body: &StmtSeq,
+        descend_nested_word_commands: bool,
+        mut visitor: impl FnMut(facts::CommandVisit<'a>),
+    ) {
+        let body_span = facts::FactSpan::new(body.span);
+        let Some(root_ids) = self.direct_command_ids_by_body_span.get(&body_span) else {
+            return;
         };
         let baseline_depth = root_ids
             .iter()
@@ -185,7 +197,6 @@ impl<'a> LinterSemanticArtifacts<'a> {
             .map(|context| context.nested_word_command_depth())
             .min()
             .unwrap_or(0);
-        let mut visits = Vec::new();
         let mut stack = root_ids.iter().rev().copied().collect::<Vec<_>>();
         while let Some(id) = stack.pop() {
             let Some(context) = self.semantic.command_context(id) else {
@@ -200,7 +211,7 @@ impl<'a> LinterSemanticArtifacts<'a> {
                 .get(id.index())
                 .and_then(|visit| *visit)
             {
-                visits.push(visit);
+                visitor(visit);
             }
             for child in self
                 .semantic
@@ -211,7 +222,6 @@ impl<'a> LinterSemanticArtifacts<'a> {
                 stack.push(*child);
             }
         }
-        visits
     }
 }
 

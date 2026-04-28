@@ -1055,7 +1055,7 @@ fn collect_own_scope_name_read_uses(
 
 fn collect_own_scope_heredoc_name_read_uses(
     command: CommandFactRef<'_, '_>,
-    source: &str,
+    _source: &str,
     uses: &mut Vec<ComparableNameUse>,
 ) {
     for redirect in command.redirect_facts() {
@@ -1065,11 +1065,7 @@ fn collect_own_scope_heredoc_name_read_uses(
         ) {
             continue;
         }
-        if let Some(heredoc) = redirect.redirect().heredoc()
-            && heredoc.delimiter.expands_body
-        {
-            uses.extend(comparable_heredoc_name_uses(&heredoc.body, source));
-        }
+        uses.extend(redirect.comparable_name_uses().iter().cloned());
     }
 }
 

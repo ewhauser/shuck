@@ -178,7 +178,11 @@ pub(crate) fn comparable_path(
     })
 }
 
-pub(crate) fn comparable_name_uses(word: &Word, source: &str) -> Box<[ComparableNameUse]> {
+pub(crate) fn comparable_name_uses(
+    word: &Word,
+    semantic: Option<&LinterSemanticArtifacts<'_>>,
+    source: &str,
+) -> Box<[ComparableNameUse]> {
     let mut uses = Vec::new();
     if let Some(name_use) = standalone_comparable_name_use(word, source) {
         uses.push(name_use);
@@ -187,6 +191,7 @@ pub(crate) fn comparable_name_uses(word: &Word, source: &str) -> Box<[Comparable
         analyze_word(word, source, None).quote == WordQuote::FullyQuoted;
     collect_command_substitution_comparable_name_uses_in_parts(
         &word.parts,
+        semantic,
         source,
         allow_quoted_derived_words,
         &mut uses,
@@ -197,13 +202,15 @@ pub(crate) fn comparable_name_uses(word: &Word, source: &str) -> Box<[Comparable
 
 pub(crate) fn comparable_read_target_name_uses(
     word: &Word,
+    semantic: &LinterSemanticArtifacts<'_>,
     source: &str,
 ) -> Box<[ComparableNameUse]> {
-    comparable_name_uses_with_quoted_literals(word, source)
+    comparable_name_uses_with_quoted_literals(word, Some(semantic), source)
 }
 
 pub(crate) fn comparable_heredoc_name_uses(
     heredoc: &shuck_ast::HeredocBody,
+    semantic: Option<&LinterSemanticArtifacts<'_>>,
     source: &str,
 ) -> Box<[ComparableNameUse]> {
     let mut uses = Vec::new();
@@ -228,7 +235,9 @@ pub(crate) fn comparable_heredoc_name_uses(
                 }
             }
             shuck_ast::HeredocBodyPart::CommandSubstitution { body, .. } => {
-                collect_command_substitution_comparable_name_uses(body, source, true, &mut uses);
+                collect_command_substitution_comparable_name_uses(
+                    body, semantic, source, true, &mut uses,
+                );
             }
             shuck_ast::HeredocBodyPart::ArithmeticExpansion {
                 expression_word_ast,
@@ -248,6 +257,7 @@ pub(crate) fn comparable_heredoc_name_uses(
 
 fn collect_command_substitution_comparable_name_uses_in_parts(
     parts: &[WordPartNode],
+    semantic: Option<&LinterSemanticArtifacts<'_>>,
     source: &str,
     allow_quoted_derived_words: bool,
     uses: &mut Vec<ComparableNameUse>,
@@ -257,6 +267,7 @@ fn collect_command_substitution_comparable_name_uses_in_parts(
             WordPart::DoubleQuoted { parts, .. } => {
                 collect_command_substitution_comparable_name_uses_in_parts(
                     parts,
+                    semantic,
                     source,
                     allow_quoted_derived_words,
                     uses,
@@ -265,6 +276,7 @@ fn collect_command_substitution_comparable_name_uses_in_parts(
             WordPart::CommandSubstitution { body, .. } => {
                 collect_command_substitution_comparable_name_uses(
                     body,
+                    semantic,
                     source,
                     allow_quoted_derived_words,
                     uses,
@@ -288,6 +300,7 @@ fn collect_command_substitution_comparable_name_uses_in_parts(
                 if let Some(word) = operand_word_ast {
                     collect_command_substitution_comparable_name_uses_in_parts(
                         &word.parts,
+                        semantic,
                         source,
                         allow_quoted_derived_words,
                         uses,
@@ -331,11 +344,15 @@ fn collect_command_substitution_comparable_name_uses_in_parts(
 
 fn collect_command_substitution_comparable_name_uses(
     body: &StmtSeq,
+    semantic: Option<&LinterSemanticArtifacts<'_>>,
     source: &str,
     allow_quoted_derived_words: bool,
     uses: &mut Vec<ComparableNameUse>,
 ) {
-    visit_command_substitution_candidate_words(body, source, &mut |word| {
+    let Some(semantic) = semantic else {
+        return;
+    };
+    visit_command_substitution_candidate_words(body, semantic, source, &mut |word| {
         if !allow_quoted_derived_words && analyze_word(word, source, None).quote == WordQuote::FullyQuoted
         {
             return;
@@ -372,9 +389,10 @@ fn literal_comparable_name_use(span: Span, text: &str) -> ComparableNameUse {
 
 fn comparable_name_uses_with_quoted_literals(
     word: &Word,
+    semantic: Option<&LinterSemanticArtifacts<'_>>,
     source: &str,
 ) -> Box<[ComparableNameUse]> {
-    let mut uses = comparable_name_uses(word, source).into_vec();
+    let mut uses = comparable_name_uses(word, semantic, source).into_vec();
     if let Some(text) = static_word_text(word, source)
         && comparable_name_text(text.as_ref())
     {
@@ -645,7 +663,7 @@ pub(crate) fn analyze_redirect_target(
 #[cfg_attr(shuck_profiling, inline(never))]
 fn build_redirect_facts<'a>(
     redirects: &'a [Redirect],
-    semantic: Option<&SemanticModel>,
+    semantic: Option<&LinterSemanticArtifacts<'a>>,
     source: &str,
     zsh_options: Option<&ZshOptionState>,
 ) -> Vec<RedirectFact<'a>> {
@@ -663,7 +681,7 @@ fn build_redirect_facts<'a>(
                     if let Some(semantic) = semantic {
                         collect_arithmetic_update_operator_spans_from_parts(
                             &word.parts,
-                            semantic,
+                            semantic.semantic(),
                             source,
                             &mut spans,
                         );
@@ -676,26 +694,41 @@ fn build_redirect_facts<'a>(
                 ExpansionContext::from_redirect_kind(redirect.kind)
                     .and_then(|context| comparable_path(word, source, context, zsh_options))
             }),
-            comparable_name_uses: redirect
-                .word_target()
-                .map_or_else(Vec::new, |word| match redirect.kind {
-                    RedirectKind::Output
-                    | RedirectKind::Clobber
-                    | RedirectKind::Append
-                    | RedirectKind::OutputBoth => {
-                        comparable_name_uses_with_quoted_literals(word, source).into_vec()
-                    }
-                    RedirectKind::Input
-                    | RedirectKind::ReadWrite
-                    | RedirectKind::HereDoc
-                    | RedirectKind::HereDocStrip
-                    | RedirectKind::HereString
-                    | RedirectKind::DupOutput
-                    | RedirectKind::DupInput => comparable_name_uses(word, source).into_vec(),
-                })
-                .into_boxed_slice(),
+            comparable_name_uses: comparable_redirect_name_uses(redirect, semantic, source),
         })
         .collect()
+}
+
+fn comparable_redirect_name_uses(
+    redirect: &Redirect,
+    semantic: Option<&LinterSemanticArtifacts<'_>>,
+    source: &str,
+) -> Box<[ComparableNameUse]> {
+    if let Some(word) = redirect.word_target() {
+        return match redirect.kind {
+            RedirectKind::Output
+            | RedirectKind::Clobber
+            | RedirectKind::Append
+            | RedirectKind::OutputBoth => {
+                comparable_name_uses_with_quoted_literals(word, semantic, source)
+            }
+            RedirectKind::Input
+            | RedirectKind::ReadWrite
+            | RedirectKind::HereDoc
+            | RedirectKind::HereDocStrip
+            | RedirectKind::HereString
+            | RedirectKind::DupOutput
+            | RedirectKind::DupInput => comparable_name_uses(word, semantic, source),
+        };
+    }
+
+    let Some(heredoc) = redirect.heredoc() else {
+        return Box::default();
+    };
+    if !heredoc.delimiter.expands_body {
+        return Box::default();
+    }
+    comparable_heredoc_name_uses(&heredoc.body, semantic, source)
 }
 
 fn brace_fd_redirection_span(redirect: &Redirect, source: &str) -> Option<Span> {

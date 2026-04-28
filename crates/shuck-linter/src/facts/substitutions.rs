@@ -551,7 +551,18 @@ fn classify_substitution_body<'a>(
     semantic: &LinterSemanticArtifacts<'a>,
     source: &str,
 ) -> SubstitutionBodyFacts {
-    let visits = semantic.command_visits_in_body(body, false);
+    let mut body_has_commands = false;
+    let mut bash_file_slurp = false;
+    let mut body_command_count = 0;
+    semantic.for_each_command_visit_in_body(body, false, |visit| {
+        body_has_commands = true;
+        body_command_count += 1;
+        if body_command_count == 1 {
+            bash_file_slurp = is_bash_file_slurp_command(visit.command, visit.redirects, source);
+        } else {
+            bash_file_slurp = false;
+        }
+    });
     let redirect_summary =
         summarize_stmt_seq_redirects(body, parent_id, commands, command_relationships, source);
 
@@ -587,8 +598,8 @@ fn classify_substitution_body<'a>(
             commands,
             command_relationships.command_ids_by_span,
         ),
-        body_has_commands: !visits.is_empty(),
-        bash_file_slurp: matches!(visits.as_slice(), [visit] if is_bash_file_slurp_command(visit.command, visit.redirects, source)),
+        body_has_commands,
+        bash_file_slurp,
     }
 }
 
@@ -1086,7 +1097,7 @@ fn substitution_body_processed_ls_pipeline_spans<'a>(
     source: &str,
 ) -> Vec<Span> {
     let mut spans = Vec::new();
-    for visit in semantic.command_visits_in_body(body, true) {
+    semantic.for_each_command_visit_in_body(body, true, |visit| {
         collect_processed_ls_pipeline_spans_in_stmt(
             visit.stmt,
             parent_id,
@@ -1095,7 +1106,7 @@ fn substitution_body_processed_ls_pipeline_spans<'a>(
             source,
             &mut spans,
         );
-    }
+    });
     spans
 }
 
