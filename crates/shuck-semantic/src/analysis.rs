@@ -115,7 +115,7 @@ impl<'model> SemanticAnalysis<'model> {
         self.model
             .scope(scope)
             .parent
-            .and_then(|parent| self.enclosing_function_scope(parent))
+            .and_then(|parent| self.model.enclosing_function_scope(parent))
             .is_some()
     }
 

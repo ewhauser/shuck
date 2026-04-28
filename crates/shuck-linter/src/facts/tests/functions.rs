@@ -342,6 +342,42 @@ late() { echo later; }
 }
 
 #[test]
+fn case_cli_reachable_function_scopes_count_anonymous_parent_functions() {
+    let source = "\
+#!/bin/zsh
+case \"$1\" in
+  start) \"$1\" ;;
+esac
+exit $?
+function {
+  helper() { echo helper; }
+}
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            let helper = facts
+                .function_headers()
+                .iter()
+                .find(|header| {
+                    header
+                        .static_name_entry()
+                        .is_some_and(|(name, _)| name == "helper")
+                })
+                .expect("expected helper header fact");
+
+            assert!(facts.is_case_cli_reachable_function_scope(
+                helper.function_scope().expect("expected helper scope")
+            ));
+        },
+    );
+}
+
+#[test]
 fn function_cli_dispatch_facts_track_case_positional_entrypoints_with_literal_top_level_exit() {
     let source = "\
 #!/bin/sh
