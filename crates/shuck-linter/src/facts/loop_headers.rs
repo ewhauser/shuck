@@ -133,6 +133,7 @@ impl<'a> SelectHeaderFact<'a> {
 
 pub(super) fn build_for_header_facts<'a>(
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> Vec<ForHeaderFact<'a>> {
@@ -150,6 +151,7 @@ pub(super) fn build_for_header_facts<'a>(
                 words: build_loop_header_word_facts(
                     command.words.iter().flat_map(|words| words.iter()),
                     commands,
+                    command_fact_indices_by_id,
                     command_ids_by_span,
                     source,
                 ),
@@ -160,6 +162,7 @@ pub(super) fn build_for_header_facts<'a>(
 
 pub(super) fn build_select_header_facts<'a>(
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> Vec<SelectHeaderFact<'a>> {
@@ -177,6 +180,7 @@ pub(super) fn build_select_header_facts<'a>(
                 words: build_loop_header_word_facts(
                     command.words.iter(),
                     commands,
+                    command_fact_indices_by_id,
                     command_ids_by_span,
                     source,
                 ),
@@ -189,6 +193,7 @@ pub(super) fn build_select_header_facts<'a>(
 fn build_loop_header_word_facts<'a>(
     words: impl IntoIterator<Item = &'a Word>,
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> Box<[LoopHeaderWordFact<'a>]> {
@@ -208,17 +213,20 @@ fn build_loop_header_word_facts<'a>(
                 contains_line_oriented_substitution: word_contains_line_oriented_substitution(
                     word,
                     commands,
+                    command_fact_indices_by_id,
                     command_ids_by_span,
                 ),
                 contains_ls_substitution: word_contains_command_substitution_named(
                     word,
                     "ls",
                     commands,
+                    command_fact_indices_by_id,
                     command_ids_by_span,
                 ),
                 contains_find_substitution: word_contains_find_substitution(
                     word,
                     commands,
+                    command_fact_indices_by_id,
                     command_ids_by_span,
                 ),
             }

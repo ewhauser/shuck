@@ -152,13 +152,15 @@ impl SubstitutionFact {
 fn populate_substitution_fact_ranges<'a>(
     commands: &mut [CommandFact<'a>],
     fact_store: &mut FactStore<'a>,
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
     source: &str,
 ) {
     for index in 0..commands.len() {
         let substitutions = {
-            let command_facts = CommandFacts::new(commands, fact_store);
+            let command_facts =
+                CommandFacts::new(commands, fact_store, command_fact_indices_by_id);
             let fact = command_facts
                 .get(index)
                 .expect("command index should resolve while populating substitution facts");
@@ -187,6 +189,7 @@ fn build_command_substitution_facts<'a>(
         commands,
         command_relationships: CommandRelationshipContext::new(
             commands.commands,
+            commands.indices_by_id,
             command_ids_by_span,
             command_child_index,
         ),

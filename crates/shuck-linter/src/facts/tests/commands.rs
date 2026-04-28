@@ -25,6 +25,29 @@ fn word_static_text_preserves_multi_part_literals() {
 }
 
 #[test]
+fn structural_commands_skip_synthetic_semantic_commands() {
+    let source = "case \"$x\" in $(echo \"$v\")) ;; esac\n";
+    with_facts(source, None, |_output, facts| {
+        let commands = facts.structural_commands().collect::<Vec<_>>();
+
+        assert!(!commands.is_empty());
+        assert!(commands.iter().all(|command| {
+            facts
+                .commands()
+                .iter()
+                .any(|candidate| candidate.id() == command.id())
+        }));
+        let pattern_command = facts
+            .commands()
+            .iter()
+            .find(|command| command.span().slice(source).starts_with("echo"))
+            .unwrap();
+        let parent = facts.command_parent(pattern_command.id()).unwrap();
+        assert!(parent.span().slice(source).starts_with("case"));
+    });
+}
+
+#[test]
 fn summarizes_command_options_and_invokers() {
     let source = "#!/bin/bash\nread -r name\necho -ne hi\necho '-I' hi\necho \"\\\\n\"\necho \\x41\necho \"prefix $VAR \\\\0 suffix\"\ncommand echo \\n\nsed 's/foo/bar/'\nsed -e 's/foo/bar/'\nsed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\1:'\nsed 's/[]\\[^$.*/]/\\\\&/g'\nsed 's/\\([/&]\\)/\\\\\\1/g'\nsed -n 's/foo/bar/p'\nsed --expression 's/foo/bar/'\nsed -r 's/foo/bar/'\nsed \\\"s/foo/bar/\\\"\ntr -ds a-z A-Z\ntr -- 'a-z' xyz\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -type d -name CVS | xargs -iX rm -rf X\nfind . -type d -name CVS | xargs --replace rm -rf {}\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eETo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
     let output = Parser::new(source).parse().unwrap();

@@ -935,7 +935,6 @@ pub(crate) fn benchmark_collect_word_facts(
     let mut arithmetic_summary = ArithmeticFactSummary::default();
     let mut surface_fragments = SurfaceFragmentSink::new(source);
 
-    let mut next_command_id = 0;
     walk_commands(
         &file.body,
         CommandWalkOptions {
@@ -955,7 +954,12 @@ pub(crate) fn benchmark_collect_word_facts(
                 source,
                 semantic,
                 WordFactCommandContext {
-                    command_id: CommandId::new(next_command_id),
+                    command_id: semantic
+                        .command_by_span_and_kind(
+                            command_span(visit.command),
+                            shuck_semantic::CommandKind::from_command(visit.command),
+                        )
+                        .expect("semantic command id must exist for word fact estimate"),
                     nested_word_command: context.nested_word_command,
                     scope,
                 },
@@ -980,7 +984,6 @@ pub(crate) fn benchmark_collect_word_facts(
                     surface: &mut surface_fragments,
                 },
             );
-            next_command_id += 1;
         },
     );
 

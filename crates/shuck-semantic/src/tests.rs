@@ -1,5 +1,5 @@
 use super::*;
-use crate::cfg::{RecordedCommandKind, build_control_flow_graph};
+use crate::cfg::build_control_flow_graph;
 use shuck_ast::{Command, CompoundCommand};
 use shuck_indexer::Indexer;
 use shuck_parser::parser::{Parser, ShellDialect};
@@ -31,6 +31,28 @@ fn model_with_profile(source: &str, profile: ShellProfile) -> SemanticModel {
             ..SemanticBuildOptions::default()
         },
     )
+}
+
+fn command_id_starting_with(
+    model: &SemanticModel,
+    source: &str,
+    prefix: &str,
+) -> Option<CommandId> {
+    model.commands().iter().copied().find(|id| {
+        model
+            .command_syntax_span(*id)
+            .slice(source)
+            .starts_with(prefix)
+    })
+}
+
+fn command_id_containing(model: &SemanticModel, source: &str, needle: &str) -> Option<CommandId> {
+    model.commands().iter().copied().find(|id| {
+        model
+            .command_syntax_span(*id)
+            .slice(source)
+            .contains(needle)
+    })
 }
 
 fn model_at_path_with_parse_dialect(path: &Path, dialect: ShellDialect) -> SemanticModel {
@@ -966,42 +988,25 @@ fn recorded_program_preserves_logical_list_order_in_ranges() {
     let source = "a && b || c\n";
     let model = model(source);
 
-    let file_commands = model
-        .recorded_program
-        .commands_in(model.recorded_program.file_commands());
-    assert_eq!(file_commands.len(), 1);
+    let lists = model.list_commands();
+    assert_eq!(lists.len(), 1);
+    let segments = &lists[0].segments;
 
-    let command = model.recorded_program.command(file_commands[0]);
-    let (first, rest) = match command.kind {
-        RecordedCommandKind::List { first, rest } => (first, rest),
-        other => panic!("expected list command, found {other:?}"),
-    };
+    assert_eq!(segments.len(), 3);
+    assert!(segments[0].command_span.slice(source).starts_with("a"));
+    assert!(segments[1].command_span.slice(source).starts_with("b"));
+    assert!(segments[2].command_span.slice(source).starts_with("c"));
+}
+
+#[test]
+fn flattened_logical_lists_preserve_short_circuit_cfg_paths() {
+    let source = "true && true || exit 1\nprintf '%s\\n' reachable\n";
+    let model = model(source);
 
     assert!(
-        model
-            .recorded_program
-            .command(first)
-            .span
-            .slice(source)
-            .starts_with("a")
-    );
-    let rest = model.recorded_program.list_items(rest);
-    assert_eq!(rest.len(), 2);
-    assert!(
-        model
-            .recorded_program
-            .command(rest[0].command)
-            .span
-            .slice(source)
-            .starts_with("b")
-    );
-    assert!(
-        model
-            .recorded_program
-            .command(rest[1].command)
-            .span
-            .slice(source)
-            .starts_with("c")
+        model.analysis().dead_code().is_empty(),
+        "dead code: {:?}",
+        model.analysis().dead_code()
     );
 }
 
@@ -1010,43 +1015,153 @@ fn recorded_program_preserves_pipeline_segment_order_in_ranges() {
     let source = "a | b | c\n";
     let model = model(source);
 
-    let file_commands = model
-        .recorded_program
-        .commands_in(model.recorded_program.file_commands());
-    assert_eq!(file_commands.len(), 1);
-
-    let command = model.recorded_program.command(file_commands[0]);
-    let segments = match command.kind {
-        RecordedCommandKind::Pipeline { segments } => {
-            model.recorded_program.pipeline_segments(segments)
-        }
-        other => panic!("expected pipeline command, found {other:?}"),
-    };
+    let pipelines = model.pipeline_commands();
+    assert_eq!(pipelines.len(), 1);
+    let segments = &pipelines[0].segments;
 
     assert_eq!(segments.len(), 3);
-    assert!(
-        model
-            .recorded_program
-            .command(segments[0].command)
-            .span
-            .slice(source)
-            .starts_with("a")
+    assert!(segments[0].command_span.slice(source).starts_with("a"));
+    assert!(segments[1].command_span.slice(source).starts_with("b"));
+    assert!(segments[2].command_span.slice(source).starts_with("c"));
+}
+
+#[test]
+fn command_topology_exposes_parent_child_relationships() {
+    let source = "if foo; then bar | baz; fi\n";
+    let model = model(source);
+
+    let if_id = command_id_starting_with(&model, source, "if foo").unwrap();
+    let foo_id = command_id_starting_with(&model, source, "foo").unwrap();
+    let pipeline_id = command_id_containing(&model, source, "bar | baz").unwrap();
+    let bar_id = command_id_starting_with(&model, source, "bar").unwrap();
+    let baz_id = command_id_starting_with(&model, source, "baz").unwrap();
+
+    assert_eq!(model.command_parent_id(foo_id), Some(if_id));
+    assert_eq!(model.command_parent_id(pipeline_id), Some(if_id));
+    assert_eq!(model.command_parent_id(bar_id), Some(pipeline_id));
+    assert_eq!(model.command_parent_id(baz_id), Some(pipeline_id));
+    assert!(model.command_children(if_id).contains(&foo_id));
+    assert!(model.command_children(if_id).contains(&pipeline_id));
+}
+
+#[test]
+fn command_topology_attaches_nested_function_body_to_nearest_function() {
+    let source = "\
+outer() {
+  inner() {
+    echo inner
+  }
+}
+";
+    let model = model(source);
+
+    let inner_function_id = command_id_starting_with(&model, source, "inner()").unwrap();
+    let inner_body_id = model
+        .commands()
+        .iter()
+        .copied()
+        .filter(|id| {
+            model.command_kind(*id) == CommandKind::Compound(CompoundCommandKind::BraceGroup)
+                && model
+                    .command_syntax_span(*id)
+                    .slice(source)
+                    .contains("echo inner")
+        })
+        .min_by_key(|id| {
+            let span = model.command_syntax_span(*id);
+            span.end.offset - span.start.offset
+        })
+        .unwrap();
+
+    assert_eq!(
+        model.command_parent_id(inner_body_id),
+        Some(inner_function_id)
     );
     assert!(
         model
-            .recorded_program
-            .command(segments[1].command)
-            .span
-            .slice(source)
-            .starts_with("b")
+            .command_children(inner_function_id)
+            .contains(&inner_body_id)
     );
+}
+
+#[test]
+fn command_topology_excludes_nested_substitutions_from_structural_commands() {
+    let source = "echo \"$(printf '%s\\n' hi)\"\n";
+    let model = model(source);
+
+    let echo_id = command_id_starting_with(&model, source, "echo").unwrap();
+    let printf_id = command_id_starting_with(&model, source, "printf").unwrap();
+
+    assert_eq!(model.command_parent_id(printf_id), Some(echo_id));
+    assert!(model.structural_commands().contains(&echo_id));
+    assert!(!model.structural_commands().contains(&printf_id));
+}
+
+#[test]
+fn command_lookup_by_span_and_kind_skips_synthetic_commands() {
+    let source = "case \"$x\" in $(echo a)) ;; esac\n";
+    let model = model(source);
+
+    let case_span = model
+        .commands()
+        .iter()
+        .copied()
+        .map(|id| model.command_syntax_span(id))
+        .find(|span| span.slice(source).starts_with("case"))
+        .unwrap();
+
     assert!(
         model
-            .recorded_program
-            .command(segments[2].command)
-            .span
-            .slice(source)
-            .starts_with("c")
+            .command_by_span_and_kind(case_span, CommandKind::Compound(CompoundCommandKind::Case))
+            .is_some()
+    );
+    let case_id = model.command_by_span(case_span).unwrap();
+    assert_eq!(
+        model.command_kind(case_id),
+        CommandKind::Compound(CompoundCommandKind::Case)
+    );
+    let innermost_case_id = model.innermost_command_id_at(source.find("case").unwrap());
+    assert_eq!(innermost_case_id, Some(case_id));
+}
+
+#[test]
+fn command_topology_preserves_nested_region_immediate_parents() {
+    let source = "echo >\"$(a | b)\"\n";
+    let model = model(source);
+
+    let echo_id = command_id_starting_with(&model, source, "echo").unwrap();
+    let pipeline_span = model.pipeline_commands()[0].span;
+    let pipeline_id = model
+        .command_by_span_and_kind(pipeline_span, CommandKind::Binary)
+        .unwrap();
+    let a_id = command_id_starting_with(&model, source, "a").unwrap();
+    let b_id = command_id_starting_with(&model, source, "b").unwrap();
+
+    assert_eq!(model.command_parent_id(pipeline_id), Some(echo_id));
+    assert_eq!(model.command_parent_id(a_id), Some(pipeline_id));
+    assert_eq!(model.command_parent_id(b_id), Some(pipeline_id));
+}
+
+#[test]
+fn command_topology_finds_innermost_command_at_offsets() {
+    let source = "if foo; then bar; fi\n";
+    let model = model(source);
+
+    let if_id = command_id_starting_with(&model, source, "if foo").unwrap();
+    let foo_id = command_id_starting_with(&model, source, "foo").unwrap();
+    let bar_id = command_id_starting_with(&model, source, "bar").unwrap();
+
+    assert_eq!(
+        model.innermost_command_id_at(source.find("if").unwrap()),
+        Some(if_id)
+    );
+    assert_eq!(
+        model.innermost_command_id_at(source.find("foo").unwrap()),
+        Some(foo_id)
+    );
+    assert_eq!(
+        model.innermost_command_id_at(source.find("bar").unwrap()),
+        Some(bar_id)
     );
 }
 

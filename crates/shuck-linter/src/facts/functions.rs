@@ -141,6 +141,7 @@ fn build_function_header_facts<'a>(
     semantic_analysis: &SemanticAnalysis<'_>,
     functions: &[FunctionFactInput<'a>],
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     source: &str,
     command_offset_order: &CommandOffsetOrder,
 ) -> Vec<FunctionHeaderFact<'a>> {
@@ -151,6 +152,7 @@ fn build_function_header_facts<'a>(
             .map(|input| input.function)
             .collect::<Vec<_>>(),
         commands,
+        command_fact_indices_by_id,
         source,
         command_offset_order,
     );
@@ -334,13 +336,20 @@ fn command_fact_is_standalone_exit(command: &CommandFact<'_>) -> bool {
 
 fn build_function_parameter_fallback_spans(
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     structural_command_ids: &[CommandId],
     source: &str,
 ) -> Vec<Span> {
     let structural_commands = structural_command_ids
         .iter()
         .copied()
-        .map(|id| &commands[id.index()])
+        .filter_map(|id| {
+            command_fact_indices_by_id
+                .get(id.index())
+                .copied()
+                .flatten()
+                .and_then(|index| commands.get(index))
+        })
         .collect::<Vec<_>>();
 
     structural_commands
@@ -357,31 +366,39 @@ fn build_function_parameter_fallback_spans(
 fn build_completion_registered_function_command_flags(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     lists: &[ListFact<'_>],
     source: &str,
 ) -> Vec<bool> {
-    let registered_scopes =
-        build_completion_registered_function_scopes(semantic, commands, lists, source);
+    let registered_scopes = build_completion_registered_function_scopes(
+        semantic,
+        commands,
+        command_fact_indices_by_id,
+        lists,
+        source,
+    );
 
-    commands
-        .iter()
-        .map(|command| {
-            enclosing_function_scope(semantic, command.scope())
-                .is_some_and(|scope| registered_scopes.contains(&scope))
-        })
-        .collect()
+    let mut flags = vec![false; function_command_slot_count(commands)];
+    for command in commands {
+        flags[command.id().index()] = enclosing_function_scope(semantic, command.scope())
+            .is_some_and(|scope| registered_scopes.contains(&scope));
+    }
+    flags
 }
 
 fn build_completion_registered_function_scopes(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     lists: &[ListFact<'_>],
     source: &str,
 ) -> FxHashSet<ScopeId> {
-    let function_candidates = commands
-        .iter()
-        .map(|command| completion_registered_function_candidate(semantic, command))
-        .collect::<Vec<_>>();
+    let mut function_candidates = Vec::new();
+    function_candidates.resize_with(function_command_slot_count(commands), || None);
+    for command in commands {
+        function_candidates[command.id().index()] =
+            completion_registered_function_candidate(semantic, command);
+    }
     let mut scopes = FxHashSet::default();
 
     for list in lists {
@@ -392,7 +409,11 @@ fn build_completion_registered_function_scopes(
 
             if list.segments()[index + 1..].iter().any(|later_segment| {
                 command_registers_completion_function(
-                    command_fact(commands, later_segment.command_id()),
+                    command_fact(
+                        commands,
+                        command_fact_indices_by_id,
+                        later_segment.command_id(),
+                    ),
                     source,
                     &candidate.name,
                 )
@@ -403,6 +424,14 @@ fn build_completion_registered_function_scopes(
     }
 
     scopes
+}
+
+fn function_command_slot_count(commands: &[CommandFact<'_>]) -> usize {
+    commands
+        .iter()
+        .map(|command| command.id().index())
+        .max()
+        .map_or(0, |index| index + 1)
 }
 
 fn completion_registered_function_candidate(
@@ -518,6 +547,7 @@ fn build_function_call_arity_facts<'a>(
     semantic_analysis: &SemanticAnalysis<'_>,
     functions: &[&FunctionDef],
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     source: &str,
     command_offset_order: &CommandOffsetOrder,
 ) -> FxHashMap<BindingId, FunctionCallArityFacts> {
@@ -546,8 +576,12 @@ fn build_function_call_arity_facts<'a>(
         return facts;
     }
 
-    let command_ids_by_offset =
-        build_innermost_command_ids_by_offset(commands, offsets, command_offset_order);
+    let command_ids_by_offset = build_innermost_command_ids_by_offset(
+        commands,
+        command_fact_indices_by_id,
+        offsets,
+        command_offset_order,
+    );
 
     for name in unique_function_names {
         for (site, binding_id) in semantic_analysis.function_call_arity_sites(name) {
@@ -556,7 +590,7 @@ fn build_function_call_arity_facts<'a>(
             else {
                 continue;
             };
-            let command = command_fact(commands, command_id);
+            let command = command_fact(commands, command_fact_indices_by_id, command_id);
             if !command.wrappers().is_empty()
                 || command.effective_or_literal_name() != Some(name.as_str())
             {

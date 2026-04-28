@@ -1,6 +1,7 @@
 pub struct LinterFacts<'a> {
     source: &'a str,
     commands: Vec<CommandFact<'a>>,
+    command_fact_indices_by_id: Vec<Option<usize>>,
     structural_command_ids: Vec<CommandId>,
     #[cfg_attr(not(test), allow(dead_code))]
     command_ids_by_span: CommandLookupIndex,
@@ -210,7 +211,7 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn commands(&self) -> CommandFacts<'_, 'a> {
-        CommandFacts::new(&self.commands, &self.fact_store)
+        CommandFacts::new(&self.commands, &self.fact_store, &self.command_fact_indices_by_id)
     }
 
     pub fn malformed_bracket_test_spans(&self, source: &str) -> Vec<Span> {
@@ -297,7 +298,13 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn command(&self, id: CommandId) -> CommandFactRef<'_, 'a> {
-        CommandFactRef::new(&self.commands[id.index()], &self.fact_store)
+        let index = self
+            .command_fact_indices_by_id
+            .get(id.index())
+            .and_then(|index| *index)
+            .unwrap_or_else(|| panic!("command id {} must exist", id.index()));
+
+        CommandFactRef::new(&self.commands[index], &self.fact_store)
     }
 
     pub fn command_for_name_word_span(&self, span: Span) -> Option<CommandFactRef<'_, 'a>> {

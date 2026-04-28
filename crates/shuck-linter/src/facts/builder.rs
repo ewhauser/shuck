@@ -83,17 +83,14 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let estimated_word_nodes = capacity.commands.saturating_mul(2);
         let estimated_word_occurrences = capacity.commands.saturating_mul(3);
 
-        let mut commands = Vec::with_capacity(capacity.commands);
+        let mut commands_by_id = Vec::with_capacity(self.semantic.command_count());
+        commands_by_id.resize_with(self.semantic.command_count(), || None);
         let mut redirect_fact_store = ListArena::new();
         let mut declaration_assignment_probe_store = ListArena::new();
-        let mut structural_command_ids = Vec::with_capacity(capacity.structural_commands);
         let mut command_ids_by_span =
             CommandLookupIndex::with_capacity_and_hasher(capacity.commands, Default::default());
         let mut command_ids_by_name_word_span =
             FxHashMap::with_capacity_and_hasher(capacity.commands, Default::default());
-        let mut command_parent_ids = Vec::with_capacity(capacity.commands);
-        let mut command_child_ids_by_parent = Vec::<Vec<CommandId>>::with_capacity(capacity.commands);
-        let mut active_parent_commands = Vec::<OpenParentCommand>::new();
         let mut if_condition_command_ids =
             FxHashSet::with_capacity_and_hasher(capacity.commands / 4, Default::default());
         let mut elif_condition_command_ids =
@@ -138,24 +135,18 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             },
             &mut |visit, context| {
                 let key = FactSpan::new(command_span(visit.command));
-                let id = CommandId::new(commands.len());
-                let span = command_span(visit.command);
-                while active_parent_commands
-                    .last()
-                    .is_some_and(|candidate| candidate.end_offset < span.end.offset)
-                {
-                    active_parent_commands.pop();
-                }
-                let parent_id = active_parent_commands.last().map(|command| command.id);
-                command_parent_ids.push(parent_id);
-                command_child_ids_by_parent.push(Vec::new());
-                if let Some(parent_id) = parent_id {
-                    command_child_ids_by_parent[parent_id.index()].push(id);
-                }
-                active_parent_commands.push(OpenParentCommand {
-                    id,
-                    end_offset: span.end.offset,
-                });
+                let id = self
+                    .semantic
+                    .command_by_span_and_kind(
+                        command_span(visit.command),
+                        shuck_semantic::CommandKind::from_command(visit.command),
+                    )
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "semantic command id must exist for command span {:?}",
+                            command_span(visit.command)
+                        )
+                    });
                 let lookup_kind = command_lookup_kind(visit.command);
                 let entries = command_ids_by_span.entry(key).or_default();
                 let previous = entries.iter().find(|entry| entry.kind == lookup_kind);
@@ -209,9 +200,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     command_ids_by_name_word_span.insert(FactSpan::new(name_word.span), id);
                 }
                 let nested_word_command = context.nested_word_command;
-                if !nested_word_command {
-                    structural_command_ids.push(id);
-                }
                 build_word_facts_for_command(
                     visit,
                     self.source,
@@ -303,7 +291,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     build_glued_closing_bracket_insert_offset(visit.command, self.source);
                 let simple_test = build_simple_test_fact(visit.command, self.source);
                 let conditional = build_conditional_fact(visit.command, self.source);
-                commands.push(CommandFact {
+                let command_fact = CommandFact {
                     id,
                     key,
                     visit,
@@ -325,7 +313,9 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     linebreak_in_test_insert_offset: None,
                     simple_test,
                     conditional,
-                });
+                };
+                let previous = commands_by_id[id.index()].replace(command_fact);
+                debug_assert!(previous.is_none(), "duplicate semantic command fact id");
 
                 if let Command::Function(function) = visit.command {
                     functions.push(FunctionFactInput {
@@ -432,33 +422,43 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         fact_store.declaration_assignment_probes = declaration_assignment_probe_store;
         fact_store.word_spans = word_spans;
 
+        let mut commands = commands_by_id
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        commands.sort_unstable_by(compare_command_facts_by_offset);
+        let command_fact_indices_by_id = build_command_fact_indices_by_id(&commands);
         let command_facts_require_source_order = !command_facts_are_source_ordered(&commands);
-        let command_offset_order =
-            build_command_offset_order(&commands, command_facts_require_source_order);
-        let (command_parent_ids, command_child_index) = if !command_facts_require_source_order {
-            (
-                command_parent_ids,
-                CommandChildIndex::from_parent_lists(command_child_ids_by_parent),
-            )
-        } else {
-            let command_parent_ids =
-                build_command_parent_ids(&commands, command_facts_require_source_order);
-            let mut command_child_ids_by_parent = vec![Vec::new(); commands.len()];
-            for (index, parent_id) in command_parent_ids.iter().copied().enumerate() {
-                if let Some(parent_id) = parent_id {
-                    command_child_ids_by_parent[parent_id.index()].push(CommandId::new(index));
-                }
-            }
-            (
-                command_parent_ids,
-                CommandChildIndex::from_parent_lists(command_child_ids_by_parent),
-            )
-        };
+        let command_offset_order = build_command_offset_order(
+            &commands,
+            &command_fact_indices_by_id,
+            command_facts_require_source_order,
+        );
+        let structural_command_ids = self
+            .semantic
+            .structural_commands()
+            .iter()
+            .copied()
+            .filter(|id| {
+                command_fact_indices_by_id
+                    .get(id.index())
+                    .is_some_and(Option::is_some)
+            })
+            .collect::<Vec<_>>();
+        let command_parent_ids =
+            build_linter_command_parent_ids(self.semantic, &command_fact_indices_by_id);
+        let command_child_ids_by_parent = build_linter_command_child_ids_by_parent(
+            self.semantic,
+            &command_parent_ids,
+            &command_fact_indices_by_id,
+        );
+        let command_child_index = CommandChildIndex::from_parent_lists(command_child_ids_by_parent);
 
         populate_linebreak_in_test_facts(&mut commands, self.source);
         populate_substitution_fact_ranges(
             &mut commands,
             &mut fact_store,
+            &command_fact_indices_by_id,
             &command_ids_by_span,
             &command_child_index,
             self.source,
@@ -466,6 +466,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
 
         let presence_tested_names = build_presence_tested_names(
             &commands,
+            &command_fact_indices_by_id,
             &command_offset_order,
             self.source,
             self.semantic,
@@ -475,6 +476,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             semantic_analysis,
             &functions,
             &commands,
+            &command_fact_indices_by_id,
             self.source,
             &command_offset_order,
         );
@@ -519,18 +521,29 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let function_in_alias_spans = build_function_in_alias_spans(&commands, self.source);
         let function_parameter_fallback_spans = build_function_parameter_fallback_spans(
             &commands,
+            &command_fact_indices_by_id,
             &structural_command_ids,
             self.source,
         );
-        let for_headers = build_for_header_facts(&commands, &command_ids_by_span, self.source);
-        let select_headers =
-            build_select_header_facts(&commands, &command_ids_by_span, self.source);
+        let for_headers = build_for_header_facts(
+            &commands,
+            &command_fact_indices_by_id,
+            &command_ids_by_span,
+            self.source,
+        );
+        let select_headers = build_select_header_facts(
+            &commands,
+            &command_fact_indices_by_id,
+            &command_ids_by_span,
+            self.source,
+        );
         let case_items = build_case_item_facts(&commands, self.source);
         let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
         let case_pattern_impossible_spans =
             build_case_pattern_impossible_spans(&commands, self.source);
         let pipelines = build_pipeline_facts(
             &commands,
+            &command_fact_indices_by_id,
             self.semantic,
             &command_ids_by_span,
             &command_child_index,
@@ -538,12 +551,14 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         populate_scope_fact_ranges(
             &mut commands,
             &mut fact_store,
+            &command_fact_indices_by_id,
             &pipelines,
             &if_condition_command_ids,
             source,
         );
         let lists = build_list_facts(
             &commands,
+            &command_fact_indices_by_id,
             &command_ids_by_span,
             &command_child_index,
             self.source,
@@ -552,6 +567,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             build_completion_registered_function_command_flags(
                 self.semantic,
                 &commands,
+                &command_fact_indices_by_id,
                 &lists,
                 self.source,
             );
@@ -562,6 +578,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let single_test_subshell_spans =
             build_single_test_subshell_spans(
                 &commands,
+                &command_fact_indices_by_id,
                 &command_ids_by_span,
                 &command_child_index,
                 self.source,
@@ -569,6 +586,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let subshell_test_group_spans =
             build_subshell_test_group_spans(
                 &commands,
+                &command_fact_indices_by_id,
                 &command_ids_by_span,
                 &command_child_index,
                 self.source,
@@ -610,7 +628,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let literal_brace_spans = build_literal_brace_spans(
             &word_nodes,
             &word_occurrences,
-            CommandFacts::new(&commands, &fact_store),
+            CommandFacts::new(&commands, &fact_store, &command_fact_indices_by_id),
             &fact_store,
             source,
             self._indexer.region_index().heredoc_ranges(),
@@ -663,6 +681,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         pattern_charclass_spans.extend(surface_pattern_charclass_spans);
         let escape_scan_matches = build_escape_scan_matches(
             &commands,
+            &command_fact_indices_by_id,
             &word_nodes,
             &word_occurrences,
             EscapeScanInputs {
@@ -699,11 +718,16 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             assignment_scope_spans: env_prefix_assignment_scope_spans,
             expansion_scope_spans: env_prefix_expansion_scope_spans,
         } = build_env_prefix_scope_spans(self.source, &commands);
-        let unset_command_ids_by_target_name =
-            build_unset_command_ids_by_target_name(&commands, &structural_command_ids, source);
+        let unset_command_ids_by_target_name = build_unset_command_ids_by_target_name(
+            &commands,
+            &command_fact_indices_by_id,
+            &structural_command_ids,
+            source,
+        );
         let function_unset_command_ids_by_target_name =
             build_function_unset_command_ids_by_target_name(
                 &commands,
+                &command_fact_indices_by_id,
                 &structural_command_ids,
                 source,
             );
@@ -723,7 +747,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &array_assignment_split_word_ids,
         );
         let echo_to_sed_substitution_spans = build_echo_to_sed_substitution_spans(
-            CommandFacts::new(&commands, &fact_store),
+            CommandFacts::new(&commands, &fact_store, &command_fact_indices_by_id),
             &pipelines,
             &backticks,
             WordFactLookup {
@@ -760,6 +784,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         );
         let innermost_command_ids_by_offset = build_innermost_command_ids_by_offset(
             &commands,
+            &command_fact_indices_by_id,
             commands
                 .iter()
                 .map(|command| command.span().start.offset)
@@ -768,6 +793,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         );
         let innermost_command_ids_by_binding_offset = build_innermost_command_ids_by_offset(
             &commands,
+            &command_fact_indices_by_id,
             self.semantic
                 .bindings()
                 .iter()
@@ -780,6 +806,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             build_c006_suppressing_reference_offsets_by_name(
                 self.semantic,
                 &commands,
+                &command_fact_indices_by_id,
                 &innermost_command_ids_by_offset,
                 &subscript_later_suppression_reference_spans,
             );
@@ -814,6 +841,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         LinterFacts {
             source,
             commands,
+            command_fact_indices_by_id,
             structural_command_ids,
             command_ids_by_span,
             command_ids_by_name_word_span,
@@ -954,6 +982,61 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
     }
 }
 
+fn build_linter_command_parent_ids(
+    semantic: &SemanticModel,
+    command_fact_indices_by_id: &[Option<usize>],
+) -> Vec<Option<CommandId>> {
+    semantic
+        .commands()
+        .iter()
+        .copied()
+        .map(|id| {
+            if !command_fact_exists(command_fact_indices_by_id, id) {
+                return None;
+            }
+            nearest_fact_backed_semantic_parent(semantic, command_fact_indices_by_id, id)
+        })
+        .collect()
+}
+
+fn nearest_fact_backed_semantic_parent(
+    semantic: &SemanticModel,
+    command_fact_indices_by_id: &[Option<usize>],
+    id: CommandId,
+) -> Option<CommandId> {
+    let mut current = semantic.command_parent_id(id);
+    while let Some(parent) = current {
+        if command_fact_exists(command_fact_indices_by_id, parent) {
+            return Some(parent);
+        }
+        current = semantic.command_parent_id(parent);
+    }
+    None
+}
+
+fn build_linter_command_child_ids_by_parent(
+    semantic: &SemanticModel,
+    command_parent_ids: &[Option<CommandId>],
+    command_fact_indices_by_id: &[Option<usize>],
+) -> Vec<Vec<CommandId>> {
+    let mut children_by_parent = vec![Vec::new(); command_parent_ids.len()];
+    for child in semantic.commands().iter().copied() {
+        if !command_fact_exists(command_fact_indices_by_id, child) {
+            continue;
+        }
+        if let Some(parent) = command_parent_ids[child.index()] {
+            children_by_parent[parent.index()].push(child);
+        }
+    }
+    children_by_parent
+}
+
+fn command_fact_exists(command_fact_indices_by_id: &[Option<usize>], id: CommandId) -> bool {
+    command_fact_indices_by_id
+        .get(id.index())
+        .is_some_and(Option::is_some)
+}
+
 #[cfg_attr(shuck_profiling, inline(never))]
 fn build_word_occurrence_index(
     commands: &[CommandFact<'_>],
@@ -981,7 +1064,12 @@ fn build_word_occurrence_index(
     let mut word_index = FxHashMap::<FactSpan, SmallVec<[WordOccurrenceId; 2]>>::default();
     word_index.reserve(word_occurrences.len());
 
-    let mut word_occurrence_offsets_by_command = vec![0usize; commands.len()];
+    let command_slot_count = commands
+        .iter()
+        .map(|command| command.id().index())
+        .max()
+        .map_or(0, |index| index + 1);
+    let mut word_occurrence_offsets_by_command = vec![0usize; command_slot_count];
     for fact in word_occurrences.iter() {
         word_occurrence_offsets_by_command[fact.command_id.index()] += 1;
     }
@@ -1026,6 +1114,7 @@ fn build_word_occurrence_index(
 fn build_c006_suppressing_reference_offsets_by_name(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     innermost_command_ids_by_offset: &CommandOffsetLookup,
     subscript_later_suppression_reference_spans: &FxHashSet<FactSpan>,
 ) -> FxHashMap<Name, Vec<usize>> {
@@ -1035,6 +1124,7 @@ fn build_c006_suppressing_reference_offsets_by_name(
         if c006_reference_suppresses_later_references(
             semantic,
             commands,
+            command_fact_indices_by_id,
             innermost_command_ids_by_offset,
             subscript_later_suppression_reference_spans,
             reference,
@@ -1057,6 +1147,7 @@ fn build_c006_suppressing_reference_offsets_by_name(
 fn c006_reference_suppresses_later_references(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     innermost_command_ids_by_offset: &CommandOffsetLookup,
     subscript_later_suppression_reference_spans: &FxHashSet<FactSpan>,
     reference: &Reference,
@@ -1065,6 +1156,7 @@ fn c006_reference_suppresses_later_references(
         || semantic.is_defaulting_parameter_operand_reference(reference.id)
         || c006_subscript_reference_suppresses_later_references(
             commands,
+            command_fact_indices_by_id,
             innermost_command_ids_by_offset,
             subscript_later_suppression_reference_spans,
             reference,
@@ -1073,6 +1165,7 @@ fn c006_reference_suppresses_later_references(
 
 fn c006_subscript_reference_suppresses_later_references(
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     innermost_command_ids_by_offset: &CommandOffsetLookup,
     subscript_later_suppression_reference_spans: &FxHashSet<FactSpan>,
     reference: &Reference,
@@ -1085,7 +1178,13 @@ fn c006_subscript_reference_suppresses_later_references(
         innermost_command_ids_by_offset,
         reference.span.start.offset,
     )
-    .and_then(|id| commands.get(id.index()))
+    .and_then(|id| {
+        command_fact_indices_by_id
+            .get(id.index())
+            .copied()
+            .flatten()
+            .and_then(|index| commands.get(index))
+    })
     .and_then(CommandFact::static_utility_name)
     .is_none_or(|name| !matches!(name, "unset" | "[" | "[[" | "test"))
 }
@@ -1193,13 +1292,21 @@ fn linebreak_in_test_insert_offset(span: Span, source: &str) -> Option<usize> {
 
 fn build_unset_command_ids_by_target_name(
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     structural_command_ids: &[CommandId],
     source: &str,
 ) -> FxHashMap<Name, Vec<CommandId>> {
     let mut command_ids_by_name = FxHashMap::<Name, Vec<CommandId>>::default();
 
     for command_id in structural_command_ids.iter().copied() {
-        let command = &commands[command_id.index()];
+        let Some(command) = command_fact_indices_by_id
+            .get(command_id.index())
+            .copied()
+            .flatten()
+            .and_then(|index| commands.get(index))
+        else {
+            continue;
+        };
         let Some(unset) = command.options().unset() else {
             continue;
         };
@@ -1225,13 +1332,21 @@ fn build_unset_command_ids_by_target_name(
 
 fn build_function_unset_command_ids_by_target_name(
     commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
     structural_command_ids: &[CommandId],
     source: &str,
 ) -> FxHashMap<Name, Vec<CommandId>> {
     let mut command_ids_by_name = FxHashMap::<Name, Vec<CommandId>>::default();
 
     for command_id in structural_command_ids.iter().copied() {
-        let command = &commands[command_id.index()];
+        let Some(command) = command_fact_indices_by_id
+            .get(command_id.index())
+            .copied()
+            .flatten()
+            .and_then(|index| commands.get(index))
+        else {
+            continue;
+        };
         let Some(unset) = command.options().unset() else {
             continue;
         };

@@ -1,3 +1,5 @@
+pub use shuck_semantic::CommandId;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FactSpan {
     start: usize,
@@ -16,19 +18,6 @@ impl FactSpan {
 impl From<Span> for FactSpan {
     fn from(span: Span) -> Self {
         Self::new(span)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CommandId(u32);
-
-impl CommandId {
-    fn new(index: usize) -> Self {
-        Self(fact_id_index_to_u32(index, "command fact id"))
-    }
-
-    fn index(self) -> usize {
-        self.0 as usize
     }
 }
 
@@ -252,11 +241,20 @@ impl<'facts, 'a> std::ops::Deref for CommandFactRef<'facts, 'a> {
 pub struct CommandFacts<'facts, 'a> {
     commands: &'facts [CommandFact<'a>],
     store: &'facts FactStore<'a>,
+    indices_by_id: &'facts [Option<usize>],
 }
 
 impl<'facts, 'a> CommandFacts<'facts, 'a> {
-    fn new(commands: &'facts [CommandFact<'a>], store: &'facts FactStore<'a>) -> Self {
-        Self { commands, store }
+    fn new(
+        commands: &'facts [CommandFact<'a>],
+        store: &'facts FactStore<'a>,
+        indices_by_id: &'facts [Option<usize>],
+    ) -> Self {
+        Self {
+            commands,
+            store,
+            indices_by_id,
+        }
     }
 
     pub fn len(self) -> usize {
@@ -283,6 +281,27 @@ impl<'facts, 'a> CommandFacts<'facts, 'a> {
         self.commands
             .get(index)
             .map(|fact| CommandFactRef::new(fact, self.store))
+    }
+
+    pub fn find(self, id: CommandId) -> Option<CommandFactRef<'facts, 'a>> {
+        self.indices_by_id
+            .get(id.index())
+            .copied()
+            .flatten()
+            .and_then(|index| self.commands.get(index))
+            .map(|fact| CommandFactRef::new(fact, self.store))
+    }
+
+    pub(crate) fn index_of(self, id: CommandId) -> Option<usize> {
+        self.indices_by_id.get(id.index()).copied().flatten()
+    }
+
+    pub(crate) fn iter_from(self, start: usize) -> CommandFactIter<'facts, 'a> {
+        let slice = self.commands.get(start..).unwrap_or(&[]);
+        CommandFactIter {
+            inner: slice.iter(),
+            store: self.store,
+        }
     }
 
     pub fn first(self) -> Option<CommandFactRef<'facts, 'a>> {

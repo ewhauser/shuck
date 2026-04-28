@@ -2,8 +2,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_parser::{OptionValue, ShellProfile, ZshEmulationMode, ZshOptionState};
 
 use crate::cfg::{
-    RecordedCaseArmRange, RecordedCommand, RecordedCommandId, RecordedCommandKind,
-    RecordedCommandRange, RecordedElifBranchRange, RecordedPipelineSegmentRange, RecordedProgram,
+    CommandId, RecordedCaseArmRange, RecordedCommand, RecordedCommandKind, RecordedCommandRange,
+    RecordedElifBranchRange, RecordedPipelineSegmentRange, RecordedProgram,
     RecordedZshCommandEffect, RecordedZshOptionUpdate,
 };
 use crate::{Binding, BindingKind, Scope, ScopeId, ScopeKind, SpanKey};
@@ -265,7 +265,7 @@ impl<'a> Analyzer<'a> {
     fn analyze_single_command_sequence(
         &mut self,
         scope: ScopeId,
-        command: RecordedCommandId,
+        command: CommandId,
         state: EvalState,
         leak: LeakBehavior,
     ) -> EvalState {
@@ -294,7 +294,7 @@ impl<'a> Analyzer<'a> {
     fn analyze_command(
         &mut self,
         scope: ScopeId,
-        command: RecordedCommandId,
+        command: CommandId,
         state: EvalState,
         leak: LeakBehavior,
     ) -> EvalState {
@@ -345,10 +345,12 @@ impl<'a> Analyzer<'a> {
             }
             RecordedCommandKind::For { body }
             | RecordedCommandKind::Select { body }
-            | RecordedCommandKind::ArithmeticFor { body }
-            | RecordedCommandKind::BraceGroup { body } => {
+            | RecordedCommandKind::ArithmeticFor { body } => {
                 let iterated = self.analyze_sequence(scope, *body, state.clone(), leak);
                 state.merge(&iterated)
+            }
+            RecordedCommandKind::BraceGroup { body } => {
+                self.analyze_sequence(scope, *body, state, leak)
             }
             RecordedCommandKind::Case { arms } => self.analyze_case(scope, &state, *arms, leak),
             RecordedCommandKind::Subshell { body } => {

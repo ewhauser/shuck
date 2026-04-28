@@ -108,12 +108,17 @@ impl<'a> ListFact<'a> {
 #[cfg_attr(shuck_profiling, inline(never))]
 pub(super) fn build_list_facts<'a>(
     commands: &[CommandFact<'a>],
+    command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
     source: &str,
 ) -> Vec<ListFact<'a>> {
-    let command_relationships =
-        CommandRelationshipContext::new(commands, command_ids_by_span, command_child_index);
+    let command_relationships = CommandRelationshipContext::new(
+        commands,
+        command_fact_indices_by_id,
+        command_ids_by_span,
+        command_child_index,
+    );
     let mut nested_list_commands = FxHashSet::default();
 
     for fact in commands {
