@@ -2,8 +2,8 @@
 pub struct PipelineSegmentFact<'a> {
     stmt: &'a Stmt,
     command_id: CommandId,
-    literal_name: Option<Box<str>>,
-    effective_name: Option<Box<str>>,
+    literal_name: Option<Cow<'a, str>>,
+    effective_name: Option<Cow<'a, str>>,
 }
 
 impl<'a> PipelineSegmentFact<'a> {
@@ -187,13 +187,7 @@ fn build_pipeline_segment_fact<'a>(
     PipelineSegmentFact {
         stmt: fact.stmt(),
         command_id: fact.id(),
-        literal_name: fact
-            .literal_name()
-            .map(str::to_owned)
-            .map(String::into_boxed_str),
-        effective_name: fact
-            .effective_name()
-            .map(str::to_owned)
-            .map(String::into_boxed_str),
+        literal_name: fact.normalized().literal_name.clone(),
+        effective_name: fact.normalized().effective_name.clone(),
     }
 }
