@@ -1,6 +1,8 @@
 use criterion::{
     BatchSize, BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main,
 };
+use std::time::Duration;
+
 use shuck_benchmark::{benchmark_cases, configure_benchmark_allocator, parse_fixture};
 use shuck_indexer::Indexer;
 use shuck_linter::{
@@ -16,7 +18,6 @@ configure_benchmark_allocator!();
 struct PreparedFactsInput {
     source: &'static str,
     output: ParseResult,
-    indexer: Indexer,
     semantic: SemanticModel,
 }
 
@@ -28,14 +29,17 @@ fn prepare_facts_input(source: &'static str) -> PreparedFactsInput {
     PreparedFactsInput {
         source,
         output,
-        indexer,
         semantic,
     }
 }
 
-fn build_linter_facts(input: &PreparedFactsInput) -> usize {
-    let semantic = LinterSemanticArtifacts::build(&input.output.file, input.source, &input.indexer);
-    let facts = LinterFacts::build(&input.output.file, input.source, &semantic, &input.indexer);
+fn build_linter_facts(
+    source: &str,
+    output: &ParseResult,
+    indexer: &Indexer,
+    semantic: &LinterSemanticArtifacts<'_>,
+) -> usize {
+    let facts = LinterFacts::build(&output.file, source, semantic, indexer);
 
     black_box(
         facts.commands().len()
@@ -103,19 +107,46 @@ fn bench_linter_facts(c: &mut Criterion) {
         group.sample_size(case.speed.sample_size());
         group.throughput(Throughput::Bytes(case.total_bytes()));
         group.bench_with_input(BenchmarkId::from_parameter(case.name), &case, |b, case| {
-            b.iter_batched(
-                || {
-                    case.files
+            b.iter_custom(|iters| {
+                let mut total = Duration::ZERO;
+                for _ in 0..iters {
+                    let outputs = case
+                        .files
                         .iter()
-                        .map(|file| prepare_facts_input(file.source))
-                        .collect::<Vec<_>>()
-                },
-                |inputs| {
-                    let facts_size: usize = inputs.iter().map(build_linter_facts).sum();
+                        .map(|file| parse_fixture(file.source))
+                        .collect::<Vec<_>>();
+                    let indexers = case
+                        .files
+                        .iter()
+                        .zip(outputs.iter())
+                        .map(|(file, output)| Indexer::new(file.source, output))
+                        .collect::<Vec<_>>();
+                    let semantics = case
+                        .files
+                        .iter()
+                        .zip(outputs.iter())
+                        .zip(indexers.iter())
+                        .map(|((file, output), indexer)| {
+                            LinterSemanticArtifacts::build(&output.file, file.source, indexer)
+                        })
+                        .collect::<Vec<_>>();
+
+                    let start = std::time::Instant::now();
+                    let facts_size = case
+                        .files
+                        .iter()
+                        .zip(outputs.iter())
+                        .zip(indexers.iter())
+                        .zip(semantics.iter())
+                        .map(|(((file, output), indexer), semantic)| {
+                            build_linter_facts(file.source, output, indexer, semantic)
+                        })
+                        .sum::<usize>();
                     black_box(facts_size);
-                },
-                BatchSize::LargeInput,
-            );
+                    total += start.elapsed();
+                }
+                total
+            });
         });
     }
 
