@@ -806,11 +806,9 @@ fn is_plausible_shell_function_name(name: &str) -> bool {
 
 fn build_function_positional_parameter_facts(
     semantic: &SemanticModel,
-    semantic_analysis: &SemanticAnalysis<'_>,
     commands: &[CommandFact<'_>],
     positional_parameter_fragments: &[PositionalParameterFragmentFact],
 ) -> FxHashMap<ScopeId, FunctionPositionalParameterFacts> {
-    let mut facts: FxHashMap<ScopeId, FunctionPositionalParameterFacts> = FxHashMap::default();
     let mut local_reset_offsets_by_scope: FxHashMap<ScopeId, Vec<usize>> = FxHashMap::default();
 
     for command in commands {
@@ -831,54 +829,21 @@ fn build_function_positional_parameter_facts(
         }
     }
 
-    for reference in semantic.references() {
-        if reference_has_local_positional_reset(
-            semantic,
-            reference.scope,
-            reference.span.start.offset,
-            &local_reset_offsets_by_scope,
-        ) {
-            continue;
-        }
-
-        let Some(index) = positional_parameter_index(reference.name.as_str()) else {
-            let Some(uses_positional_parameters) =
-                special_positional_parameter_name(reference.name.as_str())
-            else {
-                continue;
-            };
-
-            if semantic.is_guarded_parameter_reference(reference.id) {
-                continue;
-            }
-
-            let Some(scope) =
-                semantic_analysis.enclosing_function_scope_at(reference.span.start.offset)
-            else {
-                continue;
-            };
-
-            if uses_positional_parameters {
-                facts
-                    .entry(scope)
-                    .or_default()
-                    .uses_unprotected_positional_parameters = true;
-            }
-            continue;
-        };
-        if semantic.is_guarded_parameter_reference(reference.id) {
-            continue;
-        }
-
-        let Some(scope) = semantic_analysis.enclosing_function_scope_at(reference.span.start.offset)
-        else {
-            continue;
-        };
-
-        let entry = facts.entry(scope).or_default();
-        entry.required_arg_count = entry.required_arg_count.max(index);
-        entry.uses_unprotected_positional_parameters = true;
-    }
+    let mut facts = semantic
+        .function_positional_reference_summary(&local_reset_offsets_by_scope)
+        .into_iter()
+        .map(|(scope, summary)| {
+            (
+                scope,
+                FunctionPositionalParameterFacts {
+                    required_arg_count: summary.required_arg_count(),
+                    uses_unprotected_positional_parameters: summary
+                        .uses_unprotected_positional_parameters(),
+                    resets_positional_parameters: false,
+                },
+            )
+        })
+        .collect::<FxHashMap<_, _>>();
 
     for fragment in positional_parameter_fragments {
         if fragment.is_guarded() {
@@ -896,7 +861,7 @@ fn build_function_positional_parameter_facts(
             continue;
         }
 
-        let Some(scope) = semantic_analysis.enclosing_function_scope_at(fragment_offset) else {
+        let Some(scope) = semantic.enclosing_function_scope(fragment_scope) else {
             continue;
         };
 
@@ -937,22 +902,4 @@ fn reference_has_local_positional_reset(
                 .get(&transient_scope)
                 .is_some_and(|offsets| offsets.iter().any(|reset_offset| *reset_offset < offset))
         })
-}
-
-fn positional_parameter_index(name: &str) -> Option<usize> {
-    if name == "0" || matches!(name, "@" | "*" | "#") {
-        return None;
-    }
-    if name.chars().all(|ch| ch.is_ascii_digit()) {
-        name.parse::<usize>().ok()
-    } else {
-        None
-    }
-}
-
-fn special_positional_parameter_name(name: &str) -> Option<bool> {
-    match name {
-        "@" | "*" | "#" => Some(true),
-        _ => None,
-    }
 }
