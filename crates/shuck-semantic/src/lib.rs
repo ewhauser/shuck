@@ -617,6 +617,7 @@ pub struct SemanticModel {
     command_topology: OnceLock<CommandTopology>,
     references_sorted_by_start: OnceLock<Vec<ReferenceId>>,
     bindings_sorted_by_start: OnceLock<Vec<BindingId>>,
+    bindings_by_definition_span: OnceLock<FxHashMap<SpanKey, BindingId>>,
     guarded_or_defaulting_reference_offsets_by_name: OnceLock<FxHashMap<Name, Box<[usize]>>>,
     declarations_by_command_span: OnceLock<FxHashMap<SpanKey, usize>>,
     unconditional_function_bindings: OnceLock<FxHashSet<BindingId>>,
@@ -805,6 +806,7 @@ impl SemanticModel {
             command_topology: OnceLock::new(),
             references_sorted_by_start: OnceLock::new(),
             bindings_sorted_by_start: OnceLock::new(),
+            bindings_by_definition_span: OnceLock::new(),
             guarded_or_defaulting_reference_offsets_by_name: OnceLock::new(),
             declarations_by_command_span: OnceLock::new(),
             unconditional_function_bindings: OnceLock::new(),
@@ -940,6 +942,36 @@ impl SemanticModel {
         }
     }
 
+    /// Yield direct references for `command_span` whose spans are fully contained within `outer`.
+    ///
+    /// References recorded for nested commands are excluded because semantic
+    /// stores them against their own command spans instead of the enclosing
+    /// command.
+    pub fn references_in_command_span(
+        &self,
+        command_span: Span,
+        outer: Span,
+    ) -> CommandReferencesInSpan<'_> {
+        let command_span = self
+            .command_references
+            .contains_key(&SpanKey::new(command_span))
+            .then_some(command_span)
+            .or_else(|| {
+                self.command_by_span(command_span)
+                    .map(|id| self.command_span(id))
+            });
+        let ids = command_span
+            .filter(|span| contains_span(*span, outer))
+            .and_then(|span| self.command_references.get(&SpanKey::new(span)))
+            .map(SmallVec::as_slice)
+            .unwrap_or(&[]);
+        CommandReferencesInSpan {
+            references: &self.references,
+            ids: ids.iter(),
+            outer,
+        }
+    }
+
     /// Yield every binding whose span is fully contained within `outer`.
     ///
     /// Backed by a lazily-built index sorted by binding start offset, so a
@@ -960,6 +992,13 @@ impl SemanticModel {
 
     pub fn binding(&self, id: BindingId) -> &Binding {
         &self.bindings[id.index()]
+    }
+
+    pub fn binding_for_definition_span(&self, span: Span) -> Option<BindingId> {
+        let index = self
+            .bindings_by_definition_span
+            .get_or_init(|| build_bindings_by_definition_span(&self.bindings));
+        index.get(&SpanKey::new(span)).copied()
     }
 
     pub fn reference(&self, id: ReferenceId) -> &Reference {
@@ -1461,6 +1500,7 @@ impl SemanticModel {
         if !origin_paths.is_empty() {
             self.import_origins_by_binding.insert(id, origin_paths);
         }
+        self.bindings_by_definition_span.take();
         id
     }
 
@@ -3003,6 +3043,14 @@ fn build_declarations_by_command_span(declarations: &[Declaration]) -> FxHashMap
     index
 }
 
+fn build_bindings_by_definition_span(bindings: &[Binding]) -> FxHashMap<SpanKey, BindingId> {
+    let mut index = FxHashMap::with_capacity_and_hasher(bindings.len(), Default::default());
+    for binding in bindings {
+        index.insert(SpanKey::new(binding.span), binding.id);
+    }
+    index
+}
+
 /// Iterator returned by [`SemanticModel::references_in_span`].
 ///
 /// Walks the references sorted index forward from the first candidate and
@@ -3025,6 +3073,31 @@ impl<'a> Iterator for ReferencesInSpan<'a> {
                 return None;
             }
             if reference.span.end.offset <= self.end {
+                return Some(reference);
+            }
+        }
+    }
+}
+
+/// Iterator returned by [`SemanticModel::references_in_command_span`].
+///
+/// Walks the direct reference ids recorded for a single command and yields
+/// only those fully contained within the requested subspan.
+#[derive(Debug, Clone)]
+pub struct CommandReferencesInSpan<'a> {
+    references: &'a [Reference],
+    ids: std::slice::Iter<'a, ReferenceId>,
+    outer: Span,
+}
+
+impl<'a> Iterator for CommandReferencesInSpan<'a> {
+    type Item = &'a Reference;
+
+    fn next(&mut self) -> Option<&'a Reference> {
+        loop {
+            let id = self.ids.next()?;
+            let reference = &self.references[id.index()];
+            if contains_span(self.outer, reference.span) {
                 return Some(reference);
             }
         }

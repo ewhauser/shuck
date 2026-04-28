@@ -1152,15 +1152,10 @@ impl<'a> SafeValueIndex<'a> {
         self.facts.function_definition_command(scope)
     }
 
-    fn function_scope_resolves_at_call_site(
-        &self,
-        callee_scope: ScopeId,
-        function_name: &Name,
-        site: &CallSite,
-    ) -> bool {
+    fn function_scope_resolves_at_call_site(&self, callee_scope: ScopeId, site: &CallSite) -> bool {
         if let Some(binding_id) = self
             .analysis
-            .visible_function_binding_at_call(function_name, site.name_span)
+            .visible_function_binding_at_call(&site.callee, site.name_span)
         {
             return self.analysis.function_scope_for_binding(binding_id) == Some(callee_scope);
         }
@@ -2910,14 +2905,9 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn called_helper_bindings_for_name(&mut self, name: &Name, at: Span) -> Vec<BindingId> {
-        let mut bindings = self
-            .semantic
-            .ancestor_scopes(self.semantic.scope_at(at.start.offset))
-            .flat_map(|scope| self.called_helper_bindings_before(name, scope, at))
-            .collect::<Vec<_>>();
-        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
-        bindings.dedup();
-        bindings
+        self.value_flow
+            .borrow_mut()
+            .helper_value_bindings_before(name, at)
     }
 
     fn s001_top_level_dispatch_helper_bindings_before(
@@ -2931,7 +2921,11 @@ impl<'a> SafeValueIndex<'a> {
 
         let mut bindings = Vec::new();
         let scope = self.semantic.scope_at(at.start.offset);
-        for dispatcher_scope in self.direct_called_function_scopes_before(scope, at.start.offset) {
+        let dispatcher_scopes = self
+            .value_flow
+            .borrow()
+            .called_function_scopes_before(scope, at.start.offset);
+        for dispatcher_scope in dispatcher_scopes {
             bindings.extend(self.s001_branch_helper_bindings_in_scope(name, dispatcher_scope));
         }
         bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
@@ -2990,20 +2984,7 @@ impl<'a> SafeValueIndex<'a> {
             return Vec::new();
         }
 
-        let mut bindings = Vec::new();
-        let mut seen_scopes = FxHashSet::default();
-        let relaxed = !self.span_is_exit_or_return_argument(at);
-        self.collect_transitive_helper_bindings_before(
-            name,
-            self.semantic.scope_at(at.start.offset),
-            at.start.offset,
-            relaxed,
-            &mut seen_scopes,
-            &mut bindings,
-        );
-        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
-        bindings.dedup();
-        bindings
+        self.transitive_helper_bindings_before(name, at, !self.span_is_exit_or_return_argument(at))
     }
 
     fn called_helper_bindings_before(
@@ -3079,24 +3060,12 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn named_function_call_sites(&self, scope: ScopeId) -> Vec<(ScopeId, Span)> {
-        let Some(function_kind) = self.named_function_kind(scope) else {
-            return Vec::new();
-        };
-
-        let mut caller_sites = Vec::new();
-        let mut seen_sites = FxHashSet::default();
-        for function_name in function_kind.static_names() {
-            for site in self.semantic.call_sites_for(function_name) {
-                if site.scope == scope {
-                    continue;
-                }
-                if seen_sites.insert((site.scope, site.span.start.offset, site.span.end.offset)) {
-                    caller_sites.push((site.scope, site.span));
-                }
-            }
-        }
-
-        caller_sites
+        self.value_flow
+            .borrow()
+            .named_function_call_sites(scope)
+            .into_iter()
+            .map(|site| (site.scope, site.span))
+            .collect()
     }
 
     fn caller_branch_bindings_before(
@@ -3269,131 +3238,27 @@ impl<'a> SafeValueIndex<'a> {
         {
             return false;
         }
-        let Some(function_kind) = self.named_function_kind(binding.scope) else {
-            return false;
-        };
         let Some(definition_command) = self.function_definition_command_for_scope(binding.scope)
         else {
             return false;
         };
 
-        function_kind.static_names().iter().any(|function_name| {
-            self.semantic
-                .call_sites_for(function_name)
-                .iter()
-                .any(|site| {
-                    site.scope == scope
-                        && self.function_scope_resolves_at_call_site(
-                            binding.scope,
-                            function_name,
-                            site,
-                        )
-                        && self.scope_has_visible_local_binding_before(
-                            &binding.name,
-                            scope,
-                            site.span,
-                        )
-                        && self
-                            .definition_command_resolves_at_call(definition_command.id(), site.span)
-                        && self.call_site_dominates_use(site.span, &binding.name, at)
-                })
-        })
-    }
-
-    fn collect_transitive_helper_bindings_before(
-        &self,
-        name: &Name,
-        scope: ScopeId,
-        limit_offset: usize,
-        relaxed: bool,
-        seen_scopes: &mut FxHashSet<ScopeId>,
-        bindings: &mut Vec<BindingId>,
-    ) {
-        let callee_scopes = if relaxed {
-            self.direct_called_function_scopes_before_relaxed(scope, limit_offset)
-        } else {
-            self.direct_called_function_scopes_before(scope, limit_offset)
-        };
-        for callee_scope in callee_scopes {
-            if !seen_scopes.insert(callee_scope) {
-                continue;
-            }
-
-            bindings.extend(self.semantic.bindings_for(name).iter().copied().filter(
-                |binding_id| {
-                    let binding = self.semantic.binding(*binding_id);
-                    binding.scope == callee_scope
-                        && !binding.attributes.contains(BindingAttributes::LOCAL)
-                },
-            ));
-
-            if let Some(limit_offset) = self.function_scope_end_offset(callee_scope) {
-                self.collect_transitive_helper_bindings_before(
-                    name,
-                    callee_scope,
-                    limit_offset,
-                    relaxed,
-                    seen_scopes,
-                    bindings,
-                );
-            }
-        }
-    }
-
-    fn direct_called_function_scopes_before_relaxed(
-        &self,
-        scope: ScopeId,
-        limit_offset: usize,
-    ) -> Vec<ScopeId> {
-        let mut scopes = Vec::new();
-        let mut seen_scopes = FxHashSet::default();
-
-        for header in self.facts.function_headers() {
-            let Some(callee_scope) = header.function_scope() else {
-                continue;
-            };
-            let Some(function_kind) = self.named_function_kind(callee_scope) else {
-                continue;
-            };
-            let Some(definition_command) = self.facts.function_definition_command(callee_scope)
-            else {
-                continue;
-            };
-
-            let called_before = function_kind.static_names().iter().any(|function_name| {
-                self.semantic
-                    .call_sites_for(function_name)
-                    .iter()
-                    .any(|site| {
-                        site.scope == scope
-                            && site.span.start.offset < limit_offset
-                            && self.definition_command_resolves_at_call(
-                                definition_command.id(),
-                                site.span,
-                            )
-                    })
-            });
-            if called_before && seen_scopes.insert(callee_scope) {
-                scopes.push(callee_scope);
-            }
-        }
-
-        scopes
-    }
-
-    fn direct_called_function_scopes_before(
-        &self,
-        scope: ScopeId,
-        limit_offset: usize,
-    ) -> Vec<ScopeId> {
         self.value_flow
             .borrow()
-            .called_function_scopes_before(scope, limit_offset)
+            .named_function_call_sites(binding.scope)
+            .into_iter()
+            .any(|site| {
+                site.scope == scope
+                    && self.function_scope_resolves_at_call_site(binding.scope, &site)
+                    && self.scope_has_visible_local_binding_before(&binding.name, scope, site.span)
+                    && self.definition_command_resolves_at_call(definition_command.id(), site.span)
+                    && self.call_site_dominates_use(site.span, &binding.name, at)
+            })
     }
 
-    fn function_scope_end_offset(&self, scope: ScopeId) -> Option<usize> {
-        self.function_scope_end_span(scope)
-            .map(|span| span.end.offset)
+    fn call_site_dominates_use(&self, call_span: Span, name: &Name, at: Span) -> bool {
+        let _ = name;
+        self.call_site_dominates_offset(call_span, at.start.offset)
     }
 
     fn function_scope_end_span(&self, scope: ScopeId) -> Option<Span> {
@@ -3404,9 +3269,39 @@ impl<'a> SafeValueIndex<'a> {
             .map(|header| Span::at(header.function().span.end))
     }
 
-    fn call_site_dominates_use(&self, call_span: Span, name: &Name, at: Span) -> bool {
-        let _ = name;
-        self.call_site_dominates_offset(call_span, at.start.offset)
+    fn transitive_helper_bindings_before(
+        &self,
+        name: &Name,
+        at: Span,
+        relaxed: bool,
+    ) -> Vec<BindingId> {
+        let scope = self.semantic.scope_at(at.start.offset);
+        let callee_scopes = if relaxed {
+            self.value_flow
+                .borrow()
+                .transitively_called_function_scopes_before_relaxed(scope, at.start.offset)
+        } else {
+            self.value_flow
+                .borrow()
+                .transitively_called_function_scopes_before(scope, at.start.offset)
+        };
+        let mut bindings = callee_scopes
+            .into_iter()
+            .flat_map(|callee_scope| {
+                self.semantic
+                    .bindings_for(name)
+                    .iter()
+                    .copied()
+                    .filter(move |binding_id| {
+                        let binding = self.semantic.binding(*binding_id);
+                        binding.scope == callee_scope
+                            && !binding.attributes.contains(BindingAttributes::LOCAL)
+                    })
+            })
+            .collect::<Vec<_>>();
+        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+        bindings.dedup();
+        bindings
     }
 
     fn call_site_dominates_offset(&self, call_span: Span, limit_offset: usize) -> bool {
@@ -4050,16 +3945,10 @@ impl<'a> SafeValueIndex<'a> {
         self.drop_declarations_shadowed_by_covering_loop_bindings(&mut bindings, at);
         self.drop_outer_bindings_shadowed_by_covering_loop_bindings(&mut bindings, at);
         self.retain_value_bindings(&mut bindings);
-        let mut transitive_helper_bindings = Vec::new();
-        let mut seen_scopes = FxHashSet::default();
-        let relaxed = !self.span_is_exit_or_return_argument(at);
-        self.collect_transitive_helper_bindings_before(
+        let mut transitive_helper_bindings = self.transitive_helper_bindings_before(
             name,
-            self.semantic.scope_at(at.start.offset),
-            at.start.offset,
-            relaxed,
-            &mut seen_scopes,
-            &mut transitive_helper_bindings,
+            at,
+            !self.span_is_exit_or_return_argument(at),
         );
         self.retain_value_bindings(&mut transitive_helper_bindings);
         bindings.extend(transitive_helper_bindings.iter().copied());
@@ -6476,6 +6365,58 @@ render() {
             .expect("expected shadowed helper argument fact");
 
         assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn shadowed_helper_call_site_does_not_count_as_outer_helper_write() {
+        let source = "\
+#!/bin/bash
+helper() {
+  value=$1
+}
+
+render() {
+  local value=SAFE
+  helper() {
+    :
+  }
+  helper
+  printf '%s\\n' ${value}
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+        let safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${value}"
+            })
+            .expect("expected local argument fact");
+        let render_scope = analysis
+            .enclosing_function_scope_at(word_fact.span().start.offset)
+            .expect("expected render scope");
+        let outer_helper_binding = semantic
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "value"
+                    && binding.scope != render_scope
+                    && matches!(binding.kind, shuck_semantic::BindingKind::Assignment)
+            })
+            .expect("expected outer helper binding");
+
+        assert!(!safe_values.binding_writes_visible_local_in_scope_before(
+            outer_helper_binding.id,
+            render_scope,
+            word_fact.span(),
+        ));
     }
 
     #[test]

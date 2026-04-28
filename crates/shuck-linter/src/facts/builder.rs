@@ -441,9 +441,10 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     .is_some_and(Option::is_some)
             })
             .collect::<Vec<_>>();
-        let command_child_ids_by_parent =
-            build_linter_command_child_ids_by_parent(self.semantic, &command_fact_indices_by_id);
-        let command_child_index = CommandChildIndex::from_parent_lists(command_child_ids_by_parent);
+        let command_child_index = CommandChildIndex::from_semantic_syntax_backed_children(
+            self.semantic,
+            &command_fact_indices_by_id,
+        );
 
         populate_linebreak_in_test_facts(&mut commands, self.source);
         populate_substitution_fact_ranges(
@@ -480,6 +481,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             .collect::<FxHashMap<_, _>>();
         let case_cli_reachable_function_scopes = build_case_cli_reachable_function_scopes(
             self.semantic,
+            semantic_analysis,
             &function_headers,
             &function_cli_dispatch_facts,
             &commands,
@@ -704,7 +706,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let EnvPrefixScopeSpans {
             assignment_scope_spans: env_prefix_assignment_scope_spans,
             expansion_scope_spans: env_prefix_expansion_scope_spans,
-        } = build_env_prefix_scope_spans(self.source, &commands);
+        } = build_env_prefix_scope_spans(self.source, self.semantic, &commands);
         let unset_command_ids_by_target_name = build_unset_command_ids_by_target_name(
             &commands,
             &command_fact_indices_by_id,
@@ -963,28 +965,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             conditional_portability,
         }
     }
-}
-
-fn build_linter_command_child_ids_by_parent(
-    semantic: &SemanticModel,
-    command_fact_indices_by_id: &[Option<usize>],
-) -> Vec<Vec<CommandId>> {
-    let mut children_by_parent = vec![Vec::new(); semantic.command_count()];
-    for child in semantic.commands().iter().copied() {
-        if !command_fact_exists(command_fact_indices_by_id, child) {
-            continue;
-        }
-        if let Some(parent) = semantic.syntax_backed_command_parent_id(child) {
-            children_by_parent[parent.index()].push(child);
-        }
-    }
-    children_by_parent
-}
-
-fn command_fact_exists(command_fact_indices_by_id: &[Option<usize>], id: CommandId) -> bool {
-    command_fact_indices_by_id
-        .get(id.index())
-        .is_some_and(Option::is_some)
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]

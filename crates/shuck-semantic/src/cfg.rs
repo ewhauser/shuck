@@ -4,6 +4,7 @@ use shuck_parser::ZshEmulationMode;
 use smallvec::{SmallVec, smallvec};
 use std::marker::PhantomData;
 
+use crate::function_resolution::resolved_function_calls_with_callee_scope;
 use crate::source_closure::SourcePathTemplate;
 use crate::{Binding, BindingId, CallSite, ReferenceId, Scope, ScopeId, SpanKey};
 
@@ -801,41 +802,24 @@ fn resolve_script_terminating_call_spans(
     always_exiting_scopes: &FxHashSet<ScopeId>,
     terminating_call_spans: &mut FxHashSet<SpanKey>,
 ) -> bool {
-    let target_names = program
-        .function_body_scopes
-        .iter()
-        .filter(|(_, scope)| always_exiting_scopes.contains(scope))
-        .map(|(binding, _)| bindings[binding.index()].name.clone())
-        .collect::<FxHashSet<_>>();
     let mut changed = false;
 
-    for name in target_names {
-        let Some(sites) = call_sites.get(&name) else {
+    for call in resolved_function_calls_with_callee_scope(
+        call_sites,
+        visible_function_call_bindings,
+        &program.function_body_scopes,
+    ) {
+        if !always_exiting_scopes.contains(&call.callee_scope) {
             continue;
-        };
-
-        for site in sites {
-            let Some(binding) = visible_function_call_bindings
-                .get(&SpanKey::new(site.name_span))
-                .copied()
-            else {
-                continue;
-            };
-            let Some(scope) = program.function_body_scopes.get(&binding).copied() else {
-                continue;
-            };
-            if !always_exiting_scopes.contains(&scope) {
-                continue;
-            }
-            if file_entry_can_return_before_function_definition(
-                program,
-                bindings[binding.index()].span.start.offset,
-            ) {
-                continue;
-            }
-            let command_span = recorded_command_span_for_call_site(program, site);
-            changed |= terminating_call_spans.insert(SpanKey::new(command_span));
         }
+        if file_entry_can_return_before_function_definition(
+            program,
+            bindings[call.binding.index()].span.start.offset,
+        ) {
+            continue;
+        }
+        let command_span = recorded_command_span_for_call_site(program, call.site);
+        changed |= terminating_call_spans.insert(SpanKey::new(command_span));
     }
 
     changed

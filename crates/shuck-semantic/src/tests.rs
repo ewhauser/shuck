@@ -550,6 +550,20 @@ fn function_definition_binding_lookup_uses_the_command_span() {
 }
 
 #[test]
+fn binding_lookup_uses_the_definition_span() {
+    let source = "foo=1\nbar=2\n";
+    let model = model(source);
+
+    for name in [Name::from("foo"), Name::from("bar")] {
+        let binding_id = model.bindings_for(&name)[0];
+        assert_eq!(
+            model.binding_for_definition_span(model.binding(binding_id).span),
+            Some(binding_id)
+        );
+    }
+}
+
+#[test]
 fn zsh_multi_name_function_lookup_works_through_any_alias() {
     let source = "flag=1\nfunction music itunes() { echo \"$flag\"; }\nitunes\n";
     let model = model_with_dialect(source, ShellDialect::Zsh);
@@ -5115,6 +5129,100 @@ use
 }
 
 #[test]
+fn value_flow_returns_helper_bindings_visible_at_reference() {
+    let source = "\
+#!/bin/bash
+setfoo() {
+  foo=1
+}
+use() {
+  setfoo
+  printf '%s\\n' \"$foo\"
+}
+";
+    let model = model(source);
+    let binding = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment))
+        .expect("expected foo binding");
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "foo")
+        .expect("expected foo reference");
+    let analysis = model.analysis();
+    let mut value_flow = analysis.value_flow();
+
+    assert_eq!(
+        value_flow.helper_value_bindings_before(&reference.name, reference.span),
+        vec![binding.id]
+    );
+}
+
+#[test]
+fn value_flow_named_function_call_sites_resolve_alias_fallbacks() {
+    let source = "\
+#!/bin/zsh
+use() {
+  itunes
+  print $foo
+}
+function music itunes() {
+  foo=1
+}
+use
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let helper_scope = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment))
+        .map(|binding| binding.scope)
+        .expect("expected helper scope");
+    let analysis = model.analysis();
+    let value_flow = analysis.value_flow();
+    let call_sites = value_flow.named_function_call_sites(helper_scope);
+
+    assert_eq!(call_sites.len(), 1);
+    assert_eq!(call_sites[0].callee.as_str(), "itunes");
+}
+
+#[test]
+fn value_flow_tracks_transitive_called_function_scopes_before() {
+    let source = "\
+#!/bin/bash
+first() {
+  second
+}
+second() {
+  foo=1
+}
+first
+printf '%s\\n' \"$foo\"
+";
+    let model = model(source);
+    let reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "foo")
+        .expect("expected foo reference");
+    let helper_scope = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment))
+        .map(|binding| binding.scope)
+        .expect("expected helper scope");
+    let analysis = model.analysis();
+    let value_flow = analysis.value_flow();
+    let caller_scope = model.scope_at(reference.span.start.offset);
+    let callee_scopes = value_flow
+        .transitively_called_function_scopes_before(caller_scope, reference.span.start.offset);
+
+    assert!(callee_scopes.contains(&helper_scope));
+}
+
+#[test]
 fn value_flow_uses_path_covering_alternate_function_definitions() {
     let source = "\
 #!/bin/bash
@@ -6296,6 +6404,43 @@ main() {
         .collect::<Vec<_>>();
 
     assert!(unreachable.contains(&"printf '%s\\n' never".to_owned()));
+}
+
+#[test]
+fn resolved_function_calls_feed_dataflow_and_script_termination() {
+    let source = "\
+reader() {
+  printf '%s\\n' \"$value\"
+}
+exit_script() {
+  exit 0
+}
+main() {
+  value=ok
+  reader
+  exit_script
+  printf '%s\\n' never
+}
+main
+";
+    let model = model(source);
+    let analysis = model.analysis();
+    let unused = binding_names(&model, analysis.dataflow().unused_assignment_ids());
+    let unreachable = analysis
+        .dead_code()
+        .iter()
+        .flat_map(|entry| entry.unreachable.iter())
+        .map(|span| span.slice(source).trim_end().to_owned())
+        .collect::<Vec<_>>();
+
+    assert!(
+        !unused.iter().any(|name| name == "value"),
+        "unused bindings: {unused:?}"
+    );
+    assert!(
+        unreachable.contains(&"printf '%s\\n' never".to_owned()),
+        "unreachable spans: {unreachable:?}"
+    );
 }
 
 #[test]
@@ -8955,6 +9100,40 @@ echo \"${ordinary_missing}/out\"
     let uninitialized = uninitialized_names(&model);
 
     assert_names_present(&["missing_target", "ordinary_missing"], &uninitialized);
+}
+
+#[test]
+fn references_in_command_span_filters_to_direct_references_in_the_requested_subspan() {
+    let source = "\
+#!/bin/bash
+foo=\"$foo\" cmd \"$foo\" \"$(printf '%s' \"$foo\")\"
+";
+    let output = Parser::new(source).parse().unwrap();
+    let model = model(source);
+    let command_id = command_id_starting_with(&model, source, "foo=\"$foo\" cmd").unwrap();
+    let command_span = model.command_span(command_id);
+    let Command::Simple(command) = &output.file.body[0].command else {
+        panic!("expected simple command");
+    };
+    let assignment_span = command.assignments[0].span;
+    let body_word_span = command.args[0].span;
+
+    let assignment_refs = model
+        .references_in_command_span(command_span, assignment_span)
+        .map(|reference| reference.span.slice(source))
+        .collect::<Vec<_>>();
+    let body_refs = model
+        .references_in_command_span(command_span, body_word_span)
+        .map(|reference| reference.span.slice(source))
+        .collect::<Vec<_>>();
+    let command_refs = model
+        .references_in_command_span(command_span, command_span)
+        .map(|reference| reference.span.slice(source))
+        .collect::<Vec<_>>();
+
+    assert_eq!(assignment_refs, vec!["$foo"]);
+    assert_eq!(body_refs, vec!["$foo"]);
+    assert_eq!(command_refs, vec!["$foo", "$foo"]);
 }
 
 #[test]

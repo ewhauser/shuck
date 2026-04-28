@@ -111,6 +111,14 @@ impl<'model> SemanticAnalysis<'model> {
             .copied()
     }
 
+    pub fn function_scope_is_nested(&self, scope: ScopeId) -> bool {
+        self.model
+            .scope(scope)
+            .parent
+            .and_then(|parent| self.model.enclosing_function_scope(parent))
+            .is_some()
+    }
+
     pub fn visible_function_binding_defined_before(
         &self,
         name: &Name,
