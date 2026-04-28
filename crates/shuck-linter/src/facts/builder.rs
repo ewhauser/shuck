@@ -277,12 +277,17 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 }
                 let redirect_facts = build_redirect_facts(
                     visit.redirects,
-                    Some(self.semantic),
+                    Some(self.semantic_artifacts),
                     self.source,
                     command_zsh_options.as_ref(),
                 );
                 let redirect_fact_range = redirect_fact_store.push_many(redirect_facts);
-                let options = CommandOptionFacts::build(visit.command, &normalized, self.source);
+                let options = CommandOptionFacts::build(
+                    visit.command,
+                    &normalized,
+                    self.semantic_artifacts,
+                    self.source,
+                );
                 let declaration_assignment_probes = build_declaration_assignment_probes(
                     visit.command,
                     &normalized,
@@ -830,6 +835,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             );
         LinterFacts {
             semantic: self.semantic,
+            semantic_artifacts: self.semantic_artifacts,
             source,
             commands,
             command_fact_indices_by_id,

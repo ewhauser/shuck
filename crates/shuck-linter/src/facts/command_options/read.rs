@@ -56,19 +56,25 @@ pub(super) fn read_uses_raw_input(args: &[&Word], source: &str) -> bool {
     false
 }
 
-pub(super) fn read_target_name_uses(args: &[&Word], source: &str) -> Box<[ComparableNameUse]> {
-    read_name_uses(args, source).0
+pub(super) fn read_target_name_uses(
+    args: &[&Word],
+    semantic: &LinterSemanticArtifacts<'_>,
+    source: &str,
+) -> Box<[ComparableNameUse]> {
+    read_name_uses(args, semantic, source).0
 }
 
 pub(super) fn read_array_target_name_uses(
     args: &[&Word],
+    semantic: &LinterSemanticArtifacts<'_>,
     source: &str,
 ) -> Box<[ComparableNameUse]> {
-    read_name_uses(args, source).1
+    read_name_uses(args, semantic, source).1
 }
 
 fn read_name_uses(
     args: &[&Word],
+    semantic: &LinterSemanticArtifacts<'_>,
     source: &str,
 ) -> (Box<[ComparableNameUse]>, Box<[ComparableNameUse]>) {
     let mut targets = Vec::new();
@@ -82,21 +88,21 @@ fn read_name_uses(
             }
 
             for target in &args[index..] {
-                targets.extend(comparable_read_target_name_uses(target, source));
+                targets.extend(comparable_read_target_name_uses(target, semantic, source));
             }
             break;
         };
 
         if text == "--" {
             for target in &args[index + 1..] {
-                targets.extend(comparable_read_target_name_uses(target, source));
+                targets.extend(comparable_read_target_name_uses(target, semantic, source));
             }
             break;
         }
 
         if !text.starts_with('-') || text == "-" {
             for target in &args[index..] {
-                targets.extend(comparable_read_target_name_uses(target, source));
+                targets.extend(comparable_read_target_name_uses(target, semantic, source));
             }
             break;
         }
@@ -114,7 +120,7 @@ fn read_name_uses(
                         targets.push(target);
                     }
                 } else if let Some(target) = args.get(index + 1) {
-                    let target_uses = comparable_read_target_name_uses(target, source);
+                    let target_uses = comparable_read_target_name_uses(target, semantic, source);
                     array_targets.extend(target_uses.iter().cloned());
                     targets.extend(target_uses);
                     index += 1;

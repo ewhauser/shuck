@@ -1,5 +1,6 @@
 pub struct LinterFacts<'a> {
     semantic: &'a SemanticModel,
+    semantic_artifacts: &'a LinterSemanticArtifacts<'a>,
     source: &'a str,
     commands: Vec<CommandFact<'a>>,
     command_fact_indices_by_id: Vec<Option<usize>>,
@@ -1040,7 +1041,12 @@ fn build_possible_variable_misspelling_scope_compat_name_uses(
             command.redirects(),
             facts.source,
             &mut |word| {
-                collect_scope_compat_derived_name_uses(word, facts.source, &mut uses);
+                collect_scope_compat_derived_name_uses(
+                    word,
+                    facts.semantic_artifacts,
+                    facts.source,
+                    &mut uses,
+                );
             },
         );
     }
@@ -1092,6 +1098,7 @@ fn scope_compat_standalone_parameter_name_use(word: &Word) -> Option<ComparableN
 
 fn collect_scope_compat_derived_name_uses(
     word: &Word,
+    semantic: &LinterSemanticArtifacts<'_>,
     source: &str,
     uses: &mut Vec<ComparableNameUse>,
 ) {
@@ -1099,6 +1106,7 @@ fn collect_scope_compat_derived_name_uses(
         analyze_word(word, source, None).quote == WordQuote::FullyQuoted;
     collect_scope_compat_command_substitution_name_uses_in_parts(
         &word.parts,
+        semantic,
         source,
         allow_quoted_derived_words,
         uses,
@@ -1107,6 +1115,7 @@ fn collect_scope_compat_derived_name_uses(
 
 fn collect_scope_compat_command_substitution_name_uses_in_parts(
     parts: &[WordPartNode],
+    semantic: &LinterSemanticArtifacts<'_>,
     source: &str,
     allow_quoted_derived_words: bool,
     uses: &mut Vec<ComparableNameUse>,
@@ -1116,6 +1125,7 @@ fn collect_scope_compat_command_substitution_name_uses_in_parts(
             WordPart::DoubleQuoted { parts, .. } => {
                 collect_scope_compat_command_substitution_name_uses_in_parts(
                     parts,
+                    semantic,
                     source,
                     allow_quoted_derived_words,
                     uses,
@@ -1124,6 +1134,7 @@ fn collect_scope_compat_command_substitution_name_uses_in_parts(
             WordPart::CommandSubstitution { body, .. } => {
                 collect_scope_compat_command_substitution_name_uses(
                     body,
+                    semantic,
                     source,
                     allow_quoted_derived_words,
                     uses,
@@ -1138,6 +1149,7 @@ fn collect_scope_compat_command_substitution_name_uses_in_parts(
                 if let Some(word) = operand_word_ast {
                     collect_scope_compat_command_substitution_name_uses_in_parts(
                         &word.parts,
+                        semantic,
                         source,
                         allow_quoted_derived_words,
                         uses,
@@ -1183,11 +1195,12 @@ fn collect_scope_compat_command_substitution_name_uses_in_parts(
 
 fn collect_scope_compat_command_substitution_name_uses(
     body: &StmtSeq,
+    semantic: &LinterSemanticArtifacts<'_>,
     source: &str,
     allow_quoted_derived_words: bool,
     uses: &mut Vec<ComparableNameUse>,
 ) {
-    visit_command_substitution_candidate_words(body, source, &mut |word| {
+    visit_command_substitution_candidate_words(body, semantic, source, &mut |word| {
         push_scope_compat_command_substitution_word_use(
             word,
             source,

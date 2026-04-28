@@ -763,7 +763,11 @@ pub(super) fn wait_option_consumes_argument(text: &str) -> bool {
     p_index + 1 == flags.len()
 }
 
-pub(super) fn parse_mapfile_command(args: &[&Word], source: &str) -> MapfileCommandFacts {
+pub(super) fn parse_mapfile_command(
+    args: &[&Word],
+    semantic: &LinterSemanticArtifacts<'_>,
+    source: &str,
+) -> MapfileCommandFacts {
     let mut input_fd = Some(0);
     let mut index = 0;
 
@@ -824,7 +828,7 @@ pub(super) fn parse_mapfile_command(args: &[&Word], source: &str) -> MapfileComm
     let target_name_uses = args
         .get(index)
         .filter(|word| !word_starts_with_literal_dash(word, source))
-        .map(|word| comparable_read_target_name_uses(word, source))
+        .map(|word| comparable_read_target_name_uses(word, semantic, source))
         .unwrap_or_default();
 
     MapfileCommandFacts {

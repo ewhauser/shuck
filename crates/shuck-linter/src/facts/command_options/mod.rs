@@ -726,6 +726,7 @@ impl<'a> CommandOptionFacts<'a> {
     pub(super) fn build(
         command: &'a Command,
         normalized: &NormalizedCommand<'a>,
+        semantic: &LinterSemanticArtifacts<'a>,
         source: &str,
     ) -> Self {
         Self {
@@ -742,9 +743,14 @@ impl<'a> CommandOptionFacts<'a> {
                 .effective_name_is("read")
                 .then(|| ReadCommandFacts {
                     uses_raw_input: read_uses_raw_input(normalized.body_args(), source),
-                    target_name_uses: read_target_name_uses(normalized.body_args(), source),
+                    target_name_uses: read_target_name_uses(
+                        normalized.body_args(),
+                        semantic,
+                        source,
+                    ),
                     array_target_name_uses: read_array_target_name_uses(
                         normalized.body_args(),
+                        semantic,
                         source,
                     ),
                 }),
@@ -787,7 +793,7 @@ impl<'a> CommandOptionFacts<'a> {
             .flatten(),
             mapfile: (normalized.effective_name_is("mapfile")
                 || normalized.effective_name_is("readarray"))
-            .then(|| parse_mapfile_command(normalized.body_args(), source)),
+            .then(|| parse_mapfile_command(normalized.body_args(), semantic, source)),
             xargs: normalized
                 .effective_name_is("xargs")
                 .then(|| parse_xargs_command(normalized.body_args(), source)),

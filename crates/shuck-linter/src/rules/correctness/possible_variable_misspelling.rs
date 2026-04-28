@@ -1439,6 +1439,30 @@ done
     }
 
     #[test]
+    fn reports_build_flag_family_references_in_nested_command_substitution_arguments() {
+        let source = "\
+#!/bin/bash
+CXXFLAGS=\"${CXXFLAGS//-stdlib=libc++/}\"
+declare -r EXTRA_FLAGS=\"\\
+$(
+printf '%s\\n' \"$(printf '%s\\n' ${CFLAGS})\"
+)\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CFLAGS}"]
+        );
+    }
+
+    #[test]
     fn reports_shellspec_execdir_case_reference() {
         let source = "\
 #!/bin/sh

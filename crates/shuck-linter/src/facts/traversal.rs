@@ -1,9 +1,12 @@
-// Private AST traversal used only while building linter facts.
+// Shared command/word traversal helpers. Normal fact construction consumes semantic
+// command visits; the recursive command walker is kept only for tests and benchmarking.
+#[cfg(any(test, feature = "benchmarking"))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct WalkContext {
     loop_depth: usize,
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ConditionKind {
     If,
@@ -12,6 +15,7 @@ enum ConditionKind {
     Until,
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct CommandTraversalContext {
     walk: WalkContext,
@@ -21,6 +25,7 @@ struct CommandTraversalContext {
     in_elif_condition: bool,
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct CommandWalkOptions {
     descend_nested_word_commands: bool,
@@ -43,6 +48,7 @@ impl<'a> CommandVisit<'a> {
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn walk_commands<'a, F>(commands: &'a StmtSeq, options: CommandWalkOptions, visitor: &mut F)
 where
     F: FnMut(CommandVisit<'a>, CommandTraversalContext),
@@ -55,6 +61,7 @@ where
     );
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn iter_commands<'a>(
     commands: &'a StmtSeq,
     options: CommandWalkOptions,
@@ -68,15 +75,11 @@ fn iter_commands<'a>(
 
 fn visit_command_substitution_candidate_words<'a>(
     body: &'a StmtSeq,
+    semantic: &LinterSemanticArtifacts<'a>,
     source: &str,
     visitor: &mut impl FnMut(&'a Word),
 ) {
-    for visit in iter_commands(
-        body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-    ) {
+    for visit in semantic.command_visits_in_body(body, true) {
         visit_command_substitution_loop_header_words(visit.command, visitor);
         visit_command_argument_words_for_substitutions(visit.command, source, visitor);
     }
@@ -103,6 +106,7 @@ fn visit_command_substitution_loop_header_words<'a>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn zsh_glob_patterns(glob: &shuck_ast::ZshQualifiedGlob) -> impl Iterator<Item = &Pattern> + '_ {
     glob.segments.iter().filter_map(|segment| match segment {
         ZshGlobSegment::Pattern(pattern) => Some(pattern),
@@ -210,6 +214,7 @@ fn visit_arithmetic_words_in_expr<'a>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_optional_arithmetic_words<'a>(
     expression: Option<&'a ArithmeticExprNode>,
     words: &mut Vec<&'a Word>,
@@ -219,6 +224,7 @@ fn collect_optional_arithmetic_words<'a>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_var_ref_subscript_words<'a>(reference: &'a VarRef, words: &mut Vec<&'a Word>) {
     collect_optional_arithmetic_words(
         reference
@@ -229,6 +235,7 @@ fn collect_var_ref_subscript_words<'a>(reference: &'a VarRef, words: &mut Vec<&'
     );
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_arithmetic_lvalue_words<'a>(target: &'a ArithmeticLvalue, words: &mut Vec<&'a Word>) {
     match target {
         ArithmeticLvalue::Variable(_) => {}
@@ -236,6 +243,7 @@ fn collect_arithmetic_lvalue_words<'a>(target: &'a ArithmeticLvalue, words: &mut
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_arithmetic_words<'a>(expression: &'a ArithmeticExprNode, words: &mut Vec<&'a Word>) {
     match &expression.kind {
         ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
@@ -265,6 +273,7 @@ fn collect_arithmetic_words<'a>(expression: &'a ArithmeticExprNode, words: &mut 
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_arithmetic_expression_visits<'a, F>(
     expression: &'a ArithmeticExprNode,
     options: CommandWalkOptions,
@@ -290,6 +299,7 @@ fn visit_arithmetic_lvalue_words<'a>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_command_visits<'a, F>(
     commands: &'a StmtSeq,
     options: CommandWalkOptions,
@@ -303,6 +313,7 @@ fn collect_command_visits<'a, F>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_command_visit<'a, F>(
     stmt: &'a Stmt,
     options: CommandWalkOptions,
@@ -359,6 +370,7 @@ fn collect_command_visit<'a, F>(
     collect_redirect_visits(&stmt.redirects, options, context, visitor);
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn condition_context(
     context: CommandTraversalContext,
     kind: ConditionKind,
@@ -379,6 +391,7 @@ fn condition_context(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn loop_context(context: CommandTraversalContext) -> CommandTraversalContext {
     CommandTraversalContext {
         walk: WalkContext {
@@ -388,6 +401,7 @@ fn loop_context(context: CommandTraversalContext) -> CommandTraversalContext {
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn nested_word_context(context: CommandTraversalContext) -> CommandTraversalContext {
     CommandTraversalContext {
         nested_word_command: true,
@@ -395,6 +409,7 @@ fn nested_word_context(context: CommandTraversalContext) -> CommandTraversalCont
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_builtin_visits<'a, F>(
     command: &'a BuiltinCommand,
     options: CommandWalkOptions,
@@ -435,6 +450,7 @@ fn collect_builtin_visits<'a, F>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_compound_visits<'a, F>(
     command: &'a CompoundCommand,
     options: CommandWalkOptions,
@@ -549,6 +565,7 @@ fn collect_compound_visits<'a, F>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_assignment_visits<'a, F>(
     assignments: &'a [Assignment],
     options: CommandWalkOptions,
@@ -562,6 +579,7 @@ fn collect_assignment_visits<'a, F>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_assignment_visit<'a, F>(
     assignment: &'a Assignment,
     options: CommandWalkOptions,
@@ -587,6 +605,7 @@ fn collect_assignment_visit<'a, F>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_word_slice_visits<'a, F>(
     words: &'a [Word],
     options: CommandWalkOptions,
@@ -600,6 +619,7 @@ fn collect_word_slice_visits<'a, F>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_pattern_slice_visits<'a, F>(
     patterns: &'a [Pattern],
     options: CommandWalkOptions,
@@ -613,6 +633,7 @@ fn collect_pattern_slice_visits<'a, F>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_word_visits<'a, F>(
     word: &'a Word,
     options: CommandWalkOptions,
@@ -628,6 +649,7 @@ fn collect_word_visits<'a, F>(
     collect_word_part_visits(&word.parts, options, nested_word_context(context), visitor);
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_word_part_visits<'a, F>(
     parts: &'a [WordPartNode],
     options: CommandWalkOptions,
@@ -724,6 +746,7 @@ fn collect_word_part_visits<'a, F>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_var_ref_word_visits<'a, F>(
     reference: &'a VarRef,
     options: CommandWalkOptions,
@@ -739,6 +762,7 @@ fn collect_var_ref_word_visits<'a, F>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_parameter_expansion_visits<'a, F>(
     parameter: &'a ParameterExpansion,
     options: CommandWalkOptions,
@@ -850,6 +874,7 @@ fn collect_parameter_expansion_visits<'a, F>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_zsh_target_visits<'a, F>(
     target: &'a ZshExpansionTarget,
     options: CommandWalkOptions,
@@ -872,6 +897,7 @@ fn collect_zsh_target_visits<'a, F>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_pattern_visits<'a, F>(
     pattern: &'a Pattern,
     options: CommandWalkOptions,
@@ -894,6 +920,7 @@ fn collect_pattern_visits<'a, F>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_redirect_visits<'a, F>(
     redirects: &'a [Redirect],
     options: CommandWalkOptions,
@@ -913,6 +940,7 @@ fn collect_redirect_visits<'a, F>(
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_conditional_visits<'a, F>(
     expression: &'a ConditionalExpr,
     options: CommandWalkOptions,
@@ -957,8 +985,9 @@ fn builtin_assignments(command: &BuiltinCommand) -> &[Assignment] {
     }
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 fn collect_heredoc_body_part_visits<'a, F>(
-    parts: &'a [HeredocBodyPartNode],
+    parts: &'a [shuck_ast::HeredocBodyPartNode],
     options: CommandWalkOptions,
     context: CommandTraversalContext,
     visitor: &mut F,
