@@ -1139,6 +1139,25 @@ fn command_topology_excludes_nested_substitutions_from_structural_commands() {
 }
 
 #[test]
+fn command_topology_skips_synthetic_parents_for_syntax_backed_queries() {
+    let source = "case \"$x\" in $(echo \"$v\")) ;; esac\n";
+    let model = model(source);
+
+    let case_id = command_id_starting_with(&model, source, "case").unwrap();
+    let echo_id = command_id_starting_with(&model, source, "echo").unwrap();
+
+    assert_eq!(
+        model.syntax_backed_command_parent_id(echo_id),
+        Some(case_id)
+    );
+    assert!(
+        model
+            .syntax_backed_command_children(case_id)
+            .contains(&echo_id)
+    );
+}
+
+#[test]
 fn command_lookup_by_span_and_kind_skips_synthetic_commands() {
     let source = "case \"$x\" in $(echo a)) ;; esac\n";
     let model = model(source);
@@ -1212,6 +1231,29 @@ fn command_topology_finds_innermost_command_at_offsets() {
     );
     assert_eq!(
         model.innermost_command_id_at(source.find("bar").unwrap()),
+        Some(bar_id)
+    );
+}
+
+#[test]
+fn command_topology_finds_innermost_command_containing_arbitrary_offsets() {
+    let source = "if foo; then bar; fi\n";
+    let model = model(source);
+
+    let if_id = command_id_starting_with(&model, source, "if foo").unwrap();
+    let foo_id = command_id_starting_with(&model, source, "foo").unwrap();
+    let bar_id = command_id_starting_with(&model, source, "bar").unwrap();
+
+    assert_eq!(
+        model.innermost_command_id_containing_offset(source.find("if").unwrap() + 1),
+        Some(if_id)
+    );
+    assert_eq!(
+        model.innermost_command_id_containing_offset(source.find("foo").unwrap() + 1),
+        Some(foo_id)
+    );
+    assert_eq!(
+        model.innermost_command_id_containing_offset(source.find("bar").unwrap() + 1),
         Some(bar_id)
     );
 }

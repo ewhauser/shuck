@@ -1,4 +1,5 @@
 pub struct LinterFacts<'a> {
+    semantic: &'a SemanticModel,
     source: &'a str,
     commands: Vec<CommandFact<'a>>,
     command_fact_indices_by_id: Vec<Option<usize>>,
@@ -8,8 +9,6 @@ pub struct LinterFacts<'a> {
     command_ids_by_name_word_span: FxHashMap<FactSpan, CommandId>,
     innermost_command_ids_by_offset: CommandOffsetLookup,
     innermost_command_ids_by_binding_offset: CommandOffsetLookup,
-    command_containing_offset_index: OnceLock<CommandContainingOffsetIndex>,
-    command_parent_ids: Vec<Option<CommandId>>,
     command_dominance_barrier_flags: Vec<bool>,
     if_condition_command_ids: FxHashSet<CommandId>,
     elif_condition_command_ids: FxHashSet<CommandId>,
@@ -326,9 +325,13 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub(crate) fn innermost_command_id_containing_offset(&self, offset: usize) -> Option<CommandId> {
-        self.command_containing_offset_index
-            .get_or_init(|| CommandContainingOffsetIndex::build(&self.commands))
+        self.semantic
             .innermost_command_id_containing_offset(offset)
+            .filter(|id| {
+                self.command_fact_indices_by_id
+                    .get(id.index())
+                    .is_some_and(Option::is_some)
+            })
     }
 
     pub(crate) fn innermost_command_at_binding_offset(
@@ -340,7 +343,11 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn command_parent_id(&self, id: CommandId) -> Option<CommandId> {
-        self.command_parent_ids.get(id.index()).copied().flatten()
+        self.semantic.syntax_backed_command_parent_id(id).filter(|parent_id| {
+            self.command_fact_indices_by_id
+                .get(parent_id.index())
+                .is_some_and(Option::is_some)
+        })
     }
 
     pub fn command_parent(&self, id: CommandId) -> Option<CommandFactRef<'_, 'a>> {
@@ -1008,124 +1015,6 @@ impl<'a> LinterFacts<'a> {
         self.possible_variable_misspelling_scope_compat_name_uses
             .get_or_init(|| build_possible_variable_misspelling_scope_compat_name_uses(self))
     }
-}
-
-#[derive(Debug, Default)]
-struct CommandContainingOffsetIndex {
-    entries: Vec<CommandContainingOffsetEntry>,
-}
-
-impl CommandContainingOffsetIndex {
-    fn build(commands: &[CommandFact<'_>]) -> Self {
-        let mut events = commands
-            .iter()
-            .flat_map(|command| {
-                let span = command.span();
-                [
-                    CommandContainingOffsetEvent {
-                        offset: span.start.offset,
-                        end_offset: span.end.offset,
-                        id: command.id(),
-                        kind: CommandContainingOffsetEventKind::Start,
-                    },
-                    CommandContainingOffsetEvent {
-                        offset: span.end.offset.saturating_add(1),
-                        end_offset: span.end.offset,
-                        id: command.id(),
-                        kind: CommandContainingOffsetEventKind::End,
-                    },
-                ]
-            })
-            .collect::<Vec<_>>();
-        events.sort_unstable_by(|left, right| {
-            left.offset
-                .cmp(&right.offset)
-                .then_with(|| left.kind.cmp(&right.kind))
-                .then_with(|| right.end_offset.cmp(&left.end_offset))
-                .then_with(|| left.id.index().cmp(&right.id.index()))
-        });
-
-        let mut entries = Vec::new();
-        let mut active = Vec::<CommandId>::new();
-        let mut index = 0;
-        while let Some(event) = events.get(index).copied() {
-            let offset = event.offset;
-            while events.get(index).is_some_and(|event| {
-                event.offset == offset && event.kind == CommandContainingOffsetEventKind::End
-            }) {
-                let id = events[index].id;
-                active.retain(|active_id| *active_id != id);
-                index += 1;
-            }
-            while events.get(index).is_some_and(|event| {
-                event.offset == offset && event.kind == CommandContainingOffsetEventKind::Start
-            }) {
-                active.push(events[index].id);
-                index += 1;
-            }
-
-            let Some(next_offset) = events.get(index).map(|event| event.offset) else {
-                break;
-            };
-            if offset < next_offset
-                && let Some(id) = active.last().copied()
-            {
-                push_command_containing_offset_entry(&mut entries, offset, next_offset - 1, id);
-            }
-        }
-
-        Self { entries }
-    }
-
-    fn innermost_command_id_containing_offset(&self, offset: usize) -> Option<CommandId> {
-        let upper_bound = self
-            .entries
-            .partition_point(|entry| entry.start_offset <= offset);
-        let entry = self.entries.get(upper_bound.checked_sub(1)?)?;
-        (offset <= entry.end_offset).then_some(entry.id)
-    }
-}
-
-fn push_command_containing_offset_entry(
-    entries: &mut Vec<CommandContainingOffsetEntry>,
-    start_offset: usize,
-    end_offset: usize,
-    id: CommandId,
-) {
-    if let Some(last) = entries.last_mut()
-        && last.id == id
-        && last.end_offset.saturating_add(1) == start_offset
-    {
-        last.end_offset = end_offset;
-        return;
-    }
-
-    entries.push(CommandContainingOffsetEntry {
-        start_offset,
-        end_offset,
-        id,
-    });
-}
-
-#[derive(Debug, Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
-enum CommandContainingOffsetEventKind {
-    End,
-    Start,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct CommandContainingOffsetEvent {
-    offset: usize,
-    end_offset: usize,
-    id: CommandId,
-    kind: CommandContainingOffsetEventKind,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct CommandContainingOffsetEntry {
-    start_offset: usize,
-    end_offset: usize,
-    id: CommandId,
 }
 
 fn build_possible_variable_misspelling_scope_compat_name_uses(
