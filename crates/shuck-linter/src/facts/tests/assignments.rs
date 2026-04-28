@@ -6,7 +6,7 @@ fn indexes_scalar_bindings_from_assignments_and_declarations() {
     let source = "#!/bin/bash\nfoo=1\nprintf '%s\\n' \"$foo\"\nexport bar=2\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     match &output.file.body[0].command {
@@ -52,7 +52,7 @@ pid=$!
 ";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     for name in [
@@ -78,7 +78,7 @@ fn indexes_loop_bindings_from_for_words() {
     let source = "#!/bin/bash\nfor i in 16 32 64; do printf '%s\\n' \"$i\"; done\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let loop_binding_span = match &output.file.body[0].command {
@@ -117,7 +117,7 @@ one_sided='-b' || one_sided='-y'
 ";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let shortcut_bindings = semantic
@@ -183,7 +183,7 @@ printf '%s\\n' \"$foo\"
 ";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let foo_bindings = semantic.bindings_for(&Name::from("foo"));
@@ -211,7 +211,7 @@ f() {
 ";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let shadow_binding = semantic
@@ -323,7 +323,7 @@ fn collects_broken_assoc_key_spans_from_compound_array_assignments() {
     let source = "#!/bin/bash\ndeclare -A table=([left]=1 [right=2)\nother=([ok]=1 [broken=2)\ndeclare -A third=([$(echo ])=3)\ndeclare -A valid=([$(printf key)]=4)\ndeclare -a nums=([0]=1 [1=2)\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert_eq!(
@@ -341,7 +341,7 @@ fn collects_comma_array_assignment_spans_from_compound_values() {
     let source = "#!/bin/bash\na=(alpha,beta)\nb=(\"alpha,beta\")\nc=({x,y})\nd=([k]=v, [q]=w)\ne=(x,$y)\nf=(x\\, y)\ng=({$XDG_CONFIG_HOME,$HOME}/{alacritty,}/{.,}alacritty.ym?)\nh=(foo,{x,y},bar)\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert_eq!(
@@ -390,7 +390,7 @@ fn ignores_commas_after_even_backslashes_before_quote_regions() {
     let source = "#!/bin/bash\na=(x\\\\\",y\")\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -409,7 +409,7 @@ fn ignores_commas_inside_ansi_c_quoted_array_elements() {
     let source = "#!/bin/bash\na=($'a\\'b,c')\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -428,7 +428,7 @@ fn ignores_commas_inside_quoted_command_substitution_array_elements() {
     let source = "#!/bin/bash\nf() {\n\tlocal -a graphql_request=(\n\t\t-X POST\n\t\t-d \"$(\n\t\t\tcat <<-EOF | tr '\\n' ' '\n\t\t\t\t{\"query\":\"field, direction\"}\n\t\t\tEOF\n\t\t)\"\n\t)\n}\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -447,7 +447,7 @@ fn ignores_commas_inside_separator_started_command_substitution_comments() {
     let source = "#!/bin/bash\na=(\"$(printf '%s' x;# comment with ) and ,\nprintf '%s' y\n)\")\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -466,7 +466,7 @@ fn ignores_commas_inside_grouped_command_substitution_comments() {
     let source = "#!/bin/bash\na=(\"$( (# comment with )\nprintf %s 1,2\n) )\")\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -485,7 +485,7 @@ fn ignores_commas_inside_compact_grouped_command_substitution_comments() {
     let source = "#!/bin/bash\na=(\"$( (#comment with )\nprintf %s 1,2\n) )\")\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -504,7 +504,7 @@ fn ignores_commas_inside_command_substitution_case_patterns() {
     let source = "#!/bin/bash\na=(\"$(case $kind in\nalpha) printf %s 1,2 ;;\nesac)\")\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -524,7 +524,7 @@ fn ignores_commas_inside_piped_heredoc_command_substitution_array_elements() {
         "#!/bin/bash\na=(\"$(cat <<EOF|tr '\\n' ' '\n{\"query\":\"field, direction\"}\nEOF\n)\")\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -543,7 +543,7 @@ fn ignores_commas_inside_parameter_expansions_with_right_parens_in_command_subst
     let source = "#!/bin/bash\na=($(printf %s ${x//foo/)},1))\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -562,7 +562,7 @@ fn ignores_commas_inside_parameter_expansions_with_literal_braces() {
     let source = "#!/bin/bash\na=(${x/a,b/{})\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -581,7 +581,7 @@ fn ignores_commas_inside_parameter_expansions_with_ansi_c_single_quotes() {
     let source = "#!/bin/bash\na=(${x/$'a\\'b'/c,d})\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -601,7 +601,7 @@ fn ignores_commas_inside_case_pattern_comments_after_right_parens() {
         "#!/bin/bash\na=($(case $kind in\na)# comment with esac )\nprintf %s 1,2 ;;\nesac\n))\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -620,7 +620,7 @@ fn ignores_commas_inside_process_substitution_array_elements() {
     let source = "#!/bin/bash\na=(<(printf %s 1,2))\nb=(>(printf %s 3,4))\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -639,7 +639,7 @@ fn ignores_commas_inside_comments_after_quoted_double_parens() {
     let source = "#!/bin/bash\na=($(printf '((' # comment with )\nprintf %s 1,2\n))\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -658,7 +658,7 @@ fn ignores_commas_inside_arithmetic_shift_command_substitutions() {
     let source = "#!/bin/bash\na=($( ((x<<2))\nprintf %s 1,2\n))\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -695,7 +695,7 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
 ";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -714,7 +714,7 @@ fn ignores_commas_inside_nested_case_patterns_in_command_substitutions() {
     let source = "#!/bin/bash\na=($( (case $kind in\na) printf %s 1,2 ;;\nesac\n) ))\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -733,7 +733,7 @@ fn ignores_commas_inside_command_substitutions_with_plain_case_words() {
     let source = "#!/bin/bash\na=($(printf %s 1,2; echo case in))\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -752,7 +752,7 @@ fn ignores_commas_inside_command_substitutions_with_ansi_c_single_quotes() {
     let source = "#!/bin/bash\na=($(printf %s $'a\\'b'; printf %s 1,2))\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -771,7 +771,7 @@ fn ignores_commas_inside_command_substitutions_with_backticks() {
     let source = "#!/bin/bash\na=($(printf %s `echo foo)`; printf %s 1,2))\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -790,7 +790,7 @@ fn ignores_commas_inside_backticks_inside_parameter_expansions() {
     let source = "#!/bin/bash\na=(${x/`echo }`/a,b})\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -809,7 +809,7 @@ fn ignores_commas_inside_process_substitutions_inside_parameter_expansions() {
     let source = "#!/bin/bash\na=(${x/<(echo })/foo,bar})\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -828,7 +828,7 @@ fn ignores_commas_after_backticks_inside_parameter_expansions_in_command_substit
     let source = "#!/bin/bash\na=(\"$(printf %s ${x/`echo }`/foo)},1)\")\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -848,7 +848,7 @@ fn ignores_commas_after_process_substitutions_inside_parameter_expansions_in_com
     let source = "#!/bin/bash\na=(\"$(printf %s ${x/<(echo })/foo)},1)\")\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     assert!(
@@ -927,7 +927,7 @@ demo() {
 fn subshell_assignment_slices(source: &str, shell: ShellDialect) -> Vec<&str> {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build_with_shell_and_ambient_shell_options(
         &output.file,
         source,
@@ -947,7 +947,7 @@ fn subshell_assignment_slices(source: &str, shell: ShellDialect) -> Vec<&str> {
 fn subshell_later_use_slices(source: &str, shell: ShellDialect) -> Vec<&str> {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build_with_shell_and_ambient_shell_options(
         &output.file,
         source,

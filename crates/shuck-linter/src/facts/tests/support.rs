@@ -2,9 +2,8 @@ use std::path::Path;
 
 use shuck_indexer::Indexer;
 use shuck_parser::parser::{Parser, ShellDialect as ParseShellDialect};
-use shuck_semantic::SemanticModel;
 
-use crate::{AmbientShellOptions, LinterFacts, ShellDialect};
+use crate::{AmbientShellOptions, LinterFacts, LinterSemanticArtifacts, ShellDialect};
 
 pub(super) fn with_facts_dialect(
     source: &str,
@@ -15,7 +14,7 @@ pub(super) fn with_facts_dialect(
 ) {
     let output = Parser::with_dialect(source, parse_dialect).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build_with_shell_and_ambient_shell_options(
         &output.file,
         source,

@@ -544,10 +544,9 @@ mod tests {
 
     use shuck_indexer::Indexer;
     use shuck_parser::parser::{Parser, ShellDialect as ParseShellDialect};
-    use shuck_semantic::SemanticModel;
 
     use super::EscapeScanSourceKind;
-    use crate::{LinterFacts, ShellDialect};
+    use crate::{LinterFacts, LinterSemanticArtifacts, ShellDialect};
 
     fn with_matches(
         source: &str,
@@ -558,7 +557,7 @@ mod tests {
     ) {
         let output = Parser::with_dialect(source, parse_dialect).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
         visit(facts.escape_scan_matches());
     }

@@ -4,15 +4,15 @@ use rustc_hash::FxHashSet;
 use shuck_ast::TextSize;
 use shuck_ast::{File, Span};
 use shuck_indexer::Indexer;
-use shuck_semantic::{SemanticAnalysis, SemanticModel};
+use shuck_semantic::SemanticAnalysis;
 
 use crate::{
-    AmbientShellOptions, Diagnostic, LinterFacts, LinterRuleOptions, Rule, RuleSet, ShellDialect,
-    SuppressionIndex, Violation, rules,
+    AmbientShellOptions, Diagnostic, LinterFacts, LinterRuleOptions, LinterSemanticArtifacts, Rule,
+    RuleSet, ShellDialect, SuppressionIndex, Violation, rules,
 };
 
 pub struct Checker<'a> {
-    semantic: &'a SemanticModel,
+    semantic: &'a LinterSemanticArtifacts<'a>,
     semantic_analysis: SemanticAnalysis<'a>,
     indexer: &'a Indexer,
     file: &'a File,
@@ -52,39 +52,8 @@ impl<'a> Checker<'a> {
     pub fn new(
         file: &'a File,
         source: &'a str,
-        semantic: &'a SemanticModel,
+        semantic: &'a LinterSemanticArtifacts<'a>,
         indexer: &'a Indexer,
-        rules: &'a RuleSet,
-        shell: ShellDialect,
-        ambient_shell_options: AmbientShellOptions,
-        report_environment_style_names: bool,
-        rule_options: LinterRuleOptions,
-        suppression_index: Option<&'a SuppressionIndex>,
-        first_parse_error: Option<(usize, usize)>,
-    ) -> Self {
-        Self::new_with_command_visits(
-            file,
-            source,
-            semantic,
-            indexer,
-            &[],
-            rules,
-            shell,
-            ambient_shell_options,
-            report_environment_style_names,
-            rule_options,
-            suppression_index,
-            first_parse_error,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new_with_command_visits(
-        file: &'a File,
-        source: &'a str,
-        semantic: &'a SemanticModel,
-        indexer: &'a Indexer,
-        command_visits_by_id: &[Option<crate::facts::CommandVisit<'a>>],
         rules: &'a RuleSet,
         shell: ShellDialect,
         ambient_shell_options: AmbientShellOptions,
@@ -95,11 +64,11 @@ impl<'a> Checker<'a> {
     ) -> Self {
         Self {
             semantic,
-            semantic_analysis: semantic.analysis(),
+            semantic_analysis: semantic.semantic().analysis(),
             indexer,
             file,
             source,
-            command_visits_by_id: command_visits_by_id.to_vec(),
+            command_visits_by_id: semantic.command_visits_by_id().to_vec(),
             facts: OnceLock::new(),
             rules,
             shell,
@@ -113,8 +82,8 @@ impl<'a> Checker<'a> {
         }
     }
 
-    pub fn semantic(&self) -> &'a SemanticModel {
-        self.semantic
+    pub fn semantic(&self) -> &'a shuck_semantic::SemanticModel {
+        self.semantic.semantic()
     }
 
     pub fn semantic_analysis(&self) -> &SemanticAnalysis<'a> {
@@ -154,17 +123,6 @@ impl<'a> Checker<'a> {
     }
 
     fn build_facts(&self) -> LinterFacts<'a> {
-        if self.command_visits_by_id.is_empty() {
-            return LinterFacts::build_with_shell_and_ambient_shell_options(
-                self.file,
-                self.source,
-                self.semantic,
-                self.indexer,
-                self.shell,
-                self.ambient_shell_options,
-            );
-        }
-
         LinterFacts::build_with_semantic_analysis_shell_and_ambient_shell_options(
             self.file,
             self.source,

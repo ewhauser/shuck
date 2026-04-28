@@ -140,7 +140,7 @@ impl<'a> LinterFacts<'a> {
     pub fn build(
         file: &'a File,
         source: &'a str,
-        semantic: &'a SemanticModel,
+        semantic: &'a LinterSemanticArtifacts<'a>,
         indexer: &'a Indexer,
     ) -> Self {
         Self::build_with_ambient_shell_options(
@@ -155,7 +155,7 @@ impl<'a> LinterFacts<'a> {
     pub fn build_with_ambient_shell_options(
         file: &'a File,
         source: &'a str,
-        semantic: &'a SemanticModel,
+        semantic: &'a LinterSemanticArtifacts<'a>,
         indexer: &'a Indexer,
         ambient_shell_options: AmbientShellOptions,
     ) -> Self {
@@ -172,20 +172,19 @@ impl<'a> LinterFacts<'a> {
     pub fn build_with_shell_and_ambient_shell_options(
         file: &'a File,
         source: &'a str,
-        semantic: &'a SemanticModel,
+        semantic: &'a LinterSemanticArtifacts<'a>,
         indexer: &'a Indexer,
         shell: ShellDialect,
         ambient_shell_options: AmbientShellOptions,
     ) -> Self {
-        let semantic_analysis = semantic.analysis();
-        let command_visits_by_id = collect_command_visits_by_id(file, semantic);
+        let semantic_analysis = semantic.semantic().analysis();
         Self::build_with_semantic_analysis_shell_and_ambient_shell_options(
             file,
             source,
             semantic,
             &semantic_analysis,
             indexer,
-            &command_visits_by_id,
+            semantic.command_visits_by_id(),
             shell,
             ambient_shell_options,
         )
@@ -194,7 +193,7 @@ impl<'a> LinterFacts<'a> {
     pub(crate) fn build_with_semantic_analysis_shell_and_ambient_shell_options(
         file: &'a File,
         source: &'a str,
-        semantic: &'a SemanticModel,
+        semantic: &'a LinterSemanticArtifacts<'a>,
         semantic_analysis: &SemanticAnalysis<'a>,
         indexer: &'a Indexer,
         command_visits_by_id: &[Option<CommandVisit<'a>>],
@@ -204,7 +203,7 @@ impl<'a> LinterFacts<'a> {
         LinterFactsBuilder::new(
             file,
             source,
-            semantic,
+            semantic.semantic(),
             semantic_analysis,
             indexer,
             command_visits_by_id,

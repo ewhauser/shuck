@@ -113,6 +113,7 @@ use shuck_semantic::{
     FlowContext, ScopeId, SemanticBuildOptions, SemanticModel, SourcePathResolver,
     TraversalObserver, build_with_observer_with_options,
 };
+use std::ops::Deref;
 use std::path::Path;
 
 /// Combined semantic model and diagnostic output for a file analysis pass.
@@ -123,19 +124,65 @@ pub struct AnalysisResult {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Semantic model plus linter-private traversal artifacts needed to build facts.
+pub struct LinterSemanticArtifacts<'a> {
+    semantic: SemanticModel,
+    command_visits_by_id: Vec<Option<facts::CommandVisit<'a>>>,
+}
+
+impl<'a> LinterSemanticArtifacts<'a> {
+    /// Builds semantic analysis artifacts for linter fact construction.
+    pub fn build(file: &'a File, source: &'a str, indexer: &'a Indexer) -> Self {
+        Self::build_with_options(file, source, indexer, SemanticBuildOptions::default())
+    }
+
+    /// Builds semantic analysis artifacts for linter fact construction with custom options.
+    pub fn build_with_options(
+        file: &'a File,
+        source: &'a str,
+        indexer: &'a Indexer,
+        options: SemanticBuildOptions<'_>,
+    ) -> Self {
+        let mut observer = LintTraversalObserver::default();
+        let semantic =
+            build_with_observer_with_options(file, source, indexer, &mut observer, options);
+        Self {
+            semantic,
+            command_visits_by_id: observer.into_command_visits_by_id(),
+        }
+    }
+
+    /// Returns the semantic model built for this file.
+    pub fn semantic(&self) -> &SemanticModel {
+        &self.semantic
+    }
+
+    /// Converts this linter semantic model into the underlying semantic model.
+    pub fn into_semantic(self) -> SemanticModel {
+        self.semantic
+    }
+
+    pub(crate) fn command_visits_by_id(&self) -> &[Option<facts::CommandVisit<'a>>] {
+        &self.command_visits_by_id
+    }
+}
+
+impl Deref for LinterSemanticArtifacts<'_> {
+    type Target = SemanticModel;
+
+    fn deref(&self) -> &Self::Target {
+        self.semantic()
+    }
+}
+
 #[derive(Default)]
 struct LintTraversalObserver<'a> {
-    diagnostics: Vec<Diagnostic>,
     command_visits_by_id: Vec<Option<facts::CommandVisit<'a>>>,
 }
 
 impl<'a> LintTraversalObserver<'a> {
-    fn into_diagnostics(self) -> Vec<Diagnostic> {
-        self.diagnostics
-    }
-
-    fn command_visits_by_id(&self) -> &[Option<facts::CommandVisit<'a>>] {
-        &self.command_visits_by_id
+    fn into_command_visits_by_id(self) -> Vec<Option<facts::CommandVisit<'a>>> {
+        self.command_visits_by_id
     }
 }
 
@@ -250,13 +297,11 @@ fn analyze_file_at_path_with_resolver_and_shell(
         .as_deref()
         .or(analyzed_paths_fallback.as_ref());
 
-    let mut observer = LintTraversalObserver::default();
     let shell_profile = shell.shell_profile();
-    let semantic = build_with_observer_with_options(
+    let linter_semantic_artifacts = LinterSemanticArtifacts::build_with_options(
         file,
         source,
         indexer,
-        &mut observer,
         SemanticBuildOptions {
             source_path,
             source_path_resolver,
@@ -268,12 +313,11 @@ fn analyze_file_at_path_with_resolver_and_shell(
         },
     );
     let checker_diagnostics = {
-        let checker = Checker::new_with_command_visits(
+        let checker = Checker::new(
             file,
             source,
-            &semantic,
+            &linter_semantic_artifacts,
             indexer,
-            observer.command_visits_by_id(),
             &settings.rules,
             shell,
             settings.ambient_shell_options,
@@ -284,8 +328,7 @@ fn analyze_file_at_path_with_resolver_and_shell(
         );
         checker.check()
     };
-    let mut diagnostics = observer.into_diagnostics();
-    diagnostics.extend(checker_diagnostics);
+    let mut diagnostics = checker_diagnostics;
     for diagnostic in &mut diagnostics {
         if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
             diagnostic.severity = severity;
@@ -300,7 +343,7 @@ fn analyze_file_at_path_with_resolver_and_shell(
     diagnostics
         .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
     AnalysisResult {
-        semantic,
+        semantic: linter_semantic_artifacts.into_semantic(),
         diagnostics,
     }
 }

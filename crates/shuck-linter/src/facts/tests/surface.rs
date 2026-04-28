@@ -853,7 +853,7 @@ write_target
 ";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
     let reference_span = |name: &str| {

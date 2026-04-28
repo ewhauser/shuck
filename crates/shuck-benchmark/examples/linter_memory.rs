@@ -4,9 +4,8 @@ use std::process;
 use serde::Serialize;
 use shuck_benchmark::{benchmark_cases, parse_fixture};
 use shuck_indexer::Indexer;
-use shuck_linter::{Checker, LinterFacts, LinterSettings, ShellDialect};
+use shuck_linter::{Checker, LinterFacts, LinterSemanticArtifacts, LinterSettings, ShellDialect};
 use shuck_parser::parser::{ParseResult, ParseStatus};
-use shuck_semantic::SemanticModel;
 
 #[global_allocator]
 static GLOBAL: CountingAllocator<std::alloc::System> = CountingAllocator(std::alloc::System);
@@ -172,17 +171,17 @@ impl From<Frame> for MemoryMetrics {
 
 struct PreparedInput {
     source: &'static str,
-    output: ParseResult,
-    indexer: Indexer,
-    semantic: SemanticModel,
+    output: &'static ParseResult,
+    indexer: &'static Indexer,
+    semantic: LinterSemanticArtifacts<'static>,
     shell: ShellDialect,
 }
 
 impl PreparedInput {
     fn new(source: &'static str) -> Self {
-        let output = parse_fixture(source);
-        let indexer = Indexer::new(source, &output);
-        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let output = Box::leak(Box::new(parse_fixture(source)));
+        let indexer = Box::leak(Box::new(Indexer::new(source, output)));
+        let semantic = LinterSemanticArtifacts::build(&output.file, source, indexer);
         let shell = ShellDialect::infer(source, None);
 
         Self {

@@ -8,11 +8,12 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    AmbientShellOptions, Checker, ExpansionContext, RuleSet, ShellDialect, WordFactContext,
+    AmbientShellOptions, Checker, ExpansionContext, LinterSemanticArtifacts, RuleSet, ShellDialect,
+    WordFactContext,
 };
 use shuck_parser::parser::Parser;
 use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile};
-use shuck_semantic::{OptionValue, SemanticBuildOptions, SemanticModel, ZshOptionState};
+use shuck_semantic::{OptionValue, SemanticBuildOptions, ZshOptionState};
 use tempfile::tempdir;
 
 const OPTION_PROBE_PREFIX: &str = "__SHUCK_OPTIONS__";
@@ -132,7 +133,7 @@ fn run_fixture(fixture: &Fixture) -> Result<()> {
         return Err(anyhow::anyhow!("parse error: {}", parsed.strict_error()));
     }
     let indexer = Indexer::new(&fixture.source, &parsed);
-    let semantic = SemanticModel::build_with_options(
+    let semantic = LinterSemanticArtifacts::build_with_options(
         &parsed.file,
         &fixture.source,
         &indexer,

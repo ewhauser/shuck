@@ -4,26 +4,25 @@ use criterion::{
 use shuck_benchmark::{benchmark_cases, configure_benchmark_allocator, parse_fixture};
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    LinterFacts, LinterSettings, RuleSet, ShellCheckCodeMap, SuppressionIndex,
-    benchmark_collect_word_facts, benchmark_normalize_commands, first_statement_line, lint_file,
-    parse_directives,
+    LinterFacts, LinterSemanticArtifacts, LinterSettings, RuleSet, ShellCheckCodeMap,
+    SuppressionIndex, benchmark_collect_word_facts, benchmark_normalize_commands,
+    first_statement_line, lint_file, parse_directives,
 };
 use shuck_parser::parser::ParseResult;
-use shuck_semantic::SemanticModel;
 
 configure_benchmark_allocator!();
 
 struct PreparedFactsInput {
     source: &'static str,
-    output: ParseResult,
-    indexer: Indexer,
-    semantic: SemanticModel,
+    output: &'static ParseResult,
+    indexer: &'static Indexer,
+    semantic: LinterSemanticArtifacts<'static>,
 }
 
 fn prepare_facts_input(source: &'static str) -> PreparedFactsInput {
-    let output = parse_fixture(source);
-    let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let output = Box::leak(Box::new(parse_fixture(source)));
+    let indexer = Box::leak(Box::new(Indexer::new(source, output)));
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, indexer);
 
     PreparedFactsInput {
         source,
@@ -64,7 +63,7 @@ fn build_word_facts(input: &PreparedFactsInput) -> usize {
     black_box(benchmark_collect_word_facts(
         &input.output.file,
         input.source,
-        &input.semantic,
+        input.semantic.semantic(),
     ))
 }
 
