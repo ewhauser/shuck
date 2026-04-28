@@ -21,17 +21,16 @@ impl Violation for QuotedBashSource {
 
 pub fn quoted_bash_source(checker: &mut Checker) {
     let semantic = checker.semantic();
-    let candidate_spans = checker
+    let candidate_references = checker
         .facts()
         .plain_unindexed_reference_spans()
         .iter()
         .copied()
-        .map(span_key)
-        .collect::<FxHashSet<_>>();
-    let candidate_references = semantic
-        .references()
-        .iter()
-        .filter(|reference| candidate_spans.contains(&span_key(reference.span)))
+        .flat_map(|span| {
+            semantic
+                .references_in_span(span)
+                .filter(move |reference| reference.span == span)
+        })
         .collect::<Vec<_>>();
     let mut context =
         QuotedBashSourceContext::new(checker.facts(), semantic, &candidate_references);
@@ -568,10 +567,6 @@ fn pop_finished_commands(active_commands: &mut Vec<OpenCommand>, offset: usize) 
 
 fn span_is_within(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
-}
-
-fn span_key(span: Span) -> (usize, usize) {
-    (span.start.offset, span.end.offset)
 }
 
 fn binding_is_array_like(binding: &Binding) -> bool {

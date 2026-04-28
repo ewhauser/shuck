@@ -271,11 +271,7 @@ fn word_is_numeric_binding_reference(
         return false;
     }
 
-    let span = word_fact.span();
-    let mut references = checker.semantic().references().iter().filter(|reference| {
-        reference.span.start.offset >= span.start.offset
-            && reference.span.end.offset <= span.end.offset
-    });
+    let mut references = checker.semantic().references_in_span(word_fact.span());
     let Some(reference) = references.next() else {
         return false;
     };

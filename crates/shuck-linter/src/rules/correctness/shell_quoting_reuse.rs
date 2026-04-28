@@ -13,20 +13,6 @@ pub(crate) struct ShellQuotingReuseAnalysis {
 }
 
 pub(crate) fn analyze_shell_quoting_reuse(checker: &Checker<'_>) -> ShellQuotingReuseAnalysis {
-    let references = checker.semantic().references();
-    let mut reference_indices = references
-        .iter()
-        .enumerate()
-        .filter(|(_, reference)| {
-            !matches!(
-                reference.kind,
-                ReferenceKind::DeclarationName | ReferenceKind::ImplicitRead
-            )
-        })
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-    reference_indices.sort_unstable_by_key(|&index| references[index].span.start.offset);
-
     let scalar_bindings = checker
         .semantic()
         .bindings()
@@ -68,12 +54,7 @@ pub(crate) fn analyze_shell_quoting_reuse(checker: &Checker<'_>) -> ShellQuoting
         .map(|binding| {
             (
                 binding.id,
-                plain_scalar_reference_bindings(
-                    binding.word.span,
-                    checker,
-                    references,
-                    &reference_indices,
-                ),
+                plain_scalar_reference_bindings(binding.word.span, checker),
             )
         })
         .collect::<FxHashMap<_, _>>();
@@ -96,8 +77,6 @@ pub(crate) fn analyze_shell_quoting_reuse(checker: &Checker<'_>) -> ShellQuoting
             let roots = root_bindings_for_expansion_span(
                 span,
                 checker,
-                references,
-                &reference_indices,
                 &direct_unsafe_bindings,
                 &dependency_map,
                 &mut root_cache,
@@ -127,8 +106,6 @@ pub(crate) fn analyze_shell_quoting_reuse(checker: &Checker<'_>) -> ShellQuoting
     ));
     used_root_bindings.extend(export_assignment_root_bindings(
         checker,
-        references,
-        &reference_indices,
         &direct_unsafe_bindings,
         &dependency_map,
         &mut root_cache,
@@ -196,12 +173,7 @@ fn command_is_eval(checker: &Checker<'_>, command_id: CommandId) -> bool {
         == Some("eval")
 }
 
-fn plain_scalar_reference_bindings(
-    word_span: Span,
-    checker: &Checker<'_>,
-    references: &[Reference],
-    reference_indices: &[usize],
-) -> Vec<BindingId> {
+fn plain_scalar_reference_bindings(word_span: Span, checker: &Checker<'_>) -> Vec<BindingId> {
     let Some(fact) = checker.facts().any_word_fact(word_span) else {
         return Vec::new();
     };
@@ -210,9 +182,7 @@ fn plain_scalar_reference_bindings(
         .scalar_expansion_spans()
         .iter()
         .copied()
-        .flat_map(|span| {
-            direct_reference_bindings_in_span(span, checker, references, reference_indices, true)
-        })
+        .flat_map(|span| direct_reference_bindings_in_span(span, checker, true))
         .collect::<Vec<_>>();
     dedup_binding_ids(bindings)
 }
@@ -220,20 +190,12 @@ fn plain_scalar_reference_bindings(
 fn root_bindings_for_expansion_span(
     expansion_span: Span,
     checker: &Checker<'_>,
-    references: &[Reference],
-    reference_indices: &[usize],
     direct_unsafe_bindings: &FxHashSet<BindingId>,
     dependency_map: &FxHashMap<BindingId, Vec<BindingId>>,
     root_cache: &mut FxHashMap<BindingId, FxHashSet<BindingId>>,
 ) -> FxHashSet<BindingId> {
     let mut roots = FxHashSet::default();
-    for binding_id in direct_reference_bindings_in_span(
-        expansion_span,
-        checker,
-        references,
-        reference_indices,
-        false,
-    ) {
+    for binding_id in direct_reference_bindings_in_span(expansion_span, checker, false) {
         roots.extend(root_bindings_for_binding(
             binding_id,
             direct_unsafe_bindings,
@@ -283,23 +245,15 @@ fn root_bindings_for_binding(
 fn direct_reference_bindings_in_span(
     expansion_span: Span,
     checker: &Checker<'_>,
-    references: &[Reference],
-    reference_indices: &[usize],
     require_plain_reference: bool,
 ) -> Vec<BindingId> {
-    let first_reference = reference_indices.partition_point(|&index| {
-        references[index].span.start.offset < expansion_span.start.offset
-    });
-
     let mut bindings = Vec::new();
-    for &index in &reference_indices[first_reference..] {
-        let reference = &references[index];
-        if reference.span.start.offset > expansion_span.end.offset {
-            break;
-        }
-        if !contains_span(expansion_span, reference.span)
-            || (require_plain_reference
-                && !expansion_span_is_plain_reference(expansion_span, reference, checker.source()))
+    for reference in checker.semantic().references_in_span(expansion_span) {
+        if matches!(
+            reference.kind,
+            ReferenceKind::DeclarationName | ReferenceKind::ImplicitRead
+        ) || (require_plain_reference
+            && !expansion_span_is_plain_reference(expansion_span, reference, checker.source()))
         {
             continue;
         }
@@ -428,8 +382,6 @@ fn is_test_v_variable_binding(binding: &Binding) -> bool {
 
 fn export_assignment_root_bindings(
     checker: &Checker<'_>,
-    references: &[Reference],
-    reference_indices: &[usize],
     direct_unsafe_bindings: &FxHashSet<BindingId>,
     dependency_map: &FxHashMap<BindingId, Vec<BindingId>>,
     root_cache: &mut FxHashMap<BindingId, FxHashSet<BindingId>>,
@@ -459,9 +411,7 @@ fn export_assignment_root_bindings(
                 continue;
             };
 
-            for binding_id in
-                plain_scalar_reference_bindings(word.span, checker, references, reference_indices)
-            {
+            for binding_id in plain_scalar_reference_bindings(word.span, checker) {
                 roots.extend(root_bindings_for_binding(
                     binding_id,
                     direct_unsafe_bindings,
@@ -515,10 +465,6 @@ fn expansion_span_is_plain_reference(
     let text = expansion_span.slice(source);
     text == format!("${}", reference.name.as_str())
         || text == format!("${{{}}}", reference.name.as_str())
-}
-
-fn contains_span(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
 }
 
 fn sort_and_dedup_spans(spans: &mut Vec<Span>) {
