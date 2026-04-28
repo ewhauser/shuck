@@ -2674,73 +2674,12 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             return *result;
         }
 
-        let visible = if let Some(visible) =
-            self.assoc_binding_visible_in_nearest_scope(owner_name, owner_name_span, subscript)
-        {
-            visible
-        } else {
-            self.assoc_binding_visible_from_named_callers(owner_name)
-        };
+        let lookup_span = owner_name_span.unwrap_or(subscript.span());
+        let visible =
+            self.semantic
+                .assoc_binding_visible_for_lookup(owner_name, self.command_scope, lookup_span);
         self.assoc_binding_visibility_memo.insert(key, visible);
         visible
-    }
-
-    fn assoc_binding_visible_in_nearest_scope(
-        &self,
-        owner_name: &Name,
-        owner_name_span: Option<Span>,
-        subscript: &Subscript,
-    ) -> Option<bool> {
-        let lookup_span = owner_name_span.unwrap_or(subscript.span());
-        self.semantic
-            .visible_binding_for_assoc_lookup(owner_name, self.command_scope, lookup_span)
-            .map(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
-    }
-
-    fn assoc_binding_visible_from_named_callers(&self, owner_name: &Name) -> bool {
-        let Some(function_names) = self.named_function_scope_names(self.command_scope) else {
-            return false;
-        };
-
-        let mut seen = AssocCallerSeenNames::new();
-        let mut worklist = SmallVec::<[Name; 4]>::new();
-        worklist.extend(function_names.iter().cloned());
-
-        while let Some(function_name) = worklist.pop() {
-            if !seen.insert(&function_name) {
-                continue;
-            }
-
-            for call_site in self.semantic.call_sites_for(&function_name) {
-                if let Some(binding) = self.semantic.visible_binding_for_assoc_lookup(
-                    owner_name,
-                    call_site.scope,
-                    call_site.name_span,
-                ) {
-                    if binding.attributes.contains(BindingAttributes::ASSOC) {
-                        return true;
-                    }
-                    continue;
-                }
-
-                if let Some(caller_names) = self.named_function_scope_names(call_site.scope) {
-                    worklist.extend(caller_names.iter().cloned());
-                }
-            }
-        }
-
-        false
-    }
-
-    fn named_function_scope_names(&self, scope: ScopeId) -> Option<&[Name]> {
-        self.semantic.ancestor_scopes(scope).find_map(|scope_id| {
-            match &self.semantic.scope(scope_id).kind {
-                shuck_semantic::ScopeKind::Function(shuck_semantic::FunctionScopeKind::Named(
-                    names,
-                )) => Some(names.as_slice()),
-                _ => None,
-            }
-        })
     }
 
     fn collect_array_index_arithmetic_spans(&mut self, word: &Word) {
