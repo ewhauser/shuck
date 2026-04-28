@@ -5685,6 +5685,130 @@ printf '%s\\n' \
 }
 
 #[test]
+fn guarded_or_defaulting_reference_offsets_are_grouped_by_name() {
+    let source = "\
+printf '%s\\n' \
+  \"${missing_default:-$fallback_name}\" \
+  \"${missing_assign:=$seed_name}\" \
+  \"${missing_replace:+$seed_name}\" \
+  \"${missing_error:?$hint_name}\" \
+  \"${missing_error:?$hint_name}\"
+";
+    let model = model(source);
+    let mut expected = FxHashMap::<String, Vec<usize>>::default();
+
+    for reference in model.references() {
+        if model.is_guarded_parameter_reference(reference.id)
+            || model.is_defaulting_parameter_operand_reference(reference.id)
+        {
+            expected
+                .entry(reference.name.as_str().to_owned())
+                .or_default()
+                .push(reference.span.start.offset);
+        }
+    }
+
+    for offsets in expected.values_mut() {
+        offsets.sort_unstable();
+        offsets.dedup();
+    }
+
+    let actual = model
+        .guarded_or_defaulting_reference_offsets_by_name()
+        .iter()
+        .map(|(name, offsets)| (name.as_str().to_owned(), offsets.to_vec()))
+        .collect::<FxHashMap<_, _>>();
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn function_positional_reference_summary_respects_local_transient_resets() {
+    let source = "\
+greet() {
+  (
+    set -- inner
+    printf '%s\\n' \"$1\"
+  )
+}
+relay() {
+  printf '%s\\n' \"$@\"
+}
+";
+    let model = model(source);
+
+    let greet_use_offset = span_for_nth(source, "printf '%s\\n' \"$1\"", 0)
+        .start
+        .offset;
+    let relay_use_offset = span_for_nth(source, "printf '%s\\n' \"$@\"", 0)
+        .start
+        .offset;
+    let greet_scope = model
+        .enclosing_function_scope(model.scope_at(greet_use_offset))
+        .unwrap();
+    let relay_scope = model
+        .enclosing_function_scope(model.scope_at(relay_use_offset))
+        .unwrap();
+
+    let without_resets = model.function_positional_reference_summary(&FxHashMap::default());
+    assert_eq!(
+        without_resets
+            .get(&greet_scope)
+            .copied()
+            .unwrap()
+            .required_arg_count(),
+        1
+    );
+    assert!(
+        without_resets
+            .get(&greet_scope)
+            .copied()
+            .unwrap()
+            .uses_unprotected_positional_parameters()
+    );
+    assert_eq!(
+        without_resets
+            .get(&relay_scope)
+            .copied()
+            .unwrap()
+            .required_arg_count(),
+        0
+    );
+    assert!(
+        without_resets
+            .get(&relay_scope)
+            .copied()
+            .unwrap()
+            .uses_unprotected_positional_parameters()
+    );
+
+    let transient_scope = model
+        .innermost_transient_scope_within_function(model.scope_at(greet_use_offset))
+        .unwrap();
+    let reset_offset = span_for_nth(source, "set -- inner", 0).start.offset;
+    let mut local_resets = FxHashMap::default();
+    local_resets.insert(transient_scope, vec![reset_offset]);
+
+    let with_resets = model.function_positional_reference_summary(&local_resets);
+    assert!(!with_resets.contains_key(&greet_scope));
+    assert_eq!(
+        with_resets
+            .get(&relay_scope)
+            .copied()
+            .unwrap()
+            .required_arg_count(),
+        0
+    );
+    assert!(
+        with_resets
+            .get(&relay_scope)
+            .copied()
+            .unwrap()
+            .uses_unprotected_positional_parameters()
+    );
+}
+
+#[test]
 fn branch_initialized_names_stay_initialized_inside_command_substitutions() {
     let source = "\
 if [ \"$1\" = h ]; then
