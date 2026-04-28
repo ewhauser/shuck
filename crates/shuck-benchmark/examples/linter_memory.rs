@@ -211,7 +211,7 @@ fn facts_size(input: &PreparedInput) -> usize {
         &input.output.file,
         input.source,
         &input.semantic,
-        &input.indexer,
+        input.indexer,
         input.shell,
         Default::default(),
     );
@@ -231,7 +231,7 @@ fn check_diagnostics(input: &PreparedInput, settings: &LinterSettings) -> usize 
         &input.output.file,
         input.source,
         &input.semantic,
-        &input.indexer,
+        input.indexer,
         &settings.rules,
         input.shell,
         settings.ambient_shell_options,

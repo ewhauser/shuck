@@ -4,7 +4,7 @@ struct LinterFactsBuilder<'a, 'analysis> {
     semantic: &'a SemanticModel,
     semantic_analysis: &'analysis SemanticAnalysis<'a>,
     _indexer: &'a Indexer,
-    command_visits_by_id: &'analysis [Option<CommandVisit<'a>>],
+    command_visits_by_id: &'a [Option<CommandVisit<'a>>],
     shell: ShellDialect,
     ambient_shell_options: AmbientShellOptions,
 }
@@ -54,20 +54,19 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
     fn new(
         file: &'a File,
         source: &'a str,
-        semantic: &'a SemanticModel,
+        semantic: &'a LinterSemanticArtifacts<'a>,
         semantic_analysis: &'analysis SemanticAnalysis<'a>,
         indexer: &'a Indexer,
-        command_visits_by_id: &'analysis [Option<CommandVisit<'a>>],
         shell: ShellDialect,
         ambient_shell_options: AmbientShellOptions,
     ) -> Self {
         Self {
             file,
             source,
-            semantic,
+            semantic: semantic.semantic(),
             semantic_analysis,
             _indexer: indexer,
-            command_visits_by_id,
+            command_visits_by_id: semantic.command_visits_by_id(),
             shell,
             ambient_shell_options,
         }

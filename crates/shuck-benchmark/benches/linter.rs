@@ -37,7 +37,7 @@ fn build_linter_facts(input: &PreparedFactsInput) -> usize {
         &input.output.file,
         input.source,
         &input.semantic,
-        &input.indexer,
+        input.indexer,
     );
 
     black_box(

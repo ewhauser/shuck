@@ -184,7 +184,6 @@ impl<'a> LinterFacts<'a> {
             semantic,
             &semantic_analysis,
             indexer,
-            semantic.command_visits_by_id(),
             shell,
             ambient_shell_options,
         )
@@ -196,17 +195,15 @@ impl<'a> LinterFacts<'a> {
         semantic: &'a LinterSemanticArtifacts<'a>,
         semantic_analysis: &SemanticAnalysis<'a>,
         indexer: &'a Indexer,
-        command_visits_by_id: &[Option<CommandVisit<'a>>],
         shell: ShellDialect,
         ambient_shell_options: AmbientShellOptions,
     ) -> Self {
         LinterFactsBuilder::new(
             file,
             source,
-            semantic.semantic(),
+            semantic,
             semantic_analysis,
             indexer,
-            command_visits_by_id,
             shell,
             ambient_shell_options,
         )

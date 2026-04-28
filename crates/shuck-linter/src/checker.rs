@@ -17,7 +17,6 @@ pub struct Checker<'a> {
     indexer: &'a Indexer,
     file: &'a File,
     source: &'a str,
-    command_visits_by_id: Vec<Option<crate::facts::CommandVisit<'a>>>,
     facts: OnceLock<LinterFacts<'a>>,
     rules: &'a RuleSet,
     shell: ShellDialect,
@@ -68,7 +67,6 @@ impl<'a> Checker<'a> {
             indexer,
             file,
             source,
-            command_visits_by_id: semantic.command_visits_by_id().to_vec(),
             facts: OnceLock::new(),
             rules,
             shell,
@@ -129,7 +127,6 @@ impl<'a> Checker<'a> {
             self.semantic,
             &self.semantic_analysis,
             self.indexer,
-            &self.command_visits_by_id,
             self.shell,
             self.ambient_shell_options,
         )

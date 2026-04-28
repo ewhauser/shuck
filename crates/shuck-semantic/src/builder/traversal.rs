@@ -75,7 +75,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let span = semantic_statement_span(stmt);
         let scope = self.current_scope();
         let context = Self::flow_context(flow);
-        self.flow_contexts.push((span, context.clone()));
+        self.flow_contexts.push((span, context));
         self.observer.enter_command(&stmt.command, scope, context);
         self.command_stack.push(span);
 
