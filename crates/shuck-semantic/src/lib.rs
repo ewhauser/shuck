@@ -24,6 +24,8 @@ mod declaration;
 #[allow(missing_docs)]
 mod dense_bit_set;
 #[allow(missing_docs)]
+mod function_call_reachability;
+#[allow(missing_docs)]
 mod function_resolution;
 #[allow(missing_docs)]
 mod nonpersistent;
@@ -72,6 +74,11 @@ pub use dataflow::{
 };
 /// Declaration records discovered while building the semantic model.
 pub use declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
+/// Direct function-call reachability query types.
+pub use function_call_reachability::{
+    DirectFunctionCallReachability, DirectFunctionCallWindow, FunctionCallCandidate,
+    FunctionCallPersistence,
+};
 /// Nonpersistent assignment effects, such as assignments made in subshells and read later outside.
 pub use nonpersistent::{
     NonpersistentAssignmentAnalysis, NonpersistentAssignmentAnalysisContext,

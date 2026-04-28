@@ -113,7 +113,6 @@ impl<'model> SemanticAnalysis<'model> {
         call_scope: ScopeId,
         visibility_span: Span,
         cfg_span: Span,
-        has_prior_shadowing_function_definition: bool,
     ) -> bool {
         let binding = self.model.binding(binding_id);
         if let Some(visible) = self.model.visible_binding(&binding.name, visibility_span)
@@ -156,8 +155,7 @@ impl<'model> SemanticAnalysis<'model> {
                             .model
                             .ancestor_scopes(call_scope)
                             .any(|scope| scope == other_binding.scope)
-                })
-            || has_prior_shadowing_function_definition;
+                });
         if !has_visible_shadow {
             return true;
         }
