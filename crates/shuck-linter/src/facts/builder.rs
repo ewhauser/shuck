@@ -13,7 +13,6 @@ struct LinterFactsBuilder<'a, 'analysis> {
 #[derive(Debug, Default)]
 struct FactBuildCapacity {
     commands: usize,
-    structural_commands: usize,
     functions: usize,
 }
 
@@ -38,17 +37,11 @@ struct HeredocFactSummary {
 
 #[cfg_attr(shuck_profiling, inline(never))]
 fn estimate_fact_build_capacity(semantic: &SemanticModel) -> FactBuildCapacity {
-    let mut capacity = FactBuildCapacity::default();
-    for context in semantic.command_contexts() {
-        capacity.commands += 1;
-        if context.is_structural() {
-            capacity.structural_commands += 1;
-        }
-        if context.kind() == shuck_semantic::CommandKind::Function {
-            capacity.functions += 1;
-        }
+    let commands = semantic.command_count();
+    FactBuildCapacity {
+        commands,
+        functions: commands.saturating_div(8),
     }
-    capacity
 }
 
 impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
