@@ -37,21 +37,30 @@ impl Position {
 
     /// Return a new position advanced by every character in `text`.
     pub fn advanced_by(mut self, text: &str) -> Self {
-        if text.is_ascii() {
-            let len = text.len();
-            match text.rfind('\n') {
-                Some(last_newline) => {
-                    self.line += text.bytes().filter(|byte| *byte == b'\n').count();
-                    self.column = len - last_newline;
+        let bytes = text.as_bytes();
+        let mut newline_count: usize = 0;
+        let mut last_newline: Option<usize> = None;
+
+        for (i, &byte) in bytes.iter().enumerate() {
+            if byte >= 0x80 {
+                for ch in text.chars() {
+                    self.advance(ch);
                 }
-                None => self.column += len,
+                return self;
             }
-            self.offset += len;
-            return self;
+            if byte == b'\n' {
+                newline_count += 1;
+                last_newline = Some(i);
+            }
         }
-        for ch in text.chars() {
-            self.advance(ch);
-        }
+
+        let len = bytes.len();
+        self.offset += len;
+        self.line += newline_count;
+        self.column = match last_newline {
+            Some(idx) => len - idx,
+            None => self.column + len,
+        };
         self
     }
 
