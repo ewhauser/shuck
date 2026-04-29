@@ -589,7 +589,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let comment_double_quote_nesting_spans =
             build_comment_double_quote_nesting_spans(self.source, self._indexer);
         let trailing_directive_comment_spans = build_trailing_directive_comment_spans(
-            self.file,
+            self.semantic_artifacts.directive_attachment_facts(),
             &case_items,
             self.source,
             self._indexer,

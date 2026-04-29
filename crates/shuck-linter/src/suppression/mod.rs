@@ -4,7 +4,9 @@ mod rewrite;
 mod shellcheck_map;
 
 pub(crate) use directive::parse_directives;
-pub(crate) use directive::shellcheck_directive_can_apply_to_following_command;
+pub(crate) use directive::{
+    DirectiveAttachmentFacts, DirectiveCommandVisit, filter_attached_directives,
+};
 pub use directive::{SuppressionAction, SuppressionDirective, SuppressionSource};
 pub use index::SuppressionIndex;
 pub(crate) use index::{

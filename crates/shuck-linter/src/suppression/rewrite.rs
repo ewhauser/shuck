@@ -112,12 +112,7 @@ fn analyze_source(
     let shell = resolve_shell(settings, source, Some(path));
     let parse_result = parse_for_lint(source, shell);
     let indexer = Indexer::new(source, &parse_result);
-    let directives = parse_directives(
-        source,
-        &parse_result.file,
-        indexer.comment_index(),
-        shellcheck_map,
-    );
+    let directives = parse_directives(source, indexer.comment_index(), shellcheck_map);
     let diagnostics = lint_file_with_directives(
         &parse_result,
         source,

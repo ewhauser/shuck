@@ -41,7 +41,6 @@ use self::{
         rewrite_word_as_single_double_quoted_string,
     },
 };
-use crate::suppression::shellcheck_directive_can_apply_to_following_command;
 use crate::{AmbientShellOptions, LinterSemanticArtifacts, ShellDialect};
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
