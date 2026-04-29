@@ -74,8 +74,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let estimated_word_nodes = capacity.commands.saturating_mul(2);
         let estimated_word_occurrences = capacity.commands.saturating_mul(3);
 
-        let mut commands_by_id = Vec::with_capacity(self.semantic.command_count());
-        commands_by_id.resize_with(self.semantic.command_count(), || None);
+        let mut commands: Vec<CommandFact<'_>> =
+            Vec::with_capacity(self.semantic.command_count());
         let mut redirect_fact_store = ListArena::new();
         let mut declaration_assignment_probe_store = ListArena::new();
         let mut command_ids_by_span =
@@ -320,8 +320,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     simple_test,
                     conditional,
                 };
-                let previous = commands_by_id[id.index()].replace(command_fact);
-                debug_assert!(previous.is_none(), "duplicate semantic command fact id");
+                commands.push(command_fact);
 
                 if let Command::Function(function) = visit.command {
                     functions.push(FunctionFactInput {
@@ -427,10 +426,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         fact_store.declaration_assignment_probes = declaration_assignment_probe_store;
         fact_store.word_spans = word_spans;
 
-        let mut commands = commands_by_id
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
         commands.sort_unstable_by(compare_command_facts_by_offset);
         let command_fact_indices_by_id = build_command_fact_indices_by_id(&commands);
         let structural_command_ids = self
