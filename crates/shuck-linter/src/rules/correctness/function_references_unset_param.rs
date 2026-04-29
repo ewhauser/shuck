@@ -569,7 +569,6 @@ greet
         let indexer = Indexer::new(source, &parse_result);
         let directives = parse_directives(
             source,
-            &parse_result.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );

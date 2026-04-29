@@ -117,6 +117,7 @@ use std::ops::Deref;
 use std::path::Path;
 
 use crate::suppression::{
+    DirectiveAttachmentFacts, DirectiveCommandVisit, filter_attached_directives,
     first_statement_line, sort_command_spans_for_lookup, statement_suppression_span,
 };
 
@@ -134,6 +135,7 @@ pub struct LinterSemanticArtifacts<'a> {
     command_visits_by_id: Vec<Option<facts::CommandVisit<'a>>>,
     direct_command_ids_by_body_span: FxHashMap<facts::FactSpan, Vec<CommandId>>,
     suppression_command_spans: Vec<Span>,
+    directive_attachment_facts: DirectiveAttachmentFacts,
 }
 
 impl<'a> LinterSemanticArtifacts<'a> {
@@ -154,11 +156,22 @@ impl<'a> LinterSemanticArtifacts<'a> {
             build_with_observer_with_options(file, source, indexer, &mut observer, options);
         let mut suppression_command_spans = observer.collect_suppression_command_spans(&semantic);
         sort_command_spans_for_lookup(&mut suppression_command_spans);
+        let directive_attachment_facts = DirectiveAttachmentFacts::from_command_visits(
+            source,
+            indexer.comment_index(),
+            observer.command_visits_by_id.iter().filter_map(|visit| {
+                visit.map(|visit| DirectiveCommandVisit {
+                    stmt: visit.stmt,
+                    command: visit.command,
+                })
+            }),
+        );
         Self {
             semantic,
             command_visits_by_id: observer.command_visits_by_id,
             direct_command_ids_by_body_span: observer.direct_command_ids_by_body_span,
             suppression_command_spans,
+            directive_attachment_facts,
         }
     }
 
@@ -178,6 +191,10 @@ impl<'a> LinterSemanticArtifacts<'a> {
 
     pub(crate) fn suppression_command_spans(&self) -> &[Span] {
         &self.suppression_command_spans
+    }
+
+    pub(crate) fn directive_attachment_facts(&self) -> &DirectiveAttachmentFacts {
+        &self.directive_attachment_facts
     }
 
     #[cfg(test)]
@@ -319,14 +336,21 @@ fn suppression_span_is_function_body_wrapper(semantic: &SemanticModel, id: Comma
 fn build_suppression_index_from_semantic(
     directives: &[SuppressionDirective],
     file: &File,
+    source: &str,
     semantic: &LinterSemanticArtifacts<'_>,
 ) -> Option<SuppressionIndex> {
     if directives.is_empty() {
         return None;
     }
 
+    let directives =
+        filter_attached_directives(source, directives, semantic.directive_attachment_facts());
+    if directives.is_empty() {
+        return None;
+    }
+
     Some(SuppressionIndex::from_sorted_command_spans(
-        directives,
+        &directives,
         semantic.suppression_command_spans(),
         first_statement_line(file).unwrap_or(u32::MAX),
     ))
@@ -593,12 +617,7 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> Vec<Diagnostic> {
-    let directives = parse_directives(
-        source,
-        &parse_result.file,
-        indexer.comment_index(),
-        shellcheck_map,
-    );
+    let directives = parse_directives(source, indexer.comment_index(), shellcheck_map);
     lint_file_at_path_with_resolver_and_parse_result_and_directives(
         parse_result,
         source,
@@ -648,6 +667,7 @@ pub(crate) fn lint_file_at_path_with_resolver_and_parse_result_and_directives(
     let suppression_index = build_suppression_index_from_semantic(
         directives,
         &parse_result.file,
+        source,
         &linter_semantic_artifacts,
     );
     let checker = Checker::new(
@@ -706,12 +726,7 @@ pub fn lint_file_at_path_with_resolver_and_parse_result_with_comment_directives(
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> Vec<Diagnostic> {
-    let directives = parse_directives(
-        source,
-        &parse_result.file,
-        indexer.comment_index(),
-        shellcheck_map,
-    );
+    let directives = parse_directives(source, indexer.comment_index(), shellcheck_map);
     lint_file_at_path_with_resolver_and_parse_result_and_directives(
         parse_result,
         source,
@@ -910,7 +925,6 @@ mod tests {
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -923,7 +937,6 @@ mod tests {
         let indexer = Indexer::new(&source, &output);
         let directives = parse_directives(
             &source,
-            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -955,7 +968,6 @@ mod tests {
         let indexer = Indexer::new(&source, &output);
         let directives = parse_directives(
             &source,
-            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -975,7 +987,6 @@ mod tests {
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -992,7 +1003,6 @@ mod tests {
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -2429,13 +2439,13 @@ echo $bar
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
         let suppressions =
-            build_suppression_index_from_semantic(&directives, &output.file, &semantic).unwrap();
+            build_suppression_index_from_semantic(&directives, &output.file, source, &semantic)
+                .unwrap();
 
         let echo_foo = match &output.file.body[1].command {
             Command::Simple(command) => command.span,
@@ -5786,7 +5796,6 @@ foo=1
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );

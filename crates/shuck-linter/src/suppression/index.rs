@@ -252,7 +252,10 @@ mod tests {
     use shuck_parser::parser::{Parser, ShellDialect};
 
     use super::*;
-    use crate::{LinterSemanticArtifacts, ShellCheckCodeMap, parse_directives};
+    use crate::{
+        LinterSemanticArtifacts, ShellCheckCodeMap, parse_directives,
+        suppression::filter_attached_directives,
+    };
 
     fn suppression_index(source: &str) -> SuppressionIndex {
         suppression_index_with_dialect(source, ShellDialect::Bash)
@@ -263,11 +266,12 @@ mod tests {
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
-            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
         let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
+        let directives =
+            filter_attached_directives(source, &directives, semantic.directive_attachment_facts());
         SuppressionIndex::from_sorted_command_spans(
             &directives,
             semantic.suppression_command_spans(),

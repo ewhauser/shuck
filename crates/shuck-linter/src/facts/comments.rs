@@ -376,7 +376,7 @@ fn build_comment_double_quote_nesting_spans(source: &str, indexer: &Indexer) -> 
 }
 
 fn build_trailing_directive_comment_spans(
-    file: &File,
+    directive_attachment_facts: &crate::suppression::DirectiveAttachmentFacts,
     case_items: &[CaseItemFact<'_>],
     source: &str,
     indexer: &Indexer,
@@ -409,7 +409,7 @@ fn build_trailing_directive_comment_spans(
             if case_item_label_comment(case_items, line, comment_start) {
                 return None;
             }
-            if shellcheck_directive_can_apply_to_following_command(source, file, comment.range) {
+            if directive_attachment_facts.can_apply_to_following_command(comment.range) {
                 return None;
             }
 
