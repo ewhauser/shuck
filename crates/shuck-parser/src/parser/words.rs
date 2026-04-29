@@ -3311,6 +3311,14 @@ impl<'a> Parser<'a> {
         options: DecodeWordPartsOptions,
         parts: &mut WordPartBuffer,
     ) {
+        if source_backed
+            && !s.is_empty()
+            && let Some(end) = try_pure_literal_end_position(s.as_bytes(), base, options)
+        {
+            Self::push_word_part(parts, WordPart::Literal(LiteralText::source()), base, end);
+            return;
+        }
+
         let mut chars = s.chars().peekable();
         let mut current = String::new();
         let mut current_start = base;
@@ -5989,6 +5997,48 @@ impl<'a> Parser<'a> {
 
         false
     }
+}
+
+#[inline]
+fn try_pure_literal_end_position(
+    bytes: &[u8],
+    base: Position,
+    options: DecodeWordPartsOptions,
+) -> Option<Position> {
+    let backslash_special =
+        options.preserve_quote_fragments || options.preserve_escaped_expansion_literals;
+    let quote_special = options.preserve_quote_fragments;
+    let proc_subst_special = options.parse_process_substitutions;
+
+    let mut newline_count: usize = 0;
+    let mut last_newline: Option<usize> = None;
+
+    for (i, &byte) in bytes.iter().enumerate() {
+        if byte >= 0x80 {
+            return None;
+        }
+        match byte {
+            0 | b'$' | b'`' => return None,
+            b'\\' if backslash_special => return None,
+            b'\'' | b'"' if quote_special => return None,
+            b'<' | b'>' if proc_subst_special => return None,
+            b'\n' => {
+                newline_count += 1;
+                last_newline = Some(i);
+            }
+            _ => {}
+        }
+    }
+
+    let len = bytes.len();
+    Some(Position {
+        line: base.line + newline_count,
+        column: match last_newline {
+            Some(idx) => len - idx,
+            None => base.column + len,
+        },
+        offset: base.offset + len,
+    })
 }
 
 fn source_prefix_ends_inside_double_quotes(prefix: &str) -> bool {
