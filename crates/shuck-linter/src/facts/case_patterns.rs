@@ -199,7 +199,7 @@ impl StaticCasePatternBitNfa {
 
         let mut any_char = 0u128;
         let mut any_string = 0u128;
-        let mut literal_masks = Vec::<(char, u128)>::new();
+        let mut literal_masks: SmallVec<[(char, u128); 8]> = SmallVec::new();
 
         for (i, token) in tokens.iter().copied().enumerate() {
             let bit = 1u128 << i;
@@ -211,7 +211,7 @@ impl StaticCasePatternBitNfa {
         }
 
         literal_masks.sort_by_key(|(c, _)| *c);
-        let mut merged: Vec<(char, u128)> = Vec::with_capacity(literal_masks.len());
+        let mut merged: SmallVec<[(char, u128); 8]> = SmallVec::with_capacity(literal_masks.len());
         for (c, mask) in literal_masks {
             match merged.last_mut() {
                 Some((last_c, last_mask)) if *last_c == c => *last_mask |= mask,
@@ -224,7 +224,7 @@ impl StaticCasePatternBitNfa {
             start: 1,
             any_char,
             any_string,
-            literal_masks: merged.into_boxed_slice(),
+            literal_masks: merged.into_vec().into_boxed_slice(),
         };
         nfa.start = nfa.epsilon_closure(nfa.start);
         Some(nfa)
@@ -427,7 +427,7 @@ impl StaticCasePatternMatcher {
 
         let start = (left_nfa.start, right_nfa.start);
         let mut seen = FxHashSet::default();
-        let mut worklist = Vec::with_capacity(32);
+        let mut worklist: SmallVec<[(u128, u128); 32]> = SmallVec::new();
         seen.insert(start);
         worklist.push(start);
 
@@ -465,7 +465,7 @@ impl StaticCasePatternMatcher {
 
         let start = (left_nfa.start, right_nfa.start);
         let mut seen = FxHashSet::default();
-        let mut worklist = Vec::with_capacity(32);
+        let mut worklist: SmallVec<[(u128, u128); 32]> = SmallVec::new();
         seen.insert(start);
         worklist.push(start);
 
@@ -789,7 +789,7 @@ fn summarize_static_case_pattern_tokens(tokens: &[CasePatternToken]) -> StaticCa
     let mut saw_wildcard = false;
     let mut literal_suffix_reversed = String::new();
     let mut saw_suffix_wildcard = false;
-    let mut literal_symbols = Vec::new();
+    let mut literal_symbols: SmallVec<[char; 8]> = SmallVec::new();
 
     for token in tokens {
         match token {
@@ -842,7 +842,7 @@ fn summarize_static_case_pattern_tokens(tokens: &[CasePatternToken]) -> StaticCa
             .rev()
             .collect::<String>()
             .into_boxed_str(),
-        literal_symbols: literal_symbols.into_boxed_slice(),
+        literal_symbols: literal_symbols.into_vec().into_boxed_slice(),
         start_states: case_pattern_epsilon_closure(tokens, [0]).into_boxed_slice(),
     }
 }

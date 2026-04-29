@@ -2,8 +2,8 @@ use rustc_hash::FxHashSet;
 use shuck_ast::{ConditionalBinaryOp, ConditionalUnaryOp, Span, Word, static_word_text};
 
 use super::{
-    CommandFact, CommandId, ConditionalFact, ConditionalNodeFact, ExpansionContext, FactSpan,
-    SimpleTestFact, SimpleTestSyntax, WordNode, WordOccurrence, word_spans,
+    CommandFact, ConditionalFact, ConditionalNodeFact, DenseCommandIdSet, ExpansionContext,
+    FactSpan, SimpleTestFact, SimpleTestSyntax, WordNode, WordOccurrence, word_spans,
 };
 use crate::facts::occurrence_word;
 
@@ -100,7 +100,7 @@ pub(super) struct ConditionalPortabilityInputs<'a> {
 #[cfg_attr(shuck_profiling, inline(never))]
 pub(super) fn build_conditional_portability_facts<'a>(
     commands: &[CommandFact<'a>],
-    elif_condition_command_ids: &FxHashSet<CommandId>,
+    elif_condition_command_ids: &DenseCommandIdSet,
     inputs: ConditionalPortabilityInputs<'a>,
     source: &str,
 ) -> ConditionalPortabilityFacts {
@@ -110,7 +110,7 @@ pub(super) fn build_conditional_portability_facts<'a>(
         if let Some(conditional) = command.conditional() {
             facts.double_bracket_in_sh.push(command.span());
 
-            if elif_condition_command_ids.contains(&command.id()) {
+            if elif_condition_command_ids.contains(command.id()) {
                 facts.if_elif_bash_test.push(command.span());
             }
 

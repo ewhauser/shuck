@@ -11,8 +11,8 @@ pub struct LinterFacts<'a> {
     innermost_command_ids_by_offset: CommandOffsetLookup,
     innermost_command_ids_by_binding_offset: CommandOffsetLookup,
     command_dominance_barrier_flags: Vec<bool>,
-    if_condition_command_ids: FxHashSet<CommandId>,
-    elif_condition_command_ids: FxHashSet<CommandId>,
+    if_condition_command_ids: DenseCommandIdSet,
+    elif_condition_command_ids: DenseCommandIdSet,
     binding_values: FxHashMap<BindingId, BindingValueFact<'a>>,
     broken_assoc_key_spans: Vec<Span>,
     comma_array_assignment_spans: Vec<Span>,
@@ -424,11 +424,11 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn is_if_condition_command(&self, id: CommandId) -> bool {
-        self.if_condition_command_ids.contains(&id)
+        self.if_condition_command_ids.contains(id)
     }
 
     pub fn is_elif_condition_command(&self, id: CommandId) -> bool {
-        self.elif_condition_command_ids.contains(&id)
+        self.elif_condition_command_ids.contains(id)
     }
 
     pub fn presence_tested_names(&self) -> &FxHashSet<Name> {

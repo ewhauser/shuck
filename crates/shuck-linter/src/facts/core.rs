@@ -108,6 +108,40 @@ pub(super) struct CommandLookupEntry {
 
 type CommandLookupIndex = FxHashMap<FactSpan, SmallVec<[CommandLookupEntry; 1]>>;
 
+#[derive(Debug, Clone, Default)]
+pub(super) struct DenseCommandIdSet {
+    words: Vec<u64>,
+}
+
+impl DenseCommandIdSet {
+    const BITS: usize = u64::BITS as usize;
+
+    pub(super) fn with_capacity(command_count: usize) -> Self {
+        Self {
+            words: vec![0; command_count.div_ceil(Self::BITS)],
+        }
+    }
+
+    pub(super) fn insert(&mut self, id: CommandId) {
+        let index = id.index();
+        let word = index / Self::BITS;
+        let bit = index % Self::BITS;
+        if word >= self.words.len() {
+            self.words.resize(word + 1, 0);
+        }
+        self.words[word] |= 1u64 << bit;
+    }
+
+    pub(super) fn contains(&self, id: CommandId) -> bool {
+        let index = id.index();
+        let word = index / Self::BITS;
+        let bit = index % Self::BITS;
+        self.words
+            .get(word)
+            .is_some_and(|w| (w & (1u64 << bit)) != 0)
+    }
+}
+
 #[derive(Debug, Clone)]
 struct FactStore<'a> {
     redirect_facts: ListArena<RedirectFact<'a>>,
