@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.0.27](https://github.com/ewhauser/shuck/compare/v0.0.26...v0.0.27) (2026-04-29)
+
+
+### Performance
+
+* **ast:** single-pass Position::advanced_by ([#750](https://github.com/ewhauser/shuck/issues/750)) ([d71e87d](https://github.com/ewhauser/shuck/commit/d71e87da075cd7f67c21aaa97b5cd5c22417332a))
+* cut ~18% of linter allocations on large fixtures ([#745](https://github.com/ewhauser/shuck/issues/745)) ([2a8898b](https://github.com/ewhauser/shuck/commit/2a8898bce0e75e7a443effd860b7b35b40927de0))
+* **linter:** cut facts allocation blocks with SmallVec and BitVec ([#751](https://github.com/ewhauser/shuck/issues/751)) ([a75ca4d](https://github.com/ewhauser/shuck/commit/a75ca4d8941e5252bfbef6705557377feb75934f))
+* **linter:** reuse semantic visits for substitution candidates ([#737](https://github.com/ewhauser/shuck/issues/737)) ([c21ce95](https://github.com/ewhauser/shuck/commit/c21ce9528afc8a2a57e62a901652b91625f0ea99))
+* **parser:** short-circuit pure-literal source-backed words ([#748](https://github.com/ewhauser/shuck/issues/748)) ([550e588](https://github.com/ewhauser/shuck/commit/550e58878eaa717a88c5f42edfe8a3c093a84b32))
+* **parser:** skip zsh glob word probe on non-zsh Word tokens ([#749](https://github.com/ewhauser/shuck/issues/749)) ([c6080d3](https://github.com/ewhauser/shuck/commit/c6080d39cb3ba2c596d2361973a8d6531f104986))
+
+
+### Documentation
+
+* **semantic:** document shuck-semantic public API ([#744](https://github.com/ewhauser/shuck/issues/744)) ([a4cf093](https://github.com/ewhauser/shuck/commit/a4cf09351b9c24150b8dbe9c6f881e459c5d4d15))
+
+
+### Refactor
+
+* **linter:** fuse smart-quote scan and trim capacity estimate ([#747](https://github.com/ewhauser/shuck/issues/747)) ([a334695](https://github.com/ewhauser/shuck/commit/a334695d256f696b3d50db408c68032e53ba2acc))
+* **linter:** remove stale dead code ([#738](https://github.com/ewhauser/shuck/issues/738)) ([4e5586b](https://github.com/ewhauser/shuck/commit/4e5586b51ea74c57c5f3f9f802f4b98233e67919))
+* remove remaining dead code suppressions ([#739](https://github.com/ewhauser/shuck/issues/739)) ([26b7e01](https://github.com/ewhauser/shuck/commit/26b7e01db88dfe0b343b53610bc644b632d2ffd7))
+* **semantic:** extract call payload grouping ([#742](https://github.com/ewhauser/shuck/issues/742)) ([eae9632](https://github.com/ewhauser/shuck/commit/eae9632c9996cebf7bb3418b270d8f3c1acb2f5f))
+* **semantic:** own case CLI reachability ([#743](https://github.com/ewhauser/shuck/issues/743)) ([aaabb15](https://github.com/ewhauser/shuck/commit/aaabb15044f76c2df5a8691ccc884ecaac98c123))
+* **semantic:** reuse function scope index ([#741](https://github.com/ewhauser/shuck/issues/741)) ([6354af6](https://github.com/ewhauser/shuck/commit/6354af6d37ea42a984f417cd8b75e04bd67384c8))
+* **semantic:** reuse lexical function lookup ([#740](https://github.com/ewhauser/shuck/issues/740)) ([a370b36](https://github.com/ewhauser/shuck/commit/a370b36a6501f420488946f84affffb92d7064d0))
+
 ## [0.0.26](https://github.com/ewhauser/shuck/compare/v0.0.25...v0.0.26) (2026-04-28)
 
 
