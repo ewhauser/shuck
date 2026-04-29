@@ -2323,10 +2323,15 @@ impl<'a> Parser<'a> {
     }
 
     fn current_zsh_glob_word_from_source(&mut self) -> Option<Word> {
-        if !matches!(
-            self.current_token_kind,
-            Some(TokenKind::LeftParen | TokenKind::Word)
-        ) {
+        let kind = self.current_token_kind?;
+        if !matches!(kind, TokenKind::LeftParen | TokenKind::Word) {
+            return None;
+        }
+        // Non-zsh dialects only need this path to rescue `(#...)`-leading words
+        // from being misparsed as subshells. For Word-kind tokens the regular
+        // word-decode path already produces the right AST, so skip the byte
+        // walk entirely.
+        if kind == TokenKind::Word && !self.dialect.features().zsh_glob_qualifiers {
             return None;
         }
 
