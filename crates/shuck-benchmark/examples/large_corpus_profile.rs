@@ -15,6 +15,10 @@ use shuck_linter::{
 use shuck_parser::parser::Parser;
 use shuck_semantic::SourcePathResolver;
 
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
 const LARGE_CORPUS_ROOT_ENV: &str = "SHUCK_LARGE_CORPUS_ROOT";
 const LARGE_CORPUS_CACHE_DIR_NAME: &str = ".cache/large-corpus";
 const LARGE_CORPUS_STATIC_IGNORE_SUFFIXES: &[&str] = &[
@@ -118,6 +122,9 @@ impl SourcePathResolver for LargeCorpusPathResolver {
 }
 
 fn main() -> Result<()> {
+    #[cfg(feature = "dhat-heap")]
+    let _dhat = dhat::Profiler::new_heap();
+
     let Some(args) = parse_args()? else {
         return Ok(());
     };

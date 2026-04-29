@@ -1,7 +1,9 @@
+use compact_str::CompactString;
+
 use crate::{Checker, Diagnostic, Rule, Violation};
 
 pub struct SubshellSideEffect {
-    pub name: String,
+    pub name: CompactString,
 }
 
 impl Violation for SubshellSideEffect {
@@ -22,7 +24,7 @@ pub fn subshell_side_effect(checker: &mut Checker) {
         for site in facts.subshell_later_use_sites() {
             report(Diagnostic::new(
                 SubshellSideEffect {
-                    name: site.name.to_string(),
+                    name: site.name.as_str().into(),
                 },
                 site.span,
             ));

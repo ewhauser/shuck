@@ -16,6 +16,7 @@ benchmarking = []
 
 [dependencies]
 anyhow = { workspace = true }
+compact_str = { workspace = true }
 globset = { workspace = true }
 rustc-hash = "2"
 smallvec.workspace = true

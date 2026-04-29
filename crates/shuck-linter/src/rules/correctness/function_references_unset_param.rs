@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use rustc_hash::FxHashSet;
 use shuck_ast::Span;
 use shuck_semantic::BindingId;
@@ -5,7 +6,7 @@ use shuck_semantic::BindingId;
 use crate::{Checker, Rule, Violation};
 
 pub struct FunctionReferencesUnsetParam {
-    pub name: String,
+    pub name: CompactString,
 }
 
 impl Violation for FunctionReferencesUnsetParam {
@@ -20,7 +21,7 @@ impl Violation for FunctionReferencesUnsetParam {
 
 pub fn function_references_unset_param(checker: &mut Checker) {
     let mut reported = FxHashSet::<BindingId>::default();
-    let mut violations = Vec::<(Span, String)>::new();
+    let mut violations = Vec::<(Span, CompactString)>::new();
 
     for header in checker.facts().function_headers() {
         let Some((name, _)) = header.static_name_entry() else {
@@ -59,7 +60,7 @@ pub fn function_references_unset_param(checker: &mut Checker) {
                 .zero_arg_diagnostic_spans()
                 .iter()
                 .copied()
-                .map(|span| (span, name.to_string())),
+                .map(|span| (span, name.as_str().into())),
         );
     }
 

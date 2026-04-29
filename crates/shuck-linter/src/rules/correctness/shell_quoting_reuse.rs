@@ -462,9 +462,14 @@ fn expansion_span_is_plain_reference(
     reference: &Reference,
     source: &str,
 ) -> bool {
-    let text = expansion_span.slice(source);
-    text == format!("${}", reference.name.as_str())
-        || text == format!("${{{}}}", reference.name.as_str())
+    let text = expansion_span.slice(source).as_bytes();
+    let name = reference.name.as_str().as_bytes();
+    let plain = text.len() == name.len() + 1 && text.first() == Some(&b'$') && &text[1..] == name;
+    let braced = text.len() == name.len() + 3
+        && text.starts_with(b"${")
+        && text.ends_with(b"}")
+        && &text[2..text.len() - 1] == name;
+    plain || braced
 }
 
 fn sort_and_dedup_spans(spans: &mut Vec<Span>) {

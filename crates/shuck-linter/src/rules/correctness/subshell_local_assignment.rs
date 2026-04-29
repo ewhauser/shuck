@@ -1,7 +1,9 @@
+use compact_str::CompactString;
+
 use crate::{Checker, Diagnostic, Rule, Violation};
 
 pub struct SubshellLocalAssignment {
-    pub name: String,
+    pub name: CompactString,
 }
 
 impl Violation for SubshellLocalAssignment {
@@ -22,7 +24,7 @@ pub fn subshell_local_assignment(checker: &mut Checker) {
         for site in facts.subshell_assignment_sites() {
             report(Diagnostic::new(
                 SubshellLocalAssignment {
-                    name: site.name.to_string(),
+                    name: site.name.as_str().into(),
                 },
                 site.span,
             ));

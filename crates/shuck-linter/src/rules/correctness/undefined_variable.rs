@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use rustc_hash::FxHashSet;
 use shuck_semantic::UninitializedCertainty;
 
@@ -8,7 +9,7 @@ use super::variable_reference_common::{
 };
 
 pub struct UndefinedVariable {
-    pub name: String,
+    pub name: CompactString,
     pub certainty: UninitializedCertainty,
 }
 
@@ -81,7 +82,7 @@ pub fn undefined_variable(checker: &mut Checker) {
 
         checker.report(
             UndefinedVariable {
-                name: reference.name.to_string(),
+                name: reference.name.as_str().into(),
                 certainty: uninitialized.certainty,
             },
             reference.span,

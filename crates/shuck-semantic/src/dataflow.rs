@@ -3,7 +3,7 @@ use shuck_ast::Name;
 use shuck_ast::Span;
 use smallvec::SmallVec;
 
-use crate::dense_bit_set::DenseBitSet;
+use crate::dense_bit_set::{DenseBitMatrix, DenseBitSet};
 use crate::function_resolution::resolved_function_calls_with_callee_scope;
 use crate::reachability::block_reaches_without;
 use crate::runtime::RuntimePrelude;
@@ -359,9 +359,9 @@ fn analyze_uninitialized_references_exact(
         }
         let same_block_guard =
             parameter_guard_flow_index.precedes_reference(reference, block_id, name_id);
-        let maybe = maybe_defined[block_id.index()].contains(name_id.index()) || same_block_guard;
+        let maybe = maybe_defined.contains(block_id.index(), name_id.index()) || same_block_guard;
         let definite =
-            definitely_defined[block_id.index()].contains(name_id.index()) || same_block_guard;
+            definitely_defined.contains(block_id.index(), name_id.index()) || same_block_guard;
 
         if !maybe {
             uninitialized_references.push(UninitializedReference {
@@ -1446,10 +1446,10 @@ fn materialize_dense_reaching_definitions(
 
 #[derive(Debug, Clone)]
 struct DenseInitializedNameStates {
-    maybe_in: Vec<DenseBitSet>,
-    maybe_out: Vec<DenseBitSet>,
-    definite_in: Vec<DenseBitSet>,
-    definite_out: Vec<DenseBitSet>,
+    maybe_in: DenseBitMatrix,
+    maybe_out: DenseBitMatrix,
+    definite_in: DenseBitMatrix,
+    definite_out: DenseBitMatrix,
 }
 
 #[derive(Debug, Clone)]
@@ -1864,22 +1864,22 @@ fn compute_initialized_name_states_dense_with_extra_name_gens(
     let entry_blocks = entry_binding_root_blocks(cfg);
     let block_count = cfg.blocks().len();
     let name_count = binding_data.bindings_for_name.len();
-    let mut maybe_gen = vec![DenseBitSet::new(name_count); block_count];
-    let mut definite_gen = vec![DenseBitSet::new(name_count); block_count];
-    let mut overwritten_names = vec![DenseBitSet::new(name_count); block_count];
+    let mut maybe_gen = DenseBitMatrix::zeros(block_count, name_count);
+    let mut definite_gen = DenseBitMatrix::zeros(block_count, name_count);
+    let mut overwritten_names = DenseBitMatrix::zeros(block_count, name_count);
 
     for block in cfg.blocks() {
         let block_index = block.id.index();
         for binding in &block.bindings {
             let name_id = binding_data.binding_name_ids[binding.index()];
-            overwritten_names[block_index].insert(name_id.index());
+            overwritten_names.insert(block_index, name_id.index());
             match binding_initializes_name(&bindings[binding.index()]) {
                 Some(ContractCertainty::Definite) => {
-                    maybe_gen[block_index].insert(name_id.index());
-                    definite_gen[block_index].insert(name_id.index());
+                    maybe_gen.insert(block_index, name_id.index());
+                    definite_gen.insert(block_index, name_id.index());
                 }
                 Some(ContractCertainty::Possible) => {
-                    maybe_gen[block_index].insert(name_id.index());
+                    maybe_gen.insert(block_index, name_id.index());
                 }
                 None => {}
             }
@@ -1887,8 +1887,8 @@ fn compute_initialized_name_states_dense_with_extra_name_gens(
     }
 
     for (block, name) in extra_initialized_names {
-        maybe_gen[block.index()].insert(name.index());
-        definite_gen[block.index()].insert(name.index());
+        maybe_gen.insert(block.index(), name.index());
+        definite_gen.insert(block.index(), name.index());
     }
 
     let mut entry_maybe = DenseBitSet::new(name_count);
@@ -1912,10 +1912,12 @@ fn compute_initialized_name_states_dense_with_extra_name_gens(
         all_names.insert(index);
     }
 
-    let mut maybe_in = vec![DenseBitSet::new(name_count); block_count];
-    let mut maybe_out = vec![DenseBitSet::new(name_count); block_count];
-    let mut definite_in = vec![all_names.clone(); block_count];
-    let mut definite_out = vec![all_names; block_count];
+    let mut maybe_in = DenseBitMatrix::zeros(block_count, name_count);
+    let mut maybe_out = DenseBitMatrix::zeros(block_count, name_count);
+    let mut definite_in = DenseBitMatrix::zeros(block_count, name_count);
+    definite_in.fill_all_rows_from_words(all_names.as_words());
+    let mut definite_out = DenseBitMatrix::zeros(block_count, name_count);
+    definite_out.fill_all_rows_from_words(all_names.as_words());
     let mut incoming_maybe = DenseBitSet::new(name_count);
     let mut incoming_definite = DenseBitSet::new(name_count);
     let mut outgoing_maybe = DenseBitSet::new(name_count);
@@ -1926,7 +1928,7 @@ fn compute_initialized_name_states_dense_with_extra_name_gens(
 
         incoming_maybe.clear();
         for predecessor in cfg.predecessors(block_id) {
-            incoming_maybe.union_with(&maybe_out[predecessor.index()]);
+            incoming_maybe.union_with_words(maybe_out.row(predecessor.index()));
         }
         if entry_blocks.contains(&block_id) {
             incoming_maybe.union_with(&entry_maybe);
@@ -1942,7 +1944,7 @@ fn compute_initialized_name_states_dense_with_extra_name_gens(
         if uses_virtual_entry_boundary {
             incoming_definite.copy_from(&entry_definite);
         } else if let Some(first_predecessor) = predecessors.first() {
-            incoming_definite.copy_from(&definite_out[first_predecessor.index()]);
+            incoming_definite.copy_from_words(definite_out.row(first_predecessor.index()));
         } else {
             incoming_definite.clear();
         }
@@ -1950,21 +1952,23 @@ fn compute_initialized_name_states_dense_with_extra_name_gens(
             if !uses_virtual_entry_boundary && predecessor_index == 0 {
                 continue;
             }
-            incoming_definite.intersect_with(&definite_out[predecessor.index()]);
+            incoming_definite.intersect_with_words(definite_out.row(predecessor.index()));
         }
 
         outgoing_maybe.copy_from(&incoming_maybe);
-        outgoing_maybe.subtract_with(&overwritten_names[block_index]);
-        outgoing_maybe.union_with(&maybe_gen[block_index]);
+        outgoing_maybe.subtract_with_words(overwritten_names.row(block_index));
+        outgoing_maybe.union_with_words(maybe_gen.row(block_index));
 
         outgoing_definite.copy_from(&incoming_definite);
-        outgoing_definite.subtract_with(&overwritten_names[block_index]);
-        outgoing_definite.union_with(&definite_gen[block_index]);
+        outgoing_definite.subtract_with_words(overwritten_names.row(block_index));
+        outgoing_definite.union_with_words(definite_gen.row(block_index));
 
-        maybe_in[block_index].replace_if_changed(&incoming_maybe);
-        definite_in[block_index].replace_if_changed(&incoming_definite);
-        let maybe_out_changed = maybe_out[block_index].replace_if_changed(&outgoing_maybe);
-        let definite_out_changed = definite_out[block_index].replace_if_changed(&outgoing_definite);
+        maybe_in.replace_row_if_changed(block_index, incoming_maybe.as_words());
+        definite_in.replace_row_if_changed(block_index, incoming_definite.as_words());
+        let maybe_out_changed =
+            maybe_out.replace_row_if_changed(block_index, outgoing_maybe.as_words());
+        let definite_out_changed =
+            definite_out.replace_row_if_changed(block_index, outgoing_definite.as_words());
         maybe_out_changed || definite_out_changed
     });
 
@@ -2044,17 +2048,20 @@ pub(crate) fn summarize_scope_provided_bindings(
     let mut definite_counts = FxHashMap::<Name, usize>::default();
 
     for exit_block in &exit_blocks {
-        let maybe_names = &initialized_states.maybe_out[exit_block.index()];
-        let definite_names = &initialized_states.definite_out[exit_block.index()];
-
         for name in &eligible_names {
             let Some(name_id) = exact.names.get(name) else {
                 continue;
             };
-            if maybe_names.contains(name_id.index()) {
+            if initialized_states
+                .maybe_out
+                .contains(exit_block.index(), name_id.index())
+            {
                 *maybe_counts.entry(name.clone()).or_default() += 1;
             }
-            if definite_names.contains(name_id.index()) {
+            if initialized_states
+                .definite_out
+                .contains(exit_block.index(), name_id.index())
+            {
                 *definite_counts.entry(name.clone()).or_default() += 1;
             }
         }

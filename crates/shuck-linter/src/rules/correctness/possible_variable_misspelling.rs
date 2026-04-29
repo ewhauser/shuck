@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 use shuck_ast::{Name, Position, Span};
@@ -11,8 +12,8 @@ use super::variable_reference_common::{
 };
 
 pub struct PossibleVariableMisspelling {
-    pub reference: String,
-    pub candidate: String,
+    pub reference: CompactString,
+    pub candidate: CompactString,
 }
 
 impl Violation for PossibleVariableMisspelling {
@@ -164,8 +165,8 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
         }
         checker.report(
             PossibleVariableMisspelling {
-                reference,
-                candidate,
+                reference: reference.into(),
+                candidate: candidate.into(),
             },
             span,
         );

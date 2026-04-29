@@ -1,7 +1,9 @@
+use compact_str::CompactString;
+
 use crate::{Checker, DeclarationKind, Rule, Violation};
 
 pub struct ExportCommandSubstitution {
-    pub name: String,
+    pub name: CompactString,
 }
 
 impl Violation for ExportCommandSubstitution {
@@ -29,7 +31,7 @@ pub fn export_command_substitution(checker: &mut Checker) {
             }
 
             if probe.has_command_substitution() {
-                findings.push((probe.target_name().to_owned(), probe.target_name_span()));
+                findings.push((probe.target_name().into(), probe.target_name_span()));
             }
         }
     }

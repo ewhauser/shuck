@@ -392,7 +392,7 @@ fn update_simple_declaration_flags(
 fn simple_declaration_flag_operand(word: &Word, text: &str) -> DeclarationOperand {
     DeclarationOperand::Flag {
         flag: text.chars().nth(1).unwrap_or('-'),
-        flags: text.to_owned(),
+        flags: text.into(),
         span: word.span,
     }
 }
@@ -455,7 +455,7 @@ fn declaration_operands(operands: &[DeclOperand], source: &str) -> Vec<Declarati
                 let flag = text.chars().nth(1).unwrap_or('-');
                 DeclarationOperand::Flag {
                     flag,
-                    flags: text.into_owned(),
+                    flags: text.as_ref().into(),
                     span: word.span,
                 }
             }
@@ -567,8 +567,8 @@ fn indirect_target_hint_from_word(word: &Word, source: &str) -> Option<IndirectT
     }
 
     Some(IndirectTargetHint::Pattern {
-        prefix,
-        suffix: suffix.to_string(),
+        prefix: prefix.into(),
+        suffix: suffix.into(),
         array_like,
     })
 }
@@ -1658,7 +1658,10 @@ fn classify_dynamic_source_word(word: &Word, source: &str) -> SourceRefKind {
     }
 
     if let Some(variable) = variable {
-        return SourceRefKind::SingleVariableStaticTail { variable, tail };
+        return SourceRefKind::SingleVariableStaticTail {
+            variable,
+            tail: tail.into(),
+        };
     }
 
     SourceRefKind::Dynamic
@@ -1796,7 +1799,7 @@ fn parse_source_directive_override(text: &str, own_line: bool) -> Option<SourceD
             let kind = if value == "/dev/null" {
                 SourceRefKind::DirectiveDevNull
             } else {
-                SourceRefKind::Directive(value.to_string())
+                SourceRefKind::Directive(value.into())
             };
             return Some(SourceDirectiveOverride { kind, own_line });
         }

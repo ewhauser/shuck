@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use shuck_ast::{Name, Span};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,11 +19,11 @@ pub struct SourceRef {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceRefKind {
-    Literal(String),
-    Directive(String),
+    Literal(CompactString),
+    Directive(CompactString),
     DirectiveDevNull,
     Dynamic,
-    SingleVariableStaticTail { variable: Name, tail: String },
+    SingleVariableStaticTail { variable: Name, tail: CompactString },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

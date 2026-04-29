@@ -13,6 +13,7 @@ readme = "README.md"
 
 [dependencies]
 bitflags = "2"
+compact_str = { workspace = true }
 rustc-hash = "2"
 smallvec = { workspace = true }
 shuck-ast = { workspace = true }

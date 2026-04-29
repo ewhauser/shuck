@@ -1416,7 +1416,7 @@ source \"$x\"
 
     assert_eq!(
         model.source_refs()[0].kind,
-        SourceRefKind::Directive("lib.sh".to_string())
+        SourceRefKind::Directive("lib.sh".into())
     );
     assert_eq!(
         model.source_refs()[0].resolution,
@@ -1435,7 +1435,7 @@ source \"$x\"
 
     assert_eq!(
         model.source_refs()[0].kind,
-        SourceRefKind::Directive("lib.sh".to_string())
+        SourceRefKind::Directive("lib.sh".into())
     );
 }
 
@@ -1457,7 +1457,7 @@ source \"$d\"
     assert_eq!(model.source_refs()[1].kind, SourceRefKind::DirectiveDevNull);
     assert_eq!(
         model.source_refs()[2].kind,
-        SourceRefKind::Directive("./helper.sh".to_string())
+        SourceRefKind::Directive("./helper.sh".into())
     );
     assert_eq!(model.source_refs()[3].kind, SourceRefKind::Dynamic);
 }

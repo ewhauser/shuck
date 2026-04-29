@@ -30,9 +30,11 @@ pub fn c_style_comment(checker: &mut Checker) {
             name.span
                 .slice(checker.source())
                 .starts_with("/*")
-                .then_some(crate::Diagnostic::new(CStyleComment, name.span).with_fix(
-                    Fix::unsafe_edit(Edit::insertion(name.span.start.offset, "# ")),
-                ))
+                .then(|| {
+                    crate::Diagnostic::new(CStyleComment, name.span).with_fix(Fix::unsafe_edit(
+                        Edit::insertion(name.span.start.offset, "# "),
+                    ))
+                })
         };
 
         if let Some(diagnostic) = diagnostic {

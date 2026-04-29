@@ -329,8 +329,8 @@ pub(crate) enum IndirectTargetHint {
         array_like: bool,
     },
     Pattern {
-        prefix: String,
-        suffix: String,
+        prefix: compact_str::CompactString,
+        suffix: compact_str::CompactString,
         array_like: bool,
     },
 }
@@ -3384,8 +3384,8 @@ fn indirect_target_matches(hint: &IndirectTargetHint, binding: &Binding) -> bool
             array_like,
         } => {
             let name = binding.name.as_str();
-            name.starts_with(prefix)
-                && name.ends_with(suffix)
+            name.starts_with(prefix.as_str())
+                && name.ends_with(suffix.as_str())
                 && (!array_like || binding::is_array_like_binding(binding))
         }
     }

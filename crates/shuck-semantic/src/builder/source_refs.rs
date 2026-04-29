@@ -7,7 +7,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
 
         if let Some(text) = static_word_text(word, self.source) {
-            return SourceRefKind::Literal(text.into_owned());
+            return SourceRefKind::Literal(text.as_ref().into());
         }
 
         classify_dynamic_source_word(word, self.source)
