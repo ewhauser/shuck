@@ -1,4 +1,5 @@
 use super::*;
+use compact_str::CompactString;
 
 const INDEX_BUILD_THRESHOLD: usize = 1024;
 
@@ -152,7 +153,7 @@ impl MisspellingCandidateLookup {
             let name = entry.name.as_str();
             index
                 .casefold_exact
-                .entry(canonical_ascii_uppercase(name).into_boxed_str())
+                .entry(canonical_ascii_uppercase(name).as_str().into())
                 .or_default()
                 .push(id);
 
@@ -628,7 +629,7 @@ fn edit1_deletion_keys(name: &str) -> Vec<Box<str>> {
     keys
 }
 
-fn canonical_ascii_uppercase(name: &str) -> String {
+fn canonical_ascii_uppercase(name: &str) -> CompactString {
     name.chars().map(|char| char.to_ascii_uppercase()).collect()
 }
 
