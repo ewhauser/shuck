@@ -4,9 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use shuck_indexer::Indexer;
-use shuck_linter::{
-    Applicability, LinterSettings, RuleSet, ShellCheckCodeMap, ShellDialect, parse_directives,
-};
+use shuck_linter::{Applicability, LinterSettings, RuleSet, ShellCheckCodeMap, ShellDialect};
 use shuck_parser::{
     Error as ParseError,
     parser::{ParseResult, Parser},
@@ -146,18 +144,12 @@ pub(super) fn collect_lint_diagnostics(
     source_path: &Path,
 ) -> Vec<shuck_linter::Diagnostic> {
     let indexer = Indexer::new(source, parse_result);
-    let directives = parse_directives(
-        source,
-        &parse_result.file,
-        indexer.comment_index(),
-        shellcheck_map,
-    );
-    shuck_linter::lint_file_with_directives(
+    shuck_linter::lint_file(
         parse_result,
         source,
         &indexer,
         linter_settings,
-        &directives,
+        shellcheck_map,
         Some(source_path),
     )
 }

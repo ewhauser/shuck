@@ -10,7 +10,7 @@ use std::time::Instant;
 use shuck_indexer::Indexer;
 use shuck_linter::{
     LinterSettings, RuleSelector, RuleSet, ShellCheckCodeMap, ShellDialect,
-    lint_file_at_path_with_resolver_and_parse_result_and_directives, parse_directives,
+    lint_file_at_path_with_resolver_and_parse_result,
 };
 use shuck_parser::parser::Parser;
 use shuck_semantic::SourcePathResolver;
@@ -316,18 +316,12 @@ fn run_large_corpus_fixture(
     let parsed = Parser::with_dialect(&source, shuck_parser::ShellDialect::Bash).parse();
     let indexer = Indexer::new(&source, &parsed);
     let shellcheck_map = ShellCheckCodeMap::default();
-    let directives = parse_directives(
-        &source,
-        &parsed.file,
-        indexer.comment_index(),
-        &shellcheck_map,
-    );
-    let diagnostics = lint_file_at_path_with_resolver_and_parse_result_and_directives(
+    let diagnostics = lint_file_at_path_with_resolver_and_parse_result(
         &parsed,
         &source,
         &indexer,
         &settings,
-        &directives,
+        &shellcheck_map,
         Some(&fixture.path),
         Some(resolver),
     );

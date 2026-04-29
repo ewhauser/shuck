@@ -96,11 +96,11 @@ pub use settings::{
 };
 /// Shell dialect selection used by the linter.
 pub use shell::ShellDialect;
+pub(crate) use suppression::parse_directives;
 /// Suppression directives, shellcheck mappings, and rewrite helpers.
 pub use suppression::{
     AddIgnoreParseError, AddIgnoreResult, ShellCheckCodeMap, SuppressionAction,
     SuppressionDirective, SuppressionIndex, SuppressionSource, add_ignores_to_path,
-    parse_directives,
 };
 /// Trait implemented by rule-specific diagnostic payloads.
 pub use violation::Violation;
@@ -589,57 +589,31 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
     source: &str,
     indexer: &Indexer,
     settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
+    shellcheck_map: &ShellCheckCodeMap,
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> Vec<Diagnostic> {
-    let shell = resolve_shell(settings, source, source_path);
-
-    let mut diagnostics = analyze_file_at_path_with_resolver_and_shell(
+    let directives = parse_directives(
+        source,
         &parse_result.file,
+        indexer.comment_index(),
+        shellcheck_map,
+    );
+    lint_file_at_path_with_resolver_and_parse_result_and_directives(
+        parse_result,
         source,
         indexer,
         settings,
-        suppression_index,
+        &directives,
         source_path,
         source_path_resolver,
-        shell,
-        parse_error_position(parse_result),
     )
-    .diagnostics;
-
-    diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
-        &parse_result.file,
-        source,
-        Some(parse_result),
-        &settings.rules,
-        shell,
-    ));
-    if parse_result.is_err() {
-        sanitize_diagnostic_spans_cold(&mut diagnostics, source, indexer);
-    }
-
-    for diagnostic in &mut diagnostics {
-        if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
-            diagnostic.severity = severity;
-        }
-    }
-
-    if let Some(suppression_index) = suppression_index {
-        filter_suppressed_diagnostics(&mut diagnostics, indexer, suppression_index);
-    }
-    filter_per_file_ignored_diagnostics(&mut diagnostics, settings, source_path);
-
-    diagnostics
-        .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
-
-    diagnostics
 }
 
 /// Lints an existing parse result while deriving suppressions from parsed directives
 /// and semantic-collected command spans.
 #[allow(clippy::too_many_arguments)]
-pub fn lint_file_at_path_with_resolver_and_parse_result_and_directives(
+pub(crate) fn lint_file_at_path_with_resolver_and_parse_result_and_directives(
     parse_result: &ParseResult,
     source: &str,
     indexer: &Indexer,
@@ -719,13 +693,43 @@ pub fn lint_file_at_path_with_resolver_and_parse_result_and_directives(
     diagnostics
 }
 
+/// Lints an existing parse result while parsing suppression directives inside the linter.
+///
+/// This keeps directive attachment internal while we migrate it to semantic command visits.
+#[allow(clippy::too_many_arguments)]
+pub fn lint_file_at_path_with_resolver_and_parse_result_with_comment_directives(
+    parse_result: &ParseResult,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    shellcheck_map: &ShellCheckCodeMap,
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+) -> Vec<Diagnostic> {
+    let directives = parse_directives(
+        source,
+        &parse_result.file,
+        indexer.comment_index(),
+        shellcheck_map,
+    );
+    lint_file_at_path_with_resolver_and_parse_result_and_directives(
+        parse_result,
+        source,
+        indexer,
+        settings,
+        &directives,
+        source_path,
+        source_path_resolver,
+    )
+}
+
 /// Lints an existing parse result located at an optional source path.
 pub fn lint_file(
     parse_result: &ParseResult,
     source: &str,
     indexer: &Indexer,
     settings: &LinterSettings,
-    suppression_index: Option<&SuppressionIndex>,
+    shellcheck_map: &ShellCheckCodeMap,
     source_path: Option<&Path>,
 ) -> Vec<Diagnostic> {
     lint_file_at_path_with_resolver_and_parse_result(
@@ -733,7 +737,7 @@ pub fn lint_file(
         source,
         indexer,
         settings,
-        suppression_index,
+        shellcheck_map,
         source_path,
         None,
     )
@@ -741,7 +745,7 @@ pub fn lint_file(
 
 /// Lints an existing parse result while deriving suppressions from parsed directives
 /// and semantic-collected command spans.
-pub fn lint_file_with_directives(
+pub(crate) fn lint_file_with_directives(
     parse_result: &ParseResult,
     source: &str,
     indexer: &Indexer,
@@ -755,6 +759,26 @@ pub fn lint_file_with_directives(
         indexer,
         settings,
         directives,
+        source_path,
+        None,
+    )
+}
+
+/// Lints an existing parse result while parsing suppression directives inside the linter.
+pub fn lint_file_with_comment_directives(
+    parse_result: &ParseResult,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    shellcheck_map: &ShellCheckCodeMap,
+    source_path: Option<&Path>,
+) -> Vec<Diagnostic> {
+    lint_file_at_path_with_resolver_and_parse_result_with_comment_directives(
+        parse_result,
+        source,
+        indexer,
+        settings,
+        shellcheck_map,
         source_path,
         None,
     )
@@ -1068,7 +1092,7 @@ mod tests {
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::ZshAlwaysBlock),
-            None,
+            &ShellCheckCodeMap::default(),
             None,
         );
 
@@ -2319,7 +2343,7 @@ END
                 source,
                 &indexer,
                 &LinterSettings::default(),
-                None,
+                &ShellCheckCodeMap::default(),
                 path,
             );
 

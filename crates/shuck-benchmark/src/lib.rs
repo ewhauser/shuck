@@ -178,9 +178,7 @@ mod tests {
     use serde::Deserialize;
     use shuck_formatter::{FormattedSource, ShellFormatOptions, format_file_ast, format_source};
     use shuck_indexer::Indexer;
-    use shuck_linter::{
-        LinterSettings, ShellCheckCodeMap, lint_file_with_directives, parse_directives,
-    };
+    use shuck_linter::{LinterSettings, ShellCheckCodeMap, lint_file};
 
     #[derive(Debug, Deserialize)]
     struct Manifest {
@@ -255,18 +253,12 @@ mod tests {
         for file in TEST_FILES.iter() {
             let output = parse_fixture(file.source);
             let indexer = Indexer::new(file.source, &output);
-            let directives = parse_directives(
-                file.source,
-                &output.file,
-                indexer.comment_index(),
-                &shellcheck_map,
-            );
-            let diagnostics = lint_file_with_directives(
+            let diagnostics = lint_file(
                 &output,
                 file.source,
                 &indexer,
                 &settings,
-                &directives,
+                &shellcheck_map,
                 None,
             );
 
