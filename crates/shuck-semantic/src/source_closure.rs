@@ -12,7 +12,9 @@ use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
 use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile, ZshOptionState};
 
-use crate::function_resolution::lexically_visible_function_binding_in_scope;
+use crate::function_resolution::{
+    call_payloads_by_callee_scope, lexically_visible_function_binding_in_scope,
+};
 use crate::{
     ContractCertainty, FileContract, FunctionContract, FunctionScopeKind, ProvidedBinding,
     ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel, SourcePathResolver,
@@ -1046,27 +1048,18 @@ fn resolve_literal_call_args_by_scope(
     model: &SemanticModel,
     calls: &[CallInfo],
 ) -> FxHashMap<ScopeId, Vec<Vec<Option<String>>>> {
-    let mut resolved = FxHashMap::default();
-    let analysis = model.analysis();
-
-    for call in calls {
-        let Some(function_binding) = analysis.visible_function_binding_in_call_context(
-            &call.name,
-            call.scope,
-            call.span.start.offset,
-        ) else {
-            continue;
-        };
-        let Some(callee_scope) = analysis.function_scope_for_binding(function_binding) else {
-            continue;
-        };
-        resolved
-            .entry(callee_scope)
-            .or_insert_with(Vec::new)
-            .push(call.args.clone());
-    }
-
-    resolved
+    call_payloads_by_callee_scope(
+        &model.function_binding_lookup(),
+        &model.recorded_program().function_body_scopes,
+        calls.iter().map(|call| {
+            (
+                &call.name,
+                call.scope,
+                call.span.start.offset,
+                call.args.clone(),
+            )
+        }),
+    )
 }
 
 fn resolve_helper_paths(
