@@ -1802,6 +1802,7 @@ name = "shuck-semantic"
 version = "0.0.26"
 dependencies = [
  "bitflags 2.11.0",
+ "compact_str",
  "rustc-hash 2.1.2",
  "shuck-ast",
  "shuck-indexer",

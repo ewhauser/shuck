@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use rustc_hash::FxHashSet;
 use shuck_ast::Span;
 use shuck_semantic::BindingId;
@@ -5,7 +6,7 @@ use shuck_semantic::BindingId;
 use crate::{Checker, Rule, Violation};
 
 pub struct FunctionCalledWithoutArgs {
-    pub name: String,
+    pub name: CompactString,
 }
 
 impl Violation for FunctionCalledWithoutArgs {
@@ -20,7 +21,7 @@ impl Violation for FunctionCalledWithoutArgs {
 
 pub fn function_called_without_args(checker: &mut Checker) {
     let mut reported = FxHashSet::<BindingId>::default();
-    let mut violations = Vec::<(Span, String)>::new();
+    let mut violations = Vec::<(Span, CompactString)>::new();
 
     for header in checker.facts().function_headers() {
         let Some((name, _)) = header.static_name_entry() else {
@@ -53,7 +54,7 @@ pub fn function_called_without_args(checker: &mut Checker) {
 
         violations.push((
             header.function_span_in_source(checker.source()),
-            name.to_string(),
+            name.as_str().into(),
         ));
     }
 

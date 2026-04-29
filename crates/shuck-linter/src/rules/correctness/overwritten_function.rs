@@ -1,4 +1,5 @@
 use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
+use compact_str::CompactString;
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::Name;
 use shuck_semantic::{
@@ -18,7 +19,7 @@ pub enum FunctionNotReachedReason {
 }
 
 pub struct OverwrittenFunction {
-    pub name: String,
+    pub name: CompactString,
     pub reason: FunctionNotReachedReason,
 }
 
@@ -101,7 +102,7 @@ pub fn overwritten_function(checker: &mut Checker) {
         report_function_definition(
             checker,
             overwritten.first,
-            overwritten.name.to_string(),
+            overwritten.name.as_str().into(),
             FunctionNotReachedReason::Overwritten,
         );
     }
@@ -123,7 +124,7 @@ pub fn overwritten_function(checker: &mut Checker) {
         report_function_definition(
             checker,
             unreached.binding,
-            unreached.name.to_string(),
+            unreached.name.as_str().into(),
             reason,
         );
     }
@@ -422,7 +423,7 @@ fn report_compat_cutoff_function_definitions(checker: &mut Checker<'_>) {
                 &structural_facts.top_level_control,
             )?;
             (!binding_has_direct_call_before_offset(&mut reach, binding.id, cutoff.offset))
-                .then(|| (binding.id, binding.name.to_string(), cutoff.reason))
+                .then(|| (binding.id, binding.name.as_str().into(), cutoff.reason))
         })
         .collect::<Vec<_>>();
 
@@ -469,7 +470,7 @@ fn report_transient_shadowed_file_scope_definitions(checker: &mut Checker<'_>) {
                 return None;
             }
 
-            Some((binding.id, binding.name.to_string()))
+            Some((binding.id, binding.name.as_str().into()))
         })
         .collect::<Vec<_>>();
 
@@ -718,7 +719,7 @@ fn has_non_transient_direct_call_to_binding_between_offsets(
 fn report_function_definition(
     checker: &mut Checker<'_>,
     binding_id: BindingId,
-    name: String,
+    name: CompactString,
     reason: FunctionNotReachedReason,
 ) {
     let binding = checker.semantic().binding(binding_id);

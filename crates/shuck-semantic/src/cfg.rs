@@ -473,7 +473,7 @@ pub(crate) struct RecordedElifBranch {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RecordedCommandInfo {
-    pub(crate) static_callee: Option<String>,
+    pub(crate) static_callee: Option<compact_str::CompactString>,
     pub(crate) static_args: Box<[Option<String>]>,
     pub(crate) source_path_template: Option<SourcePathTemplate>,
     pub(crate) zsh_effects: Vec<RecordedZshCommandEffect>,

@@ -57,7 +57,7 @@ struct SourceClosureLookupContext<'a> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct HelperPathResolutionKey {
     source_path: PathBuf,
-    candidate: String,
+    candidate: compact_str::CompactString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -945,7 +945,7 @@ fn source_candidates(
 ) -> Vec<String> {
     match kind {
         SourceRefKind::DirectiveDevNull => Vec::new(),
-        SourceRefKind::Literal(path) | SourceRefKind::Directive(path) => vec![path.clone()],
+        SourceRefKind::Literal(path) | SourceRefKind::Directive(path) => vec![path.to_string()],
         SourceRefKind::Dynamic | SourceRefKind::SingleVariableStaticTail { .. } => {
             source_candidates_from_template(template, call_args, source_path)
         }
@@ -1099,7 +1099,7 @@ fn resolve_helper_paths_cached(
 ) -> Vec<PathBuf> {
     let key = HelperPathResolutionKey {
         source_path: source_path.to_path_buf(),
-        candidate: candidate.to_owned(),
+        candidate: candidate.into(),
     };
     if let Some(paths) = context.resolved_helper_paths.borrow().get(&key) {
         return paths.clone();

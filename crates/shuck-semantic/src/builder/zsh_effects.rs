@@ -28,7 +28,7 @@ pub(super) fn recorded_simple_command_info(
         .collect::<Vec<_>>();
     let normalized = normalize_command_words(&words, source)
         .expect("recorded simple commands always include a command name");
-    let static_callee = recorded_static_callee(&normalized).map(ToOwned::to_owned);
+    let static_callee = recorded_static_callee(&normalized).map(Into::into);
     let static_args = recorded_static_args(command, &normalized, source);
     let source_path_template = normalized
         .literal_name

@@ -64,7 +64,7 @@ impl<'a> Parser<'a> {
         let delimiter_span = raw_delimiter.span;
         let delimiter = HeredocDelimiter {
             raw: raw_delimiter,
-            cooked: delimiter_text.clone(),
+            cooked: delimiter_text.as_str().into(),
             span: delimiter_span,
             quoted,
             expands_body: !quoted,

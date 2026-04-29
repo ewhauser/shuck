@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use compact_str::CompactString;
 use shuck_semantic::{
     Binding, BindingAttributes, BindingId, BindingKind, BindingOrigin, ReferenceKind,
 };
@@ -9,7 +10,7 @@ use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 type BindingFamilyKey = String;
 
 pub struct UnusedAssignment {
-    pub name: String,
+    pub name: CompactString,
 }
 
 impl Violation for UnusedAssignment {
@@ -175,7 +176,7 @@ pub fn unused_assignment(checker: &mut Checker) {
             continue;
         }
 
-        let name = binding.name.to_string();
+        let name: CompactString = binding.name.as_str().into();
         let report_span = report_span_for_binding(checker, binding);
         let fix_span = binding.span;
 

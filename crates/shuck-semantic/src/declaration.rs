@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use shuck_ast::{Name, Span};
 
 use crate::AssignmentValueOrigin;
@@ -22,7 +23,7 @@ pub struct Declaration {
 pub enum DeclarationOperand {
     Flag {
         flag: char,
-        flags: String,
+        flags: CompactString,
         span: Span,
     },
     Name {

@@ -3791,7 +3791,7 @@ pub struct HeredocDelimiter {
     /// Raw delimiter word with original quoting preserved.
     pub raw: Word,
     /// Cooked delimiter string after quote removal.
-    pub cooked: String,
+    pub cooked: compact_str::CompactString,
     /// Source span of the delimiter token.
     pub span: Span,
     /// Whether the delimiter used shell quoting.
@@ -4978,7 +4978,7 @@ mod tests {
     fn redirect_exposes_heredoc_payload() {
         let delimiter = HeredocDelimiter {
             raw: Word::quoted_literal("EOF"),
-            cooked: "EOF".to_owned(),
+            cooked: "EOF".into(),
             span: Span::new(),
             quoted: true,
             expands_body: false,

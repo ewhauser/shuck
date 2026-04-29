@@ -263,7 +263,7 @@ impl MisspellingCandidateLookup {
 
 #[derive(Debug, Clone)]
 struct MisspellingCandidate {
-    name: String,
+    name: CompactString,
     first_span: Span,
 }
 
@@ -284,7 +284,7 @@ pub(super) fn build_possible_variable_misspelling_index(
         .filter(|binding| is_sc2154_defining_binding(binding.kind))
         .filter(|binding| binding.name.as_str().len() >= 4)
         .map(|binding| MisspellingCandidate {
-            name: binding.name.to_string(),
+            name: binding.name.as_str().into(),
             first_span: binding.span,
         })
         .collect();
@@ -434,7 +434,7 @@ fn build_presence_test_entries(
                 presence_test_names_by_name,
             )?;
             Some(MisspellingCandidate {
-                name: name.to_string(),
+                name: name.as_str().into(),
                 first_span,
             })
         })
