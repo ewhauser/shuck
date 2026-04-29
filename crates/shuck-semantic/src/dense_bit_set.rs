@@ -40,38 +40,62 @@ impl DenseBitSet {
         self.words.fill(0);
     }
 
+    pub(crate) fn as_words(&self) -> &[usize] {
+        &self.words
+    }
+
     pub(crate) fn copy_from(&mut self, other: &Self) {
-        debug_assert_eq!(self.words.len(), other.words.len());
-        self.words.copy_from_slice(&other.words);
+        self.copy_from_words(&other.words);
+    }
+
+    pub(crate) fn copy_from_words(&mut self, words: &[usize]) {
+        debug_assert_eq!(self.words.len(), words.len());
+        self.words.copy_from_slice(words);
     }
 
     pub(crate) fn replace_if_changed(&mut self, other: &Self) -> bool {
-        debug_assert_eq!(self.words.len(), other.words.len());
-        if self.words == other.words {
+        self.replace_if_changed_words(&other.words)
+    }
+
+    pub(crate) fn replace_if_changed_words(&mut self, words: &[usize]) -> bool {
+        debug_assert_eq!(self.words.len(), words.len());
+        if self.words == words {
             false
         } else {
-            self.copy_from(other);
+            self.copy_from_words(words);
             true
         }
     }
 
     pub(crate) fn union_with(&mut self, other: &Self) {
-        debug_assert_eq!(self.words.len(), other.words.len());
-        for (word, other_word) in self.words.iter_mut().zip(&other.words) {
+        self.union_with_words(&other.words);
+    }
+
+    pub(crate) fn union_with_words(&mut self, words: &[usize]) {
+        debug_assert_eq!(self.words.len(), words.len());
+        for (word, other_word) in self.words.iter_mut().zip(words) {
             *word |= *other_word;
         }
     }
 
     pub(crate) fn subtract_with(&mut self, other: &Self) {
-        debug_assert_eq!(self.words.len(), other.words.len());
-        for (word, other_word) in self.words.iter_mut().zip(&other.words) {
+        self.subtract_with_words(&other.words);
+    }
+
+    pub(crate) fn subtract_with_words(&mut self, words: &[usize]) {
+        debug_assert_eq!(self.words.len(), words.len());
+        for (word, other_word) in self.words.iter_mut().zip(words) {
             *word &= !*other_word;
         }
     }
 
     pub(crate) fn intersect_with(&mut self, other: &Self) {
-        debug_assert_eq!(self.words.len(), other.words.len());
-        for (word, other_word) in self.words.iter_mut().zip(&other.words) {
+        self.intersect_with_words(&other.words);
+    }
+
+    pub(crate) fn intersect_with_words(&mut self, words: &[usize]) {
+        debug_assert_eq!(self.words.len(), words.len());
+        for (word, other_word) in self.words.iter_mut().zip(words) {
             *word &= *other_word;
         }
     }
@@ -81,6 +105,77 @@ impl DenseBitSet {
             words: &self.words,
             word_index: 0,
             current_word: 0,
+        }
+    }
+}
+
+/// A flat 2D bitset stored as a single backing buffer. Replaces
+/// `Vec<DenseBitSet>` patterns where every row has the same bit length, so
+/// per-row clones do not allocate independent `Vec<usize>` storage.
+#[derive(Debug, Clone)]
+pub(crate) struct DenseBitMatrix {
+    words_per_row: usize,
+    rows: usize,
+    data: Vec<usize>,
+}
+
+impl DenseBitMatrix {
+    pub(crate) fn zeros(rows: usize, bit_len: usize) -> Self {
+        let words_per_row = bit_len.div_ceil(DenseBitSet::WORD_BITS);
+        Self {
+            words_per_row,
+            rows,
+            data: vec![0; rows * words_per_row],
+        }
+    }
+
+    pub(crate) fn rows(&self) -> usize {
+        self.rows
+    }
+
+    pub(crate) fn row(&self, row: usize) -> &[usize] {
+        let start = row * self.words_per_row;
+        &self.data[start..start + self.words_per_row]
+    }
+
+    pub(crate) fn fill_row_from_words(&mut self, row: usize, src: &[usize]) {
+        debug_assert_eq!(src.len(), self.words_per_row);
+        let start = row * self.words_per_row;
+        self.data[start..start + self.words_per_row].copy_from_slice(src);
+    }
+
+    pub(crate) fn fill_all_rows_from_words(&mut self, src: &[usize]) {
+        debug_assert_eq!(src.len(), self.words_per_row);
+        for row in 0..self.rows {
+            let start = row * self.words_per_row;
+            self.data[start..start + self.words_per_row].copy_from_slice(src);
+        }
+    }
+
+    pub(crate) fn insert(&mut self, row: usize, index: usize) {
+        let word = index / DenseBitSet::WORD_BITS;
+        let bit = index % DenseBitSet::WORD_BITS;
+        self.data[row * self.words_per_row + word] |= 1usize << bit;
+    }
+
+    pub(crate) fn contains(&self, row: usize, index: usize) -> bool {
+        let word = index / DenseBitSet::WORD_BITS;
+        let bit = index % DenseBitSet::WORD_BITS;
+        self.data
+            .get(row * self.words_per_row + word)
+            .is_some_and(|word| (word & (1usize << bit)) != 0)
+    }
+
+    /// Replace `row` with `src` if they differ. Returns whether the row changed.
+    pub(crate) fn replace_row_if_changed(&mut self, row: usize, src: &[usize]) -> bool {
+        debug_assert_eq!(src.len(), self.words_per_row);
+        let start = row * self.words_per_row;
+        let target = &mut self.data[start..start + self.words_per_row];
+        if target == src {
+            false
+        } else {
+            target.copy_from_slice(src);
+            true
         }
     }
 }
