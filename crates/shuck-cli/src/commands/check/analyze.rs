@@ -144,7 +144,7 @@ pub(super) fn collect_lint_diagnostics(
     source_path: &Path,
 ) -> Vec<shuck_linter::Diagnostic> {
     let indexer = Indexer::new(source, parse_result);
-    shuck_linter::lint_file_with_comment_directives(
+    shuck_linter::lint_file(
         parse_result,
         source,
         &indexer,

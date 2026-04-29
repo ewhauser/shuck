@@ -7,7 +7,7 @@ use shuck_benchmark::{benchmark_cases, configure_benchmark_allocator, parse_fixt
 use shuck_indexer::Indexer;
 use shuck_linter::{
     LinterFacts, LinterSemanticArtifacts, LinterSettings, RuleSet, ShellCheckCodeMap,
-    benchmark_collect_word_facts, benchmark_normalize_commands, lint_file_with_comment_directives,
+    benchmark_collect_word_facts, benchmark_normalize_commands, lint_file,
 };
 use shuck_parser::parser::ParseResult;
 use shuck_semantic::SemanticModel;
@@ -74,14 +74,7 @@ fn lint_source(
 ) -> usize {
     let output = parse_fixture(source);
     let indexer = Indexer::new(source, &output);
-    let diagnostics = lint_file_with_comment_directives(
-        &output,
-        source,
-        &indexer,
-        settings,
-        shellcheck_map,
-        None,
-    );
+    let diagnostics = lint_file(&output, source, &indexer, settings, shellcheck_map, None);
 
     black_box(diagnostics.len())
 }

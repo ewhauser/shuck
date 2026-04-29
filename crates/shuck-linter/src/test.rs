@@ -33,7 +33,14 @@ pub struct FixTestResult {
 pub fn test_snippet(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
     let parse_result = parse_for_lint(source, settings, None);
     let indexer = Indexer::new(source, &parse_result);
-    lint_file(&parse_result, source, &indexer, settings, None, None)
+    lint_file(
+        &parse_result,
+        source,
+        &indexer,
+        settings,
+        &crate::ShellCheckCodeMap::default(),
+        None,
+    )
 }
 
 /// Lint a source string while preserving an explicit path for path-sensitive rules.
@@ -44,7 +51,14 @@ pub fn test_snippet_at_path(
 ) -> Vec<Diagnostic> {
     let parse_result = parse_for_lint(source, settings, Some(path));
     let indexer = Indexer::new(source, &parse_result);
-    lint_file(&parse_result, source, &indexer, settings, None, Some(path))
+    lint_file(
+        &parse_result,
+        source,
+        &indexer,
+        settings,
+        &crate::ShellCheckCodeMap::default(),
+        Some(path),
+    )
 }
 
 pub fn test_snippet_with_fix(

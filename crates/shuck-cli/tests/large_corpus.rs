@@ -2409,7 +2409,7 @@ fn lint_large_corpus_output(
 ) -> Vec<shuck_linter::Diagnostic> {
     let indexer = shuck_indexer::Indexer::new(source, parse_result);
     let shellcheck_map = shuck_linter::ShellCheckCodeMap::default();
-    shuck_linter::lint_file_at_path_with_resolver_and_parse_result_with_comment_directives(
+    shuck_linter::lint_file_at_path_with_resolver_and_parse_result(
         parse_result,
         source,
         &indexer,

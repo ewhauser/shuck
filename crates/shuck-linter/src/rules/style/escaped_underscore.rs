@@ -130,7 +130,14 @@ mod tests {
         let indexer = Indexer::new(source, &parse_result);
         let settings =
             LinterSettings::for_rule(Rule::EscapedUnderscore).with_shell(ShellDialect::Sh);
-        lint_file(&parse_result, source, &indexer, &settings, None, Some(path))
+        lint_file(
+            &parse_result,
+            source,
+            &indexer,
+            &settings,
+            &crate::ShellCheckCodeMap::default(),
+            Some(path),
+        )
     }
 
     #[test]

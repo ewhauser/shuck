@@ -953,16 +953,15 @@ fn lint_with_context(
         rule_options,
     };
 
-    let diagnostics =
-        shuck_linter::lint_file_at_path_with_resolver_and_parse_result_with_comment_directives(
-            &parse_result,
-            source,
-            &indexer,
-            &settings,
-            &options.shellcheck_map,
-            Some(path),
-            Some(&resolver),
-        );
+    let diagnostics = shuck_linter::lint_file_at_path_with_resolver_and_parse_result(
+        &parse_result,
+        source,
+        &indexer,
+        &settings,
+        &options.shellcheck_map,
+        Some(path),
+        Some(&resolver),
+    );
     let analysis = shuck_linter::analyze_file_at_path_with_resolver(
         &parse_result.file,
         source,
