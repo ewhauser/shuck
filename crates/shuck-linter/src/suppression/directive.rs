@@ -211,31 +211,33 @@ impl DirectiveAttachmentFacts {
         comment_index: &CommentIndex,
         visits: impl IntoIterator<Item = DirectiveCommandVisit<'a>>,
     ) -> Self {
+        let candidate_comments = comment_index
+            .comments()
+            .iter()
+            .filter_map(|indexed_comment| {
+                let comment = normalized_comment(source, indexed_comment)?;
+                (!comment.is_own_line && comment_may_need_inline_attachment(comment.text))
+                    .then_some((comment, indexed_comment.range))
+            })
+            .collect::<Vec<_>>();
+        if candidate_comments.is_empty() {
+            return Self::default();
+        }
+
         let visits = visits.into_iter().collect::<Vec<_>>();
         let mut following_command_ranges = Vec::new();
         let mut case_label_ranges = Vec::new();
 
-        for indexed_comment in comment_index.comments() {
-            let Some(comment) = normalized_comment(source, indexed_comment) else {
-                continue;
-            };
-            if comment.is_own_line {
-                continue;
-            }
-
+        for (comment, indexed_range) in candidate_comments {
             if directive_can_apply_to_following_command(source, &visits, comment.range) {
                 push_comment_range_keys(
                     &mut following_command_ranges,
                     comment.range,
-                    indexed_comment.range,
+                    indexed_range,
                 );
             }
             if directive_is_case_label(comment, &visits) {
-                push_comment_range_keys(
-                    &mut case_label_ranges,
-                    comment.range,
-                    indexed_comment.range,
-                );
+                push_comment_range_keys(&mut case_label_ranges, comment.range, indexed_range);
             }
         }
 
@@ -266,6 +268,22 @@ impl DirectiveAttachmentFacts {
         self.can_apply_to_following_command(directive.range)
             || self.is_case_label_directive(directive.range)
     }
+}
+
+fn comment_may_need_inline_attachment(text: &str) -> bool {
+    let body = strip_comment_prefix(text);
+    if let Some(remainder) = strip_prefix_ignore_ascii_case(body, "shuck:") {
+        let Some((action, _)) = remainder.split_once('=') else {
+            return false;
+        };
+        return parse_shuck_action(action.trim()) == Some(SuppressionAction::Disable);
+    }
+
+    shellcheck_comment_remainder(text).is_some_and(|remainder| {
+        remainder
+            .split_ascii_whitespace()
+            .any(|part| strip_prefix_ignore_ascii_case(part, "disable=").is_some())
+    })
 }
 
 fn push_comment_range_keys(keys: &mut Vec<RangeKey>, normalized: TextRange, indexed: TextRange) {
