@@ -11,7 +11,7 @@ use shuck_benchmark::configure_benchmark_allocator;
 use shuck_indexer::Indexer;
 use shuck_linter::{
     LinterSettings, Rule, RuleSet, ShellCheckCodeMap, ShellDialect, benchmark_collect_word_facts,
-    lint_file_at_path_with_resolver_and_parse_result_and_directives, parse_directives,
+    lint_file_at_path_with_resolver_and_parse_result_with_comment_directives,
 };
 use shuck_parser::parser::{ParseResult, Parser};
 use shuck_semantic::{SemanticBuildOptions, SemanticModel, SourcePathResolver};
@@ -286,18 +286,12 @@ fn lint_large_corpus_fixture_with_settings(
     let parse_result = parse_large_corpus_fixture(fixture);
     let indexer = Indexer::new(&fixture.source, &parse_result);
     let shellcheck_map = ShellCheckCodeMap::default();
-    let directives = parse_directives(
-        &fixture.source,
-        &parse_result.file,
-        indexer.comment_index(),
-        &shellcheck_map,
-    );
-    let diagnostics = lint_file_at_path_with_resolver_and_parse_result_and_directives(
+    let diagnostics = lint_file_at_path_with_resolver_and_parse_result_with_comment_directives(
         &parse_result,
         &fixture.source,
         &indexer,
         &settings,
-        &directives,
+        &shellcheck_map,
         Some(&fixture.path),
         resolver,
     );

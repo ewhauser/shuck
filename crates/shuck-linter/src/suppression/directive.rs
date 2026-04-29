@@ -40,7 +40,10 @@ pub enum SuppressionSource {
 }
 
 /// Parse all suppression directives from a file's comments.
-pub fn parse_directives(
+// TODO: Delete this pre-parsed directive seam once inline directive attachment can be derived
+// from semantic command visits during lint setup. External callers should stay on the
+// comment-driven lint entrypoints so this recursive walk remains internal until it disappears.
+pub(crate) fn parse_directives(
     source: &str,
     file: &File,
     comment_index: &CommentIndex,

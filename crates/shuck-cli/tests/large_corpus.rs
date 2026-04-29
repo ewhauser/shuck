@@ -2409,19 +2409,12 @@ fn lint_large_corpus_output(
 ) -> Vec<shuck_linter::Diagnostic> {
     let indexer = shuck_indexer::Indexer::new(source, parse_result);
     let shellcheck_map = shuck_linter::ShellCheckCodeMap::default();
-    let directives = shuck_linter::parse_directives(
-        source,
-        &parse_result.file,
-        indexer.comment_index(),
-        &shellcheck_map,
-    );
-
-    shuck_linter::lint_file_at_path_with_resolver_and_parse_result_and_directives(
+    shuck_linter::lint_file_at_path_with_resolver_and_parse_result_with_comment_directives(
         parse_result,
         source,
         &indexer,
         linter_settings,
-        &directives,
+        &shellcheck_map,
         Some(&fixture.path),
         source_path_resolver,
     )

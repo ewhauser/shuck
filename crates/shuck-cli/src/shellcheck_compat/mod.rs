@@ -14,7 +14,7 @@ use std::sync::Arc;
 use shuck_indexer::Indexer;
 use shuck_linter::{
     LinterSettings, Rule, RuleSet, Severity, ShellCheckCodeMap, ShellCheckLevel, ShellDialect,
-    parse_directives, rule_metadata,
+    rule_metadata,
 };
 use shuck_parser::parser::Parser;
 use shuck_semantic::SourcePathResolver;
@@ -932,14 +932,6 @@ fn lint_with_context(
 
     let parse_result = Parser::with_profile(source, shell.shell_profile()).parse();
     let indexer = Indexer::new(source, &parse_result);
-    let shellcheck_map = &options.shellcheck_map;
-    let directives = parse_directives(
-        source,
-        &parse_result.file,
-        indexer.comment_index(),
-        shellcheck_map,
-    );
-
     let explicit = explicit_paths.into_iter().collect::<Vec<_>>();
     let resolver = CompatSourceResolver {
         cwd: canonicalize_or_clone(&std::env::current_dir().map_err(|err| {
@@ -961,15 +953,16 @@ fn lint_with_context(
         rule_options,
     };
 
-    let diagnostics = shuck_linter::lint_file_at_path_with_resolver_and_parse_result_and_directives(
-        &parse_result,
-        source,
-        &indexer,
-        &settings,
-        &directives,
-        Some(path),
-        Some(&resolver),
-    );
+    let diagnostics =
+        shuck_linter::lint_file_at_path_with_resolver_and_parse_result_with_comment_directives(
+            &parse_result,
+            source,
+            &indexer,
+            &settings,
+            &options.shellcheck_map,
+            Some(path),
+            Some(&resolver),
+        );
     let analysis = shuck_linter::analyze_file_at_path_with_resolver(
         &parse_result.file,
         source,
