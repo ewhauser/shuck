@@ -563,12 +563,6 @@ impl<'a> SurfaceFragmentSink<'a> {
 
     pub(super) fn collect_word(&mut self, word: &Word, context: SurfaceScanContext<'_>) -> bool {
         let open_double_quote_count = self.facts.open_double_quotes.len();
-        collect_unicode_smart_quote_spans_in_word_parts(
-            &word.parts,
-            self.source,
-            false,
-            &mut self.facts.unicode_smart_quote_spans,
-        );
         self.zsh_parameter_index_flag_scratch.clear();
         collect_zsh_parameter_index_flag_spans_in_word(
             word.span.slice(self.source),
@@ -586,7 +580,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 context.assignment_target,
             );
         }
-        self.collect_word_parts(&word.parts, context);
+        self.collect_word_parts(&word.parts, context, false);
         self.facts.open_double_quotes.len() > open_double_quote_count
     }
 
@@ -666,8 +660,29 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
     }
 
-    fn collect_word_parts(&mut self, parts: &[WordPartNode], context: SurfaceScanContext<'_>) {
+    fn collect_word_parts(
+        &mut self,
+        parts: &[WordPartNode],
+        context: SurfaceScanContext<'_>,
+        in_double_quote: bool,
+    ) {
         for (index, part) in parts.iter().enumerate() {
+            if let WordPart::Literal(text) = &part.kind
+                && !in_double_quote
+            {
+                let literal = text.as_str(self.source, part.span);
+                for (offset, char) in literal.char_indices() {
+                    if !is_unicode_smart_quote(char) {
+                        continue;
+                    }
+                    let start = part.span.start.advanced_by(&literal[..offset]);
+                    let end = start.advanced_by(char.encode_utf8(&mut [0; 4]));
+                    self.facts
+                        .unicode_smart_quote_spans
+                        .push(Span::from_positions(start, end));
+                }
+            }
+
             if let WordPart::Variable(name) = &part.kind
                 && matches!(
                     name.as_str(),
@@ -715,7 +730,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                             .dollar_double_quoted
                             .push(DollarDoubleQuotedFragmentFact { span: part.span });
                     }
-                    self.collect_word_parts(parts, context);
+                    self.collect_word_parts(parts, context, true);
                 }
                 WordPart::ZshQualifiedGlob(glob) => self.collect_zsh_qualified_glob(glob, context),
                 WordPart::ArithmeticExpansion {
@@ -2843,33 +2858,6 @@ pub(super) fn simple_command_variable_set_operand<'a>(
     let operands = simple_test_operands(command, source)?;
     (operands.len() == 2 && static_word_text(&operands[0], source).as_deref() == Some("-v"))
         .then(|| &operands[1])
-}
-
-fn collect_unicode_smart_quote_spans_in_word_parts(
-    parts: &[WordPartNode],
-    source: &str,
-    quoted: bool,
-    spans: &mut Vec<Span>,
-) {
-    for part in parts {
-        match &part.kind {
-            WordPart::Literal(text) if !quoted => {
-                let literal = text.as_str(source, part.span);
-                for (offset, char) in literal.char_indices() {
-                    if !is_unicode_smart_quote(char) {
-                        continue;
-                    }
-                    let start = part.span.start.advanced_by(&literal[..offset]);
-                    let end = start.advanced_by(char.encode_utf8(&mut [0; 4]));
-                    spans.push(Span::from_positions(start, end));
-                }
-            }
-            WordPart::DoubleQuoted { parts, .. } => {
-                collect_unicode_smart_quote_spans_in_word_parts(parts, source, true, spans)
-            }
-            _ => {}
-        }
-    }
 }
 
 fn is_unicode_smart_quote(char: char) -> bool {
