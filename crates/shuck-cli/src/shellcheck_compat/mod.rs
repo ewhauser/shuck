@@ -14,7 +14,7 @@ use std::sync::Arc;
 use shuck_indexer::Indexer;
 use shuck_linter::{
     LinterSettings, Rule, RuleSet, Severity, ShellCheckCodeMap, ShellCheckLevel, ShellDialect,
-    SuppressionIndex, first_statement_line, parse_directives, rule_metadata,
+    parse_directives, rule_metadata,
 };
 use shuck_parser::parser::Parser;
 use shuck_semantic::SourcePathResolver;
@@ -939,13 +939,6 @@ fn lint_with_context(
         indexer.comment_index(),
         shellcheck_map,
     );
-    let suppression_index = (!directives.is_empty()).then(|| {
-        SuppressionIndex::new(
-            &directives,
-            &parse_result.file,
-            first_statement_line(&parse_result.file).unwrap_or(u32::MAX),
-        )
-    });
 
     let explicit = explicit_paths.into_iter().collect::<Vec<_>>();
     let resolver = CompatSourceResolver {
@@ -968,12 +961,12 @@ fn lint_with_context(
         rule_options,
     };
 
-    let diagnostics = shuck_linter::lint_file_at_path_with_resolver_and_parse_result(
+    let diagnostics = shuck_linter::lint_file_at_path_with_resolver_and_parse_result_and_directives(
         &parse_result,
         source,
         &indexer,
         &settings,
-        suppression_index.as_ref(),
+        &directives,
         Some(path),
         Some(&resolver),
     );
@@ -982,7 +975,7 @@ fn lint_with_context(
         source,
         &indexer,
         &settings,
-        suppression_index.as_ref(),
+        None,
         Some(path),
         Some(&resolver),
     );

@@ -2415,20 +2415,13 @@ fn lint_large_corpus_output(
         indexer.comment_index(),
         &shellcheck_map,
     );
-    let suppression_index = (!directives.is_empty()).then(|| {
-        shuck_linter::SuppressionIndex::new(
-            &directives,
-            &parse_result.file,
-            shuck_linter::first_statement_line(&parse_result.file).unwrap_or(u32::MAX),
-        )
-    });
 
-    shuck_linter::lint_file_at_path_with_resolver_and_parse_result(
+    shuck_linter::lint_file_at_path_with_resolver_and_parse_result_and_directives(
         parse_result,
         source,
         &indexer,
         linter_settings,
-        suppression_index.as_ref(),
+        &directives,
         Some(&fixture.path),
         source_path_resolver,
     )

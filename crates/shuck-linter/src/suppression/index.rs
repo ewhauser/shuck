@@ -1,9 +1,7 @@
 use rustc_hash::FxHashMap;
 use shuck_ast::{
-    ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment, AssignmentValue,
-    BuiltinCommand, Command, CompoundCommand, ConditionalExpr, DeclOperand, File, FunctionDef,
-    HeredocBodyPartNode, Pattern, PatternPart, Redirect, Span, Stmt, StmtSeq, TextSize, VarRef,
-    Word, WordPart, WordPartNode,
+    BuiltinCommand, Command, CompoundCommand, File, HeredocBodyPartNode, Redirect, Span, Stmt,
+    TextSize,
 };
 
 use crate::Rule;
@@ -17,8 +15,12 @@ pub struct SuppressionIndex {
 }
 
 impl SuppressionIndex {
-    /// Build from parsed directives.
-    pub fn new(directives: &[SuppressionDirective], file: &File, first_stmt_line: u32) -> Self {
+    /// Build from parsed directives and a precomputed suppression command ordering.
+    pub(crate) fn from_sorted_command_spans(
+        directives: &[SuppressionDirective],
+        sorted_command_spans: &[Span],
+        first_stmt_line: u32,
+    ) -> Self {
         let mut ordered = directives.iter().collect::<Vec<_>>();
         ordered.sort_by_key(|directive| {
             (
@@ -28,16 +30,11 @@ impl SuppressionIndex {
             )
         });
 
-        let mut sorted_command_spans: Option<Vec<Span>> = None;
         let mut by_rule = FxHashMap::default();
         for directive in ordered {
             let directive_range = (matches!(directive.action, SuppressionAction::Disable)
                 && directive.line >= first_stmt_line)
-                .then(|| {
-                    let spans =
-                        sorted_command_spans.get_or_insert_with(|| collect_command_spans(file));
-                    next_command_range_after(spans, directive.range.end())
-                })
+                .then(|| next_command_range_after(sorted_command_spans, directive.range.end()))
                 .flatten();
 
             for &rule in &directive.codes {
@@ -79,7 +76,7 @@ impl SuppressionIndex {
 }
 
 /// First command line in the file, if any.
-pub fn first_statement_line(file: &File) -> Option<u32> {
+pub(crate) fn first_statement_line(file: &File) -> Option<u32> {
     file.body
         .iter()
         .filter_map(|command| u32::try_from(command.span.start.line).ok())
@@ -143,21 +140,16 @@ fn merge_overlapping_ranges(ranges: &mut Vec<LineRange>) {
     *ranges = merged;
 }
 
-fn collect_command_spans(file: &File) -> Vec<Span> {
-    let mut spans = Vec::new();
-    for command in file.body.iter() {
-        walk_command(command, &mut |span| {
-            if span.start.line != 0 && span.end.line != 0 {
-                spans.push(span);
-            }
-        });
-    }
-    // Stable sort preserves walk order so a parent statement keeps priority over
-    // its children when both share the same start offset (e.g. a binary command
-    // and its left operand). The lookup picks the first span at each start
-    // offset, matching the previous behavior of `consider_command`.
-    spans.sort_by_key(|span| span.start.offset);
-    spans
+pub(crate) fn sort_command_spans_for_lookup(spans: &mut [Span]) {
+    // Sort by start offset first, then prefer wider spans when two commands
+    // start at the same byte offset so parent statements keep priority over
+    // children during `next_command_range_after`.
+    spans.sort_by(|left, right| {
+        left.start
+            .offset
+            .cmp(&right.start.offset)
+            .then_with(|| right.end.offset.cmp(&left.end.offset))
+    });
 }
 
 fn next_command_range_after(spans: &[Span], offset: TextSize) -> Option<LineRange> {
@@ -179,102 +171,7 @@ fn line_range(span: Span) -> Option<LineRange> {
     })
 }
 
-fn walk_commands<F>(commands: &StmtSeq, visit: &mut F)
-where
-    F: FnMut(Span),
-{
-    for command in commands.iter() {
-        walk_command(command, visit);
-    }
-}
-
-fn walk_command<F>(stmt: &Stmt, visit: &mut F)
-where
-    F: FnMut(Span),
-{
-    visit(statement_suppression_span(stmt));
-
-    match &stmt.command {
-        Command::Simple(command) => {
-            walk_assignments(&command.assignments, visit);
-            walk_word(&command.name, visit);
-            walk_words(&command.args, visit);
-        }
-        Command::Builtin(BuiltinCommand::Break(command)) => {
-            walk_assignments(&command.assignments, visit);
-            if let Some(word) = &command.depth {
-                walk_word(word, visit);
-            }
-            walk_words(&command.extra_args, visit);
-        }
-        Command::Builtin(BuiltinCommand::Continue(command)) => {
-            walk_assignments(&command.assignments, visit);
-            if let Some(word) = &command.depth {
-                walk_word(word, visit);
-            }
-            walk_words(&command.extra_args, visit);
-        }
-        Command::Builtin(BuiltinCommand::Return(command)) => {
-            walk_assignments(&command.assignments, visit);
-            if let Some(word) = &command.code {
-                walk_word(word, visit);
-            }
-            walk_words(&command.extra_args, visit);
-        }
-        Command::Builtin(BuiltinCommand::Exit(command)) => {
-            walk_assignments(&command.assignments, visit);
-            if let Some(word) = &command.code {
-                walk_word(word, visit);
-            }
-            walk_words(&command.extra_args, visit);
-        }
-        Command::Decl(command) => {
-            walk_assignments(&command.assignments, visit);
-            for operand in &command.operands {
-                match operand {
-                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => walk_word(word, visit),
-                    DeclOperand::Name(_) => {}
-                    DeclOperand::Assignment(assignment) => walk_assignment(assignment, visit),
-                }
-            }
-        }
-        Command::Binary(command) => {
-            walk_command(&command.left, visit);
-            walk_command(&command.right, visit);
-        }
-        Command::Compound(command) => {
-            walk_compound(command, visit);
-        }
-        Command::Function(FunctionDef { header, body, .. }) => {
-            for entry in &header.entries {
-                walk_word(&entry.word, visit);
-            }
-            walk_function_body(body, visit);
-        }
-        Command::AnonymousFunction(function) => {
-            walk_words(&function.args, visit);
-            walk_function_body(&function.body, visit);
-        }
-    }
-
-    walk_redirects(&stmt.redirects, visit);
-}
-
-fn walk_function_body<F>(stmt: &Stmt, visit: &mut F)
-where
-    F: FnMut(Span),
-{
-    match &stmt.command {
-        Command::Compound(CompoundCommand::BraceGroup(commands))
-        | Command::Compound(CompoundCommand::Subshell(commands)) => {
-            walk_commands(commands, visit);
-            walk_redirects(&stmt.redirects, visit);
-        }
-        _ => walk_command(stmt, visit),
-    }
-}
-
-fn statement_suppression_span(stmt: &Stmt) -> Span {
+pub(crate) fn statement_suppression_span(stmt: &Stmt) -> Span {
     let mut span = command_suppression_base_span(stmt);
     extend_span_with_redirects(&mut span, &stmt.redirects);
     span
@@ -349,284 +246,13 @@ fn extend_span(span: &mut Span, extension: Span) {
     }
 }
 
-fn walk_compound<F>(command: &CompoundCommand, visit: &mut F)
-where
-    F: FnMut(Span),
-{
-    match command {
-        CompoundCommand::If(command) => {
-            walk_commands(&command.condition, visit);
-            walk_commands(&command.then_branch, visit);
-            for (condition, body) in &command.elif_branches {
-                walk_commands(condition, visit);
-                walk_commands(body, visit);
-            }
-            if let Some(body) = &command.else_branch {
-                walk_commands(body, visit);
-            }
-        }
-        CompoundCommand::For(command) => {
-            if let Some(words) = &command.words {
-                walk_words(words, visit);
-            }
-            walk_commands(&command.body, visit);
-        }
-        CompoundCommand::Repeat(command) => {
-            walk_word(&command.count, visit);
-            walk_commands(&command.body, visit);
-        }
-        CompoundCommand::Foreach(command) => {
-            walk_words(&command.words, visit);
-            walk_commands(&command.body, visit);
-        }
-        CompoundCommand::ArithmeticFor(command) => walk_commands(&command.body, visit),
-        CompoundCommand::While(command) => {
-            walk_commands(&command.condition, visit);
-            walk_commands(&command.body, visit);
-        }
-        CompoundCommand::Until(command) => {
-            walk_commands(&command.condition, visit);
-            walk_commands(&command.body, visit);
-        }
-        CompoundCommand::Case(command) => {
-            walk_word(&command.word, visit);
-            for case in &command.cases {
-                walk_patterns(&case.patterns, visit);
-                walk_commands(&case.body, visit);
-            }
-        }
-        CompoundCommand::Select(command) => {
-            walk_words(&command.words, visit);
-            walk_commands(&command.body, visit);
-        }
-        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            walk_commands(commands, visit);
-        }
-        CompoundCommand::Always(command) => {
-            walk_commands(&command.body, visit);
-            walk_commands(&command.always_body, visit);
-        }
-        CompoundCommand::Arithmetic(_) => {}
-        CompoundCommand::Time(command) => {
-            if let Some(command) = &command.command {
-                walk_command(command, visit);
-            }
-        }
-        CompoundCommand::Conditional(command) => walk_conditional_expr(&command.expression, visit),
-        CompoundCommand::Coproc(command) => walk_command(&command.body, visit),
-    }
-}
-
-fn walk_assignments<F>(assignments: &[Assignment], visit: &mut F)
-where
-    F: FnMut(Span),
-{
-    for assignment in assignments {
-        walk_assignment(assignment, visit);
-    }
-}
-
-fn walk_assignment<F>(assignment: &Assignment, visit: &mut F)
-where
-    F: FnMut(Span),
-{
-    match &assignment.value {
-        AssignmentValue::Scalar(word) => walk_word(word, visit),
-        AssignmentValue::Compound(array) => {
-            for element in &array.elements {
-                match element {
-                    ArrayElem::Sequential(word) => walk_word(word, visit),
-                    ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
-                        walk_word(value, visit)
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn walk_words<F>(words: &[Word], visit: &mut F)
-where
-    F: FnMut(Span),
-{
-    for word in words {
-        walk_word(word, visit);
-    }
-}
-
-fn walk_patterns<F>(patterns: &[Pattern], visit: &mut F)
-where
-    F: FnMut(Span),
-{
-    for pattern in patterns {
-        walk_pattern(pattern, visit);
-    }
-}
-
-fn walk_word<F>(word: &Word, visit: &mut F)
-where
-    F: FnMut(Span),
-{
-    walk_word_parts(&word.parts, visit);
-}
-
-fn walk_pattern<F>(pattern: &Pattern, visit: &mut F)
-where
-    F: FnMut(Span),
-{
-    for (part, _) in pattern.parts_with_spans() {
-        match part {
-            PatternPart::Group { patterns, .. } => walk_patterns(patterns, visit),
-            PatternPart::Word(word) => walk_word(word, visit),
-            PatternPart::Literal(_)
-            | PatternPart::AnyString
-            | PatternPart::AnyChar
-            | PatternPart::CharClass(_) => {}
-        }
-    }
-}
-
-fn walk_word_parts<F>(parts: &[WordPartNode], visit: &mut F)
-where
-    F: FnMut(Span),
-{
-    for part in parts {
-        match &part.kind {
-            WordPart::DoubleQuoted { parts, .. } => walk_word_parts(parts, visit),
-            WordPart::ArithmeticExpansion { expression_ast, .. } => {
-                if let Some(expression_ast) = expression_ast.as_ref() {
-                    visit_arithmetic_words(expression_ast, &mut |word| {
-                        walk_word(word, visit);
-                    });
-                }
-            }
-            WordPart::CommandSubstitution { body, .. }
-            | WordPart::ProcessSubstitution { body, .. } => walk_commands(body, visit),
-            _ => {}
-        }
-    }
-}
-
-fn walk_redirects<F>(redirects: &[Redirect], visit: &mut F)
-where
-    F: FnMut(Span),
-{
-    for redirect in redirects {
-        if let Some(word) = redirect.word_target() {
-            walk_word(word, visit);
-        } else if let Some(heredoc) = redirect.heredoc()
-            && heredoc.delimiter.expands_body
-        {
-            walk_heredoc_body_parts(&heredoc.body.parts, visit);
-        }
-    }
-}
-
-fn walk_heredoc_body_parts<F>(parts: &[HeredocBodyPartNode], visit: &mut F)
-where
-    F: FnMut(Span),
-{
-    for part in parts {
-        match &part.kind {
-            shuck_ast::HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => {
-                if let Some(expression_ast) = expression_ast.as_ref() {
-                    visit_arithmetic_words(expression_ast, &mut |word| {
-                        walk_word(word, visit);
-                    });
-                }
-            }
-            shuck_ast::HeredocBodyPart::CommandSubstitution { body, .. } => {
-                walk_commands(body, visit)
-            }
-            shuck_ast::HeredocBodyPart::Literal(_)
-            | shuck_ast::HeredocBodyPart::Variable(_)
-            | shuck_ast::HeredocBodyPart::Parameter(_) => {}
-        }
-    }
-}
-
-fn walk_conditional_expr<F>(expression: &ConditionalExpr, visit: &mut F)
-where
-    F: FnMut(Span),
-{
-    match expression {
-        ConditionalExpr::Binary(expr) => {
-            walk_conditional_expr(&expr.left, visit);
-            walk_conditional_expr(&expr.right, visit);
-        }
-        ConditionalExpr::Unary(expr) => walk_conditional_expr(&expr.expr, visit),
-        ConditionalExpr::Parenthesized(expr) => walk_conditional_expr(&expr.expr, visit),
-        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => walk_word(word, visit),
-        ConditionalExpr::Pattern(pattern) => walk_pattern(pattern, visit),
-        ConditionalExpr::VarRef(reference) => {
-            visit_var_ref_subscript_words(reference, &mut |word| {
-                walk_word(word, visit);
-            });
-        }
-    }
-}
-
-fn visit_var_ref_subscript_words<'a>(reference: &'a VarRef, visitor: &mut impl FnMut(&'a Word)) {
-    if let Some(expression) = reference
-        .subscript
-        .as_ref()
-        .and_then(|subscript| subscript.arithmetic_ast.as_ref())
-    {
-        visit_arithmetic_words(expression, visitor);
-    }
-}
-
-fn visit_arithmetic_words<'a>(
-    expression: &'a ArithmeticExprNode,
-    visitor: &mut impl FnMut(&'a Word),
-) {
-    match &expression.kind {
-        ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
-        ArithmeticExpr::Indexed { index, .. } => visit_arithmetic_words(index, visitor),
-        ArithmeticExpr::ShellWord(word) => visitor(word),
-        ArithmeticExpr::Parenthesized { expression } => {
-            visit_arithmetic_words(expression, visitor);
-        }
-        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
-            visit_arithmetic_words(expr, visitor);
-        }
-        ArithmeticExpr::Binary { left, right, .. } => {
-            visit_arithmetic_words(left, visitor);
-            visit_arithmetic_words(right, visitor);
-        }
-        ArithmeticExpr::Conditional {
-            condition,
-            then_expr,
-            else_expr,
-        } => {
-            visit_arithmetic_words(condition, visitor);
-            visit_arithmetic_words(then_expr, visitor);
-            visit_arithmetic_words(else_expr, visitor);
-        }
-        ArithmeticExpr::Assignment { target, value, .. } => {
-            visit_arithmetic_lvalue_words(target, visitor);
-            visit_arithmetic_words(value, visitor);
-        }
-    }
-}
-
-fn visit_arithmetic_lvalue_words<'a>(
-    target: &'a ArithmeticLvalue,
-    visitor: &mut impl FnMut(&'a Word),
-) {
-    match target {
-        ArithmeticLvalue::Variable(_) => {}
-        ArithmeticLvalue::Indexed { index, .. } => visit_arithmetic_words(index, visitor),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use shuck_indexer::Indexer;
     use shuck_parser::parser::{Parser, ShellDialect};
 
     use super::*;
-    use crate::{ShellCheckCodeMap, parse_directives};
+    use crate::{LinterSemanticArtifacts, ShellCheckCodeMap, parse_directives};
 
     fn suppression_index(source: &str) -> SuppressionIndex {
         suppression_index_with_dialect(source, ShellDialect::Bash)
@@ -641,9 +267,10 @@ mod tests {
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
-        SuppressionIndex::new(
+        let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
+        SuppressionIndex::from_sorted_command_spans(
             &directives,
-            &output.file,
+            semantic.suppression_command_spans(),
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         )
     }

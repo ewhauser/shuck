@@ -11,11 +11,10 @@ use shuck_parser::{
     parser::{ParseResult, Parser},
 };
 
-use crate::{Diagnostic, LinterSettings, Rule, ShellDialect, lint_file};
+use crate::{Diagnostic, LinterSettings, Rule, ShellDialect, lint_file_with_directives};
 
 use super::{
-    ShellCheckCodeMap, SuppressionAction, SuppressionDirective, SuppressionIndex,
-    SuppressionSource, first_statement_line, parse_directives,
+    ShellCheckCodeMap, SuppressionAction, SuppressionDirective, SuppressionSource, parse_directives,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,19 +118,12 @@ fn analyze_source(
         indexer.comment_index(),
         shellcheck_map,
     );
-    let suppression_index = (!directives.is_empty()).then(|| {
-        SuppressionIndex::new(
-            &directives,
-            &parse_result.file,
-            first_statement_line(&parse_result.file).unwrap_or(u32::MAX),
-        )
-    });
-    let diagnostics = lint_file(
+    let diagnostics = lint_file_with_directives(
         &parse_result,
         source,
         &indexer,
         settings,
-        suppression_index.as_ref(),
+        &directives,
         Some(path),
     );
     let strict_parse_error = strict_parse_error(&parse_result);

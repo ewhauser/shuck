@@ -5,8 +5,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    Applicability, LinterSettings, RuleSet, ShellCheckCodeMap, ShellDialect, SuppressionIndex,
-    first_statement_line, parse_directives,
+    Applicability, LinterSettings, RuleSet, ShellCheckCodeMap, ShellDialect, parse_directives,
 };
 use shuck_parser::{
     Error as ParseError,
@@ -153,19 +152,12 @@ pub(super) fn collect_lint_diagnostics(
         indexer.comment_index(),
         shellcheck_map,
     );
-    let suppression_index = (!directives.is_empty()).then(|| {
-        SuppressionIndex::new(
-            &directives,
-            &parse_result.file,
-            first_statement_line(&parse_result.file).unwrap_or(u32::MAX),
-        )
-    });
-    shuck_linter::lint_file(
+    shuck_linter::lint_file_with_directives(
         parse_result,
         source,
         &indexer,
         linter_settings,
-        suppression_index.as_ref(),
+        &directives,
         Some(source_path),
     )
 }

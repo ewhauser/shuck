@@ -7,8 +7,8 @@ use shuck_benchmark::{benchmark_cases, configure_benchmark_allocator, parse_fixt
 use shuck_indexer::Indexer;
 use shuck_linter::{
     LinterFacts, LinterSemanticArtifacts, LinterSettings, RuleSet, ShellCheckCodeMap,
-    SuppressionIndex, benchmark_collect_word_facts, benchmark_normalize_commands,
-    first_statement_line, lint_file, parse_directives,
+    benchmark_collect_word_facts, benchmark_normalize_commands, lint_file_with_directives,
+    parse_directives,
 };
 use shuck_parser::parser::ParseResult;
 use shuck_semantic::SemanticModel;
@@ -81,21 +81,8 @@ fn lint_source(
         indexer.comment_index(),
         shellcheck_map,
     );
-    let suppression_index = (!directives.is_empty()).then(|| {
-        SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        )
-    });
-    let diagnostics = lint_file(
-        &output,
-        source,
-        &indexer,
-        settings,
-        suppression_index.as_ref(),
-        None,
-    );
+    let diagnostics =
+        lint_file_with_directives(&output, source, &indexer, settings, &directives, None);
 
     black_box(diagnostics.len())
 }
