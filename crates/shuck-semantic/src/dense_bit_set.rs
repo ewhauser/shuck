@@ -89,10 +89,6 @@ impl DenseBitSet {
         }
     }
 
-    pub(crate) fn intersect_with(&mut self, other: &Self) {
-        self.intersect_with_words(&other.words);
-    }
-
     pub(crate) fn intersect_with_words(&mut self, words: &[usize]) {
         debug_assert_eq!(self.words.len(), words.len());
         for (word, other_word) in self.words.iter_mut().zip(words) {
@@ -129,19 +125,9 @@ impl DenseBitMatrix {
         }
     }
 
-    pub(crate) fn rows(&self) -> usize {
-        self.rows
-    }
-
     pub(crate) fn row(&self, row: usize) -> &[usize] {
         let start = row * self.words_per_row;
         &self.data[start..start + self.words_per_row]
-    }
-
-    pub(crate) fn fill_row_from_words(&mut self, row: usize, src: &[usize]) {
-        debug_assert_eq!(src.len(), self.words_per_row);
-        let start = row * self.words_per_row;
-        self.data[start..start + self.words_per_row].copy_from_slice(src);
     }
 
     pub(crate) fn fill_all_rows_from_words(&mut self, src: &[usize]) {
