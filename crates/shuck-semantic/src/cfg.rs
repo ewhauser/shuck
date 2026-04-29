@@ -8,6 +8,7 @@ use crate::function_resolution::resolved_function_calls_with_callee_scope;
 use crate::source_closure::SourcePathTemplate;
 use crate::{Binding, BindingId, CallSite, ReferenceId, Scope, ScopeId, SpanKey};
 
+/// Stable identifier for a CFG basic block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockId(pub(crate) u32);
 
@@ -17,44 +18,71 @@ impl BlockId {
     }
 }
 
+/// One basic block in the control-flow graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BasicBlock {
+    /// Unique identifier for this block.
     pub id: BlockId,
+    /// Command spans represented by the block.
     pub commands: SmallVec<[Span; 1]>,
+    /// Bindings introduced in the block.
     pub bindings: SmallVec<[BindingId; 2]>,
+    /// References recorded in the block.
     pub references: SmallVec<[ReferenceId; 4]>,
 }
 
+/// Edge label describing why control can flow between two blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EdgeKind {
+    /// Straight-line control flow.
     Sequential,
+    /// True branch of a conditional.
     ConditionalTrue,
+    /// False branch of a conditional.
     ConditionalFalse,
+    /// Loop back-edge.
     LoopBack,
+    /// Loop exit edge.
     LoopExit,
+    /// Edge into a case arm.
     CaseArm,
+    /// Fallthrough edge between case arms.
     CaseFallthrough,
+    /// Continue edge between case arms.
     CaseContinue,
+    /// Entry into a nested isolated region.
     NestedRegion,
 }
 
+/// Execution-context facts active at a command or block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct FlowContext {
+    /// Whether execution is inside a function body.
     pub in_function: bool,
+    /// Current loop nesting depth.
     pub loop_depth: u32,
+    /// Whether execution is inside a subshell-like environment.
     pub in_subshell: bool,
+    /// Whether execution is inside a brace or block context.
     pub in_block: bool,
+    /// Whether the command's exit status is checked by surrounding syntax.
     pub exit_status_checked: bool,
 }
 
+/// Role a command plays when it appears in a condition list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandConditionRole {
+    /// An `if` condition command.
     If,
+    /// An `elif` condition command.
     Elif,
+    /// A `while` condition command.
     While,
+    /// An `until` condition command.
     Until,
 }
 
+/// Control-flow graph built from the semantic command stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ControlFlowGraph {
     blocks: Vec<BasicBlock>,
@@ -75,14 +103,17 @@ pub struct ControlFlowGraph {
 type FlowEdge = (BlockId, EdgeKind);
 
 impl ControlFlowGraph {
+    /// Returns all basic blocks in allocation order.
     pub fn blocks(&self) -> &[BasicBlock] {
         &self.blocks
     }
 
+    /// Returns the block with identifier `id`.
     pub fn block(&self, id: BlockId) -> &BasicBlock {
         &self.blocks[id.index()]
     }
 
+    /// Returns the outgoing edges from block `id`.
     pub fn successors(&self, id: BlockId) -> &[(BlockId, EdgeKind)] {
         self.successors
             .get(id.index())
@@ -90,6 +121,7 @@ impl ControlFlowGraph {
             .unwrap_or(&[])
     }
 
+    /// Returns the incoming predecessors of block `id`.
     pub fn predecessors(&self, id: BlockId) -> &[BlockId] {
         self.predecessors
             .get(id.index())
@@ -97,26 +129,32 @@ impl ControlFlowGraph {
             .unwrap_or(&[])
     }
 
+    /// Returns the entry block for the whole script.
     pub fn entry(&self) -> BlockId {
         self.entry
     }
 
+    /// Returns all exit blocks, including exits caused by explicit termination.
     pub fn exits(&self) -> &[BlockId] {
         &self.exits
     }
 
+    /// Returns exits reachable without an explicit script terminator.
     pub fn natural_exits(&self) -> &[BlockId] {
         &self.natural_exits
     }
 
+    /// Returns blocks that terminate script execution, such as `exit` or top-level `return`.
     pub fn script_terminators(&self) -> &[BlockId] {
         &self.script_terminators
     }
 
+    /// Returns whether every reachable path through the script terminates.
     pub fn script_always_terminates(&self) -> bool {
         self.script_always_terminates
     }
 
+    /// Returns the entry block for `scope`, when the CFG records one.
     pub fn scope_entry(&self, scope: ScopeId) -> Option<BlockId> {
         self.scope_entries.get(&scope).copied()
     }
@@ -125,6 +163,7 @@ impl ControlFlowGraph {
         self.scope_exits.get(&scope).map(SmallVec::as_slice)
     }
 
+    /// Returns blocks proven unreachable.
     pub fn unreachable(&self) -> &[BlockId] {
         &self.unreachable
     }
@@ -141,9 +180,12 @@ impl ControlFlowGraph {
     }
 }
 
+/// Broad category for an unreachable-code cause.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnreachableCauseKind {
+    /// A shell terminator such as `exit`, `return`, or fatal control transfer.
     ShellTerminator,
+    /// Loop control such as `break` or `continue`.
     LoopControl,
 }
 
@@ -186,6 +228,7 @@ pub(crate) struct RecordedProgram {
     pub(crate) call_command_spans: FxHashMap<SpanKey, Span>,
 }
 
+/// A statement-sequence item flattened out of structured syntax.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StatementSequenceCommand {
     body_span: Span,
@@ -193,36 +236,49 @@ pub struct StatementSequenceCommand {
 }
 
 impl StatementSequenceCommand {
+    /// Returns the span of the command body without trailing statement punctuation.
     pub fn body_span(&self) -> Span {
         self.body_span
     }
 
+    /// Returns the span of the full statement item.
     pub fn stmt_span(&self) -> Span {
         self.stmt_span
     }
 }
 
+/// Stable identifier for a semantic command in the recorded command stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CommandId(pub(crate) u32);
 
 impl CommandId {
+    /// Returns the zero-based index used by internal command-storage vectors.
     pub fn index(self) -> usize {
         self.0 as usize
     }
 }
 
+/// High-level command category recorded by semantic traversal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CommandKind {
+    /// A simple command.
     Simple,
+    /// A builtin command with one of the tracked control-flow forms.
     Builtin(BuiltinCommandKind),
+    /// A declaration builtin command.
     Decl,
+    /// A binary command such as `[[ ... ]]` or `(( ... ))`.
     Binary,
+    /// A compound command.
     Compound(CompoundCommandKind),
+    /// A named function definition.
     Function,
+    /// An anonymous function-like definition.
     AnonymousFunction,
 }
 
 impl CommandKind {
+    /// Classifies a parsed AST command into a semantic command kind.
     pub fn from_command(command: &Command) -> Self {
         match command {
             Command::Simple(_) => Self::Simple,
@@ -238,11 +294,16 @@ impl CommandKind {
     }
 }
 
+/// Builtin command kinds that affect control flow directly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinCommandKind {
+    /// `break`
     Break,
+    /// `continue`
     Continue,
+    /// `return`
     Return,
+    /// `exit`
     Exit,
 }
 
@@ -257,23 +318,40 @@ impl BuiltinCommandKind {
     }
 }
 
+/// Compound command kinds tracked by semantic analysis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CompoundCommandKind {
+    /// `if`
     If,
+    /// `for`
     For,
+    /// `repeat`
     Repeat,
+    /// `foreach`
     Foreach,
+    /// Arithmetic `for (( ...; ...; ... ))`
     ArithmeticFor,
+    /// `while`
     While,
+    /// `until`
     Until,
+    /// `case`
     Case,
+    /// `select`
     Select,
+    /// Subshell `( ... )`
     Subshell,
+    /// Brace group `{ ...; }`
     BraceGroup,
+    /// Arithmetic command.
     Arithmetic,
+    /// `time`
     Time,
+    /// Conditional command such as `[[ ... ]]`.
     Conditional,
+    /// `coproc`
     Coproc,
+    /// `always`
     Always,
 }
 

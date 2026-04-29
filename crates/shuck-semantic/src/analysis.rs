@@ -8,7 +8,6 @@ use shuck_ast::{
     static_word_text,
 };
 
-#[allow(missing_docs)]
 impl<'model> SemanticAnalysis<'model> {
     pub(crate) fn new(model: &'model SemanticModel) -> Self {
         Self {
@@ -31,6 +30,7 @@ impl<'model> SemanticAnalysis<'model> {
         }
     }
 
+    /// Returns the lazily built control-flow graph for the underlying semantic model.
     pub fn cfg(&self) -> &ControlFlowGraph {
         self.cfg.get_or_init(|| {
             build_control_flow_graph(
@@ -58,6 +58,7 @@ impl<'model> SemanticAnalysis<'model> {
         self.unreachable_blocks().contains(&block_id)
     }
 
+    /// Returns the function binding resolved for the call whose callee token spans `name_span`.
     pub fn visible_function_binding_at_call(
         &self,
         name: &Name,
@@ -73,6 +74,7 @@ impl<'model> SemanticAnalysis<'model> {
             .copied()
     }
 
+    /// Iterates call sites for `name` that resolved to a visible function binding.
     pub fn resolved_function_call_sites<'analysis>(
         &'analysis self,
         name: &'analysis Name,
@@ -85,6 +87,10 @@ impl<'model> SemanticAnalysis<'model> {
         })
     }
 
+    /// Iterates call sites for `name` using resolution suitable for arity-style checks.
+    ///
+    /// When the main visible-function index has no answer for a call site, this falls back to a
+    /// lexical same-name binding search so callers can still reason about nearby definitions.
     pub fn function_call_arity_sites<'analysis>(
         &'analysis self,
         name: &'analysis Name,
@@ -98,6 +104,7 @@ impl<'model> SemanticAnalysis<'model> {
         })
     }
 
+    /// Returns the function body scope owned by `binding_id`, if it is a function definition.
     pub fn function_scope_for_binding(&self, binding_id: BindingId) -> Option<ScopeId> {
         self.model
             .recorded_program
@@ -106,6 +113,7 @@ impl<'model> SemanticAnalysis<'model> {
             .copied()
     }
 
+    /// Returns whether `scope` is a function nested inside another function.
     pub fn function_scope_is_nested(&self, scope: ScopeId) -> bool {
         self.model
             .scope(scope)
@@ -114,6 +122,7 @@ impl<'model> SemanticAnalysis<'model> {
             .is_some()
     }
 
+    /// Returns top-level `case "$1"` dispatch edges that select function scopes by name.
     pub fn case_cli_dispatches(&self, file: &File, source: &str) -> Vec<CaseCliDispatch> {
         let mut dispatches = Vec::new();
 
@@ -165,6 +174,7 @@ impl<'model> SemanticAnalysis<'model> {
         dispatches
     }
 
+    /// Returns function scopes that participate in a top-level `case "$1"` CLI dispatch pattern.
     pub fn case_cli_reachable_function_scopes(
         &self,
         file: &File,
@@ -197,6 +207,7 @@ impl<'model> SemanticAnalysis<'model> {
         scopes
     }
 
+    /// Returns the latest visible same-name function binding defined before the given call site.
     pub fn visible_function_binding_defined_before(
         &self,
         name: &Name,
@@ -265,6 +276,8 @@ impl<'model> SemanticAnalysis<'model> {
             .map(|(scope, bindings)| (*scope, bindings.as_slice()))
     }
 
+    /// Creates a direct-call reachability engine over this analysis, optionally seeding extra
+    /// synthetic call candidates.
     pub fn direct_function_call_reachability<'analysis>(
         &'analysis self,
         supplemental_calls: impl IntoIterator<Item = FunctionCallCandidate>,
@@ -399,6 +412,10 @@ impl<'model> SemanticAnalysis<'model> {
         )
     }
 
+    /// Returns bindings whose values can reach the named use contained in `at`.
+    ///
+    /// This prefers exact dataflow when a matching reference is available, then falls back to the
+    /// latest lexically visible binding.
     pub fn reaching_bindings_for_name(&self, name: &Name, at: Span) -> Vec<BindingId> {
         let cfg = self.cfg();
         let context = self.model.dataflow_context(cfg);
@@ -462,12 +479,14 @@ impl<'model> SemanticAnalysis<'model> {
             .collect()
     }
 
+    /// Returns the lazily computed dead-code regions for the script.
     pub fn dead_code(&self) -> &[DeadCode] {
         self.dead_code
             .get_or_init(|| dataflow::analyze_dead_code(self.cfg()))
             .as_slice()
     }
 
+    /// Returns whether every CFG block associated with `span` is reachable.
     pub fn is_reachable(&self, span: &Span) -> bool {
         let cfg = self.cfg();
         cfg.block_ids_for_span(*span)

@@ -5,49 +5,27 @@
 //!
 //! The semantic model tracks scopes, bindings, references, control flow, and selected dataflow
 //! facts so higher-level crates can reason about shell behavior without re-traversing the AST.
-#[allow(missing_docs)]
 mod analysis;
-#[allow(missing_docs)]
 mod binding;
-#[allow(missing_docs)]
 mod builder;
-#[allow(missing_docs)]
 mod call_graph;
-#[allow(missing_docs)]
 mod cfg;
-#[allow(missing_docs)]
 mod contract;
-#[allow(missing_docs)]
 mod dataflow;
-#[allow(missing_docs)]
 mod declaration;
-#[allow(missing_docs)]
 mod dense_bit_set;
-#[allow(missing_docs)]
 mod function_call_reachability;
-#[allow(missing_docs)]
 mod function_resolution;
-#[allow(missing_docs)]
 mod nonpersistent;
-#[allow(missing_docs)]
 mod reachability;
-#[allow(missing_docs)]
 mod reference;
-#[allow(missing_docs)]
 mod runtime;
-#[allow(missing_docs)]
 mod scope;
-#[allow(missing_docs)]
 mod source_closure;
-#[allow(missing_docs)]
 mod source_ref;
-#[allow(missing_docs)]
 mod uninitialized;
-#[allow(missing_docs)]
 mod unused;
-#[allow(missing_docs)]
 mod value_flow;
-#[allow(missing_docs)]
 mod zsh_options;
 
 /// Binding types and provenance metadata discovered during semantic analysis.
@@ -350,12 +328,13 @@ pub struct FunctionPositionalReferenceSummary {
     uses_unprotected_positional_parameters: bool,
 }
 
-#[allow(missing_docs)]
 impl FunctionPositionalReferenceSummary {
+    /// Returns the highest positional argument index that is definitely required.
     pub fn required_arg_count(self) -> usize {
         self.required_arg_count
     }
 
+    /// Returns whether the function reads positional parameters without a guarding default.
     pub fn uses_unprotected_positional_parameters(self) -> bool {
         self.uses_unprotected_positional_parameters
     }
@@ -390,16 +369,18 @@ pub struct UnreachedFunctionAnalysisOptions {
     pub report_unreached_nested_definitions: bool,
 }
 
-#[allow(missing_docs)]
 impl SyntheticRead {
+    /// Returns the scope where the synthetic read should be considered visible.
     pub fn scope(&self) -> ScopeId {
         self.scope
     }
 
+    /// Returns the span that higher layers should attribute to the synthetic read.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns the runtime name read by this synthetic entry.
     pub fn name(&self) -> &Name {
         &self.name
     }
@@ -767,12 +748,13 @@ pub enum SemanticPipelineOperatorKind {
     PipeAll,
 }
 
-#[allow(missing_docs)]
 impl SemanticModel {
+    /// Builds a semantic model for `file` using the default build options.
     pub fn build(file: &File, source: &str, indexer: &Indexer) -> Self {
         Self::build_with_options(file, source, indexer, SemanticBuildOptions::default())
     }
 
+    /// Builds a semantic model for `file` using explicit semantic build options.
     pub fn build_with_options(
         file: &File,
         source: &str,
@@ -859,28 +841,34 @@ impl SemanticModel {
         }
     }
 
+    /// Returns a lazy analysis view that computes CFG, dataflow, and reachability on demand.
     pub fn analysis(&self) -> SemanticAnalysis<'_> {
         SemanticAnalysis::new(self)
     }
 
+    /// Returns the shell profile used when building this model.
     pub fn shell_profile(&self) -> &ShellProfile {
         &self.shell_profile
     }
 
+    /// Returns the zsh option state visible at `offset`, when the model tracks zsh options.
     pub fn zsh_options_at(&self, offset: usize) -> Option<&ZshOptionState> {
         self.zsh_option_analysis
             .as_ref()
             .and_then(|analysis| analysis.options_at(&self.scopes, offset))
     }
 
+    /// Returns all semantic scopes discovered in the file.
     pub fn scopes(&self) -> &[Scope] {
         &self.scopes
     }
 
+    /// Returns the scope identified by `id`.
     pub fn scope(&self, id: ScopeId) -> &Scope {
         &self.scopes[id.index()]
     }
 
+    /// Returns all semantic bindings discovered in the file.
     pub fn bindings(&self) -> &[Binding] {
         &self.bindings
     }
@@ -900,6 +888,7 @@ impl SemanticModel {
         ids.iter().map(|id| &self.bindings[id.index()])
     }
 
+    /// Returns all semantic references discovered in the file.
     pub fn references(&self) -> &[Reference] {
         &self.references
     }
@@ -1033,10 +1022,12 @@ impl SemanticModel {
         }
     }
 
+    /// Returns the binding identified by `id`.
     pub fn binding(&self, id: BindingId) -> &Binding {
         &self.bindings[id.index()]
     }
 
+    /// Returns the binding introduced at exactly `span`, when such a definition is indexed.
     pub fn binding_for_definition_span(&self, span: Span) -> Option<BindingId> {
         let index = self
             .bindings_by_definition_span
@@ -1044,16 +1035,19 @@ impl SemanticModel {
         index.get(&SpanKey::new(span)).copied()
     }
 
+    /// Returns the reference identified by `id`.
     pub fn reference(&self, id: ReferenceId) -> &Reference {
         &self.references[id.index()]
     }
 
+    /// Returns the binding resolved for `id`, if reference resolution succeeded.
     pub fn resolved_binding(&self, id: ReferenceId) -> Option<&Binding> {
         self.resolved
             .get(&id)
             .map(|binding| &self.bindings[binding.index()])
     }
 
+    /// Returns whether `id` names a predefined runtime array variable.
     pub fn reference_is_predefined_runtime_array(&self, id: ReferenceId) -> bool {
         self.predefined_runtime_refs.contains(&id)
             && self
@@ -1062,14 +1056,18 @@ impl SemanticModel {
                 .is_some_and(|reference| self.runtime.is_preinitialized_array(&reference.name))
     }
 
+    /// Returns whether `id` is guarded by parameter-expansion syntax that suppresses missing-name
+    /// diagnostics.
     pub fn is_guarded_parameter_reference(&self, id: ReferenceId) -> bool {
         self.guarded_parameter_refs.contains(&id)
     }
 
+    /// Returns whether `id` appears inside a defaulting parameter operand.
     pub fn is_defaulting_parameter_operand_reference(&self, id: ReferenceId) -> bool {
         self.defaulting_parameter_operand_refs.contains(&id)
     }
 
+    /// Returns bindings that may be targeted by indirect reads through `id`.
     pub fn indirect_targets_for_binding(&self, id: BindingId) -> &[BindingId] {
         self.indirect_targets_by_binding
             .get(&id)
@@ -1077,6 +1075,7 @@ impl SemanticModel {
             .unwrap_or(&[])
     }
 
+    /// Returns bindings that may be targeted by the indirect reference `id`.
     pub fn indirect_targets_for_reference(&self, id: ReferenceId) -> &[BindingId] {
         self.indirect_targets_by_reference
             .get(&id)
@@ -1084,6 +1083,7 @@ impl SemanticModel {
             .unwrap_or(&[])
     }
 
+    /// Returns bindings recorded for `name`, ordered by definition offset.
     pub fn bindings_for(&self, name: &Name) -> &[BindingId] {
         self.binding_index
             .get(name)
@@ -1091,6 +1091,7 @@ impl SemanticModel {
             .unwrap_or(&[])
     }
 
+    /// Returns the latest binding for `name` that is visible at `at`.
     pub fn visible_binding(&self, name: &Name, at: Span) -> Option<&Binding> {
         self.previous_visible_binding(name, at, None)
     }
@@ -1134,6 +1135,8 @@ impl SemanticModel {
     }
 
     #[doc(hidden)]
+    /// Returns whether `binding_id` is lexically visible at `at`.
+    #[doc(hidden)]
     pub fn binding_visible_at(&self, binding_id: BindingId, at: Span) -> bool {
         let binding = self.binding(binding_id);
         binding.span.start.offset <= at.start.offset
@@ -1142,6 +1145,7 @@ impl SemanticModel {
                 .any(|scope| scope == binding.scope)
     }
 
+    /// Returns whether `binding_id` is cleared between its definition and `at`.
     #[doc(hidden)]
     pub fn binding_cleared_before(&self, binding_id: BindingId, at: Span) -> bool {
         let binding = self.binding(binding_id);
@@ -1154,6 +1158,7 @@ impl SemanticModel {
             })
     }
 
+    /// Returns whether `binding_id` and `reference_id` were recorded under the same command span.
     #[doc(hidden)]
     pub fn binding_and_reference_share_command(
         &self,
@@ -1169,6 +1174,8 @@ impl SemanticModel {
         })
     }
 
+    /// Returns the previous visible binding for `name` at `at`, optionally ignoring one exact
+    /// binding span.
     #[doc(hidden)]
     pub fn previous_visible_binding(
         &self,
@@ -1186,6 +1193,7 @@ impl SemanticModel {
         .map(|binding_id| self.binding(binding_id))
     }
 
+    /// Returns the binding visible for an associative-array lookup in `current_scope`.
     #[doc(hidden)]
     pub fn visible_binding_for_assoc_lookup(
         &self,
@@ -1278,10 +1286,12 @@ impl SemanticModel {
             })
     }
 
+    /// Returns whether any binding for `name` exists in the model.
     pub fn defined_anywhere(&self, name: &Name) -> bool {
         self.binding_index.contains_key(name)
     }
 
+    /// Returns whether `name` is defined inside at least one function scope.
     pub fn defined_in_any_function(&self, name: &Name) -> bool {
         self.binding_index.get(name).is_some_and(|bindings| {
             bindings.iter().any(|binding| {
@@ -1293,12 +1303,15 @@ impl SemanticModel {
         })
     }
 
+    /// Returns whether runtime behavior can consume `binding_id` even without a direct read in
+    /// the current file.
     pub fn is_runtime_consumed_binding(&self, binding_id: BindingId) -> bool {
         self.bindings
             .get(binding_id.index())
             .is_some_and(|binding| self.runtime.is_always_used_binding(&binding.name))
     }
 
+    /// Returns whether `name` has a required-read reference in `scope` before `offset`.
     pub fn required_before(&self, name: &Name, scope: ScopeId, offset: usize) -> bool {
         self.references.iter().any(|reference| {
             reference.scope == scope
@@ -1308,22 +1321,26 @@ impl SemanticModel {
         })
     }
 
+    /// Returns whether an ancestor scope outside `scope` defines `name`.
     pub fn maybe_defined_outside(&self, name: &Name, scope: ScopeId) -> bool {
         self.ancestor_scopes(scope)
             .skip(1)
             .any(|scope| self.scopes[scope.index()].bindings.contains_key(name))
     }
 
+    /// Returns references that did not resolve to any binding.
     pub fn unresolved_references(&self) -> &[ReferenceId] {
         &self.unresolved
     }
 
+    /// Returns the innermost semantic scope containing `offset`.
     pub fn scope_at(&self, offset: usize) -> ScopeId {
         self.scope_lookup
             .scope_at(&self.scopes, offset)
             .unwrap_or(ScopeId(0))
     }
 
+    /// Returns the kind metadata for `scope`.
     pub fn scope_kind(&self, scope: ScopeId) -> &ScopeKind {
         &self.scopes[scope.index()].kind
     }
@@ -1335,23 +1352,28 @@ impl SemanticModel {
         )
     }
 
+    /// Iterates `scope` and then each lexical ancestor scope outward.
     pub fn ancestor_scopes(&self, scope: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
         ancestor_scopes(&self.scopes, scope)
     }
 
+    /// Returns whether `scope` is equal to `ancestor_scope` or nested within it.
     pub fn scope_is_in_scope_or_descendant(&self, scope: ScopeId, ancestor_scope: ScopeId) -> bool {
         self.ancestor_scopes(scope)
             .any(|scope| scope == ancestor_scope)
     }
 
+    /// Returns whether `scope` is strictly nested within `ancestor_scope`.
     pub fn scope_is_descendant_of(&self, scope: ScopeId, ancestor_scope: ScopeId) -> bool {
         scope != ancestor_scope && self.scope_is_in_scope_or_descendant(scope, ancestor_scope)
     }
 
+    /// Returns the nearest enclosing function scope for `scope`, if one exists.
     pub fn enclosing_function_scope(&self, scope: ScopeId) -> Option<ScopeId> {
         enclosing_function_scope(&self.scopes, scope)
     }
 
+    /// Iterates transient ancestor scopes between `scope` and its enclosing function boundary.
     #[doc(hidden)]
     pub fn transient_ancestor_scopes_within_function(
         &self,
@@ -1362,11 +1384,13 @@ impl SemanticModel {
             .filter(|scope_id| self.scope_is_transient(*scope_id))
     }
 
+    /// Returns the innermost transient ancestor scope before crossing a function boundary.
     #[doc(hidden)]
     pub fn innermost_transient_scope_within_function(&self, scope: ScopeId) -> Option<ScopeId> {
         self.transient_ancestor_scopes_within_function(scope).next()
     }
 
+    /// Returns the enclosing function scope only when no transient boundary intervenes.
     #[doc(hidden)]
     pub fn enclosing_function_scope_without_transient_boundary(
         &self,
@@ -1456,6 +1480,7 @@ impl SemanticModel {
         })
     }
 
+    /// Returns the most specific recorded flow context associated with `span`.
     pub fn flow_context_at(&self, span: &Span) -> Option<&FlowContext> {
         self.flow_contexts
             .iter()
@@ -1734,6 +1759,7 @@ impl SemanticModel {
         None
     }
 
+    /// Returns same-name function-definition bindings for `name`, ordered by definition offset.
     pub fn function_definitions(&self, name: &Name) -> &[BindingId] {
         self.functions
             .get(name)
@@ -1741,6 +1767,7 @@ impl SemanticModel {
             .unwrap_or(&[])
     }
 
+    /// Returns recorded call sites for `name`.
     pub fn call_sites_for(&self, name: &Name) -> &[CallSite] {
         self.call_sites
             .get(name)
@@ -1748,14 +1775,17 @@ impl SemanticModel {
             .unwrap_or(&[])
     }
 
+    /// Returns the current call-graph summary for the model.
     pub fn call_graph(&self) -> &CallGraph {
         &self.call_graph
     }
 
+    /// Returns declaration commands recorded in the file.
     pub fn declarations(&self) -> &[Declaration] {
         &self.declarations
     }
 
+    /// Returns the declaration recorded for the command with syntax span `span`.
     pub fn declaration_for_command_span(&self, span: Span) -> Option<&Declaration> {
         let index = self
             .declarations_by_command_span
@@ -1765,6 +1795,7 @@ impl SemanticModel {
             .map(|declaration_index| &self.declarations[*declaration_index])
     }
 
+    /// Returns the function-definition binding recorded for command span `span`, if any.
     pub fn function_definition_binding_for_command_span(&self, span: Span) -> Option<BindingId> {
         self.command_bindings
             .get(&SpanKey::new(span))
@@ -1778,14 +1809,17 @@ impl SemanticModel {
             })
     }
 
+    /// Returns source-like file references discovered in the script.
     pub fn source_refs(&self) -> &[SourceRef] {
         &self.source_refs
     }
 
+    /// Returns synthetic reads introduced by contracts or semantic modeling.
     pub fn synthetic_reads(&self) -> &[SyntheticRead] {
         &self.synthetic_reads
     }
 
+    /// Returns origin paths that contributed the imported binding `id`.
     pub fn import_origins_for_binding(&self, id: BindingId) -> &[PathBuf] {
         self.import_origins_by_binding
             .get(&id)
@@ -1793,22 +1827,27 @@ impl SemanticModel {
             .unwrap_or(&[])
     }
 
+    /// Returns flattened statement-sequence commands recorded during traversal.
     pub fn statement_sequence_commands(&self) -> &[StatementSequenceCommand] {
         self.recorded_program.statement_sequence_commands()
     }
 
+    /// Returns the number of recorded semantic commands.
     pub fn command_count(&self) -> usize {
         self.recorded_program.commands().len()
     }
 
+    /// Returns command ids for every syntax-backed recorded command.
     pub fn commands(&self) -> &[CommandId] {
         &self.command_topology().syntax_backed_ids
     }
 
+    /// Returns command ids for the structural command stream.
     pub fn structural_commands(&self) -> &[CommandId] {
         &self.command_topology().structural_ids
     }
 
+    /// Returns the recorded semantic context for `id`.
     pub fn command_context(&self, id: CommandId) -> Option<&SemanticCommandContext> {
         self.command_topology()
             .contexts
@@ -1816,6 +1855,7 @@ impl SemanticModel {
             .and_then(Option::as_ref)
     }
 
+    /// Iterates recorded command contexts in command-id order.
     pub fn command_contexts(&self) -> impl Iterator<Item = &SemanticCommandContext> {
         self.command_topology()
             .contexts
@@ -1823,34 +1863,41 @@ impl SemanticModel {
             .filter_map(Option::as_ref)
     }
 
+    /// Iterates only structural command contexts.
     pub fn structural_command_contexts(&self) -> impl Iterator<Item = &SemanticCommandContext> {
         self.command_contexts()
             .filter(|context| context.is_structural())
     }
 
+    /// Returns the surrounding condition-list role for `id`, if one applies.
     pub fn command_condition_role(&self, id: CommandId) -> Option<CommandConditionRole> {
         self.command_context(id)
             .and_then(SemanticCommandContext::condition_role)
     }
 
+    /// Returns whether `id` came from a command-like expansion inside a word.
     pub fn command_is_nested_word_command(&self, id: CommandId) -> bool {
         self.command_context(id)
             .is_some_and(SemanticCommandContext::is_nested_word_command)
     }
 
+    /// Returns the recorded statement span for `id`.
     pub fn command_span(&self, id: CommandId) -> Span {
         self.recorded_program.command(id).span
     }
 
+    /// Returns the underlying syntax-node span for `id`.
     pub fn command_syntax_span(&self, id: CommandId) -> Span {
         self.recorded_program.command(id).syntax_span
     }
 
+    /// Returns the syntax-backed command kind for `id`.
     pub fn command_kind(&self, id: CommandId) -> CommandKind {
         self.command_syntax_kind(id)
             .expect("semantic command syntax kind is recorded")
     }
 
+    /// Returns the first syntax-backed command recorded for exact syntax span `span`.
     pub fn command_by_span(&self, span: Span) -> Option<CommandId> {
         self.command_topology()
             .ids_by_syntax_span
@@ -1862,6 +1909,7 @@ impl SemanticModel {
             })
     }
 
+    /// Returns the command recorded for exact syntax span `span` and syntax kind `kind`.
     pub fn command_by_span_and_kind(&self, span: Span, kind: CommandKind) -> Option<CommandId> {
         self.command_topology()
             .ids_by_syntax_span
@@ -1873,22 +1921,27 @@ impl SemanticModel {
             })
     }
 
+    /// Returns the structural parent command of `id`, if one exists.
     pub fn command_parent_id(&self, id: CommandId) -> Option<CommandId> {
         self.command_topology().parent_ids[id.index()]
     }
 
+    /// Returns structural child commands nested under `id`.
     pub fn command_children(&self, id: CommandId) -> &[CommandId] {
         &self.command_topology().child_ids[id.index()]
     }
 
+    /// Returns the syntax-backed parent command of `id`, if one exists.
     pub fn syntax_backed_command_parent_id(&self, id: CommandId) -> Option<CommandId> {
         self.command_topology().syntax_backed_parent_ids[id.index()]
     }
 
+    /// Returns syntax-backed child commands nested directly under `id`.
     pub fn syntax_backed_command_children(&self, id: CommandId) -> &[CommandId] {
         &self.command_topology().syntax_backed_child_ids[id.index()]
     }
 
+    /// Returns the innermost syntax-backed command whose syntax span contains `offset`.
     pub fn innermost_command_id_at(&self, offset: usize) -> Option<CommandId> {
         let topology = self.command_topology();
         let mut innermost = None;
@@ -1904,6 +1957,7 @@ impl SemanticModel {
         innermost
     }
 
+    /// Returns the innermost command known to contain `offset` using the topology index.
     pub fn innermost_command_id_containing_offset(&self, offset: usize) -> Option<CommandId> {
         let topology = self.command_topology();
         let upper_bound = topology

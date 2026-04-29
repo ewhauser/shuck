@@ -15,54 +15,81 @@ use crate::{
 };
 use std::sync::OnceLock;
 
+/// Materialized reaching-definition sets for each CFG block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReachingDefinitions {
+    /// Definitions reaching the start of each block.
     pub reaching_in: FxHashMap<BlockId, FxHashSet<BindingId>>,
+    /// Definitions reaching the end of each block.
     pub reaching_out: FxHashMap<BlockId, FxHashSet<BindingId>>,
 }
 
+/// One assignment that was proven unused together with the reason.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnusedAssignment {
+    /// Unused binding.
     pub binding: BindingId,
+    /// Why the assignment is considered unused.
     pub reason: UnusedReason,
 }
 
+/// Reason an assignment is considered unused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnusedReason {
-    Overwritten { by: BindingId },
+    /// The value is overwritten before any read.
+    Overwritten {
+        /// Binding that overwrites the unused value.
+        by: BindingId,
+    },
+    /// Control reaches the end of its relevant scope without a read.
     ScopeEnd,
 }
 
+/// One reference that may read an uninitialized binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UninitializedReference {
+    /// Reference that may be uninitialized.
     pub reference: ReferenceId,
+    /// How certain the analysis is.
     pub certainty: UninitializedCertainty,
 }
 
+/// Confidence for an uninitialized-reference result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UninitializedCertainty {
+    /// Every feasible path leaves the reference uninitialized.
     Definite,
+    /// At least one feasible path leaves the reference uninitialized.
     Possible,
 }
 
+/// One region of unreachable code and the syntax that makes it unreachable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeadCode {
+    /// Spans classified as unreachable.
     pub unreachable: Vec<Span>,
+    /// Span of the control-flow construct that causes the region to be unreachable.
     pub cause: Span,
+    /// Broad category for the cause.
     pub cause_kind: UnreachableCauseKind,
 }
 
 #[cfg(test)]
+/// Full dataflow result materialized for crate tests.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataflowResult {
+    /// Unused-assignment diagnostics with reasons.
     pub unused_assignments: Vec<UnusedAssignment>,
+    /// Uninitialized-reference diagnostics.
     pub uninitialized_references: Vec<UninitializedReference>,
+    /// Unreachable-code diagnostics.
     pub dead_code: Vec<DeadCode>,
     pub(crate) unused_assignment_ids: Vec<BindingId>,
 }
 
 #[cfg(test)]
 impl DataflowResult {
+    /// Returns the binding ids reported as unused in test-only result materialization.
     pub fn unused_assignment_ids(&self) -> &[BindingId] {
         &self.unused_assignment_ids
     }

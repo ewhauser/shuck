@@ -6,41 +6,64 @@ use crate::binding::Binding;
 use crate::scope::ancestor_scopes;
 use crate::{BindingId, Scope, ScopeId, ScopeKind};
 
+/// One syntactic function call site.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CallSite {
+    /// Callee name as written at the site.
     pub callee: Name,
+    /// Span of the containing command.
     pub span: Span,
+    /// Span of the callee token itself.
     pub name_span: Span,
+    /// Scope active at the call site.
     pub scope: ScopeId,
+    /// Number of positional arguments passed at the site.
     pub arg_count: usize,
 }
 
+/// Summary call graph derived from discovered function definitions and call sites.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CallGraph {
+    /// Function names reachable from top-level execution.
     pub reachable: FxHashSet<Name>,
+    /// Function-definition bindings that were never reached from the top level.
     pub uncalled: Vec<BindingId>,
+    /// Pairs of same-name function definitions where a later definition overwrites an earlier one.
     pub overwritten: Vec<OverwrittenFunction>,
 }
 
+/// Two same-name function definitions where the second overwrites the first.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OverwrittenFunction {
+    /// Function name shared by both definitions.
     pub name: Name,
+    /// Earlier function-definition binding.
     pub first: BindingId,
+    /// Later function-definition binding.
     pub second: BindingId,
+    /// Whether the earlier definition was called before being overwritten.
     pub first_called: bool,
 }
 
+/// Reason a function definition is considered unreached.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnreachedFunctionReason {
+    /// The definition appears only in unreachable control-flow.
     UnreachableDefinition,
+    /// The script terminates before control can reach the definition.
     ScriptTerminates,
+    /// The enclosing function is not itself reached.
     EnclosingFunctionUnreached,
 }
 
+/// One unreached function definition together with the reason it is unreached.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnreachedFunction {
+    /// Function name.
     pub name: Name,
+    /// Binding for the unreached definition.
     pub binding: BindingId,
+    /// Why the function is unreached.
     pub reason: UnreachedFunctionReason,
 }
 

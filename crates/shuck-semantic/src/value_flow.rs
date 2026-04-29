@@ -2,6 +2,10 @@ use std::cell::RefCell;
 
 use super::*;
 
+/// Value-flow query helper layered on top of [`SemanticAnalysis`].
+///
+/// This combines lexical visibility, CFG reachability, and function-call propagation to answer
+/// higher-level questions about which bindings may supply a value at a given use site.
 #[derive(Debug)]
 pub struct SemanticValueFlow<'analysis, 'model> {
     analysis: &'analysis SemanticAnalysis<'model>,
@@ -13,6 +17,7 @@ pub struct SemanticValueFlow<'analysis, 'model> {
 }
 
 impl<'model> SemanticAnalysis<'model> {
+    /// Creates a fresh value-flow query helper for this analysis view.
     pub fn value_flow(&self) -> SemanticValueFlow<'_, 'model> {
         SemanticValueFlow::new(self)
     }
@@ -30,10 +35,13 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         }
     }
 
+    /// Returns bindings that may supply the value of `name` at the use site contained in `at`.
     pub fn reaching_value_bindings_for_name(&self, name: &Name, at: Span) -> Vec<BindingId> {
         self.reaching_value_bindings_for_name_inner(name, at, None)
     }
 
+    /// Returns bindings that may supply the value of `name` at `at`, optionally treating
+    /// `synthetic_use_block` as the use-site block when no direct semantic reference exists.
     pub fn reaching_value_bindings_for_name_with_synthetic_use_block(
         &self,
         name: &Name,
@@ -67,6 +75,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         bindings
     }
 
+    /// Returns value-supplying bindings for `name` at `at`, excluding `bypass_binding`.
     pub fn reaching_value_bindings_bypassing(
         &self,
         name: &Name,
@@ -81,6 +90,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         bindings
     }
 
+    /// Returns visible value-supplying bindings for `name` from ancestor scopes before `at`.
     pub fn ancestor_value_bindings_before(
         &self,
         name: &Name,
@@ -107,6 +117,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         bindings
     }
 
+    /// Returns helper-provided value bindings that can flow in from called functions before `at`.
     pub fn helper_value_bindings_before(&mut self, name: &Name, at: Span) -> Vec<BindingId> {
         let mut bindings = self
             .model()
@@ -119,6 +130,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         bindings
     }
 
+    /// Returns nonlocal bindings for `name` that can flow in from functions called before `at`.
     pub fn nonlocal_value_bindings_from_called_functions_before(
         &mut self,
         name: &Name,
@@ -155,6 +167,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         bindings
     }
 
+    /// Returns call sites outside `scope` that invoke one of the scope's static function names.
     pub fn named_function_call_sites(&self, scope: ScopeId) -> Vec<CallSite> {
         if let Some(cached) = self.named_function_call_sites_memo.borrow().get(&scope) {
             return cached.to_vec();
@@ -183,6 +196,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         caller_sites
     }
 
+    /// Returns directly called function scopes reachable from `scope` before `limit_offset`.
     pub fn called_function_scopes_before(
         &self,
         scope: ScopeId,
@@ -217,6 +231,8 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         scopes
     }
 
+    /// Returns directly called function scopes before `limit_offset` using relaxed
+    /// definition-command matching.
     pub fn called_function_scopes_before_relaxed(
         &self,
         scope: ScopeId,
@@ -256,6 +272,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         scopes
     }
 
+    /// Returns the transitive closure of called function scopes reachable before `limit_offset`.
     pub fn transitively_called_function_scopes_before(
         &self,
         scope: ScopeId,
@@ -273,6 +290,8 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         scopes
     }
 
+    /// Returns the transitive closure of called function scopes before `limit_offset` using
+    /// relaxed definition-command matching.
     pub fn transitively_called_function_scopes_before_relaxed(
         &self,
         scope: ScopeId,
@@ -290,6 +309,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         scopes
     }
 
+    /// Returns whether `bindings` cover every path to the command span `target_span`.
     pub fn value_bindings_cover_all_paths_to_span(
         &self,
         bindings: &[BindingId],
@@ -330,10 +350,12 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         })
     }
 
+    /// Returns whether `binding_id` is lexically visible at `at`.
     pub fn binding_visible_at(&self, binding_id: BindingId, at: Span) -> bool {
         self.model().binding_visible_at(binding_id, at)
     }
 
+    /// Returns whether `binding_id` can contribute a runtime parameter value.
     pub fn binding_can_supply_parameter_value(&self, binding_id: BindingId) -> bool {
         let binding = self.model().binding(binding_id);
         match binding.origin {
@@ -590,6 +612,7 @@ impl<'analysis, 'model> SemanticValueFlow<'analysis, 'model> {
         caller_sites
     }
 
+    /// Returns value-supplying bindings for `name` visible to callers of `scope` before `at`.
     pub fn caller_value_bindings_before(
         &mut self,
         name: &Name,
