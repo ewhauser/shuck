@@ -287,14 +287,14 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "shuck-ast"
-version = "0.0.26"
+version = "0.0.27"
 dependencies = [
  "compact_str",
 ]
 
 [[package]]
 name = "shuck-formatter"
-version = "0.0.26"
+version = "0.0.27"
 
 [[package]]
 name = "shuck-fuzz"
@@ -311,7 +311,7 @@ dependencies = [
 
 [[package]]
 name = "shuck-indexer"
-version = "0.0.26"
+version = "0.0.27"
 dependencies = [
  "shuck-ast",
  "shuck-parser",
@@ -319,9 +319,10 @@ dependencies = [
 
 [[package]]
 name = "shuck-linter"
-version = "0.0.26"
+version = "0.0.27"
 dependencies = [
  "anyhow",
+ "compact_str",
  "globset",
  "rustc-hash",
  "serde",
@@ -336,7 +337,7 @@ dependencies = [
 
 [[package]]
 name = "shuck-parser"
-version = "0.0.26"
+version = "0.0.27"
 dependencies = [
  "memchr",
  "shuck-ast",
@@ -345,9 +346,10 @@ dependencies = [
 
 [[package]]
 name = "shuck-semantic"
-version = "0.0.26"
+version = "0.0.27"
 dependencies = [
  "bitflags",
+ "compact_str",
  "rustc-hash",
  "shuck-ast",
  "shuck-indexer",
