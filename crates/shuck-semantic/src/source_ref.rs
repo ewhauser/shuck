@@ -23,10 +23,7 @@ pub enum SourceRefKind {
     Directive(CompactString),
     DirectiveDevNull,
     Dynamic,
-    SingleVariableStaticTail {
-        variable: Name,
-        tail: CompactString,
-    },
+    SingleVariableStaticTail { variable: Name, tail: CompactString },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
