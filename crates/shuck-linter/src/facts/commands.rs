@@ -743,7 +743,7 @@ fn populate_scope_fact_ranges<'a>(
     fact_store: &mut FactStore<'a>,
     command_fact_indices_by_id: &[Option<usize>],
     pipelines: &[PipelineFact<'a>],
-    if_condition_command_ids: &FxHashSet<CommandId>,
+    if_condition_command_ids: &DenseCommandIdSet,
     source: &'a str,
 ) {
     let (pipeline_summaries, pipeline_summary_ids_by_writer) = {
@@ -779,7 +779,7 @@ fn populate_scope_fact_ranges<'a>(
 struct ScopeFactInputs<'facts, 'a> {
     pipeline_summaries: &'facts [PipelineScopeSummary<'a>],
     pipeline_summary_ids_by_writer: &'facts [SmallVec<[usize; 1]>],
-    if_condition_command_ids: &'facts FxHashSet<CommandId>,
+    if_condition_command_ids: &'facts DenseCommandIdSet,
     source: &'a str,
 }
 
@@ -862,7 +862,7 @@ struct PipelineScopeSummary<'a> {
 fn build_pipeline_scope_summaries<'a>(
     commands: CommandFacts<'_, 'a>,
     pipelines: &[PipelineFact<'a>],
-    if_condition_command_ids: &FxHashSet<CommandId>,
+    if_condition_command_ids: &DenseCommandIdSet,
     source: &str,
 ) -> (Vec<PipelineScopeSummary<'a>>, Vec<SmallVec<[usize; 1]>>) {
     let mut summaries = Vec::new();
@@ -920,7 +920,7 @@ fn collect_scope_read_source_words_for_command<'a>(
     command: CommandFactRef<'_, 'a>,
     pipeline_summaries: &[PipelineScopeSummary<'a>],
     pipeline_summary_ids: &[usize],
-    if_condition_command_ids: &FxHashSet<CommandId>,
+    if_condition_command_ids: &DenseCommandIdSet,
     source: &str,
     words: &mut Vec<PathWordFact<'a>>,
 ) {
@@ -1006,7 +1006,7 @@ fn collect_scope_name_write_uses_for_command(
 
 fn collect_own_scope_read_source_words<'a>(
     command: CommandFactRef<'_, 'a>,
-    if_condition_command_ids: &FxHashSet<CommandId>,
+    if_condition_command_ids: &DenseCommandIdSet,
     source: &str,
     words: &mut Vec<PathWordFact<'a>>,
 ) {
@@ -1025,7 +1025,7 @@ fn collect_own_scope_read_source_words<'a>(
     );
     collect_command_redirect_read_source_words(command, source, words);
     collect_command_simple_test_path_words(command, source, words);
-    if !if_condition_command_ids.contains(&command.id()) {
+    if !if_condition_command_ids.contains(command.id()) {
         collect_command_conditional_path_words(command, source, words);
     }
 }
@@ -1083,7 +1083,7 @@ fn collect_own_scope_name_write_uses(
 fn collect_nested_scope_read_source_words<'a>(
     commands: CommandFacts<'_, 'a>,
     command: CommandFactRef<'_, 'a>,
-    if_condition_command_ids: &FxHashSet<CommandId>,
+    if_condition_command_ids: &DenseCommandIdSet,
     source: &str,
     words: &mut Vec<PathWordFact<'a>>,
 ) {
