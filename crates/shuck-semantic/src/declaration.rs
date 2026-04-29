@@ -36,8 +36,8 @@ pub enum DeclarationOperand {
     Flag {
         /// Canonical single-character flag represented by the operand.
         flag: char,
-        flags: CompactString,
         /// Raw flag text, preserving grouped characters.
+        flags: CompactString,
         /// Span of the operand.
         span: Span,
     },
