@@ -5307,11 +5307,13 @@ impl<'a> Parser<'a> {
             current_depth: self.current_depth,
             fuel: self.fuel,
             source_text_pattern_depth: self.source_text_pattern_depth,
-            comments: self.comments.clone(),
+            comments_len: self.comments.len(),
             expand_next_word: self.expand_next_word,
             brace_group_depth: self.brace_group_depth,
-            brace_body_stack: self.brace_body_stack.clone(),
-            syntax_facts: self.syntax_facts.clone(),
+            brace_body_stack_len: self.brace_body_stack.len(),
+            syntax_facts_zsh_brace_if_spans_len: self.syntax_facts.zsh_brace_if_spans.len(),
+            syntax_facts_zsh_always_spans_len: self.syntax_facts.zsh_always_spans.len(),
+            syntax_facts_zsh_case_group_parts_len: self.syntax_facts.zsh_case_group_parts.len(),
             #[cfg(feature = "benchmarking")]
             benchmark_counters: self.benchmark_counters,
         }
@@ -5331,11 +5333,20 @@ impl<'a> Parser<'a> {
         self.current_depth = checkpoint.current_depth;
         self.fuel = checkpoint.fuel;
         self.source_text_pattern_depth = checkpoint.source_text_pattern_depth;
-        self.comments = checkpoint.comments;
+        self.comments.truncate(checkpoint.comments_len);
         self.expand_next_word = checkpoint.expand_next_word;
         self.brace_group_depth = checkpoint.brace_group_depth;
-        self.brace_body_stack = checkpoint.brace_body_stack;
-        self.syntax_facts = checkpoint.syntax_facts;
+        self.brace_body_stack
+            .truncate(checkpoint.brace_body_stack_len);
+        self.syntax_facts
+            .zsh_brace_if_spans
+            .truncate(checkpoint.syntax_facts_zsh_brace_if_spans_len);
+        self.syntax_facts
+            .zsh_always_spans
+            .truncate(checkpoint.syntax_facts_zsh_always_spans_len);
+        self.syntax_facts
+            .zsh_case_group_parts
+            .truncate(checkpoint.syntax_facts_zsh_case_group_parts_len);
         #[cfg(feature = "benchmarking")]
         {
             self.benchmark_counters = checkpoint.benchmark_counters;

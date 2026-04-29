@@ -164,11 +164,16 @@ pub(super) struct ParserCheckpoint<'a> {
     pub(super) current_depth: usize,
     pub(super) source_text_pattern_depth: usize,
     pub(super) fuel: usize,
-    pub(super) comments: Vec<Comment>,
+    // `comments`, `brace_body_stack`, and the `syntax_facts` Vecs are append-only
+    // inside any speculative parse, so we save lengths and truncate on restore
+    // instead of cloning their backing storage.
+    pub(super) comments_len: usize,
     pub(super) expand_next_word: bool,
     pub(super) brace_group_depth: usize,
-    pub(super) brace_body_stack: Vec<BraceBodyContext>,
-    pub(super) syntax_facts: SyntaxFacts,
+    pub(super) brace_body_stack_len: usize,
+    pub(super) syntax_facts_zsh_brace_if_spans_len: usize,
+    pub(super) syntax_facts_zsh_always_spans_len: usize,
+    pub(super) syntax_facts_zsh_case_group_parts_len: usize,
     #[cfg(feature = "benchmarking")]
     pub(super) benchmark_counters: Option<ParserBenchmarkCounters>,
 }
