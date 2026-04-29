@@ -2,6 +2,11 @@ use super::*;
 use crate::cfg::build_control_flow_graph;
 use crate::dataflow;
 use crate::reachability::{block_reaches_unless, block_reaches_without};
+use shuck_ast::{
+    BourneParameterExpansion, BuiltinCommand, CompoundCommand, ParameterExpansionSyntax, Pattern,
+    PatternPart, StmtSeq, StmtTerminator, Word, WordPart, WordPartNode, ZshExpansionTarget,
+    static_word_text,
+};
 
 #[allow(missing_docs)]
 impl<'model> SemanticAnalysis<'model> {
@@ -118,6 +123,89 @@ impl<'model> SemanticAnalysis<'model> {
             .parent
             .and_then(|parent| self.model.enclosing_function_scope(parent))
             .is_some()
+    }
+
+    pub fn case_cli_dispatches(&self, file: &File, source: &str) -> Vec<CaseCliDispatch> {
+        let mut dispatches = Vec::new();
+
+        for pair in file.body.as_slice().windows(2) {
+            let [case_stmt, trailing_exit_stmt] = pair else {
+                continue;
+            };
+            let Command::Compound(CompoundCommand::Case(case_command)) = &case_stmt.command else {
+                continue;
+            };
+            if case_subject_variable_name(&case_command.word) != Some("1") {
+                continue;
+            }
+            if !stmt_is_standalone_exit(trailing_exit_stmt) {
+                continue;
+            }
+
+            for item in &case_command.cases {
+                let Some(dispatcher_span) = first_positional_dispatch_in_commands(&item.body)
+                else {
+                    continue;
+                };
+
+                for pattern in &item.patterns {
+                    let Some(name) = static_case_pattern_text(pattern, source) else {
+                        continue;
+                    };
+                    if !is_plausible_shell_function_name(&name) {
+                        continue;
+                    }
+
+                    let name = Name::from(name.as_str());
+                    let Some(binding_id) = self.visible_function_binding_defined_before(
+                        &name,
+                        self.model.scope_at(dispatcher_span.start.offset),
+                        dispatcher_span.start.offset,
+                    ) else {
+                        continue;
+                    };
+                    let Some(scope) = self.function_scope_for_binding(binding_id) else {
+                        continue;
+                    };
+
+                    dispatches.push(CaseCliDispatch::new(scope, dispatcher_span));
+                }
+            }
+        }
+
+        dispatches
+    }
+
+    pub fn case_cli_reachable_function_scopes(
+        &self,
+        file: &File,
+        dispatches: &[CaseCliDispatch],
+    ) -> Vec<ScopeId> {
+        let dispatcher_offset = dispatches
+            .iter()
+            .map(|dispatch| dispatch.dispatcher_span().start.offset)
+            .min();
+        let top_level_exit_offset = file
+            .body
+            .iter()
+            .find(|stmt| stmt_is_standalone_exit(stmt))
+            .map(|stmt| stmt.span.start.offset);
+        let mut scopes = self
+            .function_bindings_by_scope()
+            .filter_map(|(scope, bindings)| {
+                let function_start = bindings
+                    .iter()
+                    .map(|binding_id| self.model.binding(*binding_id).span.start.offset)
+                    .min()?;
+                (self.function_scope_is_nested(scope)
+                    || dispatcher_offset.is_some_and(|offset| function_start < offset)
+                    || top_level_exit_offset.is_some_and(|offset| function_start < offset))
+                .then_some(scope)
+            })
+            .collect::<Vec<_>>();
+        scopes.sort_by_key(|scope| self.model.scope(*scope).span.start.offset);
+        scopes.dedup();
+        scopes
     }
 
     pub fn visible_function_binding_defined_before(
@@ -464,4 +552,198 @@ impl<'model> SemanticAnalysis<'model> {
             }
         })
     }
+}
+
+fn stmt_is_standalone_exit(stmt: &Stmt) -> bool {
+    if stmt.negated || matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
+        return false;
+    }
+
+    let Command::Builtin(BuiltinCommand::Exit(command)) = &stmt.command else {
+        return false;
+    };
+    command.extra_args.is_empty() && command.assignments.is_empty() && stmt.redirects.is_empty()
+}
+
+fn first_positional_dispatch_in_commands(commands: &StmtSeq) -> Option<Span> {
+    commands
+        .iter()
+        .find_map(|stmt| first_positional_dispatch_in_command(&stmt.command))
+}
+
+fn first_positional_dispatch_in_command(command: &Command) -> Option<Span> {
+    match command {
+        Command::Binary(command) => first_positional_dispatch_in_command(&command.left.command)
+            .or_else(|| first_positional_dispatch_in_command(&command.right.command)),
+        Command::Compound(CompoundCommand::BraceGroup(commands))
+        | Command::Compound(CompoundCommand::Subshell(commands)) => {
+            first_positional_dispatch_in_commands(commands)
+        }
+        Command::Compound(CompoundCommand::If(command)) => {
+            first_positional_dispatch_in_commands(&command.condition)
+                .or_else(|| first_positional_dispatch_in_commands(&command.then_branch))
+                .or_else(|| {
+                    command
+                        .elif_branches
+                        .iter()
+                        .find_map(|(condition, branch)| {
+                            first_positional_dispatch_in_commands(condition)
+                                .or_else(|| first_positional_dispatch_in_commands(branch))
+                        })
+                })
+                .or_else(|| {
+                    command
+                        .else_branch
+                        .as_ref()
+                        .and_then(first_positional_dispatch_in_commands)
+                })
+        }
+        Command::Compound(CompoundCommand::While(command)) => {
+            first_positional_dispatch_in_commands(&command.condition)
+                .or_else(|| first_positional_dispatch_in_commands(&command.body))
+        }
+        Command::Compound(CompoundCommand::Until(command)) => {
+            first_positional_dispatch_in_commands(&command.condition)
+                .or_else(|| first_positional_dispatch_in_commands(&command.body))
+        }
+        Command::Compound(CompoundCommand::For(command)) => {
+            first_positional_dispatch_in_commands(&command.body)
+        }
+        Command::Compound(CompoundCommand::Select(command)) => {
+            first_positional_dispatch_in_commands(&command.body)
+        }
+        Command::Compound(CompoundCommand::Case(command)) => command
+            .cases
+            .iter()
+            .find_map(|item| first_positional_dispatch_in_commands(&item.body)),
+        Command::Compound(CompoundCommand::Time(command)) => command
+            .command
+            .as_ref()
+            .and_then(|stmt| first_positional_dispatch_in_command(&stmt.command)),
+        Command::Compound(CompoundCommand::Conditional(_))
+        | Command::Compound(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => None,
+        Command::Simple(command) => {
+            word_is_plain_positional_parameter(&command.name, "1").then_some(command.name.span)
+        }
+    }
+}
+
+fn word_is_plain_positional_parameter(word: &Word, target: &str) -> bool {
+    let [part] = word.parts.as_slice() else {
+        return false;
+    };
+
+    word_part_is_plain_positional_parameter(&part.kind, target)
+}
+
+fn word_part_is_plain_positional_parameter(part: &WordPart, target: &str) -> bool {
+    match part {
+        WordPart::Variable(name) => name.as_str() == target,
+        WordPart::DoubleQuoted { parts, .. } => {
+            let [part] = parts.as_slice() else {
+                return false;
+            };
+            word_part_is_plain_positional_parameter(&part.kind, target)
+        }
+        WordPart::Parameter(parameter) => match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
+                reference.subscript.is_none() && reference.name.as_str() == target
+            }
+            ParameterExpansionSyntax::Zsh(syntax) => {
+                syntax.length_prefix.is_none()
+                    && syntax.operation.is_none()
+                    && syntax.modifiers.is_empty()
+                    && matches!(
+                        &syntax.target,
+                        ZshExpansionTarget::Reference(reference)
+                            if reference.subscript.is_none()
+                                && reference.name.as_str() == target
+                    )
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn static_case_pattern_text(pattern: &Pattern, source: &str) -> Option<String> {
+    let mut text = String::new();
+    for part in &pattern.parts {
+        match &part.kind {
+            PatternPart::Literal(literal) => text.push_str(literal.as_str(source, part.span)),
+            PatternPart::Word(word) => text.push_str(static_word_text(word, source)?.as_ref()),
+            PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_)
+            | PatternPart::Group { .. } => return None,
+        }
+    }
+    Some(text)
+}
+
+fn case_subject_variable_name(word: &Word) -> Option<&str> {
+    standalone_variable_name_from_word_parts(&word.parts)
+}
+
+fn standalone_variable_name_from_word_parts(parts: &[WordPartNode]) -> Option<&str> {
+    let [part] = parts else {
+        return None;
+    };
+
+    match &part.kind {
+        WordPart::Variable(name) => Some(name.as_str()),
+        WordPart::Parameter(parameter) => match parameter.bourne() {
+            Some(BourneParameterExpansion::Access { reference })
+                if reference.subscript.is_none() =>
+            {
+                Some(reference.name.as_str())
+            }
+            _ => None,
+        },
+        WordPart::DoubleQuoted { parts, .. } => standalone_variable_name_from_word_parts(parts),
+        _ => None,
+    }
+}
+
+fn is_plausible_shell_function_name(name: &str) -> bool {
+    let Some(first) = name.chars().next() else {
+        return false;
+    };
+    if !matches!(first, 'a'..='z' | 'A'..='Z' | '_') {
+        return false;
+    }
+    if !name
+        .chars()
+        .all(|ch| matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-'))
+    {
+        return false;
+    }
+    !matches!(
+        name,
+        "!" | "{"
+            | "}"
+            | "if"
+            | "then"
+            | "elif"
+            | "else"
+            | "fi"
+            | "do"
+            | "done"
+            | "case"
+            | "esac"
+            | "for"
+            | "in"
+            | "while"
+            | "until"
+            | "time"
+            | "[["
+            | "]]"
+            | "function"
+            | "select"
+            | "coproc"
+    )
 }

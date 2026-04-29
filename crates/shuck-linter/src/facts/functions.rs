@@ -118,6 +118,7 @@ impl FunctionCliDispatchFacts {
         self.exported_from_case_cli
     }
 
+    #[cfg(test)]
     pub fn dispatcher_span(self) -> Option<Span> {
         self.dispatcher_span
     }
@@ -178,139 +179,16 @@ fn build_function_header_facts<'a>(
 
 #[cfg_attr(shuck_profiling, inline(never))]
 fn build_function_cli_dispatch_facts(
-    semantic: &SemanticModel,
-    semantic_analysis: &SemanticAnalysis<'_>,
-    file: &File,
-    source: &str,
+    dispatches: &[CaseCliDispatch],
 ) -> FxHashMap<ScopeId, FunctionCliDispatchFacts> {
     let mut facts = FxHashMap::<ScopeId, FunctionCliDispatchFacts>::default();
-
-    for pair in file.body.as_slice().windows(2) {
-        let [case_stmt, trailing_exit_stmt] = pair else {
-            continue;
-        };
-        let Command::Compound(CompoundCommand::Case(case_command)) = &case_stmt.command else {
-            continue;
-        };
-        if case_subject_variable_name(&case_command.word) != Some("1") {
-            continue;
-        }
-        if !stmt_is_top_level_exit(trailing_exit_stmt) {
-            continue;
-        }
-
-        for item in &case_command.cases {
-            let Some(dispatcher_span) = first_positional_dispatch_in_commands(&item.body) else {
-                continue;
-            };
-
-            for pattern in &item.patterns {
-                let Some(name) = static_case_pattern_text(pattern, source) else {
-                    continue;
-                };
-                if !is_plausible_shell_function_name(&name) {
-                    continue;
-                }
-
-                let name = Name::from(name.as_str());
-                let Some(binding_id) = semantic_analysis.visible_function_binding_defined_before(
-                    &name,
-                    semantic.scope_at(dispatcher_span.start.offset),
-                    dispatcher_span.start.offset,
-                ) else {
-                    continue;
-                };
-                let Some(scope) = semantic_analysis.function_scope_for_binding(binding_id) else {
-                    continue;
-                };
-
-                facts
-                    .entry(scope)
-                    .or_default()
-                    .record_dispatch(dispatcher_span);
-            }
-        }
+    for dispatch in dispatches {
+        facts
+            .entry(dispatch.function_scope())
+            .or_default()
+            .record_dispatch(dispatch.dispatcher_span());
     }
-
     facts
-}
-
-#[cfg_attr(shuck_profiling, inline(never))]
-fn build_case_cli_reachable_function_scopes(
-    semantic: &SemanticModel,
-    semantic_analysis: &SemanticAnalysis<'_>,
-    function_headers: &[FunctionHeaderFact<'_>],
-    function_cli_dispatch_facts: &FxHashMap<ScopeId, FunctionCliDispatchFacts>,
-    commands: &[CommandFact<'_>],
-) -> FxHashSet<ScopeId> {
-    let dispatcher_offset = function_headers
-        .iter()
-        .filter_map(|header| {
-            let scope = header.function_scope()?;
-            function_cli_dispatch_facts
-                .get(&scope)
-                .copied()
-                .unwrap_or_default()
-                .dispatcher_span()
-                .map(|span| span.start.offset)
-        })
-        .min();
-    let top_level_exit_offset = commands
-        .iter()
-        .filter(|command| {
-            semantic.syntax_backed_command_parent_id(command.id()).is_none()
-                && semantic.enclosing_function_scope(command.scope()).is_none()
-                && command_fact_is_standalone_exit(command)
-        })
-        .map(|command| command.span().start.offset)
-        .min();
-
-    function_headers
-        .iter()
-        .filter_map(|header| {
-            let scope = header.function_scope()?;
-            (semantic_analysis.function_scope_is_nested(scope)
-                || dispatcher_offset
-                    .is_some_and(|offset| header.function().span.start.offset < offset)
-                || top_level_exit_offset
-                    .is_some_and(|offset| header.function().span.start.offset < offset))
-            .then_some(scope)
-        })
-        .collect()
-}
-
-fn stmt_is_top_level_exit(stmt: &Stmt) -> bool {
-    if stmt.negated || matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
-        return false;
-    }
-
-    let Command::Builtin(BuiltinCommand::Exit(command)) = &stmt.command else {
-        return false;
-    };
-    if !command.extra_args.is_empty()
-        || !command.assignments.is_empty()
-        || !stmt.redirects.is_empty()
-    {
-        return false;
-    }
-
-    true
-}
-
-fn command_fact_is_standalone_exit(command: &CommandFact<'_>) -> bool {
-    if command.stmt().negated
-        || matches!(
-            command.stmt().terminator,
-            Some(StmtTerminator::Background(_))
-        )
-    {
-        return false;
-    }
-
-    let Command::Builtin(BuiltinCommand::Exit(exit)) = command.command() else {
-        return false;
-    };
-    exit.extra_args.is_empty() && exit.assignments.is_empty() && command.stmt().redirects.is_empty()
 }
 
 fn build_function_parameter_fallback_spans(
@@ -598,111 +476,6 @@ fn function_call_diagnostic_span(
     }
 
     trim_trailing_whitespace_span(command.stmt().span, source)
-}
-
-fn first_positional_dispatch_in_commands(commands: &StmtSeq) -> Option<Span> {
-    commands
-        .iter()
-        .find_map(|stmt| first_positional_dispatch_in_command(&stmt.command))
-}
-
-fn first_positional_dispatch_in_command(command: &Command) -> Option<Span> {
-    match command {
-        Command::Binary(command) => first_positional_dispatch_in_command(&command.left.command)
-            .or_else(|| first_positional_dispatch_in_command(&command.right.command)),
-        Command::Compound(CompoundCommand::BraceGroup(commands))
-        | Command::Compound(CompoundCommand::Subshell(commands)) => {
-            first_positional_dispatch_in_commands(commands)
-        }
-        Command::Compound(CompoundCommand::If(command)) => {
-            first_positional_dispatch_in_commands(&command.condition)
-                .or_else(|| first_positional_dispatch_in_commands(&command.then_branch))
-                .or_else(|| {
-                    command
-                        .elif_branches
-                        .iter()
-                        .find_map(|(condition, branch)| {
-                            first_positional_dispatch_in_commands(condition)
-                                .or_else(|| first_positional_dispatch_in_commands(branch))
-                        })
-                })
-                .or_else(|| {
-                    command
-                        .else_branch
-                        .as_ref()
-                        .and_then(first_positional_dispatch_in_commands)
-                })
-        }
-        Command::Compound(CompoundCommand::While(command)) => {
-            first_positional_dispatch_in_commands(&command.condition)
-                .or_else(|| first_positional_dispatch_in_commands(&command.body))
-        }
-        Command::Compound(CompoundCommand::Until(command)) => {
-            first_positional_dispatch_in_commands(&command.condition)
-                .or_else(|| first_positional_dispatch_in_commands(&command.body))
-        }
-        Command::Compound(CompoundCommand::For(command)) => {
-            first_positional_dispatch_in_commands(&command.body)
-        }
-        Command::Compound(CompoundCommand::Select(command)) => {
-            first_positional_dispatch_in_commands(&command.body)
-        }
-        Command::Compound(CompoundCommand::Case(command)) => command
-            .cases
-            .iter()
-            .find_map(|item| first_positional_dispatch_in_commands(&item.body)),
-        Command::Compound(CompoundCommand::Time(command)) => command
-            .command
-            .as_ref()
-            .and_then(|stmt| first_positional_dispatch_in_command(&stmt.command)),
-        Command::Compound(CompoundCommand::Conditional(_))
-        | Command::Compound(_)
-        | Command::Builtin(_)
-        | Command::Decl(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => None,
-        Command::Simple(command) => {
-            word_is_plain_positional_parameter(&command.name, "1").then_some(command.name.span)
-        }
-    }
-}
-
-fn word_is_plain_positional_parameter(word: &Word, target: &str) -> bool {
-    let [part] = word.parts.as_slice() else {
-        return false;
-    };
-
-    word_part_is_plain_positional_parameter(&part.kind, target)
-}
-
-fn word_part_is_plain_positional_parameter(part: &WordPart, target: &str) -> bool {
-    match part {
-        WordPart::Variable(name) => name.as_str() == target,
-        WordPart::DoubleQuoted { parts, .. } => {
-            let [part] = parts.as_slice() else {
-                return false;
-            };
-            word_part_is_plain_positional_parameter(&part.kind, target)
-        }
-        WordPart::Parameter(parameter) => match &parameter.syntax {
-            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
-                reference.subscript.is_none() && reference.name.as_str() == target
-            }
-            ParameterExpansionSyntax::Zsh(syntax) => {
-                syntax.length_prefix.is_none()
-                    && syntax.operation.is_none()
-                    && syntax.modifiers.is_empty()
-                    && matches!(
-                        &syntax.target,
-                        ZshExpansionTarget::Reference(reference)
-                            if reference.subscript.is_none()
-                                && reference.name.as_str() == target
-                    )
-            }
-            _ => false,
-        },
-        _ => false,
-    }
 }
 
 fn function_body_without_braces_span(function: &FunctionDef) -> Option<Span> {

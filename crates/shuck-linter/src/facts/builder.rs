@@ -479,23 +479,16 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &command_fact_indices_by_id,
             self.source,
         );
-        let function_cli_dispatch_facts = build_function_cli_dispatch_facts(
-            self.semantic,
-            semantic_analysis,
-            self.file,
-            self.source,
-        );
+        let case_cli_dispatches = semantic_analysis.case_cli_dispatches(self.file, self.source);
+        let function_cli_dispatch_facts = build_function_cli_dispatch_facts(&case_cli_dispatches);
         let function_definition_command_ids_by_scope = function_headers
             .iter()
             .filter_map(|header| header.function_scope().map(|scope| (scope, header.command_id())))
             .collect::<FxHashMap<_, _>>();
-        let case_cli_reachable_function_scopes = build_case_cli_reachable_function_scopes(
-            self.semantic,
-            semantic_analysis,
-            &function_headers,
-            &function_cli_dispatch_facts,
-            &commands,
-        );
+        let case_cli_reachable_function_scopes = semantic_analysis
+            .case_cli_reachable_function_scopes(self.file, &case_cli_dispatches)
+            .into_iter()
+            .collect();
         collect_condition_status_capture_from_sequences(
             &self.file.body,
             self.source,
