@@ -10,9 +10,8 @@ use criterion::{
 use shuck_benchmark::configure_benchmark_allocator;
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    LinterSettings, Rule, RuleSet, ShellCheckCodeMap, ShellDialect, SuppressionIndex,
-    benchmark_collect_word_facts, first_statement_line,
-    lint_file_at_path_with_resolver_and_parse_result, parse_directives,
+    LinterSettings, Rule, RuleSet, ShellCheckCodeMap, ShellDialect, benchmark_collect_word_facts,
+    lint_file_at_path_with_resolver_and_parse_result_and_directives, parse_directives,
 };
 use shuck_parser::parser::{ParseResult, Parser};
 use shuck_semantic::{SemanticBuildOptions, SemanticModel, SourcePathResolver};
@@ -293,20 +292,12 @@ fn lint_large_corpus_fixture_with_settings(
         indexer.comment_index(),
         &shellcheck_map,
     );
-    let suppression_index = (!directives.is_empty()).then(|| {
-        SuppressionIndex::new(
-            &directives,
-            &parse_result.file,
-            first_statement_line(&parse_result.file).unwrap_or(u32::MAX),
-        )
-    });
-
-    let diagnostics = lint_file_at_path_with_resolver_and_parse_result(
+    let diagnostics = lint_file_at_path_with_resolver_and_parse_result_and_directives(
         &parse_result,
         &fixture.source,
         &indexer,
         &settings,
-        suppression_index.as_ref(),
+        &directives,
         Some(&fixture.path),
         resolver,
     );

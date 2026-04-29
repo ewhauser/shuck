@@ -291,7 +291,7 @@ pub fn lint_file(
 }
 ```
 
-The `SuppressionIndex` is built **before** the linter entry point is called — the caller (CLI pipeline) constructs it from the comment index and passes it in. This keeps the linter crate's dependency on suppression parsing explicit and optional.
+The directives-aware linter entry points now build the `SuppressionIndex` from semantic-collected command spans after directive parsing. This keeps suppression scoping aligned with the semantic traversal instead of requiring a second AST walk.
 
 ### Data Flow
 
@@ -302,9 +302,8 @@ Source text
     → shuck-parser::Parser::parse()       → ParseOutput (Script + Comments)
     → shuck-indexer::Indexer::new()        → Indexer (includes CommentIndex)
     → parse_directives()                   → Vec<SuppressionDirective>
-    → SuppressionIndex::new()              → SuppressionIndex
     → shuck-semantic::SemanticModel::new() → SemanticModel
-    → shuck-linter::lint_file()
+    → shuck-linter::lint_file_with_directives()
                                              → Vec<Diagnostic>  (filtered by suppressions)
     → CLI formats and prints diagnostics
 ```

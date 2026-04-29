@@ -100,7 +100,7 @@ pub use shell::ShellDialect;
 pub use suppression::{
     AddIgnoreParseError, AddIgnoreResult, ShellCheckCodeMap, SuppressionAction,
     SuppressionDirective, SuppressionIndex, SuppressionSource, add_ignores_to_path,
-    first_statement_line, parse_directives,
+    parse_directives,
 };
 /// Trait implemented by rule-specific diagnostic payloads.
 pub use violation::Violation;
@@ -110,11 +110,15 @@ use shuck_ast::{File, Position, Span, Stmt, StmtSeq, TextSize};
 use shuck_indexer::{Indexer, LineIndex};
 use shuck_parser::parser::{ParseResult, Parser};
 use shuck_semantic::{
-    FlowContext, ScopeId, SemanticBuildOptions, SemanticModel, SourcePathResolver,
-    TraversalObserver, build_with_observer_with_options,
+    CommandKind, CompoundCommandKind, FlowContext, ScopeId, SemanticBuildOptions, SemanticModel,
+    SourcePathResolver, TraversalObserver, build_with_observer_with_options,
 };
 use std::ops::Deref;
 use std::path::Path;
+
+use crate::suppression::{
+    first_statement_line, sort_command_spans_for_lookup, statement_suppression_span,
+};
 
 /// Combined semantic model and diagnostic output for a file analysis pass.
 pub struct AnalysisResult {
@@ -129,6 +133,7 @@ pub struct LinterSemanticArtifacts<'a> {
     semantic: SemanticModel,
     command_visits_by_id: Vec<Option<facts::CommandVisit<'a>>>,
     direct_command_ids_by_body_span: FxHashMap<facts::FactSpan, Vec<CommandId>>,
+    suppression_command_spans: Vec<Span>,
 }
 
 impl<'a> LinterSemanticArtifacts<'a> {
@@ -147,10 +152,13 @@ impl<'a> LinterSemanticArtifacts<'a> {
         let mut observer = LintTraversalObserver::default();
         let semantic =
             build_with_observer_with_options(file, source, indexer, &mut observer, options);
+        let mut suppression_command_spans = observer.collect_suppression_command_spans(&semantic);
+        sort_command_spans_for_lookup(&mut suppression_command_spans);
         Self {
             semantic,
             command_visits_by_id: observer.command_visits_by_id,
             direct_command_ids_by_body_span: observer.direct_command_ids_by_body_span,
+            suppression_command_spans,
         }
     }
 
@@ -166,6 +174,10 @@ impl<'a> LinterSemanticArtifacts<'a> {
 
     pub(crate) fn command_visits_by_id(&self) -> &[Option<facts::CommandVisit<'a>>] {
         &self.command_visits_by_id
+    }
+
+    pub(crate) fn suppression_command_spans(&self) -> &[Span] {
+        &self.suppression_command_spans
     }
 
     #[cfg(test)]
@@ -237,6 +249,23 @@ impl Deref for LinterSemanticArtifacts<'_> {
 struct LintTraversalObserver<'a> {
     command_visits_by_id: Vec<Option<facts::CommandVisit<'a>>>,
     direct_command_ids_by_body_span: FxHashMap<facts::FactSpan, Vec<CommandId>>,
+    suppression_command_spans_by_id: Vec<Option<Span>>,
+}
+
+impl LintTraversalObserver<'_> {
+    fn collect_suppression_command_spans(&self, semantic: &SemanticModel) -> Vec<Span> {
+        let mut spans = Vec::new();
+        for id in semantic.commands().iter().copied() {
+            let Some(Some(span)) = self.suppression_command_spans_by_id.get(id.index()) else {
+                continue;
+            };
+            if suppression_span_is_function_body_wrapper(semantic, id) {
+                continue;
+            }
+            spans.push(*span);
+        }
+        spans
+    }
 }
 
 impl<'a> TraversalObserver<'a> for LintTraversalObserver<'a> {
@@ -251,6 +280,14 @@ impl<'a> TraversalObserver<'a> for LintTraversalObserver<'a> {
             self.command_visits_by_id.resize(id.index() + 1, None);
         }
         self.command_visits_by_id[id.index()] = Some(facts::CommandVisit::new(stmt));
+        if self.suppression_command_spans_by_id.len() <= id.index() {
+            self.suppression_command_spans_by_id
+                .resize(id.index() + 1, None);
+        }
+        let span = statement_suppression_span(stmt);
+        if span.start.line != 0 && span.end.line != 0 {
+            self.suppression_command_spans_by_id[id.index()] = Some(span);
+        }
     }
 
     fn recorded_statement_sequence_command(
@@ -264,6 +301,35 @@ impl<'a> TraversalObserver<'a> for LintTraversalObserver<'a> {
             .or_default()
             .push(id);
     }
+}
+
+fn suppression_span_is_function_body_wrapper(semantic: &SemanticModel, id: CommandId) -> bool {
+    matches!(
+        semantic.command_kind(id),
+        CommandKind::Compound(CompoundCommandKind::BraceGroup)
+            | CommandKind::Compound(CompoundCommandKind::Subshell)
+    ) && semantic.command_parent_id(id).is_some_and(|parent| {
+        matches!(
+            semantic.command_kind(parent),
+            CommandKind::Function | CommandKind::AnonymousFunction
+        )
+    })
+}
+
+fn build_suppression_index_from_semantic(
+    directives: &[SuppressionDirective],
+    file: &File,
+    semantic: &LinterSemanticArtifacts<'_>,
+) -> Option<SuppressionIndex> {
+    if directives.is_empty() {
+        return None;
+    }
+
+    Some(SuppressionIndex::from_sorted_command_spans(
+        directives,
+        semantic.suppression_command_spans(),
+        first_statement_line(file).unwrap_or(u32::MAX),
+    ))
 }
 
 /// Builds semantic facts and linter diagnostics for a parsed file.
@@ -570,6 +636,89 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
     diagnostics
 }
 
+/// Lints an existing parse result while deriving suppressions from parsed directives
+/// and semantic-collected command spans.
+#[allow(clippy::too_many_arguments)]
+pub fn lint_file_at_path_with_resolver_and_parse_result_and_directives(
+    parse_result: &ParseResult,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    directives: &[SuppressionDirective],
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+) -> Vec<Diagnostic> {
+    let shell = resolve_shell(settings, source, source_path);
+    let mut file_entry_contract_collector =
+        ambient_contracts::AmbientContractCollector::new(source, source_path, shell);
+    let analyzed_paths_fallback =
+        source_path.map(|path| FxHashSet::from_iter([path.to_path_buf()]));
+    let analyzed_paths = settings
+        .analyzed_paths
+        .as_deref()
+        .or(analyzed_paths_fallback.as_ref());
+    let linter_semantic_artifacts = LinterSemanticArtifacts::build_with_options(
+        &parse_result.file,
+        source,
+        indexer,
+        SemanticBuildOptions {
+            source_path,
+            source_path_resolver,
+            file_entry_contract: None,
+            file_entry_contract_collector: Some(&mut file_entry_contract_collector),
+            analyzed_paths,
+            shell_profile: Some(shell.shell_profile()),
+            resolve_source_closure: settings.resolve_source_closure,
+        },
+    );
+    let suppression_index = build_suppression_index_from_semantic(
+        directives,
+        &parse_result.file,
+        &linter_semantic_artifacts,
+    );
+    let checker = Checker::new(
+        &parse_result.file,
+        source,
+        &linter_semantic_artifacts,
+        indexer,
+        &settings.rules,
+        shell,
+        settings.ambient_shell_options,
+        settings.report_environment_style_names,
+        settings.rule_options.clone(),
+        suppression_index.as_ref(),
+        parse_error_position(parse_result),
+    );
+    let mut diagnostics = checker.check();
+
+    diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
+        &parse_result.file,
+        source,
+        Some(parse_result),
+        &settings.rules,
+        shell,
+    ));
+    if parse_result.is_err() {
+        sanitize_diagnostic_spans_cold(&mut diagnostics, source, indexer);
+    }
+
+    for diagnostic in &mut diagnostics {
+        if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
+            diagnostic.severity = severity;
+        }
+    }
+
+    if let Some(suppression_index) = suppression_index.as_ref() {
+        filter_suppressed_diagnostics(&mut diagnostics, indexer, suppression_index);
+    }
+    filter_per_file_ignored_diagnostics(&mut diagnostics, settings, source_path);
+
+    diagnostics
+        .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
+
+    diagnostics
+}
+
 /// Lints an existing parse result located at an optional source path.
 pub fn lint_file(
     parse_result: &ParseResult,
@@ -585,6 +734,27 @@ pub fn lint_file(
         indexer,
         settings,
         suppression_index,
+        source_path,
+        None,
+    )
+}
+
+/// Lints an existing parse result while deriving suppressions from parsed directives
+/// and semantic-collected command spans.
+pub fn lint_file_with_directives(
+    parse_result: &ParseResult,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    directives: &[SuppressionDirective],
+    source_path: Option<&Path>,
+) -> Vec<Diagnostic> {
+    lint_file_at_path_with_resolver_and_parse_result_and_directives(
+        parse_result,
+        source,
+        indexer,
+        settings,
+        directives,
         source_path,
         None,
     )
@@ -714,14 +884,33 @@ mod tests {
     fn lint(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        lint_file(&output, source, &indexer, settings, None, None)
+        let directives = parse_directives(
+            source,
+            &output.file,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        lint_file_with_directives(&output, source, &indexer, settings, &directives, None)
     }
 
     fn lint_path(path: &Path, settings: &LinterSettings) -> Vec<Diagnostic> {
         let source = fs::read_to_string(path).unwrap();
         let output = Parser::new(&source).parse().unwrap();
         let indexer = Indexer::new(&source, &output);
-        lint_file_at_path(&output.file, &source, &indexer, settings, None, Some(path))
+        let directives = parse_directives(
+            &source,
+            &output.file,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        lint_file_with_directives(
+            &output,
+            &source,
+            &indexer,
+            settings,
+            &directives,
+            Some(path),
+        )
     }
 
     fn lint_for_rule(source: &str, rule: Rule) -> Vec<Diagnostic> {
@@ -740,12 +929,18 @@ mod tests {
         let source = fs::read_to_string(path).unwrap();
         let output = Parser::new(&source).parse().unwrap();
         let indexer = Indexer::new(&source, &output);
-        lint_file_at_path_with_resolver(
+        let directives = parse_directives(
+            &source,
             &output.file,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        lint_file_at_path_with_resolver_and_parse_result_and_directives(
+            &output,
             &source,
             &indexer,
             &LinterSettings::for_rule(rule),
-            None,
+            &directives,
             Some(path),
             source_path_resolver,
         )
@@ -754,7 +949,13 @@ mod tests {
     fn lint_named_source(path: &Path, source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        lint_file_at_path(&output.file, source, &indexer, settings, None, Some(path))
+        let directives = parse_directives(
+            source,
+            &output.file,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        lint_file_with_directives(&output, source, &indexer, settings, &directives, Some(path))
     }
 
     fn lint_named_source_with_parse_dialect(
@@ -765,7 +966,13 @@ mod tests {
     ) -> Vec<Diagnostic> {
         let output = Parser::with_dialect(source, parse_dialect).parse().unwrap();
         let indexer = Indexer::new(source, &output);
-        lint_file_at_path(&output.file, source, &indexer, settings, None, Some(path))
+        let directives = parse_directives(
+            source,
+            &output.file,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        lint_file_with_directives(&output, source, &indexer, settings, &directives, Some(path))
     }
 
     fn runtime_prelude_source(shebang: &str) -> String {
@@ -2202,11 +2409,9 @@ echo $bar
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
+        let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
+        let suppressions =
+            build_suppression_index_from_semantic(&directives, &output.file, &semantic).unwrap();
 
         let echo_foo = match &output.file.body[1].command {
             Command::Simple(command) => command.span,
@@ -2262,27 +2467,7 @@ EOF
   echo \"$later\"
 }
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::UndefinedVariable),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
         assert_eq!(
             diagnostics
@@ -5562,27 +5747,7 @@ terminal() {
 # shellcheck disable=SC2034
 foo=1
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::default(),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint(source, &LinterSettings::default());
         assert!(diagnostics.is_empty());
     }
 
@@ -5601,17 +5766,12 @@ foo=1
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
+        let diagnostics = lint_file_with_directives(
             &output,
             source,
             &indexer,
             &LinterSettings::default(),
-            Some(&suppressions),
+            &directives,
             None,
         );
         assert!(diagnostics.is_empty());
@@ -5626,27 +5786,7 @@ foo=1
 foo=1
 foo=2
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::default(),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint(source, &LinterSettings::default());
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 5);
     }
@@ -5661,27 +5801,7 @@ f() {
   return $?
 }
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::RedundantReturnStatus),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint_for_rule(source, Rule::RedundantReturnStatus);
         assert!(diagnostics.is_empty());
     }
 
@@ -5693,27 +5813,7 @@ f() {
 local foo=bar
 printf '%s\\n' \"$foo\"
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::default(),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint(source, &LinterSettings::default());
         assert!(diagnostics.is_empty());
     }
 
@@ -5727,27 +5827,7 @@ f() {
   echo \"$hard_list\"
 }
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::LocalDeclareCombined),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint_for_rule(source, Rule::LocalDeclareCombined);
         assert!(diagnostics.is_empty());
     }
 
@@ -5758,27 +5838,7 @@ f() {
 # shellcheck disable=SC2316
 `echo hello` | cat
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::BacktickInCommandPosition),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint_for_rule(source, Rule::BacktickInCommandPosition);
         assert!(diagnostics.is_empty());
     }
 
@@ -5789,27 +5849,7 @@ f() {
 # shellcheck disable=all
 [ \"$a\" = 1 -a \"$b\" = 2 ]
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::CompoundTestOperator),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint_for_rule(source, Rule::CompoundTestOperator);
         assert!(diagnostics.is_empty());
     }
 
@@ -5824,27 +5864,7 @@ f() {
 }
 f
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::LocalVariableInSh),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint_for_rule(source, Rule::LocalVariableInSh);
         assert!(diagnostics.is_empty());
     }
 
@@ -5855,27 +5875,7 @@ f
 # shellcheck disable=SC2113
 function f { :; }
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::FunctionKeyword),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint_for_rule(source, Rule::FunctionKeyword);
         assert!(diagnostics.is_empty());
     }
 
@@ -5886,27 +5886,7 @@ function f { :; }
 # shellcheck disable=SC2268
 \\command printf '%s\\n' hi
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::BackslashBeforeCommand),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint_for_rule(source, Rule::BackslashBeforeCommand);
         assert!(diagnostics.is_empty());
     }
 
@@ -5917,27 +5897,7 @@ function f { :; }
 # shellcheck disable=SC1012
 echo \\n
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::LiteralControlEscape),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint_for_rule(source, Rule::LiteralControlEscape);
         assert!(diagnostics.is_empty());
     }
 
@@ -5948,27 +5908,7 @@ echo \\n
 # shellcheck disable=SC3042
 let x=1
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::LetCommand),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint_for_rule(source, Rule::LetCommand);
         assert!(diagnostics.is_empty());
     }
 
@@ -5979,27 +5919,7 @@ let x=1
 # shellcheck disable=SC3044
 declare foo=bar
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::DeclareCommand),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint_for_rule(source, Rule::DeclareCommand);
         assert!(diagnostics.is_empty());
     }
 
@@ -6010,27 +5930,7 @@ declare foo=bar
 # shellcheck disable=SC3046
 source ./helpers.sh
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::SourceBuiltinInSh),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint_for_rule(source, Rule::SourceBuiltinInSh);
         assert!(diagnostics.is_empty());
     }
 
@@ -6041,27 +5941,7 @@ source ./helpers.sh
 # shellcheck disable=SC2112
 function f() { :; }
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::FunctionKeywordInSh),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint_for_rule(source, Rule::FunctionKeywordInSh);
         assert!(diagnostics.is_empty());
     }
 
@@ -6072,27 +5952,7 @@ function f() { :; }
 # shellcheck disable=SC2321
 arr[$((1+1))]=x
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::ArrayIndexArithmetic),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint_for_rule(source, Rule::ArrayIndexArithmetic);
         assert!(diagnostics.is_empty());
     }
 
@@ -6105,27 +5965,7 @@ f() {
   source ./helpers.sh
 }
 ";
-        let output = Parser::new(source).parse().unwrap();
-        let indexer = Indexer::new(source, &output);
-        let directives = parse_directives(
-            source,
-            &output.file,
-            indexer.comment_index(),
-            &ShellCheckCodeMap::default(),
-        );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
-            &output,
-            source,
-            &indexer,
-            &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
-            Some(&suppressions),
-            None,
-        );
+        let diagnostics = lint_for_rule(source, Rule::SourceInsideFunctionInSh);
         assert!(diagnostics.is_empty());
     }
 }

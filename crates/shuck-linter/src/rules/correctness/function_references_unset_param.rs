@@ -76,8 +76,7 @@ mod tests {
 
     use crate::test::test_snippet;
     use crate::{
-        LinterSettings, Rule, ShellCheckCodeMap, SuppressionIndex, first_statement_line, lint_file,
-        parse_directives,
+        LinterSettings, Rule, ShellCheckCodeMap, lint_file_with_directives, parse_directives,
     };
 
     #[test]
@@ -574,17 +573,12 @@ greet
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
-        let suppressions = SuppressionIndex::new(
-            &directives,
-            &parse_result.file,
-            first_statement_line(&parse_result.file).unwrap_or(u32::MAX),
-        );
-        let diagnostics = lint_file(
+        let diagnostics = lint_file_with_directives(
             &parse_result,
             source,
             &indexer,
             &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
-            Some(&suppressions),
+            &directives,
             None,
         );
 

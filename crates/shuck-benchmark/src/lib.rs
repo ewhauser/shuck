@@ -179,8 +179,7 @@ mod tests {
     use shuck_formatter::{FormattedSource, ShellFormatOptions, format_file_ast, format_source};
     use shuck_indexer::Indexer;
     use shuck_linter::{
-        LinterSettings, ShellCheckCodeMap, SuppressionIndex, first_statement_line, lint_file,
-        parse_directives,
+        LinterSettings, ShellCheckCodeMap, lint_file_with_directives, parse_directives,
     };
 
     #[derive(Debug, Deserialize)]
@@ -262,19 +261,12 @@ mod tests {
                 indexer.comment_index(),
                 &shellcheck_map,
             );
-            let suppression_index = (!directives.is_empty()).then(|| {
-                SuppressionIndex::new(
-                    &directives,
-                    &output.file,
-                    first_statement_line(&output.file).unwrap_or(u32::MAX),
-                )
-            });
-            let diagnostics = lint_file(
+            let diagnostics = lint_file_with_directives(
                 &output,
                 file.source,
                 &indexer,
                 &settings,
-                suppression_index.as_ref(),
+                &directives,
                 None,
             );
 
