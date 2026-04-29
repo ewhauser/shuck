@@ -3,7 +3,7 @@ use std::path::Path;
 
 use shuck_formatter::{FormattedSource, ShellDialect as FormatDialect, ShellFormatOptions};
 use shuck_indexer::Indexer;
-use shuck_linter::{Diagnostic, LinterSettings, lint_file};
+use shuck_linter::{Diagnostic, LinterSettings, ShellCheckCodeMap, lint_file};
 use shuck_parser::{ShellDialect as ParseDialect, parser::Parser};
 
 pub(crate) const FORMAT_CASES: [FormatCase; 4] = [
@@ -68,7 +68,14 @@ pub(crate) fn lint_source_strict(
     }
     let indexer = Indexer::new(source, &parse_result);
     let settings = LinterSettings::default().with_analyzed_paths([path.to_path_buf()]);
-    lint_file(&parse_result, source, &indexer, &settings, None, Some(path))
+    lint_file(
+        &parse_result,
+        source,
+        &indexer,
+        &settings,
+        &ShellCheckCodeMap::default(),
+        Some(path),
+    )
 }
 
 pub(crate) fn compare_lint_counts(original: &[Diagnostic], formatted: &[Diagnostic], path: &Path) {

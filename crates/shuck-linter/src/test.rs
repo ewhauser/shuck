@@ -6,7 +6,9 @@ use shuck_indexer::Indexer;
 use shuck_parser::parser::{ParseResult, Parser};
 use similar::TextDiff;
 
-use crate::{Applicability, Diagnostic, LinterSettings, ShellDialect, apply_fixes, lint_file};
+use crate::{
+    Applicability, Diagnostic, LinterSettings, ShellDialect, apply_fixes, lint_file_with_directives,
+};
 
 fn infer_shell(source: &str, settings: &LinterSettings, path: Option<&Path>) -> ShellDialect {
     if settings.shell == crate::ShellDialect::Unknown {
@@ -33,14 +35,9 @@ pub struct FixTestResult {
 pub fn test_snippet(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
     let parse_result = parse_for_lint(source, settings, None);
     let indexer = Indexer::new(source, &parse_result);
-    lint_file(
-        &parse_result,
-        source,
-        &indexer,
-        settings,
-        &crate::ShellCheckCodeMap::default(),
-        None,
-    )
+    // Fixture and rule-focused test helpers ignore inline directives by default so
+    // embedded ShellCheck suppressions do not silently mask the rule under test.
+    lint_file_with_directives(&parse_result, source, &indexer, settings, &[], None)
 }
 
 /// Lint a source string while preserving an explicit path for path-sensitive rules.
@@ -51,14 +48,7 @@ pub fn test_snippet_at_path(
 ) -> Vec<Diagnostic> {
     let parse_result = parse_for_lint(source, settings, Some(path));
     let indexer = Indexer::new(source, &parse_result);
-    lint_file(
-        &parse_result,
-        source,
-        &indexer,
-        settings,
-        &crate::ShellCheckCodeMap::default(),
-        Some(path),
-    )
+    lint_file_with_directives(&parse_result, source, &indexer, settings, &[], Some(path))
 }
 
 pub fn test_snippet_with_fix(
