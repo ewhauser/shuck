@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 
+use compact_str::CompactString;
 use shuck_ast::{Span, TextRange, TextSize};
 
 use crate::Diagnostic;
@@ -29,7 +30,7 @@ pub enum FixAvailability {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Edit {
     range: TextRange,
-    content: String,
+    content: CompactString,
 }
 
 impl Edit {
@@ -38,14 +39,14 @@ impl Edit {
     }
 
     pub fn deletion_at(start: usize, end: usize) -> Self {
-        Self::replacement_at(start, end, String::new())
+        Self::replacement_at(start, end, CompactString::default())
     }
 
-    pub fn replacement(content: impl Into<String>, span: Span) -> Self {
+    pub fn replacement(content: impl Into<CompactString>, span: Span) -> Self {
         Self::replacement_at(span.start.offset, span.end.offset, content)
     }
 
-    pub fn replacement_at(start: usize, end: usize, content: impl Into<String>) -> Self {
+    pub fn replacement_at(start: usize, end: usize, content: impl Into<CompactString>) -> Self {
         let (start, end) = ordered_offsets(start, end);
         Self {
             range: TextRange::new(TextSize::new(start as u32), TextSize::new(end as u32)),
@@ -53,7 +54,7 @@ impl Edit {
         }
     }
 
-    pub fn insertion(offset: usize, content: impl Into<String>) -> Self {
+    pub fn insertion(offset: usize, content: impl Into<CompactString>) -> Self {
         Self::replacement_at(offset, offset, content)
     }
 

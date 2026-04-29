@@ -1769,6 +1769,7 @@ name = "shuck-linter"
 version = "0.0.26"
 dependencies = [
  "anyhow",
+ "compact_str",
  "globset",
  "insta",
  "rustc-hash 2.1.2",
