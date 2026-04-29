@@ -1,7 +1,6 @@
 use super::*;
 use crate::dataflow;
 
-#[allow(missing_docs)]
 impl SemanticModel {
     pub(crate) fn needs_precise_unused_assignments(&self) -> bool {
         if self.heuristic_unused_assignments.is_empty() {
@@ -46,7 +45,6 @@ impl SemanticModel {
     }
 }
 
-#[allow(missing_docs)]
 impl<'model> SemanticAnalysis<'model> {
     /// Returns every binding that dataflow proves is never read again.
     ///

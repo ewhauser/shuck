@@ -18,20 +18,22 @@ struct FunctionReachWindow<'a> {
     script_terminators: &'a FxHashSet<BlockId>,
 }
 
-#[allow(missing_docs)]
 impl<'model> SemanticAnalysis<'model> {
+    /// Returns same-name function definitions that are overwritten by a later definition.
     pub fn overwritten_functions(&self) -> &[OverwrittenFunction] {
         self.overwritten_functions
             .get_or_init(|| self.compute_overwritten_functions())
             .as_slice()
     }
 
+    /// Returns function definitions that are not reached by any viable direct call chain.
     pub fn unreached_functions(&self) -> &[UnreachedFunction] {
         self.unreached_functions
             .get_or_init(|| self.compute_unreached_functions_with_options(Default::default()))
             .as_slice()
     }
 
+    /// Returns unreached function definitions using the requested reporting options.
     pub fn unreached_functions_with_options(
         &self,
         options: UnreachedFunctionAnalysisOptions,
@@ -45,6 +47,7 @@ impl<'model> SemanticAnalysis<'model> {
             .as_slice()
     }
 
+    /// Returns reachable CFG blocks that contain `binding_id`.
     pub fn reachable_blocks_for_binding(&self, binding_id: BindingId) -> Vec<BlockId> {
         let unreachable = self.unreachable_blocks();
         self.blocks_containing_binding(binding_id)
@@ -71,11 +74,13 @@ impl<'model> SemanticAnalysis<'model> {
         })
     }
 
+    /// Returns blocks that would shadow `binding_id` with a later same-name function definition.
     pub fn shadow_function_blocks_for_binding(&self, binding_id: BindingId) -> FxHashSet<BlockId> {
         let binding = self.model.binding(binding_id);
         self.shadow_function_blocks_from_cfg(&binding.name, binding_id, self.unreachable_blocks())
     }
 
+    /// Returns whether some path exists from `starts` to `ends` without entering `avoid`.
     pub fn blocks_have_path_avoiding(
         &self,
         starts: &[BlockId],
@@ -85,6 +90,7 @@ impl<'model> SemanticAnalysis<'model> {
         blocks_have_path_avoiding(self.cfg(), starts, ends, avoid)
     }
 
+    /// Returns whether `scope` runs inside a transient execution context such as a subshell.
     pub fn scope_runs_in_transient_context(&self, scope: ScopeId) -> bool {
         self.model.ancestor_scopes(scope).any(|scope_id| {
             matches!(
@@ -94,10 +100,12 @@ impl<'model> SemanticAnalysis<'model> {
         })
     }
 
+    /// Returns whether a call site in `scope` runs in a transient execution context.
     pub fn call_site_runs_in_transient_context(&self, scope: ScopeId) -> bool {
         self.scope_runs_in_transient_context(scope)
     }
 
+    /// Returns the nearest non-anonymous enclosing function scope for `scope`.
     pub fn enclosing_function_scope(&self, scope: ScopeId) -> Option<ScopeId> {
         self.model.ancestor_scopes(scope).find(|scope_id| {
             matches!(
@@ -107,6 +115,8 @@ impl<'model> SemanticAnalysis<'model> {
         })
     }
 
+    /// Returns whether a call site could resolve to `binding_id` under both lexical visibility and
+    /// CFG reachability constraints.
     pub fn function_call_may_resolve_to_binding(
         &self,
         binding_id: BindingId,

@@ -5,9 +5,12 @@ use std::path::{Path, PathBuf};
 
 use crate::SourcePathResolver;
 
+/// Confidence attached to a provided binding or function contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ContractCertainty {
+    /// The contract is guaranteed along the observed path.
     Definite,
+    /// The contract may apply, but not on every path.
     Possible,
 }
 
@@ -20,16 +23,22 @@ impl ContractCertainty {
     }
 }
 
+/// Kind of binding described by a contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProvidedBindingKind {
+    /// A variable binding.
     Variable,
+    /// A function binding.
     Function,
 }
 
+/// Whether a file-entry provided binding is definitely initialized on entry.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum FileEntryBindingInitialization {
+    /// The binding is ambiently available but not guaranteed initialized.
     #[default]
     AmbientOnly,
+    /// The binding is definitely initialized at file entry.
     Initialized,
 }
 
@@ -42,15 +51,21 @@ impl FileEntryBindingInitialization {
     }
 }
 
+/// One binding provided by an imported file or ambient contract.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProvidedBinding {
+    /// Provided binding name.
     pub name: Name,
+    /// Provided binding kind.
     pub kind: ProvidedBindingKind,
+    /// Confidence attached to the binding.
     pub certainty: ContractCertainty,
+    /// Whether the binding is initialized at file entry.
     pub file_entry_initialization: FileEntryBindingInitialization,
 }
 
 impl ProvidedBinding {
+    /// Creates a provided binding that is ambiently available but not definitely initialized.
     pub fn new(name: Name, kind: ProvidedBindingKind, certainty: ContractCertainty) -> Self {
         Self {
             name,
@@ -60,6 +75,7 @@ impl ProvidedBinding {
         }
     }
 
+    /// Creates a provided binding that is definitely initialized at file entry.
     pub fn new_file_entry_initialized(
         name: Name,
         kind: ProvidedBindingKind,
@@ -74,15 +90,21 @@ impl ProvidedBinding {
     }
 }
 
+/// Contract for one provided function.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FunctionContract {
+    /// Function name.
     pub name: Name,
+    /// Names the function is expected to read from its caller environment.
     pub required_reads: Vec<Name>,
+    /// Bindings the function may provide to its caller or nested analysis.
     pub provided_bindings: Vec<ProvidedBinding>,
+    /// Source files that contributed this function contract.
     pub origin_paths: Vec<PathBuf>,
 }
 
 impl FunctionContract {
+    /// Creates an empty contract for `name`.
     pub fn new(name: Name) -> Self {
         Self {
             name,
@@ -92,12 +114,14 @@ impl FunctionContract {
         }
     }
 
+    /// Adds a required read if it has not already been recorded.
     pub fn add_required_read(&mut self, name: Name) {
         if !self.required_reads.contains(&name) {
             self.required_reads.push(name);
         }
     }
 
+    /// Adds or merges a provided binding into this function contract.
     pub fn add_provided_binding(&mut self, binding: ProvidedBinding) {
         let mut merged = false;
         for existing in &mut self.provided_bindings {
@@ -116,6 +140,7 @@ impl FunctionContract {
         }
     }
 
+    /// Records a contributing origin path if it has not already been seen.
     pub fn add_origin_path(&mut self, path: PathBuf) {
         if !self.origin_paths.contains(&path) {
             self.origin_paths.push(path);
@@ -163,11 +188,16 @@ impl FunctionContract {
     }
 }
 
+/// Aggregate contract applied at file entry before final semantic resolution.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FileContract {
+    /// Names required from the ambient environment before the file runs.
     pub required_reads: Vec<Name>,
+    /// Bindings provided by entering the file.
     pub provided_bindings: Vec<ProvidedBinding>,
+    /// Functions provided by entering the file.
     pub provided_functions: Vec<FunctionContract>,
+    /// Whether the file may consume bindings through external runtime behavior.
     pub externally_consumed_bindings: bool,
 }
 
@@ -185,12 +215,14 @@ pub trait FileEntryContractCollector {
 }
 
 impl FileContract {
+    /// Adds a required read if it has not already been recorded.
     pub fn add_required_read(&mut self, name: Name) {
         if !self.required_reads.contains(&name) {
             self.required_reads.push(name);
         }
     }
 
+    /// Adds or merges a provided binding into the file contract.
     pub fn add_provided_binding(&mut self, binding: ProvidedBinding) {
         let mut merged = false;
         for existing in &mut self.provided_bindings {
@@ -209,6 +241,7 @@ impl FileContract {
         }
     }
 
+    /// Adds or merges a provided function into the file contract.
     pub fn add_provided_function(&mut self, function: FunctionContract) {
         let mut merged = false;
         for existing in &mut self.provided_functions {
@@ -287,13 +320,21 @@ impl FileContract {
     }
 }
 
+/// Options that control how a [`crate::SemanticModel`] is built.
 pub struct SemanticBuildOptions<'a> {
+    /// Path of the file being analyzed, used for source-closure resolution and diagnostics.
     pub source_path: Option<&'a Path>,
+    /// Resolver for mapping source-like paths to candidate tracked files.
     pub source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
+    /// Precomputed file-entry contract to apply before analysis.
     pub file_entry_contract: Option<FileContract>,
+    /// Optional observer that can derive a file-entry contract during traversal.
     pub file_entry_contract_collector: Option<&'a mut dyn FileEntryContractCollector>,
+    /// Paths already analyzed in the current source-closure walk.
     pub analyzed_paths: Option<&'a rustc_hash::FxHashSet<PathBuf>>,
+    /// Explicit shell profile to use instead of inferring one from the source.
     pub shell_profile: Option<ShellProfile>,
+    /// Whether sourced-file closure metadata should be resolved and imported.
     pub resolve_source_closure: bool,
 }
 

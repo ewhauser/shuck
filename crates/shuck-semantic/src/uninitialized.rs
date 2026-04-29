@@ -1,8 +1,8 @@
 use super::*;
 use crate::dataflow;
 
-#[allow(missing_docs)]
 impl<'model> SemanticAnalysis<'model> {
+    /// Returns references that may observe an uninitialized value.
     pub fn uninitialized_references(&self) -> &[UninitializedReference] {
         self.uninitialized_references
             .get_or_init(|| {

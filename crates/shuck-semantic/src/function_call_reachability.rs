@@ -3,31 +3,43 @@ use super::*;
 /// Direct function-call candidate supplied by higher-level analyses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionCallCandidate {
+    /// Callee name.
     pub callee: Name,
+    /// Scope that contains the call.
     pub scope: ScopeId,
+    /// Span of the callee token.
     pub name_span: Span,
+    /// Span of the enclosing command.
     pub command_span: Span,
 }
 
 /// Controls whether transient execution contexts are accepted for a direct-call query.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum FunctionCallPersistence {
+    /// Count calls regardless of whether they happen in transient contexts.
     #[default]
     Any,
+    /// Count only calls whose effects can persist in the parent environment.
     PersistentOnly,
 }
 
 /// Offset and scope constraints for a direct function-call reachability query.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DirectFunctionCallWindow {
+    /// Inclusive lower offset bound for eligible calls.
     pub after_offset: usize,
+    /// Exclusive upper offset bound for eligible calls.
     pub before_offset: usize,
+    /// Whether transient execution contexts are acceptable.
     pub persistence: FunctionCallPersistence,
+    /// Optional scope boundary that eligible calls must stay within.
     pub scope_boundary: Option<ScopeId>,
+    /// Whether the call itself must avoid transient command contexts.
     pub require_non_transient_call: bool,
 }
 
 impl DirectFunctionCallWindow {
+    /// Creates a window that accepts calls before `before_offset`.
     pub fn before_offset(before_offset: usize) -> Self {
         Self {
             after_offset: 0,
@@ -38,6 +50,7 @@ impl DirectFunctionCallWindow {
         }
     }
 
+    /// Creates a window that accepts calls between `after_offset` and `before_offset`.
     pub fn between_offsets(after_offset: usize, before_offset: usize) -> Self {
         Self {
             after_offset,
@@ -48,16 +61,19 @@ impl DirectFunctionCallWindow {
         }
     }
 
+    /// Restricts the window to persistently reachable calls only.
     pub fn persistent(mut self) -> Self {
         self.persistence = FunctionCallPersistence::PersistentOnly;
         self
     }
 
+    /// Requires the call site itself to avoid transient command contexts.
     pub fn require_non_transient_call(mut self) -> Self {
         self.require_non_transient_call = true;
         self
     }
 
+    /// Restricts the window to calls that stay within `scope`.
     pub fn within_scope(mut self, scope: ScopeId) -> Self {
         self.scope_boundary = Some(scope);
         self
@@ -144,12 +160,14 @@ impl<'analysis, 'model> DirectFunctionCallReachability<'analysis, 'model> {
         }
     }
 
+    /// Enables an auxiliary activation index that speeds up repeated reachability queries.
     pub fn enable_activation_index(&mut self) {
         if self.activation_index.is_none() {
             self.activation_index = Some(self.build_activation_index());
         }
     }
 
+    /// Returns whether `binding_id` has a direct call that satisfies `window`.
     pub fn binding_has_reachable_direct_call(
         &mut self,
         binding_id: BindingId,
@@ -178,6 +196,7 @@ impl<'analysis, 'model> DirectFunctionCallReachability<'analysis, 'model> {
         )
     }
 
+    /// Returns whether `scope` can execute before `before_offset`.
     pub fn scope_can_run_before_offset(
         &mut self,
         scope: ScopeId,
@@ -199,6 +218,7 @@ impl<'analysis, 'model> DirectFunctionCallReachability<'analysis, 'model> {
         }
     }
 
+    /// Returns whether `scope` can execute between `after_offset` and `before_offset`.
     pub fn scope_can_run_between_offsets(
         &mut self,
         scope: ScopeId,
