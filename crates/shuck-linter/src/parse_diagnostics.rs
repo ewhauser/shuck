@@ -485,17 +485,42 @@ fn until_missing_do_span(
     locator: Locator<'_>,
     parse_diagnostics: &[ParseDiagnostic],
 ) -> Option<Span> {
+    let mut pending_until_flags: Option<Vec<bool>> = None;
     parse_diagnostics
         .iter()
         .find(|diagnostic| {
             is_expected_command_error(&diagnostic.message)
                 && is_done_line(locator, diagnostic.span.start.line)
-                && has_pending_until_without_do_before_line(
-                    locator.source(),
-                    diagnostic.span.start.line,
-                )
+                && {
+                    let flags = pending_until_flags
+                        .get_or_insert_with(|| compute_pending_until_flags(locator.source()));
+                    flags
+                        .get(diagnostic.span.start.line.saturating_sub(1))
+                        .copied()
+                        .unwrap_or(false)
+                }
         })
         .map(|diagnostic| diagnostic.span)
+}
+
+fn compute_pending_until_flags(source: &str) -> Vec<bool> {
+    let mut depth: usize = 0;
+    let mut flags: Vec<bool> = Vec::new();
+    flags.push(false);
+    for line in source.lines() {
+        let text = line.split_once('#').map_or(line, |(before, _)| before);
+        if line_has_command_leading_word(text, "until") {
+            depth += 1;
+        }
+        if depth > 0
+            && (line_has_command_leading_word(text, "do")
+                || line_has_command_leading_word(text, "done"))
+        {
+            depth -= 1;
+        }
+        flags.push(depth > 0);
+    }
+    flags
 }
 
 fn if_bracket_glued_span(
@@ -632,33 +657,6 @@ fn is_done_line(locator: Locator<'_>, line_number: usize) -> bool {
             shell_like_words(text).any(|word| word == "done")
         })
         .unwrap_or(false)
-}
-
-fn has_pending_until_without_do_before_line(source: &str, line_number: usize) -> bool {
-    if line_number <= 1 {
-        return false;
-    }
-
-    let mut pending_until_depth = 0usize;
-    for (index, line) in source.lines().enumerate() {
-        let current_line = index + 1;
-        if current_line >= line_number {
-            break;
-        }
-
-        let text = line.split_once('#').map_or(line, |(before, _)| before);
-        if line_has_command_leading_word(text, "until") {
-            pending_until_depth += 1;
-        }
-        if pending_until_depth > 0
-            && (line_has_command_leading_word(text, "do")
-                || line_has_command_leading_word(text, "done"))
-        {
-            pending_until_depth -= 1;
-        }
-    }
-
-    pending_until_depth > 0
 }
 
 fn line_has_command_leading_word(line: &str, word: &str) -> bool {
