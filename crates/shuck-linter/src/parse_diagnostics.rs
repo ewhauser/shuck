@@ -1,4 +1,4 @@
-use shuck_ast::{Command, CompoundCommand, File, Position, Span, Stmt, StmtSeq};
+use shuck_ast::{File, Position, Span};
 use shuck_parser::parser::{ParseDiagnostic, ParseResult};
 
 use crate::rules::correctness::c_prototype_fragment::CPrototypeFragment;
@@ -14,7 +14,9 @@ use crate::rules::portability::targets_non_zsh_shell;
 use crate::rules::portability::zsh_always_block::ZshAlwaysBlock;
 use crate::rules::portability::zsh_brace_if::ZshBraceIf;
 use crate::rules::style::linebreak_before_and::LinebreakBeforeAnd;
-use crate::{Diagnostic, Edit, Fix, Rule, RuleSet, ShellDialect, Violation};
+use crate::{
+    Diagnostic, Edit, Fix, LinterSemanticArtifacts, Rule, RuleSet, ShellDialect, Violation,
+};
 
 pub struct ExtglobCase;
 pub struct ExtglobInCasePattern;
@@ -43,6 +45,7 @@ pub(crate) fn collect_parse_rule_diagnostics(
     file: &File,
     source: &str,
     parse_result: Option<&ParseResult>,
+    semantic: &LinterSemanticArtifacts<'_>,
     enabled_rules: &RuleSet,
     shell: ShellDialect,
 ) -> Vec<Diagnostic> {
@@ -52,7 +55,7 @@ pub(crate) fn collect_parse_rule_diagnostics(
         .unwrap_or(&[]);
     let missing_done_loop_kind = (enabled_rules.contains(crate::Rule::LoopWithoutEnd)
         || enabled_rules.contains(crate::Rule::MissingDoneInForLoop))
-    .then(|| missing_done_loop_kind(file, source, parse_diagnostics))
+    .then(|| missing_done_loop_kind(file, source, parse_diagnostics, semantic))
     .flatten();
 
     if enabled_rules.contains(crate::Rule::MissingFi)
@@ -653,6 +656,7 @@ fn missing_done_loop_kind(
     file: &File,
     source: &str,
     parse_diagnostics: &[ParseDiagnostic],
+    semantic: &LinterSemanticArtifacts<'_>,
 ) -> Option<MissingDoneLoopKind> {
     if !parse_diagnostics
         .iter()
@@ -661,110 +665,24 @@ fn missing_done_loop_kind(
         return None;
     }
 
-    Some(if missing_done_belongs_to_for_loop(file, source) {
-        MissingDoneLoopKind::For
-    } else {
-        MissingDoneLoopKind::NonFor
-    })
+    Some(
+        if missing_done_belongs_to_for_loop(file, source, semantic) {
+            MissingDoneLoopKind::For
+        } else {
+            MissingDoneLoopKind::NonFor
+        },
+    )
 }
 
-fn missing_done_belongs_to_for_loop(file: &File, source: &str) -> bool {
-    let eof_offset = file.span.end.offset;
-    let mut trailing_loop_kind = None;
-
-    walk_commands(&file.body, &mut |stmt| {
-        if stmt.span.end.offset != eof_offset {
-            return;
-        }
-
-        let is_for_loop = match &stmt.command {
-            Command::Compound(CompoundCommand::For(_)) => true,
-            Command::Compound(CompoundCommand::While(_) | CompoundCommand::Until(_)) => false,
-            _ => return,
-        };
-
-        let start_offset = stmt.span.start.offset;
-        if trailing_loop_kind
-            .as_ref()
-            .is_none_or(|(best_start, _)| start_offset >= *best_start)
-        {
-            trailing_loop_kind = Some((start_offset, is_for_loop));
-        }
-    });
-
-    trailing_loop_kind
-        .map(|(_, is_for_loop)| is_for_loop)
+fn missing_done_belongs_to_for_loop(
+    file: &File,
+    source: &str,
+    semantic: &LinterSemanticArtifacts<'_>,
+) -> bool {
+    semantic
+        .missing_done_trailing_loop_is_for(&file.body, file.span.end.offset)
         .or_else(|| missing_done_loop_kind_from_source(source))
         .unwrap_or(false)
-}
-
-fn walk_commands(commands: &StmtSeq, visit: &mut impl FnMut(&Stmt)) {
-    for stmt in commands.iter() {
-        walk_command(stmt, visit);
-    }
-}
-
-fn walk_command(stmt: &Stmt, visit: &mut impl FnMut(&Stmt)) {
-    visit(stmt);
-
-    match &stmt.command {
-        Command::Binary(command) => {
-            walk_command(&command.left, visit);
-            walk_command(&command.right, visit);
-        }
-        Command::Compound(command) => walk_compound_command(command, visit),
-        Command::Function(function) => walk_command(&function.body, visit),
-        Command::AnonymousFunction(function) => walk_command(&function.body, visit),
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
-    }
-}
-
-fn walk_compound_command(command: &CompoundCommand, visit: &mut impl FnMut(&Stmt)) {
-    match command {
-        CompoundCommand::If(command) => {
-            walk_commands(&command.condition, visit);
-            walk_commands(&command.then_branch, visit);
-            for (condition, body) in &command.elif_branches {
-                walk_commands(condition, visit);
-                walk_commands(body, visit);
-            }
-            if let Some(body) = &command.else_branch {
-                walk_commands(body, visit);
-            }
-        }
-        CompoundCommand::For(command) => walk_commands(&command.body, visit),
-        CompoundCommand::Repeat(command) => walk_commands(&command.body, visit),
-        CompoundCommand::Foreach(command) => walk_commands(&command.body, visit),
-        CompoundCommand::ArithmeticFor(command) => walk_commands(&command.body, visit),
-        CompoundCommand::While(command) => {
-            walk_commands(&command.condition, visit);
-            walk_commands(&command.body, visit);
-        }
-        CompoundCommand::Until(command) => {
-            walk_commands(&command.condition, visit);
-            walk_commands(&command.body, visit);
-        }
-        CompoundCommand::Case(command) => {
-            for case in &command.cases {
-                walk_commands(&case.body, visit);
-            }
-        }
-        CompoundCommand::Select(command) => walk_commands(&command.body, visit),
-        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            walk_commands(commands, visit);
-        }
-        CompoundCommand::Always(command) => {
-            walk_commands(&command.body, visit);
-            walk_commands(&command.always_body, visit);
-        }
-        CompoundCommand::Time(command) => {
-            if let Some(command) = &command.command {
-                walk_command(command, visit);
-            }
-        }
-        CompoundCommand::Coproc(command) => walk_command(&command.body, visit),
-        CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => {}
-    }
 }
 
 fn missing_done_loop_kind_from_source(source: &str) -> Option<bool> {
@@ -956,13 +874,38 @@ fn line_start_offset(source: &str, target_line: usize) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use shuck_parser::parser::Parser;
+    use shuck_ast::File;
+    use shuck_indexer::Indexer;
+    use shuck_parser::parser::{ParseResult, Parser};
 
     use super::{
-        collect_parse_rule_diagnostics, if_bracket_glued_span_on_line, is_expected_command_error,
-        line_contains_shell_word,
+        collect_parse_rule_diagnostics as collect_parse_rule_diagnostics_impl,
+        if_bracket_glued_span_on_line, is_expected_command_error, line_contains_shell_word,
     };
-    use crate::{Applicability, LinterSettings, Rule, ShellDialect};
+    use crate::{
+        Applicability, Diagnostic, LinterSemanticArtifacts, LinterSettings, Rule, RuleSet,
+        ShellDialect,
+    };
+
+    fn collect_parse_rule_diagnostics(
+        file: &File,
+        source: &str,
+        parse_result: Option<&ParseResult>,
+        enabled_rules: &RuleSet,
+        shell: ShellDialect,
+    ) -> Vec<Diagnostic> {
+        let parse_result = parse_result.expect("parse diagnostics tests pass a parse result");
+        let indexer = Indexer::new(source, parse_result);
+        let semantic = LinterSemanticArtifacts::build(file, source, &indexer);
+        collect_parse_rule_diagnostics_impl(
+            file,
+            source,
+            Some(parse_result),
+            &semantic,
+            enabled_rules,
+            shell,
+        )
+    }
 
     #[test]
     fn maps_missing_fi_parse_error_to_c035_at_end_of_file() {

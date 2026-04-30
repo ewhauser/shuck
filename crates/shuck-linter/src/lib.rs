@@ -106,7 +106,7 @@ pub use suppression::{
 pub use violation::Violation;
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{File, Position, Span, Stmt, StmtSeq, TextSize};
+use shuck_ast::{Command, CompoundCommand, File, Position, Span, Stmt, StmtSeq, TextSize};
 use shuck_indexer::{Indexer, LineIndex};
 use shuck_parser::parser::{ParseResult, Parser};
 use shuck_semantic::{
@@ -127,6 +127,11 @@ pub struct AnalysisResult {
     pub semantic: SemanticModel,
     /// Diagnostics emitted by linter rules and parse checks.
     pub diagnostics: Vec<Diagnostic>,
+}
+
+struct LinterAnalysisResult<'a> {
+    semantic: LinterSemanticArtifacts<'a>,
+    diagnostics: Vec<Diagnostic>,
 }
 
 /// Semantic model plus linter-private traversal artifacts needed to build facts.
@@ -208,6 +213,35 @@ impl<'a> LinterSemanticArtifacts<'a> {
 
     pub(crate) fn directive_attachment_facts(&self) -> &DirectiveAttachmentFacts {
         &self.directive_attachment_facts
+    }
+
+    pub(crate) fn missing_done_trailing_loop_is_for(
+        &self,
+        body: &StmtSeq,
+        eof_offset: usize,
+    ) -> Option<bool> {
+        let mut trailing_loop_kind = None;
+        self.for_each_command_visit_in_body(body, false, |visit| {
+            if visit.stmt.span.end.offset != eof_offset {
+                return;
+            }
+
+            let is_for_loop = match visit.command {
+                Command::Compound(CompoundCommand::For(_)) => true,
+                Command::Compound(CompoundCommand::While(_) | CompoundCommand::Until(_)) => false,
+                _ => return,
+            };
+
+            let start_offset = visit.stmt.span.start.offset;
+            if trailing_loop_kind
+                .as_ref()
+                .is_none_or(|(best_start, _)| start_offset >= *best_start)
+            {
+                trailing_loop_kind = Some((start_offset, is_for_loop));
+            }
+        });
+
+        trailing_loop_kind.map(|(_, is_for_loop)| is_for_loop)
     }
 
     #[cfg(test)]
@@ -459,6 +493,35 @@ fn analyze_file_at_path_with_resolver_and_shell(
     shell: ShellDialect,
     first_parse_error: Option<(usize, usize)>,
 ) -> AnalysisResult {
+    let result = analyze_linter_file_at_path_with_resolver_and_shell(
+        file,
+        source,
+        indexer,
+        settings,
+        suppression_index,
+        source_path,
+        source_path_resolver,
+        shell,
+        first_parse_error,
+    );
+    AnalysisResult {
+        semantic: result.semantic.into_semantic(),
+        diagnostics: result.diagnostics,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn analyze_linter_file_at_path_with_resolver_and_shell<'a>(
+    file: &'a File,
+    source: &'a str,
+    indexer: &'a Indexer,
+    settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    shell: ShellDialect,
+    first_parse_error: Option<(usize, usize)>,
+) -> LinterAnalysisResult<'a> {
     let mut file_entry_contract_collector =
         ambient_contracts::AmbientContractCollector::new(source, source_path, shell);
     let analyzed_paths_fallback =
@@ -513,8 +576,8 @@ fn analyze_file_at_path_with_resolver_and_shell(
 
     diagnostics
         .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
-    AnalysisResult {
-        semantic: linter_semantic_artifacts.into_semantic(),
+    LinterAnalysisResult {
+        semantic: linter_semantic_artifacts,
         diagnostics,
     }
 }
@@ -584,7 +647,7 @@ pub fn lint_file_at_path_with_resolver(
     let shell = resolve_shell(settings, source, source_path);
     let parse_result = parse_for_lint(source, shell);
 
-    let mut diagnostics = analyze_file_at_path_with_resolver_and_shell(
+    let analysis = analyze_linter_file_at_path_with_resolver_and_shell(
         file,
         source,
         indexer,
@@ -594,13 +657,14 @@ pub fn lint_file_at_path_with_resolver(
         source_path_resolver,
         shell,
         parse_error_position(&parse_result),
-    )
-    .diagnostics;
+    );
+    let mut diagnostics = analysis.diagnostics;
 
     diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
-        &parse_result.file,
+        file,
         source,
         Some(&parse_result),
+        &analysis.semantic,
         &settings.rules,
         shell,
     ));
@@ -705,6 +769,7 @@ pub(crate) fn lint_file_at_path_with_resolver_and_parse_result_and_directives(
         &parse_result.file,
         source,
         Some(parse_result),
+        &linter_semantic_artifacts,
         &settings.rules,
         shell,
     ));
