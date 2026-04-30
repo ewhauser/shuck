@@ -3,41 +3,112 @@ use super::*;
 impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     pub(super) fn visit_conditional_expr(
         &mut self,
+        command_span: Span,
         expression: &'a ConditionalExpr,
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
-        self.visit_conditional_expr_into(expression, flow, &mut nested_regions);
+        self.visit_conditional_expr_into(command_span, expression, flow, &mut nested_regions);
         nested_regions
     }
 
     pub(super) fn visit_conditional_expr_into(
         &mut self,
+        command_span: Span,
         expression: &'a ConditionalExpr,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
+        self.visit_conditional_expr_with_context(
+            command_span,
+            expression,
+            flow,
+            nested_regions,
+            false,
+            false,
+        );
+    }
+
+    fn visit_conditional_expr_with_context(
+        &mut self,
+        command_span: Span,
+        expression: &'a ConditionalExpr,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+        parent_in_same_logical_group: bool,
+        arithmetic_operand: bool,
+    ) {
+        let expression = strip_parenthesized_conditional(expression);
+        self.observer.conditional_expression(
+            command_span,
+            expression,
+            parent_in_same_logical_group,
+        );
+
+        if arithmetic_operand
+            && let Some((name, span)) = conditional_arithmetic_operand_name(expression, self.source)
+        {
+            self.add_reference(&name, ReferenceKind::ArithmeticRead, span);
+            return;
+        }
+
         match expression {
             ConditionalExpr::Binary(expr) => {
                 if conditional_binary_op_uses_arithmetic_operands(expr.op) {
-                    self.visit_conditional_arithmetic_operand_into(
+                    self.visit_conditional_expr_with_context(
+                        command_span,
                         &expr.left,
                         flow,
                         nested_regions,
+                        false,
+                        true,
                     );
-                    self.visit_conditional_arithmetic_operand_into(
+                    self.visit_conditional_expr_with_context(
+                        command_span,
                         &expr.right,
                         flow,
                         nested_regions,
+                        false,
+                        true,
                     );
                 } else if matches!(expr.op, ConditionalBinaryOp::And | ConditionalBinaryOp::Or) {
-                    self.visit_conditional_expr_into(&expr.left, flow, nested_regions);
+                    let left_continues_group = conditional_expr_is_logical_binary(&expr.left);
+                    let right_continues_group = conditional_expr_is_logical_binary(&expr.right);
+                    self.visit_conditional_expr_with_context(
+                        command_span,
+                        &expr.left,
+                        flow,
+                        nested_regions,
+                        left_continues_group,
+                        false,
+                    );
                     self.short_circuit_condition_depth += 1;
-                    self.visit_conditional_expr_into(&expr.right, flow, nested_regions);
+                    self.visit_conditional_expr_with_context(
+                        command_span,
+                        &expr.right,
+                        flow,
+                        nested_regions,
+                        right_continues_group,
+                        false,
+                    );
                     self.short_circuit_condition_depth -= 1;
                 } else {
-                    self.visit_conditional_expr_into(&expr.left, flow, nested_regions);
-                    self.visit_conditional_expr_into(&expr.right, flow, nested_regions);
+                    self.visit_conditional_expr_with_context(
+                        command_span,
+                        &expr.left,
+                        flow,
+                        nested_regions,
+                        false,
+                        false,
+                    );
+                    self.visit_conditional_expr_with_context(
+                        command_span,
+                        &expr.right,
+                        flow,
+                        nested_regions,
+                        false,
+                        false,
+                    );
                 }
             }
             ConditionalExpr::Unary(expr) => {
@@ -47,10 +118,14 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 {
                     self.add_reference_if_bound(&name, ReferenceKind::ConditionalOperand, span);
                 }
-                self.visit_conditional_expr_into(&expr.expr, flow, nested_regions);
-            }
-            ConditionalExpr::Parenthesized(expr) => {
-                self.visit_conditional_expr_into(&expr.expr, flow, nested_regions);
+                self.visit_conditional_expr_with_context(
+                    command_span,
+                    &expr.expr,
+                    flow,
+                    nested_regions,
+                    false,
+                    false,
+                );
             }
             ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
                 self.visit_word_into(word, WordVisitKind::Conditional, flow, nested_regions);
@@ -67,21 +142,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     var_ref.name_span,
                 );
             }
+            ConditionalExpr::Parenthesized(_) => unreachable!("parentheses should be stripped"),
         }
-    }
-
-    pub(super) fn visit_conditional_arithmetic_operand_into(
-        &mut self,
-        expression: &'a ConditionalExpr,
-        flow: FlowState,
-        nested_regions: &mut Vec<IsolatedRegion>,
-    ) {
-        if let Some((name, span)) = conditional_arithmetic_operand_name(expression, self.source) {
-            self.add_reference(&name, ReferenceKind::ArithmeticRead, span);
-            return;
-        }
-
-        self.visit_conditional_expr_into(expression, flow, nested_regions);
     }
 
     pub(super) fn visit_optional_arithmetic_expr(
@@ -414,4 +476,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
         }
     }
+}
+
+fn conditional_expr_is_logical_binary(expression: &ConditionalExpr) -> bool {
+    matches!(
+        expression,
+        ConditionalExpr::Binary(binary)
+            if matches!(binary.op, ConditionalBinaryOp::And | ConditionalBinaryOp::Or)
+    )
 }

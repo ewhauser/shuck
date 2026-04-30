@@ -772,7 +772,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.record_command(command.span, nested_regions, RecordedCommandKind::Linear)
             }
             CompoundCommand::Conditional(command) => {
-                let nested_regions = self.visit_conditional_expr(&command.expression, flow);
+                let nested_regions =
+                    self.visit_conditional_expr(command.span, &command.expression, flow);
                 self.record_command(command.span, nested_regions, RecordedCommandKind::Linear)
             }
             CompoundCommand::Coproc(command) => {

@@ -296,7 +296,11 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 let glued_closing_bracket_insert_offset =
                     build_glued_closing_bracket_insert_offset(visit.command, self.source);
                 let simple_test = build_simple_test_fact(visit.command, self.source);
-                let conditional = build_conditional_fact(visit.command, self.source);
+                let conditional_expression_visits = self
+                    .semantic_artifacts
+                    .conditional_expression_visits(command_span(visit.command));
+                let conditional =
+                    build_conditional_fact(conditional_expression_visits, self.source);
                 let command_fact = CommandFact {
                     id,
                     key,

@@ -197,6 +197,24 @@ impl<'a> ConditionalFact<'a> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ConditionalExpressionVisit<'a> {
+    expression: &'a ConditionalExpr,
+    parent_in_same_logical_group: bool,
+}
+
+impl<'a> ConditionalExpressionVisit<'a> {
+    pub(crate) fn new(
+        expression: &'a ConditionalExpr,
+        parent_in_same_logical_group: bool,
+    ) -> Self {
+        Self {
+            expression,
+            parent_in_same_logical_group,
+        }
+    }
+}
+
 fn collect_command_substitution_command_span(
     command: &Command,
     source: &str,
@@ -2208,14 +2226,25 @@ fn collect_status_parameter_spans_in_fragment(
     collect_status_parameter_spans_in_word(word, source, spans);
 }
 
-fn build_conditional_fact<'a>(command: &'a Command, source: &str) -> Option<ConditionalFact<'a>> {
-    let Command::Compound(CompoundCommand::Conditional(command)) = command else {
+fn build_conditional_fact<'a>(
+    expression_visits: &[ConditionalExpressionVisit<'a>],
+    source: &str,
+) -> Option<ConditionalFact<'a>> {
+    if expression_visits.is_empty() {
         return None;
-    };
-    let mut nodes = Vec::new();
-    collect_conditional_nodes(&command.expression, source, &mut nodes);
+    }
+
+    let mut nodes = Vec::with_capacity(expression_visits.len());
     let mut mixed_logical_operators = Vec::new();
-    collect_mixed_logical_operators(&command.expression, false, &mut mixed_logical_operators);
+    for visit in expression_visits {
+        nodes.push(build_conditional_node(visit.expression, source));
+        collect_mixed_logical_operator(
+            visit.expression,
+            visit.parent_in_same_logical_group,
+            &mut mixed_logical_operators,
+        );
+    }
+
     (!nodes.is_empty()).then_some(ConditionalFact {
         nodes: nodes.into_boxed_slice(),
         mixed_logical_operators: mixed_logical_operators.into_boxed_slice(),
@@ -2238,45 +2267,29 @@ fn command_name_is_plain_command_substitution(word: &Word, source: &str) -> bool
         )
 }
 
-fn collect_mixed_logical_operators(
+fn collect_mixed_logical_operator(
     expression: &ConditionalExpr,
     parent_in_same_logical_group: bool,
     operators: &mut Vec<ConditionalMixedLogicalOperatorFact>,
 ) {
-    match expression {
-        ConditionalExpr::Parenthesized(parenthesized) => {
-            collect_mixed_logical_operators(&parenthesized.expr, false, operators);
-        }
-        ConditionalExpr::Unary(unary) => {
-            collect_mixed_logical_operators(&unary.expr, false, operators);
-        }
-        ConditionalExpr::Binary(binary) => {
-            let left_continues_group = conditional_expr_is_logical_binary(&binary.left);
-            let right_continues_group = conditional_expr_is_logical_binary(&binary.right);
+    let ConditionalExpr::Binary(binary) = expression else {
+        return;
+    };
 
-            collect_mixed_logical_operators(&binary.left, left_continues_group, operators);
-            collect_mixed_logical_operators(&binary.right, right_continues_group, operators);
-
-            if conditional_binary_op_is_logical(binary.op)
-                && !parent_in_same_logical_group
-                && logical_operator_mask(expression) == (LOGICAL_AND_MASK | LOGICAL_OR_MASK)
-            {
-                let grouped_subexpression_spans =
-                    mixed_logical_grouped_subexpression_spans(expression, binary.op);
-                debug_assert!(
-                    !grouped_subexpression_spans.is_empty(),
-                    "mixed logical operators should expose at least one grouping span"
-                );
-                operators.push(ConditionalMixedLogicalOperatorFact {
-                    operator_span: binary.op_span,
-                    grouped_subexpression_spans: grouped_subexpression_spans.into_boxed_slice(),
-                });
-            }
-        }
-        ConditionalExpr::Word(_)
-        | ConditionalExpr::Pattern(_)
-        | ConditionalExpr::Regex(_)
-        | ConditionalExpr::VarRef(_) => {}
+    if conditional_binary_op_is_logical(binary.op)
+        && !parent_in_same_logical_group
+        && logical_operator_mask(expression) == (LOGICAL_AND_MASK | LOGICAL_OR_MASK)
+    {
+        let grouped_subexpression_spans =
+            mixed_logical_grouped_subexpression_spans(expression, binary.op);
+        debug_assert!(
+            !grouped_subexpression_spans.is_empty(),
+            "mixed logical operators should expose at least one grouping span"
+        );
+        operators.push(ConditionalMixedLogicalOperatorFact {
+            operator_span: binary.op_span,
+            grouped_subexpression_spans: grouped_subexpression_spans.into_boxed_slice(),
+        });
     }
 }
 
@@ -2333,39 +2346,8 @@ fn logical_operator_mask(expression: &ConditionalExpr) -> u8 {
     }
 }
 
-fn conditional_expr_is_logical_binary(expression: &ConditionalExpr) -> bool {
-    matches!(
-        expression,
-        ConditionalExpr::Binary(binary) if conditional_binary_op_is_logical(binary.op)
-    )
-}
-
 fn conditional_binary_op_is_logical(operator: ConditionalBinaryOp) -> bool {
     matches!(operator, ConditionalBinaryOp::And | ConditionalBinaryOp::Or)
-}
-
-fn collect_conditional_nodes<'a>(
-    expression: &'a ConditionalExpr,
-    source: &str,
-    nodes: &mut Vec<ConditionalNodeFact<'a>>,
-) {
-    let expression = strip_parenthesized_conditionals(expression);
-    nodes.push(build_conditional_node(expression, source));
-
-    match expression {
-        ConditionalExpr::Binary(expression) => {
-            collect_conditional_nodes(&expression.left, source, nodes);
-            collect_conditional_nodes(&expression.right, source, nodes);
-        }
-        ConditionalExpr::Unary(expression) => {
-            collect_conditional_nodes(&expression.expr, source, nodes);
-        }
-        ConditionalExpr::Parenthesized(_) => unreachable!("parentheses should be stripped"),
-        ConditionalExpr::Word(_)
-        | ConditionalExpr::Pattern(_)
-        | ConditionalExpr::Regex(_)
-        | ConditionalExpr::VarRef(_) => {}
-    }
 }
 
 fn build_conditional_node<'a>(
