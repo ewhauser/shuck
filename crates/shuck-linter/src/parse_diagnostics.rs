@@ -1,6 +1,7 @@
 use shuck_ast::{File, Position, Span};
-use shuck_indexer::LineIndex;
 use shuck_parser::parser::{ParseDiagnostic, ParseResult};
+
+use crate::Locator;
 
 use crate::rules::correctness::c_prototype_fragment::CPrototypeFragment;
 use crate::rules::correctness::dangling_else::DanglingElse;
@@ -44,13 +45,13 @@ impl Violation for ExtglobInCasePattern {
 
 pub(crate) fn collect_parse_rule_diagnostics(
     file: &File,
-    source: &str,
-    line_index: &LineIndex,
+    locator: Locator<'_>,
     parse_result: Option<&ParseResult>,
     semantic: &LinterSemanticArtifacts<'_>,
     enabled_rules: &RuleSet,
     shell: ShellDialect,
 ) -> Vec<Diagnostic> {
+    let source = locator.source();
     let mut diagnostics = Vec::new();
     let parse_diagnostics = parse_result
         .map(|result| result.diagnostics.as_slice())
@@ -69,7 +70,7 @@ pub(crate) fn collect_parse_rule_diagnostics(
             .push(Diagnostic::new(MissingFi, eof_point(file)).with_fix(missing_fi_fix(source)));
     }
     if enabled_rules.contains(crate::Rule::IfMissingThen)
-        && let Some(span) = if_missing_then_span(source, line_index, parse_diagnostics)
+        && let Some(span) = if_missing_then_span(locator, parse_diagnostics)
     {
         diagnostics.push(Diagnostic::new(IfMissingThen, span));
     }
@@ -89,17 +90,17 @@ pub(crate) fn collect_parse_rule_diagnostics(
         diagnostics.push(Diagnostic::new(DanglingElse, span));
     }
     if enabled_rules.contains(crate::Rule::UntilMissingDo)
-        && let Some(span) = until_missing_do_span(source, line_index, parse_diagnostics)
+        && let Some(span) = until_missing_do_span(locator, parse_diagnostics)
     {
         diagnostics.push(Diagnostic::new(UntilMissingDo, span));
     }
     if enabled_rules.contains(crate::Rule::IfBracketGlued)
-        && let Some(span) = if_bracket_glued_span(source, line_index, parse_diagnostics)
+        && let Some(span) = if_bracket_glued_span(locator, parse_diagnostics)
     {
         diagnostics.push(Diagnostic::new(IfBracketGlued, span));
     }
     if enabled_rules.contains(crate::Rule::LinebreakBeforeAnd) {
-        for span in linebreak_before_and_spans(source, line_index, parse_diagnostics) {
+        for span in linebreak_before_and_spans(locator, parse_diagnostics) {
             diagnostics.push(Diagnostic::new(LinebreakBeforeAnd, span));
         }
     }
@@ -110,7 +111,7 @@ pub(crate) fn collect_parse_rule_diagnostics(
         )
     {
         for diagnostic in parse_diagnostics {
-            if let Some(span) = function_parameter_syntax_span(source, line_index, diagnostic) {
+            if let Some(span) = function_parameter_syntax_span(locator, diagnostic) {
                 diagnostics.push(Diagnostic::new(FunctionParamsInSh, span));
             }
         }
@@ -118,7 +119,7 @@ pub(crate) fn collect_parse_rule_diagnostics(
 
     if enabled_rules.contains(crate::Rule::CPrototypeFragment) {
         for diagnostic in parse_diagnostics {
-            let Some(span) = c_prototype_fragment_span(diagnostic, source, line_index) else {
+            let Some(span) = c_prototype_fragment_span(diagnostic, locator) else {
                 continue;
             };
             diagnostics.push(
@@ -187,8 +188,7 @@ fn is_missing_then_error(message: &str) -> bool {
 }
 
 fn if_missing_then_span(
-    source: &str,
-    line_index: &LineIndex,
+    locator: Locator<'_>,
     parse_diagnostics: &[ParseDiagnostic],
 ) -> Option<Span> {
     parse_diagnostics.iter().find_map(|diagnostic| {
@@ -201,7 +201,7 @@ fn if_missing_then_span(
         let mut line = diagnostic.span.start.line;
         let mut saw_then = false;
         while line > 0 {
-            let text = line_text_at(source, line_index, line)?;
+            let text = line_text_at(locator, line)?;
             let trimmed = text.trim_start();
             if trimmed.is_empty() || trimmed.starts_with('#') {
                 line = line.saturating_sub(1);
@@ -221,8 +221,8 @@ fn if_missing_then_span(
                 if saw_then {
                     return None;
                 }
-                let offset = line_start_offset(line_index, source, line)?;
-                let start = position_at_offset(source, offset)?;
+                let offset = line_start_offset(locator, line)?;
+                let start = locator.position_at_offset(offset)?;
                 return Some(Span::from_positions(start, start));
             }
             if trimmed == "elif" || trimmed.starts_with("elif ") || trimmed.starts_with("elif\t") {
@@ -385,15 +385,14 @@ fn is_function_parameter_syntax_error(message: &str) -> bool {
 }
 
 fn function_parameter_syntax_span(
-    source: &str,
-    line_index: &LineIndex,
+    locator: Locator<'_>,
     diagnostic: &ParseDiagnostic,
 ) -> Option<Span> {
     if !is_function_parameter_syntax_error(&diagnostic.message) {
         return None;
     }
 
-    let line = line_text_at(source, line_index, diagnostic.span.start.line)?;
+    let line = line_text_at(locator, diagnostic.span.start.line)?;
     let search_end = line
         .char_indices()
         .nth(diagnostic.span.start.column.saturating_sub(1))
@@ -405,16 +404,15 @@ fn function_parameter_syntax_span(
             line.get(search_end..)
                 .and_then(|suffix| suffix.find('(').map(|relative| search_end + relative))
         })?;
-    let line_start = line_start_offset(line_index, source, diagnostic.span.start.line)?;
+    let line_start = line_start_offset(locator, diagnostic.span.start.line)?;
     let start_offset = line_start + paren_index;
-    let start = position_at_offset(source, start_offset)?;
-    let end = position_at_offset(source, start_offset + 1)?;
+    let start = locator.position_at_offset(start_offset)?;
+    let end = locator.position_at_offset(start_offset + 1)?;
     Some(Span::from_positions(start, end))
 }
 
 fn linebreak_before_and_spans(
-    source: &str,
-    line_index: &LineIndex,
+    locator: Locator<'_>,
     parse_diagnostics: &[ParseDiagnostic],
 ) -> Vec<Span> {
     parse_diagnostics
@@ -424,17 +422,13 @@ fn linebreak_before_and_spans(
                 return None;
             }
 
-            leading_control_operator_span(source, line_index, diagnostic.span.start.line)
+            leading_control_operator_span(locator, diagnostic.span.start.line)
         })
         .collect()
 }
 
-fn leading_control_operator_span(
-    source: &str,
-    line_index: &LineIndex,
-    line_number: usize,
-) -> Option<Span> {
-    let line = line_text_at(source, line_index, line_number)?;
+fn leading_control_operator_span(locator: Locator<'_>, line_number: usize) -> Option<Span> {
+    let line = line_text_at(locator, line_number)?;
     let text = line.split_once('#').map_or(line, |(before, _)| before);
     let leading_bytes = text
         .bytes()
@@ -473,10 +467,10 @@ fn leading_control_operator_span(
         return None;
     };
 
-    let line_start = line_start_offset(line_index, source, line_number)?;
+    let line_start = line_start_offset(locator, line_number)?;
     let start_offset = line_start + leading_bytes;
-    let start = position_at_offset(source, start_offset)?;
-    let end = position_at_offset(source, start_offset + operator.len())?;
+    let start = locator.position_at_offset(start_offset)?;
+    let end = locator.position_at_offset(start_offset + operator.len())?;
     Some(Span::from_positions(start, end))
 }
 
@@ -488,40 +482,37 @@ fn dangling_else_span(parse_diagnostics: &[ParseDiagnostic]) -> Option<Span> {
 }
 
 fn until_missing_do_span(
-    source: &str,
-    line_index: &LineIndex,
+    locator: Locator<'_>,
     parse_diagnostics: &[ParseDiagnostic],
 ) -> Option<Span> {
     parse_diagnostics
         .iter()
         .find(|diagnostic| {
             is_expected_command_error(&diagnostic.message)
-                && is_done_line(source, line_index, diagnostic.span.start.line)
-                && has_pending_until_without_do_before_line(source, diagnostic.span.start.line)
+                && is_done_line(locator, diagnostic.span.start.line)
+                && has_pending_until_without_do_before_line(
+                    locator.source(),
+                    diagnostic.span.start.line,
+                )
         })
         .map(|diagnostic| diagnostic.span)
 }
 
 fn if_bracket_glued_span(
-    source: &str,
-    line_index: &LineIndex,
+    locator: Locator<'_>,
     parse_diagnostics: &[ParseDiagnostic],
 ) -> Option<Span> {
     parse_diagnostics.iter().find_map(|diagnostic| {
         if !is_expected_command_error(&diagnostic.message) {
             return None;
         }
-        if_bracket_glued_span_on_line(source, line_index, diagnostic.span.start.line)
+        if_bracket_glued_span_on_line(locator, diagnostic.span.start.line)
     })
 }
 
-fn if_bracket_glued_span_on_line(
-    source: &str,
-    line_index: &LineIndex,
-    line_number: usize,
-) -> Option<Span> {
-    let line = line_text_at(source, line_index, line_number)?;
-    let line_offset = line_start_offset(line_index, source, line_number)?;
+fn if_bracket_glued_span_on_line(locator: Locator<'_>, line_number: usize) -> Option<Span> {
+    let line = line_text_at(locator, line_number)?;
+    let line_offset = line_start_offset(locator, line_number)?;
     let bytes = line.as_bytes();
     if bytes.len() < 3 {
         return None;
@@ -605,8 +596,8 @@ fn if_bracket_glued_span_on_line(
 
                 let start_offset = line_offset + index;
                 let end_offset = start_offset + 3;
-                let start = position_at_offset(source, start_offset)?;
-                let end = position_at_offset(source, end_offset)?;
+                let start = locator.position_at_offset(start_offset)?;
+                let end = locator.position_at_offset(end_offset)?;
                 return Some(Span::from_positions(start, end));
             }
             _ => {
@@ -634,8 +625,8 @@ fn shell_comment_starts_at(bytes: &[u8], index: usize) -> bool {
         )
 }
 
-fn is_done_line(source: &str, line_index: &LineIndex, line_number: usize) -> bool {
-    line_text_at(source, line_index, line_number)
+fn is_done_line(locator: Locator<'_>, line_number: usize) -> bool {
+    line_text_at(locator, line_number)
         .map(|line| {
             let text = line.split_once('#').map_or(line, |(before, _)| before);
             shell_like_words(text).contains(&"done")
@@ -820,11 +811,7 @@ fn eof_point(file: &File) -> Span {
     Span::from_positions(file.span.end, file.span.end)
 }
 
-fn c_prototype_fragment_span(
-    diagnostic: &ParseDiagnostic,
-    source: &str,
-    line_index: &LineIndex,
-) -> Option<Span> {
+fn c_prototype_fragment_span(diagnostic: &ParseDiagnostic, locator: Locator<'_>) -> Option<Span> {
     if !diagnostic
         .message
         .starts_with("expected compound command for function body")
@@ -832,9 +819,9 @@ fn c_prototype_fragment_span(
         return None;
     }
     let line = diagnostic.span.start.line;
-    let line_text = line_text_at(source, line_index, line)?;
+    let line_text = line_text_at(locator, line)?;
     let column = find_attached_background_ampersand_column(line_text)?;
-    let line_start_offset = line_start_offset(line_index, source, line)?;
+    let line_start_offset = line_start_offset(locator, line)?;
     let offset = line_start_offset + (column - 1);
     let point = Position {
         line,
@@ -842,17 +829,6 @@ fn c_prototype_fragment_span(
         offset,
     };
     Some(Span::from_positions(point, point))
-}
-
-fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
-    if target_offset > source.len() {
-        return None;
-    }
-    let mut position = Position::new();
-    for ch in source[..target_offset].chars() {
-        position.advance(ch);
-    }
-    Some(position)
 }
 
 fn find_attached_background_ampersand_column(line: &str) -> Option<usize> {
@@ -886,12 +862,9 @@ fn find_attached_background_ampersand_column(line: &str) -> Option<usize> {
     None
 }
 
-fn line_text_at<'a>(
-    source: &'a str,
-    line_index: &LineIndex,
-    target_line: usize,
-) -> Option<&'a str> {
-    let range = line_index.line_range(target_line, source)?;
+fn line_text_at<'a>(locator: Locator<'a>, target_line: usize) -> Option<&'a str> {
+    let source = locator.source();
+    let range = locator.line_index().line_range(target_line, source)?;
     let start = usize::from(range.start());
     let end = usize::from(range.end());
     if start == end && start >= source.len() {
@@ -903,10 +876,12 @@ fn line_text_at<'a>(
     Some(text.strip_suffix('\r').unwrap_or(text))
 }
 
-fn line_start_offset(line_index: &LineIndex, source: &str, target_line: usize) -> Option<usize> {
+fn line_start_offset(locator: Locator<'_>, target_line: usize) -> Option<usize> {
+    let line_index = locator.line_index();
     if let Some(start) = line_index.line_start(target_line) {
         return Some(usize::from(start));
     }
+    let source = locator.source();
     // Tolerate diagnostics referencing the implicit empty line at EOF when the
     // source has no trailing newline, matching the previous helper's behavior.
     if target_line == line_index.line_count() + 1
@@ -921,16 +896,15 @@ fn line_start_offset(line_index: &LineIndex, source: &str, target_line: usize) -
 mod tests {
     use shuck_ast::File;
     use shuck_indexer::Indexer;
-    use shuck_parser::parser::{ParseResult, Parser};
-
     use shuck_indexer::LineIndex;
+    use shuck_parser::parser::{ParseResult, Parser};
 
     use super::{
         collect_parse_rule_diagnostics as collect_parse_rule_diagnostics_impl,
         if_bracket_glued_span_on_line, is_expected_command_error, line_contains_shell_word,
     };
     use crate::{
-        Applicability, Diagnostic, LinterSemanticArtifacts, LinterSettings, Rule, RuleSet,
+        Applicability, Diagnostic, LinterSemanticArtifacts, LinterSettings, Locator, Rule, RuleSet,
         ShellDialect,
     };
 
@@ -944,10 +918,10 @@ mod tests {
         let parse_result = parse_result.expect("parse diagnostics tests pass a parse result");
         let indexer = Indexer::new(source, parse_result);
         let semantic = LinterSemanticArtifacts::build(file, source, &indexer);
+        let locator = Locator::new(source, indexer.line_index());
         collect_parse_rule_diagnostics_impl(
             file,
-            source,
-            indexer.line_index(),
+            locator,
             Some(parse_result),
             &semantic,
             enabled_rules,
@@ -1535,8 +1509,9 @@ esac
         ] {
             let source = format!("#!/bin/sh\n{line}\n");
             let line_index = LineIndex::new(&source);
+            let locator = Locator::new(&source, &line_index);
             assert!(
-                if_bracket_glued_span_on_line(&source, &line_index, 2).is_none(),
+                if_bracket_glued_span_on_line(locator, 2).is_none(),
                 "unexpected glued match for `{line}`"
             );
         }
@@ -1546,8 +1521,9 @@ esac
     fn ignores_quoted_if_bracket_prefix_text_on_line() {
         let source = "#!/bin/sh\necho \"if[ literal\"\n";
         let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
 
-        assert!(if_bracket_glued_span_on_line(source, &line_index, 2).is_none());
+        assert!(if_bracket_glued_span_on_line(locator, 2).is_none());
     }
 
     #[test]

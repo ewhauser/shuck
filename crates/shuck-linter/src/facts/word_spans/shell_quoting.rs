@@ -425,8 +425,10 @@ mod tests {
     }
 
     fn unquoted_command_substitution_part_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
+        let line_index = shuck_indexer::LineIndex::new(source);
+        let locator = crate::Locator::new(source, &line_index);
         let mut spans = Vec::new();
-        collect_unquoted_command_substitution_part_spans_in_source(word, source, &mut spans);
+        collect_unquoted_command_substitution_part_spans_in_source(word, locator, &mut spans);
         spans
     }
 

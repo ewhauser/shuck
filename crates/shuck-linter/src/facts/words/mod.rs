@@ -1,4 +1,5 @@
 use super::*;
+use crate::Locator;
 
 include!("expansion.rs");
 include!("occurrence.rs");

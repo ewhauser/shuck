@@ -43,7 +43,7 @@ use self::{
 };
 use crate::{
     AmbientShellOptions, CommandTopology, CommandTopologyTraversal, LinterSemanticArtifacts,
-    ShellDialect,
+    Locator, ShellDialect,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
@@ -61,7 +61,7 @@ use shuck_ast::{
     static_command_name_text, static_command_wrapper_target_index, static_word_text,
     word_is_standalone_status_capture,
 };
-use shuck_indexer::Indexer;
+use shuck_indexer::{Indexer, LineIndex};
 #[cfg(test)]
 use shuck_parser::parser::Parser;
 use shuck_semantic::{

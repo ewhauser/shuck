@@ -17,6 +17,7 @@ impl Violation for ArraySliceInComparison {
 }
 
 pub fn array_slice_in_comparison(checker: &mut Checker) {
+    let locator = checker.locator();
     let direct_operand_spans = [
         ExpansionContext::StringTestOperand,
         ExpansionContext::RegexOperand,
@@ -24,7 +25,7 @@ pub fn array_slice_in_comparison(checker: &mut Checker) {
     .into_iter()
     .flat_map(|context| checker.facts().expansion_word_facts(context))
     .filter(|fact| !fact.is_nested_word_command())
-    .filter(|fact| fact.has_direct_all_elements_array_expansion_in_source(checker.source()))
+    .filter(|fact| fact.has_direct_all_elements_array_expansion_in_source(locator))
     .map(|fact| fact.span())
     .collect::<Vec<_>>();
 
@@ -34,7 +35,7 @@ pub fn array_slice_in_comparison(checker: &mut Checker) {
         .filter(|fact| !fact.is_nested_word_command())
         .filter(|fact| fact.command_substitution_spans().is_empty())
         .filter(|fact| !fact.is_pure_positional_at_splat())
-        .filter(|fact| fact.has_direct_all_elements_array_expansion_in_source(checker.source()))
+        .filter(|fact| fact.has_direct_all_elements_array_expansion_in_source(locator))
         .map(|fact| fact.span())
         .collect::<Vec<_>>();
 

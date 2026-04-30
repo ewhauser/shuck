@@ -926,7 +926,7 @@ pub(super) fn build_single_test_subshell_spans<'a>(
     command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Vec<Span> {
     let command_relationships = CommandRelationshipContext::new(
         commands,
@@ -936,7 +936,7 @@ pub(super) fn build_single_test_subshell_spans<'a>(
     );
     commands
         .iter()
-        .filter_map(|fact| single_test_subshell_span(fact, command_relationships, source))
+        .filter_map(|fact| single_test_subshell_span(fact, command_relationships, locator))
         .collect()
 }
 
@@ -945,7 +945,7 @@ pub(super) fn build_subshell_test_group_spans<'a>(
     command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Vec<Span> {
     let command_relationships = CommandRelationshipContext::new(
         commands,
@@ -955,14 +955,14 @@ pub(super) fn build_subshell_test_group_spans<'a>(
     );
     commands
         .iter()
-        .filter_map(|fact| subshell_test_group_span(fact, command_relationships, source))
+        .filter_map(|fact| subshell_test_group_span(fact, command_relationships, locator))
         .collect()
 }
 
 fn single_test_subshell_span<'a>(
     fact: &CommandFact<'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Option<Span> {
     let condition = match fact.command() {
         Command::Compound(CompoundCommand::If(command)) => &command.condition,
@@ -995,8 +995,8 @@ fn single_test_subshell_span<'a>(
     }
 
     Some(subshell_anchor_span(
-        condition_fact.span_in_source(source),
-        source,
+        condition_fact.span_in_source(locator.source()),
+        locator,
     ))
 }
 
@@ -1036,7 +1036,7 @@ fn is_test_condition_fact<'a>(
 fn subshell_test_group_span<'a>(
     fact: &CommandFact<'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Option<Span> {
     let Command::Compound(CompoundCommand::Subshell(body)) = fact.command() else {
         return None;
@@ -1046,7 +1046,7 @@ fn subshell_test_group_span<'a>(
         return None;
     }
 
-    Some(subshell_anchor_span(fact.span(), source))
+    Some(subshell_anchor_span(fact.span(), locator))
 }
 
 fn subshell_body_contains_grouped_tests<'a>(
@@ -1146,15 +1146,16 @@ fn subshell_body_analysis<'a>(
     Some(analysis)
 }
 
-fn subshell_anchor_span(span: Span, source: &str) -> Span {
+fn subshell_anchor_span(span: Span, locator: Locator<'_>) -> Span {
+    let source = locator.source();
     let Some(open_paren_offset) = leading_open_paren_offset(source, span.start.offset) else {
         return span;
     };
 
     let end_offset = trim_trailing_whitespace_offset(source, span.end.offset);
     Span::from_positions(
-        position_at_offset_strict(source, open_paren_offset),
-        position_at_offset_strict(source, end_offset),
+        locator.position_at_offset_unchecked(open_paren_offset),
+        locator.position_at_offset_unchecked(end_offset),
     )
 }
 
@@ -1172,15 +1173,6 @@ fn leading_open_paren_offset(source: &str, start_offset: usize) -> Option<usize>
     }
 
     None
-}
-
-fn position_at_offset_strict(source: &str, target_offset: usize) -> Position {
-    source[..target_offset]
-        .chars()
-        .fold(Position::new(), |mut position, ch| {
-            position.advance(ch);
-            position
-        })
 }
 
 fn trim_trailing_whitespace_offset(source: &str, end_offset: usize) -> usize {

@@ -4,9 +4,10 @@ fn build_literal_brace_spans(
     occurrences: &[WordOccurrence],
     commands: CommandFacts<'_, '_>,
     fact_store: &FactStore<'_>,
-    source: &str,
+    locator: Locator<'_>,
     heredoc_ranges: &[TextRange],
 ) -> Vec<Span> {
+    let source = locator.source();
     let mut spans = Vec::new();
     let mut scratch = LiteralBraceScratch::default();
     scratch.processed_word_nodes.resize(nodes.len(), false);
@@ -41,14 +42,14 @@ fn build_literal_brace_spans(
 
     collect_uncovered_command_brace_spans(
         commands,
-        source,
+        locator,
         heredoc_ranges,
         &mut spans,
         &mut scratch,
     );
     collect_unmatched_command_substitution_brace_spans(
         commands,
-        source,
+        locator,
         heredoc_ranges,
         &mut spans,
         &mut scratch,
@@ -712,11 +713,12 @@ fn collect_unclassified_literal_brace_spans(
 
 fn collect_uncovered_command_brace_spans(
     commands: CommandFacts<'_, '_>,
-    source: &str,
+    locator: Locator<'_>,
     heredoc_ranges: &[TextRange],
     out: &mut Vec<Span>,
     scratch: &mut LiteralBraceScratch,
 ) {
+    let source = locator.source();
     for command in commands {
         let Command::Simple(simple) = command.command() else {
             continue;
@@ -777,8 +779,7 @@ fn collect_uncovered_command_brace_spans(
             if span.start.offset > cursor {
                 collect_raw_literal_brace_spans(
                     RawLiteralBraceScan {
-                        container_span: command_span,
-                        source,
+                        locator,
                         mode: RawLiteralBraceScanMode::All,
                         excluded_ranges: heredoc_ranges,
                     },
@@ -795,8 +796,7 @@ fn collect_uncovered_command_brace_spans(
         if command_span.end.offset > cursor {
             collect_raw_literal_brace_spans(
                 RawLiteralBraceScan {
-                    container_span: command_span,
-                    source,
+                    locator,
                     mode: RawLiteralBraceScanMode::All,
                     excluded_ranges: heredoc_ranges,
                 },
@@ -849,8 +849,7 @@ enum RawLiteralBraceQuoteState {
 
 #[derive(Debug, Clone, Copy)]
 struct RawLiteralBraceScan<'a> {
-    container_span: Span,
-    source: &'a str,
+    locator: Locator<'a>,
     mode: RawLiteralBraceScanMode,
     excluded_ranges: &'a [TextRange],
 }
@@ -881,11 +880,9 @@ fn collect_raw_literal_brace_spans(
     for (start, end) in relevant_excluded.iter().copied() {
         if start > cursor {
             collect_raw_literal_brace_spans_without_exclusions(
-                scan.container_span,
+                scan,
                 cursor,
                 start,
-                scan.source,
-                scan.mode,
                 unmatched_opens,
                 out,
             );
@@ -895,11 +892,9 @@ fn collect_raw_literal_brace_spans(
 
     if scan_end > cursor {
         collect_raw_literal_brace_spans_without_exclusions(
-            scan.container_span,
+            scan,
             cursor,
             scan_end,
-            scan.source,
-            scan.mode,
             unmatched_opens,
             out,
         );
@@ -911,14 +906,15 @@ fn collect_raw_literal_brace_spans(
 }
 
 fn collect_raw_literal_brace_spans_without_exclusions(
-    _container_span: Span,
+    scan: RawLiteralBraceScan<'_>,
     scan_start: usize,
     scan_end: usize,
-    source: &str,
-    mode: RawLiteralBraceScanMode,
     unmatched_opens: &mut Vec<Span>,
     out: &mut Vec<Span>,
 ) {
+    let locator = scan.locator;
+    let source = locator.source();
+    let mode = scan.mode;
     let Some(text) = source.get(scan_start..scan_end) else {
         return;
     };
@@ -1011,7 +1007,7 @@ fn collect_raw_literal_brace_spans_without_exclusions(
                 continue;
             }
 
-            let Some(position) = position_at_offset(source, scan_start + index) else {
+            let Some(position) = locator.position_at_offset(scan_start + index) else {
                 index += ch_len;
                 continue;
             };
@@ -1121,16 +1117,17 @@ fn closing_brace_ends_shell_group(text: &str, index: usize) -> bool {
 
 fn collect_unmatched_command_substitution_brace_spans(
     commands: CommandFacts<'_, '_>,
-    source: &str,
+    locator: Locator<'_>,
     heredoc_ranges: &[TextRange],
     out: &mut Vec<Span>,
     scratch: &mut LiteralBraceScratch,
 ) {
+    let source = locator.source();
     for substitution in commands
         .iter()
         .flat_map(|command| command.substitution_facts())
     {
-        let Some((container_span, body_start, body_end)) =
+        let Some((_container_span, body_start, body_end)) =
             command_substitution_body_offsets(substitution.span(), source)
         else {
             continue;
@@ -1139,8 +1136,7 @@ fn collect_unmatched_command_substitution_brace_spans(
         if body_end > body_start {
             collect_raw_literal_brace_spans(
                 RawLiteralBraceScan {
-                    container_span,
-                    source,
+                    locator,
                     mode: RawLiteralBraceScanMode::UnmatchedOnly,
                     excluded_ranges: heredoc_ranges,
                 },

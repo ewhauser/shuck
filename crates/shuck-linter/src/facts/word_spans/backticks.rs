@@ -2,21 +2,22 @@ use super::*;
 
 pub(crate) fn shellcheck_collapsed_backtick_part_span(
     span: Span,
-    source: &str,
+    locator: Locator<'_>,
     backtick_spans: &[Span],
 ) -> Span {
     let deescaped =
-        shellcheck_deescaped_backtick_part_span(span, source, backtick_spans).unwrap_or(span);
-    collapse_backtick_continuation_span(deescaped, source, backtick_spans).unwrap_or(deescaped)
+        shellcheck_deescaped_backtick_part_span(span, locator, backtick_spans).unwrap_or(span);
+    collapse_backtick_continuation_span(deescaped, locator, backtick_spans).unwrap_or(deescaped)
 }
 
 pub(crate) fn collapse_backtick_continuation_span(
     span: Span,
-    source: &str,
+    locator: Locator<'_>,
     backtick_spans: &[Span],
 ) -> Option<Span> {
+    let source = locator.source();
     let containing_span = containing_backtick_substitution_span(span, backtick_spans)?;
-    let chain_start = continued_line_chain_start(span.start, containing_span, source)?;
+    let chain_start = continued_line_chain_start(span.start, containing_span, locator)?;
     Some(Span::from_positions(
         shellcheck_collapsed_position(chain_start, span.start, source),
         shellcheck_collapsed_position(chain_start, span.end, source),
@@ -25,9 +26,10 @@ pub(crate) fn collapse_backtick_continuation_span(
 
 pub(crate) fn shellcheck_deescaped_backtick_part_span(
     span: Span,
-    source: &str,
+    locator: Locator<'_>,
     backtick_spans: &[Span],
 ) -> Option<Span> {
+    let source = locator.source();
     let containing_span = containing_backtick_substitution_span(span, backtick_spans)?;
     let content_start = containing_span.start.offset.saturating_add('`'.len_utf8());
     let start_removed = backtick_removed_escape_count(source, content_start, span.start.offset)?;
@@ -37,8 +39,8 @@ pub(crate) fn shellcheck_deescaped_backtick_part_span(
     }
 
     Some(Span::from_positions(
-        position_at_offset(source, span.start.offset.checked_sub(start_removed)?)?,
-        position_at_offset(source, span.end.offset.checked_sub(end_removed)?)?,
+        locator.position_at_offset(span.start.offset.checked_sub(start_removed)?)?,
+        locator.position_at_offset(span.end.offset.checked_sub(end_removed)?)?,
     ))
 }
 
@@ -97,7 +99,8 @@ pub(crate) fn backtick_shell_comment_can_start(previous_char: Option<char>) -> b
     })
 }
 
-pub(crate) fn backtick_substitution_spans(source: &str) -> Vec<Span> {
+pub(crate) fn backtick_substitution_spans(locator: Locator<'_>) -> Vec<Span> {
+    let source = locator.source();
     let mut spans = Vec::new();
     let mut contexts = vec![BacktickQuoteContext::default()];
     let mut backtick_start_offsets = Vec::<usize>::new();
@@ -205,11 +208,11 @@ pub(crate) fn backtick_substitution_spans(source: &str) -> Vec<Span> {
             '`' => {
                 if let Some(start_offset) = backtick_start_offsets.pop() {
                     let _ = contexts.pop();
-                    let Some(start) = position_at_offset(source, start_offset) else {
+                    let Some(start) = locator.position_at_offset(start_offset) else {
                         index += ch_len;
                         continue;
                     };
-                    let Some(end) = position_at_offset(source, index + ch_len) else {
+                    let Some(end) = locator.position_at_offset(index + ch_len) else {
                         index += ch_len;
                         continue;
                     };
@@ -242,9 +245,10 @@ pub(crate) fn backtick_substitution_spans(source: &str) -> Vec<Span> {
 }
 
 pub(crate) fn backtick_escaped_parameters(
-    source: &str,
+    locator: Locator<'_>,
     backtick_spans: &[Span],
 ) -> Vec<BacktickEscapedParameter> {
+    let source = locator.source();
     let mut spans = Vec::new();
 
     for backtick_span in backtick_spans {
@@ -289,22 +293,22 @@ pub(crate) fn backtick_escaped_parameters(
                         let expansion_len = parameter.expansion_len();
                         let diagnostic_start_offset = slash_offset.saturating_sub(removed_escapes);
                         let Some(diagnostic_start) =
-                            position_at_offset(source, diagnostic_start_offset)
+                            locator.position_at_offset(diagnostic_start_offset)
                         else {
                             index += escaped.len_utf8();
                             continue;
                         };
                         let Some(diagnostic_end) =
-                            position_at_offset(source, diagnostic_start_offset + expansion_len)
+                            locator.position_at_offset(diagnostic_start_offset + expansion_len)
                         else {
                             index += escaped.len_utf8();
                             continue;
                         };
-                        let Some(reference_start) = position_at_offset(source, index) else {
+                        let Some(reference_start) = locator.position_at_offset(index) else {
                             index += escaped.len_utf8();
                             continue;
                         };
-                        let Some(reference_end) = position_at_offset(source, index + expansion_len)
+                        let Some(reference_end) = locator.position_at_offset(index + expansion_len)
                         else {
                             index += escaped.len_utf8();
                             continue;
@@ -347,9 +351,10 @@ pub(crate) fn backtick_escaped_parameters(
 }
 
 pub(crate) fn backtick_escaped_parameter_reference_spans(
-    source: &str,
+    locator: Locator<'_>,
     backtick_spans: &[Span],
 ) -> Vec<Span> {
+    let source = locator.source();
     let mut spans = Vec::new();
 
     for backtick_span in backtick_spans {
@@ -365,8 +370,8 @@ pub(crate) fn backtick_escaped_parameter_reference_spans(
                 let dollar_offset = index + '\\'.len_utf8();
                 if offset_is_backslash_escaped(base_offset + dollar_offset, source)
                     && let Some(end_offset) = escaped_parameter_template_end(text, dollar_offset)
-                    && let Some(start) = position_at_offset(source, base_offset + dollar_offset)
-                    && let Some(end_position) = position_at_offset(source, base_offset + end_offset)
+                    && let Some(start) = locator.position_at_offset(base_offset + dollar_offset)
+                    && let Some(end_position) = locator.position_at_offset(base_offset + end_offset)
                 {
                     spans.push(Span::from_positions(start, end_position));
                     index = end_offset;
@@ -387,9 +392,10 @@ pub(crate) fn backtick_escaped_parameter_reference_spans(
 }
 
 pub(crate) fn backtick_double_escaped_parameter_spans(
-    source: &str,
+    locator: Locator<'_>,
     backtick_spans: &[Span],
 ) -> Vec<Span> {
+    let source = locator.source();
     let mut spans = Vec::new();
 
     for backtick_span in backtick_spans {
@@ -427,9 +433,9 @@ pub(crate) fn backtick_double_escaped_parameter_spans(
                             escaped_backtick_parameter_syntax(source, index, end)
                     {
                         let expansion_len = parameter.expansion_len();
-                        if let Some(start) = position_at_offset(source, index)
+                        if let Some(start) = locator.position_at_offset(index)
                             && let Some(end_position) =
-                                position_at_offset(source, index + expansion_len)
+                                locator.position_at_offset(index + expansion_len)
                         {
                             spans.push(Span::from_positions(start, end_position));
                         }
@@ -870,8 +876,9 @@ pub(crate) fn escaped_backtick_parameter_syntax(
 pub(crate) fn continued_line_chain_start(
     target: Position,
     containing_span: Span,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Option<Position> {
+    let source = locator.source();
     let original_start = source[..target.offset]
         .rfind('\n')
         .map_or(0, |index| index + 1);
@@ -959,7 +966,7 @@ pub(crate) fn continued_line_chain_start(
     }
 
     (chain_start != original_start)
-        .then(|| position_at_offset(source, chain_start))
+        .then(|| locator.position_at_offset(chain_start))
         .flatten()
 }
 
@@ -1013,16 +1020,32 @@ pub(crate) fn shellcheck_collapsed_position(
 #[cfg(test)]
 mod tests {
     use shuck_ast::Span;
+    use shuck_indexer::LineIndex;
 
     use super::{
         backtick_double_escaped_parameter_spans, backtick_escaped_parameters,
         backtick_substitution_spans, shellcheck_collapsed_backtick_part_span,
     };
-    use crate::facts::word_spans::position_at_offset;
+    use crate::Locator;
 
     fn shellcheck_collapsed_backtick_part_span_in_source(span: Span, source: &str) -> Span {
-        let backtick_spans = backtick_substitution_spans(source);
-        shellcheck_collapsed_backtick_part_span(span, source, &backtick_spans)
+        let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
+        let backtick_spans = backtick_substitution_spans(locator);
+        shellcheck_collapsed_backtick_part_span(span, locator, &backtick_spans)
+    }
+
+    fn span_at(source: &str, start_offset: usize, end_offset: usize) -> Span {
+        let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
+        Span::from_positions(
+            locator
+                .position_at_offset(start_offset)
+                .expect("expected start position"),
+            locator
+                .position_at_offset(end_offset)
+                .expect("expected end position"),
+        )
     }
 
     #[test]
@@ -1030,10 +1053,7 @@ mod tests {
         let source = "printf '%s\\n' '`'\\\n  \"$foo\"\\\n  '`'\n";
         let start_offset = source.find("$foo").expect("expected expansion");
         let end_offset = start_offset + "$foo".len();
-        let span = Span::from_positions(
-            position_at_offset(source, start_offset).expect("expected start position"),
-            position_at_offset(source, end_offset).expect("expected end position"),
-        );
+        let span = span_at(source, start_offset, end_offset);
 
         assert_eq!(
             shellcheck_collapsed_backtick_part_span_in_source(span, source),
@@ -1046,10 +1066,7 @@ mod tests {
         let source = "# `\nprintf '%s\\n' \\\n  \"$foo\"\n# `\n";
         let start_offset = source.find("$foo").expect("expected expansion");
         let end_offset = start_offset + "$foo".len();
-        let span = Span::from_positions(
-            position_at_offset(source, start_offset).expect("expected start position"),
-            position_at_offset(source, end_offset).expect("expected end position"),
-        );
+        let span = span_at(source, start_offset, end_offset);
 
         assert_eq!(
             shellcheck_collapsed_backtick_part_span_in_source(span, source),
@@ -1062,10 +1079,7 @@ mod tests {
         let source = "echo `printf '%s\\n' 'foo\\\n$bar'`\n";
         let start_offset = source.find("$bar").expect("expected expansion");
         let end_offset = start_offset + "$bar".len();
-        let span = Span::from_positions(
-            position_at_offset(source, start_offset).expect("expected start position"),
-            position_at_offset(source, end_offset).expect("expected end position"),
-        );
+        let span = span_at(source, start_offset, end_offset);
 
         assert_eq!(
             shellcheck_collapsed_backtick_part_span_in_source(span, source),
@@ -1079,10 +1093,7 @@ mod tests {
         let source = "echo `printf '%s\\n' '\nfoo\\\n$bar'`\n";
         let start_offset = source.find("$bar").expect("expected expansion");
         let end_offset = start_offset + "$bar".len();
-        let span = Span::from_positions(
-            position_at_offset(source, start_offset).expect("expected start position"),
-            position_at_offset(source, end_offset).expect("expected end position"),
-        );
+        let span = span_at(source, start_offset, end_offset);
 
         assert_eq!(
             shellcheck_collapsed_backtick_part_span_in_source(span, source),
@@ -1095,10 +1106,7 @@ mod tests {
         let source = "echo `printf '%s\\n' foo\\\n'$bar\\\n'\n$baz`\n";
         let start_offset = source.find("$baz").expect("expected expansion");
         let end_offset = start_offset + "$baz".len();
-        let span = Span::from_positions(
-            position_at_offset(source, start_offset).expect("expected start position"),
-            position_at_offset(source, end_offset).expect("expected end position"),
-        );
+        let span = span_at(source, start_offset, end_offset);
 
         assert_eq!(
             shellcheck_collapsed_backtick_part_span_in_source(span, source),
@@ -1144,8 +1152,10 @@ mod tests {
     #[test]
     fn backtick_escaped_parameters_keep_quoted_assignment_prefixes_together() {
         let source = "`VAR=\"a b\" OTHER=$(printf '%s\\n' value) \\$cmd arg`";
-        let backtick_spans = backtick_substitution_spans(source);
-        let escaped = backtick_escaped_parameters(source, &backtick_spans);
+        let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
+        let backtick_spans = backtick_substitution_spans(locator);
+        let escaped = backtick_escaped_parameters(locator, &backtick_spans);
 
         assert_eq!(escaped.len(), 1);
         assert!(escaped[0].standalone_command_name);
@@ -1154,8 +1164,10 @@ mod tests {
     #[test]
     fn backtick_escaped_parameters_accept_append_assignment_prefixes() {
         let source = "`VAR+=x \\$cmd arg`";
-        let backtick_spans = backtick_substitution_spans(source);
-        let escaped = backtick_escaped_parameters(source, &backtick_spans);
+        let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
+        let backtick_spans = backtick_substitution_spans(locator);
+        let escaped = backtick_escaped_parameters(locator, &backtick_spans);
 
         assert_eq!(escaped.len(), 1);
         assert!(escaped[0].standalone_command_name);
@@ -1164,8 +1176,10 @@ mod tests {
     #[test]
     fn backtick_escaped_parameters_accept_redirection_prefixes() {
         let source = "`>/tmp/out 2>\"/tmp err\" FOO=bar \\$cmd arg`";
-        let backtick_spans = backtick_substitution_spans(source);
-        let escaped = backtick_escaped_parameters(source, &backtick_spans);
+        let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
+        let backtick_spans = backtick_substitution_spans(locator);
+        let escaped = backtick_escaped_parameters(locator, &backtick_spans);
 
         assert_eq!(escaped.len(), 1);
         assert!(escaped[0].standalone_command_name);
@@ -1174,18 +1188,17 @@ mod tests {
     fn span_for_text(source: &str, text: &str) -> Span {
         let start_offset = source.find(text).expect("expected text");
         let end_offset = start_offset + text.len();
-        Span::from_positions(
-            position_at_offset(source, start_offset).expect("expected start position"),
-            position_at_offset(source, end_offset).expect("expected end position"),
-        )
+        span_at(source, start_offset, end_offset)
     }
 
     #[test]
     fn backtick_double_escaped_parameter_spans_track_quoted_templates() {
         let source =
             r#"`echo "foreach dir {puts \\$dir} literal \\\\$literal"` `echo "plain $missing"`"#;
-        let backtick_spans = backtick_substitution_spans(source);
-        let escaped = backtick_double_escaped_parameter_spans(source, &backtick_spans);
+        let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
+        let backtick_spans = backtick_substitution_spans(locator);
+        let escaped = backtick_double_escaped_parameter_spans(locator, &backtick_spans);
 
         assert_eq!(
             escaped

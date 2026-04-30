@@ -14,7 +14,7 @@ impl Violation for QuotedArraySlice {
 
 pub fn quoted_array_slice(checker: &mut Checker) {
     let facts = checker.facts();
-    let source = checker.source();
+    let locator = checker.locator();
     let spans = [
         ExpansionContext::AssignmentValue,
         ExpansionContext::DeclarationAssignmentValue,
@@ -23,7 +23,7 @@ pub fn quoted_array_slice(checker: &mut Checker) {
     .flat_map(|context| facts.expansion_word_facts(context))
     .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
     .filter(|fact| !facts.is_compound_assignment_value_word(*fact))
-    .filter(|fact| fact.has_direct_all_elements_array_expansion_in_source(source))
+    .filter(|fact| fact.has_direct_all_elements_array_expansion_in_source(locator))
     .map(|fact| fact.span())
     .collect::<Vec<_>>();
 

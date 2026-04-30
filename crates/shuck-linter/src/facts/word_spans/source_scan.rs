@@ -11,18 +11,6 @@ pub(crate) fn advance_shell_char(text: &str, index: usize) -> usize {
         .map_or(index + 1, |ch| index + ch.len_utf8())
 }
 
-pub(crate) fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
-    if target_offset > source.len() {
-        return None;
-    }
-
-    let mut position = Position::new();
-    for ch in source[..target_offset].chars() {
-        position.advance(ch);
-    }
-    Some(position)
-}
-
 pub(crate) fn collect_scan_span_excluding(
     span: Span,
     excluded: &[Span],

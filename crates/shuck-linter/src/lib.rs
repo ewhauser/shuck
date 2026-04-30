@@ -17,6 +17,8 @@ mod fix;
 #[allow(missing_docs)]
 mod fix_helpers;
 #[allow(missing_docs)]
+mod locator;
+#[allow(missing_docs)]
 mod parse_diagnostics;
 #[allow(missing_docs)]
 mod registry;
@@ -79,6 +81,7 @@ pub(crate) use facts::{
 /// Autofix types and fix application helpers.
 pub use fix::{Applicability, AppliedFixes, Edit, Fix, FixAvailability, apply_fixes};
 pub(crate) use fix_helpers::leading_static_word_prefix_fix_in_source;
+pub(crate) use locator::Locator;
 /// Rule identifiers, categories, and registry lookup helpers.
 pub use registry::{Category, Rule, code_to_rule};
 /// Rule metadata lookup utilities.
@@ -106,8 +109,9 @@ pub use suppression::{
 pub use violation::Violation;
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{Command, CompoundCommand, File, Position, Span, Stmt, StmtSeq, TextSize};
-use shuck_indexer::{Indexer, LineIndex};
+use shuck_ast::{Command, CompoundCommand, File, Span, Stmt, StmtSeq, TextSize};
+use shuck_indexer::Indexer;
+
 use shuck_parser::parser::{ParseResult, Parser};
 use shuck_semantic::{
     CommandKind, CompoundCommandKind, FlowContext, ScopeId, SemanticBuildOptions,
@@ -863,10 +867,10 @@ pub fn lint_file_at_path_with_resolver(
     );
     let mut diagnostics = analysis.diagnostics;
 
+    let locator = Locator::new(source, indexer.line_index());
     diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
         file,
-        source,
-        indexer.line_index(),
+        locator,
         Some(&parse_result),
         &analysis.semantic,
         &settings.rules,
@@ -926,6 +930,7 @@ pub(crate) fn lint_file_at_path_with_resolver_and_parse_result_and_directives(
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> Vec<Diagnostic> {
     let shell = resolve_shell(settings, source, source_path);
+    let locator = Locator::new(source, indexer.line_index());
     let mut file_entry_contract_collector =
         ambient_contracts::AmbientContractCollector::new(source, source_path, shell);
     let analyzed_paths_fallback =
@@ -971,15 +976,14 @@ pub(crate) fn lint_file_at_path_with_resolver_and_parse_result_and_directives(
 
     diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
         &parse_result.file,
-        source,
-        indexer.line_index(),
+        locator,
         Some(parse_result),
         &linter_semantic_artifacts,
         &settings.rules,
         shell,
     ));
     if parse_result.is_err() {
-        sanitize_diagnostic_spans_cold(&mut diagnostics, source, indexer);
+        sanitize_diagnostic_spans_cold(&mut diagnostics, locator);
     }
 
     for diagnostic in &mut diagnostics {
@@ -1117,14 +1121,15 @@ fn filter_per_file_ignored_diagnostics(
 
 #[cold]
 #[inline(never)]
-fn sanitize_diagnostic_spans_cold(diagnostics: &mut [Diagnostic], source: &str, indexer: &Indexer) {
+fn sanitize_diagnostic_spans_cold(diagnostics: &mut [Diagnostic], locator: Locator<'_>) {
     for diagnostic in diagnostics {
-        diagnostic.span = sanitize_span(diagnostic.span, source, indexer.line_index());
+        diagnostic.span = sanitize_span(diagnostic.span, locator);
     }
 }
 
 #[cold]
-fn sanitize_span(span: Span, source: &str, line_index: &LineIndex) -> Span {
+fn sanitize_span(span: Span, locator: Locator<'_>) -> Span {
+    let source = locator.source();
     if span.start.offset <= span.end.offset
         && span.end.offset <= source.len()
         && source.is_char_boundary(span.start.offset)
@@ -1156,24 +1161,9 @@ fn sanitize_span(span: Span, source: &str, line_index: &LineIndex) -> Span {
     };
 
     Span::from_positions(
-        position_at_offset(source, line_index, start_offset),
-        position_at_offset(source, line_index, end_offset),
+        locator.position_at_offset_unchecked(start_offset),
+        locator.position_at_offset_unchecked(end_offset),
     )
-}
-
-#[cold]
-fn position_at_offset(source: &str, line_index: &LineIndex, target_offset: usize) -> Position {
-    let line = line_index.line_number(TextSize::new(target_offset as u32));
-    let line_start = line_index
-        .line_start(line)
-        .map(usize::from)
-        .unwrap_or_default();
-
-    Position {
-        line,
-        column: source[line_start..target_offset].chars().count() + 1,
-        offset: target_offset,
-    }
 }
 
 #[cold]
