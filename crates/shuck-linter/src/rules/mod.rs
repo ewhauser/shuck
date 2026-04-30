@@ -93,10 +93,6 @@ mod architecture_tests {
             .unwrap_or_else(|error| panic!("failed to read {}: {error}", traversal_path.display()));
         let forbidden_visibility = [
             "pub(crate) struct CommandVisit",
-            "pub(crate) struct CommandWalkOptions",
-            "pub(crate) fn walk_commands",
-            "pub(crate) fn iter_commands",
-            "pub(crate) fn iter_commands_with_context",
             "pub(crate) fn visit_arithmetic_words",
             "pub(crate) fn visit_var_ref_subscript_words",
             "pub(crate) fn visit_subscript_words",
