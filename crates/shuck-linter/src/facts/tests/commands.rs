@@ -1811,6 +1811,30 @@ echo ${foo:-$((10#1))}
 }
 
 #[test]
+fn collects_base_prefix_arithmetic_spans_from_semantic_nested_command_visits() {
+    let source = "\
+#!/bin/bash
+echo \"$(printf '%s' \"$((10#1))\")\"
+case $mode in
+  run) echo $((10#2)) ;;
+esac
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+
+    assert_eq!(
+        facts
+            .base_prefix_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["10#1", "10#2"]
+    );
+}
+
+#[test]
 fn collects_arithmetic_update_operator_spans_in_nested_heredoc_command_bodies() {
     let source = "\
 #!/bin/bash
