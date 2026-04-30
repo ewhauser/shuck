@@ -552,6 +552,7 @@ fn classify_substitution_body<'a>(
     source: &str,
 ) -> SubstitutionBodyFacts {
     let mut body_has_commands = false;
+    let mut body_contains_ls = false;
     let mut bash_file_slurp = false;
     let mut body_command_count = 0;
     semantic.for_each_command_visit_in_body(body, false, |visit| {
@@ -562,9 +563,20 @@ fn classify_substitution_body<'a>(
         } else {
             bash_file_slurp = false;
         }
+        if let Some(fact) = command_relationships.fact_for_stmt(visit.stmt) {
+            body_contains_ls |= fact.literal_name() == Some("ls") && fact.wrappers().is_empty();
+        }
     });
     let redirect_summary =
         summarize_stmt_seq_redirects(body, parent_id, commands, command_relationships, source);
+    let body_processed_ls_pipeline_spans = substitution_body_processed_ls_pipeline_spans(
+        body,
+        parent_id,
+        commands,
+        command_relationships,
+        semantic,
+        source,
+    );
 
     SubstitutionBodyFacts {
         stdout_intent: redirect_summary.stdout_intent,
@@ -574,18 +586,16 @@ fn classify_substitution_body<'a>(
         stdout_dev_null_redirect_spans: redirect_summary
             .stdout_dev_null_redirect_spans
             .into_boxed_slice(),
-        body_contains_ls: substitution_body_contains_ls(body, parent_id, command_relationships),
-        body_processed_ls_pipeline_spans: substitution_body_processed_ls_pipeline_spans(
+        body_contains_ls,
+        body_processed_ls_pipeline_spans: body_processed_ls_pipeline_spans.into_boxed_slice(),
+        body_contains_echo: substitution_body_contains_echo(body, source),
+        body_contains_grep: substitution_body_contains_grep(
             body,
-            parent_id,
             commands,
             command_relationships,
-            semantic,
+            parent_id,
             source,
-        )
-        .into_boxed_slice(),
-        body_contains_echo: substitution_body_contains_echo(body, source),
-        body_contains_grep: substitution_body_contains_grep(body, source),
+        ),
         body_has_multiple_statements: body.stmts.len() > 1,
         body_is_negated: matches!(body.stmts.as_slice(), [stmt] if stmt.negated),
         body_is_pgrep_lookup: substitution_body_is_pgrep_lookup(
@@ -1078,16 +1088,6 @@ fn leading_dynamic_dash_literal_in_parts(
     None
 }
 
-fn substitution_body_contains_ls<'a>(
-    body: &'a StmtSeq,
-    parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
-) -> bool {
-    body.stmts
-        .iter()
-        .any(|stmt| stmt_contains_raw_ls(stmt, parent_id, command_relationships))
-}
-
 fn substitution_body_processed_ls_pipeline_spans<'a>(
     body: &'a StmtSeq,
     parent_id: CommandId,
@@ -1249,47 +1249,56 @@ fn ls_command_span_before_pipe<'a>(
     }
 }
 
-fn substitution_body_contains_grep(body: &StmtSeq, source: &str) -> bool {
-    let [stmt] = body.stmts.as_slice() else {
-        return false;
-    };
-
-    command_contains_grep_output(&stmt.command, source)
+fn substitution_body_contains_grep<'a>(
+    body: &'a StmtSeq,
+    commands: CommandFacts<'_, 'a>,
+    command_relationships: CommandRelationshipContext<'_, 'a>,
+    parent_id: CommandId,
+    source: &str,
+) -> bool {
+    substitution_body_terminal_command_fact(body, commands, command_relationships, parent_id)
+        .is_some_and(|fact| command_fact_is_grep_family(fact, source))
 }
 
-fn stmt_contains_raw_ls<'a>(
-    stmt: &'a Stmt,
+fn substitution_body_terminal_command_fact<'facts, 'a>(
+    body: &'a StmtSeq,
+    commands: CommandFacts<'facts, 'a>,
+    command_relationships: CommandRelationshipContext<'facts, 'a>,
     parent_id: CommandId,
-    command_relationships: CommandRelationshipContext<'_, 'a>,
-) -> bool {
-    command_relationships
-        .child_or_lookup_fact(parent_id, stmt)
-        .is_some_and(|fact| fact.literal_name() == Some("ls") && fact.wrappers().is_empty())
-        || match &stmt.command {
-            Command::Binary(binary) => {
-                let child_parent_id = command_relationships
-                    .child_or_lookup_fact(parent_id, stmt)
-                    .map_or(parent_id, CommandFact::id);
-                stmt_contains_raw_ls(&binary.left, child_parent_id, command_relationships)
-                    || stmt_contains_raw_ls(&binary.right, child_parent_id, command_relationships)
-            }
+) -> Option<CommandFactRef<'facts, 'a>> {
+    let [stmt] = body.stmts.as_slice() else {
+        return None;
+    };
+    let mut stmt = stmt;
+    let mut current_parent_id = parent_id;
+
+    loop {
+        let fact = command_relationships
+            .child_id_for_command(current_parent_id, &stmt.command)
+            .or_else(|| command_relationships.id_for_command(&stmt.command))
+            .map(|id| command_fact_ref(commands, id))?;
+
+        match &stmt.command {
+            Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => return Some(fact),
+            Command::Binary(binary) => match binary.op {
+                BinaryOp::Pipe | BinaryOp::PipeAll => {
+                    current_parent_id = fact.id();
+                    stmt = &binary.right;
+                }
+                BinaryOp::And | BinaryOp::Or => return None,
+            },
             Command::Compound(CompoundCommand::Subshell(body))
             | Command::Compound(CompoundCommand::BraceGroup(body)) => {
-                let child_parent_id = command_relationships
-                    .child_or_lookup_fact(parent_id, stmt)
-                    .map_or(parent_id, CommandFact::id);
-                body.stmts
-                    .iter()
-                    .any(|stmt| stmt_contains_raw_ls(stmt, child_parent_id, command_relationships))
+                let [inner] = body.stmts.as_slice() else {
+                    return None;
+                };
+                current_parent_id = fact.id();
+                stmt = inner;
             }
             Command::Compound(CompoundCommand::Time(command)) => {
-                let child_parent_id = command_relationships
-                    .child_or_lookup_fact(parent_id, stmt)
-                    .map_or(parent_id, CommandFact::id);
-                command
-                    .command
-                    .as_deref()
-                    .is_some_and(|stmt| stmt_contains_raw_ls(stmt, child_parent_id, command_relationships))
+                let inner = command.command.as_deref()?;
+                current_parent_id = fact.id();
+                stmt = inner;
             }
             Command::Compound(
                 CompoundCommand::If(_)
@@ -1305,68 +1314,30 @@ fn stmt_contains_raw_ls<'a>(
                 | CompoundCommand::Conditional(_)
                 | CompoundCommand::Coproc(_)
                 | CompoundCommand::Always(_),
-            ) => false,
-            Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => false,
-            Command::Function(_) | Command::AnonymousFunction(_) => false,
+            )
+            | Command::Function(_)
+            | Command::AnonymousFunction(_) => return None,
         }
-}
-
-fn command_contains_grep_output(command: &Command, source: &str) -> bool {
-    match command {
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {
-            command_is_grep_family(command, source)
-        }
-        Command::Binary(binary) => match binary.op {
-            BinaryOp::Pipe | BinaryOp::PipeAll => {
-                command_contains_grep_output(&binary.right.command, source)
-            }
-            BinaryOp::And | BinaryOp::Or => false,
-        },
-        Command::Compound(CompoundCommand::Subshell(body))
-        | Command::Compound(CompoundCommand::BraceGroup(body)) => {
-            substitution_body_contains_grep(body, source)
-        }
-        Command::Compound(CompoundCommand::Time(command)) => command
-            .command
-            .as_deref()
-            .is_some_and(|stmt| command_contains_grep_output(&stmt.command, source)),
-        Command::Compound(
-            CompoundCommand::If(_)
-            | CompoundCommand::For(_)
-            | CompoundCommand::Repeat(_)
-            | CompoundCommand::Foreach(_)
-            | CompoundCommand::ArithmeticFor(_)
-            | CompoundCommand::While(_)
-            | CompoundCommand::Until(_)
-            | CompoundCommand::Case(_)
-            | CompoundCommand::Select(_)
-            | CompoundCommand::Arithmetic(_)
-            | CompoundCommand::Conditional(_)
-            | CompoundCommand::Coproc(_)
-            | CompoundCommand::Always(_),
-        ) => false,
-        Command::Function(_) | Command::AnonymousFunction(_) => false,
     }
 }
 
-fn command_name_is_grep_family(name: &str) -> bool {
-    matches!(name, "grep" | "egrep" | "fgrep")
-}
-
-fn command_is_grep_family(command: &Command, source: &str) -> bool {
-    let normalized = command::normalize_command(command, source);
-    if normalized
+fn command_fact_is_grep_family(fact: CommandFactRef<'_, '_>, source: &str) -> bool {
+    if fact
         .effective_or_literal_name()
         .is_some_and(command_name_is_grep_family)
     {
         return true;
     }
 
-    normalized.body_name_word().is_some_and(|word| {
+    fact.body_name_word().is_some_and(|word| {
         let text = word.span.slice(source).trim_start_matches('\\');
         let name = text.rsplit('/').next().unwrap_or(text);
         command_name_is_grep_family(name)
     })
+}
+
+fn command_name_is_grep_family(name: &str) -> bool {
+    matches!(name, "grep" | "egrep" | "fgrep")
 }
 
 fn word_contains_unquoted_glob_or_brace(word: &Word, source: &str) -> bool {
