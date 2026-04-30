@@ -1,4 +1,8 @@
-fn collect_base_prefix_spans_in_command(command: &Command, source: &str, spans: &mut Vec<Span>) {
+fn collect_base_prefix_spans_in_command_parts(
+    command: &Command,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
     match command {
         Command::Simple(command) => {
             for assignment in &command.assignments {
@@ -117,14 +121,12 @@ fn collect_base_prefix_spans_in_command(command: &Command, source: &str, spans: 
                     for pattern in &item.patterns {
                         collect_base_prefix_spans_in_pattern(pattern, source, spans);
                     }
-                    collect_base_prefix_spans_in_stmt_seq(&item.body, source, spans);
                 }
             }
             CompoundCommand::Select(command) => {
                 for word in &command.words {
                     collect_base_prefix_spans_in_word(word, source, spans);
                 }
-                collect_base_prefix_spans_in_stmt_seq(&command.body, source, spans);
             }
             CompoundCommand::If(_)
             | CompoundCommand::Conditional(_)
@@ -239,9 +241,7 @@ fn collect_base_prefix_spans_in_word_part(
         | WordPart::SingleQuoted { .. }
         | WordPart::Variable(_)
         | WordPart::PrefixMatch { .. } => {}
-        WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
-            collect_base_prefix_spans_in_stmt_seq(body, source, spans);
-        }
+        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
     }
 }
 
@@ -425,12 +425,6 @@ fn collect_base_prefix_spans_in_arithmetic_zsh_target(
     }
 }
 
-fn collect_base_prefix_spans_in_stmt_seq(body: &StmtSeq, source: &str, spans: &mut Vec<Span>) {
-    for stmt in &body.stmts {
-        collect_base_prefix_spans_in_command(&stmt.command, source, spans);
-    }
-}
-
 fn collect_base_prefix_spans_in_pattern(pattern: &Pattern, source: &str, spans: &mut Vec<Span>) {
     for (part, _) in pattern.parts_with_spans() {
         match part {
@@ -607,9 +601,7 @@ fn collect_base_prefix_spans_in_arithmetic_word_part(
                 collect_base_prefix_spans_in_arithmetic_word(length_word_ast, source, spans);
             }
         }
-        WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
-            collect_base_prefix_spans_in_stmt_seq(body, source, spans);
-        }
+        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
         WordPart::ZshQualifiedGlob(_)
         | WordPart::SingleQuoted { .. }
         | WordPart::Variable(_)

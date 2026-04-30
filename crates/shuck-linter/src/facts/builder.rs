@@ -231,7 +231,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                         surface: &mut surface_fragments,
                     },
                 );
-                collect_base_prefix_spans_in_command(
+                collect_base_prefix_spans_in_command_parts(
                     visit.command,
                     self.source,
                     &mut base_prefix_arithmetic_spans,
