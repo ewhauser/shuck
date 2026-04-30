@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.29](https://github.com/ewhauser/shuck/compare/v0.0.28...v0.0.29) (2026-04-30)
+
+
+### Performance
+
+* **linter:** trim possible-variable-misspelling lookup hotspots ([#777](https://github.com/ewhauser/shuck/issues/777)) ([f7dd4b9](https://github.com/ewhauser/shuck/commit/f7dd4b9c20431278a4f08e36de0103cb2b0fc557))
+
 ## [0.0.28](https://github.com/ewhauser/shuck/compare/v0.0.27...v0.0.28) (2026-04-30)
 
 
