@@ -671,15 +671,17 @@ impl<'a> SurfaceFragmentSink<'a> {
                 && !in_double_quote
             {
                 let literal = text.as_str(self.source, part.span);
-                for (offset, char) in literal.char_indices() {
-                    if !is_unicode_smart_quote(char) {
-                        continue;
+                if literal.as_bytes().contains(&UNICODE_SMART_QUOTE_LEAD_BYTE) {
+                    for (offset, char) in literal.char_indices() {
+                        if !is_unicode_smart_quote(char) {
+                            continue;
+                        }
+                        let start = part.span.start.advanced_by(&literal[..offset]);
+                        let end = start.advanced_by(char.encode_utf8(&mut [0; 4]));
+                        self.facts
+                            .unicode_smart_quote_spans
+                            .push(Span::from_positions(start, end));
                     }
-                    let start = part.span.start.advanced_by(&literal[..offset]);
-                    let end = start.advanced_by(char.encode_utf8(&mut [0; 4]));
-                    self.facts
-                        .unicode_smart_quote_spans
-                        .push(Span::from_positions(start, end));
                 }
             }
 
@@ -2863,6 +2865,10 @@ pub(super) fn simple_command_variable_set_operand<'a>(
 fn is_unicode_smart_quote(char: char) -> bool {
     matches!(char, '\u{2018}' | '\u{2019}' | '\u{201C}' | '\u{201D}')
 }
+
+/// First UTF-8 byte shared by every smart-quote codepoint scanned above. Used as a fast skip
+/// over ASCII-only literals that cannot contain any smart quote.
+const UNICODE_SMART_QUOTE_LEAD_BYTE: u8 = 0xE2;
 
 #[cfg(test)]
 mod tests {

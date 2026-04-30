@@ -258,13 +258,11 @@ impl ZshOptionAnalysis {
             .map(|entry| entry.scope);
 
         while let Some(scope_id) = scope {
-            if let Some(snapshots) = self.snapshots.get(&scope_id)
-                && let Some(snapshot) = snapshots
-                    .iter()
-                    .rev()
-                    .find(|snapshot| snapshot.offset <= offset)
-            {
-                return Some(&snapshot.state);
+            if let Some(snapshots) = self.snapshots.get(&scope_id) {
+                let upper = snapshots.partition_point(|snapshot| snapshot.offset <= offset);
+                if upper > 0 {
+                    return Some(&snapshots[upper - 1].state);
+                }
             }
 
             if let Some(entry) = self.scope_entries.get(&scope_id) {
