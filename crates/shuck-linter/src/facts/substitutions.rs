@@ -555,18 +555,22 @@ fn classify_substitution_body<'a>(
     let mut body_contains_ls = false;
     let mut bash_file_slurp = false;
     let mut body_command_count = 0;
-    semantic.for_each_command_visit_in_body(body, false, |visit| {
-        body_has_commands = true;
-        body_command_count += 1;
-        if body_command_count == 1 {
-            bash_file_slurp = is_bash_file_slurp_command(visit.command, visit.redirects, source);
-        } else {
-            bash_file_slurp = false;
-        }
-        if let Some(fact) = command_relationships.fact_for_stmt(visit.stmt) {
-            body_contains_ls |= fact.literal_name() == Some("ls") && fact.wrappers().is_empty();
-        }
-    });
+    semantic
+        .command_topology()
+        .body(body)
+        .for_each_command_visit(false, |_, visit| {
+            body_has_commands = true;
+            body_command_count += 1;
+            if body_command_count == 1 {
+                bash_file_slurp = is_bash_file_slurp_command(visit.command, visit.redirects, source);
+            } else {
+                bash_file_slurp = false;
+            }
+            if let Some(fact) = command_relationships.fact_for_stmt(visit.stmt) {
+                body_contains_ls |= fact.literal_name() == Some("ls") && fact.wrappers().is_empty();
+            }
+            CommandTopologyTraversal::Descend
+        });
     let redirect_summary =
         summarize_stmt_seq_redirects(body, parent_id, commands, command_relationships, source);
     let body_processed_ls_pipeline_spans = substitution_body_processed_ls_pipeline_spans(
@@ -1097,16 +1101,20 @@ fn substitution_body_processed_ls_pipeline_spans<'a>(
     source: &str,
 ) -> Vec<Span> {
     let mut spans = Vec::new();
-    semantic.for_each_command_visit_in_body(body, true, |visit| {
-        collect_processed_ls_pipeline_spans_in_stmt(
-            visit.stmt,
-            parent_id,
-            commands,
-            command_relationships,
-            source,
-            &mut spans,
-        );
-    });
+    semantic
+        .command_topology()
+        .body(body)
+        .for_each_command_visit(true, |_, visit| {
+            collect_processed_ls_pipeline_spans_in_stmt(
+                visit.stmt,
+                parent_id,
+                commands,
+                command_relationships,
+                source,
+                &mut spans,
+            );
+            CommandTopologyTraversal::Descend
+        });
     spans
 }
 
@@ -1168,12 +1176,10 @@ fn collect_pipeline_parts<'a>(
     segments: &mut Vec<&'a Stmt>,
     operators: &mut Vec<Span>,
 ) {
-    visit_binary_chain_parts(
-        command,
-        |op| matches!(op, BinaryOp::Pipe | BinaryOp::PipeAll),
-        |stmt| segments.push(stmt),
-        |command| operators.push(command.op_span),
-    );
+    let Some(chain) = BinaryCommandChain::pipeline(command) else {
+        return;
+    };
+    chain.visit_parts(|stmt| segments.push(stmt), |command| operators.push(command.op_span));
 }
 
 fn stmt_is_raw_ls<'a>(

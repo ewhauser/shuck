@@ -18,45 +18,254 @@ impl<'a> CommandVisit<'a> {
     }
 }
 
+/// Controls traversal when walking nested statement-sequence bodies.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum BodyTraversal {
+    /// Visit nested bodies below the current body.
+    Descend,
+    /// Visit the current body but do not visit its nested bodies.
+    SkipChildren,
+    /// Stop body traversal immediately.
+    Break,
+}
+
+/// Local topology view for one statement-sequence body.
+///
+/// Use this for direct statement order, sibling windows, and nested body traversal when semantic
+/// command ids are not needed. Use `CommandTopology::body` instead when command identity or
+/// syntax-backed parent/child relationships are part of the fact.
+pub(super) struct BodyTopology<'a> {
+    body: Option<&'a StmtSeq>,
+    statements: &'a [Stmt],
+}
+
+impl<'a> BodyTopology<'a> {
+    /// Creates a topology view over `body`.
+    pub(super) fn new(body: &'a StmtSeq) -> Self {
+        Self {
+            body: Some(body),
+            statements: body.as_slice(),
+        }
+    }
+
+    /// Creates a topology view over an already sliced body segment.
+    pub(super) fn from_statements(statements: &'a [Stmt]) -> Self {
+        Self {
+            body: None,
+            statements,
+        }
+    }
+
+    /// Returns direct statements in this body.
+    pub(super) fn statements(&self) -> &'a [Stmt] {
+        self.statements
+    }
+
+    /// Iterates adjacent direct statement pairs in source order.
+    pub(super) fn sibling_pairs(&self) -> impl Iterator<Item = (&'a Stmt, &'a Stmt)> + '_ {
+        self.indexed_sibling_pairs()
+            .map(|(_, previous, current)| (previous, current))
+    }
+
+    /// Iterates adjacent direct statement pairs with the first statement's index.
+    pub(super) fn indexed_sibling_pairs(
+        &self,
+    ) -> impl Iterator<Item = (usize, &'a Stmt, &'a Stmt)> + '_ {
+        self.statements()
+            .windows(2)
+            .enumerate()
+            .map(|(index, window)| (index, &window[0], &window[1]))
+    }
+
+    /// Returns the direct statement before `index`, if one exists.
+    #[allow(dead_code)]
+    pub(super) fn previous_sibling(&self, index: usize) -> Option<&'a Stmt> {
+        index
+            .checked_sub(1)
+            .and_then(|previous| self.statements().get(previous))
+    }
+
+    /// Returns the direct statement after `index`, if one exists.
+    #[allow(dead_code)]
+    pub(super) fn next_sibling(&self, index: usize) -> Option<&'a Stmt> {
+        self.statements().get(index + 1)
+    }
+
+    /// Visits this body and nested statement-sequence bodies in source order.
+    ///
+    /// The visitor controls whether nested bodies below each visited body should be traversed.
+    /// This keeps skip behavior explicit at the call site instead of baking policy into another
+    /// recursive helper.
+    pub(super) fn for_each_body(
+        &self,
+        mut visitor: impl FnMut(&'a StmtSeq) -> BodyTraversal,
+    ) {
+        let Some(body) = self.body else {
+            debug_assert!(
+                false,
+                "BodyTopology::for_each_body requires a complete StmtSeq"
+            );
+            return;
+        };
+        let mut stack = vec![body];
+        while let Some(body) = stack.pop() {
+            match visitor(body) {
+                BodyTraversal::Descend => {}
+                BodyTraversal::SkipChildren => continue,
+                BodyTraversal::Break => break,
+            }
+
+            let mut nested_bodies = Vec::new();
+            for stmt in body.iter() {
+                Self::collect_nested_bodies_in_stmt(stmt, &mut nested_bodies);
+            }
+            for nested_body in nested_bodies.into_iter().rev() {
+                stack.push(nested_body);
+            }
+        }
+    }
+
+    fn collect_nested_bodies_in_stmt(stmt: &'a Stmt, bodies: &mut Vec<&'a StmtSeq>) {
+        match &stmt.command {
+            Command::Binary(command) => {
+                Self::collect_nested_bodies_in_stmt(&command.left, bodies);
+                Self::collect_nested_bodies_in_stmt(&command.right, bodies);
+            }
+            Command::Compound(command) => match command {
+                CompoundCommand::If(command) => {
+                    bodies.push(&command.then_branch);
+                    for (_, branch) in &command.elif_branches {
+                        bodies.push(branch);
+                    }
+                    if let Some(branch) = &command.else_branch {
+                        bodies.push(branch);
+                    }
+                }
+                CompoundCommand::While(command) => bodies.push(&command.body),
+                CompoundCommand::Until(command) => bodies.push(&command.body),
+                CompoundCommand::For(command) => bodies.push(&command.body),
+                CompoundCommand::Select(command) => bodies.push(&command.body),
+                CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => {
+                    bodies.push(body);
+                }
+                CompoundCommand::Time(command) => {
+                    if let Some(inner) = &command.command {
+                        Self::collect_nested_bodies_in_stmt(inner, bodies);
+                    }
+                }
+                CompoundCommand::Always(command) => {
+                    bodies.push(&command.body);
+                    bodies.push(&command.always_body);
+                }
+                CompoundCommand::Case(_)
+                | CompoundCommand::Conditional(_)
+                | CompoundCommand::Repeat(_)
+                | CompoundCommand::Foreach(_)
+                | CompoundCommand::ArithmeticFor(_)
+                | CompoundCommand::Arithmetic(_)
+                | CompoundCommand::Coproc(_) => {}
+            },
+            Command::Function(function) => {
+                Self::collect_nested_bodies_in_stmt(&function.body, bodies);
+            }
+            Command::AnonymousFunction(function) => {
+                Self::collect_nested_bodies_in_stmt(&function.body, bodies);
+            }
+            Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
+        }
+    }
+}
+
+/// Kind of adjacent binary command chain to flatten.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum BinaryCommandChainKind {
+    /// A chain formed from `&&` and `||` operators.
+    LogicalList,
+    /// A chain formed from `|` and `|&` operators.
+    Pipeline,
+}
+
+impl BinaryCommandChainKind {
+    fn contains(self, op: BinaryOp) -> bool {
+        match self {
+            Self::LogicalList => matches!(op, BinaryOp::And | BinaryOp::Or),
+            Self::Pipeline => matches!(op, BinaryOp::Pipe | BinaryOp::PipeAll),
+        }
+    }
+}
+
+/// Source-order view of one adjacent binary command chain.
+///
+/// The helper flattens only compatible neighboring binary nodes. It does not classify segments,
+/// inspect words, or recurse into unrelated command forms; callers keep that payload-specific
+/// policy local to the owning fact.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct BinaryCommandChain<'a> {
+    root: &'a BinaryCommand,
+    kind: BinaryCommandChainKind,
+}
+
+impl<'a> BinaryCommandChain<'a> {
+    /// Returns a logical-list chain when `root` is joined by `&&` or `||`.
+    pub(super) fn logical_list(root: &'a BinaryCommand) -> Option<Self> {
+        Self::new(root, BinaryCommandChainKind::LogicalList)
+    }
+
+    /// Returns a pipeline chain when `root` is joined by `|` or `|&`.
+    pub(super) fn pipeline(root: &'a BinaryCommand) -> Option<Self> {
+        Self::new(root, BinaryCommandChainKind::Pipeline)
+    }
+
+    fn new(root: &'a BinaryCommand, kind: BinaryCommandChainKind) -> Option<Self> {
+        kind.contains(root.op).then_some(Self { root, kind })
+    }
+
+    /// Visits leaf segments and chain operator nodes in source order.
+    pub(super) fn visit_parts(
+        &self,
+        mut visit_segment: impl FnMut(&'a Stmt),
+        mut visit_operator: impl FnMut(&'a BinaryCommand),
+    ) {
+        let mut stack = vec![BinaryChainStackItem::Command(self.root)];
+        while let Some(item) = stack.pop() {
+            match item {
+                BinaryChainStackItem::Command(command) => {
+                    match &command.right.command {
+                        Command::Binary(right) if self.kind.contains(right.op) => {
+                            stack.push(BinaryChainStackItem::Command(right));
+                        }
+                        _ => stack.push(BinaryChainStackItem::Segment(&command.right)),
+                    }
+                    stack.push(BinaryChainStackItem::Operator(command));
+                    match &command.left.command {
+                        Command::Binary(left) if self.kind.contains(left.op) => {
+                            stack.push(BinaryChainStackItem::Command(left));
+                        }
+                        _ => stack.push(BinaryChainStackItem::Segment(&command.left)),
+                    }
+                }
+                BinaryChainStackItem::Operator(command) => visit_operator(command),
+                BinaryChainStackItem::Segment(stmt) => visit_segment(stmt),
+            }
+        }
+    }
+
+    /// Visits only leaf command segments in source order.
+    pub(super) fn visit_segments(&self, mut visitor: impl FnMut(&'a Stmt)) {
+        self.visit_parts(|stmt| visitor(stmt), |_| {});
+    }
+
+    /// Visits only binary operator nodes in source order.
+    pub(super) fn visit_nodes(&self, mut visitor: impl FnMut(&'a BinaryCommand)) {
+        self.visit_parts(|_| {}, |command| visitor(command));
+    }
+}
+
 enum BinaryChainStackItem<'a> {
     Command(&'a BinaryCommand),
     Operator(&'a BinaryCommand),
     Segment(&'a Stmt),
-}
-
-/// Visits the leaf segments and operators of a left/right-associative binary command chain.
-///
-/// List and pipeline facts both need the same topology question: flatten adjacent binary commands
-/// with compatible operators while preserving source order. Keeping the mechanics here prevents
-/// each fact family from maintaining its own recursive AST descent.
-fn visit_binary_chain_parts<'a>(
-    command: &'a BinaryCommand,
-    mut is_chain_operator: impl FnMut(BinaryOp) -> bool,
-    mut visit_segment: impl FnMut(&'a Stmt),
-    mut visit_operator: impl FnMut(&'a BinaryCommand),
-) {
-    let mut stack = vec![BinaryChainStackItem::Command(command)];
-    while let Some(item) = stack.pop() {
-        match item {
-            BinaryChainStackItem::Command(command) => {
-                match &command.right.command {
-                    Command::Binary(right) if is_chain_operator(right.op) => {
-                        stack.push(BinaryChainStackItem::Command(right));
-                    }
-                    _ => stack.push(BinaryChainStackItem::Segment(&command.right)),
-                }
-                stack.push(BinaryChainStackItem::Operator(command));
-                match &command.left.command {
-                    Command::Binary(left) if is_chain_operator(left.op) => {
-                        stack.push(BinaryChainStackItem::Command(left));
-                    }
-                    _ => stack.push(BinaryChainStackItem::Segment(&command.left)),
-                }
-            }
-            BinaryChainStackItem::Operator(command) => visit_operator(command),
-            BinaryChainStackItem::Segment(stmt) => visit_segment(stmt),
-        }
-    }
 }
 
 fn visit_command_substitution_candidate_words<'a>(
@@ -65,10 +274,14 @@ fn visit_command_substitution_candidate_words<'a>(
     source: &str,
     visitor: &mut impl FnMut(&'a Word),
 ) {
-    semantic.for_each_command_visit_in_body(body, true, |visit| {
-        visit_command_substitution_loop_header_words(visit.command, visitor);
-        visit_command_argument_words_for_substitutions(visit.command, source, visitor);
-    });
+    semantic
+        .command_topology()
+        .body(body)
+        .for_each_command_visit(true, |_, visit| {
+            visit_command_substitution_loop_header_words(visit.command, visitor);
+            visit_command_argument_words_for_substitutions(visit.command, source, visitor);
+            CommandTopologyTraversal::Descend
+        });
 }
 
 fn visit_command_substitution_loop_header_words<'a>(

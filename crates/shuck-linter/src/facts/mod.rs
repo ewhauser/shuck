@@ -47,11 +47,11 @@ use crate::{
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue,
-    ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem, ArrayKind, Assignment, AssignmentValue,
-    BackgroundOperator, BinaryCommand, BinaryOp, BourneParameterExpansion, BraceQuoteContext,
-    BraceSyntaxKind, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command,
-    CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
+    ArithmeticCommand, ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode,
+    ArithmeticLvalue, ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem, ArrayKind, Assignment,
+    AssignmentValue, BackgroundOperator, BinaryCommand, BinaryOp, BourneParameterExpansion,
+    BraceQuoteContext, BraceSyntaxKind, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator,
+    Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
     ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, IdRange, ListArena,
     Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart,
     Position, PrefixMatchKind, Redirect, RedirectKind, SelectCommand, SimpleCommand, SourceText,
@@ -99,6 +99,7 @@ pub use self::surface::{
 };
 
 include!("traversal.rs");
+include!("body_shape.rs");
 include!("core.rs");
 include!("simple_tests.rs");
 include!("conditionals.rs");

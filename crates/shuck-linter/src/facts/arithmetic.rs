@@ -1184,32 +1184,36 @@ fn collect_arithmetic_update_operator_spans_in_nested_command_body(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    semantic_artifacts.for_each_command_visit_in_body(body, true, |visit| {
-        let scope = semantic.scope_at(visit.stmt.span.start.offset);
-        collect_arithmetic_update_operator_spans_in_command(
-            visit.command,
-            semantic,
-            semantic_artifacts,
-            scope,
-            source,
-            spans,
-        );
-        for redirect in visit.redirects {
-            if let Some(word) = redirect.word_target() {
-                collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
-            } else if let Some(heredoc) = redirect.heredoc()
-                && heredoc.delimiter.expands_body
-            {
-                collect_arithmetic_update_operator_spans_in_heredoc_body(
-                    &heredoc.body.parts,
-                    semantic,
-                    semantic_artifacts,
-                    source,
-                    spans,
-                );
+    semantic_artifacts
+        .command_topology()
+        .body(body)
+        .for_each_command_visit(true, |_, visit| {
+            let scope = semantic.scope_at(visit.stmt.span.start.offset);
+            collect_arithmetic_update_operator_spans_in_command(
+                visit.command,
+                semantic,
+                semantic_artifacts,
+                scope,
+                source,
+                spans,
+            );
+            for redirect in visit.redirects {
+                if let Some(word) = redirect.word_target() {
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+                } else if let Some(heredoc) = redirect.heredoc()
+                    && heredoc.delimiter.expands_body
+                {
+                    collect_arithmetic_update_operator_spans_in_heredoc_body(
+                        &heredoc.body.parts,
+                        semantic,
+                        semantic_artifacts,
+                        source,
+                        spans,
+                    );
+                }
             }
-        }
-    });
+            CommandTopologyTraversal::Descend
+        });
 }
 
 fn collect_arithmetic_update_operator_spans_in_subscript(

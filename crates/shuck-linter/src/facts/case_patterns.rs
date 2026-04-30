@@ -1299,16 +1299,20 @@ fn first_getopts_case_match_in_command(
     source: &str,
 ) -> Option<GetoptsCaseMatch> {
     match command {
-        Command::Binary(command) => first_getopts_case_match_in_command(
-            &command.left.command,
-            target_name,
-            source,
-        )
-        .or_else(|| {
-            matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll).then(|| {
-                first_getopts_case_match_in_command(&command.right.command, target_name, source)
-            })?
-        }),
+        Command::Binary(command) => {
+            if let Some(chain) = BinaryCommandChain::pipeline(command) {
+                let mut match_fact = None;
+                chain.visit_segments(|stmt| {
+                    if match_fact.is_none() {
+                        match_fact =
+                            first_getopts_case_match_in_command(&stmt.command, target_name, source);
+                    }
+                });
+                match_fact
+            } else {
+                first_getopts_case_match_in_command(&command.left.command, target_name, source)
+            }
+        }
         Command::Compound(CompoundCommand::Case(command))
             if case_subject_variable_name(&command.word) == Some(target_name) =>
         {

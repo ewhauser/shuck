@@ -1117,7 +1117,7 @@ fn stmt_seq_contains_nested_control_flow(
     command_topology: CommandTopology<'_, '_>,
 ) -> bool {
     let mut contains = false;
-    command_topology.for_each_command_visit_in_body(body, false, |_, visit| match visit.command {
+    command_topology.body(body).for_each_command_visit(false, |_, visit| match visit.command {
         Command::Compound(
             CompoundCommand::If(_)
             | CompoundCommand::While(_)

@@ -171,45 +171,32 @@ When a rule needs information that no fact exposes:
 This keeps repeated structural discovery in one place, keeps rule files cheap,
 and makes the same structural data available to every other rule that needs it.
 
-### Command topology in facts
+### Fact topology helpers
 
-Fact construction should treat semantic traversal as the owner of command
-topology. The parser AST is still the source of syntax, words, redirects, and
-command-specific payloads, but repeated command-shape questions should be
-answered through semantic command ids and linter semantic artifacts.
+Fact construction should reuse the linter-private topology helpers for repeated
+command/body discovery instead of adding local recursive walkers.
 
-The preferred pattern is:
+- Use `CommandTopology` for semantic-backed command identity and relationships:
+  command visits, body-scoped command iteration, parent/child command queries,
+  syntax-backed command queries, and nested word-command filtering. If a query
+  becomes useful outside linter facts, promote the relationship into
+  `shuck-semantic` and keep the linter helper as a thin adapter.
+- Use `BodyTopology` for local statement-sequence topology: direct statements,
+  sibling pairs, indexed sibling pairs, previous/next direct siblings, and
+  nested body traversal with explicit descend/skip/break behavior.
+- Use `BinaryCommandChain` for source-order flattening of adjacent `&&`/`||`
+  lists and `|`/`|&` pipelines. Payload classification stays in the owning fact
+  module.
+- Use `BodyShapeAnalyzer` for repeated status/test/return-like body predicates,
+  including terminal test commands, status-capture assignment patterns,
+  accumulator return guards, and status-test follow-up chains.
+- Keep word-part, arithmetic-expression, conditional-expression, redirect,
+  option-parser, and surface-fragment scans fact-local unless the same payload
+  scan is repeated across fact modules.
 
-1. The semantic pass records command ids, direct commands in each
-   statement-sequence body, and syntax-backed parent/child relationships.
-2. `LinterSemanticArtifacts::command_topology()` exposes those relationships to
-   fact builders.
-3. Fact builders ask topology questions such as "which commands are in this
-   body?" or "should this visitor descend into this command's children?" instead
-   of adding fresh recursive command walks.
-
-This deliberately does not mean every fact should iterate one flat command
-list. Many linter facts care about local structure: sibling order, body
-boundaries, nested-word depth, list/pipeline segments, or whether a subtree
-should be skipped. The topology layer exists to preserve that structure while
-keeping semantic traversal as the single source of command relationships.
-
-Migration guidelines:
-
-- Use `CommandTopology::for_each_command_visit_in_body` when a fact needs
-  commands in a specific statement-sequence body.
-- Use `CommandTopologyTraversal::SkipChildren` when syntax says a command's
-  descendants should not affect the local fact, such as function bodies or
-  unrelated compound forms.
-- Keep word, arithmetic, conditional-expression, and redirect scans local when
-  they are inspecting syntax payloads rather than discovering command topology.
-- For repeated binary-chain shapes, use shared iterative helpers such as
-  `visit_binary_chain_parts` instead of open-coded recursive descent.
-- Add new relationship queries to the topology layer before adding another
-  command-recursive helper to a fact file.
-- Keep `CommandTopology` linter-private unless a query becomes generally useful
-  outside fact construction. In that case, promote the underlying relationship
-  into `shuck-semantic` and keep `LinterSemanticArtifacts` as a thin adapter.
+Before adding a new recursive command/body helper under `src/facts/`, first
+check whether one of these helpers owns the topology question. New helpers
+should be for repeated structure, not one-off payload scans.
 
 ## Semantic vs. facts: which to use
 
