@@ -629,7 +629,7 @@ fn is_done_line(locator: Locator<'_>, line_number: usize) -> bool {
     line_text_at(locator, line_number)
         .map(|line| {
             let text = line.split_once('#').map_or(line, |(before, _)| before);
-            shell_like_words(text).contains(&"done")
+            shell_like_words(text).any(|word| word == "done")
         })
         .unwrap_or(false)
 }
@@ -663,7 +663,7 @@ fn has_pending_until_without_do_before_line(source: &str, line_number: usize) ->
 
 fn line_has_command_leading_word(line: &str, word: &str) -> bool {
     line.split([';', '|', '&'])
-        .filter_map(|segment| shell_like_words(segment.trim_start()).into_iter().next())
+        .filter_map(|segment| shell_like_words(segment.trim_start()).next())
         .any(|candidate| candidate == word)
 }
 
@@ -726,7 +726,7 @@ fn missing_done_loop_kind_from_source(source: &str) -> Option<bool> {
         }
 
         let logical_line = continued_line.trim().to_owned();
-        let words = shell_like_words(&logical_line);
+        let words: Vec<&str> = shell_like_words(&logical_line).collect();
         continued_line.clear();
         if words.is_empty() {
             continue;
@@ -750,7 +750,7 @@ fn missing_done_loop_kind_from_source(source: &str) -> Option<bool> {
     }
 
     if !continued_line.is_empty() {
-        let words = shell_like_words(continued_line.trim());
+        let words: Vec<&str> = shell_like_words(continued_line.trim()).collect();
         if !words.is_empty() {
             let has_do = words.contains(&"do");
             if has_do {
@@ -773,25 +773,47 @@ fn missing_done_loop_kind_from_source(source: &str) -> Option<bool> {
     loop_stack.last().copied()
 }
 
-fn shell_like_words(line: &str) -> Vec<&str> {
-    let mut words = Vec::new();
-    let mut start = None;
+fn shell_like_words(line: &str) -> ShellLikeWords<'_> {
+    ShellLikeWords {
+        line,
+        iter: line.char_indices(),
+        start: None,
+        finished: false,
+    }
+}
 
-    for (index, ch) in line.char_indices() {
-        if ch.is_ascii_alphanumeric() || ch == '_' {
-            if start.is_none() {
-                start = Some(index);
+struct ShellLikeWords<'a> {
+    line: &'a str,
+    iter: std::str::CharIndices<'a>,
+    start: Option<usize>,
+    finished: bool,
+}
+
+impl<'a> Iterator for ShellLikeWords<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+        loop {
+            match self.iter.next() {
+                Some((index, ch)) => {
+                    if ch.is_ascii_alphanumeric() || ch == '_' {
+                        if self.start.is_none() {
+                            self.start = Some(index);
+                        }
+                    } else if let Some(word_start) = self.start.take() {
+                        return Some(&self.line[word_start..index]);
+                    }
+                }
+                None => {
+                    self.finished = true;
+                    return self.start.take().map(|word_start| &self.line[word_start..]);
+                }
             }
-        } else if let Some(word_start) = start.take() {
-            words.push(&line[word_start..index]);
         }
     }
-
-    if let Some(word_start) = start {
-        words.push(&line[word_start..]);
-    }
-
-    words
 }
 
 fn is_x037_shell(shell: ShellDialect) -> bool {
