@@ -6,3 +6,17 @@ reviewed_divergences:
     column: 19
     end_column: 33
     reason: "With source closure enabled, the sourced Cloudera Navigator helper provides this timestamp binding, so the standalone-file oracle remains as a reviewed project-aware difference."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__sys-apps__memtest86+__files__39_memtest86+-r2"
+    line: 16
+    end_line: 16
+    column: 23
+    end_column: 34
+    reason: "With source closure enabled, the GRUB helper sourced at file entry is treated as providing this indentation binding, so the standalone-file oracle remains as a reviewed project-aware difference."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__sys-apps__memtest86+__files__39_memtest86+-r3"
+    line: 14
+    end_line: 14
+    column: 23
+    end_column: 34
+    reason: "With source closure enabled, the GRUB helper sourced at file entry is treated as providing this indentation binding, so the standalone-file oracle remains as a reviewed project-aware difference."
