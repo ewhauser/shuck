@@ -11,6 +11,7 @@ pub struct LinterFacts<'a> {
     command_ids_by_name_word_span: FxHashMap<FactSpan, CommandId>,
     innermost_command_ids_by_offset: CommandOffsetLookup,
     innermost_command_ids_by_binding_offset: CommandOffsetLookup,
+    assignment_value_target_index: AssignmentValueTargetIndex,
     command_dominance_barrier_flags: Vec<bool>,
     if_condition_command_ids: DenseCommandIdSet,
     elif_condition_command_ids: DenseCommandIdSet,
@@ -495,12 +496,16 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn assignment_value_target_name_for_span(&self, span: Span) -> Option<&Name> {
-        self.commands
+        let query_start = span.start.offset;
+        let query_end = span.end.offset;
+        let upper = self
+            .assignment_value_target_index
+            .partition_point(|entry| entry.value_start <= query_start);
+        self.assignment_value_target_index[..upper]
             .iter()
-            .filter(|command| contains_span(command.span(), span))
-            .filter_map(|command| assignment_value_target_for_span(command, span))
-            .min_by_key(|(_, value_span)| value_span.end.offset - value_span.start.offset)
-            .map(|(name, _)| name)
+            .rev()
+            .find(|entry| entry.value_end >= query_end)
+            .map(|entry| &entry.target_name)
     }
 
     pub(crate) fn presence_test_references(
@@ -1474,24 +1479,49 @@ fn assignment_value_span(value: &AssignmentValue) -> Option<Span> {
     }
 }
 
-fn assignment_value_target_for_span<'a>(
-    command: &'a CommandFact<'a>,
-    span: Span,
-) -> Option<(&'a Name, Span)> {
-    command_assignments(command.command())
-        .iter()
-        .chain(
-            declaration_operands(command.command())
-                .iter()
-                .filter_map(|operand| match operand {
-                    DeclOperand::Assignment(assignment) => Some(assignment),
-                    DeclOperand::Name(_) | DeclOperand::Flag(_) | DeclOperand::Dynamic(_) => None,
-                }),
-        )
-        .filter_map(|assignment| {
-            assignment_value_span(&assignment.value)
-                .filter(|value_span| contains_span(*value_span, span))
-                .map(|value_span| (&assignment.target.name, value_span))
-        })
-        .min_by_key(|(_, value_span)| value_span.end.offset - value_span.start.offset)
+struct AssignmentValueTargetEntry {
+    value_start: usize,
+    value_end: usize,
+    target_name: Name,
+}
+
+// Sorted ascending by `value_start`. Scalar assignment value spans are word-level
+// and do not overlap, so a query span is contained by at most one entry.
+type AssignmentValueTargetIndex = Vec<AssignmentValueTargetEntry>;
+
+fn build_assignment_value_target_index(
+    commands: &[CommandFact<'_>],
+) -> AssignmentValueTargetIndex {
+    let mut entries = Vec::<AssignmentValueTargetEntry>::new();
+    for command in commands {
+        let cmd = command.command();
+        for assignment in command_assignments(cmd) {
+            push_assignment_value_target_entry(&mut entries, assignment);
+        }
+        for operand in declaration_operands(cmd) {
+            if let DeclOperand::Assignment(assignment) = operand {
+                push_assignment_value_target_entry(&mut entries, assignment);
+            }
+        }
+    }
+    entries.sort_by_key(|entry| (entry.value_start, entry.value_end));
+    entries.dedup_by(|a, b| {
+        a.value_start == b.value_start
+            && a.value_end == b.value_end
+            && a.target_name == b.target_name
+    });
+    entries
+}
+
+fn push_assignment_value_target_entry(
+    entries: &mut Vec<AssignmentValueTargetEntry>,
+    assignment: &Assignment,
+) {
+    if let Some(value_span) = assignment_value_span(&assignment.value) {
+        entries.push(AssignmentValueTargetEntry {
+            value_start: value_span.start.offset,
+            value_end: value_span.end.offset,
+            target_name: assignment.target.name.clone(),
+        });
+    }
 }
