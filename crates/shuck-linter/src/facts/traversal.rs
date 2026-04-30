@@ -252,13 +252,13 @@ impl<'a> BinaryCommandChain<'a> {
     }
 
     /// Visits only leaf command segments in source order.
-    pub(super) fn visit_segments(&self, mut visitor: impl FnMut(&'a Stmt)) {
-        self.visit_parts(|stmt| visitor(stmt), |_| {});
+    pub(super) fn visit_segments(&self, visitor: impl FnMut(&'a Stmt)) {
+        self.visit_parts(visitor, |_| {});
     }
 
     /// Visits only binary operator nodes in source order.
-    pub(super) fn visit_nodes(&self, mut visitor: impl FnMut(&'a BinaryCommand)) {
-        self.visit_parts(|_| {}, |command| visitor(command));
+    pub(super) fn visit_nodes(&self, visitor: impl FnMut(&'a BinaryCommand)) {
+        self.visit_parts(|_| {}, visitor);
     }
 }
 
