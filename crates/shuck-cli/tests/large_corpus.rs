@@ -948,19 +948,26 @@ fn large_corpus_conforms_with_shellcheck() {
         }
     };
 
-    let fixtures = load_fixtures(&cfg);
-    if fixtures.is_empty() {
+    let all_fixtures = collect_fixtures(&cfg.corpus_dir);
+    if all_fixtures.is_empty() {
         panic!(
             "no fixtures found in {}",
             cfg.corpus_dir.join("scripts").display()
         );
     }
+    let fixtures = select_configured_large_corpus_fixtures(all_fixtures.clone(), &cfg);
+    if fixtures.is_empty() {
+        panic!(
+            "no fixtures selected from {}",
+            cfg.corpus_dir.join("scripts").display()
+        );
+    }
+    let shuck_path_resolver = build_large_corpus_path_resolver(&all_fixtures);
 
     if cfg.timing_mode {
         let supported_fixtures = select_large_corpus_timing_fixtures(&fixtures);
         let linter_settings =
             build_large_corpus_linter_settings(cfg.selected_rules, cfg.mapped_only);
-        let shuck_path_resolver = Arc::new(LargeCorpusPathResolver::new(&supported_fixtures));
         let timings = collect_fixture_timings(
             &supported_fixtures,
             cfg.shuck_timeout,
@@ -987,8 +994,7 @@ fn large_corpus_conforms_with_shellcheck() {
     let supported_fixtures =
         select_supported_large_corpus_fixtures(&fixtures, Some(&supported_shells));
     let skipped_unsupported_shells = fixtures.len().saturating_sub(supported_fixtures.len());
-    let all_fixture_refs = fixtures.iter().collect::<Vec<_>>();
-    let shuck_path_resolver = Some(Arc::new(LargeCorpusPathResolver::new(&all_fixture_refs)));
+    let shuck_path_resolver = Some(shuck_path_resolver);
 
     let failure_collection =
         collect_fixture_failures(&supported_fixtures, cfg.keep_going, |fixture| {
@@ -2221,10 +2227,23 @@ fn update_hash_component(hasher: &mut Sha256, value: &str) {
 // ---------------------------------------------------------------------------
 
 fn load_fixtures(cfg: &LargeCorpusConfig) -> Vec<LargeCorpusFixture> {
-    let mut fixtures = collect_fixtures(&cfg.corpus_dir);
+    select_configured_large_corpus_fixtures(collect_fixtures(&cfg.corpus_dir), cfg)
+}
+
+fn select_configured_large_corpus_fixtures(
+    mut fixtures: Vec<LargeCorpusFixture>,
+    cfg: &LargeCorpusConfig,
+) -> Vec<LargeCorpusFixture> {
     fixtures = shard_fixtures(fixtures, cfg.shard_index, cfg.total_shards);
     fixtures = sample_fixtures(fixtures, cfg.sample_percent);
     fixtures
+}
+
+fn build_large_corpus_path_resolver(
+    fixtures: &[LargeCorpusFixture],
+) -> Arc<LargeCorpusPathResolver> {
+    let fixture_refs = fixtures.iter().collect::<Vec<_>>();
+    Arc::new(LargeCorpusPathResolver::new(&fixture_refs))
 }
 
 fn collect_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
@@ -4551,6 +4570,39 @@ mod tests {
         );
 
         assert_eq!(resolved, vec![canonicalize_for_resolver(&local.path)]);
+    }
+
+    #[test]
+    fn large_corpus_path_resolver_indexes_helpers_outside_selected_shard() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let scripts_dir = tempdir.path().join("scripts");
+        fs::create_dir_all(&scripts_dir).unwrap();
+
+        let source = fixture_at(
+            &scripts_dir.join("owner__repo__pkg__a_main.sh"),
+            Path::new("owner__repo__pkg__a_main.sh"),
+        );
+        let helper = fixture_at(
+            &scripts_dir.join("owner__repo__pkg__z_helper.sh"),
+            Path::new("owner__repo__pkg__z_helper.sh"),
+        );
+
+        fs::write(&source.path, "#!/bin/sh\n. pkg/z_helper.sh\n").unwrap();
+        fs::write(&helper.path, "echo helper\n").unwrap();
+
+        let all_fixtures = vec![source.clone(), helper.clone()];
+        let selected_fixtures = shard_fixtures(all_fixtures.clone(), 0, 2);
+        assert_eq!(selected_fixtures.len(), 1);
+        assert_eq!(selected_fixtures[0].cache_rel_path, source.cache_rel_path);
+
+        let resolver = build_large_corpus_path_resolver(&all_fixtures);
+        let resolved = shuck_semantic::SourcePathResolver::resolve_candidate_paths(
+            &*resolver,
+            &selected_fixtures[0].path,
+            "pkg/z_helper.sh",
+        );
+
+        assert_eq!(resolved, vec![canonicalize_for_resolver(&helper.path)]);
     }
 
     #[test]
