@@ -6,9 +6,13 @@ pub fn expansion_part_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
-pub fn collect_active_expansion_spans_in_source(word: &Word, source: &str, spans: &mut Vec<Span>) {
+pub fn collect_active_expansion_spans_in_source(
+    word: &Word,
+    locator: Locator<'_>,
+    spans: &mut Vec<Span>,
+) {
     collect_expansion_spans(&word.parts, spans);
-    normalize_command_substitution_spans(spans, source);
+    normalize_command_substitution_spans(spans, locator);
     spans.extend(
         word.brace_syntax()
             .iter()

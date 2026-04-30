@@ -69,6 +69,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
 
     fn build(self) -> LinterFacts<'a> {
         let source = self.source;
+        let line_index = self._indexer.line_index();
+        let locator = crate::Locator::new(source, line_index);
         let semantic_analysis = self.semantic_analysis;
         let capacity = estimate_fact_build_capacity(self.semantic);
         let estimated_word_nodes = capacity.commands.saturating_mul(2);
@@ -203,6 +205,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 build_word_facts_for_command(
                     visit,
                     self.source,
+                    locator,
                     self.semantic,
                     WordFactCommandContext {
                         command_id: id,
@@ -273,7 +276,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 let redirect_facts = build_redirect_facts(
                     visit.redirects,
                     Some(self.semantic_artifacts),
-                    self.source,
+                    locator,
                     command_zsh_options.as_ref(),
                 );
                 let redirect_fact_range = redirect_fact_store.push_many(redirect_facts);
@@ -471,7 +474,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &command_ids_by_span,
             &command_child_index,
             self.semantic_artifacts,
-            self.source,
+            locator,
         );
 
         let presence_tested_names = build_presence_tested_names(
@@ -528,13 +531,13 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &commands,
             &command_fact_indices_by_id,
             &command_ids_by_span,
-            self.source,
+            locator,
         );
         let select_headers = build_select_header_facts(
             &commands,
             &command_fact_indices_by_id,
             &command_ids_by_span,
-            self.source,
+            locator,
         );
         let case_items = build_case_item_facts(&commands, self.source);
         let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
@@ -574,23 +577,21 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         annotate_conditional_assignment_value_paths(self.semantic, &lists, &mut binding_values);
         let statement_facts = build_statement_facts(&commands, self.semantic);
         let background_semicolon_spans =
-            build_background_semicolon_spans(&commands, &case_items, self.source);
-        let single_test_subshell_spans =
-            build_single_test_subshell_spans(
-                &commands,
-                &command_fact_indices_by_id,
-                &command_ids_by_span,
-                &command_child_index,
-                self.source,
-            );
-        let subshell_test_group_spans =
-            build_subshell_test_group_spans(
-                &commands,
-                &command_fact_indices_by_id,
-                &command_ids_by_span,
-                &command_child_index,
-                self.source,
-            );
+            build_background_semicolon_spans(&commands, &case_items, locator);
+        let single_test_subshell_spans = build_single_test_subshell_spans(
+            &commands,
+            &command_fact_indices_by_id,
+            &command_ids_by_span,
+            &command_child_index,
+            locator,
+        );
+        let subshell_test_group_spans = build_subshell_test_group_spans(
+            &commands,
+            &command_fact_indices_by_id,
+            &command_ids_by_span,
+            &command_child_index,
+            locator,
+        );
         let shebang_header_facts = build_shebang_header_facts(self.source);
         let errexit_enabled_anywhere = self.ambient_shell_options.errexit
             || shebang_header_facts.enables_errexit
@@ -623,14 +624,18 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             matches!(self.shell, ShellDialect::Bash) && pipefail_enabled_anywhere,
         );
         let heredoc_summary =
-            build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
+            build_heredoc_fact_summary(
+                &commands,
+                locator,
+                self.file.span.end.offset,
+            );
         let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);
         let literal_brace_spans = build_literal_brace_spans(
             &word_nodes,
             &word_occurrences,
             CommandFacts::new(&commands, &fact_store, &command_fact_indices_by_id),
             &fact_store,
-            source,
+            locator,
             self._indexer.region_index().heredoc_ranges(),
         );
         let SurfaceFragmentFacts {
@@ -756,6 +761,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 word_index: &word_index,
                 fact_store: &fact_store,
                 source,
+                line_index: self._indexer.line_index(),
             },
         );
         let assignment_like_command_name_spans =
@@ -807,7 +813,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 &subscript_later_suppression_spans,
             );
 
-        let mut backtick_substitution_spans = word_spans::backtick_substitution_spans(source);
+        let mut backtick_substitution_spans = word_spans::backtick_substitution_spans(locator);
         backtick_substitution_spans.retain(|span| {
             !self
                 ._indexer
@@ -815,10 +821,10 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 .is_quoted_heredoc(TextSize::new(span.start.offset as u32))
         });
         let backtick_escaped_parameters =
-            word_spans::backtick_escaped_parameters(source, &backtick_substitution_spans);
+            word_spans::backtick_escaped_parameters(locator, &backtick_substitution_spans);
         let mut backtick_escaped_parameter_reference_spans =
             word_spans::backtick_escaped_parameter_reference_spans(
-                source,
+                locator,
                 &backtick_substitution_spans,
             );
         backtick_escaped_parameter_reference_spans.extend(
@@ -831,13 +837,14 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         backtick_escaped_parameter_reference_spans.dedup();
         let backtick_double_escaped_parameter_spans =
             word_spans::backtick_double_escaped_parameter_spans(
-                source,
+                locator,
                 &backtick_substitution_spans,
             );
         LinterFacts {
             semantic: self.semantic,
             semantic_artifacts: self.semantic_artifacts,
             source,
+            line_index: self._indexer.line_index(),
             commands,
             command_fact_indices_by_id,
             structural_command_ids,

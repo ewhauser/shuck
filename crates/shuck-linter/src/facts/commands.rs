@@ -619,22 +619,10 @@ fn extend_over_shellcheck_trailing_inline_space(end: Position, source: &str) -> 
     }
 }
 
-fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
-    if target_offset > source.len() {
-        return None;
-    }
-
-    let mut position = Position::new();
-    for ch in source[..target_offset].chars() {
-        position.advance(ch);
-    }
-    Some(position)
-}
-
 fn build_background_semicolon_spans(
     commands: &[CommandFact<'_>],
     case_items: &[CaseItemFact<'_>],
-    source: &str,
+    locator: Locator<'_>,
 ) -> Vec<Span> {
     let case_terminator_starts = case_items
         .iter()
@@ -643,7 +631,7 @@ fn build_background_semicolon_spans(
         .collect::<FxHashSet<_>>();
     let mut spans = commands
         .iter()
-        .filter_map(|command| background_semicolon_span(command, &case_terminator_starts, source))
+        .filter_map(|command| background_semicolon_span(command, &case_terminator_starts, locator))
         .collect::<Vec<_>>();
     sort_and_dedup_spans(&mut spans);
     spans
@@ -652,12 +640,13 @@ fn build_background_semicolon_spans(
 fn background_semicolon_span(
     command: &CommandFact<'_>,
     case_terminator_starts: &FxHashSet<usize>,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Option<Span> {
     if command.stmt().terminator != Some(StmtTerminator::Background(BackgroundOperator::Plain)) {
         return None;
     }
 
+    let source = locator.source();
     let terminator_span = command.stmt().terminator_span?;
     if terminator_span.slice(source) != "&" {
         return None;
@@ -676,8 +665,8 @@ fn background_semicolon_span(
         return None;
     }
 
-    let start = position_at_offset(source, semicolon_offset)?;
-    let end = position_at_offset(source, semicolon_offset + 1)?;
+    let start = locator.position_at_offset(semicolon_offset)?;
+    let end = locator.position_at_offset(semicolon_offset + 1)?;
     Some(Span::from_positions(start, end))
 }
 

@@ -135,7 +135,7 @@ pub(super) fn build_for_header_facts<'a>(
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Vec<ForHeaderFact<'a>> {
     commands
         .iter()
@@ -153,7 +153,7 @@ pub(super) fn build_for_header_facts<'a>(
                     commands,
                     command_fact_indices_by_id,
                     command_ids_by_span,
-                    source,
+                    locator,
                 ),
             })
         })
@@ -164,7 +164,7 @@ pub(super) fn build_select_header_facts<'a>(
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Vec<SelectHeaderFact<'a>> {
     commands
         .iter()
@@ -182,7 +182,7 @@ pub(super) fn build_select_header_facts<'a>(
                     commands,
                     command_fact_indices_by_id,
                     command_ids_by_span,
-                    source,
+                    locator,
                 ),
             })
         })
@@ -195,8 +195,9 @@ fn build_loop_header_word_facts<'a>(
     commands: &[CommandFact<'a>],
     command_fact_indices_by_id: &[Option<usize>],
     command_ids_by_span: &CommandLookupIndex,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Box<[LoopHeaderWordFact<'a>]> {
+    let source = locator.source();
     words
         .into_iter()
         .map(|word| {
@@ -206,7 +207,7 @@ fn build_loop_header_word_facts<'a>(
                 classification,
                 has_all_elements_array_expansion:
                     word_spans::word_has_all_elements_array_expansion_syntax(word)
-                        || !word_spans::all_elements_array_expansion_part_spans(word, source)
+                        || !word_spans::all_elements_array_expansion_part_spans(word, locator)
                             .is_empty(),
                 has_unquoted_command_substitution: classification.has_command_substitution()
                     && !word_spans::unquoted_command_substitution_part_spans(word).is_empty(),

@@ -1,9 +1,10 @@
 #[cfg_attr(shuck_profiling, inline(never))]
 fn build_heredoc_fact_summary(
     commands: &[CommandFact<'_>],
-    source: &str,
+    locator: Locator<'_>,
     file_end: usize,
 ) -> HeredocFactSummary {
+    let source = locator.source();
     let mut summary = HeredocFactSummary::default();
 
     for command in commands {
@@ -47,7 +48,7 @@ fn build_heredoc_fact_summary(
                 heredoc.body.span,
                 delimiter,
                 heredoc.delimiter.strip_tabs,
-                source,
+                locator,
             ) {
                 summary.heredoc_end_space_spans.push(span);
             }
@@ -58,7 +59,7 @@ fn build_heredoc_fact_summary(
                     .extend(spaced_tabstrip_close_spans(
                         heredoc.body.span,
                         delimiter,
-                        source,
+                        locator,
                     ));
             }
 
@@ -70,7 +71,7 @@ fn build_heredoc_fact_summary(
                 heredoc.body.span,
                 delimiter,
                 heredoc.delimiter.strip_tabs,
-                source,
+                locator,
             ) {
                 summary.heredoc_closer_not_alone_spans.push(span);
             }
@@ -97,8 +98,9 @@ fn heredoc_closer_not_alone_span(
     body_span: Span,
     delimiter: &str,
     strip_tabs: bool,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Option<Span> {
+    let source = locator.source();
     let mut line_start_offset = body_span.start.offset;
     for raw_line in body_span.slice(source).split_inclusive('\n') {
         let (candidate_line, tab_prefix_len) = normalized_heredoc_line(raw_line, strip_tabs);
@@ -117,8 +119,8 @@ fn heredoc_closer_not_alone_span(
 
         let delimiter_start_offset = line_start_offset + tab_prefix_len + prefix.len();
         let delimiter_end_offset = delimiter_start_offset + delimiter.len();
-        let start = position_at_offset_opt(source, delimiter_start_offset)?;
-        let end = position_at_offset_opt(source, delimiter_end_offset)?;
+        let start = locator.position_at_offset(delimiter_start_offset)?;
+        let end = locator.position_at_offset(delimiter_end_offset)?;
         return Some(Span::from_positions(start, end));
     }
 
@@ -143,8 +145,9 @@ fn heredoc_end_space_span(
     body_span: Span,
     delimiter: &str,
     strip_tabs: bool,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Option<Span> {
+    let source = locator.source();
     let line_start_offset = body_span.end.offset;
     let remainder = source.get(line_start_offset..)?;
     let raw_line = remainder.split_inclusive('\n').next().unwrap_or(remainder);
@@ -155,17 +158,22 @@ fn heredoc_end_space_span(
     }
 
     let trailing_start_offset = line_start_offset + tab_prefix_len + delimiter.len();
-    let start = position_at_offset_opt(source, trailing_start_offset)?;
+    let start = locator.position_at_offset(trailing_start_offset)?;
     Some(Span::from_positions(start, start))
 }
 
-fn spaced_tabstrip_close_spans(body_span: Span, delimiter: &str, source: &str) -> Vec<Span> {
+fn spaced_tabstrip_close_spans(
+    body_span: Span,
+    delimiter: &str,
+    locator: Locator<'_>,
+) -> Vec<Span> {
+    let source = locator.source();
     let mut spans = Vec::new();
     let mut line_start_offset = body_span.start.offset;
     for raw_line in body_span.slice(source).split_inclusive('\n') {
         let line_without_newline = raw_line.trim_end_matches('\n').trim_end_matches('\r');
         if is_spaced_tabstrip_close_line(line_without_newline, delimiter)
-            && let Some(position) = position_at_offset_opt(source, line_start_offset)
+            && let Some(position) = locator.position_at_offset(line_start_offset)
         {
             spans.push(Span::from_positions(position, position));
         }
@@ -212,14 +220,3 @@ fn is_spaced_tabstrip_close_line(line: &str, delimiter: &str) -> bool {
     leading.contains(' ') && rest == delimiter
 }
 
-fn position_at_offset_opt(source: &str, target_offset: usize) -> Option<Position> {
-    if target_offset > source.len() {
-        return None;
-    }
-
-    let mut position = Position::new();
-    for ch in source[..target_offset].chars() {
-        position.advance(ch);
-    }
-    Some(position)
-}

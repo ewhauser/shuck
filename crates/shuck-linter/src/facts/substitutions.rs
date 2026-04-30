@@ -149,6 +149,7 @@ impl SubstitutionFact {
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
+#[allow(clippy::too_many_arguments)]
 fn populate_substitution_fact_ranges<'a>(
     commands: &mut [CommandFact<'a>],
     fact_store: &mut FactStore<'a>,
@@ -156,7 +157,7 @@ fn populate_substitution_fact_ranges<'a>(
     command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
     semantic: &LinterSemanticArtifacts<'a>,
-    source: &str,
+    locator: Locator<'_>,
 ) {
     for index in 0..commands.len() {
         let substitutions = {
@@ -171,7 +172,7 @@ fn populate_substitution_fact_ranges<'a>(
                 command_ids_by_span,
                 command_child_index,
                 semantic,
-                source,
+                locator,
             )
         };
         commands[index].substitution_facts = fact_store.substitution_facts.push_many(substitutions);
@@ -184,8 +185,9 @@ fn build_command_substitution_facts<'a>(
     command_ids_by_span: &CommandLookupIndex,
     command_child_index: &CommandChildIndex,
     semantic: &LinterSemanticArtifacts<'a>,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Vec<SubstitutionFact> {
+    let source = locator.source();
     let mut substitutions = Vec::new();
     let mut substitution_index = FxHashMap::default();
     let context = SubstitutionFactBuildContext {
@@ -198,7 +200,7 @@ fn build_command_substitution_facts<'a>(
         ),
         host_command_id: fact.id(),
         semantic,
-        source,
+        locator,
     };
 
     visit_command_words_for_substitutions(fact.command(), fact.redirects(), source, &mut |word| {
@@ -308,7 +310,7 @@ struct SubstitutionFactBuildContext<'a, 'b> {
     command_relationships: CommandRelationshipContext<'b, 'a>,
     host_command_id: CommandId,
     semantic: &'b LinterSemanticArtifacts<'a>,
-    source: &'b str,
+    locator: Locator<'b>,
 }
 
 fn collect_or_update_substitution_facts_from_occurrences<'a>(
@@ -334,7 +336,7 @@ fn collect_or_update_substitution_facts_from_occurrences<'a>(
             context.command_relationships,
             context.host_command_id,
             context.semantic,
-            context.source,
+            context.locator,
         );
         substitution_index.insert(key, substitutions.len());
         substitutions.push(SubstitutionFact {
@@ -549,8 +551,9 @@ fn classify_substitution_body<'a>(
     command_relationships: CommandRelationshipContext<'_, 'a>,
     parent_id: CommandId,
     semantic: &LinterSemanticArtifacts<'a>,
-    source: &str,
+    locator: Locator<'_>,
 ) -> SubstitutionBodyFacts {
+    let source = locator.source();
     let mut body_has_commands = false;
     let mut body_contains_ls = false;
     let mut bash_file_slurp = false;
@@ -572,7 +575,7 @@ fn classify_substitution_body<'a>(
             CommandTopologyTraversal::Descend
         });
     let redirect_summary =
-        summarize_stmt_seq_redirects(body, parent_id, commands, command_relationships, source);
+        summarize_stmt_seq_redirects(body, parent_id, commands, command_relationships, locator);
     let body_processed_ls_pipeline_spans = substitution_body_processed_ls_pipeline_spans(
         body,
         parent_id,
@@ -622,7 +625,7 @@ fn summarize_stmt_seq_redirects<'a>(
     parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
-    source: &str,
+    locator: Locator<'_>,
 ) -> RedirectSummary {
     let mut summary = RedirectSummary {
         stdout_intent: SubstitutionOutputIntent::Captured,
@@ -634,8 +637,13 @@ fn summarize_stmt_seq_redirects<'a>(
     let mut saw_stmt = false;
 
     for stmt in &body.stmts {
-        let stmt_summary =
-            summarize_stmt_redirects(stmt, parent_id, commands, command_relationships, source);
+        let stmt_summary = summarize_stmt_redirects(
+            stmt,
+            parent_id,
+            commands,
+            command_relationships,
+            locator,
+        );
         summary = merge_redirect_summaries(summary, stmt_summary, saw_stmt);
         saw_stmt = true;
     }
@@ -648,7 +656,7 @@ fn summarize_stmt_redirects<'a>(
     parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
-    source: &str,
+    locator: Locator<'_>,
 ) -> RedirectSummary {
     match &stmt.command {
         Command::Binary(binary) => match binary.op {
@@ -661,7 +669,7 @@ fn summarize_stmt_redirects<'a>(
                     child_parent_id,
                     commands,
                     command_relationships,
-                    source,
+                    locator,
                 )
             }
             BinaryOp::And | BinaryOp::Or => {
@@ -673,14 +681,14 @@ fn summarize_stmt_redirects<'a>(
                     child_parent_id,
                     commands,
                     command_relationships,
-                    source,
+                    locator,
                 );
                 let right = summarize_stmt_redirects(
                     &binary.right,
                     child_parent_id,
                     commands,
                     command_relationships,
-                    source,
+                    locator,
                 );
                 merge_redirect_summaries(left, right, true)
             }
@@ -712,7 +720,7 @@ fn summarize_stmt_redirects<'a>(
             parent_id,
             commands,
             command_relationships,
-            source,
+            locator,
         ),
     }
 }
@@ -722,15 +730,16 @@ fn summarize_command_redirects<'a>(
     parent_id: CommandId,
     commands: CommandFacts<'_, 'a>,
     command_relationships: CommandRelationshipContext<'_, 'a>,
-    source: &str,
+    locator: Locator<'_>,
 ) -> RedirectSummary {
+    let source = locator.source();
     if let Some(id) = command_relationships
         .child_id_for_command(parent_id, &stmt.command)
         .or_else(|| command_relationships.id_for_command(&stmt.command))
     {
         summarize_redirect_facts(command_fact_ref(commands, id).redirect_facts(), source)
     } else {
-        let redirect_facts = build_redirect_facts(&stmt.redirects, None, source, None);
+        let redirect_facts = build_redirect_facts(&stmt.redirects, None, locator, None);
         summarize_redirect_facts(&redirect_facts, source)
     }
 }

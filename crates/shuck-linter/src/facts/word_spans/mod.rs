@@ -6,6 +6,7 @@ use shuck_ast::{
 };
 
 use super::BacktickEscapedParameter;
+use crate::Locator;
 
 mod arrays;
 mod backticks;

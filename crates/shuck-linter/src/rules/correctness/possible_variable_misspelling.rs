@@ -1,10 +1,10 @@
 use compact_str::CompactString;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
-use shuck_ast::{Name, Position, Span};
+use shuck_ast::{Name, Span};
 
 use crate::facts::ComparableNameUseKind;
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Locator, Rule, Violation};
 
 use super::variable_reference_common::{
     VariableReferenceFilter, has_same_name_defining_bindings, is_environment_style_name,
@@ -242,7 +242,7 @@ fn heredoc_findings(
             }
 
             findings.push((
-                parameter_reference_span(checker.source(), name_use.span()),
+                parameter_reference_span(checker.locator(), name_use.span()),
                 reference_name.to_owned(),
                 candidate,
             ));
@@ -314,7 +314,7 @@ fn scope_compat_findings(
         }
 
         findings.push((
-            parameter_reference_span(checker.source(), name_use.span),
+            parameter_reference_span(checker.locator(), name_use.span),
             reference_name.to_owned(),
             candidate,
         ));
@@ -537,28 +537,17 @@ fn is_presence_tested_reference_name(
         .is_presence_tested_name(&Name::from(reference_name), reference_span)
 }
 
-fn parameter_reference_span(source: &str, span: Span) -> Span {
+fn parameter_reference_span(locator: Locator<'_>, span: Span) -> Span {
     let Some(previous_offset) = span.start.offset.checked_sub(1) else {
         return span;
     };
-    if source.as_bytes().get(previous_offset) != Some(&b'$') {
+    if locator.source().as_bytes().get(previous_offset) != Some(&b'$') {
         return span;
     }
-    let Some(start) = position_at_offset(source, previous_offset) else {
+    let Some(start) = locator.position_at_offset(previous_offset) else {
         return span;
     };
     Span::from_positions(start, span.end)
-}
-
-fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
-    if target_offset > source.len() {
-        return None;
-    }
-    let mut position = Position::new();
-    for char in source[..target_offset].chars() {
-        position.advance(char);
-    }
-    Some(position)
 }
 
 fn looks_like_case_mismatch_reference(name: &str) -> bool {

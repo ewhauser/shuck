@@ -401,6 +401,7 @@ pub(super) struct WordFactLookup<'facts, 'a> {
     pub(super) word_index: &'facts FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
     pub(super) fact_store: &'facts FactStore<'a>,
     pub(super) source: &'a str,
+    pub(super) line_index: &'facts LineIndex,
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
@@ -424,7 +425,9 @@ pub(super) fn build_echo_to_sed_substitution_spans<'a>(
 
     spans.extend(commands.iter().filter_map(|command| {
         (!pipeline_sed_command_ids.contains(&command.id()))
-            .then(|| sc2001_like_here_string_span(command, backticks, lookup.source))
+            .then(|| {
+                sc2001_like_here_string_span(command, backticks, lookup.source, lookup.line_index)
+            })
             .flatten()
     }));
 
@@ -505,7 +508,13 @@ pub(super) fn sc2001_like_pipeline_span<'a>(
             lookup.source,
         )
     {
-        return sc2001_like_backtick_pipeline_span(commands, pipeline, right, lookup.source);
+        return sc2001_like_backtick_pipeline_span(
+            commands,
+            pipeline,
+            right,
+            lookup.source,
+            lookup.line_index,
+        );
     }
 
     if word_occurrence_is_escaped_double_quoted_dynamic(
@@ -528,6 +537,7 @@ pub(super) fn sc2001_like_here_string_span(
     command: CommandFactRef<'_, '_>,
     backticks: &[BacktickFragmentFact],
     source: &str,
+    line_index: &LineIndex,
 ) -> Option<Span> {
     if !command_is_plain_named(command, "sed") {
         return None;
@@ -547,7 +557,7 @@ pub(super) fn sc2001_like_here_string_span(
     }
 
     if command_is_inside_backtick_fragment(command, backticks) {
-        return sc2001_like_backtick_command_span(command, source);
+        return sc2001_like_backtick_command_span(command, source, line_index);
     }
 
     command_span_with_redirects_and_shellcheck_tail(command, source)
@@ -562,24 +572,30 @@ pub(super) fn sc2001_like_backtick_pipeline_span(
     pipeline: &PipelineFact<'_>,
     sed_command: CommandFactRef<'_, '_>,
     source: &str,
+    line_index: &LineIndex,
 ) -> Option<Span> {
     let first_segment = pipeline.first_segment()?;
     let first = command_fact_ref(commands, first_segment.command_id());
     let start = first.body_name_word()?.span.start;
-    let end = sc2001_like_backtick_sed_script_end(sed_command.body_args(), source)?;
+    let end = sc2001_like_backtick_sed_script_end(sed_command.body_args(), source, line_index)?;
     Some(Span::from_positions(start, end))
 }
 
 pub(super) fn sc2001_like_backtick_command_span(
     command: CommandFactRef<'_, '_>,
     source: &str,
+    line_index: &LineIndex,
 ) -> Option<Span> {
     let start = command.body_name_word()?.span.start;
-    let end = sc2001_like_backtick_sed_script_end(command.body_args(), source)?;
+    let end = sc2001_like_backtick_sed_script_end(command.body_args(), source, line_index)?;
     Some(Span::from_positions(start, end))
 }
 
-pub(super) fn sc2001_like_backtick_sed_script_end(args: &[&Word], source: &str) -> Option<Position> {
+pub(super) fn sc2001_like_backtick_sed_script_end(
+    args: &[&Word],
+    source: &str,
+    line_index: &LineIndex,
+) -> Option<Position> {
     let script_words = match args {
         [flag, words @ ..] if static_word_text(flag, source).as_deref() == Some("-e") => words,
         _ => args,
@@ -601,7 +617,7 @@ pub(super) fn sc2001_like_backtick_sed_script_end(args: &[&Word], source: &str) 
 
     let trim_chars = sc2001_like_backtick_sed_script_trim_chars(script_words, source)?;
     let end_offset = rewind_offset_by_chars(source, raw_script_end, trim_chars)?;
-    position_at_offset(source, end_offset)
+    Locator::new(source, line_index).position_at_offset(end_offset)
 }
 
 pub(super) fn backtick_sed_script_content_end_offset(text: &str, end_offset: usize) -> Option<usize> {

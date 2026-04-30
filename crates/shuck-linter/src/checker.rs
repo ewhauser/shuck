@@ -7,8 +7,8 @@ use shuck_indexer::Indexer;
 use shuck_semantic::SemanticAnalysis;
 
 use crate::{
-    AmbientShellOptions, Diagnostic, LinterFacts, LinterRuleOptions, LinterSemanticArtifacts, Rule,
-    RuleSet, ShellDialect, SuppressionIndex, Violation, rules,
+    AmbientShellOptions, Diagnostic, LinterFacts, LinterRuleOptions, LinterSemanticArtifacts,
+    Locator, Rule, RuleSet, ShellDialect, SuppressionIndex, Violation, rules,
 };
 
 pub struct Checker<'a> {
@@ -94,6 +94,10 @@ impl<'a> Checker<'a> {
 
     pub fn source(&self) -> &'a str {
         self.source
+    }
+
+    pub(crate) fn locator(&self) -> Locator<'a> {
+        Locator::new(self.source, self.indexer.line_index())
     }
 
     pub fn facts(&self) -> &LinterFacts<'a> {

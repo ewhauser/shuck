@@ -5,7 +5,7 @@ use shuck_ast::Span;
 
 use self::safe_value::{S001QuoteExposure, SafeValueIndex, SafeValueQuery};
 use crate::{
-    Checker, ExpansionContext, FactSpan, Rule, ShellDialect, Violation, WordOccurrenceRef,
+    Checker, ExpansionContext, FactSpan, Locator, Rule, ShellDialect, Violation, WordOccurrenceRef,
 };
 
 pub struct UnquotedExpansion;
@@ -42,8 +42,10 @@ pub fn unquoted_expansion(checker: &mut Checker) {
         checker.facts().backtick_escaped_parameter_reference_spans();
 
     let mut spans = Vec::new();
+    let locator = checker.locator();
     let report_context = ReportContext {
         source,
+        locator,
         shell: checker.shell(),
         colon_command_ids: &colon_command_ids,
         numeric_test_operand_spans: &numeric_test_operand_spans,
@@ -55,7 +57,7 @@ pub fn unquoted_expansion(checker: &mut Checker) {
         collect_array_assignment_split_reports(
             &mut safe_values,
             &mut spans,
-            source,
+            locator,
             fact,
             &array_assignment_split_spans,
         );
@@ -88,6 +90,7 @@ pub fn unquoted_expansion(checker: &mut Checker) {
 
 struct ReportContext<'a> {
     source: &'a str,
+    locator: Locator<'a>,
     shell: ShellDialect,
     colon_command_ids: &'a FxHashSet<crate::facts::core::CommandId>,
     numeric_test_operand_spans: &'a [Span],
@@ -110,7 +113,7 @@ fn collect_word_fact_reports(
     report_word_expansions(
         spans,
         safe_values,
-        context.source,
+        context.locator,
         fact,
         WordReportOptions {
             context: expansion_context,
@@ -141,7 +144,7 @@ fn collect_arithmetic_word_fact_reports(
     report_word_expansions(
         spans,
         safe_values,
-        context.source,
+        context.locator,
         fact,
         WordReportOptions {
             context: expansion_context,
@@ -220,7 +223,7 @@ fn collect_array_assignment_split_candidate_spans(checker: &Checker) -> Vec<Span
 fn collect_array_assignment_split_reports(
     safe_values: &mut SafeValueIndex<'_>,
     spans: &mut Vec<Span>,
-    source: &str,
+    locator: Locator<'_>,
     fact: WordOccurrenceRef<'_, '_>,
     candidate_spans: &[Span],
 ) {
@@ -251,7 +254,7 @@ fn collect_array_assignment_split_reports(
             continue;
         }
 
-        spans.push(fact.diagnostic_part_span(part, part_span, source));
+        spans.push(fact.diagnostic_part_span(part, part_span, locator));
     }
 }
 
@@ -310,12 +313,13 @@ struct WordReportOptions<'a, F> {
 fn report_word_expansions<F>(
     spans: &mut Vec<Span>,
     safe_values: &mut SafeValueIndex<'_>,
-    source: &str,
+    locator: Locator<'_>,
     fact: WordOccurrenceRef<'_, '_>,
     options: WordReportOptions<'_, F>,
 ) where
     F: Fn(Span) -> bool,
 {
+    let source = locator.source();
     let WordReportOptions {
         context,
         in_colon_command,
@@ -414,7 +418,7 @@ fn report_word_expansions<F>(
             continue;
         }
 
-        spans.push(fact.diagnostic_part_span(part, part_span, source));
+        spans.push(fact.diagnostic_part_span(part, part_span, locator));
     }
 }
 

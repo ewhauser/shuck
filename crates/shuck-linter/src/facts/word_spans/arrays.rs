@@ -4,36 +4,39 @@ pub fn collect_array_expansion_part_spans(word: &Word, spans: &mut Vec<Span>) {
     collect_array_expansion_spans(&word.parts, false, false, spans);
 }
 
-pub fn all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+pub fn all_elements_array_expansion_part_spans(word: &Word, locator: Locator<'_>) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_all_elements_array_expansion_part_spans(word, source, &mut spans);
+    collect_all_elements_array_expansion_part_spans(word, locator, &mut spans);
     spans
 }
 
 pub fn collect_all_elements_array_expansion_part_spans(
     word: &Word,
-    source: &str,
+    locator: Locator<'_>,
     spans: &mut Vec<Span>,
 ) {
-    collect_all_elements_array_expansion_spans(&word.parts, source, spans);
+    collect_all_elements_array_expansion_spans(&word.parts, locator, spans);
 }
 
 pub fn word_has_all_elements_array_expansion_syntax(word: &Word) -> bool {
     parts_have_all_elements_array_expansion_syntax(&word.parts)
 }
 
-pub fn direct_all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+pub fn direct_all_elements_array_expansion_part_spans(
+    word: &Word,
+    locator: Locator<'_>,
+) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_direct_all_elements_array_expansion_part_spans(word, source, &mut spans);
+    collect_direct_all_elements_array_expansion_part_spans(word, locator, &mut spans);
     spans
 }
 
 pub fn collect_direct_all_elements_array_expansion_part_spans(
     word: &Word,
-    source: &str,
+    locator: Locator<'_>,
     spans: &mut Vec<Span>,
 ) {
-    collect_direct_all_elements_array_expansion_spans(&word.parts, word.span, source, spans);
+    collect_direct_all_elements_array_expansion_spans(&word.parts, word.span, locator, spans);
 }
 
 pub fn collect_unquoted_all_elements_array_expansion_part_spans(
@@ -54,8 +57,11 @@ pub fn word_has_quoted_all_elements_array_slice(word: &Word) -> bool {
     !word_quoted_all_elements_array_slice_spans(word).is_empty()
 }
 
-pub fn word_has_direct_all_elements_array_expansion_in_source(word: &Word, source: &str) -> bool {
-    !direct_all_elements_array_expansion_part_spans(word, source).is_empty()
+pub fn word_has_direct_all_elements_array_expansion_in_source(
+    word: &Word,
+    locator: Locator<'_>,
+) -> bool {
+    !direct_all_elements_array_expansion_part_spans(word, locator).is_empty()
 }
 
 pub fn word_quoted_unindexed_bash_source_span_in_source(word: &Word, source: &str) -> Option<Span> {
@@ -121,8 +127,12 @@ pub fn word_folded_positional_at_splat_span_in_source(word: &Word, source: &str)
     Some(first)
 }
 
-pub fn word_folded_all_elements_array_span_in_source(word: &Word, source: &str) -> Option<Span> {
-    let spans = folded_all_elements_array_candidate_spans(word, source)
+pub fn word_folded_all_elements_array_span_in_source(
+    word: &Word,
+    locator: Locator<'_>,
+) -> Option<Span> {
+    let source = locator.source();
+    let spans = folded_all_elements_array_candidate_spans(word, locator)
         .into_iter()
         .filter(|span| !span_is_escaped(*span, source))
         .collect::<Vec<_>>();
@@ -130,7 +140,7 @@ pub fn word_folded_all_elements_array_span_in_source(word: &Word, source: &str) 
 
     if spans.len() == 1
         && (word_has_single_folded_all_elements_array_part(word)
-            || all_elements_array_expansion_is_standalone(word, source))
+            || all_elements_array_expansion_is_standalone(word, locator))
     {
         return None;
     }
@@ -138,22 +148,26 @@ pub fn word_folded_all_elements_array_span_in_source(word: &Word, source: &str) 
     Some(first)
 }
 
-pub(crate) fn folded_all_elements_array_candidate_spans(word: &Word, source: &str) -> Vec<Span> {
+pub(crate) fn folded_all_elements_array_candidate_spans(
+    word: &Word,
+    locator: Locator<'_>,
+) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_folded_all_elements_array_candidate_spans(&word.parts, source, &mut spans);
+    collect_folded_all_elements_array_candidate_spans(&word.parts, locator, &mut spans);
     spans
 }
 
 pub(crate) fn collect_folded_all_elements_array_candidate_spans(
     parts: &[WordPartNode],
-    source: &str,
+    locator: Locator<'_>,
     spans: &mut Vec<Span>,
 ) {
+    let source = locator.source();
     for part in parts {
         match &part.kind {
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
-                collect_folded_all_elements_array_candidate_spans(parts, source, spans)
+                collect_folded_all_elements_array_candidate_spans(parts, locator, spans)
             }
             WordPart::Parameter(parameter)
                 if parameter_uses_replacement_all_elements_array_expansion(parameter) =>
@@ -162,7 +176,7 @@ pub(crate) fn collect_folded_all_elements_array_candidate_spans(
             }
             _ if part_uses_direct_all_elements_array_expansion(&part.kind) => {
                 if let Some(span) =
-                    normalize_direct_all_elements_array_expansion_span(part.span, source)
+                    normalize_direct_all_elements_array_expansion_span(part.span, locator)
                 {
                     spans.push(span);
                 }
@@ -173,7 +187,7 @@ pub(crate) fn collect_folded_all_elements_array_candidate_spans(
                 ) =>
             {
                 if let Some(span) =
-                    normalize_nested_direct_all_elements_array_expansion_span(part.span, source)
+                    normalize_nested_direct_all_elements_array_expansion_span(part.span, locator)
                 {
                     spans.push(span);
                 }
@@ -247,17 +261,19 @@ pub(crate) fn collect_array_expansion_spans(
 
 pub(crate) fn collect_all_elements_array_expansion_spans(
     parts: &[WordPartNode],
-    source: &str,
+    locator: Locator<'_>,
     spans: &mut Vec<Span>,
 ) {
+    let source = locator.source();
     for part in parts {
         match &part.kind {
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
-                collect_all_elements_array_expansion_spans(parts, source, spans)
+                collect_all_elements_array_expansion_spans(parts, locator, spans)
             }
             WordPart::Variable(name) if name.as_str() == "@" => {
-                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source) {
+                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, locator)
+                {
                     spans.push(span);
                 }
             }
@@ -270,7 +286,8 @@ pub(crate) fn collect_all_elements_array_expansion_spans(
                     Some(SubscriptSelector::At)
                 ) =>
             {
-                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source) {
+                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, locator)
+                {
                     spans.push(span);
                 }
             }
@@ -283,7 +300,8 @@ pub(crate) fn collect_all_elements_array_expansion_spans(
                     Some(SubscriptSelector::At)
                 ) =>
             {
-                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source) {
+                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, locator)
+                {
                     spans.push(span);
                 }
             }
@@ -291,7 +309,8 @@ pub(crate) fn collect_all_elements_array_expansion_spans(
                 kind: PrefixMatchKind::At,
                 ..
             } => {
-                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source) {
+                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, locator)
+                {
                     spans.push(span);
                 }
             }
@@ -300,7 +319,8 @@ pub(crate) fn collect_all_elements_array_expansion_spans(
                     parameter, part.span, source,
                 ) =>
             {
-                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source) {
+                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, locator)
+                {
                     spans.push(span);
                 }
             }
@@ -389,9 +409,10 @@ pub(crate) fn collect_all_elements_array_slice_spans(
 pub(crate) fn collect_direct_all_elements_array_expansion_spans(
     parts: &[WordPartNode],
     word_span: Span,
-    source: &str,
+    locator: Locator<'_>,
     spans: &mut Vec<Span>,
 ) {
+    let source = locator.source();
     for part in parts {
         if span_inside_escaped_parameter_template(word_span, part.span, source) {
             continue;
@@ -399,11 +420,11 @@ pub(crate) fn collect_direct_all_elements_array_expansion_spans(
         match &part.kind {
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
-                collect_direct_all_elements_array_expansion_spans(parts, word_span, source, spans)
+                collect_direct_all_elements_array_expansion_spans(parts, word_span, locator, spans)
             }
             _ if part_uses_direct_all_elements_array_expansion(&part.kind) => {
                 if let Some(span) =
-                    normalize_direct_all_elements_array_expansion_span(part.span, source)
+                    normalize_direct_all_elements_array_expansion_span(part.span, locator)
                 {
                     spans.push(span);
                 }
@@ -414,7 +435,7 @@ pub(crate) fn collect_direct_all_elements_array_expansion_spans(
                 ) =>
             {
                 if let Some(span) =
-                    normalize_nested_direct_all_elements_array_expansion_span(part.span, source)
+                    normalize_nested_direct_all_elements_array_expansion_span(part.span, locator)
                 {
                     spans.push(span);
                 }
@@ -566,8 +587,9 @@ pub(crate) fn collect_quoted_unindexed_bash_source_spans(
 
 pub(crate) fn normalize_all_elements_array_expansion_span(
     span: Span,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Option<Span> {
+    let source = locator.source();
     let text = span.slice(source);
     if !span_is_escaped(span, source)
         && (text == "$@" || candidate_is_all_elements_array_expansion(text))
@@ -586,11 +608,11 @@ pub(crate) fn normalize_all_elements_array_expansion_span(
             continue;
         }
 
-        let start = position_at_offset(source, absolute_start)?;
+        let start = locator.position_at_offset(absolute_start)?;
         let remainder = &source[absolute_start..];
 
         if remainder.starts_with("$@") {
-            let end = position_at_offset(source, absolute_start + "$@".len())?;
+            let end = locator.position_at_offset(absolute_start + "$@".len())?;
             return Some(Span::from_positions(start, end));
         }
 
@@ -599,7 +621,7 @@ pub(crate) fn normalize_all_elements_array_expansion_span(
         {
             let candidate = &remainder[..=relative_end];
             if candidate_is_all_elements_array_expansion(candidate) {
-                let end = position_at_offset(source, absolute_start + candidate.len())?;
+                let end = locator.position_at_offset(absolute_start + candidate.len())?;
                 return Some(Span::from_positions(start, end));
             }
         }
@@ -607,13 +629,14 @@ pub(crate) fn normalize_all_elements_array_expansion_span(
         search_from = relative_start + 1;
     }
 
-    widen_all_elements_array_expansion_span(span, source)
+    widen_all_elements_array_expansion_span(span, locator)
 }
 
 pub(crate) fn normalize_direct_all_elements_array_expansion_span(
     span: Span,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Option<Span> {
+    let source = locator.source();
     let text = span.slice(source);
     if !span_is_escaped(span, source)
         && (text == "$@" || candidate_is_direct_all_elements_array_expansion(text))
@@ -632,11 +655,11 @@ pub(crate) fn normalize_direct_all_elements_array_expansion_span(
             continue;
         }
 
-        let start = position_at_offset(source, absolute_start)?;
+        let start = locator.position_at_offset(absolute_start)?;
         let remainder = &source[absolute_start..];
 
         if remainder.starts_with("$@") {
-            let end = position_at_offset(source, absolute_start + "$@".len())?;
+            let end = locator.position_at_offset(absolute_start + "$@".len())?;
             return Some(Span::from_positions(start, end));
         }
 
@@ -645,7 +668,7 @@ pub(crate) fn normalize_direct_all_elements_array_expansion_span(
         {
             let candidate = &remainder[..=relative_end];
             if candidate_is_direct_all_elements_array_expansion(candidate) {
-                let end = position_at_offset(source, absolute_start + candidate.len())?;
+                let end = locator.position_at_offset(absolute_start + candidate.len())?;
                 return Some(Span::from_positions(start, end));
             }
         }
@@ -653,13 +676,14 @@ pub(crate) fn normalize_direct_all_elements_array_expansion_span(
         search_from = relative_start + 1;
     }
 
-    widen_direct_all_elements_array_expansion_span(span, source)
+    widen_direct_all_elements_array_expansion_span(span, locator)
 }
 
 pub(crate) fn normalize_nested_direct_all_elements_array_expansion_span(
     span: Span,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Option<Span> {
+    let source = locator.source();
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum QuoteState {
         None,
@@ -747,8 +771,8 @@ pub(crate) fn normalize_nested_direct_all_elements_array_expansion_span(
 
         let remainder = &source[absolute_start..];
         if nested_braced_depth == 0 && remainder.starts_with("$@") {
-            let start = position_at_offset(source, absolute_start)?;
-            let end = position_at_offset(source, absolute_start + "$@".len())?;
+            let start = locator.position_at_offset(absolute_start)?;
+            let end = locator.position_at_offset(absolute_start + "$@".len())?;
             return Some(Span::from_positions(start, end));
         }
 
@@ -758,8 +782,8 @@ pub(crate) fn normalize_nested_direct_all_elements_array_expansion_span(
             {
                 let candidate = &remainder[..=relative_end];
                 if candidate_is_direct_all_elements_array_expansion(candidate) {
-                    let start = position_at_offset(source, absolute_start)?;
-                    let end = position_at_offset(source, absolute_start + candidate.len())?;
+                    let start = locator.position_at_offset(absolute_start)?;
+                    let end = locator.position_at_offset(absolute_start + candidate.len())?;
                     return Some(Span::from_positions(start, end));
                 }
             }
@@ -775,7 +799,11 @@ pub(crate) fn normalize_nested_direct_all_elements_array_expansion_span(
     None
 }
 
-pub(crate) fn widen_all_elements_array_expansion_span(span: Span, source: &str) -> Option<Span> {
+pub(crate) fn widen_all_elements_array_expansion_span(
+    span: Span,
+    locator: Locator<'_>,
+) -> Option<Span> {
+    let source = locator.source();
     let text = span.slice(source);
     if !text.contains("[@]") {
         return None;
@@ -789,7 +817,7 @@ pub(crate) fn widen_all_elements_array_expansion_span(span: Span, source: &str) 
         return None;
     }
 
-    let start = position_at_offset(source, start_offset)?;
+    let start = locator.position_at_offset(start_offset)?;
     let remainder = &source[start_offset..];
     let relative_end = remainder.find('}')?;
     let candidate = &remainder[..=relative_end];
@@ -797,14 +825,15 @@ pub(crate) fn widen_all_elements_array_expansion_span(span: Span, source: &str) 
         return None;
     }
 
-    let end = position_at_offset(source, start_offset + candidate.len())?;
+    let end = locator.position_at_offset(start_offset + candidate.len())?;
     Some(Span::from_positions(start, end))
 }
 
 pub(crate) fn widen_direct_all_elements_array_expansion_span(
     span: Span,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Option<Span> {
+    let source = locator.source();
     let text = span.slice(source);
     if !text.contains("[@]") {
         return None;
@@ -818,7 +847,7 @@ pub(crate) fn widen_direct_all_elements_array_expansion_span(
         return None;
     }
 
-    let start = position_at_offset(source, start_offset)?;
+    let start = locator.position_at_offset(start_offset)?;
     let remainder = &source[start_offset..];
     let relative_end = remainder.find('}')?;
     let candidate = &remainder[..=relative_end];
@@ -826,7 +855,7 @@ pub(crate) fn widen_direct_all_elements_array_expansion_span(
         return None;
     }
 
-    let end = position_at_offset(source, start_offset + candidate.len())?;
+    let end = locator.position_at_offset(start_offset + candidate.len())?;
     Some(Span::from_positions(start, end))
 }
 
@@ -1382,11 +1411,15 @@ pub(crate) fn positional_at_splat_is_standalone_expansion(word: &Word, source: &
     true
 }
 
-pub(crate) fn all_elements_array_expansion_is_standalone(word: &Word, source: &str) -> bool {
+pub(crate) fn all_elements_array_expansion_is_standalone(
+    word: &Word,
+    locator: Locator<'_>,
+) -> bool {
     if word.parts.len() != 1 {
         return false;
     }
 
+    let source = locator.source();
     let text = word.span.slice(source);
     let body = if word.is_fully_double_quoted() {
         let Some(unquoted) = text
@@ -1400,7 +1433,7 @@ pub(crate) fn all_elements_array_expansion_is_standalone(word: &Word, source: &s
         text
     };
 
-    folded_all_elements_array_candidate_spans(word, source)
+    folded_all_elements_array_candidate_spans(word, locator)
         .first()
         .is_some_and(|span| span.slice(source) == body)
 }
@@ -1408,23 +1441,43 @@ pub(crate) fn all_elements_array_expansion_is_standalone(word: &Word, source: &s
 #[cfg(test)]
 mod tests {
     use shuck_ast::{Span, Word};
+    use shuck_indexer::LineIndex;
     use shuck_parser::parser::Parser;
 
     use super::{
-        all_elements_array_expansion_part_spans, collect_all_elements_array_slice_spans,
-        collect_array_expansion_part_spans,
+        collect_all_elements_array_slice_spans, collect_array_expansion_part_spans,
         collect_unquoted_all_elements_array_expansion_part_spans,
         collect_unquoted_array_expansion_part_spans, span_is_escaped,
-        word_folded_all_elements_array_span_in_source,
-        word_folded_positional_at_splat_span_in_source,
-        word_has_direct_all_elements_array_expansion_in_source,
         word_has_quoted_all_elements_array_slice, word_has_single_positional_at_splat_part,
         word_is_pure_positional_at_splat, word_positional_at_splat_span_in_source,
         word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
         word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
         word_unquoted_star_parameter_spans, word_unquoted_star_splat_spans,
     };
+    use crate::Locator;
     use crate::facts::word_spans::collect_scalar_expansion_part_spans;
+
+    fn all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+        let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
+        super::all_elements_array_expansion_part_spans(word, locator)
+    }
+
+    fn word_folded_all_elements_array_span_in_source(word: &Word, source: &str) -> Option<Span> {
+        let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
+        super::word_folded_all_elements_array_span_in_source(word, locator)
+    }
+
+    fn word_folded_positional_at_splat_span_in_source(word: &Word, source: &str) -> Option<Span> {
+        super::word_folded_positional_at_splat_span_in_source(word, source)
+    }
+
+    fn word_has_direct_all_elements_array_expansion_in_source(word: &Word, source: &str) -> bool {
+        let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
+        super::word_has_direct_all_elements_array_expansion_in_source(word, locator)
+    }
 
     fn array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
         let mut spans = Vec::new();

@@ -13,13 +13,14 @@ impl Violation for PositionalArgsInString {
 }
 
 pub fn positional_args_in_string(checker: &mut Checker) {
+    let locator = checker.locator();
     let spans = [
         ExpansionContext::CommandName,
         ExpansionContext::CommandArgument,
     ]
     .into_iter()
     .flat_map(|context| checker.facts().expansion_word_facts(context))
-    .filter_map(|fact| fact.folded_all_elements_array_span_in_source(checker.source()))
+    .filter_map(|fact| fact.folded_all_elements_array_span_in_source(locator))
     .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || PositionalArgsInString);

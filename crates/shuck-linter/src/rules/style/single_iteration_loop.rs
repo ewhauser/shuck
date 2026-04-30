@@ -15,7 +15,7 @@ impl Violation for SingleIterationLoop {
 }
 
 pub fn single_iteration_loop(checker: &mut Checker) {
-    let source = checker.source();
+    let locator = checker.locator();
     let spans = checker
         .facts()
         .for_headers()
@@ -37,7 +37,7 @@ pub fn single_iteration_loop(checker: &mut Checker) {
             {
                 return None;
             }
-            if fact.has_direct_all_elements_array_expansion_in_source(source) {
+            if fact.has_direct_all_elements_array_expansion_in_source(locator) {
                 return None;
             }
             let runtime_hazards = fact.runtime_literal().hazards;

@@ -424,7 +424,13 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.word().parts_with_spans()
     }
 
-    pub fn diagnostic_part_span(self, part: &WordPart, part_span: Span, source: &str) -> Span {
+    pub fn diagnostic_part_span(
+        self,
+        part: &WordPart,
+        part_span: Span,
+        locator: Locator<'_>,
+    ) -> Span {
+        let source = locator.source();
         let adjusted = match part {
             WordPart::Variable(name) => {
                 let expected = format!("${}", name.as_str());
@@ -454,13 +460,13 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
 
         word_spans::shellcheck_collapsed_backtick_part_span(
             adjusted,
-            source,
+            locator,
             self.facts.backtick_substitution_spans(),
         )
     }
 
-    pub fn has_direct_all_elements_array_expansion_in_source(self, source: &str) -> bool {
-        word_spans::word_has_direct_all_elements_array_expansion_in_source(self.word(), source)
+    pub fn has_direct_all_elements_array_expansion_in_source(self, locator: Locator<'_>) -> bool {
+        word_spans::word_has_direct_all_elements_array_expansion_in_source(self.word(), locator)
     }
 
     pub fn has_quoted_all_elements_array_slice(self) -> bool {
@@ -536,8 +542,8 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         word_spans::word_folded_positional_at_splat_span_in_source(self.word(), source)
     }
 
-    pub fn folded_all_elements_array_span_in_source(self, source: &str) -> Option<Span> {
-        word_spans::word_folded_all_elements_array_span_in_source(self.word(), source)
+    pub fn folded_all_elements_array_span_in_source(self, locator: Locator<'_>) -> Option<Span> {
+        word_spans::word_folded_all_elements_array_span_in_source(self.word(), locator)
     }
 
     pub fn zsh_flag_modifier_spans(self) -> Vec<Span> {
@@ -874,9 +880,11 @@ pub(super) fn build_unquoted_command_argument_use_offsets(
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build_word_facts_for_command<'a>(
     visit: CommandVisit<'a>,
     source: &'a str,
+    locator: Locator<'a>,
     semantic: &'a SemanticModel,
     context: WordFactCommandContext,
     normalized: &NormalizedCommand<'a>,
@@ -885,6 +893,7 @@ pub(super) fn build_word_facts_for_command<'a>(
 ) {
     let mut collector = WordFactCollector::new(
         source,
+        locator,
         semantic,
         context.command_id,
         context.nested_word_command,
@@ -937,10 +946,11 @@ pub(super) type PendingArithmeticSeenKey = (FactSpan, ExpansionContext, WordFact
 
 pub(super) fn derive_word_fact_data<'a>(
     word: &'a Word,
-    source: &'a str,
+    locator: Locator<'a>,
     span_store: &mut ListArena<Span>,
     scratch: &mut Vec<Span>,
 ) -> WordNodeDerived<'a> {
+    let source = locator.source();
     let may_have_runtime_expansion_spans = word_may_have_runtime_expansion_spans(word);
     let may_have_command_substitution_spans = word_may_have_command_substitution_spans(word);
     let may_have_mixed_quote_spans =
@@ -957,7 +967,7 @@ pub(super) fn derive_word_fact_data<'a>(
             scratch,
             may_have_runtime_expansion_spans || word.has_active_brace_expansion(),
             |spans| {
-                word_spans::collect_active_expansion_spans_in_source(word, source, spans);
+                word_spans::collect_active_expansion_spans_in_source(word, locator, spans);
             },
         ),
         scalar_expansion_spans: push_needed_word_span_list(
@@ -989,7 +999,7 @@ pub(super) fn derive_word_fact_data<'a>(
             scratch,
             may_have_runtime_expansion_spans,
             |spans| {
-                word_spans::collect_all_elements_array_expansion_part_spans(word, source, spans);
+                word_spans::collect_all_elements_array_expansion_part_spans(word, locator, spans);
             },
         ),
         direct_all_elements_array_expansion_spans: push_needed_word_span_list(
@@ -998,7 +1008,7 @@ pub(super) fn derive_word_fact_data<'a>(
             may_have_runtime_expansion_spans,
             |spans| {
                 word_spans::collect_direct_all_elements_array_expansion_part_spans(
-                    word, source, spans,
+                    word, locator, spans,
                 );
             },
         ),
@@ -1025,7 +1035,7 @@ pub(super) fn derive_word_fact_data<'a>(
             scratch,
             may_have_command_substitution_spans,
             |spans| {
-                word_spans::collect_command_substitution_part_spans_in_source(word, source, spans);
+                word_spans::collect_command_substitution_part_spans_in_source(word, locator, spans);
             },
         ),
         unquoted_command_substitution_spans: push_needed_word_span_list(
@@ -1034,7 +1044,7 @@ pub(super) fn derive_word_fact_data<'a>(
             may_have_command_substitution_spans,
             |spans| {
                 word_spans::collect_unquoted_command_substitution_part_spans_in_source(
-                    word, source, spans,
+                    word, locator, spans,
                 );
             },
         ),
@@ -1044,7 +1054,7 @@ pub(super) fn derive_word_fact_data<'a>(
             may_have_command_substitution_spans,
             |spans| {
                 word_spans::collect_unquoted_dollar_paren_command_substitution_part_spans_in_source(
-                    word, source, spans,
+                    word, locator, spans,
                 );
             },
         ),
@@ -1210,6 +1220,7 @@ pub(super) fn trailing_literal_char_in_parts(parts: &[WordPartNode], source: &st
 
 pub(super) struct WordFactCollector<'out, 'a, 'norm> {
     source: &'a str,
+    locator: Locator<'a>,
     semantic: &'a SemanticModel,
     command_id: CommandId,
     nested_word_command: bool,
@@ -1257,6 +1268,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     #[allow(clippy::too_many_arguments)]
     fn new(
         source: &'a str,
+        locator: Locator<'a>,
         semantic: &'a SemanticModel,
         command_id: CommandId,
         nested_word_command: bool,
@@ -1267,6 +1279,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     ) -> Self {
         Self {
             source,
+            locator,
             semantic,
             command_id,
             nested_word_command,
@@ -2181,7 +2194,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         let id = WordNodeId::new(self.word_nodes.len());
         let analysis = analyze_word(word, self.source, self.command_zsh_options.as_ref());
         let derived =
-            derive_word_fact_data(word, self.source, self.word_spans, self.word_span_scratch);
+            derive_word_fact_data(word, self.locator, self.word_spans, self.word_span_scratch);
         self.word_nodes.push(WordNode {
             key,
             word,

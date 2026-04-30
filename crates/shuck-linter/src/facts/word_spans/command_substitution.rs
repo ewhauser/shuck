@@ -2,11 +2,11 @@ use super::*;
 
 pub fn collect_command_substitution_part_spans_in_source(
     word: &Word,
-    source: &str,
+    locator: Locator<'_>,
     spans: &mut Vec<Span>,
 ) {
     collect_command_substitution_spans(&word.parts, spans);
-    normalize_command_substitution_spans(spans, source);
+    normalize_command_substitution_spans(spans, locator);
 }
 
 pub fn arithmetic_expansion_part_spans(word: &Word) -> Vec<Span> {
@@ -29,20 +29,20 @@ pub fn unquoted_command_substitution_part_spans(word: &Word) -> Vec<Span> {
 
 pub fn collect_unquoted_command_substitution_part_spans_in_source(
     word: &Word,
-    source: &str,
+    locator: Locator<'_>,
     spans: &mut Vec<Span>,
 ) {
     collect_unquoted_command_substitution_spans(&word.parts, false, spans);
-    normalize_command_substitution_spans(spans, source);
+    normalize_command_substitution_spans(spans, locator);
 }
 
 pub fn collect_unquoted_dollar_paren_command_substitution_part_spans_in_source(
     word: &Word,
-    source: &str,
+    locator: Locator<'_>,
     spans: &mut Vec<Span>,
 ) {
     collect_unquoted_dollar_paren_command_substitution_spans(&word.parts, false, spans);
-    normalize_command_substitution_spans(spans, source);
+    normalize_command_substitution_spans(spans, locator);
 }
 
 pub(crate) fn collect_command_substitution_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
@@ -132,18 +132,19 @@ pub(crate) fn collect_unquoted_dollar_paren_command_substitution_spans(
     }
 }
 
-pub(crate) fn normalize_command_substitution_span(span: Span, source: &str) -> Span {
+pub(crate) fn normalize_command_substitution_span(span: Span, locator: Locator<'_>) -> Span {
+    let source = locator.source();
     let text = span.slice(source);
     if text.starts_with("$(")
         && !text.ends_with(')')
-        && let Some(normalized) = widen_dollar_paren_command_substitution_span(span, source)
+        && let Some(normalized) = widen_dollar_paren_command_substitution_span(span, locator)
     {
         return normalized;
     }
 
     if text.starts_with('`')
         && !text.ends_with('`')
-        && let Some(normalized) = widen_backtick_command_substitution_span(span, source)
+        && let Some(normalized) = widen_backtick_command_substitution_span(span, locator)
     {
         return normalized;
     }
@@ -151,16 +152,17 @@ pub(crate) fn normalize_command_substitution_span(span: Span, source: &str) -> S
     span
 }
 
-pub(crate) fn normalize_command_substitution_spans(spans: &mut [Span], source: &str) {
+pub(crate) fn normalize_command_substitution_spans(spans: &mut [Span], locator: Locator<'_>) {
     for span in spans {
-        *span = normalize_command_substitution_span(*span, source);
+        *span = normalize_command_substitution_span(*span, locator);
     }
 }
 
 pub(crate) fn widen_dollar_paren_command_substitution_span(
     span: Span,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Option<Span> {
+    let source = locator.source();
     let mut index = span.start.offset;
     let bytes = source.as_bytes();
     if bytes.get(index)? != &b'$' || bytes.get(index + 1)? != &b'(' {
@@ -203,8 +205,8 @@ pub(crate) fn widen_dollar_paren_command_substitution_span(
                     depth = depth.saturating_sub(1);
                     index += 1;
                     if depth == 0 {
-                        let start = position_at_offset(source, span.start.offset)?;
-                        let end = position_at_offset(source, index)?;
+                        let start = locator.position_at_offset(span.start.offset)?;
+                        let end = locator.position_at_offset(index)?;
                         return Some(Span::from_positions(start, end));
                     }
                     continue;
@@ -236,8 +238,8 @@ pub(crate) fn widen_dollar_paren_command_substitution_span(
                 depth = depth.saturating_sub(1);
                 index += 1;
                 if depth == 0 {
-                    let start = position_at_offset(source, span.start.offset)?;
-                    let end = position_at_offset(source, index)?;
+                    let start = locator.position_at_offset(span.start.offset)?;
+                    let end = locator.position_at_offset(index)?;
                     return Some(Span::from_positions(start, end));
                 }
             }
@@ -250,7 +252,11 @@ pub(crate) fn widen_dollar_paren_command_substitution_span(
     None
 }
 
-pub(crate) fn widen_backtick_command_substitution_span(span: Span, source: &str) -> Option<Span> {
+pub(crate) fn widen_backtick_command_substitution_span(
+    span: Span,
+    locator: Locator<'_>,
+) -> Option<Span> {
+    let source = locator.source();
     let mut index = span.start.offset;
     let bytes = source.as_bytes();
     if bytes.get(index)? != &b'`' {
@@ -263,8 +269,8 @@ pub(crate) fn widen_backtick_command_substitution_span(span: Span, source: &str)
             b'\\' => index = index.saturating_add(2),
             b'`' => {
                 index += 1;
-                let start = position_at_offset(source, span.start.offset)?;
-                let end = position_at_offset(source, index)?;
+                let start = locator.position_at_offset(span.start.offset)?;
+                let end = locator.position_at_offset(index)?;
                 return Some(Span::from_positions(start, end));
             }
             _ => index += 1,
@@ -277,12 +283,14 @@ pub(crate) fn widen_backtick_command_substitution_span(span: Span, source: &str)
 #[cfg(test)]
 mod tests {
     use shuck_ast::{Span, Word};
+    use shuck_indexer::LineIndex;
     use shuck_parser::parser::Parser;
 
     use super::{
         collect_command_substitution_spans,
         collect_unquoted_dollar_paren_command_substitution_part_spans_in_source,
     };
+    use crate::Locator;
 
     fn command_substitution_part_spans(word: &Word) -> Vec<Span> {
         let mut spans = Vec::new();
@@ -294,9 +302,11 @@ mod tests {
         word: &Word,
         source: &str,
     ) -> Vec<Span> {
+        let line_index = LineIndex::new(source);
+        let locator = Locator::new(source, &line_index);
         let mut spans = Vec::new();
         collect_unquoted_dollar_paren_command_substitution_part_spans_in_source(
-            word, source, &mut spans,
+            word, locator, &mut spans,
         );
         spans
     }

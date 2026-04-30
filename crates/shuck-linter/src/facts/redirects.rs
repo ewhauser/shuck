@@ -211,15 +211,16 @@ pub(crate) fn comparable_read_target_name_uses(
 pub(crate) fn comparable_heredoc_name_uses(
     heredoc: &shuck_ast::HeredocBody,
     semantic: Option<&LinterSemanticArtifacts<'_>>,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Box<[ComparableNameUse]> {
+    let source = locator.source();
     let mut uses = Vec::new();
     for part in &heredoc.parts {
         match &part.kind {
             shuck_ast::HeredocBodyPart::Variable(name) => {
                 if comparable_name_text(name.as_str()) {
                     uses.push(ComparableNameUse {
-                        span: heredoc_variable_name_span(part.span, source),
+                        span: heredoc_variable_name_span(part.span, locator),
                         key: ComparableNameKey(name.as_str().into()),
                         kind: ComparableNameUseKind::Parameter,
                     });
@@ -438,7 +439,8 @@ fn dedup_comparable_name_uses(uses: &mut Vec<ComparableNameUse>) {
     uses.retain(|name_use| seen.insert((name_use.key.clone(), FactSpan::new(name_use.span))));
 }
 
-fn heredoc_variable_name_span(span: Span, source: &str) -> Span {
+fn heredoc_variable_name_span(span: Span, locator: Locator<'_>) -> Span {
+    let source = locator.source();
     let Some(text) = source.get(span.start.offset..span.end.offset) else {
         return span;
     };
@@ -446,7 +448,7 @@ fn heredoc_variable_name_span(span: Span, source: &str) -> Span {
         return span;
     };
     let start_offset = span.start.offset + relative_start + '$'.len_utf8();
-    let Some(start) = position_at_offset(source, start_offset) else {
+    let Some(start) = locator.position_at_offset(start_offset) else {
         return span;
     };
     Span::from_positions(start, span.end)
@@ -664,9 +666,10 @@ pub(crate) fn analyze_redirect_target(
 fn build_redirect_facts<'a>(
     redirects: &'a [Redirect],
     semantic: Option<&LinterSemanticArtifacts<'a>>,
-    source: &str,
+    locator: Locator<'_>,
     zsh_options: Option<&ZshOptionState>,
 ) -> Vec<RedirectFact<'a>> {
+    let source = locator.source();
     redirects
         .iter()
         .map(|redirect| RedirectFact {
@@ -694,7 +697,11 @@ fn build_redirect_facts<'a>(
                 ExpansionContext::from_redirect_kind(redirect.kind)
                     .and_then(|context| comparable_path(word, source, context, zsh_options))
             }),
-            comparable_name_uses: comparable_redirect_name_uses(redirect, semantic, source),
+            comparable_name_uses: comparable_redirect_name_uses(
+                redirect,
+                semantic,
+                locator,
+            ),
         })
         .collect()
 }
@@ -702,8 +709,9 @@ fn build_redirect_facts<'a>(
 fn comparable_redirect_name_uses(
     redirect: &Redirect,
     semantic: Option<&LinterSemanticArtifacts<'_>>,
-    source: &str,
+    locator: Locator<'_>,
 ) -> Box<[ComparableNameUse]> {
+    let source = locator.source();
     if let Some(word) = redirect.word_target() {
         return match redirect.kind {
             RedirectKind::Output
@@ -728,7 +736,7 @@ fn comparable_redirect_name_uses(
     if !heredoc.delimiter.expands_body {
         return Box::default();
     }
-    comparable_heredoc_name_uses(&heredoc.body, semantic, source)
+    comparable_heredoc_name_uses(&heredoc.body, semantic, locator)
 }
 
 fn brace_fd_redirection_span(redirect: &Redirect, source: &str) -> Option<Span> {

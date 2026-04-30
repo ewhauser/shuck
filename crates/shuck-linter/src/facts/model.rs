@@ -2,6 +2,7 @@ pub struct LinterFacts<'a> {
     semantic: &'a SemanticModel,
     semantic_artifacts: &'a LinterSemanticArtifacts<'a>,
     source: &'a str,
+    line_index: &'a LineIndex,
     commands: Vec<CommandFact<'a>>,
     command_fact_indices_by_id: Vec<Option<usize>>,
     structural_command_ids: Vec<CommandId>,
@@ -1068,7 +1069,7 @@ fn build_possible_variable_misspelling_scope_compat_name_uses(
             }
         }
     }
-    uses.extend(build_flag_for_loop_source_name_uses(facts.source).into_iter().filter(|name_use| {
+    uses.extend(build_flag_for_loop_source_name_uses(Locator::new(facts.source, facts.line_index)).into_iter().filter(|name_use| {
         is_interesting_scope_compat_name_use(
             facts.source,
             name_use.key().as_str(),
@@ -1407,7 +1408,8 @@ fn shell_has_brace_expansion(shell: ShellDialect) -> bool {
     )
 }
 
-fn build_flag_for_loop_source_name_uses(source: &str) -> Vec<ComparableNameUse> {
+fn build_flag_for_loop_source_name_uses(locator: Locator<'_>) -> Vec<ComparableNameUse> {
+    let source = locator.source();
     let mut uses = Vec::new();
     let mut line_start = 0;
     for line in source.split_inclusive('\n') {
@@ -1438,8 +1440,8 @@ fn build_flag_for_loop_source_name_uses(source: &str) -> Vec<ComparableNameUse> 
                         .get(name_start + name_len)
                         .is_some_and(|byte| *byte == b'}')
                     && let (Some(start), Some(end)) = (
-                        source_position_at_offset(source, name_start - 2),
-                        source_position_at_offset(source, name_start + name_len + 1),
+                        locator.position_at_offset(name_start - 2),
+                        locator.position_at_offset(name_start + name_len + 1),
                     )
                 {
                     uses.push(ComparableNameUse {
@@ -1463,17 +1465,6 @@ fn is_build_flag_source_name(name: &str) -> bool {
         || name.ends_with("_CXXFLAGS")
         || name.ends_with("_CPPFLAGS")
         || name.ends_with("_LDFLAGS")
-}
-
-fn source_position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
-    if target_offset > source.len() {
-        return None;
-    }
-    let mut position = Position::new();
-    for char in source[..target_offset].chars() {
-        position.advance(char);
-    }
-    Some(position)
 }
 
 fn assignment_value_span(value: &AssignmentValue) -> Option<Span> {
