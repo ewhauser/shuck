@@ -198,6 +198,16 @@ impl<'a> LinterSemanticArtifacts<'a> {
         &self.command_visits_by_id
     }
 
+    /// Returns command-shape queries backed by the semantic traversal.
+    ///
+    /// Fact builders should ask this layer for command bodies, descendants, and
+    /// shape-controlled iteration instead of adding new recursive command walks over the parser
+    /// AST. Local word/expression scans still live near their rules, but command topology should
+    /// flow through semantic ids.
+    pub(crate) fn command_topology(&self) -> CommandTopology<'a, '_> {
+        CommandTopology { artifacts: self }
+    }
+
     pub(crate) fn conditional_expression_visits(
         &self,
         command_span: Span,
@@ -263,33 +273,97 @@ impl<'a> LinterSemanticArtifacts<'a> {
         descend_nested_word_commands: bool,
         mut visitor: impl FnMut(facts::CommandVisit<'a>),
     ) {
+        self.command_topology().for_each_command_visit_in_body(
+            body,
+            descend_nested_word_commands,
+            |_, visit| {
+                visitor(visit);
+                CommandTopologyTraversal::Descend
+            },
+        );
+    }
+}
+
+/// Traversal control returned by semantic command-topology visitors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommandTopologyTraversal {
+    /// Visit children after the current command.
+    Descend,
+    /// Keep the current command but skip its descendants.
+    SkipChildren,
+    /// Stop the traversal immediately.
+    Break,
+}
+
+/// Semantic-backed command-shape queries for linter fact construction.
+///
+/// The semantic pass already records syntax-backed command ids, direct commands for each
+/// statement-sequence body, and parent/child relationships. This wrapper keeps those indexes as
+/// the single source of truth for command topology so facts can migrate away from ad-hoc recursive
+/// AST walks without flattening away local structure like body boundaries, child order, or nested
+/// command-substitution depth.
+#[derive(Clone, Copy)]
+pub(crate) struct CommandTopology<'a, 'artifacts> {
+    artifacts: &'artifacts LinterSemanticArtifacts<'a>,
+}
+
+impl<'a, 'artifacts> CommandTopology<'a, 'artifacts> {
+    /// Returns direct semantic command ids recorded for a statement-sequence body.
+    pub(crate) fn direct_command_ids_in_body(&self, body: &StmtSeq) -> &'artifacts [CommandId] {
         let body_span = facts::FactSpan::new(body.span);
-        let Some(root_ids) = self.direct_command_ids_by_body_span.get(&body_span) else {
+        self.artifacts
+            .direct_command_ids_by_body_span
+            .get(&body_span)
+            .map_or(&[], Vec::as_slice)
+    }
+
+    /// Returns the parser-backed command visit for `id`, if that semantic command has one.
+    pub(crate) fn command_visit(&self, id: CommandId) -> Option<facts::CommandVisit<'a>> {
+        self.artifacts
+            .command_visits_by_id
+            .get(id.index())
+            .and_then(|visit| *visit)
+    }
+
+    /// Iterates command visits inside `body` in semantic source order.
+    ///
+    /// `descend_nested_word_commands` controls whether command substitutions nested inside words
+    /// below this body should be included. The visitor receives the semantic id and parser-backed
+    /// visit, then chooses whether this particular command's children should be traversed.
+    pub(crate) fn for_each_command_visit_in_body(
+        &self,
+        body: &StmtSeq,
+        descend_nested_word_commands: bool,
+        mut visitor: impl FnMut(CommandId, facts::CommandVisit<'a>) -> CommandTopologyTraversal,
+    ) {
+        let root_ids = self.direct_command_ids_in_body(body);
+        if root_ids.is_empty() {
             return;
-        };
+        }
         let baseline_depth = root_ids
             .iter()
-            .filter_map(|id| self.semantic.command_context(*id))
+            .filter_map(|id| self.artifacts.semantic.command_context(*id))
             .map(|context| context.nested_word_command_depth())
             .min()
             .unwrap_or(0);
         let mut stack = root_ids.iter().rev().copied().collect::<Vec<_>>();
         while let Some(id) = stack.pop() {
-            let Some(context) = self.semantic.command_context(id) else {
+            let Some(context) = self.artifacts.semantic.command_context(id) else {
                 continue;
             };
             if !descend_nested_word_commands && context.nested_word_command_depth() > baseline_depth
             {
                 continue;
             }
-            if let Some(visit) = self
-                .command_visits_by_id
-                .get(id.index())
-                .and_then(|visit| *visit)
-            {
-                visitor(visit);
+            if let Some(visit) = self.command_visit(id) {
+                match visitor(id, visit) {
+                    CommandTopologyTraversal::Descend => {}
+                    CommandTopologyTraversal::SkipChildren => continue,
+                    CommandTopologyTraversal::Break => break,
+                }
             }
             for child in self
+                .artifacts
                 .semantic
                 .syntax_backed_command_children(id)
                 .iter()

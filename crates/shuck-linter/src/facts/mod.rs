@@ -41,7 +41,10 @@ use self::{
         rewrite_word_as_single_double_quoted_string,
     },
 };
-use crate::{AmbientShellOptions, LinterSemanticArtifacts, ShellDialect};
+use crate::{
+    AmbientShellOptions, CommandTopology, CommandTopologyTraversal, LinterSemanticArtifacts,
+    ShellDialect,
+};
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue,

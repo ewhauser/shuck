@@ -1168,21 +1168,12 @@ fn collect_pipeline_parts<'a>(
     segments: &mut Vec<&'a Stmt>,
     operators: &mut Vec<Span>,
 ) {
-    match &command.left.command {
-        Command::Binary(left) if matches!(left.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
-            collect_pipeline_parts(left, segments, operators);
-        }
-        _ => segments.push(&command.left),
-    }
-
-    operators.push(command.op_span);
-
-    match &command.right.command {
-        Command::Binary(right) if matches!(right.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
-            collect_pipeline_parts(right, segments, operators);
-        }
-        _ => segments.push(&command.right),
-    }
+    visit_binary_chain_parts(
+        command,
+        |op| matches!(op, BinaryOp::Pipe | BinaryOp::PipeAll),
+        |stmt| segments.push(stmt),
+        |command| operators.push(command.op_span),
+    );
 }
 
 fn stmt_is_raw_ls<'a>(

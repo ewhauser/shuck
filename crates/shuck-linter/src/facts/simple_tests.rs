@@ -1187,24 +1187,19 @@ fn trim_trailing_whitespace_offset(source: &str, end_offset: usize) -> usize {
 }
 
 fn collect_short_circuit_operators(command: &BinaryCommand, operators: &mut Vec<ListOperatorFact>) {
-    if let Command::Binary(left) = &command.left.command
-        && matches!(left.op, BinaryOp::And | BinaryOp::Or)
-    {
-        collect_short_circuit_operators(left, operators);
-    }
-
-    if matches!(command.op, BinaryOp::And | BinaryOp::Or) {
-        operators.push(ListOperatorFact {
-            op: command.op,
-            span: command.op_span,
-        });
-    }
-
-    if let Command::Binary(right) = &command.right.command
-        && matches!(right.op, BinaryOp::And | BinaryOp::Or)
-    {
-        collect_short_circuit_operators(right, operators);
-    }
+    visit_binary_chain_parts(
+        command,
+        |op| matches!(op, BinaryOp::And | BinaryOp::Or),
+        |_| {},
+        |command| {
+            if matches!(command.op, BinaryOp::And | BinaryOp::Or) {
+                operators.push(ListOperatorFact {
+                    op: command.op,
+                    span: command.op_span,
+                });
+            }
+        },
+    );
 }
 
 fn mixed_short_circuit_operator_span(operators: &[ListOperatorFact]) -> Option<Span> {
