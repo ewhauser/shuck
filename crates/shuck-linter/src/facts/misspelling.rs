@@ -95,13 +95,11 @@ impl MisspellingCandidateTrie {
 
     fn edit2_candidate_ids(&self, target_name: &str) -> SmallVec<[usize; 16]> {
         let target = target_name.as_bytes();
-        let initial_row = (0..=target.len())
-            .map(|index| u8::try_from(index).unwrap_or(3).min(3))
-            .collect::<SmallVec<[u8; 32]>>();
+        let initial = EditBand::initial(target.len());
         let mut ids = SmallVec::<[usize; 16]>::new();
 
         for (byte, child_id) in self.nodes[0].children.iter().copied() {
-            self.collect_edit2_candidate_ids(child_id, byte, target, &initial_row, &mut ids);
+            self.collect_edit2_candidate_ids(child_id, byte, target, 1, &initial, &mut ids);
         }
 
         ids
@@ -112,32 +110,93 @@ impl MisspellingCandidateTrie {
         node_id: usize,
         node_byte: u8,
         target: &[u8],
-        previous_row: &[u8],
+        depth: usize,
+        previous: &EditBand,
         ids: &mut SmallVec<[usize; 16]>,
     ) {
-        let mut current_row = SmallVec::<[u8; 32]>::new();
-        current_row.push(previous_row[0].saturating_add(1));
-        let mut row_min = current_row[0];
+        let (current, row_min) = previous.advance(depth, node_byte, target);
 
-        for (index, target_byte) in target.iter().enumerate() {
-            let insertion = current_row[index].saturating_add(1);
-            let deletion = previous_row[index + 1].saturating_add(1);
-            let substitution = previous_row[index] + u8::from(*target_byte != node_byte);
-            let value = insertion.min(deletion).min(substitution).min(3);
-            current_row.push(value);
-            row_min = row_min.min(value);
-        }
-
-        if current_row[target.len()] <= 2 {
+        if current.read(target.len()) <= MISSPELLING_MAX_DIST {
             ids.extend_from_slice(&self.nodes[node_id].candidate_ids);
         }
-        if row_min > 2 {
+        if row_min > MISSPELLING_MAX_DIST {
             return;
         }
 
         for (byte, child_id) in self.nodes[node_id].children.iter().copied() {
-            self.collect_edit2_candidate_ids(child_id, byte, target, &current_row, ids);
+            self.collect_edit2_candidate_ids(child_id, byte, target, depth + 1, &current, ids);
         }
+    }
+}
+
+const MISSPELLING_MAX_DIST: u8 = 2;
+const MISSPELLING_BAND_WIDTH: usize = 2 * MISSPELLING_MAX_DIST as usize + 1;
+const MISSPELLING_OUT_OF_BAND: u8 = MISSPELLING_MAX_DIST + 1;
+
+#[derive(Clone, Copy)]
+struct EditBand {
+    base_col: usize,
+    cells: [u8; MISSPELLING_BAND_WIDTH],
+}
+
+impl EditBand {
+    fn initial(target_len: usize) -> Self {
+        let mut cells = [MISSPELLING_OUT_OF_BAND; MISSPELLING_BAND_WIDTH];
+        for (offset, cell) in cells.iter_mut().enumerate() {
+            if offset > target_len {
+                break;
+            }
+            *cell = u8::try_from(offset)
+                .unwrap_or(MISSPELLING_OUT_OF_BAND)
+                .min(MISSPELLING_OUT_OF_BAND);
+        }
+        Self { base_col: 0, cells }
+    }
+
+    fn read(&self, col: usize) -> u8 {
+        col.checked_sub(self.base_col)
+            .filter(|offset| *offset < MISSPELLING_BAND_WIDTH)
+            .map_or(MISSPELLING_OUT_OF_BAND, |offset| self.cells[offset])
+    }
+
+    fn advance(&self, depth: usize, node_byte: u8, target: &[u8]) -> (Self, u8) {
+        let base = depth.saturating_sub(MISSPELLING_MAX_DIST as usize);
+        let mut cells = [MISSPELLING_OUT_OF_BAND; MISSPELLING_BAND_WIDTH];
+        let mut row_min = MISSPELLING_OUT_OF_BAND;
+        let mut current_prev = MISSPELLING_OUT_OF_BAND;
+
+        for (offset, cell) in cells.iter_mut().enumerate() {
+            let col = base + offset;
+            if col > target.len() {
+                break;
+            }
+            let value = if col == 0 {
+                u8::try_from(depth)
+                    .unwrap_or(MISSPELLING_OUT_OF_BAND)
+                    .min(MISSPELLING_OUT_OF_BAND)
+            } else {
+                let insertion = current_prev.saturating_add(1);
+                let deletion = self.read(col).saturating_add(1);
+                let substitution = self
+                    .read(col - 1)
+                    .saturating_add(u8::from(target[col - 1] != node_byte));
+                insertion
+                    .min(deletion)
+                    .min(substitution)
+                    .min(MISSPELLING_OUT_OF_BAND)
+            };
+            *cell = value;
+            current_prev = value;
+            row_min = row_min.min(value);
+        }
+
+        (
+            Self {
+                base_col: base,
+                cells,
+            },
+            row_min,
+        )
     }
 }
 
@@ -216,11 +275,11 @@ impl MisspellingCandidateLookup {
         tie_break: CandidateTieBreak,
     ) -> Option<&'a str> {
         let mut ids = SmallVec::<[usize; 16]>::new();
-        for key in edit1_deletion_keys(target_name) {
-            if let Some(key_ids) = self.edit1_deletions.get(&key) {
+        for_each_edit1_deletion_key(target_name, |key| {
+            if let Some(key_ids) = self.edit1_deletions.get(key) {
                 ids.extend_from_slice(key_ids);
             }
-        }
+        });
         ids.sort_unstable();
         ids.dedup();
         self.best_from_ids(entries, target_name, tie_break, ids, Some(2))
@@ -627,6 +686,20 @@ fn edit1_deletion_keys(name: &str) -> Vec<Box<str>> {
     keys.sort_unstable();
     keys.dedup();
     keys
+}
+
+fn for_each_edit1_deletion_key(name: &str, mut visit: impl FnMut(&str)) {
+    visit(name);
+    if name.is_empty() {
+        return;
+    }
+    let mut buffer = String::with_capacity(name.len().saturating_sub(1));
+    for skip in 0..name.len() {
+        buffer.clear();
+        buffer.push_str(&name[..skip]);
+        buffer.push_str(&name[skip + 1..]);
+        visit(buffer.as_str());
+    }
 }
 
 fn canonical_ascii_uppercase(name: &str) -> CompactString {
