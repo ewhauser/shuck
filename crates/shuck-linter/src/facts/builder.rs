@@ -363,7 +363,10 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                                 command.elif_branches.iter().enumerate()
                             {
                                 if index > 0
-                                    || !stmt_seq_contains_nested_control_flow(&command.then_branch)
+                                    || !stmt_seq_contains_nested_control_flow(
+                                        &command.then_branch,
+                                        self.semantic_artifacts.command_topology(),
+                                    )
                                 {
                                     collect_condition_status_capture_from_body(
                                         previous_condition,
@@ -1109,16 +1112,12 @@ fn c006_subscript_reference_suppresses_later_references(
     .is_none_or(|name| !matches!(name, "unset" | "[" | "[[" | "test"))
 }
 
-fn stmt_seq_contains_nested_control_flow(body: &StmtSeq) -> bool {
-    body.iter().any(stmt_contains_nested_control_flow)
-}
-
-fn stmt_contains_nested_control_flow(stmt: &Stmt) -> bool {
-    match &stmt.command {
-        Command::Binary(command) => {
-            stmt_contains_nested_control_flow(&command.left)
-                || stmt_contains_nested_control_flow(&command.right)
-        }
+fn stmt_seq_contains_nested_control_flow(
+    body: &StmtSeq,
+    command_topology: CommandTopology<'_, '_>,
+) -> bool {
+    let mut contains = false;
+    command_topology.for_each_command_visit_in_body(body, false, |_, visit| match visit.command {
         Command::Compound(
             CompoundCommand::If(_)
             | CompoundCommand::While(_)
@@ -1127,21 +1126,24 @@ fn stmt_contains_nested_control_flow(stmt: &Stmt) -> bool {
             | CompoundCommand::Select(_)
             | CompoundCommand::Case(_)
             | CompoundCommand::Always(_),
-        ) => true,
-        Command::Compound(CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body)) => {
-            body.iter().any(stmt_contains_nested_control_flow)
+        ) => {
+            contains = true;
+            CommandTopologyTraversal::Break
         }
-        Command::Compound(CompoundCommand::Time(command)) => command
-            .command
-            .as_ref()
-            .is_some_and(|stmt| stmt_contains_nested_control_flow(stmt)),
+        Command::Binary(_)
+        | Command::Compound(
+            CompoundCommand::BraceGroup(_)
+            | CompoundCommand::Subshell(_)
+            | CompoundCommand::Time(_),
+        ) => CommandTopologyTraversal::Descend,
         Command::Simple(_)
         | Command::Builtin(_)
         | Command::Decl(_)
         | Command::Compound(_)
         | Command::Function(_)
-        | Command::AnonymousFunction(_) => false,
-    }
+        | Command::AnonymousFunction(_) => CommandTopologyTraversal::SkipChildren,
+    });
+    contains
 }
 
 fn populate_linebreak_in_test_facts(commands: &mut [CommandFact<'_>], source: &str) {

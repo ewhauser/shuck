@@ -218,45 +218,31 @@ fn collect_list_segment_facts<'a>(
     source: &str,
     segments: &mut Vec<ListSegmentFact<'a>>,
 ) -> Option<()> {
-    collect_list_stmt_segment_facts(
-        &command.left,
-        command_relationships,
-        parent_id,
-        source,
-        segments,
-    )?;
-    collect_list_stmt_segment_facts(
-        &command.right,
-        command_relationships,
-        parent_id,
-        source,
-        segments,
-    )?;
+    let mut stack = vec![(&command.right, parent_id), (&command.left, parent_id)];
+    while let Some((stmt, parent_id)) = stack.pop() {
+        if let Command::Binary(binary) = &stmt.command
+            && matches!(binary.op, BinaryOp::And | BinaryOp::Or)
+        {
+            let nested_parent_id = command_relationships
+                .child_or_lookup_fact(parent_id, stmt)?
+                .id();
+            stack.push((&binary.right, nested_parent_id));
+            stack.push((&binary.left, nested_parent_id));
+            continue;
+        }
+
+        push_list_stmt_segment_fact(stmt, command_relationships, parent_id, source, segments)?;
+    }
     Some(())
 }
 
-fn collect_list_stmt_segment_facts<'a>(
+fn push_list_stmt_segment_fact<'a>(
     stmt: &Stmt,
     command_relationships: CommandRelationshipContext<'_, 'a>,
     parent_id: CommandId,
     source: &str,
     segments: &mut Vec<ListSegmentFact<'a>>,
 ) -> Option<()> {
-    if let Command::Binary(binary) = &stmt.command
-        && matches!(binary.op, BinaryOp::And | BinaryOp::Or)
-    {
-        let nested_parent_id = command_relationships
-            .child_or_lookup_fact(parent_id, stmt)?
-            .id();
-        return collect_list_segment_facts(
-            binary,
-            command_relationships,
-            nested_parent_id,
-            source,
-            segments,
-        );
-    }
-
     let fact = command_relationships.child_or_lookup_fact(parent_id, stmt)?;
     let id = fact.id();
     let assignment_info = list_segment_assignment_info(fact);

@@ -18,6 +18,47 @@ impl<'a> CommandVisit<'a> {
     }
 }
 
+enum BinaryChainStackItem<'a> {
+    Command(&'a BinaryCommand),
+    Operator(&'a BinaryCommand),
+    Segment(&'a Stmt),
+}
+
+/// Visits the leaf segments and operators of a left/right-associative binary command chain.
+///
+/// List and pipeline facts both need the same topology question: flatten adjacent binary commands
+/// with compatible operators while preserving source order. Keeping the mechanics here prevents
+/// each fact family from maintaining its own recursive AST descent.
+fn visit_binary_chain_parts<'a>(
+    command: &'a BinaryCommand,
+    mut is_chain_operator: impl FnMut(BinaryOp) -> bool,
+    mut visit_segment: impl FnMut(&'a Stmt),
+    mut visit_operator: impl FnMut(&'a BinaryCommand),
+) {
+    let mut stack = vec![BinaryChainStackItem::Command(command)];
+    while let Some(item) = stack.pop() {
+        match item {
+            BinaryChainStackItem::Command(command) => {
+                match &command.right.command {
+                    Command::Binary(right) if is_chain_operator(right.op) => {
+                        stack.push(BinaryChainStackItem::Command(right));
+                    }
+                    _ => stack.push(BinaryChainStackItem::Segment(&command.right)),
+                }
+                stack.push(BinaryChainStackItem::Operator(command));
+                match &command.left.command {
+                    Command::Binary(left) if is_chain_operator(left.op) => {
+                        stack.push(BinaryChainStackItem::Command(left));
+                    }
+                    _ => stack.push(BinaryChainStackItem::Segment(&command.left)),
+                }
+            }
+            BinaryChainStackItem::Operator(command) => visit_operator(command),
+            BinaryChainStackItem::Segment(stmt) => visit_segment(stmt),
+        }
+    }
+}
+
 fn visit_command_substitution_candidate_words<'a>(
     body: &'a StmtSeq,
     semantic: &LinterSemanticArtifacts<'a>,
