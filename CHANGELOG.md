@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.0.28](https://github.com/ewhauser/shuck/compare/v0.0.27...v0.0.28) (2026-04-30)
+
+
+### Performance
+
+* **linter:** binary-search zsh option snapshots, skip ASCII smart-quote scan ([#774](https://github.com/ewhauser/shuck/issues/774)) ([333e829](https://github.com/ewhauser/shuck/commit/333e82922f070acc37676c91008e711d75610ed3))
+* **linter:** cut three lint-time hotspots on large zsh files ([#771](https://github.com/ewhauser/shuck/issues/771)) ([d8c656c](https://github.com/ewhauser/shuck/commit/d8c656cdc4d425977a039d8319775a7f1169fc1b))
+* **linter:** drop densify-then-compact pass in LinterFactsBuilder ([#753](https://github.com/ewhauser/shuck/issues/753)) ([3933742](https://github.com/ewhauser/shuck/commit/39337420bd2cf7220cfa26f41d4716a39a7ac288))
+* **linter:** index assignment-value target spans for misspelling rule ([#769](https://github.com/ewhauser/shuck/issues/769)) ([8ba2b4a](https://github.com/ewhauser/shuck/commit/8ba2b4ac4d575c5f1b6d75fc79c0746305da43d1))
+* **linter:** precompute pending-until depths for parse-diagnostic checks ([#772](https://github.com/ewhauser/shuck/issues/772)) ([03ce0c5](https://github.com/ewhauser/shuck/commit/03ce0c5786cedde4ab4c4195cb6f4c8984ba2921))
+* **linter:** scan command-leading words at byte level ([#770](https://github.com/ewhauser/shuck/issues/770)) ([e0216e2](https://github.com/ewhauser/shuck/commit/e0216e25094478a1ffea09caa9454c1f17ee42ab))
+* **linter:** stream parse-diagnostic shell-like words ([#768](https://github.com/ewhauser/shuck/issues/768)) ([51decde](https://github.com/ewhauser/shuck/commit/51decde79f9583b191e78902168204fb3abade25))
+* **linter:** use line index for parse-diagnostic span lookups ([#765](https://github.com/ewhauser/shuck/issues/765)) ([98bb635](https://github.com/ewhauser/shuck/commit/98bb635bbaa784b7fc2dae4ba213ba8eb737e41c))
+* **parser:** watermark append-only fields in ParserCheckpoint ([#755](https://github.com/ewhauser/shuck/issues/755)) ([d7736af](https://github.com/ewhauser/shuck/commit/d7736afcc439ed64ba868ceae6219d575f821905))
+
+
+### Refactor
+
+* **linter:** add semantic command topology ([#764](https://github.com/ewhauser/shuck/issues/764)) ([467e29d](https://github.com/ewhauser/shuck/commit/467e29d3dd0279b24ff9845465a3c583fbfd99a6))
+* **linter:** consolidate fact topology helpers ([#766](https://github.com/ewhauser/shuck/issues/766)) ([7622a77](https://github.com/ewhauser/shuck/commit/7622a7708a29861b8fd9bba05bd7f11838c1f1d3))
+* **linter:** consolidate offset-to-position lookups behind Locator ([#767](https://github.com/ewhauser/shuck/issues/767)) ([719de41](https://github.com/ewhauser/shuck/commit/719de41dc010c0cbfe500852502db8b91766c0bb))
+* **linter:** internalize directive parsing seam ([#756](https://github.com/ewhauser/shuck/issues/756)) ([e0168ce](https://github.com/ewhauser/shuck/commit/e0168ce3f0d0dd6d47bb6355ce1df09e1bacf231))
+* **linter:** remove recursive traversal test harness ([#758](https://github.com/ewhauser/shuck/issues/758)) ([37287df](https://github.com/ewhauser/shuck/commit/37287df4a31d4b48cd9596b16fc67e021d6765d5))
+* **linter:** remove substitution body walks ([#760](https://github.com/ewhauser/shuck/issues/760)) ([a16029b](https://github.com/ewhauser/shuck/commit/a16029bcd584539a8bffbc08c2e1c8ffe315408b))
+* **linter:** remove suppression fallback walk ([#754](https://github.com/ewhauser/shuck/issues/754)) ([a787a72](https://github.com/ewhauser/shuck/commit/a787a72f07080dafefea03cf4467bf59526467e6))
+* **linter:** reuse command stream for conditional fact scans ([#759](https://github.com/ewhauser/shuck/issues/759)) ([92210da](https://github.com/ewhauser/shuck/commit/92210da2cde1f40fa65ebf7e9321af024d6d6b95))
+* **linter:** reuse semantic conditional traversal ([#761](https://github.com/ewhauser/shuck/issues/761)) ([28d6ca9](https://github.com/ewhauser/shuck/commit/28d6ca9f79bade240947b09f95bf069a2cc97f24))
+* **linter:** reuse semantic visits for base prefix facts ([#762](https://github.com/ewhauser/shuck/issues/762)) ([7e5a8ef](https://github.com/ewhauser/shuck/commit/7e5a8efe456ab0366e035428b33304677717cc70))
+* **linter:** reuse semantic visits for parse diagnostics ([#763](https://github.com/ewhauser/shuck/issues/763)) ([4e80dfa](https://github.com/ewhauser/shuck/commit/4e80dfaf4d8ea7887bdb5ff7a551e7d3d550fa8e))
+* **linter:** reuse semantic walk for directive attachment ([#757](https://github.com/ewhauser/shuck/issues/757)) ([7eed58d](https://github.com/ewhauser/shuck/commit/7eed58dc9d53a3088d51925fb76a6d237e8047a6))
+
 ## [0.0.27](https://github.com/ewhauser/shuck/compare/v0.0.26...v0.0.27) (2026-04-29)
 
 
