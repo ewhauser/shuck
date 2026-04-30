@@ -227,27 +227,27 @@ impl<'a> BinaryCommandChain<'a> {
         mut visit_segment: impl FnMut(&'a Stmt),
         mut visit_operator: impl FnMut(&'a BinaryCommand),
     ) {
-        let mut stack = vec![BinaryChainStackItem::Command(self.root)];
-        while let Some(item) = stack.pop() {
-            match item {
-                BinaryChainStackItem::Command(command) => {
-                    match &command.right.command {
-                        Command::Binary(right) if self.kind.contains(right.op) => {
-                            stack.push(BinaryChainStackItem::Command(right));
-                        }
-                        _ => stack.push(BinaryChainStackItem::Segment(&command.right)),
-                    }
-                    stack.push(BinaryChainStackItem::Operator(command));
-                    match &command.left.command {
-                        Command::Binary(left) if self.kind.contains(left.op) => {
-                            stack.push(BinaryChainStackItem::Command(left));
-                        }
-                        _ => stack.push(BinaryChainStackItem::Segment(&command.left)),
-                    }
-                }
-                BinaryChainStackItem::Operator(command) => visit_operator(command),
-                BinaryChainStackItem::Segment(stmt) => visit_segment(stmt),
+        self.walk(self.root, &mut visit_segment, &mut visit_operator);
+    }
+
+    fn walk(
+        &self,
+        command: &'a BinaryCommand,
+        visit_segment: &mut impl FnMut(&'a Stmt),
+        visit_operator: &mut impl FnMut(&'a BinaryCommand),
+    ) {
+        match &command.left.command {
+            Command::Binary(left) if self.kind.contains(left.op) => {
+                self.walk(left, visit_segment, visit_operator);
             }
+            _ => visit_segment(&command.left),
+        }
+        visit_operator(command);
+        match &command.right.command {
+            Command::Binary(right) if self.kind.contains(right.op) => {
+                self.walk(right, visit_segment, visit_operator);
+            }
+            _ => visit_segment(&command.right),
         }
     }
 
@@ -260,12 +260,6 @@ impl<'a> BinaryCommandChain<'a> {
     pub(super) fn visit_nodes(&self, visitor: impl FnMut(&'a BinaryCommand)) {
         self.visit_parts(|_| {}, visitor);
     }
-}
-
-enum BinaryChainStackItem<'a> {
-    Command(&'a BinaryCommand),
-    Operator(&'a BinaryCommand),
-    Segment(&'a Stmt),
 }
 
 fn visit_command_substitution_candidate_words<'a>(
