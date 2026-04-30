@@ -673,24 +673,18 @@ fn line_has_command_leading_word(line: &str, word: &str) -> bool {
             i += 1;
             continue;
         }
-        if !at_segment_start {
-            i += 1;
-            continue;
-        }
-        if matches!(b, b' ' | b'\t') {
-            i += 1;
-            continue;
-        }
-        at_segment_start = false;
-        if b.is_ascii_alphanumeric() || b == b'_' {
+        if at_segment_start && (b.is_ascii_alphanumeric() || b == b'_') {
             let start = i;
             while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
                 i += 1;
             }
+            at_segment_start = false;
             if &bytes[start..i] == word_bytes {
                 return true;
             }
+            continue;
         }
+        i += 1;
     }
     false
 }
@@ -952,6 +946,7 @@ mod tests {
     use super::{
         collect_parse_rule_diagnostics as collect_parse_rule_diagnostics_impl,
         if_bracket_glued_span_on_line, is_expected_command_error, line_contains_shell_word,
+        line_has_command_leading_word,
     };
     use crate::{
         Applicability, Diagnostic, LinterSemanticArtifacts, LinterSettings, Locator, Rule, RuleSet,
@@ -1232,6 +1227,36 @@ fi
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::MissingDoneInForLoop);
+    }
+
+    #[test]
+    fn line_has_command_leading_word_matches_first_segment_word() {
+        assert!(line_has_command_leading_word("until true", "until"));
+        assert!(line_has_command_leading_word("  until true", "until"));
+        assert!(line_has_command_leading_word("foo; until true", "until"));
+        assert!(line_has_command_leading_word("foo |  until true", "until"));
+        assert!(line_has_command_leading_word("foo && until true", "until"));
+        assert!(!line_has_command_leading_word("foo until", "until"));
+        assert!(!line_has_command_leading_word("", "until"));
+    }
+
+    #[test]
+    fn line_has_command_leading_word_skips_segment_leading_punctuation() {
+        // Original semantics yield the first identifier-like run anywhere in
+        // the segment (after `split` on `;|&`); leading parens etc. must not
+        // hide the keyword that follows.
+        assert!(line_has_command_leading_word("(until true)", "until"));
+        assert!(line_has_command_leading_word("foo; (until true)", "until"));
+        assert!(line_has_command_leading_word(") done", "done"));
+    }
+
+    #[test]
+    fn line_has_command_leading_word_does_not_loop_on_non_id_bytes() {
+        // Regression guard: lines with non-id, non-whitespace, non-separator
+        // bytes (parentheses, redirects, quotes) must terminate.
+        assert!(!line_has_command_leading_word("()()()()", "until"));
+        assert!(!line_has_command_leading_word("<<<", "until"));
+        assert!(!line_has_command_leading_word(r#"""""#, "until"));
     }
 
     #[test]
