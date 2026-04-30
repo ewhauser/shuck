@@ -662,9 +662,37 @@ fn has_pending_until_without_do_before_line(source: &str, line_number: usize) ->
 }
 
 fn line_has_command_leading_word(line: &str, word: &str) -> bool {
-    line.split([';', '|', '&'])
-        .filter_map(|segment| shell_like_words(segment.trim_start()).next())
-        .any(|candidate| candidate == word)
+    let word_bytes = word.as_bytes();
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    let mut at_segment_start = true;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if matches!(b, b';' | b'|' | b'&') {
+            at_segment_start = true;
+            i += 1;
+            continue;
+        }
+        if !at_segment_start {
+            i += 1;
+            continue;
+        }
+        if matches!(b, b' ' | b'\t') {
+            i += 1;
+            continue;
+        }
+        at_segment_start = false;
+        if b.is_ascii_alphanumeric() || b == b'_' {
+            let start = i;
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
+            if &bytes[start..i] == word_bytes {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
