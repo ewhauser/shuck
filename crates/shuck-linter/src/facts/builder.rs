@@ -803,6 +803,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 .map(|binding| binding.span.start.offset)
                 .collect(),
         );
+        let assignment_value_target_index = build_assignment_value_target_index(&commands);
         let command_dominance_barrier_flags = build_command_dominance_barrier_flags(&commands);
         let c006_suppressing_reference_offsets_by_name =
             build_c006_suppressing_reference_offsets_by_name(
@@ -853,6 +854,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             command_ids_by_name_word_span,
             innermost_command_ids_by_offset,
             innermost_command_ids_by_binding_offset,
+            assignment_value_target_index,
             command_dominance_barrier_flags,
             if_condition_command_ids,
             elif_condition_command_ids,
