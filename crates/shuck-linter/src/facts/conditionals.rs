@@ -479,7 +479,7 @@ fn collect_condition_status_capture_from_body(
     spans.extend(stmt_spans);
 }
 
-fn collect_condition_status_capture_from_sequences(
+pub(super) fn collect_condition_status_capture_from_sequence(
     commands: &StmtSeq,
     source: &str,
     spans: &mut Vec<Span>,
@@ -507,10 +507,6 @@ fn collect_condition_status_capture_from_sequences(
         segment_start > 0,
     );
 
-    for stmt in commands.iter() {
-        collect_condition_status_capture_from_nested_sequences(stmt, source, spans);
-    }
-
     for (index, stmt) in commands.iter().enumerate() {
         if !sequence_tail_contains_nested_test_command(&commands.as_slice()[index + 1..], source) {
             continue;
@@ -523,6 +519,59 @@ fn collect_condition_status_capture_from_sequences(
         };
 
         collect_status_test_followup_chains_with_sibling_tail(body, source, spans);
+    }
+}
+
+pub(super) fn collect_condition_status_capture_from_direct_body_sequences(
+    command: &Command,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match command {
+        Command::Compound(command) => match command {
+            CompoundCommand::If(command) => {
+                collect_condition_status_capture_from_sequence(&command.then_branch, source, spans);
+                for (_, branch) in &command.elif_branches {
+                    collect_condition_status_capture_from_sequence(branch, source, spans);
+                }
+                if let Some(branch) = &command.else_branch {
+                    collect_condition_status_capture_from_sequence(branch, source, spans);
+                }
+            }
+            CompoundCommand::While(command) => {
+                collect_condition_status_capture_from_sequence(&command.body, source, spans);
+            }
+            CompoundCommand::Until(command) => {
+                collect_condition_status_capture_from_sequence(&command.body, source, spans);
+            }
+            CompoundCommand::For(command) => {
+                collect_condition_status_capture_from_sequence(&command.body, source, spans);
+            }
+            CompoundCommand::Select(command) => {
+                collect_condition_status_capture_from_sequence(&command.body, source, spans);
+            }
+            CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => {
+                collect_condition_status_capture_from_sequence(body, source, spans);
+            }
+            CompoundCommand::Time(_) => {}
+            CompoundCommand::Always(command) => {
+                collect_condition_status_capture_from_sequence(&command.body, source, spans);
+                collect_condition_status_capture_from_sequence(&command.always_body, source, spans);
+            }
+            CompoundCommand::Case(_)
+            | CompoundCommand::Conditional(_)
+            | CompoundCommand::Repeat(_)
+            | CompoundCommand::Foreach(_)
+            | CompoundCommand::ArithmeticFor(_)
+            | CompoundCommand::Arithmetic(_)
+            | CompoundCommand::Coproc(_) => {}
+        },
+        Command::Simple(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => {}
     }
 }
 
@@ -869,82 +918,6 @@ fn branch_body_logs_status_then_immediately_exits(
     body.iter().nth(1).is_some_and(stmt_is_exit_or_return_builtin)
 }
 
-fn collect_condition_status_capture_from_nested_sequences(
-    stmt: &Stmt,
-    source: &str,
-    spans: &mut Vec<Span>,
-) {
-    match &stmt.command {
-        Command::Binary(command) => {
-            collect_condition_status_capture_from_nested_sequences(&command.left, source, spans);
-            collect_condition_status_capture_from_nested_sequences(&command.right, source, spans);
-        }
-        Command::Compound(command) => match command {
-            CompoundCommand::If(command) => {
-                collect_condition_status_capture_from_sequences(&command.then_branch, source, spans);
-                for (_, branch) in &command.elif_branches {
-                    collect_condition_status_capture_from_sequences(branch, source, spans);
-                }
-                if let Some(branch) = &command.else_branch {
-                    collect_condition_status_capture_from_sequences(branch, source, spans);
-                }
-            }
-            CompoundCommand::While(command) => {
-                collect_condition_status_capture_from_sequences(&command.body, source, spans);
-            }
-            CompoundCommand::Until(command) => {
-                collect_condition_status_capture_from_sequences(&command.body, source, spans);
-            }
-            CompoundCommand::For(command) => {
-                collect_condition_status_capture_from_sequences(&command.body, source, spans);
-            }
-            CompoundCommand::Select(command) => {
-                collect_condition_status_capture_from_sequences(&command.body, source, spans);
-            }
-            CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => {
-                collect_condition_status_capture_from_sequences(body, source, spans);
-            }
-            CompoundCommand::Case(command) => {
-                let _ = command;
-            }
-            CompoundCommand::Time(command) => {
-                if let Some(inner) = &command.command {
-                    collect_condition_status_capture_from_nested_sequences(inner, source, spans);
-                }
-            }
-            CompoundCommand::Always(command) => {
-                collect_condition_status_capture_from_sequences(&command.body, source, spans);
-                collect_condition_status_capture_from_sequences(
-                    &command.always_body,
-                    source,
-                    spans,
-                );
-            }
-            CompoundCommand::Conditional(_)
-            | CompoundCommand::Repeat(_)
-            | CompoundCommand::Foreach(_)
-            | CompoundCommand::ArithmeticFor(_)
-            | CompoundCommand::Arithmetic(_)
-            | CompoundCommand::Coproc(_) => {}
-        },
-        Command::Function(function) => {
-            collect_condition_status_capture_from_nested_sequences(&function.body, source, spans);
-        }
-        Command::AnonymousFunction(function) => {
-            collect_condition_status_capture_from_nested_sequences(&function.body, source, spans);
-        }
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
-    }
-}
-
-fn collect_precise_function_return_guard_suppressions(
-    commands: &StmtSeq,
-    source: &str,
-    spans: &mut Vec<Span>,
-) {
-    collect_precise_function_return_guard_suppressions_in_seq(commands, source, spans, false);
-}
-
 fn collect_precise_function_return_guard_suppressions_in_seq(
     commands: &StmtSeq,
     source: &str,
@@ -968,37 +941,16 @@ fn collect_precise_function_return_guard_suppressions_in_seq(
                 collect_status_parameter_spans_in_return_guard_stmt(stmt, source, spans);
             }
         }
-
-        collect_precise_function_return_guard_suppressions_in_stmt(
-            stmt,
-            source,
-            spans,
-            in_function_like_body,
-        );
     }
 }
 
-fn collect_precise_function_return_guard_suppressions_in_stmt(
-    stmt: &Stmt,
+fn collect_precise_function_return_guard_suppressions_from_direct_body_sequences(
+    command: &Command,
     source: &str,
     spans: &mut Vec<Span>,
     in_function_like_body: bool,
 ) {
-    match &stmt.command {
-        Command::Binary(command) => {
-            collect_precise_function_return_guard_suppressions_in_stmt(
-                &command.left,
-                source,
-                spans,
-                in_function_like_body,
-            );
-            collect_precise_function_return_guard_suppressions_in_stmt(
-                &command.right,
-                source,
-                spans,
-                in_function_like_body,
-            );
-        }
+    match command {
         Command::Compound(command) => match command {
             CompoundCommand::If(command) => {
                 collect_precise_function_return_guard_suppressions_in_seq(
@@ -1064,16 +1016,7 @@ fn collect_precise_function_return_guard_suppressions_in_stmt(
                     in_function_like_body,
                 );
             }
-            CompoundCommand::Time(command) => {
-                if let Some(inner) = &command.command {
-                    collect_precise_function_return_guard_suppressions_in_stmt(
-                        inner,
-                        source,
-                        spans,
-                        in_function_like_body,
-                    );
-                }
-            }
+            CompoundCommand::Time(_) => {}
             CompoundCommand::Always(command) => {
                 collect_precise_function_return_guard_suppressions_in_seq(
                     &command.body,
@@ -1105,23 +1048,12 @@ fn collect_precise_function_return_guard_suppressions_in_stmt(
             | CompoundCommand::Arithmetic(_)
             | CompoundCommand::Coproc(_) => {}
         },
-        Command::Function(function) => {
-            collect_precise_function_return_guard_suppressions_in_stmt(
-                &function.body,
-                source,
-                spans,
-                true,
-            );
-        }
-        Command::AnonymousFunction(function) => {
-            collect_precise_function_return_guard_suppressions_in_stmt(
-                &function.body,
-                source,
-                spans,
-                true,
-            );
-        }
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
+        Command::Simple(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => {}
     }
 }
 

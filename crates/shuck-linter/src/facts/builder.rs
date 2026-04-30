@@ -116,6 +116,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let redundant_return_status_spans = Vec::new();
         let mut getopts_cases = Vec::new();
         let mut condition_status_capture_spans = Vec::new();
+        let mut precise_function_guard_suppressions = Vec::new();
         let mut command_substitution_command_spans = Vec::new();
         let mut arithmetic_update_operator_spans = Vec::new();
         let mut base_prefix_arithmetic_spans = Vec::new();
@@ -333,6 +334,17 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 }
 
                 if !nested_word_command {
+                    collect_condition_status_capture_from_direct_body_sequences(
+                        visit.command,
+                        self.source,
+                        &mut condition_status_capture_spans,
+                    );
+                    collect_precise_function_return_guard_suppressions_from_direct_body_sequences(
+                        visit.command,
+                        self.source,
+                        &mut precise_function_guard_suppressions,
+                        context.flow().in_function,
+                    );
                     match visit.command {
                         Command::Compound(CompoundCommand::If(command)) => {
                             collect_condition_status_capture_from_body(
@@ -478,16 +490,16 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             .case_cli_reachable_function_scopes(self.file, &case_cli_dispatches)
             .into_iter()
             .collect();
-        collect_condition_status_capture_from_sequences(
+        collect_condition_status_capture_from_sequence(
             &self.file.body,
             self.source,
             &mut condition_status_capture_spans,
         );
-        let mut precise_function_guard_suppressions = Vec::new();
-        collect_precise_function_return_guard_suppressions(
+        collect_precise_function_return_guard_suppressions_in_seq(
             &self.file.body,
             self.source,
             &mut precise_function_guard_suppressions,
+            false,
         );
         if !precise_function_guard_suppressions.is_empty() {
             condition_status_capture_spans
