@@ -337,4 +337,25 @@ plain_complex_guard()
             vec!["$?"]
         );
     }
+
+    #[test]
+    fn suppresses_precise_function_return_guards_in_case_bodies() {
+        let source = "\
+#!/bin/bash
+pkg_check() {
+  case \"$mode\" in
+    a)
+      helper || return $?
+      [[ -n \"$path\" ]] || return $?
+      ;;
+  esac
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::StatusCaptureAfterBranchTest),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }

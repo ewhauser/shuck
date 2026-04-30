@@ -1,6 +1,5 @@
 use super::*;
 use crate::facts::{
-    collect_precise_function_return_guard_suppressions,
     collect_precise_function_return_guard_suppressions_in_seq,
     stmt_is_non_test_return_status_guard, stmt_is_unary_test_return_status_guard,
 };
@@ -339,14 +338,6 @@ pkg_check() {
             .collect::<Vec<_>>(),
         vec![4, 8]
     );
-
-    let mut spans = Vec::new();
-    collect_precise_function_return_guard_suppressions(&output.file.body, source, &mut spans);
-
-    assert_eq!(
-        spans.iter().map(|span| span.start.line).collect::<Vec<_>>(),
-        vec![4, 8]
-    );
 }
 
 #[test]
@@ -666,6 +657,29 @@ if [ -f later_if ]; then
 elif [ -f later_elif ]; then
   :
 fi
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .condition_status_capture_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$?"]
+        );
+    });
+}
+
+#[test]
+fn collects_c056_inside_function_body_sequences() {
+    let source = "\
+#!/bin/bash
+helper() {
+  [ -f first ]
+  tend $?
+  [ -f second ]
+}
 ";
 
     with_facts(source, None, |_, facts| {
