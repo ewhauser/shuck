@@ -663,6 +663,7 @@ pub fn lint_file_at_path_with_resolver(
     diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
         file,
         source,
+        indexer.line_index(),
         Some(&parse_result),
         &analysis.semantic,
         &settings.rules,
@@ -768,6 +769,7 @@ pub(crate) fn lint_file_at_path_with_resolver_and_parse_result_and_directives(
     diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
         &parse_result.file,
         source,
+        indexer.line_index(),
         Some(parse_result),
         &linter_semantic_artifacts,
         &settings.rules,
