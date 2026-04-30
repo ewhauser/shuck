@@ -987,7 +987,8 @@ fn large_corpus_conforms_with_shellcheck() {
     let supported_fixtures =
         select_supported_large_corpus_fixtures(&fixtures, Some(&supported_shells));
     let skipped_unsupported_shells = fixtures.len().saturating_sub(supported_fixtures.len());
-    let shuck_path_resolver = None;
+    let all_fixture_refs = fixtures.iter().collect::<Vec<_>>();
+    let shuck_path_resolver = Some(Arc::new(LargeCorpusPathResolver::new(&all_fixture_refs)));
 
     let failure_collection =
         collect_fixture_failures(&supported_fixtures, cfg.keep_going, |fixture| {
@@ -2593,7 +2594,6 @@ fn build_large_corpus_compat_linter_settings(
     mapped_only: bool,
 ) -> shuck_linter::LinterSettings {
     build_large_corpus_linter_settings(selected_rules, mapped_only)
-        .with_resolve_source_closure(false)
 }
 
 fn large_corpus_uses_single_file_c001_oracle(
@@ -3625,14 +3625,14 @@ mod tests {
     }
 
     #[test]
-    fn default_large_corpus_comparison_disables_source_closure() {
+    fn default_large_corpus_comparison_enables_source_closure() {
         let settings = build_large_corpus_compat_linter_settings(None, false);
 
-        assert!(!settings.resolve_source_closure);
+        assert!(settings.resolve_source_closure);
     }
 
     #[test]
-    fn mixed_c001_c006_large_corpus_comparison_disables_source_closure() {
+    fn mixed_c001_c006_large_corpus_comparison_enables_source_closure() {
         let selected_rules = shuck_linter::RuleSet::from_iter([
             shuck_linter::Rule::UnusedAssignment,
             shuck_linter::Rule::UndefinedVariable,
@@ -3640,7 +3640,7 @@ mod tests {
 
         let settings = build_large_corpus_compat_linter_settings(Some(selected_rules), false);
 
-        assert!(!settings.resolve_source_closure);
+        assert!(settings.resolve_source_closure);
         assert!(
             settings
                 .rules
@@ -3701,7 +3701,7 @@ mod tests {
     fn load_all_rule_corpus_metadata_keeps_scoped_entries() {
         let metadata = load_all_rule_corpus_metadata();
 
-        assert!(!metadata.contains_key("C001"));
+        assert!(metadata.contains_key("C001"));
         assert!(metadata.values().any(|rule_metadata| {
             rule_metadata.reviewed_divergences.iter().any(|entry| {
                 !entry.rule_wide && entry.path_suffix.is_some() && entry.line.is_some()
@@ -4583,6 +4583,46 @@ mod tests {
         );
 
         assert_eq!(resolved, vec![canonicalize_for_resolver(&helper.path)]);
+    }
+
+    #[test]
+    fn large_corpus_compat_source_closure_uses_corpus_path_resolver() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let scripts_dir = tempdir.path().join("scripts");
+        fs::create_dir_all(&scripts_dir).unwrap();
+
+        let source = fixture_at(
+            &scripts_dir.join("repo__pkg__main.sh"),
+            Path::new("repo/pkg/main.sh"),
+        );
+        let helper = fixture_at(
+            &scripts_dir.join("repo__pkg__lib.sh"),
+            Path::new("repo/pkg/lib.sh"),
+        );
+
+        fs::write(&source.path, "#!/bin/sh\nfoo=1\n. ./lib.sh\n").unwrap();
+        fs::write(&helper.path, "printf '%s\\n' \"$foo\"\n").unwrap();
+
+        let resolver = LargeCorpusPathResolver::new(&[&source, &helper]);
+        let settings = build_large_corpus_compat_linter_settings(
+            Some(shuck_linter::RuleSet::from_iter([
+                shuck_linter::Rule::UnusedAssignment,
+            ])),
+            false,
+        );
+        let run = run_shuck_with_parse_dialect(
+            &source,
+            &settings,
+            Some(&resolver),
+            shuck_parser::ShellDialect::Posix,
+            "sh",
+        );
+
+        assert!(
+            run.diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.rule != shuck_linter::Rule::UnusedAssignment)
+        );
     }
 
     #[test]

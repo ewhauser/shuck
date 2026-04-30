@@ -1,0 +1,71 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "RetroPie__RetroPie-Setup__retropie_packages.sh"
+    line: 49
+    end_line: 49
+    column: 1
+    end_column: 8
+    reason: "With source closure enabled, this setup path is read by sourced RetroPie scriptmodules, so the standalone-file oracle remains as a reviewed project-aware difference."
+  - side: shellcheck-only
+    path_suffix: "RetroPie__RetroPie-Setup__retropie_packages.sh"
+    line: 50
+    end_line: 50
+    column: 1
+    end_column: 7
+    reason: "With source closure enabled, this setup path is read by sourced RetroPie scriptmodules, so the standalone-file oracle remains as a reviewed project-aware difference."
+  - side: shellcheck-only
+    path_suffix: "RetroPie__RetroPie-Setup__retropie_packages.sh"
+    line: 52
+    end_line: 52
+    column: 1
+    end_column: 10
+    reason: "With source closure enabled, this setup path is read by sourced RetroPie scriptmodules, so the standalone-file oracle remains as a reviewed project-aware difference."
+  - side: shellcheck-only
+    path_suffix: "bats-core__bats-core__libexec__bats-core__bats-exec-suite"
+    line: 258
+    end_line: 258
+    column: 5
+    end_column: 41
+    reason: "With source closure enabled, tracing helpers sourced by the Bats runner read this failure-state slot, so the standalone-file oracle remains as a reviewed project-aware difference."
+  - side: shellcheck-only
+    path_suffix: "bats-core__bats-core__libexec__bats-core__bats-exec-test"
+    line: 216
+    end_line: 216
+    column: 3
+    end_column: 39
+    reason: "With source closure enabled, tracing helpers sourced by the Bats runner read this failure-state slot, so the standalone-file oracle remains as a reviewed project-aware difference."
+  - side: shellcheck-only
+    path_suffix: "bats-core__bats-core__libexec__bats-core__bats-gather-tests"
+    line: 306
+    end_line: 306
+    column: 5
+    end_column: 22
+    reason: "With source closure enabled, tracing helpers sourced by the Bats runner read this failure status, so the standalone-file oracle remains as a reviewed project-aware difference."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-build__build.sh"
+    line: 3434
+    end_line: 3434
+    column: 6
+    end_column: 14
+    reason: "With source closure enabled, the sourced switch helper reads this hardware name while probing switch behavior, so the standalone-file oracle remains as a reviewed project-aware difference."
+  - side: shellcheck-only
+    path_suffix: "docker__docker-bench-security__docker-bench-security.sh"
+    line: 88
+    end_line: 88
+    column: 6
+    end_column: 13
+    reason: "With source closure enabled, the sourced output helper reads this option state while formatting reports, so the standalone-file oracle remains as a reviewed project-aware difference."
+  - side: shellcheck-only
+    path_suffix: "docker__docker-bench-security__docker-bench-security.sh"
+    line: 90
+    end_line: 90
+    column: 6
+    end_column: 12
+    reason: "With source closure enabled, the sourced output helper reads this log destination while formatting reports, so the standalone-file oracle remains as a reviewed project-aware difference."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__tests__fast__rvm-user_comment_test.sh"
+    line: 2
+    end_line: 2
+    column: 1
+    end_column: 17
+    reason: "With source closure enabled, the sourced RVM scripts read this scripts-directory path, so the standalone-file oracle remains as a reviewed project-aware difference."

@@ -1,1 +1,8 @@
-reviewed_divergences: []
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "HariSekhon__DevOps-Bash-tools__bigdata__cloudera_navigator_audit_logs.sh"
+    line: 119
+    end_line: 119
+    column: 19
+    end_column: 33
+    reason: "With source closure enabled, the sourced Cloudera Navigator helper provides this timestamp binding, so the standalone-file oracle remains as a reviewed project-aware difference."
