@@ -4,17 +4,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use criterion::{
-    BatchSize, BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main,
-};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use shuck_benchmark::configure_benchmark_allocator;
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    LinterSettings, Rule, RuleSet, ShellCheckCodeMap, ShellDialect, benchmark_collect_word_facts,
+    LinterSettings, Rule, RuleSet, ShellCheckCodeMap, ShellDialect,
     lint_file_at_path_with_resolver_and_parse_result,
 };
 use shuck_parser::parser::{ParseResult, Parser};
-use shuck_semantic::{SemanticBuildOptions, SemanticModel, SourcePathResolver};
+use shuck_semantic::SourcePathResolver;
 
 configure_benchmark_allocator!();
 
@@ -101,13 +99,6 @@ impl SourcePathResolver for LargeCorpusPathResolver {
 
         resolved
     }
-}
-
-struct PreparedWordFactsInput {
-    source: String,
-    parse_result: ParseResult,
-    indexer: Indexer,
-    semantic: SemanticModel,
 }
 
 fn large_corpus_fixtures() -> Result<&'static Arc<LoadedLargeCorpusFixtures>, &'static str> {
@@ -235,35 +226,6 @@ fn parse_large_corpus_fixture(fixture: &LargeCorpusFixture) -> ParseResult {
     Parser::with_dialect(&fixture.source, shell.parser_dialect()).parse()
 }
 
-fn prepare_word_facts_input(
-    fixture: &LargeCorpusFixture,
-    resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-) -> PreparedWordFactsInput {
-    let parse_result = parse_large_corpus_fixture(fixture);
-    let indexer = Indexer::new(&fixture.source, &parse_result);
-    let semantic = SemanticModel::build_with_options(
-        &parse_result.file,
-        &fixture.source,
-        &indexer,
-        SemanticBuildOptions {
-            source_path: Some(&fixture.path),
-            source_path_resolver: resolver,
-            file_entry_contract: None,
-            file_entry_contract_collector: None,
-            analyzed_paths: None,
-            shell_profile: Some(ShellDialect::from_name(&fixture.shell).shell_profile()),
-            resolve_source_closure: true,
-        },
-    );
-
-    PreparedWordFactsInput {
-        source: fixture.source.clone(),
-        parse_result,
-        indexer,
-        semantic,
-    }
-}
-
 fn lint_large_corpus_fixture(
     fixture: &LargeCorpusFixture,
     resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
@@ -319,13 +281,6 @@ fn large_corpus_without_c100_settings() -> LinterSettings {
 
 fn large_corpus_without_source_closure_settings(fixture: &LargeCorpusFixture) -> LinterSettings {
     large_corpus_default_settings(fixture).with_resolve_source_closure(false)
-}
-
-fn build_large_corpus_word_facts(input: &PreparedWordFactsInput) -> usize {
-    black_box(
-        benchmark_collect_word_facts(&input.parse_result.file, &input.source, &input.semantic)
-            + input.indexer.comment_index().comments().len(),
-    )
 }
 
 fn resolve_large_corpus_candidate_cache_rel_path(
@@ -527,39 +482,10 @@ fn bench_large_corpus_linter_source_closure_splits(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_large_corpus_word_facts(c: &mut Criterion) {
-    let Ok(fixtures) = large_corpus_fixtures() else {
-        let Err(message) = large_corpus_fixtures() else {
-            unreachable!();
-        };
-        eprintln!("skipping large corpus hotspot benches: {message}");
-        return;
-    };
-
-    let mut group = c.benchmark_group("large_corpus_word_facts");
-    group.sample_size(10);
-    group.throughput(Throughput::Bytes(fixtures.language_strings.bytes()));
-    group.bench_with_input(
-        BenchmarkId::from_parameter(fixtures.language_strings.label),
-        &fixtures.language_strings,
-        |b, fixture| {
-            b.iter_batched(
-                || prepare_word_facts_input(fixture, None),
-                |input| {
-                    black_box(build_large_corpus_word_facts(&input));
-                },
-                BatchSize::LargeInput,
-            );
-        },
-    );
-    group.finish();
-}
-
 criterion_group!(
     benches,
     bench_large_corpus_linter,
     bench_large_corpus_linter_rule_splits,
-    bench_large_corpus_linter_source_closure_splits,
-    bench_large_corpus_word_facts
+    bench_large_corpus_linter_source_closure_splits
 );
 criterion_main!(benches);
