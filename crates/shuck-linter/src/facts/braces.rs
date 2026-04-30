@@ -54,11 +54,99 @@ fn build_literal_brace_spans(
         &mut spans,
         &mut scratch,
     );
-    spans.retain(|span| !span_is_plain_parameter_expansion_edge_in_source(*span, source));
-    spans.retain(|span| !span_is_active_brace_expansion_edge_in_source(*span, source));
+    let plain_parameter_expansion_edges = build_plain_parameter_expansion_edge_offsets(source);
+    let active_brace_expansion_edges = build_active_brace_expansion_edge_offsets(source);
+    spans.retain(|span| {
+        !plain_parameter_expansion_edges.contains(&span.start.offset)
+            && !active_brace_expansion_edges.contains(&span.start.offset)
+    });
     spans.sort_by_key(|span| (span.start.offset, span.end.offset));
     spans.dedup_by_key(|span| (span.start.offset, span.end.offset));
     spans
+}
+
+fn build_plain_parameter_expansion_edge_offsets(source: &str) -> FxHashSet<usize> {
+    let mut offsets = FxHashSet::default();
+    let mut index = 0usize;
+
+    while index < source.len() {
+        if source[index..].starts_with("${")
+            && !has_odd_backslash_run_before(source, index)
+            && let Some(end_offset) = find_runtime_parameter_closing_brace(source, index)
+        {
+            let open_brace_offset = index + '$'.len_utf8();
+            let close_brace_offset = end_offset.saturating_sub('}'.len_utf8());
+            offsets.insert(open_brace_offset);
+            offsets.insert(close_brace_offset);
+            index = end_offset;
+            continue;
+        }
+
+        let Some(ch) = source[index..].chars().next() else {
+            break;
+        };
+        let ch_len = ch.len_utf8();
+        if ch == '\\' {
+            index += ch_len;
+            if let Some(escaped) = source[index..].chars().next() {
+                index += escaped.len_utf8();
+            }
+            continue;
+        }
+
+        index += ch_len;
+    }
+
+    offsets
+}
+
+fn build_active_brace_expansion_edge_offsets(source: &str) -> FxHashSet<usize> {
+    let bytes = source.as_bytes();
+    let mut opens = Vec::new();
+    let mut closes = Vec::new();
+    for (offset, byte) in bytes.iter().enumerate() {
+        match byte {
+            b'{' => opens.push(offset),
+            b'}' => closes.push(offset),
+            _ => {}
+        }
+    }
+
+    let mut offsets = FxHashSet::default();
+    for &open_offset in &opens {
+        let close_index = closes.partition_point(|&close| close <= open_offset);
+        let Some(&close_offset) = closes.get(close_index) else {
+            continue;
+        };
+        if active_brace_pair_qualifies(source, open_offset, close_offset) {
+            offsets.insert(open_offset);
+            offsets.insert(close_offset);
+        }
+    }
+    for &close_offset in &closes {
+        let open_index = opens.partition_point(|&open| open < close_offset);
+        if open_index == 0 {
+            continue;
+        }
+        let open_offset = opens[open_index - 1];
+        if active_brace_pair_qualifies(source, open_offset, close_offset) {
+            offsets.insert(open_offset);
+            offsets.insert(close_offset);
+        }
+    }
+
+    offsets
+}
+
+fn active_brace_pair_qualifies(source: &str, open_offset: usize, close_offset: usize) -> bool {
+    if close_offset <= open_offset {
+        return false;
+    }
+    let text = &source[open_offset..=close_offset];
+    brace_text_has_unescaped_comma_or_sequence(text)
+        && text[1..text.len() - 1]
+            .chars()
+            .all(|candidate| !candidate.is_whitespace())
 }
 
 #[derive(Default)]
@@ -205,66 +293,6 @@ fn brace_span_is_plain_parameter_expansion_edge(word: &Word, span: Span, source:
     }
 
     false
-}
-
-fn span_is_plain_parameter_expansion_edge_in_source(span: Span, source: &str) -> bool {
-    let target_offset = span.start.offset;
-    let mut index = 0usize;
-
-    while index < source.len() {
-        if source[index..].starts_with("${")
-            && !has_odd_backslash_run_before(source, index)
-            && let Some(end_offset) = find_runtime_parameter_closing_brace(source, index)
-        {
-            let open_brace_offset = index + '$'.len_utf8();
-            let close_brace_offset = end_offset.saturating_sub('}'.len_utf8());
-            if target_offset == open_brace_offset || target_offset == close_brace_offset {
-                return true;
-            }
-            index = end_offset;
-            continue;
-        }
-
-        let Some(ch) = source[index..].chars().next() else {
-            break;
-        };
-        let ch_len = ch.len_utf8();
-        if ch == '\\' {
-            index += ch_len;
-            if let Some(escaped) = source[index..].chars().next() {
-                index += escaped.len_utf8();
-            }
-            continue;
-        }
-
-        index += ch_len;
-    }
-
-    false
-}
-
-fn span_is_active_brace_expansion_edge_in_source(span: Span, source: &str) -> bool {
-    let offset = span.start.offset;
-    let Some(ch) = source[offset..].chars().next() else {
-        return false;
-    };
-
-    let candidate = match ch {
-        '{' => source[offset..]
-            .find('}')
-            .map(|relative_end| &source[offset..=offset + relative_end]),
-        '}' => source[..offset]
-            .rfind('{')
-            .map(|start| &source[start..=offset]),
-        _ => None,
-    };
-
-    candidate.is_some_and(|text| {
-        brace_text_has_unescaped_comma_or_sequence(text)
-            && text[1..text.len() - 1]
-                .chars()
-                .all(|candidate| !candidate.is_whitespace())
-    })
 }
 
 fn is_find_exec_placeholder_word(
@@ -1493,13 +1521,13 @@ fn find_runtime_parameter_closing_brace(text: &str, start_offset: usize) -> Opti
             && bytes[index + 1] == b'('
             && bytes[index + 2] == b'('
         {
-            index = find_wrapped_arithmetic_end(bytes, index)?;
+            index = find_wrapped_arithmetic_end(text, index)?;
             continue;
         }
 
         if index + 1 < bytes.len() && is_unescaped_dollar(bytes, index) && bytes[index + 1] == b'('
         {
-            index = find_command_substitution_end(bytes, index)?;
+            index = find_command_substitution_end(text, index)?;
             continue;
         }
 
@@ -1512,7 +1540,7 @@ fn find_runtime_parameter_closing_brace(text: &str, start_offset: usize) -> Opti
 
         match bytes[index] {
             b'\'' => index = skip_single_quoted(bytes, index + 1)?,
-            b'"' => index = skip_double_quoted(bytes, index + 1)?,
+            b'"' => index = skip_double_quoted(text, index + 1)?,
             b'`' => index = skip_backticks(bytes, index + 1)?,
             b'}' => {
                 depth -= 1;

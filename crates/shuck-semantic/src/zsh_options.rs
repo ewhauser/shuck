@@ -12,6 +12,18 @@ use crate::{Binding, BindingKind, Scope, ScopeId, ScopeKind, SpanKey};
 pub(crate) struct ZshOptionAnalysis {
     scope_entries: FxHashMap<ScopeId, ZshOptionState>,
     snapshots: FxHashMap<ScopeId, Vec<ZshOptionSnapshot>>,
+    /// Scopes sorted by `(span.start.offset ASC, span.end.offset DESC)` so a binary search by
+    /// start offset followed by a backward walk yields the deepest containing scope under
+    /// proper scope nesting. Built once per analysis to keep `options_at` off the
+    /// O(commands × scopes) path.
+    scope_index: Vec<ScopeIndexEntry>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ScopeIndexEntry {
+    start: usize,
+    end: usize,
+    scope: ScopeId,
 }
 
 #[derive(Debug, Clone)]
@@ -213,9 +225,20 @@ pub(crate) fn analyze(
         snapshots.sort_by_key(|snapshot| snapshot.offset);
     }
 
+    let mut scope_index: Vec<ScopeIndexEntry> = scopes
+        .iter()
+        .map(|scope| ScopeIndexEntry {
+            start: scope.span.start.offset,
+            end: scope.span.end.offset,
+            scope: scope.id,
+        })
+        .collect();
+    scope_index.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| b.end.cmp(&a.end)));
+
     Some(ZshOptionAnalysis {
         scope_entries: analyzer.scope_entries,
         snapshots: analyzer.snapshots,
+        scope_index,
     })
 }
 
@@ -225,11 +248,14 @@ impl ZshOptionAnalysis {
         scopes: &[Scope],
         offset: usize,
     ) -> Option<&'a ZshOptionState> {
-        let mut scope = scopes
+        let upper = self
+            .scope_index
+            .partition_point(|entry| entry.start <= offset);
+        let mut scope = self.scope_index[..upper]
             .iter()
-            .filter(|scope| contains_offset(scope.span, offset))
-            .min_by_key(|scope| scope.span.end.offset - scope.span.start.offset)
-            .map(|scope| scope.id);
+            .rev()
+            .find(|entry| entry.end >= offset)
+            .map(|entry| entry.scope);
 
         while let Some(scope_id) = scope {
             if let Some(snapshots) = self.snapshots.get(&scope_id)
@@ -756,10 +782,6 @@ fn is_function_scope(scopes: &[Scope], scope: ScopeId) -> bool {
         current = scopes[scope_id.index()].parent;
     }
     false
-}
-
-fn contains_offset(span: shuck_ast::Span, offset: usize) -> bool {
-    span.start.offset <= offset && offset <= span.end.offset
 }
 
 fn field_for_option_name(name: &str) -> Option<ZshOptionField> {
