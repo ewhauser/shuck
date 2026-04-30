@@ -104,7 +104,7 @@ impl CaseCliDispatch {
 }
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{Command, File, Name, Span, Stmt};
+use shuck_ast::{Command, ConditionalExpr, File, Name, Span, Stmt};
 use shuck_indexer::Indexer;
 use smallvec::{Array, SmallVec};
 use std::path::{Path, PathBuf};
@@ -391,6 +391,14 @@ pub trait TraversalObserver<'a> {
     fn enter_command(&mut self, _command: &Command, _scope: ScopeId, _flow: FlowContext) {}
 
     fn exit_command(&mut self, _command: &Command, _scope: ScopeId) {}
+
+    fn conditional_expression(
+        &mut self,
+        _command_span: Span,
+        _expression: &'a ConditionalExpr,
+        _parent_in_same_logical_group: bool,
+    ) {
+    }
 
     fn recorded_command(
         &mut self,

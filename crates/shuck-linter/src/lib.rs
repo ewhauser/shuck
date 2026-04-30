@@ -133,6 +133,8 @@ pub struct AnalysisResult {
 pub struct LinterSemanticArtifacts<'a> {
     semantic: SemanticModel,
     command_visits_by_id: Vec<Option<facts::CommandVisit<'a>>>,
+    conditional_expression_visits_by_command_span:
+        FxHashMap<facts::FactSpan, Vec<facts::ConditionalExpressionVisit<'a>>>,
     direct_command_ids_by_body_span: FxHashMap<facts::FactSpan, Vec<CommandId>>,
     suppression_command_spans: Vec<Span>,
     directive_attachment_facts: DirectiveAttachmentFacts,
@@ -169,6 +171,8 @@ impl<'a> LinterSemanticArtifacts<'a> {
         Self {
             semantic,
             command_visits_by_id: observer.command_visits_by_id,
+            conditional_expression_visits_by_command_span: observer
+                .conditional_expression_visits_by_command_span,
             direct_command_ids_by_body_span: observer.direct_command_ids_by_body_span,
             suppression_command_spans,
             directive_attachment_facts,
@@ -187,6 +191,15 @@ impl<'a> LinterSemanticArtifacts<'a> {
 
     pub(crate) fn command_visits_by_id(&self) -> &[Option<facts::CommandVisit<'a>>] {
         &self.command_visits_by_id
+    }
+
+    pub(crate) fn conditional_expression_visits(
+        &self,
+        command_span: Span,
+    ) -> &[facts::ConditionalExpressionVisit<'a>] {
+        self.conditional_expression_visits_by_command_span
+            .get(&facts::FactSpan::new(command_span))
+            .map_or(&[], Vec::as_slice)
     }
 
     pub(crate) fn suppression_command_spans(&self) -> &[Span] {
@@ -265,6 +278,8 @@ impl Deref for LinterSemanticArtifacts<'_> {
 #[derive(Default)]
 struct LintTraversalObserver<'a> {
     command_visits_by_id: Vec<Option<facts::CommandVisit<'a>>>,
+    conditional_expression_visits_by_command_span:
+        FxHashMap<facts::FactSpan, Vec<facts::ConditionalExpressionVisit<'a>>>,
     direct_command_ids_by_body_span: FxHashMap<facts::FactSpan, Vec<CommandId>>,
     suppression_command_spans_by_id: Vec<Option<Span>>,
 }
@@ -286,6 +301,21 @@ impl LintTraversalObserver<'_> {
 }
 
 impl<'a> TraversalObserver<'a> for LintTraversalObserver<'a> {
+    fn conditional_expression(
+        &mut self,
+        command_span: Span,
+        expression: &'a shuck_ast::ConditionalExpr,
+        parent_in_same_logical_group: bool,
+    ) {
+        self.conditional_expression_visits_by_command_span
+            .entry(facts::FactSpan::new(command_span))
+            .or_default()
+            .push(facts::ConditionalExpressionVisit::new(
+                expression,
+                parent_in_same_logical_group,
+            ));
+    }
+
     fn recorded_command(
         &mut self,
         id: CommandId,
