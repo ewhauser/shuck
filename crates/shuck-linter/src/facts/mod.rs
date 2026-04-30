@@ -87,8 +87,6 @@ pub(crate) use self::command_options::{
 };
 pub use self::conditional_portability::ConditionalPortabilityFacts;
 pub(crate) use self::escape_scan::{EscapeScanMatch, EscapeScanSourceKind};
-#[cfg(feature = "benchmarking")]
-pub(crate) use self::normalized_commands::normalize_command;
 pub use self::normalized_commands::{
     DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind,
 };
@@ -120,26 +118,6 @@ include!("braces.rs");
 include!("arithmetic.rs");
 pub(crate) mod words;
 use self::words::*;
-
-#[cfg(feature = "benchmarking")]
-pub(crate) fn benchmark_normalize_commands(file: &File, source: &str) -> usize {
-    let mut total = 0;
-    walk_commands(
-        &file.body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit, _| {
-            let normalized = normalize_command(visit.command, source);
-            total += normalized.wrappers.len()
-                + normalized.body_words.len()
-                + usize::from(normalized.literal_name.is_some())
-                + usize::from(normalized.effective_name.is_some())
-                + usize::from(normalized.declaration.is_some());
-        },
-    );
-    total
-}
 
 #[allow(unused_imports)]
 pub(crate) mod core {
