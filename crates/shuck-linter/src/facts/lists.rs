@@ -125,7 +125,7 @@ pub(super) fn build_list_facts<'a>(
         let Command::Binary(command) = fact.command() else {
             continue;
         };
-        if !matches!(command.op, BinaryOp::And | BinaryOp::Or) {
+        if BinaryCommandChain::logical_list(command).is_none() {
             continue;
         }
 
@@ -149,7 +149,7 @@ pub(super) fn build_list_facts<'a>(
             let Command::Binary(command) = fact.command() else {
                 return None;
             };
-            if !matches!(command.op, BinaryOp::And | BinaryOp::Or)
+            if BinaryCommandChain::logical_list(command).is_none()
                 || nested_list_commands.contains(&fact.id())
             {
                 return None;
@@ -185,10 +185,11 @@ fn record_nested_list_command(
     command_relationships: CommandRelationshipContext<'_, '_>,
     nested_list_commands: &mut FxHashSet<CommandId>,
 ) {
-    if matches!(
-        &stmt.command,
-        Command::Binary(child) if matches!(child.op, BinaryOp::And | BinaryOp::Or)
-    ) && let Some(child) = command_relationships.child_or_lookup_fact(parent_id, stmt)
+    let Command::Binary(child) = &stmt.command else {
+        return;
+    };
+    if BinaryCommandChain::logical_list(child).is_some()
+        && let Some(child) = command_relationships.child_or_lookup_fact(parent_id, stmt)
     {
         nested_list_commands.insert(child.id());
     }
@@ -218,22 +219,21 @@ fn collect_list_segment_facts<'a>(
     source: &str,
     segments: &mut Vec<ListSegmentFact<'a>>,
 ) -> Option<()> {
-    let mut stack = vec![(&command.right, parent_id), (&command.left, parent_id)];
-    while let Some((stmt, parent_id)) = stack.pop() {
-        if let Command::Binary(binary) = &stmt.command
-            && matches!(binary.op, BinaryOp::And | BinaryOp::Or)
-        {
-            let nested_parent_id = command_relationships
-                .child_or_lookup_fact(parent_id, stmt)?
-                .id();
-            stack.push((&binary.right, nested_parent_id));
-            stack.push((&binary.left, nested_parent_id));
-            continue;
+    let chain = BinaryCommandChain::logical_list(command)?;
+    let mut ok = true;
+    chain.visit_segments(|stmt| {
+        if ok {
+            ok = push_list_stmt_segment_fact(
+                stmt,
+                command_relationships,
+                parent_id,
+                source,
+                segments,
+            )
+            .is_some();
         }
-
-        push_list_stmt_segment_fact(stmt, command_relationships, parent_id, source, segments)?;
-    }
-    Some(())
+    });
+    ok.then_some(())
 }
 
 fn push_list_stmt_segment_fact<'a>(

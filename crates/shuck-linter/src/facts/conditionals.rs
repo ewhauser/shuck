@@ -502,6 +502,7 @@ pub(super) fn collect_condition_status_capture_from_sequence(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
+    let body_shape = BodyShapeAnalyzer::new(source);
     let mut segment_start = 0;
     for (index, stmt) in commands.iter().enumerate() {
         if !stmt_starts_sequence_barrier(stmt) {
@@ -512,7 +513,7 @@ pub(super) fn collect_condition_status_capture_from_sequence(
             &commands.as_slice()[segment_start..index],
             source,
             spans,
-            sequence_tail_contains_nested_test_command(&commands.as_slice()[index..], source),
+            body_shape.sequence_tail_contains_nested_test_command(&commands.as_slice()[index..]),
             segment_start > 0,
         );
         segment_start = index + 1;
@@ -526,7 +527,8 @@ pub(super) fn collect_condition_status_capture_from_sequence(
     );
 
     for (index, stmt) in commands.iter().enumerate() {
-        if !sequence_tail_contains_nested_test_command(&commands.as_slice()[index + 1..], source) {
+        if !body_shape.sequence_tail_contains_nested_test_command(&commands.as_slice()[index + 1..])
+        {
             continue;
         }
 
@@ -536,7 +538,7 @@ pub(super) fn collect_condition_status_capture_from_sequence(
             continue;
         };
 
-        collect_status_test_followup_chains_with_sibling_tail(body, source, spans);
+        body_shape.collect_status_test_followup_chains_with_sibling_tail(body, spans);
     }
 }
 
@@ -602,12 +604,10 @@ fn collect_condition_status_capture_from_sequence_segment(
 ) {
     let tail_contains_test = sequence_tail_test_index(commands, source);
     let mut recent = RecentSequenceStatus::default();
-    for (index, window) in commands.windows(2).enumerate() {
-        let [previous, current] = window else {
-            continue;
-        };
-        if index > 0 {
-            recent.push(&commands[index - 1], source);
+    let body_topology = BodyTopology::from_statements(commands);
+    for (index, previous, current) in body_topology.indexed_sibling_pairs() {
+        if let Some(before_previous) = body_topology.previous_sibling(index) {
+            recent.push(before_previous, source);
         }
         let tail_has_test = tail_contains_test
             .get(index + 2)
@@ -701,193 +701,6 @@ fn sequence_tail_test_index(commands: &[Stmt], source: &str) -> Vec<bool> {
     suffix
 }
 
-fn sequence_tail_contains_nested_test_command(commands: &[Stmt], source: &str) -> bool {
-    commands
-        .iter()
-        .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
-}
-
-fn stmt_or_nested_sequence_contains_test_command(stmt: &Stmt, source: &str) -> bool {
-    if stmt_terminals_are_test_commands(stmt, source) {
-        return true;
-    }
-
-    match &stmt.command {
-        Command::Binary(command) => {
-            stmt_or_nested_sequence_contains_test_command(&command.left, source)
-                || stmt_or_nested_sequence_contains_test_command(&command.right, source)
-        }
-        Command::Compound(command) => match command {
-            CompoundCommand::If(command) => {
-                condition_terminals_are_test_commands(&command.condition, source)
-                    || command
-                        .then_branch
-                        .iter()
-                        .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
-                    || command.elif_branches.iter().any(|(condition, branch)| {
-                        condition_terminals_are_test_commands(condition, source)
-                            || branch.iter().any(|stmt| {
-                                stmt_or_nested_sequence_contains_test_command(stmt, source)
-                            })
-                    })
-                    || command.else_branch.as_ref().is_some_and(|branch| {
-                        branch
-                            .iter()
-                            .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
-                    })
-            }
-            CompoundCommand::While(command) => {
-                condition_terminals_are_test_commands(&command.condition, source)
-                    || command
-                        .body
-                        .iter()
-                        .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
-            }
-            CompoundCommand::Until(command) => {
-                condition_terminals_are_test_commands(&command.condition, source)
-                    || command
-                        .body
-                        .iter()
-                        .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
-            }
-            CompoundCommand::For(command) => command
-                .body
-                .iter()
-                .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source)),
-            CompoundCommand::Select(command) => command
-                .body
-                .iter()
-                .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source)),
-            CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => body
-                .iter()
-                .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source)),
-            CompoundCommand::Time(command) => command
-                .command
-                .as_ref()
-                .is_some_and(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source)),
-            CompoundCommand::Always(command) => {
-                command
-                    .body
-                    .iter()
-                    .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
-                    || command
-                        .always_body
-                        .iter()
-                        .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
-            }
-            CompoundCommand::Case(command) => command.cases.iter().any(|case| {
-                case.body
-                    .iter()
-                    .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
-            }),
-            CompoundCommand::Conditional(_)
-            | CompoundCommand::Repeat(_)
-            | CompoundCommand::Foreach(_)
-            | CompoundCommand::ArithmeticFor(_)
-            | CompoundCommand::Arithmetic(_)
-            | CompoundCommand::Coproc(_) => false,
-        },
-        Command::Function(function) => {
-            stmt_or_nested_sequence_contains_test_command(&function.body, source)
-        }
-        Command::AnonymousFunction(function) => {
-            stmt_or_nested_sequence_contains_test_command(&function.body, source)
-        }
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => false,
-    }
-}
-
-fn collect_status_test_followup_chains_with_sibling_tail(
-    commands: &StmtSeq,
-    source: &str,
-    spans: &mut Vec<Span>,
-) {
-    for window in commands.as_slice().windows(2) {
-        let [previous, current] = window else {
-            continue;
-        };
-        if stmt_is_standalone_non_status_test_command(previous, source)
-            && stmt_is_status_test_followup_chain(current, source)
-        {
-            collect_status_parameter_spans_in_stmt(current, source, spans);
-        }
-    }
-
-    for stmt in commands.iter() {
-        collect_status_test_followup_chains_in_nested_stmt(stmt, source, spans);
-    }
-}
-
-fn collect_status_test_followup_chains_in_nested_stmt(
-    stmt: &Stmt,
-    source: &str,
-    spans: &mut Vec<Span>,
-) {
-    match &stmt.command {
-        Command::Binary(command) => {
-            collect_status_test_followup_chains_in_nested_stmt(&command.left, source, spans);
-            collect_status_test_followup_chains_in_nested_stmt(&command.right, source, spans);
-        }
-        Command::Compound(command) => match command {
-            CompoundCommand::If(command) => {
-                collect_status_test_followup_chains_with_sibling_tail(
-                    &command.then_branch,
-                    source,
-                    spans,
-                );
-                for (_, branch) in &command.elif_branches {
-                    collect_status_test_followup_chains_with_sibling_tail(branch, source, spans);
-                }
-                if let Some(branch) = &command.else_branch {
-                    collect_status_test_followup_chains_with_sibling_tail(branch, source, spans);
-                }
-            }
-            CompoundCommand::While(command) => {
-                collect_status_test_followup_chains_with_sibling_tail(&command.body, source, spans);
-            }
-            CompoundCommand::Until(command) => {
-                collect_status_test_followup_chains_with_sibling_tail(&command.body, source, spans);
-            }
-            CompoundCommand::For(command) => {
-                collect_status_test_followup_chains_with_sibling_tail(&command.body, source, spans);
-            }
-            CompoundCommand::Select(command) => {
-                collect_status_test_followup_chains_with_sibling_tail(&command.body, source, spans);
-            }
-            CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => {
-                collect_status_test_followup_chains_with_sibling_tail(body, source, spans);
-            }
-            CompoundCommand::Time(command) => {
-                if let Some(inner) = &command.command {
-                    collect_status_test_followup_chains_in_nested_stmt(inner, source, spans);
-                }
-            }
-            CompoundCommand::Always(command) => {
-                collect_status_test_followup_chains_with_sibling_tail(&command.body, source, spans);
-                collect_status_test_followup_chains_with_sibling_tail(
-                    &command.always_body,
-                    source,
-                    spans,
-                );
-            }
-            CompoundCommand::Case(_)
-            | CompoundCommand::Conditional(_)
-            | CompoundCommand::Repeat(_)
-            | CompoundCommand::Foreach(_)
-            | CompoundCommand::ArithmeticFor(_)
-            | CompoundCommand::Arithmetic(_)
-            | CompoundCommand::Coproc(_) => {}
-        },
-        Command::Function(function) => {
-            collect_status_test_followup_chains_in_nested_stmt(&function.body, source, spans);
-        }
-        Command::AnonymousFunction(function) => {
-            collect_status_test_followup_chains_in_nested_stmt(&function.body, source, spans);
-        }
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
-    }
-}
-
 fn branch_body_status_capture_is_exempt(
     first_stmt: &Stmt,
     body: &StmtSeq,
@@ -943,6 +756,7 @@ fn collect_precise_function_return_guard_suppressions_in_seq(
     in_function_like_body: bool,
 ) {
     let stmts = commands.as_slice();
+    let body_shape = BodyShapeAnalyzer::new(source);
     for (index, stmt) in stmts.iter().enumerate() {
         if in_function_like_body && stmt_is_test_return_status_guard(stmt, source) {
             let previous_non_test_guard =
@@ -951,7 +765,7 @@ fn collect_precise_function_return_guard_suppressions_in_seq(
                 .iter()
                 .any(|stmt| stmt_is_unary_test_return_status_guard(stmt, source));
             let status_accumulator_guard =
-                stmt_starts_status_accumulator_return_guard(index, stmts, source);
+                body_shape.stmt_starts_status_accumulator_return_guard(index, stmts);
             if status_accumulator_guard
                 || (stmt_is_unary_test_return_status_guard(stmt, source)
                     && (previous_non_test_guard || later_unary_guard))
@@ -1089,24 +903,6 @@ fn stmt_is_status_based_test_command(stmt: &Stmt, source: &str) -> bool {
     stmt_terminals_are_test_commands(stmt, source) && stmt_contains_status_capture(stmt, source)
 }
 
-fn stmt_is_status_test_followup_chain(stmt: &Stmt, source: &str) -> bool {
-    match &stmt.command {
-        Command::Binary(command) if matches!(command.op, BinaryOp::And | BinaryOp::Or) => {
-            (stmt_is_status_based_test_command(&command.left, source)
-                && !stmt_terminals_are_test_commands(&command.right, source))
-                || stmt_is_status_test_followup_chain(&command.left, source)
-                || stmt_is_status_test_followup_chain(&command.right, source)
-        }
-        Command::Simple(_)
-        | Command::Builtin(_)
-        | Command::Decl(_)
-        | Command::Binary(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => false,
-    }
-}
-
 fn stmt_is_unary_test_return_status_guard(stmt: &Stmt, source: &str) -> bool {
     let Command::Binary(command) = &stmt.command else {
         return false;
@@ -1196,23 +992,6 @@ fn stmt_is_simple_unary_test_command(stmt: &Stmt, source: &str) -> bool {
     }
 }
 
-fn stmt_starts_status_accumulator_return_guard(
-    index: usize,
-    commands: &[Stmt],
-    source: &str,
-) -> bool {
-    let Some(next_stmt) = commands.get(index + 1) else {
-        return false;
-    };
-    let Some(name) = stmt_assignment_only_scalar_literal_name(next_stmt, source, "0") else {
-        return false;
-    };
-    let later = &commands[index + 2..];
-    later.iter()
-        .any(|stmt| stmt_contains_status_capture_assignment_to_name(stmt, name))
-        && later.iter().any(|stmt| stmt_returns_name(stmt, name))
-}
-
 fn stmt_assignment_only_scalar_literal_name<'a>(
     stmt: &'a Stmt,
     source: &str,
@@ -1226,87 +1005,6 @@ fn stmt_assignment_only_scalar_literal_name<'a>(
         return None;
     };
     (static_word_text(word, source).as_deref() == Some(expected)).then_some(name)
-}
-
-fn stmt_contains_status_capture_assignment_to_name(stmt: &Stmt, name: &Name) -> bool {
-    match &stmt.command {
-        Command::Simple(_) => stmt_plain_assignment_only_name(stmt).is_some_and(|target| {
-            target == name && stmt_is_assignment_only_unquoted_status_capture(stmt)
-        }),
-        Command::Binary(command) => {
-            stmt_contains_status_capture_assignment_to_name(&command.left, name)
-                || stmt_contains_status_capture_assignment_to_name(&command.right, name)
-        }
-        Command::Compound(command) => match command {
-            CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => body
-                .iter()
-                .any(|stmt| stmt_contains_status_capture_assignment_to_name(stmt, name)),
-            CompoundCommand::Time(command) => command
-                .command
-                .as_ref()
-                .is_some_and(|stmt| stmt_contains_status_capture_assignment_to_name(stmt, name)),
-            CompoundCommand::If(_)
-            | CompoundCommand::While(_)
-            | CompoundCommand::Until(_)
-            | CompoundCommand::For(_)
-            | CompoundCommand::Select(_)
-            | CompoundCommand::Case(_)
-            | CompoundCommand::Conditional(_)
-            | CompoundCommand::Repeat(_)
-            | CompoundCommand::Foreach(_)
-            | CompoundCommand::ArithmeticFor(_)
-            | CompoundCommand::Arithmetic(_)
-            | CompoundCommand::Coproc(_)
-            | CompoundCommand::Always(_) => false,
-        },
-        Command::Builtin(_)
-        | Command::Decl(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => false,
-    }
-}
-
-fn stmt_returns_name(stmt: &Stmt, name: &Name) -> bool {
-    match &stmt.command {
-        Command::Builtin(BuiltinCommand::Return(command)) => command
-            .code
-            .as_ref()
-            .is_some_and(|word| word_is_name_reference(word, name)),
-        Command::Binary(command) => {
-            stmt_returns_name(&command.left, name) || stmt_returns_name(&command.right, name)
-        }
-        Command::Compound(command) => match command {
-            CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => body
-                .iter()
-                .any(|stmt| stmt_returns_name(stmt, name)),
-            CompoundCommand::Time(command) => command
-                .command
-                .as_ref()
-                .is_some_and(|stmt| stmt_returns_name(stmt, name)),
-            CompoundCommand::If(_)
-            | CompoundCommand::While(_)
-            | CompoundCommand::Until(_)
-            | CompoundCommand::For(_)
-            | CompoundCommand::Select(_)
-            | CompoundCommand::Case(_)
-            | CompoundCommand::Conditional(_)
-            | CompoundCommand::Repeat(_)
-            | CompoundCommand::Foreach(_)
-            | CompoundCommand::ArithmeticFor(_)
-            | CompoundCommand::Arithmetic(_)
-            | CompoundCommand::Coproc(_)
-            | CompoundCommand::Always(_) => false,
-        },
-        Command::Simple(_)
-        | Command::Decl(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => false,
-        Command::Builtin(
-            BuiltinCommand::Break(_)
-            | BuiltinCommand::Continue(_)
-            | BuiltinCommand::Exit(_),
-        ) => false,
-    }
 }
 
 fn word_is_name_reference(word: &Word, name: &Name) -> bool {
@@ -1483,13 +1181,18 @@ fn command_terminals_are_test_commands(command: &Command, source: &str) -> bool 
             Some("[") | Some("test")
         ),
         Command::Compound(CompoundCommand::Conditional(_)) => true,
-        Command::Binary(command) if matches!(command.op, BinaryOp::And | BinaryOp::Or) => {
-            stmt_terminals_are_test_commands(&command.left, source)
-                && stmt_terminals_are_test_commands(&command.right, source)
+        Command::Binary(command) => {
+            let Some(chain) = BinaryCommandChain::logical_list(command) else {
+                return false;
+            };
+            let mut all_segments_are_tests = true;
+            chain.visit_segments(|stmt| {
+                all_segments_are_tests &= stmt_terminals_are_test_commands(stmt, source);
+            });
+            all_segments_are_tests
         }
         Command::Builtin(_)
         | Command::Decl(_)
-        | Command::Binary(_)
         | Command::Compound(_)
         | Command::Function(_)
         | Command::AnonymousFunction(_) => false,

@@ -1017,17 +1017,17 @@ fn is_test_condition_fact<'a>(
     command_relationships: CommandRelationshipContext<'_, 'a>,
 ) -> bool {
     match fact.command() {
-        Command::Binary(binary) if matches!(binary.op, BinaryOp::And | BinaryOp::Or) => {
-            let Some(left) = command_relationships.child_or_lookup_fact(fact.id(), &binary.left)
-            else {
+        Command::Binary(binary) => {
+            let Some(chain) = BinaryCommandChain::logical_list(binary) else {
                 return false;
             };
-            let Some(right) = command_relationships.child_or_lookup_fact(fact.id(), &binary.right)
-            else {
-                return false;
-            };
-            is_test_condition_fact(left, command_relationships)
-                && is_test_condition_fact(right, command_relationships)
+            let mut all_segments_are_tests = true;
+            chain.visit_segments(|stmt| {
+                all_segments_are_tests &= command_relationships
+                    .child_or_lookup_fact(fact.id(), stmt)
+                    .is_some_and(|fact| is_test_condition_fact(fact, command_relationships));
+            });
+            all_segments_are_tests
         }
         _ => is_test_like_command(fact),
     }
@@ -1103,15 +1103,24 @@ fn subshell_command_analysis<'a>(
                 has_grouping: inner.has_grouping,
             })
         }
-        Command::Binary(binary) if matches!(binary.op, BinaryOp::And | BinaryOp::Or) => {
-            let left =
-                subshell_stmt_analysis(&binary.left, fact.id(), command_relationships)?;
-            let right =
-                subshell_stmt_analysis(&binary.right, fact.id(), command_relationships)?;
-            Some(GroupedTestAnalysis {
-                test_count: left.test_count + right.test_count,
-                has_grouping: true,
-            })
+        Command::Binary(binary) => {
+            let chain = BinaryCommandChain::logical_list(binary)?;
+            let mut analysis = Some(GroupedTestAnalysis::default());
+            chain.visit_segments(|stmt| {
+                if analysis.is_none() {
+                    return;
+                }
+                let Some(segment) = subshell_stmt_analysis(stmt, fact.id(), command_relationships)
+                else {
+                    analysis = None;
+                    return;
+                };
+                if let Some(current) = analysis.as_mut() {
+                    current.test_count += segment.test_count;
+                    current.has_grouping = true;
+                }
+            });
+            analysis
         }
         _ => None,
     }
@@ -1187,19 +1196,15 @@ fn trim_trailing_whitespace_offset(source: &str, end_offset: usize) -> usize {
 }
 
 fn collect_short_circuit_operators(command: &BinaryCommand, operators: &mut Vec<ListOperatorFact>) {
-    visit_binary_chain_parts(
-        command,
-        |op| matches!(op, BinaryOp::And | BinaryOp::Or),
-        |_| {},
-        |command| {
-            if matches!(command.op, BinaryOp::And | BinaryOp::Or) {
-                operators.push(ListOperatorFact {
-                    op: command.op,
-                    span: command.op_span,
-                });
-            }
-        },
-    );
+    let Some(chain) = BinaryCommandChain::logical_list(command) else {
+        return;
+    };
+    chain.visit_nodes(|command| {
+        operators.push(ListOperatorFact {
+            op: command.op,
+            span: command.op_span,
+        });
+    });
 }
 
 fn mixed_short_circuit_operator_span(operators: &[ListOperatorFact]) -> Option<Span> {

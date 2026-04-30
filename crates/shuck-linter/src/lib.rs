@@ -110,8 +110,9 @@ use shuck_ast::{Command, CompoundCommand, File, Position, Span, Stmt, StmtSeq, T
 use shuck_indexer::{Indexer, LineIndex};
 use shuck_parser::parser::{ParseResult, Parser};
 use shuck_semantic::{
-    CommandKind, CompoundCommandKind, FlowContext, ScopeId, SemanticBuildOptions, SemanticModel,
-    SourcePathResolver, TraversalObserver, build_with_observer_with_options,
+    CommandKind, CompoundCommandKind, FlowContext, ScopeId, SemanticBuildOptions,
+    SemanticCommandContext, SemanticModel, SourcePathResolver, TraversalObserver,
+    build_with_observer_with_options,
 };
 use std::ops::Deref;
 use std::path::Path;
@@ -308,6 +309,18 @@ pub(crate) struct CommandTopology<'a, 'artifacts> {
 }
 
 impl<'a, 'artifacts> CommandTopology<'a, 'artifacts> {
+    /// Returns semantic command topology scoped to a statement-sequence body.
+    ///
+    /// Use this when a fact needs command ids or semantic traversal relationships for commands
+    /// that appear under `body`. For purely syntactic sibling windows, prefer the fact-layer
+    /// `BodyTopology` helper instead.
+    pub(crate) fn body(&self, body: &StmtSeq) -> CommandBodyTopology<'a, 'artifacts> {
+        CommandBodyTopology {
+            topology: *self,
+            direct_ids: self.direct_command_ids_in_body(body),
+        }
+    }
+
     /// Returns direct semantic command ids recorded for a statement-sequence body.
     pub(crate) fn direct_command_ids_in_body(&self, body: &StmtSeq) -> &'artifacts [CommandId] {
         let body_span = facts::FactSpan::new(body.span);
@@ -325,6 +338,40 @@ impl<'a, 'artifacts> CommandTopology<'a, 'artifacts> {
             .and_then(|visit| *visit)
     }
 
+    /// Returns the semantic context recorded for `id`.
+    pub(crate) fn command_context(&self, id: CommandId) -> Option<&SemanticCommandContext> {
+        self.artifacts.semantic.command_context(id)
+    }
+
+    /// Returns the structural semantic parent for `id`, if one exists.
+    #[allow(dead_code)]
+    pub(crate) fn command_parent_id(&self, id: CommandId) -> Option<CommandId> {
+        self.artifacts.semantic.command_parent_id(id)
+    }
+
+    /// Returns structural semantic child commands nested under `id`.
+    #[allow(dead_code)]
+    pub(crate) fn command_children(&self, id: CommandId) -> &[CommandId] {
+        self.artifacts.semantic.command_children(id)
+    }
+
+    /// Returns the syntax-backed semantic parent for `id`, if one exists.
+    #[allow(dead_code)]
+    pub(crate) fn syntax_backed_command_parent_id(&self, id: CommandId) -> Option<CommandId> {
+        self.artifacts.semantic.syntax_backed_command_parent_id(id)
+    }
+
+    /// Returns syntax-backed semantic child commands nested directly under `id`.
+    pub(crate) fn syntax_backed_command_children(&self, id: CommandId) -> &[CommandId] {
+        self.artifacts.semantic.syntax_backed_command_children(id)
+    }
+
+    /// Returns the nested word-command depth recorded for `id`.
+    pub(crate) fn nested_word_command_depth(&self, id: CommandId) -> Option<usize> {
+        self.command_context(id)
+            .map(SemanticCommandContext::nested_word_command_depth)
+    }
+
     /// Iterates command visits inside `body` in semantic source order.
     ///
     /// `descend_nested_word_commands` controls whether command substitutions nested inside words
@@ -337,18 +384,30 @@ impl<'a, 'artifacts> CommandTopology<'a, 'artifacts> {
         mut visitor: impl FnMut(CommandId, facts::CommandVisit<'a>) -> CommandTopologyTraversal,
     ) {
         let root_ids = self.direct_command_ids_in_body(body);
+        self.for_each_command_visit_from_roots(
+            root_ids,
+            descend_nested_word_commands,
+            &mut visitor,
+        );
+    }
+
+    fn for_each_command_visit_from_roots(
+        &self,
+        root_ids: &[CommandId],
+        descend_nested_word_commands: bool,
+        visitor: &mut impl FnMut(CommandId, facts::CommandVisit<'a>) -> CommandTopologyTraversal,
+    ) {
         if root_ids.is_empty() {
             return;
         }
         let baseline_depth = root_ids
             .iter()
-            .filter_map(|id| self.artifacts.semantic.command_context(*id))
-            .map(|context| context.nested_word_command_depth())
+            .filter_map(|id| self.nested_word_command_depth(*id))
             .min()
             .unwrap_or(0);
         let mut stack = root_ids.iter().rev().copied().collect::<Vec<_>>();
         while let Some(id) = stack.pop() {
-            let Some(context) = self.artifacts.semantic.command_context(id) else {
+            let Some(context) = self.command_context(id) else {
                 continue;
             };
             if !descend_nested_word_commands && context.nested_word_command_depth() > baseline_depth
@@ -362,16 +421,86 @@ impl<'a, 'artifacts> CommandTopology<'a, 'artifacts> {
                     CommandTopologyTraversal::Break => break,
                 }
             }
-            for child in self
-                .artifacts
-                .semantic
-                .syntax_backed_command_children(id)
-                .iter()
-                .rev()
-            {
+            for child in self.syntax_backed_command_children(id).iter().rev() {
                 stack.push(*child);
             }
         }
+    }
+}
+
+/// Parser-backed visit paired with its semantic command id.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BodyCommandVisit<'a> {
+    /// Semantic command id for this visit.
+    pub(crate) id: CommandId,
+    /// Parser-backed command visit recorded during semantic traversal.
+    pub(crate) visit: facts::CommandVisit<'a>,
+}
+
+/// Semantic-backed command topology scoped to one statement-sequence body.
+///
+/// This is the command-id counterpart to the fact-layer `BodyTopology`: it preserves body
+/// boundaries while still returning semantic ids, parser-backed visits, and controlled descendant
+/// traversal.
+#[derive(Clone, Copy)]
+pub(crate) struct CommandBodyTopology<'a, 'artifacts> {
+    topology: CommandTopology<'a, 'artifacts>,
+    direct_ids: &'artifacts [CommandId],
+}
+
+impl<'a, 'artifacts> CommandBodyTopology<'a, 'artifacts> {
+    /// Returns direct semantic command ids recorded for this body.
+    #[allow(dead_code)]
+    pub(crate) fn direct_command_ids(&self) -> &'artifacts [CommandId] {
+        self.direct_ids
+    }
+
+    /// Iterates direct command visits recorded for this body.
+    #[allow(dead_code)]
+    pub(crate) fn direct_command_visits(
+        &self,
+    ) -> impl Iterator<Item = BodyCommandVisit<'a>> + use<'a, 'artifacts, '_> {
+        self.direct_ids.iter().filter_map(|id| {
+            self.topology
+                .command_visit(*id)
+                .map(|visit| BodyCommandVisit { id: *id, visit })
+        })
+    }
+
+    /// Iterates adjacent direct command visits recorded for this body.
+    #[allow(dead_code)]
+    pub(crate) fn sibling_command_visit_pairs(
+        &self,
+    ) -> impl Iterator<Item = (BodyCommandVisit<'a>, BodyCommandVisit<'a>)> + use<'a, 'artifacts, '_>
+    {
+        self.direct_ids.windows(2).filter_map(|ids| {
+            let previous_id = ids[0];
+            let current_id = ids[1];
+            Some((
+                BodyCommandVisit {
+                    id: previous_id,
+                    visit: self.topology.command_visit(previous_id)?,
+                },
+                BodyCommandVisit {
+                    id: current_id,
+                    visit: self.topology.command_visit(current_id)?,
+                },
+            ))
+        })
+    }
+
+    /// Iterates command visits below this body in semantic source order.
+    pub(crate) fn for_each_command_visit(
+        &self,
+        descend_nested_word_commands: bool,
+        mut visitor: impl FnMut(CommandId, facts::CommandVisit<'a>) -> CommandTopologyTraversal,
+    ) {
+        self.topology.for_each_command_visit_from_roots(
+            self.direct_ids,
+            descend_nested_word_commands,
+            &mut visitor,
+        );
     }
 }
 
