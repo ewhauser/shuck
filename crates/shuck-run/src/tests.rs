@@ -745,6 +745,12 @@ fn parses_script_metadata_before_non_comment_lines() {
     let err =
         parse_script_metadata("echo hi\n# /// shuck\n# shell = \"bash\"\n# ///\n").unwrap_err();
     assert!(err.to_string().contains("before the script body"));
+
+    let err = parse_script_metadata(
+        "# /// shuck\n# shell = \"bash\"\n# ///\necho hi\n# /// shuck\n# shell = \"zsh\"\n# ///\n",
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("multiple `# /// shuck` blocks"));
 }
 
 #[test]

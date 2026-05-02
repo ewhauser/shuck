@@ -83,16 +83,9 @@ pub(crate) fn parse_script_metadata(source: &str) -> Result<Option<ScriptMetadat
                 .transpose()?;
             for (_, trailing_line) in lines {
                 let trailing = trailing_line.trim();
-                if trailing.is_empty() {
-                    continue;
-                }
                 if trailing == "# /// shuck" {
                     bail!("multiple `# /// shuck` blocks are not allowed");
                 }
-                if trailing.starts_with('#') {
-                    continue;
-                }
-                break;
             }
             return Ok(Some(ScriptMetadata { shell, version }));
         }
