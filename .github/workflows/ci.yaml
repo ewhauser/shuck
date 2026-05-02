@@ -54,6 +54,8 @@ jobs:
       - uses: zizmorcore/zizmor-action@71321a20a9ded102f6e9ce5718a2fcec2c4f70d8 # v0.5.2
       - name: "Check release workflow security hardening"
         run: python3 scripts/check-release-security.py check
+      - name: "Check release-please crate version coverage"
+        run: python3 scripts/check-release-please-config.py
 
   cargo-fmt:
     name: "cargo fmt"

@@ -27,35 +27,43 @@ fi
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# Publish order follows the internal dependency graph (deepest first). Matches
-# crates-publish.yml so behavior is consistent with CI after bootstrap.
-crates=(
-  shuck-ast
-  shuck-format
-  shuck-parser
-  shuck-indexer
-  shuck-cache
-  shuck-semantic
-  shuck-linter
-  shuck-formatter
-  shuck-cli
-)
+declare -a crates=()
+while IFS= read -r crate; do
+  crates+=("$crate")
+done < <(python3 "$REPO_ROOT/scripts/workspace-publish-crates.py")
+
+if [ "${#crates[@]}" -eq 0 ]; then
+  echo "error: no publishable workspace crates found" >&2
+  exit 1
+fi
 
 workspace_version="$(cargo metadata --format-version 1 --no-deps \
-  | jq -r '.workspace_metadata // empty | .version // empty' )"
+  | jq -r '
+      .workspace_members as $members
+      | [
+          .packages[]
+          | . as $package
+          | select($members | index($package.id))
+          | select(.publish != [])
+          | .version
+        ]
+      | unique
+      | if length == 1 then .[0] else empty end
+    ')"
 if [ -z "$workspace_version" ]; then
-  workspace_version="$(cargo metadata --format-version 1 --no-deps \
-    | jq -r '.packages[] | select(.name=="shuck-cli") | .version')"
+  echo "error: publishable workspace crates do not share one version" >&2
+  exit 1
 fi
 echo "Workspace version: $workspace_version"
 
 publish_flag=""
 if [ "${DRY_RUN:-0}" = "1" ]; then
-  # --no-verify skips the post-package rebuild that resolves deps from
-  # crates.io. Without it, dry-run fails on internal deps (shuck-parser
-  # depends on shuck-ast, which hasn't been uploaded yet).
+  # --no-verify skips the post-package rebuild, but Cargo still validates
+  # registry dependency names during `publish --dry-run`. That means this
+  # mode is only a partial packaging check when a new internal crate name
+  # has not been uploaded to crates.io yet.
   publish_flag="--dry-run --no-verify"
-  echo "DRY_RUN=1 → cargo publish --dry-run --no-verify (no upload, no rebuild)"
+  echo "DRY_RUN=1 → cargo publish --dry-run --no-verify (no upload; unpublished internal deps may still fail)"
 fi
 
 is_version_on_crates_io() {

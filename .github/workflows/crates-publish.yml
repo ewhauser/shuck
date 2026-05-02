@@ -51,7 +51,7 @@ jobs:
         run: |
           if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$DRY_RUN_INPUT" = "true" ]; then
             echo "flag=--dry-run" >> "$GITHUB_OUTPUT"
-            echo "Dry-run mode: skipping upload"
+            echo "Dry-run mode: skipping upload (new unpublished internal deps may still fail registry validation)"
           else
             echo "flag=" >> "$GITHUB_OUTPUT"
             echo "Publish mode: uploads enabled"
@@ -68,20 +68,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Publish order follows the internal dependency graph, deepest first.
-          # shuck-benchmark is publish = false and excluded.
-          crates=(
-            shuck-ast
-            shuck-format
-            shuck-parser
-            shuck-indexer
-            shuck-cache
-            shuck-semantic
-            shuck-linter
-            shuck-formatter
-            shuck-extract
-            shuck-cli
-          )
+          crates_file="$(mktemp)"
+          python3 scripts/workspace-publish-crates.py > "${crates_file}"
+          mapfile -t crates < "${crates_file}"
+          rm -f "${crates_file}"
+          if [ "${#crates[@]}" -eq 0 ]; then
+            echo "No publishable crates found" >&2
+            exit 1
+          fi
 
           for crate in "${crates[@]}"; do
             echo "::group::Publishing ${crate}"
