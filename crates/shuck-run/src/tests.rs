@@ -770,7 +770,8 @@ fn parses_script_metadata_before_non_comment_lines() {
     .unwrap();
     assert_eq!(metadata.shell, Shell::Bash);
 
-    let metadata = parse_script_metadata("# /// shuck notes\n# shell = \"bash\"\necho hi\n").unwrap();
+    let metadata =
+        parse_script_metadata("# /// shuck notes\n# shell = \"bash\"\necho hi\n").unwrap();
     assert!(metadata.is_none());
 }
 
