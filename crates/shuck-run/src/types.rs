@@ -9,6 +9,8 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Shell {
     Bash,
+    Gbash,
+    Bashkit,
     Zsh,
     Dash,
     Mksh,
@@ -18,6 +20,8 @@ impl Shell {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Bash => "bash",
+            Self::Gbash => "gbash",
+            Self::Bashkit => "bashkit",
             Self::Zsh => "zsh",
             Self::Dash => "dash",
             Self::Mksh => "mksh",
@@ -27,6 +31,8 @@ impl Shell {
     pub fn from_name(name: &str) -> Option<Self> {
         match name.trim().to_ascii_lowercase().as_str() {
             "bash" => Some(Self::Bash),
+            "gbash" => Some(Self::Gbash),
+            "bashkit" => Some(Self::Bashkit),
             "zsh" => Some(Self::Zsh),
             "dash" | "sh" => Some(Self::Dash),
             "mksh" | "ksh" => Some(Self::Mksh),
@@ -350,8 +356,9 @@ impl<'a> ResolveOptions<'a> {
 }
 
 pub(crate) fn parse_shell_name(raw: &str) -> Result<Shell> {
-    Shell::from_name(raw)
-        .ok_or_else(|| anyhow!("unsupported shell `{raw}`; expected one of: bash, zsh, dash, mksh"))
+    Shell::from_name(raw).ok_or_else(|| {
+        anyhow!("unsupported shell `{raw}`; expected one of: bash, gbash, bashkit, zsh, dash, mksh")
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

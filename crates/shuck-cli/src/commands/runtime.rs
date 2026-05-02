@@ -1,7 +1,10 @@
+use std::ffi::OsString;
+use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
@@ -43,7 +46,7 @@ pub(crate) fn run(args: RunCommand, config_arguments: &ConfigArguments) -> Resul
     command.stdout(Stdio::inherit());
     command.stderr(Stdio::inherit());
     apply_runtime_environment(&mut command, &resolved);
-    append_run_mode_args(&mut command, &cwd, &args)?;
+    append_run_mode_args(&mut command, &cwd, resolved.shell, &args)?;
 
     exec_or_wait(command)
 }
@@ -180,7 +183,24 @@ fn runtime_resolution_script(
         .transpose()
 }
 
-fn append_run_mode_args(command: &mut ProcessCommand, cwd: &Path, args: &RunCommand) -> Result<()> {
+fn append_run_mode_args(
+    command: &mut ProcessCommand,
+    cwd: &Path,
+    shell: Shell,
+    args: &RunCommand,
+) -> Result<()> {
+    if shell == Shell::Bashkit {
+        return append_bashkit_run_mode_args(command, cwd, args);
+    }
+
+    append_posix_run_mode_args(command, cwd, args)
+}
+
+fn append_posix_run_mode_args(
+    command: &mut ProcessCommand,
+    cwd: &Path,
+    args: &RunCommand,
+) -> Result<()> {
     if let Some(raw_command) = args.command.as_deref() {
         command.arg("-c");
         command.arg(raw_command);
@@ -210,6 +230,80 @@ fn append_run_mode_args(command: &mut ProcessCommand, cwd: &Path, args: &RunComm
     command.arg(script);
     command.args(&args.script_args);
     Ok(())
+}
+
+fn append_bashkit_run_mode_args(
+    command: &mut ProcessCommand,
+    cwd: &Path,
+    args: &RunCommand,
+) -> Result<()> {
+    if let Some(raw_command) = args.command.as_deref() {
+        command.arg("-c");
+        command.arg(bashkit_command_string(raw_command, &args.script_args)?);
+        return Ok(());
+    }
+
+    if is_stdin_script(args.script.as_deref()) {
+        let mut source = String::new();
+        std::io::stdin()
+            .read_to_string(&mut source)
+            .context("read bashkit script from stdin")?;
+        command.arg("-c");
+        command.arg(bashkit_command_string(&source, &args.script_args)?);
+        return Ok(());
+    }
+
+    let script = args
+        .script
+        .as_deref()
+        .ok_or_else(|| anyhow!("missing script path"))?;
+    let script = if script.is_absolute() {
+        script.to_path_buf()
+    } else {
+        cwd.join(script)
+    };
+
+    if args.script_args.is_empty() {
+        command.arg(script);
+        return Ok(());
+    }
+
+    let source =
+        fs::read_to_string(&script).with_context(|| format!("read {}", script.display()))?;
+    command.arg("-c");
+    command.arg(bashkit_command_string(&source, &args.script_args)?);
+    Ok(())
+}
+
+fn bashkit_command_string(source: &str, script_args: &[OsString]) -> Result<String> {
+    if script_args.is_empty() {
+        return Ok(source.to_owned());
+    }
+
+    let mut command = String::from("set --");
+    for arg in script_args {
+        let arg = arg.to_str().ok_or_else(|| {
+            anyhow!("bashkit only supports UTF-8 script arguments when invoked via `shuck run`")
+        })?;
+        command.push(' ');
+        command.push_str(&shell_single_quote(arg));
+    }
+    command.push('\n');
+    command.push_str(source);
+    Ok(command)
+}
+
+fn shell_single_quote(raw: &str) -> String {
+    let mut quoted = String::from("'");
+    for ch in raw.chars() {
+        if ch == '\'' {
+            quoted.push_str("'\"'\"'");
+        } else {
+            quoted.push(ch);
+        }
+    }
+    quoted.push('\'');
+    quoted
 }
 
 fn apply_runtime_environment(

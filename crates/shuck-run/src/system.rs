@@ -139,7 +139,11 @@ pub(crate) fn detect_shell_version(shell: Shell, path: &Path) -> Result<Version>
 
 fn version_probe_commands(shell: Shell) -> Vec<Vec<OsString>> {
     match shell {
-        Shell::Bash | Shell::Zsh => vec![vec![OsString::from("--version")]],
+        Shell::Bash | Shell::Bashkit | Shell::Zsh => vec![vec![OsString::from("--version")]],
+        Shell::Gbash => vec![
+            vec![OsString::from("--version")],
+            vec![OsString::from("version")],
+        ],
         Shell::Dash => vec![
             vec![OsString::from("-V")],
             vec![OsString::from("--version")],

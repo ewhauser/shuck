@@ -26,7 +26,7 @@ fn fake_shell_archive(root: &Path, shell: &str, version: &str) -> (PathBuf, Stri
     fs::create_dir_all(&bin_dir).unwrap();
     let shell_path = bin_dir.join(shell);
     let probe = match shell {
-        "bash" | "zsh" => format!(
+        "bash" | "gbash" | "bashkit" | "zsh" => format!(
             "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  printf '{} {}\\n'\n  exit 0\nfi\nexec /bin/sh \"$@\"\n",
             shell, version
         ),
@@ -211,6 +211,27 @@ fn run_command_string_uses_managed_shell_and_sets_env() {
 }
 
 #[test]
+fn run_command_string_supports_gbash_shell_and_sets_env() {
+    let tempdir = tempdir().unwrap();
+    let (archive, sha256) = fake_shell_archive(tempdir.path(), "gbash", "0.0.32");
+    let registry = registry_body("gbash", &[("0.0.32", &archive, &sha256)]);
+    let registry = registry_path(tempdir.path(), &registry);
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_runtime_env(&mut cmd, tempdir.path(), &registry);
+    cmd.current_dir(tempdir.path()).args([
+        "run",
+        "--shell",
+        "gbash",
+        "--shell-version",
+        "0.0",
+        "-c",
+        "printf '%s|%s\\n' \"$SHUCK_SHELL\" \"$SHUCK_SHELL_VERSION\"",
+    ]);
+    cmd.assert().success().stdout("gbash|0.0.32\n");
+}
+
+#[test]
 fn run_stdin_defaults_to_system_bash() {
     let tempdir = tempdir().unwrap();
     let bin_dir = tempdir.path().join("bin");
@@ -236,6 +257,67 @@ fn run_stdin_with_shell_executes_managed_interpreter() {
         .args(["run", "--shell", "bash", "-"])
         .write_stdin("printf '%s\\n' \"$SHUCK_SHELL\"\n");
     cmd.assert().success().stdout("bash\n");
+}
+
+#[test]
+fn run_dry_run_supports_bashkit_shebang_and_config() {
+    let tempdir = tempdir().unwrap();
+    let (archive, sha256) = fake_shell_archive(tempdir.path(), "bashkit", "0.2.1");
+    let registry = registry_body("bashkit", &[("0.2.1", &archive, &sha256)]);
+    let registry = registry_path(tempdir.path(), &registry);
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[run.shells]\nbashkit = '0.2'\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("sandbox.sh"),
+        "#!/usr/bin/env bashkit\necho hi\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_runtime_env(&mut cmd, tempdir.path(), &registry);
+    cmd.current_dir(tempdir.path())
+        .args(["run", "--dry-run", "sandbox.sh"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("bashkit 0.2.1"))
+        .stdout(predicate::str::contains("bin/bashkit"));
+}
+
+#[test]
+fn run_bashkit_script_preserves_script_args() {
+    let tempdir = tempdir().unwrap();
+    let (archive, sha256) = fake_shell_archive(tempdir.path(), "bashkit", "0.2.1");
+    let registry = registry_body("bashkit", &[("0.2.1", &archive, &sha256)]);
+    let registry = registry_path(tempdir.path(), &registry);
+    fs::write(
+        tempdir.path().join("args.sh"),
+        "#!/usr/bin/env bashkit\nprintf '%s|%s\\n' \"$1\" \"$2\"\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_runtime_env(&mut cmd, tempdir.path(), &registry);
+    cmd.current_dir(tempdir.path())
+        .args(["run", "--shell", "bashkit", "args.sh", "--", "one", "two"]);
+    cmd.assert().success().stdout("one|two\n");
+}
+
+#[test]
+fn run_bashkit_stdin_preserves_script_args() {
+    let tempdir = tempdir().unwrap();
+    let (archive, sha256) = fake_shell_archive(tempdir.path(), "bashkit", "0.2.1");
+    let registry = registry_body("bashkit", &[("0.2.1", &archive, &sha256)]);
+    let registry = registry_path(tempdir.path(), &registry);
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_runtime_env(&mut cmd, tempdir.path(), &registry);
+    cmd.current_dir(tempdir.path())
+        .args(["run", "--shell", "bashkit", "-", "--", "one", "two"])
+        .write_stdin("printf '%s|%s\\n' \"$1\" \"$2\"\n");
+    cmd.assert().success().stdout("one|two\n");
 }
 
 #[test]
