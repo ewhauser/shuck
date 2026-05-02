@@ -117,15 +117,14 @@ impl Version {
             if left_token != right_token {
                 return false;
             }
-            if matches!(left_token, VersionToken::Numeric(_) | VersionToken::Text(_)) {
-                if left.peek().is_none()
+            if matches!(left_token, VersionToken::Numeric(_) | VersionToken::Text(_))
+                && (left.peek().is_none()
                     || matches!(
                         left.peek(),
                         Some(VersionToken::Numeric(_) | VersionToken::Text(_))
-                    )
-                {
-                    matched_segments += 1;
-                }
+                    ))
+            {
+                matched_segments += 1;
             }
         }
 
@@ -289,22 +288,12 @@ pub struct AvailableShell {
     pub versions: Vec<Version>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct RunConfig {
     pub shell: Option<String>,
     pub shell_version: Option<String>,
     pub shells: BTreeMap<String, String>,
-}
-
-impl Default for RunConfig {
-    fn default() -> Self {
-        Self {
-            shell: None,
-            shell_version: None,
-            shells: BTreeMap::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -482,7 +471,7 @@ fn resolve_system_at_path(
     path: &Path,
     constraint: &VersionConstraint,
 ) -> Result<ResolvedInterpreter> {
-    let version = detect_shell_version(shell, &path)
+    let version = detect_shell_version(shell, path)
         .with_context(|| format!("detect system {shell} version at {}", path.display()))?;
     if !constraint.matches(&version) {
         bail!(
