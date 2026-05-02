@@ -10,7 +10,9 @@ use crate::download::fetch_url_to_path;
 use crate::environment::current_platform;
 use crate::registry::{load_registry, select_version};
 use crate::system::detect_shell_version;
-use crate::{Environment, ResolutionSource, ResolvedInterpreter, Shell, VersionConstraint};
+use crate::{
+    Environment, ResolutionSource, ResolvedInterpreter, Shell, Version, VersionConstraint,
+};
 
 pub(crate) fn install_with_environment(
     environment: &Environment,
@@ -37,18 +39,8 @@ pub(crate) fn install_with_environment(
         .join(version.as_str())
         .join(&platform);
     let binary_path = install_dir.join("bin").join(shell.as_str());
-    if binary_path.exists() {
-        let detected = detect_shell_version(shell, &binary_path)
-            .with_context(|| format!("verify {}", binary_path.display()))?;
-        if detected != version {
-            bail!("installed {shell} reports version {detected}, expected {version}");
-        }
-        return Ok(ResolvedInterpreter {
-            shell,
-            version,
-            path: binary_path,
-            source: ResolutionSource::Managed,
-        });
+    if let Some(existing) = validate_existing_install(shell, &version, &binary_path)? {
+        return Ok(existing);
     }
 
     fs::create_dir_all(&environment.shells_root)
@@ -89,12 +81,11 @@ pub(crate) fn install_with_environment(
     )?;
 
     if install_dir.exists() {
-        return Ok(ResolvedInterpreter {
-            shell,
-            version,
-            path: binary_path,
-            source: ResolutionSource::Managed,
-        });
+        if let Some(existing) = validate_existing_install(shell, &version, &binary_path)? {
+            return Ok(existing);
+        }
+        fs::remove_dir_all(&install_dir)
+            .with_context(|| format!("remove partial install {}", install_dir.display()))?;
     }
 
     if extracted_root == tempdir.path() {
@@ -117,18 +108,31 @@ pub(crate) fn install_with_environment(
     }
 
     let binary_path = install_dir.join("bin").join(shell.as_str());
-    let detected = detect_shell_version(shell, &binary_path)
+    validate_existing_install(shell, &version, &binary_path)?
+        .ok_or_else(|| anyhow!("installed {shell} is missing {}", binary_path.display()))
+}
+
+fn validate_existing_install(
+    shell: Shell,
+    version: &Version,
+    binary_path: &Path,
+) -> Result<Option<ResolvedInterpreter>> {
+    if !binary_path.exists() {
+        return Ok(None);
+    }
+
+    let detected = detect_shell_version(shell, binary_path)
         .with_context(|| format!("verify {}", binary_path.display()))?;
-    if detected != version {
+    if &detected != version {
         bail!("installed {shell} reports version {detected}, expected {version}");
     }
 
-    Ok(ResolvedInterpreter {
+    Ok(Some(ResolvedInterpreter {
         shell,
-        version,
-        path: binary_path,
+        version: version.clone(),
+        path: binary_path.to_path_buf(),
         source: ResolutionSource::Managed,
-    })
+    }))
 }
 
 fn extract_archive(archive: &Path, destination: &Path) -> Result<()> {

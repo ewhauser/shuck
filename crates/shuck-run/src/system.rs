@@ -73,6 +73,13 @@ pub(crate) fn detect_shell_version(shell: Shell, path: &Path) -> Result<Version>
         let output = Command::new(path).args(args).output();
         match output {
             Ok(output) => {
+                if !output.status.success() {
+                    last_error = Some(anyhow!(
+                        "version probe failed with status {}",
+                        output.status
+                    ));
+                    continue;
+                }
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 let combined = if stdout.trim().is_empty() {

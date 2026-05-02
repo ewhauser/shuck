@@ -494,6 +494,40 @@ fn checksum_mismatch_aborts_install() {
 }
 
 #[test]
+fn partial_install_directory_is_replaced() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
+    let registry = registry_for_archive(Shell::Bash, "5.2.21", &archive, &sha256);
+    let registry_path = write_registry(tempdir.path(), &registry);
+    let environment = test_environment(
+        tempdir.path(),
+        Url::from_file_path(registry_path).unwrap().to_string(),
+    );
+    let platform = current_platform().unwrap();
+    let install_dir = environment
+        .shells_root
+        .join("bash")
+        .join("5.2.21")
+        .join(&platform);
+    fs::create_dir_all(&install_dir).unwrap();
+    fs::write(install_dir.join("partial.txt"), "incomplete").unwrap();
+
+    let resolved = install_with_environment(
+        &environment,
+        Shell::Bash,
+        &VersionConstraint::parse("5.2").unwrap(),
+        false,
+        false,
+    )
+    .unwrap();
+
+    assert_eq!(resolved.source, ResolutionSource::Managed);
+    assert_eq!(resolved.version.as_str(), "5.2.21");
+    assert!(resolved.path.exists());
+    assert!(!install_dir.join("partial.txt").exists());
+}
+
+#[test]
 fn parses_script_metadata_before_non_comment_lines() {
     let metadata = parse_script_metadata(
             "# /// shuck\n# shell = \"bash\"\n# version = \">=5.1\"\n# [metadata]\n# description = \"demo\"\n# ///\necho hi\n",
@@ -600,6 +634,32 @@ fn system_resolution_checks_version_constraints() {
     )
     .unwrap_err();
     assert!(err.to_string().contains("System bash is 5.2.21"));
+}
+
+#[test]
+fn failed_version_probe_output_does_not_count_as_a_version() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let path_dir = tempdir.path().join("bin");
+    fs::create_dir_all(&path_dir).unwrap();
+    let shell_path = path_dir.join("dash");
+    fs::write(
+        &shell_path,
+        "#!/bin/sh\nif [ \"$1\" = \"-V\" ]; then\n  printf 'dash: 0: Illegal option -V\\n' 1>&2\n  exit 2\nfi\nif [ \"$1\" = \"--version\" ]; then\n  printf 'dash 0.5.12\\n' 1>&2\n  exit 0\nfi\nexit 0\n",
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&shell_path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&shell_path, permissions).unwrap();
+
+    let resolved = resolve_system_at_path(
+        Shell::Dash,
+        &shell_path,
+        &VersionConstraint::parse(">=0.5").unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(resolved.version.as_str(), "0.5.12");
+    assert_eq!(resolved.source, ResolutionSource::System);
 }
 
 #[test]
