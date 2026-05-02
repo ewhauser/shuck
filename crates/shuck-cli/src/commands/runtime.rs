@@ -4,7 +4,7 @@ use std::process::{Command as ProcessCommand, Stdio};
 
 use anyhow::{Result, anyhow};
 #[cfg(unix)]
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use tempfile::NamedTempFile;
 
 use shuck_run::{ResolutionSource, ResolveOptions, RunConfig, Shell, VersionConstraint};
@@ -318,7 +318,7 @@ fn exec_or_wait(mut command: ProcessCommand) -> Result<ExitStatus> {
 
 fn wait_for_process(mut command: ProcessCommand) -> Result<ExitStatus> {
     let status = command.status()?;
-    Ok(exit_status_from_process(status.code()))
+    Ok(exit_status_from_process(status))
 }
 
 #[cfg(not(unix))]
@@ -331,8 +331,13 @@ pub(crate) fn exec_or_wait_for_test(command: ProcessCommand) -> Result<ExitStatu
     wait_for_process(command)
 }
 
-fn exit_status_from_process(code: Option<i32>) -> ExitStatus {
-    match code {
+fn exit_status_from_process(status: std::process::ExitStatus) -> ExitStatus {
+    #[cfg(unix)]
+    if let Some(signal) = status.signal() {
+        return ExitStatus::Code(128 + signal);
+    }
+
+    match status.code() {
         Some(0) => ExitStatus::Success,
         Some(code) => ExitStatus::Code(code),
         None => ExitStatus::Failure,
@@ -363,5 +368,14 @@ mod tests {
         };
         let status = exec_or_wait_for_test(command).unwrap();
         assert_eq!(status, ExitStatus::Code(7));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wait_mapping_preserves_signal_exit_code() {
+        let mut command = ProcessCommand::new("sh");
+        command.args(["-c", "kill -INT $$"]);
+        let status = exec_or_wait_for_test(command).unwrap();
+        assert_eq!(status, ExitStatus::Code(130));
     }
 }
