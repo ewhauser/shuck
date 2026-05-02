@@ -81,11 +81,8 @@ pub(crate) fn parse_script_metadata(source: &str) -> Result<Option<ScriptMetadat
                 .as_deref()
                 .map(VersionConstraint::parse)
                 .transpose()?;
-            for (_, trailing_line) in lines {
-                let trailing = trailing_line.trim();
-                if trailing == "# /// shuck" {
-                    bail!("multiple `# /// shuck` blocks are not allowed");
-                }
+            if contains_metadata_block(lines.map(|(_, line)| line)) {
+                bail!("multiple `# /// shuck` blocks are not allowed");
             }
             return Ok(Some(ScriptMetadata { shell, version }));
         }
@@ -98,6 +95,43 @@ pub(crate) fn parse_script_metadata(source: &str) -> Result<Option<ScriptMetadat
     }
 
     bail!("unterminated `# /// shuck` metadata block")
+}
+
+fn contains_metadata_block<'a>(lines: impl Iterator<Item = &'a str>) -> bool {
+    let lines = lines.collect::<Vec<_>>();
+    let mut index = 0usize;
+    while index < lines.len() {
+        if lines[index].trim() != "# /// shuck" {
+            index += 1;
+            continue;
+        }
+
+        let mut saw_metadata_line = false;
+        let mut cursor = index + 1;
+        while cursor < lines.len() {
+            let trimmed = lines[cursor].trim();
+            if trimmed.is_empty() {
+                cursor += 1;
+                continue;
+            }
+            if trimmed == "# ///" {
+                if saw_metadata_line {
+                    return true;
+                }
+                break;
+            }
+            if lines[cursor].trim_start().starts_with('#') {
+                saw_metadata_line = true;
+                cursor += 1;
+                continue;
+            }
+            break;
+        }
+
+        index += 1;
+    }
+
+    false
 }
 
 #[derive(Debug, Deserialize)]

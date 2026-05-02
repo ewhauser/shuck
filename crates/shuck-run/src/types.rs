@@ -79,7 +79,7 @@ impl Version {
             bail!("invalid version `{raw}`");
         }
 
-        let tokens = tokenize_version(raw);
+        let tokens = tokenize_version(raw)?;
         if tokens.is_empty() {
             bail!("invalid version `{raw}`");
         }
@@ -175,7 +175,7 @@ enum VersionToken {
     Text(String),
 }
 
-fn tokenize_version(raw: &str) -> Vec<VersionToken> {
+fn tokenize_version(raw: &str) -> Result<Vec<VersionToken>> {
     let mut tokens = Vec::new();
     let mut chars = raw.chars().peekable();
     while let Some(ch) = chars.peek().copied() {
@@ -189,9 +189,10 @@ fn tokenize_version(raw: &str) -> Vec<VersionToken> {
                     break;
                 }
             }
-            if let Ok(value) = digits.parse::<u64>() {
-                tokens.push(VersionToken::Numeric(value));
-            }
+            let value = digits
+                .parse::<u64>()
+                .map_err(|_| anyhow!("invalid version `{raw}`"))?;
+            tokens.push(VersionToken::Numeric(value));
             continue;
         }
 
@@ -217,7 +218,7 @@ fn tokenize_version(raw: &str) -> Vec<VersionToken> {
         break;
     }
 
-    tokens
+    Ok(tokens)
 }
 
 fn should_treat_as_prefix(raw: &str, tokens: &[VersionToken], segment_count: usize) -> bool {

@@ -109,6 +109,7 @@ fn parses_exact_and_range_constraints() {
     assert!(Version::parse("5..2").is_err());
     assert!(Version::parse(".5.2").is_err());
     assert!(Version::parse("5.2.").is_err());
+    assert!(Version::parse("18446744073709551616").is_err());
     assert!(matches!(
         VersionConstraint::parse("latest").unwrap(),
         VersionConstraint::Latest
@@ -127,6 +128,7 @@ fn parses_exact_and_range_constraints() {
     ));
     assert!(VersionConstraint::parse(">=5.1 <6").is_err());
     assert!(VersionConstraint::parse("5.2)").is_err());
+    assert!(VersionConstraint::parse(">=18446744073709551616.1").is_err());
 }
 
 #[test]
@@ -760,6 +762,13 @@ fn parses_script_metadata_before_non_comment_lines() {
     )
     .unwrap_err();
     assert!(err.to_string().contains("multiple `# /// shuck` blocks"));
+
+    let metadata = parse_script_metadata(
+        "# /// shuck\n# shell = \"bash\"\n# ///\ncat <<'EOF'\n# /// shuck\nshell = \"zsh\"\n# ///\nEOF\n",
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(metadata.shell, Shell::Bash);
 }
 
 #[test]
