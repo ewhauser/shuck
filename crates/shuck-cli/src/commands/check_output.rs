@@ -16,6 +16,7 @@ use shuck_linter::{Category, RuleMetadata, code_to_rule, rule_metadata};
 use crate::args::CheckOutputFormatArg;
 
 const PARSE_ERROR_CODE: &str = "parse-error";
+const DISPLAY_TAB_WIDTH: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -435,7 +436,7 @@ fn format_full_diagnostic(diagnostic: &DisplayedDiagnostic, use_color: bool) -> 
         title: None,
         footer: vec![],
         slices: vec![Slice {
-            source: snippet.source,
+            source: snippet.source.as_str(),
             line_start: snippet.line_start,
             origin: Some(origin.as_str()),
             fold: false,
@@ -1104,26 +1105,72 @@ fn escape_github_message(value: &str) -> String {
         .replace('\n', "%0A")
 }
 
-struct RenderableSnippet<'a> {
-    source: &'a str,
+struct RenderableSnippet {
+    source: String,
     line_start: usize,
     range: Range<usize>,
 }
 
-fn renderable_snippet(span: DisplaySpan, source: &str) -> Option<RenderableSnippet<'_>> {
+fn renderable_snippet(span: DisplaySpan, source: &str) -> Option<RenderableSnippet> {
     let line_index = LineIndex::new(source);
     let start = position_offset(span.start, &line_index, source)?;
     let end = position_offset(span.end, &line_index, source)?;
     let line_start = span.start.line;
     let snippet_start = usize::from(line_index.line_start(line_start)?);
     let snippet_end = snippet_end_offset(span.end.line.max(span.start.line), &line_index, source)?;
+    let raw_snippet = &source[snippet_start..snippet_end];
     let absolute_range = highlighted_range(start..end.max(start), span.start, &line_index, source);
+    let relative_range =
+        (absolute_range.start - snippet_start)..(absolute_range.end - snippet_start);
+    let (rendered_source, rendered_range) =
+        rendered_snippet_source(raw_snippet, relative_range.clone());
 
     Some(RenderableSnippet {
-        source: &source[snippet_start..snippet_end],
+        source: rendered_source,
         line_start,
-        range: (absolute_range.start - snippet_start)..(absolute_range.end - snippet_start),
+        range: rendered_range,
     })
+}
+
+fn rendered_snippet_source(source: &str, range: Range<usize>) -> (String, Range<usize>) {
+    let mut rendered = String::with_capacity(source.len());
+    let mut rendered_start = None;
+    let mut rendered_end = None;
+    let mut raw_offset = 0usize;
+    let mut rendered_offset = 0usize;
+
+    for ch in source.chars() {
+        if raw_offset == range.start {
+            rendered_start = Some(rendered_offset);
+        }
+        if raw_offset == range.end {
+            rendered_end = Some(rendered_offset);
+        }
+
+        if ch == '\t' {
+            for _ in 0..DISPLAY_TAB_WIDTH {
+                rendered.push(' ');
+            }
+            rendered_offset += DISPLAY_TAB_WIDTH;
+        } else {
+            rendered.push(ch);
+            rendered_offset += 1;
+        }
+
+        raw_offset += ch.len_utf8();
+    }
+
+    if raw_offset == range.start {
+        rendered_start = Some(rendered_offset);
+    }
+    if raw_offset == range.end {
+        rendered_end = Some(rendered_offset);
+    }
+
+    let mapped_start = rendered_start.unwrap_or_default();
+    let mapped_end = rendered_end.unwrap_or(mapped_start);
+
+    (rendered, mapped_start..mapped_end)
 }
 
 fn highlighted_range(
@@ -1171,8 +1218,16 @@ fn position_offset(
     let line_start = usize::from(line_index.line_start(position.line)?);
     let line_range = line_index.line_range(position.line, source)?;
     let line_end = usize::from(line_range.end());
-    let requested = line_start.saturating_add(position.column.saturating_sub(1));
-    Some(requested.min(line_end))
+    let mut offset = line_start;
+    let mut remaining = position.column.saturating_sub(1);
+
+    while offset < line_end && remaining > 0 {
+        let ch = source[offset..line_end].chars().next()?;
+        offset += ch.len_utf8();
+        remaining -= 1;
+    }
+
+    Some(offset.min(line_end))
 }
 
 fn snippet_end_offset(line: usize, line_index: &LineIndex, source: &str) -> Option<usize> {
@@ -1360,7 +1415,7 @@ error[parse-error]: unterminated construct
     fn keeps_tabs_and_unicode_aligned() {
         let diagnostic = lint_diagnostic(
             "script.sh",
-            DisplaySpan::new(DisplayPosition::new(2, 8), DisplayPosition::new(2, 12)),
+            DisplaySpan::new(DisplayPosition::new(2, 6), DisplayPosition::new(2, 11)),
             "legacy backticks",
             "warning",
             "S005",
@@ -1369,10 +1424,31 @@ error[parse-error]: unterminated construct
 
         insta::assert_snapshot!(render_full(&diagnostic), @r"
 warning[S005]: legacy backticks
- --> script.sh:2:8
+ --> script.sh:2:9
   |
-2 | 	foo=`pwd`
-  |       ^^^
+2 |     foo=`pwd`
+  |         ^^^^^
+  |
+");
+    }
+
+    #[test]
+    fn keeps_same_line_unicode_columns_aligned() {
+        let diagnostic = lint_diagnostic(
+            "script.sh",
+            DisplaySpan::new(DisplayPosition::new(2, 13), DisplayPosition::new(2, 17)),
+            "quote this expansion",
+            "warning",
+            "C014",
+            "printf '%s\\n' ok\nprintf '• ' $foo\n",
+        );
+
+        insta::assert_snapshot!(render_full(&diagnostic), @r"
+warning[C014]: quote this expansion
+ --> script.sh:2:13
+  |
+2 | printf '• ' $foo
+  |             ^^^^
   |
 ");
     }
