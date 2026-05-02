@@ -47,7 +47,8 @@ const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
     &["treat-indirect-expansion-targets-as-used"];
 const CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS: &[&str] = &["report-unreached-nested-definitions"];
 const CONFIG_OVERRIDE_RUN_KEYS: &[&str] = &["shell", "shell-version", "shells"];
-const CONFIG_OVERRIDE_RUN_SHELL_NAMES: &[&str] = &["bash", "zsh", "dash", "mksh"];
+const CONFIG_OVERRIDE_RUN_SHELL_NAMES: &[&str] =
+    &["bash", "gbash", "bashkit", "zsh", "dash", "mksh"];
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
@@ -298,6 +299,20 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
                     default: "none",
                     value_type: "string",
                     example: r#"bash = "5.2""#,
+                },
+                ConfigFieldMetadata {
+                    key: "gbash",
+                    docs: "Version constraint for gbash scripts.",
+                    default: "none",
+                    value_type: "string",
+                    example: r#"gbash = "0.0.32""#,
+                },
+                ConfigFieldMetadata {
+                    key: "bashkit",
+                    docs: "Version constraint for Bashkit scripts.",
+                    default: "none",
+                    value_type: "string",
+                    example: r#"bashkit = "0.2.1""#,
                 },
                 ConfigFieldMetadata {
                     key: "zsh",
@@ -927,14 +942,18 @@ mod tests {
     #[test]
     fn inline_config_overrides_validate_supported_run_keys() {
         let config = parse_config_override(
-            "run.shell = 'bash'\nrun.shell-version = '5.2'\nrun.shells.bash = '5.2'",
+            "run.shell = 'gbash'\nrun.shell-version = '0.0'\nrun.shells.gbash = '0.0'\nrun.shells.bashkit = '0.2'",
         )
         .unwrap();
-        assert_eq!(config.run.shell.as_deref(), Some("bash"));
-        assert_eq!(config.run.shell_version.as_deref(), Some("5.2"));
+        assert_eq!(config.run.shell.as_deref(), Some("gbash"));
+        assert_eq!(config.run.shell_version.as_deref(), Some("0.0"));
         assert_eq!(
-            config.run.shells.get("bash").map(String::as_str),
-            Some("5.2")
+            config.run.shells.get("gbash").map(String::as_str),
+            Some("0.0")
+        );
+        assert_eq!(
+            config.run.shells.get("bashkit").map(String::as_str),
+            Some("0.2")
         );
     }
 

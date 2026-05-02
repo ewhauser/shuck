@@ -108,6 +108,10 @@ pub enum TerminalColor {
 pub enum ManagedShellArg {
     /// GNU bash.
     Bash,
+    /// The gbash runtime.
+    Gbash,
+    /// The Bashkit runtime.
+    Bashkit,
     /// Z shell.
     Zsh,
     /// Debian Almquist shell.
@@ -120,6 +124,8 @@ impl From<ManagedShellArg> for shuck_run::Shell {
     fn from(value: ManagedShellArg) -> Self {
         match value {
             ManagedShellArg::Bash => Self::Bash,
+            ManagedShellArg::Gbash => Self::Gbash,
+            ManagedShellArg::Bashkit => Self::Bashkit,
             ManagedShellArg::Zsh => Self::Zsh,
             ManagedShellArg::Dash => Self::Dash,
             ManagedShellArg::Mksh => Self::Mksh,
@@ -411,7 +417,7 @@ impl CheckCommand {
 /// Arguments for `shuck run`.
 #[derive(Debug, Clone, ClapArgs)]
 pub struct RunCommand {
-    /// Shell interpreter name (`bash`, `zsh`, `dash`, `mksh`).
+    /// Shell interpreter name (`bash`, `gbash`, `bashkit`, `zsh`, `dash`, `mksh`).
     #[arg(short = 's', long, value_enum)]
     pub shell: Option<ManagedShellArg>,
     /// Version constraint (for example `5.2`, `>=5.1,<6`, or `latest`).
@@ -450,7 +456,7 @@ pub struct InstallCommand {
     /// Force a fresh registry fetch even if the local registry cache is still fresh.
     #[arg(long)]
     pub refresh: bool,
-    /// Shell interpreter name (`bash`, `zsh`, `dash`, `mksh`).
+    /// Shell interpreter name (`bash`, `gbash`, `bashkit`, `zsh`, `dash`, `mksh`).
     #[arg(required_unless_present = "list", value_enum)]
     pub shell: Option<ManagedShellArg>,
     /// Version constraint to install.
@@ -461,7 +467,7 @@ pub struct InstallCommand {
 /// Arguments for `shuck shell`.
 #[derive(Debug, Clone, ClapArgs)]
 pub struct ShellCommand {
-    /// Shell interpreter name (`bash`, `zsh`, `dash`, `mksh`).
+    /// Shell interpreter name (`bash`, `gbash`, `bashkit`, `zsh`, `dash`, `mksh`).
     #[arg(short = 's', long, value_enum)]
     pub shell: Option<ManagedShellArg>,
     /// Version constraint (for example `5.2`, `>=5.1,<6`, or `latest`).
@@ -1176,6 +1182,15 @@ mod tests {
         assert_eq!(command.shell_version.as_deref(), Some("5.9"));
         assert!(command.system);
         assert!(command.verbose);
+    }
+
+    #[test]
+    fn parses_extended_managed_shell_names() {
+        let run_command = parse_run(["shuck", "run", "--shell", "gbash", "-c", "echo hi"]);
+        assert_eq!(run_command.shell, Some(ManagedShellArg::Gbash));
+
+        let install_command = parse_install(["shuck", "install", "--list", "bashkit"]);
+        assert_eq!(install_command.shell, Some(ManagedShellArg::Bashkit));
     }
 
     #[test]

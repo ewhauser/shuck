@@ -1,9 +1,11 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
 
 use anyhow::{Result, anyhow};
 #[cfg(unix)]
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
+use tempfile::NamedTempFile;
 
 use shuck_run::{ResolutionSource, ResolveOptions, RunConfig, Shell, VersionConstraint};
 
@@ -43,7 +45,11 @@ pub(crate) fn run(args: RunCommand, config_arguments: &ConfigArguments) -> Resul
     command.stdout(Stdio::inherit());
     command.stderr(Stdio::inherit());
     apply_runtime_environment(&mut command, &resolved);
-    append_run_mode_args(&mut command, &cwd, &args)?;
+    let temp_script = append_run_mode_args(&mut command, &cwd, resolved.shell, &args)?;
+
+    if temp_script.is_some() {
+        return wait_for_process(command);
+    }
 
     exec_or_wait(command)
 }
@@ -180,7 +186,25 @@ fn runtime_resolution_script(
         .transpose()
 }
 
-fn append_run_mode_args(command: &mut ProcessCommand, cwd: &Path, args: &RunCommand) -> Result<()> {
+fn append_run_mode_args(
+    command: &mut ProcessCommand,
+    cwd: &Path,
+    shell: Shell,
+    args: &RunCommand,
+) -> Result<Option<NamedTempFile>> {
+    if shell == Shell::Bashkit {
+        return append_bashkit_run_mode_args(command, cwd, args);
+    }
+
+    append_posix_run_mode_args(command, cwd, args)?;
+    Ok(None)
+}
+
+fn append_posix_run_mode_args(
+    command: &mut ProcessCommand,
+    cwd: &Path,
+    args: &RunCommand,
+) -> Result<()> {
     if let Some(raw_command) = args.command.as_deref() {
         command.arg("-c");
         command.arg(raw_command);
@@ -212,6 +236,63 @@ fn append_run_mode_args(command: &mut ProcessCommand, cwd: &Path, args: &RunComm
     Ok(())
 }
 
+fn append_bashkit_run_mode_args(
+    command: &mut ProcessCommand,
+    cwd: &Path,
+    args: &RunCommand,
+) -> Result<Option<NamedTempFile>> {
+    if let Some(raw_command) = args.command.as_deref() {
+        let temp_script = write_bashkit_command_script(raw_command)?;
+        command.arg(temp_script.path());
+        command.args(&args.script_args);
+        return Ok(Some(temp_script));
+    }
+
+    if is_stdin_script(args.script.as_deref()) {
+        let temp_script = write_bashkit_stdin_script()?;
+        command.arg(temp_script.path());
+        command.args(&args.script_args);
+        return Ok(Some(temp_script));
+    }
+
+    let script = args
+        .script
+        .as_deref()
+        .ok_or_else(|| anyhow!("missing script path"))?;
+    let script = if script.is_absolute() {
+        script.to_path_buf()
+    } else {
+        cwd.join(script)
+    };
+
+    command.arg(script);
+    command.args(&args.script_args);
+    Ok(None)
+}
+
+fn write_bashkit_command_script(source: &str) -> Result<NamedTempFile> {
+    let mut temp_script = tempfile::Builder::new()
+        .prefix("shuck-bashkit-")
+        .suffix(".sh")
+        .tempfile()?;
+    temp_script.write_all(source.as_bytes())?;
+    if !source.ends_with('\n') {
+        temp_script.write_all(b"\n")?;
+    }
+    temp_script.flush()?;
+    Ok(temp_script)
+}
+
+fn write_bashkit_stdin_script() -> Result<NamedTempFile> {
+    let mut temp_script = tempfile::Builder::new()
+        .prefix("shuck-bashkit-")
+        .suffix(".sh")
+        .tempfile()?;
+    std::io::copy(&mut std::io::stdin().lock(), &mut temp_script)?;
+    temp_script.flush()?;
+    Ok(temp_script)
+}
+
 fn apply_runtime_environment(
     command: &mut ProcessCommand,
     resolved: &shuck_run::ResolvedInterpreter,
@@ -235,21 +316,28 @@ fn exec_or_wait(mut command: ProcessCommand) -> Result<ExitStatus> {
     Err(anyhow!(err))
 }
 
+fn wait_for_process(mut command: ProcessCommand) -> Result<ExitStatus> {
+    let status = command.status()?;
+    Ok(exit_status_from_process(status))
+}
+
 #[cfg(not(unix))]
 fn exec_or_wait(mut command: ProcessCommand) -> Result<ExitStatus> {
-    let status = command.status()?;
-    Ok(exit_status_from_process(status.code()))
+    wait_for_process(command)
 }
 
 #[cfg(test)]
-pub(crate) fn exec_or_wait_for_test(mut command: ProcessCommand) -> Result<ExitStatus> {
-    let status = command.status()?;
-    Ok(exit_status_from_process(status.code()))
+pub(crate) fn exec_or_wait_for_test(command: ProcessCommand) -> Result<ExitStatus> {
+    wait_for_process(command)
 }
 
-#[cfg(any(not(unix), test))]
-fn exit_status_from_process(code: Option<i32>) -> ExitStatus {
-    match code {
+fn exit_status_from_process(status: std::process::ExitStatus) -> ExitStatus {
+    #[cfg(unix)]
+    if let Some(signal) = status.signal() {
+        return ExitStatus::Code(128 + signal);
+    }
+
+    match status.code() {
         Some(0) => ExitStatus::Success,
         Some(code) => ExitStatus::Code(code),
         None => ExitStatus::Failure,
@@ -280,5 +368,14 @@ mod tests {
         };
         let status = exec_or_wait_for_test(command).unwrap();
         assert_eq!(status, ExitStatus::Code(7));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wait_mapping_preserves_signal_exit_code() {
+        let mut command = ProcessCommand::new("sh");
+        command.args(["-c", "kill -INT $$"]);
+        let status = exec_or_wait_for_test(command).unwrap();
+        assert_eq!(status, ExitStatus::Code(130));
     }
 }

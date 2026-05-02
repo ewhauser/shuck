@@ -147,7 +147,7 @@ fn make_shell_archive(root: &Path, shell: Shell, version: &str) -> (PathBuf, Str
     fs::create_dir_all(&bin_dir).unwrap();
     let shell_path = bin_dir.join(shell.as_str());
     let script = match shell {
-        Shell::Bash | Shell::Zsh => format!(
+        Shell::Bash | Shell::Gbash | Shell::Bashkit | Shell::Zsh => format!(
             "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  printf '{} {}\\n'\n  exit 0\nfi\nprintf '%s\\n' \"${{SHUCK_SHELL_VERSION}}\"\n",
             shell.as_str(),
             version
@@ -923,6 +923,32 @@ fn failed_version_probe_output_does_not_count_as_a_version() {
     .unwrap();
 
     assert_eq!(resolved.version.as_str(), "0.5.12");
+    assert_eq!(resolved.source, ResolutionSource::System);
+}
+
+#[test]
+fn gbash_version_probe_falls_back_to_version_subcommand() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let path_dir = tempdir.path().join("bin");
+    fs::create_dir_all(&path_dir).unwrap();
+    let shell_path = path_dir.join("gbash");
+    fs::write(
+        &shell_path,
+        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  printf 'gbash: unknown option --version\\n' 1>&2\n  exit 2\nfi\nif [ \"$1\" = \"version\" ]; then\n  printf 'gbash 0.0.32\\ncommit: abc123\\n'\n  exit 0\nfi\nexit 1\n",
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&shell_path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&shell_path, permissions).unwrap();
+
+    let resolved = resolve_system_at_path(
+        Shell::Gbash,
+        &shell_path,
+        &VersionConstraint::parse(">=0.0.30").unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(resolved.version.as_str(), "0.0.32");
     assert_eq!(resolved.source, ResolutionSource::System);
 }
 
