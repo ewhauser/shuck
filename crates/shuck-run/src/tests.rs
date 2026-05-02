@@ -102,7 +102,10 @@ fn registry_for_archive(shell: Shell, version: &str, archive: &Path, sha256: &st
 
 #[test]
 fn parses_exact_and_range_constraints() {
-    assert_eq!(Version::parse("59C").unwrap(), Version::parse("59c").unwrap());
+    assert_eq!(
+        Version::parse("59C").unwrap(),
+        Version::parse("59c").unwrap()
+    );
     assert!(Version::parse("5..2").is_err());
     assert!(Version::parse(".5.2").is_err());
     assert!(Version::parse("5.2.").is_err());
