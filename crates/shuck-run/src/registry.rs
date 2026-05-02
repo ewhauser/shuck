@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, anyhow};
 use serde::Deserialize;
+use tempfile::NamedTempFile;
 
 use crate::download::fetch_url_to_path;
 use crate::{AvailableShell, Environment, Shell, Version, VersionConstraint};
@@ -115,18 +116,14 @@ pub(crate) fn load_registry(
     let should_refresh =
         refresh || !index_path.exists() || index_is_stale(&index_path).unwrap_or(true);
     if should_refresh {
-        match fetch_url_to_path(&environment.registry_url, &index_path, verbose) {
-            Ok(()) => {}
+        match refresh_registry_index(environment, &index_path, verbose) {
+            Ok(registry) => return Ok(registry),
             Err(_err) if index_path.exists() && !refresh => {}
-            Err(err) => {
-                return Err(err).with_context(|| format!("fetch {}", environment.registry_url));
-            }
+            Err(err) => return Err(err),
         }
     }
 
-    let source = fs::read_to_string(&index_path)
-        .with_context(|| format!("read {}", index_path.display()))?;
-    serde_json::from_str(&source).with_context(|| format!("parse {}", index_path.display()))
+    read_registry_index(&index_path)
 }
 
 fn index_is_stale(path: &Path) -> Result<bool> {
@@ -138,6 +135,27 @@ fn index_is_stale(path: &Path) -> Result<bool> {
         .duration_since(modified)
         .unwrap_or_default();
     Ok(age > REGISTRY_MAX_AGE)
+}
+
+fn refresh_registry_index(
+    environment: &Environment,
+    index_path: &Path,
+    verbose: bool,
+) -> Result<RegistryIndex> {
+    let temp_file = NamedTempFile::new_in(&environment.shells_root)
+        .with_context(|| format!("create temp registry in {}", environment.shells_root.display()))?;
+    fetch_url_to_path(&environment.registry_url, temp_file.path(), verbose)
+        .with_context(|| format!("fetch {}", environment.registry_url))?;
+    let registry = read_registry_index(temp_file.path())?;
+    match temp_file.persist(index_path) {
+        Ok(_) => Ok(registry),
+        Err(err) => Err(err.error).with_context(|| format!("replace {}", index_path.display())),
+    }
+}
+
+fn read_registry_index(path: &Path) -> Result<RegistryIndex> {
+    let source = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    serde_json::from_str(&source).with_context(|| format!("parse {}", path.display()))
 }
 
 fn shell_entry(registry: &RegistryIndex, shell: Shell) -> Result<&RegistryShell> {

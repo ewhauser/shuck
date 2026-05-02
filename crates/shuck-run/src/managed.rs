@@ -39,7 +39,7 @@ pub(crate) fn install_with_environment(
         .join(version.as_str())
         .join(&platform);
     let binary_path = install_dir.join("bin").join(shell.as_str());
-    if let Some(existing) = validate_existing_install(shell, &version, &binary_path)? {
+    if let Some(existing) = reusable_existing_install(shell, &version, &binary_path) {
         return Ok(existing);
     }
 
@@ -81,7 +81,7 @@ pub(crate) fn install_with_environment(
     )?;
 
     if install_dir.exists() {
-        if let Some(existing) = validate_existing_install(shell, &version, &binary_path)? {
+        if let Some(existing) = reusable_existing_install(shell, &version, &binary_path) {
             return Ok(existing);
         }
         fs::remove_dir_all(&install_dir)
@@ -133,6 +133,16 @@ fn validate_existing_install(
         path: binary_path.to_path_buf(),
         source: ResolutionSource::Managed,
     }))
+}
+
+fn reusable_existing_install(
+    shell: Shell,
+    version: &Version,
+    binary_path: &Path,
+) -> Option<ResolvedInterpreter> {
+    validate_existing_install(shell, version, binary_path)
+        .ok()
+        .flatten()
 }
 
 fn extract_archive(archive: &Path, destination: &Path) -> Result<()> {

@@ -534,6 +534,48 @@ fn partial_install_directory_is_replaced() {
 }
 
 #[test]
+fn invalid_cached_install_is_replaced() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
+    let registry = registry_for_archive(Shell::Bash, "5.2.21", &archive, &sha256);
+    let registry_path = write_registry(tempdir.path(), &registry);
+    let environment = test_environment(
+        tempdir.path(),
+        Url::from_file_path(registry_path).unwrap().to_string(),
+    );
+    let platform = current_platform().unwrap();
+    let install_dir = environment
+        .shells_root
+        .join("bash")
+        .join("5.2.21")
+        .join(&platform)
+        .join("bin");
+    fs::create_dir_all(&install_dir).unwrap();
+    let binary_path = install_dir.join("bash");
+    fs::write(
+        &binary_path,
+        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  printf 'bash 4.4.0\\n'\n  exit 0\nfi\nexit 0\n",
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&binary_path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&binary_path, permissions).unwrap();
+
+    let resolved = install_with_environment(
+        &environment,
+        Shell::Bash,
+        &VersionConstraint::parse("5.2").unwrap(),
+        false,
+        false,
+    )
+    .unwrap();
+
+    assert_eq!(resolved.version.as_str(), "5.2.21");
+    assert_eq!(resolved.source, ResolutionSource::Managed);
+    assert!(fs::read_to_string(&resolved.path).unwrap().contains("5.2.21"));
+}
+
+#[test]
 fn install_picks_latest_version_with_current_platform_artifact() {
     let tempdir = tempfile::tempdir().unwrap();
     let (archive_old, sha_old) = make_shell_archive(tempdir.path(), Shell::Bash, "5.1.16");
@@ -588,6 +630,33 @@ fn install_picks_latest_version_with_current_platform_artifact() {
 
     assert_eq!(resolved.version.as_str(), "5.1.16");
     assert_eq!(resolved.source, ResolutionSource::Managed);
+}
+
+#[test]
+fn failed_refresh_keeps_last_good_registry() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
+    let good_registry = registry_for_archive(Shell::Bash, "5.2.21", &archive, &sha256);
+    let good_registry_path = write_registry(tempdir.path(), &good_registry);
+    let bad_registry_path = tempdir.path().join("bad-registry.json");
+    fs::write(&bad_registry_path, "{not json").unwrap();
+
+    let environment = test_environment(
+        tempdir.path(),
+        Url::from_file_path(&good_registry_path).unwrap().to_string(),
+    );
+    let loaded = load_registry(&environment, false, false).unwrap();
+    assert!(loaded.shells.contains_key("bash"));
+
+    let failing_environment = test_environment(
+        tempdir.path(),
+        Url::from_file_path(&bad_registry_path).unwrap().to_string(),
+    );
+    let refresh_err = load_registry(&failing_environment, true, false).unwrap_err();
+    assert!(format!("{refresh_err:#}").contains("parse"));
+
+    let recovered = load_registry(&failing_environment, false, false).unwrap();
+    assert!(recovered.shells.contains_key("bash"));
 }
 
 #[test]
