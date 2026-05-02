@@ -7,6 +7,7 @@ use std::process::Command as ProcessCommand;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
+use serde_json::{Map, json};
 use sha2::{Digest, Sha256};
 use tempfile::tempdir;
 use url::Url;
@@ -17,12 +18,6 @@ fn configure_runtime_env(cmd: &mut Command, root: &Path, registry_path: &Path) {
         "SHUCK_RUN_REGISTRY_URL",
         Url::from_file_path(registry_path).unwrap().to_string(),
     );
-}
-
-fn registry_path(root: &Path, body: &str) -> PathBuf {
-    let path = root.join("registry.json");
-    fs::write(&path, body).unwrap();
-    path
 }
 
 fn fake_shell_archive(root: &Path, shell: &str, version: &str) -> (PathBuf, String) {
@@ -64,44 +59,88 @@ fn fake_shell_archive(root: &Path, shell: &str, version: &str) -> (PathBuf, Stri
     (archive_path, sha256)
 }
 
-fn registry_body(shell: &str, versions: &[(&str, &Path, &str)]) -> String {
-    let platform = match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("linux", "x86_64") => "x86_64-linux",
-        ("linux", "aarch64") => "aarch64-linux",
+fn registry_platform() -> &'static str {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("linux", "x86_64") if cfg!(target_env = "gnu") => "x86_64-linux-gnu",
+        ("linux", "x86_64") if cfg!(target_env = "musl") => "x86_64-linux-musl",
+        ("linux", "aarch64") if cfg!(target_env = "gnu") => "aarch64-linux-gnu",
+        ("linux", "aarch64") if cfg!(target_env = "musl") => "aarch64-linux-musl",
         ("macos", "x86_64") => "x86_64-darwin",
         ("macos", "aarch64") => "aarch64-darwin",
         (os, arch) => panic!("unsupported test platform {arch}-{os}"),
-    };
-    let versions = versions
-        .iter()
-        .map(|(version, archive, sha256)| {
-            format!(
-                r#"
-        "{version}": {{
-          "platforms": {{
-            "{platform}": {{
-              "url": "{url}",
-              "sha256": "{sha256}"
-            }}
-          }}
-        }}"#,
-                url = Url::from_file_path(archive).unwrap(),
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
+    }
+}
 
-    format!(
-        r#"{{
-  "version": 1,
-  "shells": {{
-    "{shell}": {{
-      "versions": {{{versions}
-      }}
-    }}
-  }}
-}}"#
+fn registry_path(root: &Path, shell: &str, versions: &[(&str, &Path, &str)]) -> PathBuf {
+    let root_dir = root.join("registry");
+    let shell_dir = root_dir.join("shells").join(shell);
+    fs::create_dir_all(&shell_dir).unwrap();
+
+    let platform = registry_platform();
+    let mut shell_versions = Map::new();
+    for (version, archive, sha256) in versions {
+        shell_versions.insert(
+            (*version).to_owned(),
+            json!({
+                "manifest_url": format!("{version}.json"),
+            }),
+        );
+        fs::write(
+            shell_dir.join(format!("{version}.json")),
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&json!({
+                    "version": 2,
+                    "kind": "shuck.shells.release",
+                    "shell": shell,
+                    "release": version,
+                    "platforms": {
+                        platform: {
+                            "url": Url::from_file_path(archive).unwrap().to_string(),
+                            "sha256": sha256,
+                        }
+                    }
+                }))
+                .unwrap()
+            ),
+        )
+        .unwrap();
+    }
+
+    fs::write(
+        shell_dir.join("index.json"),
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&json!({
+                "version": 2,
+                "kind": "shuck.shells.versions",
+                "shell": shell,
+                "versions": shell_versions,
+            }))
+            .unwrap()
+        ),
     )
+    .unwrap();
+
+    let path = root_dir.join("index.json");
+    fs::write(
+        &path,
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&json!({
+                "version": 2,
+                "kind": "shuck.shells.index",
+                "shells": {
+                    shell: {
+                        "versions_url": format!("shells/{shell}/index.json"),
+                    }
+                }
+            }))
+            .unwrap()
+        ),
+    )
+    .unwrap();
+    path
 }
 
 fn fake_system_shell(path: &Path, name: &str, version: &str) {
@@ -131,8 +170,7 @@ fn top_level_help_includes_runtime_commands() {
 fn run_dry_run_uses_project_config_and_registry() {
     let tempdir = tempdir().unwrap();
     let (archive, sha256) = fake_shell_archive(tempdir.path(), "bash", "5.2.21");
-    let registry = registry_body("bash", &[("5.2.21", &archive, &sha256)]);
-    let registry = registry_path(tempdir.path(), &registry);
+    let registry = registry_path(tempdir.path(), "bash", &[("5.2.21", &archive, &sha256)]);
     fs::write(
         tempdir.path().join("shuck.toml"),
         "[run.shells]\nbash = '5.2'\n",
@@ -158,8 +196,7 @@ fn run_dry_run_uses_project_config_and_registry() {
 fn run_command_string_uses_managed_shell_and_sets_env() {
     let tempdir = tempdir().unwrap();
     let (archive, sha256) = fake_shell_archive(tempdir.path(), "bash", "5.2.21");
-    let registry = registry_body("bash", &[("5.2.21", &archive, &sha256)]);
-    let registry = registry_path(tempdir.path(), &registry);
+    let registry = registry_path(tempdir.path(), "bash", &[("5.2.21", &archive, &sha256)]);
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     configure_runtime_env(&mut cmd, tempdir.path(), &registry);
@@ -191,8 +228,7 @@ fn run_stdin_defaults_to_system_bash() {
 fn run_stdin_with_shell_executes_managed_interpreter() {
     let tempdir = tempdir().unwrap();
     let (archive, sha256) = fake_shell_archive(tempdir.path(), "bash", "5.2.21");
-    let registry = registry_body("bash", &[("5.2.21", &archive, &sha256)]);
-    let registry = registry_path(tempdir.path(), &registry);
+    let registry = registry_path(tempdir.path(), "bash", &[("5.2.21", &archive, &sha256)]);
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     configure_runtime_env(&mut cmd, tempdir.path(), &registry);
@@ -207,14 +243,14 @@ fn install_list_shows_newest_version_first() {
     let tempdir = tempdir().unwrap();
     let (archive_a, sha_a) = fake_shell_archive(tempdir.path(), "bash", "5.1.16");
     let (archive_b, sha_b) = fake_shell_archive(tempdir.path(), "bash", "5.2.21");
-    let registry = registry_body(
+    let registry = registry_path(
+        tempdir.path(),
         "bash",
         &[
             ("5.1.16", &archive_a, &sha_a),
             ("5.2.21", &archive_b, &sha_b),
         ],
     );
-    let registry = registry_path(tempdir.path(), &registry);
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     configure_runtime_env(&mut cmd, tempdir.path(), &registry);
@@ -265,8 +301,7 @@ fn shell_subcommand_defaults_to_managed_bash() {
     let bin_dir = tempdir.path().join("bin");
     fake_system_shell(&bin_dir.join("bash"), "bash", "3.2.57");
     let (archive, sha256) = fake_shell_archive(tempdir.path(), "bash", "5.2.21");
-    let registry = registry_body("bash", &[("5.2.21", &archive, &sha256)]);
-    let registry = registry_path(tempdir.path(), &registry);
+    let registry = registry_path(tempdir.path(), "bash", &[("5.2.21", &archive, &sha256)]);
     let path = std::env::join_paths(
         std::iter::once(bin_dir.clone()).chain(std::env::split_paths(
             &std::env::var_os("PATH").unwrap_or_default(),
