@@ -11,14 +11,17 @@ import json
 import subprocess
 import sys
 from graphlib import TopologicalSorter
+from pathlib import Path
 
 
 def load_workspace_metadata() -> dict:
+    repo_root = Path(__file__).resolve().parent.parent
     result = subprocess.run(
         ["cargo", "metadata", "--format-version", "1", "--no-deps"],
         check=True,
         capture_output=True,
         text=True,
+        cwd=repo_root,
     )
     return json.loads(result.stdout)
 
