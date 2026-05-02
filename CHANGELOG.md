@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.30](https://github.com/ewhauser/shuck/compare/v0.0.29...v0.0.30) (2026-05-02)
+
+
+### Bug Fixes
+
+* **cli:** align full-output diagnostic highlights ([#782](https://github.com/ewhauser/shuck/issues/782)) ([3bbad9e](https://github.com/ewhauser/shuck/commit/3bbad9ef674a10bfb3843e565f654fc02f23e45c))
+
 ## [0.0.29](https://github.com/ewhauser/shuck/compare/v0.0.28...v0.0.29) (2026-04-30)
 
 
