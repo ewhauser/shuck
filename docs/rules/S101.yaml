@@ -1,0 +1,45 @@
+origin: novel
+legacy_name: require-variable-braces
+new_category: Style
+new_code: S101
+runtime_kind: ast
+shellcheck_code: SC2250
+shellcheck_level: style
+shells:
+  - bash
+description: A scalar variable is expanded using the bare `$var` form rather than the brace-delimited `${var}` form.
+rationale: >
+  Consistently using `${var}` instead of `$var` makes the extent of every variable name
+  unambiguous at a glance and avoids surprises when a variable name is followed by a letter,
+  digit, or underscore that could be misread as part of the name. It also simplifies search
+  and refactoring: editors and code-analysis tools can reliably identify every expansion.
+  Special shell parameters (`$0`, `$1`, `$@`, `$$`, etc.) are typically exempt because
+  they cannot be confused with longer names, but named scalar variables benefit most from
+  the braced form.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: exempt-special-params
+    type: bool
+    default: true
+    description: >
+      When true, special shell parameters such as $0, $@, $*, $#, $$, $!, $?, and $-
+      are not required to use the braced form. Defaults to true.
+  - name: exempt-single-digit-positional
+    type: bool
+    default: true
+    description: >
+      When true, single-digit positional parameters ($1 through $9) are not required
+      to use the braced form. Defaults to true.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      greeting="hello"
+      echo "$greeting world"
+  - kind: valid
+    code: |
+      #!/bin/bash
+      greeting="hello"
+      echo "${greeting} world"

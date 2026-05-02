@@ -1,0 +1,36 @@
+origin: novel
+legacy_name: alias-definition
+new_category: Style
+new_code: S093
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: An alias is defined in a script; shell functions are preferred over aliases for reusable command sequences.
+rationale: >
+  Aliases are evaluated once at definition time and do not compose well with
+  arguments, pipelines, or conditional logic. They behave differently in
+  non-interactive shells, can shadow built-ins in surprising ways, and are
+  silently ignored in many execution contexts (such as scripts that do not
+  explicitly enable alias expansion). Shell functions provide the same
+  shorthand with full access to positional parameters, local variables, and
+  structured control flow. Projects following Google-style shell conventions
+  replace aliases with named functions, which are unambiguous, testable, and
+  work identically across interactive and non-interactive environments.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      alias ll='ls -lh'
+      ll
+  - kind: valid
+    code: |
+      #!/bin/bash
+      ll() {
+        ls -lh
+      }
+      ll

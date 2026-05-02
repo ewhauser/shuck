@@ -1,0 +1,69 @@
+origin: novel
+legacy_name: functions-not-grouped
+new_category: Style
+new_code: S088
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: Function definitions are not contiguous because an executable statement appears between two function definitions.
+rationale: >
+  The Google Shell Style Guide prescribes that all function definitions in a script
+  should be grouped together as a contiguous block, with no executable statements
+  interspersed between them. When an executable statement (a command call, a loop,
+  a conditional, etc.) appears between two function definitions, the function block
+  is fragmented: readers cannot scan the file and locate all function definitions
+  in one place, and tools that extract or test functions individually have to deal
+  with side-effecting code scattered among the definitions. Grouping all function
+  definitions together — preceded by constants and followed by the entry-point call
+  — keeps each structural section of the script spatially distinct and reinforces
+  the convention that top-level executable code should be minimal.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      readonly WORKDIR="/tmp/work"
+
+      setup() {
+        mkdir -p "${WORKDIR}"
+      }
+
+      # This command is sandwiched between two function definitions.
+      echo "Preparing environment..."
+
+      teardown() {
+        rm -rf "${WORKDIR}"
+      }
+
+      main() {
+        setup
+        teardown
+      }
+
+      main "$@"
+  - kind: valid
+    code: |
+      #!/bin/bash
+      readonly WORKDIR="/tmp/work"
+
+      # All function definitions are grouped together with no executable
+      # statements interspersed.
+      setup() {
+        mkdir -p "${WORKDIR}"
+      }
+
+      teardown() {
+        rm -rf "${WORKDIR}"
+      }
+
+      main() {
+        echo "Preparing environment..."
+        setup
+        teardown
+      }
+
+      main "$@"

@@ -1,0 +1,57 @@
+origin: novel
+legacy_name: script-size-threshold
+new_category: Style
+new_code: S080
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: The script's line count exceeds the configured size threshold.
+rationale: >
+  Long shell scripts are harder to understand, test, and maintain than short focused ones.
+  The Google Shell Style Guide recommends keeping scripts to around 100 lines or fewer;
+  larger scripts are a signal that the logic should be broken up into multiple files or
+  rewritten in a more structured language. Enable this rule and set `max-lines` to the
+  ceiling appropriate for your codebase. The `count` option controls whether the limit
+  applies to every physical line (`"physical"`, the default) or only to lines that carry
+  code (`"non-comment-non-blank"`, which excludes blank lines and comment-only lines).
+  When the script exceeds the threshold, consider splitting it into smaller modules that
+  source one another.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: max-lines
+    type: integer
+    default: 100
+    description: >
+      Maximum number of lines allowed in a single script. Scripts with more lines than
+      this value will be flagged. Defaults to 100.
+  - name: count
+    type: string
+    default: "physical"
+    description: >
+      Controls which lines are included in the count. "physical" counts every line
+      in the file including blank lines and comments. "non-comment-non-blank" counts
+      only lines that contain executable code. Defaults to "physical".
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      # This script is intentionally long to exceed the line threshold.
+      echo "line 1"
+      echo "line 2"
+      echo "line 3"
+      echo "line 4"
+      echo "line 5"
+      echo "line 6"
+      echo "line 7"
+      echo "line 8"
+      echo "line 9"
+      echo "line 10"
+  - kind: valid
+    code: |
+      #!/bin/bash
+      # A concise script.
+      echo "done"

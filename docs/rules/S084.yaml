@@ -1,0 +1,80 @@
+origin: novel
+legacy_name: function-doc-content
+new_category: Style
+new_code: S084
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A function's leading comment block does not document globals, arguments, outputs, or return values that appear in the function body.
+rationale: >
+  A comment block that exists but omits key information is only marginally better
+  than no comment at all. The Google Shell Style Guide prescribes four structured
+  sections — Globals, Arguments, Outputs, and Returns — each matching a category of
+  observable behavior. When a function reads or modifies a global variable and the
+  Globals section is absent, a caller has no way to know about the side effect without
+  reading the implementation. Similarly, when a function uses positional parameters
+  but the Arguments section is missing, or when it writes to stdout but the Outputs
+  section is absent, the doc block is incomplete. This rule checks that any function
+  whose body contains at least one item from each configured category has a corresponding
+  section header in its comment block. Each category is independently configurable so
+  teams can adopt the policy piecemeal.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: require-globals
+    type: bool
+    default: true
+    description: >
+      When true, flags functions that read or write a non-local variable if the
+      comment block lacks a "Globals:" section. Defaults to true.
+  - name: require-arguments
+    type: bool
+    default: true
+    description: >
+      When true, flags functions that reference positional parameters ($1, $2, $@,
+      $*, etc.) if the comment block lacks an "Arguments:" section. Defaults to true.
+  - name: require-outputs
+    type: bool
+    default: true
+    description: >
+      When true, flags functions that contain an echo or printf statement writing to
+      stdout if the comment block lacks an "Outputs:" section. Defaults to true.
+  - name: require-returns
+    type: bool
+    default: true
+    description: >
+      When true, flags functions that contain an explicit "return N" statement if the
+      comment block lacks a "Returns:" section. Defaults to true.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      # Builds an absolute output path.
+      build_path() {
+        local suffix=$1
+        echo "${BASE_DIR}/${suffix}"
+        return 0
+      }
+      build_path "logs"
+  - kind: valid
+    code: |
+      #!/bin/bash
+      # Builds an absolute output path by joining BASE_DIR with a suffix.
+      #
+      # Globals:
+      #   BASE_DIR
+      # Arguments:
+      #   $1 - The path suffix to append.
+      # Outputs:
+      #   Writes the constructed path to stdout.
+      # Returns:
+      #   0 always.
+      build_path() {
+        local suffix=$1
+        echo "${BASE_DIR}/${suffix}"
+        return 0
+      }
+      build_path "logs"

@@ -1,0 +1,39 @@
+origin: novel
+legacy_name: missing-case-default
+new_category: Style
+new_code: S104
+runtime_kind: ast
+shellcheck_code: SC2249
+shellcheck_level: style
+shells:
+  - bash
+description: A `case` statement has no catch-all `*)` default branch to handle values that do not match any explicit pattern.
+rationale: >
+  A `case` statement without a `*)` branch silently ignores any input that does not match
+  a named pattern. This makes it easy to overlook typos in values, miss future extensions
+  to an enumeration, or silently fail when upstream code passes an unexpected value. Adding
+  a default branch — even one that just emits a diagnostic and exits — turns a silent no-op
+  into an explicit signal that an unexpected value was received. The pattern is especially
+  important for scripts that dispatch on command-line arguments or environment variables
+  whose set of valid values may grow over time.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      action="${1:-}"
+      case "$action" in
+        start) echo "starting service" ;;
+        stop)  echo "stopping service" ;;
+      esac
+  - kind: valid
+    code: |
+      #!/bin/bash
+      action="${1:-}"
+      case "$action" in
+        start) echo "starting service" ;;
+        stop)  echo "stopping service" ;;
+        *)     echo "unknown action: ${action}" >&2; exit 1 ;;
+      esac

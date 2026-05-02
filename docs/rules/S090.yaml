@@ -1,0 +1,36 @@
+origin: novel
+legacy_name: package-function-namespace
+new_category: Style
+new_code: S090
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: Functions in files identified as libraries do not use a package-qualified name in the form `package::function_name`.
+rationale: Library files expose shared functions that may be sourced into many scripts. Qualifying each function with a package prefix avoids name collisions when multiple libraries are loaded into the same shell session and makes it immediately clear which library a function belongs to. This rule is intentionally scoped to files that match a configurable predicate so that top-level scripts, which are never sourced, are not penalised.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: library-predicate
+    type: string
+    default: "filename-suffix:.lib.sh"
+    description: Predicate that identifies library files. The only supported form today is `filename-suffix:<suffix>`, which matches when the source file path ends with the given suffix.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      # mylib.lib.sh
+      parse_input() {
+        local val="$1"
+        echo "${val}"
+      }
+  - kind: valid
+    code: |
+      #!/bin/bash
+      # mylib.lib.sh
+      mylib::parse_input() {
+        local val="$1"
+        echo "${val}"
+      }

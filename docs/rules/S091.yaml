@@ -1,0 +1,36 @@
+origin: novel
+legacy_name: variable-name-case
+new_category: Style
+new_code: S091
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A local variable name (or function-scoped assignment target) does not match the configured naming pattern.
+rationale: Using a uniform naming convention for function-local variables makes it straightforward to distinguish them from constants and exported globals at a glance. The default pattern requires lowercase letters, digits, and underscores (snake_case). Projects with different conventions can supply an alternate regex via the `pattern` option.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: pattern
+    type: string
+    default: "^[a-z_][a-z0-9_]*$"
+    description: Regular expression that every local variable name must match. The default enforces lowercase snake_case.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      process_data() {
+        local FooBar=1
+        echo "${FooBar}"
+      }
+      process_data
+  - kind: valid
+    code: |
+      #!/bin/bash
+      process_data() {
+        local foo_bar=1
+        echo "${foo_bar}"
+      }
+      process_data

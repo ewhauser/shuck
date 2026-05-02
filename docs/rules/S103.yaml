@@ -1,0 +1,41 @@
+origin: novel
+legacy_name: avoid-nullary-conditions
+new_category: Style
+new_code: S103
+runtime_kind: ast
+shellcheck_code: SC2243
+shellcheck_level: style
+shells:
+  - bash
+description: A `[[ ]]` test uses a bare command substitution as its only operand rather than an explicit `-n` test or a direct conditional on the command's exit status.
+rationale: >
+  Writing `[[ $(some_command) ]]` tests whether the command produced any output, not
+  whether it succeeded. This conflates two different notions — non-empty output and
+  zero exit status — and is often unintentional. Using `-n "$(some_command)"` makes the
+  intent explicit: the script is testing for non-empty output. Alternatively, running the
+  command directly as a conditional (`if some_command; then`) tests exit status without
+  capturing output at all. Being explicit avoids silent mismatches between what the
+  author intended and what the shell actually evaluates.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: allow-nullary-on-quoted-expansion
+    type: bool
+    default: false
+    description: >
+      When true, bare quoted variable expansions such as `[[ "$var" ]]` are not
+      flagged; only bare command substitutions are. Defaults to false.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      if [[ $(git status --short) ]]; then
+        echo "uncommitted changes"
+      fi
+  - kind: valid
+    code: |
+      #!/bin/bash
+      if [[ -n $(git status --short) ]]; then
+        echo "uncommitted changes"
+      fi

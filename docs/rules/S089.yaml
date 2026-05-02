@@ -1,0 +1,34 @@
+origin: novel
+legacy_name: function-name-case
+new_category: Style
+new_code: S089
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A function name does not match the configured naming pattern.
+rationale: Consistent function naming within a codebase reduces cognitive overhead when reading and searching code. The default pattern requires lowercase letters, digits, and underscores, with an optional double-colon namespace separator for library functions. Projects may supply an alternate regex via the `pattern` option to fit their own conventions.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: pattern
+    type: string
+    default: "^[a-z_][a-z0-9_]*(::[a-z_][a-z0-9_]*)?$"
+    description: Regular expression that every function name must match. The default permits snake_case names and optionally a single `pkg::fn` namespace prefix.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      MyFunction() {
+        echo hi
+      }
+      MyFunction
+  - kind: valid
+    code: |
+      #!/bin/bash
+      do_thing() {
+        echo hi
+      }
+      do_thing

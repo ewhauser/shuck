@@ -1,0 +1,34 @@
+origin: novel
+legacy_name: function-called-before-defined
+new_category: Correctness
+new_code: C161
+runtime_kind: ast
+shellcheck_code: SC2218
+shellcheck_level: error
+shells:
+  - bash
+description: A function is called at a top-level position that is reached before the function's definition has been evaluated.
+rationale: Shell scripts are interpreted top-to-bottom at runtime. Invoking a function whose definition appears later in the file will fail at the point of the call because the name has not yet been registered. Move the function definition above its first call site, or restructure the script so all function definitions are grouped at the top and executable code runs after them.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: ignore-after-source
+    type: bool
+    default: true
+    description: When enabled, the rule does not flag calls to names that could plausibly be defined by a preceding source command, since the sourced file's contents are opaque at analysis time.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      do_thing
+      do_thing() {
+        echo hi
+      }
+  - kind: valid
+    code: |
+      #!/bin/bash
+      do_thing() {
+        echo hi
+      }
+      do_thing

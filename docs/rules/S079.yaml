@@ -1,0 +1,48 @@
+origin: novel
+legacy_name: shebang-form-mismatch
+new_category: Style
+new_code: S079
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: The shebang line does not use the configured invocation form.
+rationale: >
+  Shell projects often standardize on one of two shebang forms: a direct absolute path
+  (e.g., `#!/bin/bash`) or an env-lookup indirection (e.g., `#!/usr/bin/env bash`).
+  Mixing both forms across a codebase makes the launch mechanism inconsistent and can
+  cause scripts to behave differently on systems where the interpreter lives at a
+  non-standard path. Configure `allowed-forms` to enforce one form, or use
+  `allowed-paths` to enumerate the exact shebang strings that are permitted. Any
+  shebang that does not satisfy either constraint will be flagged; update the shebang
+  to an allowed form or path to resolve the diagnostic.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: allowed-forms
+    type: list
+    default: ["env-lookup"]
+    description: >
+      Shebang invocation styles that are permitted. Valid values are "absolute-path"
+      (e.g., #!/bin/bash) and "env-lookup" (e.g., #!/usr/bin/env bash).
+      Defaults to ["env-lookup"].
+  - name: allowed-paths
+    type: list
+    default: ["/bin/bash", "/usr/bin/env bash"]
+    description: >
+      Exact shebang interpreter strings that are always permitted regardless of
+      `allowed-forms`. Compared against the text after `#!` with leading and trailing
+      whitespace stripped.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      x=1
+      echo "$x"
+  - kind: valid
+    code: |
+      #!/usr/bin/env bash
+      x=1
+      echo "$x"

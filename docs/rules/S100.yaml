@@ -1,0 +1,41 @@
+origin: novel
+legacy_name: quote-safe-variables
+new_category: Style
+new_code: S100
+runtime_kind: ast
+shellcheck_code: SC2248
+shellcheck_level: style
+shells:
+  - bash
+description: A scalar variable expansion appears unquoted even when its value is not expected to contain word-splitting or glob characters.
+rationale: >
+  Even variables that are assigned safe-looking string literals should be double-quoted on
+  expansion. The assignment may change over time, the variable may be exported and set
+  externally, or a future refactor may introduce a value with whitespace. Consistently
+  quoting every expansion eliminates a class of subtle split-and-glob bugs before they
+  materialise, requires no knowledge of what each variable may contain at runtime, and
+  makes it clear to readers that word-splitting was consciously not desired. This rule
+  extends the default unquoted-expansion check to cover expansions that a purely
+  flow-sensitive analysis would consider safe.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: allowed-bare-expansions
+    type: list
+    default: []
+    description: >
+      List of variable names whose expansions are permitted to appear unquoted.
+      Useful for variables that intentionally receive whitespace-split treatment,
+      such as flag arrays passed through a single string. Defaults to an empty list.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      label="build-output"
+      mkdir $label
+  - kind: valid
+    code: |
+      #!/bin/bash
+      label="build-output"
+      mkdir "$label"

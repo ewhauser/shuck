@@ -1,0 +1,47 @@
+origin: novel
+legacy_name: mutable-global
+new_category: Correctness
+new_code: C159
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A global variable is assigned more than once at the top level or reassigned from inside a function, making it mutable state.
+rationale: >
+  Global variables that are written in multiple places across a script create hidden
+  coupling: any function or top-level statement can silently change a value that other
+  parts of the script rely on, making behavior dependent on evaluation order. The Google
+  Shell Style Guide addresses this by requiring global constants to be declared
+  `readonly`, which makes their value fixed and self-documenting at the declaration site.
+  This rule flags two patterns: a name that receives a plain assignment at the top level
+  and is then assigned again (whether at the top level or from inside a function body),
+  and a name that is assigned at the top level without `readonly` or `declare -r` when
+  it is never intended to change. To resolve the diagnostic, declare the variable
+  `readonly` at its first assignment if it is a constant, or restructure the code so that
+  mutable state lives in a single controlled location. Set `allow-conditional-init` to
+  true (the default) to suppress the rule for the common `var=${var:-default}` init
+  pattern, which is idiomatic and not harmful.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: allow-conditional-init
+    type: bool
+    default: true
+    description: >
+      When true, a second assignment that has the form of a conditional
+      default (`var=${var:-value}`) is not treated as a mutation and does not trigger the
+      rule. Defaults to true.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      count=0
+      count=5
+      echo "$count"
+  - kind: valid
+    code: |
+      #!/bin/bash
+      readonly COUNT=0
+      echo "$COUNT"

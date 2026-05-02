@@ -1,0 +1,42 @@
+origin: novel
+legacy_name: bash-feature-too-new
+new_category: Portability
+new_code: X082
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A Bash feature used in the script was introduced in a version newer than the project's configured maximum.
+rationale: >
+  Projects that need to run on older Bash installations (common in CI images, Docker base
+  containers, and enterprise Linux distributions) must stay within the capabilities of
+  the oldest Bash version they support. When the project declares a `max-version` ceiling
+  in its configuration, this rule flags any construct whose introduction in Bash post-dates
+  that ceiling. For example, `EPOCHSECONDS` and `EPOCHREALTIME` are variables that Bash
+  began populating in version 5.0; using them in a project that targets Bash 4.4 creates
+  a silent failure on the older host (the variables are simply empty). The rule's catalog
+  covers builtin variables, parameter transformation operators, and shopt options that
+  have known introduction versions, and it grows as the catalog is extended. Constructs
+  not yet in the catalog are not flagged.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: max-version
+    type: string
+    default: "4.4"
+    description: The maximum Bash version the project targets. Constructs introduced after this version are flagged.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      # EPOCHSECONDS was introduced in Bash 5.0; this violates max-version=4.4
+      start=$EPOCHSECONDS
+      echo "start=$start"
+  - kind: valid
+    code: |
+      #!/bin/bash
+      # date +%s works on any Bash version and is within the 4.4 ceiling
+      start=$(date +%s)
+      echo "start=$start"

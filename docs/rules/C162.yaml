@@ -1,0 +1,35 @@
+origin: novel
+legacy_name: extra-masked-returns
+new_category: Correctness
+new_code: C162
+runtime_kind: ast
+shellcheck_code: SC2312
+shellcheck_level: info
+shells:
+  - bash
+description: A command substitution's exit status is silently discarded because the substitution appears inside a combined declaration-and-assignment that the default S010 set does not cover.
+rationale: When a command substitution is embedded directly in a combined declaration-and-assignment using forms such as local -r or typeset, the shell assigns the variable before the declaring keyword has a chance to see the substitution's exit status, so a non-zero exit from the substituted command is masked. The S010 rule (SC2155) already flags the most common masking forms — local, declare, and export — because ShellCheck flags those by default. This rule extends the policy to additional forms such as readonly and typeset that ShellCheck reports only when its optional check-extra-masked-returns check is enabled. To make the exit status observable, separate the declaration from the assignment.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: treat-as-masking
+    type: list
+    default: '["readonly", "typeset"]'
+    description: Assignment-declaration forms beyond the S010 set that should be treated as masking a command substitution's exit status.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      foo() {
+        local -r result=$(get_value)
+        echo "$result"
+      }
+  - kind: valid
+    code: |
+      #!/bin/bash
+      foo() {
+        local result
+        result=$(get_value)
+        echo "$result"
+      }

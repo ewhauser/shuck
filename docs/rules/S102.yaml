@@ -1,0 +1,44 @@
+origin: novel
+legacy_name: require-double-brackets
+new_category: Style
+new_code: S102
+runtime_kind: ast
+shellcheck_code: SC2292
+shellcheck_level: style
+shells:
+  - bash
+description: A test expression uses the POSIX `[ ]` form in a Bash script where the extended `[[ ]]` form is available and preferred.
+rationale: >
+  In Bash (and Ksh), the `[[ ]]` keyword is a first-class language construct rather than
+  a regular command. It avoids several pitfalls of the POSIX `[ ]` form: word splitting
+  and pathname expansion do not occur on unquoted operands, the `&&` and `||` operators
+  work as expected inside the test, pattern matching is built in, and there is no ambiguity
+  between the `-a`/`-o` flags and filenames. Migrating Bash-only scripts to `[[ ]]`
+  eliminates these edge cases and signals to readers that portability to `/bin/sh` is not
+  a goal of the script.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: allow-in-portable-mode
+    type: bool
+    default: false
+    description: >
+      When true, `[ ]` is permitted even when the shell is bash. Useful for scripts
+      that intentionally maintain POSIX compatibility despite using a bash shebang.
+      Defaults to false.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      name="Alice"
+      if [ "$name" = "Alice" ]; then
+        echo "hello"
+      fi
+  - kind: valid
+    code: |
+      #!/bin/bash
+      name="Alice"
+      if [[ "$name" = "Alice" ]]; then
+        echo "hello"
+      fi

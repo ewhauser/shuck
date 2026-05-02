@@ -1,0 +1,38 @@
+origin: novel
+legacy_name: error-not-on-stderr
+new_category: Style
+new_code: S096
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A command in an error branch writes output to stdout rather than stderr.
+rationale: >
+  Diagnostic messages — failures, errors, and explanatory text accompanying a
+  non-zero exit — belong on stderr so that callers can separate program output
+  from error text. When error-branch output goes to stdout, the calling script
+  or terminal mixes it with normal output, breaking pipelines and
+  capture-and-inspect patterns. The Google Shell Style Guide explicitly
+  recommends routing all error and diagnostic messages through `>&2`. This rule
+  flags plain writes (such as `echo`, `printf`, or `cat`) that appear in
+  recognizable error branches — `if ! cmd; then ...`, `cmd || { ... }`, or
+  blocks that end with a non-zero `exit` — and lack a `>&2` redirect.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      if ! gzip -t "$1"; then
+        echo "archive validation failed for: $1"
+        exit 1
+      fi
+  - kind: valid
+    code: |
+      #!/bin/bash
+      if ! gzip -t "$1"; then
+        echo "archive validation failed for: $1" >&2
+        exit 1
+      fi

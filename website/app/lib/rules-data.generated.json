@@ -4215,6 +4215,156 @@
     ]
   },
   {
+    "code": "C158",
+    "name": "implicit-global-in-function",
+    "category": "Correctness",
+    "categoryPrefix": "C",
+    "description": "An assignment inside a function body modifies a variable that was not declared local to that function.",
+    "rationale": "In Bash, assignments inside a function silently modify the global namespace unless the target is declared with `local`, `declare`, or `readonly` inside that function's scope. This implicit global mutation is a common source of bugs: the calling scope's variable is unexpectedly overwritten, two functions that happen to use the same name interfere with each other, and the function becomes non-reentrant. The Google Shell Style Guide requires all function-internal variables to be explicitly declared `local`. This rule flags assignments to names that have no `local`/`declare`/`readonly` declaration in the enclosing function scope. Variables marked `readonly` at the top level are considered documented intentional globals (controlled by `treat-readonly-as-documented`), as are variables that have been exported (controlled by `treat-export-as-intentional`). This rule is the inverse of C014, which flags `local` used outside a function body. See also C136 (local-cross-reference) and C150 (subshell-local-assignment) for related local-scoping checks.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\nfoo() {\n  x=1\n  echo \"$x\"\n}\nfoo"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\nfoo() {\n  local x=1\n  echo \"$x\"\n}\nfoo"
+      }
+    ]
+  },
+  {
+    "code": "C159",
+    "name": "mutable-global",
+    "category": "Correctness",
+    "categoryPrefix": "C",
+    "description": "A global variable is assigned more than once at the top level or reassigned from inside a function, making it mutable state.",
+    "rationale": "Global variables that are written in multiple places across a script create hidden coupling: any function or top-level statement can silently change a value that other parts of the script rely on, making behavior dependent on evaluation order. The Google Shell Style Guide addresses this by requiring global constants to be declared `readonly`, which makes their value fixed and self-documenting at the declaration site. This rule flags two patterns: a name that receives a plain assignment at the top level and is then assigned again (whether at the top level or from inside a function body), and a name that is assigned at the top level without `readonly` or `declare -r` when it is never intended to change. To resolve the diagnostic, declare the variable `readonly` at its first assignment if it is a constant, or restructure the code so that mutable state lives in a single controlled location. Set `allow-conditional-init` to true (the default) to suppress the rule for the common `var=${var:-default}` init pattern, which is idiomatic and not harmful.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\ncount=0\ncount=5\necho \"$count\""
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\nreadonly COUNT=0\necho \"$COUNT\""
+      }
+    ]
+  },
+  {
+    "code": "C160",
+    "name": "unanchored-source-path",
+    "category": "Correctness",
+    "categoryPrefix": "C",
+    "description": "A source or dot command uses a relative path that is not anchored to the script's own directory.",
+    "rationale": "A bare relative path in a `source` or `.` invocation is resolved relative to the current working directory at the time the script runs, not relative to the script file itself. This means the same script behaves differently depending on where it is invoked from: `source ./lib.sh` succeeds when run from the script's directory but fails silently or loads the wrong file when run from any other directory. The correct idiom is to anchor the path to the script's own directory using `\"${BASH_SOURCE[0]%/*}/lib.sh\"`, `\"$(dirname \"$0\")/lib.sh\"`, or `\"$(dirname \"${BASH_SOURCE[0]}\")/lib.sh\"`. This rule flags `source` and `.` invocations whose path argument does not begin with one of those anchors or another expression listed in `allowed-anchors`. Absolute paths and paths produced entirely by command substitution that the rule cannot inspect statically are not flagged. Note: ShellCheck may emit SC1090 or SC1091 on source lines it cannot follow; those are independent informational diagnostics about static analysis coverage, not about path anchoring.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\nsource ./lib.sh\necho \"done\""
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\nsource \"${BASH_SOURCE[0]%/*}/lib.sh\"\necho \"done\""
+      }
+    ]
+  },
+  {
+    "code": "C161",
+    "name": "function-called-before-defined",
+    "category": "Correctness",
+    "categoryPrefix": "C",
+    "description": "A function is called at a top-level position that is reached before the function's definition has been evaluated.",
+    "rationale": "Shell scripts are interpreted top-to-bottom at runtime. Invoking a function whose definition appears later in the file will fail at the point of the call because the name has not yet been registered. Move the function definition above its first call site, or restructure the script so all function definitions are grouped at the top and executable code runs after them.",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": "SC2218",
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\ndo_thing\ndo_thing() {\n  echo hi\n}"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\ndo_thing() {\n  echo hi\n}\ndo_thing"
+      }
+    ]
+  },
+  {
+    "code": "C162",
+    "name": "extra-masked-returns",
+    "category": "Correctness",
+    "categoryPrefix": "C",
+    "description": "A command substitution's exit status is silently discarded because the substitution appears inside a combined declaration-and-assignment that the default S010 set does not cover.",
+    "rationale": "When a command substitution is embedded directly in a combined declaration-and-assignment using forms such as local -r or typeset, the shell assigns the variable before the declaring keyword has a chance to see the substitution's exit status, so a non-zero exit from the substituted command is masked. The S010 rule (SC2155) already flags the most common masking forms — local, declare, and export — because ShellCheck flags those by default. This rule extends the policy to additional forms such as readonly and typeset that ShellCheck reports only when its optional check-extra-masked-returns check is enabled. To make the exit status observable, separate the declaration from the assignment.",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": "SC2312",
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\nfoo() {\n  local -r result=$(get_value)\n  echo \"$result\"\n}"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\nfoo() {\n  local result\n  result=$(get_value)\n  echo \"$result\"\n}"
+      }
+    ]
+  },
+  {
     "code": "S001",
     "name": "unquoted-argument-expansion",
     "category": "Style",
@@ -6322,6 +6472,816 @@
       {
         "kind": "invalid",
         "code": "#!/bin/sh\nprintf '%s\\n' \"$name[0]\"\npattern=\"^$key[[:space:]]*$\""
+      }
+    ]
+  },
+  {
+    "code": "S078",
+    "name": "shebang-not-bash",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "The shebang interpreter does not match the project's configured shell policy.",
+    "rationale": "Projects that standardize on a specific shell (commonly Bash) should ensure every script's shebang reflects that policy. A mismatch — such as `#!/bin/sh` in a Bash-only codebase — silently changes runtime semantics and can hide compatibility problems or cause subtle behavioral differences between development and production. Enable this rule and set `allowed-shells` to the shell or shells your project supports. Any script whose shebang names a different interpreter will be flagged; change the shebang to an allowed interpreter to resolve the diagnostic.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/sh\necho hello"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\necho hello"
+      }
+    ]
+  },
+  {
+    "code": "S079",
+    "name": "shebang-form-mismatch",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "The shebang line does not use the configured invocation form.",
+    "rationale": "Shell projects often standardize on one of two shebang forms: a direct absolute path (e.g., `#!/bin/bash`) or an env-lookup indirection (e.g., `#!/usr/bin/env bash`). Mixing both forms across a codebase makes the launch mechanism inconsistent and can cause scripts to behave differently on systems where the interpreter lives at a non-standard path. Configure `allowed-forms` to enforce one form, or use `allowed-paths` to enumerate the exact shebang strings that are permitted. Any shebang that does not satisfy either constraint will be flagged; update the shebang to an allowed form or path to resolve the diagnostic.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\nx=1\necho \"$x\""
+      },
+      {
+        "kind": "valid",
+        "code": "#!/usr/bin/env bash\nx=1\necho \"$x\""
+      }
+    ]
+  },
+  {
+    "code": "S080",
+    "name": "script-size-threshold",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "The script's line count exceeds the configured size threshold.",
+    "rationale": "Long shell scripts are harder to understand, test, and maintain than short focused ones. The Google Shell Style Guide recommends keeping scripts to around 100 lines or fewer; larger scripts are a signal that the logic should be broken up into multiple files or rewritten in a more structured language. Enable this rule and set `max-lines` to the ceiling appropriate for your codebase. The `count` option controls whether the limit applies to every physical line (`\"physical\"`, the default) or only to lines that carry code (`\"non-comment-non-blank\"`, which excludes blank lines and comment-only lines). When the script exceeds the threshold, consider splitting it into smaller modules that source one another.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\n# This script is intentionally long to exceed the line threshold.\necho \"line 1\"\necho \"line 2\"\necho \"line 3\"\necho \"line 4\"\necho \"line 5\"\necho \"line 6\"\necho \"line 7\"\necho \"line 8\"\necho \"line 9\"\necho \"line 10\""
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\n# A concise script.\necho \"done\""
+      }
+    ]
+  },
+  {
+    "code": "S081",
+    "name": "missing-file-description",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "The script does not begin with a comment block describing its purpose.",
+    "rationale": "A file-level header comment answers the first question any reader or operator will ask: \"what does this script do?\" Without it, understanding the script requires reading all of its logic before its intent becomes clear. The Google Shell Style Guide requires every file to start with a description of its contents. This rule flags scripts where the first non-shebang, non-blank line is not a comment. Add a brief comment block immediately after the shebang (or at the top of the file if there is no shebang) that describes the script's purpose. Set `ignore-shebang-only-files` to true if scripts that contain nothing beyond a shebang should be exempt from the check.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\nls -la"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\n# Prints a listing of the current directory with timestamps.\nls -la"
+      }
+    ]
+  },
+  {
+    "code": "S082",
+    "name": "todo-format",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A TODO, FIXME, or XXX comment is missing an owner annotation or a message describing the work.",
+    "rationale": "Actionable comment markers such as TODO and FIXME are only useful when a reader can tell who is responsible and what needs to be done. An annotation without an owner — written as `(name)` or `(handle)` immediately after the keyword — cannot be assigned or tracked. An annotation without a message leaves reviewers guessing about the intent. Requiring both fields keeps the comment backlog triageable and prevents stale markers from accumulating without clear accountability. The set of recognized keywords and the two requirements are individually configurable so teams can adopt the policy incrementally.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\n# TODO finish later\n# FIXME this is broken\necho hi"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\n# TODO(alice): finish the input validation logic\n# FIXME(bob): address the edge case for empty arrays\necho hi"
+      }
+    ]
+  },
+  {
+    "code": "S083",
+    "name": "missing-function-doc",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A function definition lacks a leading comment block describing its purpose.",
+    "rationale": "Well-documented functions reduce the cognitive overhead of reading, reviewing, and maintaining shell scripts. A comment block immediately before a function definition tells callers what the function does, what arguments it expects, which global variables it touches, and what it returns — information that is not recoverable from the implementation alone without reading every line. Because mandating a doc block for every trivial two-liner would produce more noise than signal, the rule is configurable: teams can require documentation only for all functions, only for long functions (those above a configurable line threshold), only for functions that accept positional parameters, or only for functions whose names follow a \"public\" naming convention. The rule fires when a function matching the configured policy has no associated comment block at all; the companion rule S084 checks whether a present comment block covers the required content.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\ndo_work() {\n  local input=$1\n  echo \"processing: $input\"\n}\ndo_work \"$1\""
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\n# Processes the given input string and writes the result to stdout.\ndo_work() {\n  local input=$1\n  echo \"processing: $input\"\n}\ndo_work \"$1\""
+      }
+    ]
+  },
+  {
+    "code": "S084",
+    "name": "function-doc-content",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A function's leading comment block does not document globals, arguments, outputs, or return values that appear in the function body.",
+    "rationale": "A comment block that exists but omits key information is only marginally better than no comment at all. The Google Shell Style Guide prescribes four structured sections — Globals, Arguments, Outputs, and Returns — each matching a category of observable behavior. When a function reads or modifies a global variable and the Globals section is absent, a caller has no way to know about the side effect without reading the implementation. Similarly, when a function uses positional parameters but the Arguments section is missing, or when it writes to stdout but the Outputs section is absent, the doc block is incomplete. This rule checks that any function whose body contains at least one item from each configured category has a corresponding section header in its comment block. Each category is independently configurable so teams can adopt the policy piecemeal.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\n# Builds an absolute output path.\nbuild_path() {\n  local suffix=$1\n  echo \"${BASE_DIR}/${suffix}\"\n  return 0\n}\nbuild_path \"logs\""
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\n# Builds an absolute output path by joining BASE_DIR with a suffix.\n#\n# Globals:\n#   BASE_DIR\n# Arguments:\n#   $1 - The path suffix to append.\n# Outputs:\n#   Writes the constructed path to stdout.\n# Returns:\n#   0 always.\nbuild_path() {\n  local suffix=$1\n  echo \"${BASE_DIR}/${suffix}\"\n  return 0\n}\nbuild_path \"logs\""
+      }
+    ]
+  },
+  {
+    "code": "S085",
+    "name": "missing-main-function",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A non-trivial script does not end with a call to the main entry-point function as its last top-level statement.",
+    "rationale": "Structuring a script so that all logic lives inside named functions and a single top-level call dispatches to them makes the script easier to source under test, easier to read in isolation, and easier to compose with other scripts. The Google Shell Style Guide prescribes that non-trivial scripts end with `main \"$@\"` as their last executable line — this signals clearly where execution begins and keeps the top level free of scattered logic. \"Non-trivial\" is configurable: the rule stays silent on scripts below a line-count or function-count threshold so that small one-off scripts are not needlessly flagged. The `main-name` option lets projects that use a different entry-point name (e.g. `run` or `entrypoint`) still benefit from the check.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\n# A non-trivial script that processes files without a main dispatcher.\n\nreadonly LOG_DIR=\"/var/log/myapp\"\n\nsetup() {\n  mkdir -p \"${LOG_DIR}\"\n}\n\nrun() {\n  echo \"Running from ${LOG_DIR}\"\n}\n\n# Top-level executable code instead of main \"$@\"\nsetup\nrun"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\n# A non-trivial script with a proper main dispatcher.\n\nreadonly LOG_DIR=\"/var/log/myapp\"\n\nsetup() {\n  mkdir -p \"${LOG_DIR}\"\n}\n\nrun() {\n  echo \"Running from ${LOG_DIR}\"\n}\n\nmain() {\n  setup\n  run\n}\n\nmain \"$@\""
+      }
+    ]
+  },
+  {
+    "code": "S086",
+    "name": "top-level-code-not-minimal",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "Executable statements appear at the top level of a script outside the set of statement types that are allowed there.",
+    "rationale": "The Google Shell Style Guide prescribes that the top level of a well-structured script should contain only a narrow set of statement types: constant declarations (`readonly`, `declare -r`, and `export`), plain variable declarations without an initialiser, function definitions, source commands, and the single `main \"$@\"` invocation. Any other executable statement — conditionals, loops, command calls, arithmetic — that appears directly at the top level makes the script harder to source under test, harder to reason about, and easier to accidentally execute side effects when sourced by another script. This rule flags those out-of-place top-level statements. The `allowed-statements` option lets teams extend or restrict the baseline set to match their own policy.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\nreadonly APP_NAME=\"myapp\"\n\ngreet() {\n  echo \"Hello from ${APP_NAME}\"\n}\n\n# This conditional block is top-level executable code that should\n# be moved inside a function.\nif [[ -z \"${HOME}\" ]]; then\n  echo \"No home directory set\" >&2\n  exit 1\nfi\n\nmain() {\n  greet\n}\n\nmain \"$@\""
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\nreadonly APP_NAME=\"myapp\"\n\ncheck_env() {\n  if [[ -z \"${HOME}\" ]]; then\n    echo \"No home directory set\" >&2\n    exit 1\n  fi\n}\n\ngreet() {\n  echo \"Hello from ${APP_NAME}\"\n}\n\nmain() {\n  check_env\n  greet\n}\n\nmain \"$@\""
+      }
+    ]
+  },
+  {
+    "code": "S087",
+    "name": "constants-not-at-top",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A constant declaration using readonly, declare -r, or export appears after the first function definition in the script.",
+    "rationale": "The Google Shell Style Guide prescribes a clear ordering for the top-level sections of a script: constants and global variables are declared first, then functions are defined, then the entry-point call closes the file. When a constant declaration appears after the first function definition, the established reading order is broken: a reader scanning the file to understand the script's global state has to read past function bodies to find all the constants. Keeping all `readonly`, `declare -r`, and `export` constant declarations above the first function definition makes the global namespace immediately visible at the top of the file and prevents accidental shadowing of a constant by a later definition.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\nreadonly PREFIX=\"/usr/local\"\n\ninstall_files() {\n  echo \"Installing to ${PREFIX}/bin/\"\n}\n\n# This constant appears after a function definition — it should be at the top.\nreadonly VERSION=\"1.2.3\"\n\nmain() {\n  install_files\n  echo \"Version: ${VERSION}\"\n}\n\nmain \"$@\""
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\n# All constants declared before the first function definition.\nreadonly PREFIX=\"/usr/local\"\nreadonly VERSION=\"1.2.3\"\n\ninstall_files() {\n  echo \"Installing to ${PREFIX}/bin/\"\n}\n\nmain() {\n  install_files\n  echo \"Version: ${VERSION}\"\n}\n\nmain \"$@\""
+      }
+    ]
+  },
+  {
+    "code": "S088",
+    "name": "functions-not-grouped",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "Function definitions are not contiguous because an executable statement appears between two function definitions.",
+    "rationale": "The Google Shell Style Guide prescribes that all function definitions in a script should be grouped together as a contiguous block, with no executable statements interspersed between them. When an executable statement (a command call, a loop, a conditional, etc.) appears between two function definitions, the function block is fragmented: readers cannot scan the file and locate all function definitions in one place, and tools that extract or test functions individually have to deal with side-effecting code scattered among the definitions. Grouping all function definitions together — preceded by constants and followed by the entry-point call — keeps each structural section of the script spatially distinct and reinforces the convention that top-level executable code should be minimal.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\nreadonly WORKDIR=\"/tmp/work\"\n\nsetup() {\n  mkdir -p \"${WORKDIR}\"\n}\n\n# This command is sandwiched between two function definitions.\necho \"Preparing environment...\"\n\nteardown() {\n  rm -rf \"${WORKDIR}\"\n}\n\nmain() {\n  setup\n  teardown\n}\n\nmain \"$@\""
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\nreadonly WORKDIR=\"/tmp/work\"\n\n# All function definitions are grouped together with no executable\n# statements interspersed.\nsetup() {\n  mkdir -p \"${WORKDIR}\"\n}\n\nteardown() {\n  rm -rf \"${WORKDIR}\"\n}\n\nmain() {\n  echo \"Preparing environment...\"\n  setup\n  teardown\n}\n\nmain \"$@\""
+      }
+    ]
+  },
+  {
+    "code": "S089",
+    "name": "function-name-case",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A function name does not match the configured naming pattern.",
+    "rationale": "Consistent function naming within a codebase reduces cognitive overhead when reading and searching code. The default pattern requires lowercase letters, digits, and underscores, with an optional double-colon namespace separator for library functions. Projects may supply an alternate regex via the `pattern` option to fit their own conventions.",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\nMyFunction() {\n  echo hi\n}\nMyFunction"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\ndo_thing() {\n  echo hi\n}\ndo_thing"
+      }
+    ]
+  },
+  {
+    "code": "S090",
+    "name": "package-function-namespace",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "Functions in files identified as libraries do not use a package-qualified name in the form `package::function_name`.",
+    "rationale": "Library files expose shared functions that may be sourced into many scripts. Qualifying each function with a package prefix avoids name collisions when multiple libraries are loaded into the same shell session and makes it immediately clear which library a function belongs to. This rule is intentionally scoped to files that match a configurable predicate so that top-level scripts, which are never sourced, are not penalised.",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\n# mylib.lib.sh\nparse_input() {\n  local val=\"$1\"\n  echo \"${val}\"\n}"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\n# mylib.lib.sh\nmylib::parse_input() {\n  local val=\"$1\"\n  echo \"${val}\"\n}"
+      }
+    ]
+  },
+  {
+    "code": "S091",
+    "name": "variable-name-case",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A local variable name (or function-scoped assignment target) does not match the configured naming pattern.",
+    "rationale": "Using a uniform naming convention for function-local variables makes it straightforward to distinguish them from constants and exported globals at a glance. The default pattern requires lowercase letters, digits, and underscores (snake_case). Projects with different conventions can supply an alternate regex via the `pattern` option.",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\nprocess_data() {\n  local FooBar=1\n  echo \"${FooBar}\"\n}\nprocess_data"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\nprocess_data() {\n  local foo_bar=1\n  echo \"${foo_bar}\"\n}\nprocess_data"
+      }
+    ]
+  },
+  {
+    "code": "S092",
+    "name": "constant-name-case",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A constant declared with `readonly`, `declare -r`, or `export` does not match the configured naming pattern.",
+    "rationale": "Naming constants with uppercase letters and underscores (SCREAMING_SNAKE_CASE) is a widely followed convention that visually distinguishes immutable values from mutable locals and from functions. When a reader sees an all-caps name they know immediately that the value will not change within the script. Projects may supply an alternate regex via the `pattern` option.",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\nreadonly maxRetries=3\nreadonly backoffMs=100\necho \"${maxRetries}\" \"${backoffMs}\""
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\nreadonly MAX_RETRIES=3\nreadonly BACKOFF_MS=100\necho \"${MAX_RETRIES}\" \"${BACKOFF_MS}\""
+      }
+    ]
+  },
+  {
+    "code": "S093",
+    "name": "alias-definition",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "An alias is defined in a script; shell functions are preferred over aliases for reusable command sequences.",
+    "rationale": "Aliases are evaluated once at definition time and do not compose well with arguments, pipelines, or conditional logic. They behave differently in non-interactive shells, can shadow built-ins in surprising ways, and are silently ignored in many execution contexts (such as scripts that do not explicitly enable alias expansion). Shell functions provide the same shorthand with full access to positional parameters, local variables, and structured control flow. Projects following Google-style shell conventions replace aliases with named functions, which are unambiguous, testable, and work identically across interactive and non-interactive environments.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\nalias ll='ls -lh'\nll"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\nll() {\n  ls -lh\n}\nll"
+      }
+    ]
+  },
+  {
+    "code": "S094",
+    "name": "undocumented-globals",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A function reads or writes a non-local variable that is not named in the function's leading comment block.",
+    "rationale": "Functions that silently depend on or modify global state are a common source of hard-to-trace bugs in shell scripts. When a function reaches outside its own local scope — reading a variable that was set elsewhere, or writing a variable that callers will observe — that dependency should be visible at the call site without requiring a full read of the implementation. The Google Shell Style Guide requires a \"Globals:\" section that lists each non-local variable the function reads or writes. This rule complements S084 by operating at the variable level: rather than just checking that a Globals section exists, it verifies that each specific non-local variable the function references appears by name in that section. The `treat-readonly-as-documented` option exempts variables that are declared `readonly` at the top level, on the grounds that a readonly constant is part of the script's visible configuration rather than hidden mutable state.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\n# Logs a message with a severity prefix.\nlog_message() {\n  echo \"[${LOG_LEVEL}] $1\"\n}\nlog_message \"started\""
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\n# Logs a message with a severity prefix derived from LOG_LEVEL.\n#\n# Globals:\n#   LOG_LEVEL (read)\n# Arguments:\n#   $1 - The message text to log.\nlog_message() {\n  echo \"[${LOG_LEVEL}] $1\"\n}\nlog_message \"started\""
+      }
+    ]
+  },
+  {
+    "code": "S095",
+    "name": "missing-cli-usage",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A script that processes command-line arguments does not provide a usage function or handle the standard help flags.",
+    "rationale": "Scripts that parse positional parameters or option flags create an implicit command-line interface. Without a usage message, callers who encounter an error or who want to understand the script's interface have no in-band way to discover accepted arguments, required parameters, or available options. The Google Shell Style Guide recommends that every script with a non-trivial argument surface include a `usage` function (or equivalent) and respond to `--help` / `-h` with that documentation. This rule fires when a script references positional parameters or uses `getopts` but defines neither a function matching the configured `usage-function-name` nor a branch that handles any of the configured `help-flags`.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\ninput_file=$1\noutput_file=$2\nprocess \"$input_file\" \"$output_file\""
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\nusage() {\n  printf 'Usage: %s <input> <output>\\n' \"$0\"\n}\nif [[ \"$1\" == \"--help\" || \"$1\" == \"-h\" ]]; then\n  usage\n  exit 0\nfi\ninput_file=$1\noutput_file=$2\nprocess \"$input_file\" \"$output_file\""
+      }
+    ]
+  },
+  {
+    "code": "S096",
+    "name": "error-not-on-stderr",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A command in an error branch writes output to stdout rather than stderr.",
+    "rationale": "Diagnostic messages — failures, errors, and explanatory text accompanying a non-zero exit — belong on stderr so that callers can separate program output from error text. When error-branch output goes to stdout, the calling script or terminal mixes it with normal output, breaking pipelines and capture-and-inspect patterns. The Google Shell Style Guide explicitly recommends routing all error and diagnostic messages through `>&2`. This rule flags plain writes (such as `echo`, `printf`, or `cat`) that appear in recognizable error branches — `if ! cmd; then ...`, `cmd || { ... }`, or blocks that end with a non-zero `exit` — and lack a `>&2` redirect.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\nif ! gzip -t \"$1\"; then\n  echo \"archive validation failed for: $1\"\n  exit 1\nfi"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\nif ! gzip -t \"$1\"; then\n  echo \"archive validation failed for: $1\" >&2\n  exit 1\nfi"
+      }
+    ]
+  },
+  {
+    "code": "S097",
+    "name": "suppression-without-reason",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A lint-suppression directive is missing a free-text justification explaining why the suppression is appropriate.",
+    "rationale": "Suppression directives silence diagnostics for everyone who reads the code from that point forward. Without a rationale, the intent behind the suppression is invisible: future maintainers cannot tell whether the code was suppressed because the pattern is intentional, because the rule had a known false-positive, or because the original author simply wanted to stop the warning without investigating it. Requiring a trailing reason — a brief note after the rule code — makes suppressions self-documenting and surfaces suppressions that should be revisited when the surrounding code changes. This rule fires on any `# shuck:` or `# shellcheck` directive that does not include free-text after the code list.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\n# shuck: disable=S001\necho $HOME"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\n# shuck: disable=S001 -- HOME is controlled by the environment and cannot contain spaces\necho $HOME"
+      }
+    ]
+  },
+  {
+    "code": "S098",
+    "name": "blanket-suppression",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A suppression directive uses a broad category selector or a file-wide disable outside the configured allowlist.",
+    "rationale": "Wide-scope suppressions — disabling an entire category such as `ALL`, `C`, `S`, or similar prefixes, or issuing a `disable-file` directive — silence large classes of diagnostics at once, often hiding real problems alongside the ones being worked around. Category-level suppressions are almost never intentional; they usually result from copy-paste or from wanting to quiet one noisy rule without looking up its specific code. File-wide disables carry the same risk at a larger scale. This rule flags directives whose selector list contains any entry from the configured `disallowed-selectors`, and also flags `disable-file` directives when `allow-disable-file` is false. Fine-grained per-rule suppressions with justifications (see S097) are the preferred alternative.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\n# shuck: disable-file=ALL\nprocess_files() {\n  local f\n  for f in \"$@\"; do\n    echo \"$f\"\n  done\n}"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\n# shuck: disable=S001 -- pattern glob is intentional here\nfor entry in $GLOB_PATTERN; do\n  echo \"$entry\"\ndone"
+      }
+    ]
+  },
+  {
+    "code": "S099",
+    "name": "which-vs-command-v",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A call to `which` locates executables using only the current PATH without honoring shell functions or builtins; prefer the portable `command -v` builtin instead.",
+    "rationale": "The `which` utility is not defined by POSIX and behaves inconsistently across platforms — some versions ignore shell aliases and functions, others consult a separate configuration, and some do not return a non-zero exit code when the command is absent. The shell builtin `command -v` is standardised, respects the shell's own function and alias namespace, and provides the same executable-path lookup without external-process overhead. Replacing `which` with `command -v` makes scripts both more portable and more accurate.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": "SC2230",
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\npath=$(which python3)\n\"$path\" --version"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\npath=$(command -v python3)\n\"$path\" --version"
+      }
+    ]
+  },
+  {
+    "code": "S100",
+    "name": "quote-safe-variables",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A scalar variable expansion appears unquoted even when its value is not expected to contain word-splitting or glob characters.",
+    "rationale": "Even variables that are assigned safe-looking string literals should be double-quoted on expansion. The assignment may change over time, the variable may be exported and set externally, or a future refactor may introduce a value with whitespace. Consistently quoting every expansion eliminates a class of subtle split-and-glob bugs before they materialise, requires no knowledge of what each variable may contain at runtime, and makes it clear to readers that word-splitting was consciously not desired. This rule extends the default unquoted-expansion check to cover expansions that a purely flow-sensitive analysis would consider safe.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": "SC2248",
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\nlabel=\"build-output\"\nmkdir $label"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\nlabel=\"build-output\"\nmkdir \"$label\""
+      }
+    ]
+  },
+  {
+    "code": "S101",
+    "name": "require-variable-braces",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A scalar variable is expanded using the bare `$var` form rather than the brace-delimited `${var}` form.",
+    "rationale": "Consistently using `${var}` instead of `$var` makes the extent of every variable name unambiguous at a glance and avoids surprises when a variable name is followed by a letter, digit, or underscore that could be misread as part of the name. It also simplifies search and refactoring: editors and code-analysis tools can reliably identify every expansion. Special shell parameters (`$0`, `$1`, `$@`, `$$`, etc.) are typically exempt because they cannot be confused with longer names, but named scalar variables benefit most from the braced form.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": "SC2250",
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\ngreeting=\"hello\"\necho \"$greeting world\""
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\ngreeting=\"hello\"\necho \"${greeting} world\""
+      }
+    ]
+  },
+  {
+    "code": "S102",
+    "name": "require-double-brackets",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A test expression uses the POSIX `[ ]` form in a Bash script where the extended `[[ ]]` form is available and preferred.",
+    "rationale": "In Bash (and Ksh), the `[[ ]]` keyword is a first-class language construct rather than a regular command. It avoids several pitfalls of the POSIX `[ ]` form: word splitting and pathname expansion do not occur on unquoted operands, the `&&` and `||` operators work as expected inside the test, pattern matching is built in, and there is no ambiguity between the `-a`/`-o` flags and filenames. Migrating Bash-only scripts to `[[ ]]` eliminates these edge cases and signals to readers that portability to `/bin/sh` is not a goal of the script.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": "SC2292",
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\nname=\"Alice\"\nif [ \"$name\" = \"Alice\" ]; then\n  echo \"hello\"\nfi"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\nname=\"Alice\"\nif [[ \"$name\" = \"Alice\" ]]; then\n  echo \"hello\"\nfi"
+      }
+    ]
+  },
+  {
+    "code": "S103",
+    "name": "avoid-nullary-conditions",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A `[[ ]]` test uses a bare command substitution as its only operand rather than an explicit `-n` test or a direct conditional on the command's exit status.",
+    "rationale": "Writing `[[ $(some_command) ]]` tests whether the command produced any output, not whether it succeeded. This conflates two different notions — non-empty output and zero exit status — and is often unintentional. Using `-n \"$(some_command)\"` makes the intent explicit: the script is testing for non-empty output. Alternatively, running the command directly as a conditional (`if some_command; then`) tests exit status without capturing output at all. Being explicit avoids silent mismatches between what the author intended and what the shell actually evaluates.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": "SC2243",
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\nif [[ $(git status --short) ]]; then\n  echo \"uncommitted changes\"\nfi"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\nif [[ -n $(git status --short) ]]; then\n  echo \"uncommitted changes\"\nfi"
+      }
+    ]
+  },
+  {
+    "code": "S104",
+    "name": "missing-case-default",
+    "category": "Style",
+    "categoryPrefix": "S",
+    "description": "A `case` statement has no catch-all `*)` default branch to handle values that do not match any explicit pattern.",
+    "rationale": "A `case` statement without a `*)` branch silently ignores any input that does not match a named pattern. This makes it easy to overlook typos in values, miss future extensions to an enumeration, or silently fail when upstream code passes an unexpected value. Adding a default branch — even one that just emits a diagnostic and exits — turns a silent no-op into an explicit signal that an unexpected value was received. The pattern is especially important for scripts that dispatch on command-line arguments or environment variables whose set of valid values may grow over time.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": "SC2249",
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\naction=\"${1:-}\"\ncase \"$action\" in\n  start) echo \"starting service\" ;;\n  stop)  echo \"stopping service\" ;;\nesac"
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\naction=\"${1:-}\"\ncase \"$action\" in\n  start) echo \"starting service\" ;;\n  stop)  echo \"stopping service\" ;;\n  *)     echo \"unknown action: ${action}\" >&2; exit 1 ;;\nesac"
       }
     ]
   },
@@ -8529,6 +9489,66 @@
       {
         "kind": "invalid",
         "code": "#!/bin/sh\n# shellcheck disable=2154\necho \"${*%%dBm*}\" > /tmp/signal.txt\necho \"${@##*.}\""
+      }
+    ]
+  },
+  {
+    "code": "X082",
+    "name": "bash-feature-too-new",
+    "category": "Portability",
+    "categoryPrefix": "X",
+    "description": "A Bash feature used in the script was introduced in a version newer than the project's configured maximum.",
+    "rationale": "Projects that need to run on older Bash installations (common in CI images, Docker base containers, and enterprise Linux distributions) must stay within the capabilities of the oldest Bash version they support. When the project declares a `max-version` ceiling in its configuration, this rule flags any construct whose introduction in Bash post-dates that ceiling. For example, `EPOCHSECONDS` and `EPOCHREALTIME` are variables that Bash began populating in version 5.0; using them in a project that targets Bash 4.4 creates a silent failure on the older host (the variables are simply empty). The rule's catalog covers builtin variables, parameter transformation operators, and shopt options that have known introduction versions, and it grows as the catalog is extended. Constructs not yet in the catalog are not flagged.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\n# EPOCHSECONDS was introduced in Bash 5.0; this violates max-version=4.4\nstart=$EPOCHSECONDS\necho \"start=$start\""
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\n# date +%s works on any Bash version and is within the 4.4 ceiling\nstart=$(date +%s)\necho \"start=$start\""
+      }
+    ]
+  },
+  {
+    "code": "X083",
+    "name": "bash-feature-too-old",
+    "category": "Portability",
+    "categoryPrefix": "X",
+    "description": "A script that declares a modern-Bash version floor uses constructs that work on much older Bash versions, bypassing the benefit of that floor.",
+    "rationale": "When a project commits to requiring a minimum Bash version — for example, Bash 5.0 — it gains access to features introduced in that release and later. Using pre-floor idioms alongside that requirement weakens the contract: the script could silently be run on a far older interpreter, scripts within the same codebase lose consistency, and developers miss more capable or safer alternatives that the stated minimum already provides. This rule flags patterns that work on Bash versions well below the configured `min-version` when a direct replacement requiring roughly that floor exists. A representative case: piping through `tr '[:lower:]' '[:upper:]'` to fold case is universal across POSIX shells, but a project requiring Bash 4.0+ can use the `${var^^}` expansion instead, eliminating the subshell and external process. The rule's detection is bounded to idioms where the modern alternative is a straightforward substitution; it does not penalise code that legitimately mixes levels for portability reasons elsewhere in the same file.\n",
+    "shells": [
+      "bash"
+    ],
+    "shellcheckCode": null,
+    "implemented": false,
+    "status": "planned",
+    "hasKnownShellcheckDivergences": false,
+    "severity": null,
+    "fixStatus": "none",
+    "fixAvailability": "none",
+    "fixSafety": null,
+    "fixDescription": null,
+    "examples": [
+      {
+        "kind": "invalid",
+        "code": "#!/bin/bash\n# Piping through tr works on any POSIX shell; a project requiring Bash 4.0+\n# can use ${var^^} instead, but a min-version=5.0 project especially should\nname=\"hello world\"\nupper=$(printf '%s' \"$name\" | tr '[:lower:]' '[:upper:]')\necho \"$upper\""
+      },
+      {
+        "kind": "valid",
+        "code": "#!/bin/bash\n# ${var^^} case-conversion operator requires Bash 4.0; preferred for a 5.0+ project\nname=\"hello world\"\nupper=\"${name^^}\"\necho \"$upper\""
       }
     ]
   },

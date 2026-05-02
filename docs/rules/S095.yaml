@@ -1,0 +1,59 @@
+origin: novel
+legacy_name: missing-cli-usage
+new_category: Style
+new_code: S095
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A script that processes command-line arguments does not provide a usage function or handle the standard help flags.
+rationale: >
+  Scripts that parse positional parameters or option flags create an implicit
+  command-line interface. Without a usage message, callers who encounter an
+  error or who want to understand the script's interface have no in-band way
+  to discover accepted arguments, required parameters, or available options.
+  The Google Shell Style Guide recommends that every script with a non-trivial
+  argument surface include a `usage` function (or equivalent) and respond to
+  `--help` / `-h` with that documentation. This rule fires when a script
+  references positional parameters or uses `getopts` but defines neither a
+  function matching the configured `usage-function-name` nor a branch that
+  handles any of the configured `help-flags`.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: usage-function-name
+    type: string
+    default: "usage"
+    description: >
+      Name of the function that is considered the usage/help handler. The rule
+      treats any function definition whose name matches this value as satisfying
+      the documentation requirement. Defaults to "usage".
+  - name: help-flags
+    type: list
+    default: ["--help", "-h"]
+    description: >
+      String literals that, when matched in a test condition or case branch
+      against a positional parameter, satisfy the help-flag requirement. Defaults
+      to ["--help", "-h"].
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      input_file=$1
+      output_file=$2
+      process "$input_file" "$output_file"
+  - kind: valid
+    code: |
+      #!/bin/bash
+      usage() {
+        printf 'Usage: %s <input> <output>\n' "$0"
+      }
+      if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+        usage
+        exit 0
+      fi
+      input_file=$1
+      output_file=$2
+      process "$input_file" "$output_file"

@@ -1,0 +1,85 @@
+origin: novel
+legacy_name: missing-main-function
+new_category: Style
+new_code: S085
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A non-trivial script does not end with a call to the main entry-point function as its last top-level statement.
+rationale: >
+  Structuring a script so that all logic lives inside named functions and a single
+  top-level call dispatches to them makes the script easier to source under test,
+  easier to read in isolation, and easier to compose with other scripts. The Google
+  Shell Style Guide prescribes that non-trivial scripts end with `main "$@"` as
+  their last executable line — this signals clearly where execution begins and keeps
+  the top level free of scattered logic. "Non-trivial" is configurable: the rule
+  stays silent on scripts below a line-count or function-count threshold so that
+  small one-off scripts are not needlessly flagged. The `main-name` option lets
+  projects that use a different entry-point name (e.g. `run` or `entrypoint`) still
+  benefit from the check.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: non-trivial-line-threshold
+    type: integer
+    default: 30
+    description: >
+      Minimum number of lines a script must have before the rule fires.
+      Scripts shorter than this value are considered trivial and are not checked.
+  - name: non-trivial-function-count
+    type: integer
+    default: 2
+    description: >
+      Minimum number of function definitions a script must contain before the rule
+      fires. Scripts with fewer functions are considered trivial and are not checked.
+      Both thresholds must be met for the script to be considered non-trivial.
+  - name: main-name
+    type: string
+    default: "main"
+    description: >
+      Name of the expected entry-point function. The rule checks that the last
+      top-level statement is a call to this name (with or without arguments).
+      Defaults to "main".
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      # A non-trivial script that processes files without a main dispatcher.
+
+      readonly LOG_DIR="/var/log/myapp"
+
+      setup() {
+        mkdir -p "${LOG_DIR}"
+      }
+
+      run() {
+        echo "Running from ${LOG_DIR}"
+      }
+
+      # Top-level executable code instead of main "$@"
+      setup
+      run
+  - kind: valid
+    code: |
+      #!/bin/bash
+      # A non-trivial script with a proper main dispatcher.
+
+      readonly LOG_DIR="/var/log/myapp"
+
+      setup() {
+        mkdir -p "${LOG_DIR}"
+      }
+
+      run() {
+        echo "Running from ${LOG_DIR}"
+      }
+
+      main() {
+        setup
+        run
+      }
+
+      main "$@"

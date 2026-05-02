@@ -1,0 +1,59 @@
+origin: novel
+legacy_name: constants-not-at-top
+new_category: Style
+new_code: S087
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A constant declaration using readonly, declare -r, or export appears after the first function definition in the script.
+rationale: >
+  The Google Shell Style Guide prescribes a clear ordering for the top-level
+  sections of a script: constants and global variables are declared first, then
+  functions are defined, then the entry-point call closes the file. When a constant
+  declaration appears after the first function definition, the established reading
+  order is broken: a reader scanning the file to understand the script's global
+  state has to read past function bodies to find all the constants. Keeping all
+  `readonly`, `declare -r`, and `export` constant declarations above the first
+  function definition makes the global namespace immediately visible at the top
+  of the file and prevents accidental shadowing of a constant by a later definition.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      readonly PREFIX="/usr/local"
+
+      install_files() {
+        echo "Installing to ${PREFIX}/bin/"
+      }
+
+      # This constant appears after a function definition — it should be at the top.
+      readonly VERSION="1.2.3"
+
+      main() {
+        install_files
+        echo "Version: ${VERSION}"
+      }
+
+      main "$@"
+  - kind: valid
+    code: |
+      #!/bin/bash
+      # All constants declared before the first function definition.
+      readonly PREFIX="/usr/local"
+      readonly VERSION="1.2.3"
+
+      install_files() {
+        echo "Installing to ${PREFIX}/bin/"
+      }
+
+      main() {
+        install_files
+        echo "Version: ${VERSION}"
+      }
+
+      main "$@"
