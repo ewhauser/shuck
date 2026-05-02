@@ -27,6 +27,7 @@ pub(crate) fn resolve_with_environment(
         .or(config_shell)
         .or(inferred_shell)
         .unwrap_or(Shell::Bash);
+    shell.ensure_supported_on_current_platform()?;
     let defaulted_shell = options.shell.is_none()
         && metadata_shell.is_none()
         && config_shell.is_none()

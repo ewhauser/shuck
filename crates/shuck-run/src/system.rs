@@ -155,6 +155,7 @@ fn version_probe_commands(shell: Shell) -> Vec<Vec<OsString>> {
             ],
             vec![OsString::from("-V")],
         ],
+        Shell::Busybox => vec![vec![OsString::from("--help")]],
     }
 }
 

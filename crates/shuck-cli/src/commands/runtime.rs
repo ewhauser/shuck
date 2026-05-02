@@ -45,6 +45,7 @@ pub(crate) fn run(args: RunCommand, config_arguments: &ConfigArguments) -> Resul
     command.stdout(Stdio::inherit());
     command.stderr(Stdio::inherit());
     apply_runtime_environment(&mut command, &resolved);
+    append_shell_launcher_args(&mut command, resolved.shell);
     let temp_script = append_run_mode_args(&mut command, &cwd, resolved.shell, &args)?;
 
     if temp_script.is_some() {
@@ -116,6 +117,7 @@ pub(crate) fn shell(args: ShellCommand, config_arguments: &ConfigArguments) -> R
     command.stdout(Stdio::inherit());
     command.stderr(Stdio::inherit());
     apply_runtime_environment(&mut command, &resolved);
+    append_shell_launcher_args(&mut command, resolved.shell);
     exec_or_wait(command)
 }
 
@@ -293,6 +295,11 @@ fn write_bashkit_stdin_script() -> Result<NamedTempFile> {
     Ok(temp_script)
 }
 
+fn append_shell_launcher_args(command: &mut ProcessCommand, shell: Shell) {
+    if matches!(shell, Shell::Busybox) {
+        command.arg("sh");
+    }
+}
 fn apply_runtime_environment(
     command: &mut ProcessCommand,
     resolved: &shuck_run::ResolvedInterpreter,
@@ -301,7 +308,9 @@ fn apply_runtime_environment(
     command.env("SHUCK_SHELL_VERSION", resolved.version.as_str());
     command.env("SHUCK_SHELL_PATH", &resolved.path);
 
-    if matches!(resolved.source, ResolutionSource::Managed) {
+    if matches!(resolved.source, ResolutionSource::Managed)
+        && !matches!(resolved.shell, Shell::Busybox)
+    {
         command.env("SHELL", &resolved.path);
     }
 }
@@ -347,6 +356,7 @@ fn exit_status_from_process(status: std::process::ExitStatus) -> ExitStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::{OsStr, OsString};
 
     #[test]
     fn stdin_mode_detection_handles_dash_and_empty_script() {
@@ -369,7 +379,6 @@ mod tests {
         let status = exec_or_wait_for_test(command).unwrap();
         assert_eq!(status, ExitStatus::Code(7));
     }
-
     #[cfg(unix)]
     #[test]
     fn wait_mapping_preserves_signal_exit_code() {
@@ -377,5 +386,54 @@ mod tests {
         command.args(["-c", "kill -INT $$"]);
         let status = exec_or_wait_for_test(command).unwrap();
         assert_eq!(status, ExitStatus::Code(130));
+    }
+
+    #[test]
+    fn busybox_run_command_invokes_sh_applet() {
+        let mut command = ProcessCommand::new("busybox");
+        append_shell_launcher_args(&mut command, Shell::Busybox);
+
+        let args = RunCommand {
+            shell: None,
+            shell_version: None,
+            system: false,
+            dry_run: false,
+            verbose: false,
+            command: Some("echo hi".to_owned()),
+            script: None,
+            script_args: vec![OsString::from("one"), OsString::from("two")],
+        };
+        let temp_script =
+            append_run_mode_args(&mut command, Path::new("/tmp"), Shell::Busybox, &args).unwrap();
+        assert!(temp_script.is_none());
+
+        let collected = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            collected,
+            vec!["sh", "-c", "echo hi", "shuck-run", "one", "two"]
+        );
+    }
+
+    #[test]
+    fn managed_busybox_does_not_override_shell_env() {
+        let mut command = ProcessCommand::new("busybox");
+        let resolved = shuck_run::ResolvedInterpreter {
+            shell: Shell::Busybox,
+            version: shuck_run::Version::parse("1.36.1").unwrap(),
+            path: PathBuf::from("/tmp/busybox"),
+            source: ResolutionSource::Managed,
+        };
+
+        apply_runtime_environment(&mut command, &resolved);
+
+        let shell = command
+            .get_envs()
+            .find(|(key, _)| *key == OsStr::new("SHELL"))
+            .and_then(|(_, value)| value)
+            .map(|value| value.to_os_string());
+        assert!(shell.is_none());
     }
 }

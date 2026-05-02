@@ -48,7 +48,7 @@ const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
 const CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS: &[&str] = &["report-unreached-nested-definitions"];
 const CONFIG_OVERRIDE_RUN_KEYS: &[&str] = &["shell", "shell-version", "shells"];
 const CONFIG_OVERRIDE_RUN_SHELL_NAMES: &[&str] =
-    &["bash", "gbash", "bashkit", "zsh", "dash", "mksh"];
+    &["bash", "gbash", "bashkit", "zsh", "dash", "mksh", "busybox"];
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
@@ -334,6 +334,13 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
                     default: "none",
                     value_type: "string",
                     example: r#"mksh = "59c""#,
+                },
+                ConfigFieldMetadata {
+                    key: "busybox",
+                    docs: "Version constraint for BusyBox scripts on Linux hosts.",
+                    default: "none",
+                    value_type: "string",
+                    example: r#"busybox = "1.36.1""#,
                 },
             ],
             sections: &[],
@@ -967,6 +974,17 @@ mod tests {
     fn inline_config_overrides_reject_unknown_run_shells_keys() {
         let err = parse_config_override("run.shells.fish = '4.0'").unwrap_err();
         assert!(err.contains("unsupported `[run.shells]` shell `fish`"));
+    }
+
+    #[test]
+    fn inline_config_overrides_accept_busybox_shell_keys() {
+        let config =
+            parse_config_override("run.shell = 'busybox'\nrun.shells.busybox = '1.36.1'").unwrap();
+        assert_eq!(config.run.shell.as_deref(), Some("busybox"));
+        assert_eq!(
+            config.run.shells.get("busybox").map(String::as_str),
+            Some("1.36.1")
+        );
     }
 
     #[test]
