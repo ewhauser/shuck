@@ -68,35 +68,39 @@ pub(crate) fn available_shells(
     available
 }
 
-pub(crate) fn select_version(
+pub(crate) fn select_version_for_platform(
     registry: &RegistryIndex,
     shell: Shell,
     constraint: &VersionConstraint,
+    platform: &str,
 ) -> Result<Version> {
-    let shell_entry = registry.shells.get(shell.as_str()).ok_or_else(|| {
-        anyhow!(
-            "{} is not available. Run `shuck install --list` to see available shells.",
-            shell
-        )
-    })?;
-
-    let mut versions = shell_entry
-        .versions
-        .keys()
-        .map(|version| Version::parse(version))
-        .collect::<Result<Vec<_>>>()?;
+    let shell_entry = shell_entry(registry, shell)?;
+    let mut versions = parsed_versions(shell_entry)?;
     versions.sort();
 
-    versions
-        .into_iter()
-        .rev()
-        .find(|version| constraint.matches(version))
-        .ok_or_else(|| {
-            anyhow!(
-                "{shell} {} is not available. Run `shuck install --list {shell}` to see available versions.",
-                constraint.describe()
-            )
-        })
+    let mut matched_constraint = false;
+    for version in versions.into_iter().rev() {
+        if !constraint.matches(&version) {
+            continue;
+        }
+        matched_constraint = true;
+        if shell_entry
+            .versions
+            .get(version.as_str())
+            .is_some_and(|entry| entry.platforms.contains_key(platform))
+        {
+            return Ok(version);
+        }
+    }
+
+    if matched_constraint {
+        Err(anyhow!(
+            "{shell} {} does not have a prebuilt binary for {platform}.",
+            constraint.describe()
+        ))
+    } else {
+        Err(version_unavailable_error(shell, constraint))
+    }
 }
 
 pub(crate) fn load_registry(
@@ -134,4 +138,28 @@ fn index_is_stale(path: &Path) -> Result<bool> {
         .duration_since(modified)
         .unwrap_or_default();
     Ok(age > REGISTRY_MAX_AGE)
+}
+
+fn shell_entry(registry: &RegistryIndex, shell: Shell) -> Result<&RegistryShell> {
+    registry.shells.get(shell.as_str()).ok_or_else(|| {
+        anyhow!(
+            "{} is not available. Run `shuck install --list` to see available shells.",
+            shell
+        )
+    })
+}
+
+fn parsed_versions(shell_entry: &RegistryShell) -> Result<Vec<Version>> {
+    shell_entry
+        .versions
+        .keys()
+        .map(|version| Version::parse(version))
+        .collect()
+}
+
+fn version_unavailable_error(shell: Shell, constraint: &VersionConstraint) -> anyhow::Error {
+    anyhow!(
+        "{shell} {} is not available. Run `shuck install --list {shell}` to see available versions.",
+        constraint.describe()
+    )
 }

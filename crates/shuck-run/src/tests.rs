@@ -534,6 +534,63 @@ fn partial_install_directory_is_replaced() {
 }
 
 #[test]
+fn install_picks_latest_version_with_current_platform_artifact() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let (archive_old, sha_old) = make_shell_archive(tempdir.path(), Shell::Bash, "5.1.16");
+    let (archive_new, sha_new) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
+    let platform = current_platform().unwrap();
+    let registry = format!(
+        r#"{{
+  "version": 1,
+  "shells": {{
+    "bash": {{
+      "versions": {{
+        "5.1.16": {{
+          "platforms": {{
+            "{platform}": {{
+              "url": "{url_old}",
+              "sha256": "{sha_old}"
+            }}
+          }}
+        }},
+        "5.2.21": {{
+          "platforms": {{
+            "other-platform": {{
+              "url": "{url_new}",
+              "sha256": "{sha_new}"
+            }}
+          }}
+        }}
+      }}
+    }}
+  }}
+}}"#,
+        platform = platform,
+        url_old = Url::from_file_path(archive_old).unwrap(),
+        sha_old = sha_old,
+        url_new = Url::from_file_path(archive_new).unwrap(),
+        sha_new = sha_new
+    );
+    let registry_path = write_registry(tempdir.path(), &registry);
+    let environment = test_environment(
+        tempdir.path(),
+        Url::from_file_path(registry_path).unwrap().to_string(),
+    );
+
+    let resolved = install_with_environment(
+        &environment,
+        Shell::Bash,
+        &VersionConstraint::Latest,
+        false,
+        false,
+    )
+    .unwrap();
+
+    assert_eq!(resolved.version.as_str(), "5.1.16");
+    assert_eq!(resolved.source, ResolutionSource::Managed);
+}
+
+#[test]
 fn unresolved_shell_uses_managed_bash_without_implicit_system_fallback() {
     let tempdir = tempfile::tempdir().unwrap();
     let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
@@ -552,6 +609,39 @@ fn unresolved_shell_uses_managed_bash_without_implicit_system_fallback() {
             system: false,
             implicit_system_fallback: false,
             script: None,
+            config: None,
+            verbose: false,
+            refresh_registry: false,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(resolved.shell, Shell::Bash);
+    assert_eq!(resolved.version.as_str(), "5.2.21");
+    assert_eq!(resolved.source, ResolutionSource::Managed);
+}
+
+#[test]
+fn non_utf8_script_still_resolves_with_explicit_shell_and_version() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
+    let registry = registry_for_archive(Shell::Bash, "5.2.21", &archive, &sha256);
+    let registry_path = write_registry(tempdir.path(), &registry);
+    let environment = test_environment(
+        tempdir.path(),
+        Url::from_file_path(registry_path).unwrap().to_string(),
+    );
+    let script_path = tempdir.path().join("legacy.sh");
+    fs::write(&script_path, b"#!/bin/sh\nprintf '\xff'\n").unwrap();
+
+    let resolved = resolve_with_environment(
+        &environment,
+        ResolveOptions {
+            shell: Some(Shell::Bash),
+            version: Some(VersionConstraint::parse("5.2").unwrap()),
+            system: false,
+            implicit_system_fallback: false,
+            script: Some(&script_path),
             config: None,
             verbose: false,
             refresh_registry: false,

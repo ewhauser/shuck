@@ -15,13 +15,14 @@ pub(crate) struct ScriptInfo {
 }
 
 pub(crate) fn read_script_info(path: &Path) -> Result<ScriptInfo> {
-    let source = fs::read_to_string(path).map_err(|err| {
+    let bytes = fs::read(path).map_err(|err| {
         if err.kind() == std::io::ErrorKind::NotFound {
             anyhow!("{}: No such file", path.display())
         } else {
             anyhow!(err).context(format!("read {}", path.display()))
         }
     })?;
+    let source = String::from_utf8_lossy(&bytes);
     Ok(ScriptInfo {
         inferred_shell: Shell::infer(&source, Some(path)),
         metadata: parse_script_metadata(&source)?,
