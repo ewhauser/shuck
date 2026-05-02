@@ -1136,35 +1136,36 @@ fn rendered_snippet_source(source: &str, range: Range<usize>) -> (String, Range<
     let mut rendered = String::with_capacity(source.len());
     let mut rendered_start = None;
     let mut rendered_end = None;
-    let mut raw_offset = 0usize;
-    let mut rendered_offset = 0usize;
+    let mut raw_byte_offset = 0usize;
+    // `annotate-snippets` expects annotation ranges in character space for the rendered slice.
+    let mut rendered_char_offset = 0usize;
 
     for ch in source.chars() {
-        if raw_offset == range.start {
-            rendered_start = Some(rendered_offset);
+        if raw_byte_offset == range.start {
+            rendered_start = Some(rendered_char_offset);
         }
-        if raw_offset == range.end {
-            rendered_end = Some(rendered_offset);
+        if raw_byte_offset == range.end {
+            rendered_end = Some(rendered_char_offset);
         }
 
         if ch == '\t' {
             for _ in 0..DISPLAY_TAB_WIDTH {
                 rendered.push(' ');
             }
-            rendered_offset += DISPLAY_TAB_WIDTH;
+            rendered_char_offset += DISPLAY_TAB_WIDTH;
         } else {
             rendered.push(ch);
-            rendered_offset += 1;
+            rendered_char_offset += 1;
         }
 
-        raw_offset += ch.len_utf8();
+        raw_byte_offset += ch.len_utf8();
     }
 
-    if raw_offset == range.start {
-        rendered_start = Some(rendered_offset);
+    if raw_byte_offset == range.start {
+        rendered_start = Some(rendered_char_offset);
     }
-    if raw_offset == range.end {
-        rendered_end = Some(rendered_offset);
+    if raw_byte_offset == range.end {
+        rendered_end = Some(rendered_char_offset);
     }
 
     let mapped_start = rendered_start.unwrap_or_default();
