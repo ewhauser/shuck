@@ -9,7 +9,7 @@
 #
 # Token needs the `trusted-publishing` scope (create it at crates.io →
 # Account Settings → API Tokens). The caller must be a verified owner of
-# each crate below.
+# each publishable workspace crate.
 #
 # Env vars:
 #   CRATES_IO_TOKEN      Required. API token with trusted-publishing scope.
@@ -30,17 +30,17 @@ REPOSITORY_NAME="${REPOSITORY_NAME:-shuck}"
 WORKFLOW_FILENAME="${WORKFLOW_FILENAME:-crates-publish.yml}"
 ENVIRONMENT="${ENVIRONMENT-release}"
 
-crates=(
-  shuck-ast
-  shuck-format
-  shuck-parser
-  shuck-indexer
-  shuck-cache
-  shuck-semantic
-  shuck-linter
-  shuck-formatter
-  shuck-cli
-)
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+
+declare -a crates=()
+while IFS= read -r crate; do
+  crates+=("$crate")
+done < <(python3 "$REPO_ROOT/scripts/workspace-publish-crates.py")
+
+if [ "${#crates[@]}" -eq 0 ]; then
+  echo "error: no publishable workspace crates found" >&2
+  exit 1
+fi
 
 configured=0
 skipped=0
