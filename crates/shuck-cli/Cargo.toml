@@ -44,6 +44,7 @@ shuck-parser = { workspace = true }
 shuck-run = { workspace = true }
 shuck-semantic = { workspace = true }
 similar = { workspace = true }
+tempfile = { workspace = true }
 toml = { workspace = true }
 url = { workspace = true }
 
@@ -60,7 +61,6 @@ shuck-linter = { workspace = true }
 shuck-parser = { workspace = true }
 shuck-run = { workspace = true }
 shuck-semantic = { workspace = true }
-tempfile = { workspace = true }
 wait-timeout = "0.2"
 walkdir = "2"
 roxmltree = { workspace = true }

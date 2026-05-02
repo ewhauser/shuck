@@ -231,6 +231,26 @@ fn run_command_string_supports_gbash_shell_and_sets_env() {
 }
 
 #[test]
+fn run_command_string_supports_bashkit_shell_and_sets_env() {
+    let tempdir = tempdir().unwrap();
+    let (archive, sha256) = fake_shell_archive(tempdir.path(), "bashkit", "0.2.1");
+    let registry = registry_path(tempdir.path(), "bashkit", &[("0.2.1", &archive, &sha256)]);
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_runtime_env(&mut cmd, tempdir.path(), &registry);
+    cmd.current_dir(tempdir.path()).args([
+        "run",
+        "--shell",
+        "bashkit",
+        "--shell-version",
+        "0.2",
+        "-c",
+        "printf '%s|%s\\n' \"$SHUCK_SHELL\" \"$SHUCK_SHELL_VERSION\"",
+    ]);
+    cmd.assert().success().stdout("bashkit|0.2.1\n");
+}
+
+#[test]
 fn run_stdin_defaults_to_system_bash() {
     let tempdir = tempdir().unwrap();
     let bin_dir = tempdir.path().join("bin");
@@ -317,6 +337,24 @@ fn run_bashkit_stdin_preserves_script_args() {
     cmd.current_dir(tempdir.path())
         .args(["run", "--shell", "bashkit", "-", "--", "one", "two"])
         .write_stdin("printf '%s|%s\\n' \"$1\" \"$2\"\n");
+    cmd.assert().success().stdout("one|two\n");
+}
+
+#[test]
+fn run_bashkit_large_stdin_script_avoids_argv_limits() {
+    let tempdir = tempdir().unwrap();
+    let (archive, sha256) = fake_shell_archive(tempdir.path(), "bashkit", "0.2.1");
+    let registry = registry_path(tempdir.path(), "bashkit", &[("0.2.1", &archive, &sha256)]);
+
+    let mut source = String::from("#");
+    source.push_str(&"x".repeat(3_000_000));
+    source.push_str("\nprintf '%s|%s\\n' \"$1\" \"$2\"\n");
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_runtime_env(&mut cmd, tempdir.path(), &registry);
+    cmd.current_dir(tempdir.path())
+        .args(["run", "--shell", "bashkit", "-", "--", "one", "two"])
+        .write_stdin(source);
     cmd.assert().success().stdout("one|two\n");
 }
 
