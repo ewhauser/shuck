@@ -44,10 +44,7 @@ pub(crate) fn parse_script_metadata(source: &str) -> Result<Option<ScriptMetadat
             continue;
         }
 
-        if let Some(start) = trimmed.strip_prefix("# /// shuck") {
-            if !start.trim().is_empty() {
-                bail!("invalid shuck metadata header");
-            }
+        if trimmed == "# /// shuck" {
             if saw_body {
                 bail!("shuck metadata blocks must appear before the script body");
             }
