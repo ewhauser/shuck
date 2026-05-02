@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
 use crate::managed::install_with_environment;
 use crate::metadata::read_script_info;
@@ -19,28 +19,41 @@ pub(crate) fn resolve_with_environment(
         .unwrap_or_default();
 
     let config_shell = shell_from_config(options.config)?;
+    let metadata_shell = script_info.metadata.as_ref().map(|metadata| metadata.shell);
+    let inferred_shell = script_info.inferred_shell;
     let shell = options
         .shell
-        .or(script_info.metadata.as_ref().map(|metadata| metadata.shell))
+        .or(metadata_shell)
         .or(config_shell)
-        .or(script_info.inferred_shell)
-        .ok_or_else(|| anyhow!("Cannot determine shell. Specify --shell or add a shebang."))?;
+        .or(inferred_shell)
+        .unwrap_or(Shell::Bash);
+    let defaulted_shell = options.shell.is_none()
+        && metadata_shell.is_none()
+        && config_shell.is_none()
+        && inferred_shell.is_none();
 
+    let metadata_version = if metadata_shell == Some(shell) {
+        script_info
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.version.clone())
+    } else {
+        None
+    };
+    let config_version = config_version_for_shell(options.config, shell)?;
+    let defaulted_version =
+        options.version.is_none() && metadata_version.is_none() && config_version.is_none();
     let version = if let Some(version) = options.version {
         version
-    } else if let Some(version) = script_info
-        .metadata
-        .as_ref()
-        .and_then(|metadata| metadata.version.clone())
-    {
+    } else if let Some(version) = metadata_version.clone() {
         version
-    } else if let Some(version) = config_version_for_shell(options.config, shell)? {
+    } else if let Some(version) = config_version.clone() {
         version
     } else {
         VersionConstraint::Latest
     };
 
-    if options.system {
+    if options.system || (defaulted_shell && defaulted_version) {
         resolve_system(shell, &version)
     } else {
         install_with_environment(

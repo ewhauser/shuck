@@ -1,4 +1,7 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
+use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -40,11 +43,27 @@ pub(crate) fn resolve_system_at_path(
 }
 
 fn find_on_path(name: &str) -> Option<PathBuf> {
-    let path_var = std::env::var_os("PATH")?;
-    std::env::split_paths(&path_var).find_map(|directory| {
+    find_on_path_in(std::env::var_os("PATH").as_deref(), name)
+}
+
+pub(crate) fn find_on_path_in(path_var: Option<&OsStr>, name: &str) -> Option<PathBuf> {
+    let path_var = path_var?;
+    std::env::split_paths(path_var).find_map(|directory| {
         let candidate = directory.join(name);
-        candidate.is_file().then_some(candidate)
+        is_executable_file(&candidate).then_some(candidate)
     })
+}
+
+#[cfg(unix)]
+fn is_executable_file(candidate: &Path) -> bool {
+    fs::metadata(candidate)
+        .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(candidate: &Path) -> bool {
+    candidate.is_file()
 }
 
 pub(crate) fn detect_shell_version(shell: Shell, path: &Path) -> Result<Version> {

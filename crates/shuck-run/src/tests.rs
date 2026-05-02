@@ -13,7 +13,7 @@ use crate::managed::install_with_environment;
 use crate::metadata::parse_script_metadata;
 use crate::registry::{available_shells, load_registry};
 use crate::resolve::resolve_with_environment;
-use crate::system::resolve_system_at_path;
+use crate::system::{find_on_path_in, resolve_system_at_path};
 
 fn test_environment(root: &Path, registry_url: String) -> Environment {
     Environment {
@@ -194,6 +194,142 @@ fn metadata_overrides_project_defaults() {
 
     assert_eq!(resolved.shell, Shell::Zsh);
     assert_eq!(resolved.version.as_str(), "5.9");
+}
+
+#[test]
+fn defaults_to_bash_when_only_a_version_constraint_is_provided() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let (archive_a, sha_a) = make_shell_archive(tempdir.path(), Shell::Bash, "5.1.16");
+    let (archive_b, sha_b) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
+    let platform = current_platform().unwrap();
+    let registry = format!(
+        r#"{{
+  "version": 1,
+  "shells": {{
+    "bash": {{
+      "versions": {{
+        "5.1.16": {{
+          "platforms": {{
+            "{platform}": {{
+              "url": "{url_a}",
+              "sha256": "{sha_a}"
+            }}
+          }}
+        }},
+        "5.2.21": {{
+          "platforms": {{
+            "{platform}": {{
+              "url": "{url_b}",
+              "sha256": "{sha_b}"
+            }}
+          }}
+        }}
+      }}
+    }}
+  }}
+}}"#,
+        platform = platform,
+        url_a = Url::from_file_path(archive_a).unwrap(),
+        sha_a = sha_a,
+        url_b = Url::from_file_path(archive_b).unwrap(),
+        sha_b = sha_b
+    );
+    let registry_path = write_registry(tempdir.path(), &registry);
+    let environment = test_environment(
+        tempdir.path(),
+        Url::from_file_path(registry_path).unwrap().to_string(),
+    );
+
+    let resolved = resolve_with_environment(
+        &environment,
+        ResolveOptions {
+            shell: None,
+            version: Some(VersionConstraint::parse("5.2").unwrap()),
+            system: false,
+            script: None,
+            config: None,
+            verbose: false,
+            refresh_registry: false,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(resolved.shell, Shell::Bash);
+    assert_eq!(resolved.version.as_str(), "5.2.21");
+    assert_eq!(resolved.source, ResolutionSource::Managed);
+}
+
+#[test]
+fn cli_shell_override_ignores_mismatched_metadata_version() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let (bash_archive, bash_sha) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
+    let (zsh_archive, zsh_sha) = make_shell_archive(tempdir.path(), Shell::Zsh, "5.9");
+    let platform = current_platform().unwrap();
+    let registry = format!(
+        r#"{{
+  "version": 1,
+  "shells": {{
+    "bash": {{
+      "versions": {{
+        "5.2.21": {{
+          "platforms": {{
+            "{platform}": {{
+              "url": "{bash_url}",
+              "sha256": "{bash_sha}"
+            }}
+          }}
+        }}
+      }}
+    }},
+    "zsh": {{
+      "versions": {{
+        "5.9": {{
+          "platforms": {{
+            "{platform}": {{
+              "url": "{zsh_url}",
+              "sha256": "{zsh_sha}"
+            }}
+          }}
+        }}
+      }}
+    }}
+  }}
+}}"#,
+        platform = platform,
+        bash_url = Url::from_file_path(bash_archive).unwrap(),
+        bash_sha = bash_sha,
+        zsh_url = Url::from_file_path(zsh_archive).unwrap(),
+        zsh_sha = zsh_sha
+    );
+    let registry_path = write_registry(tempdir.path(), &registry);
+    let environment = test_environment(
+        tempdir.path(),
+        Url::from_file_path(registry_path).unwrap().to_string(),
+    );
+    let script_path = tempdir.path().join("deploy.sh");
+    fs::write(
+        &script_path,
+        "# /// shuck\n# shell = \"zsh\"\n# version = \"5.9\"\n# ///\necho hi\n",
+    )
+    .unwrap();
+
+    let resolved = resolve_with_environment(
+        &environment,
+        ResolveOptions {
+            shell: Some(Shell::Bash),
+            version: None,
+            system: false,
+            script: Some(&script_path),
+            config: None,
+            verbose: false,
+            refresh_registry: false,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(resolved.shell, Shell::Bash);
+    assert_eq!(resolved.version.as_str(), "5.2.21");
+    assert_eq!(resolved.source, ResolutionSource::Managed);
 }
 
 #[test]
@@ -464,4 +600,30 @@ fn system_resolution_checks_version_constraints() {
     )
     .unwrap_err();
     assert!(err.to_string().contains("System bash is 5.2.21"));
+}
+
+#[test]
+fn path_lookup_skips_non_executable_entries() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let shadow_dir = tempdir.path().join("shadow");
+    let real_dir = tempdir.path().join("real");
+    fs::create_dir_all(&shadow_dir).unwrap();
+    fs::create_dir_all(&real_dir).unwrap();
+
+    let shadow_bash = shadow_dir.join("bash");
+    fs::write(&shadow_bash, "#!/bin/sh\nexit 0\n").unwrap();
+    let mut shadow_permissions = fs::metadata(&shadow_bash).unwrap().permissions();
+    shadow_permissions.set_mode(0o644);
+    fs::set_permissions(&shadow_bash, shadow_permissions).unwrap();
+
+    let real_bash = real_dir.join("bash");
+    fs::write(&real_bash, "#!/bin/sh\nexit 0\n").unwrap();
+    let mut real_permissions = fs::metadata(&real_bash).unwrap().permissions();
+    real_permissions.set_mode(0o755);
+    fs::set_permissions(&real_bash, real_permissions).unwrap();
+
+    let path_var = std::env::join_paths([shadow_dir.as_path(), real_dir.as_path()]).unwrap();
+    let resolved = find_on_path_in(Some(path_var.as_os_str()), "bash").unwrap();
+
+    assert_eq!(resolved, real_bash);
 }

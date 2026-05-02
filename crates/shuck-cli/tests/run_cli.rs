@@ -165,8 +165,6 @@ fn run_command_string_uses_managed_shell_and_sets_env() {
     configure_runtime_env(&mut cmd, tempdir.path(), &registry);
     cmd.current_dir(tempdir.path()).args([
         "run",
-        "--shell",
-        "bash",
         "--shell-version",
         "5.2",
         "-c",
@@ -176,15 +174,17 @@ fn run_command_string_uses_managed_shell_and_sets_env() {
 }
 
 #[test]
-fn run_stdin_requires_explicit_shell() {
+fn run_stdin_defaults_to_system_bash() {
     let tempdir = tempdir().unwrap();
+    let bin_dir = tempdir.path().join("bin");
+    fake_system_shell(&bin_dir.join("bash"), "bash", "5.2.21");
+
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     cmd.current_dir(tempdir.path())
+        .env("PATH", bin_dir.as_os_str())
         .arg("run")
-        .write_stdin("printf 'hi\\n'\n");
-    cmd.assert().code(2).stderr(predicate::str::contains(
-        "requires `--shell` when reading from stdin",
-    ));
+        .write_stdin("printf '%s\\n' \"$SHUCK_SHELL\"\n");
+    cmd.assert().success().stdout("bash\n");
 }
 
 #[test]
@@ -235,8 +235,6 @@ fn system_run_reports_version_mismatch() {
         .args([
             "run",
             "--system",
-            "--shell",
-            "bash",
             "--shell-version",
             ">=5.1",
             "-c",
@@ -256,7 +254,7 @@ fn shell_subcommand_uses_system_shell() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     cmd.current_dir(tempdir.path())
         .env("PATH", bin_dir.as_os_str())
-        .args(["shell", "--system", "--shell", "bash"])
+        .args(["shell", "--system"])
         .write_stdin("");
     cmd.assert().success();
 }

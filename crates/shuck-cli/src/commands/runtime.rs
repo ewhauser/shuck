@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow};
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
@@ -16,13 +16,6 @@ use crate::config::{
 
 pub(crate) fn run(args: RunCommand, config_arguments: &ConfigArguments) -> Result<ExitStatus> {
     let cwd = std::env::current_dir()?;
-    if args.command.is_some() && args.shell.is_none() {
-        bail!("`shuck run -c` requires `--shell` because there is no script file to infer from.");
-    }
-    if is_stdin_script(args.script.as_deref()) && args.command.is_none() && args.shell.is_none() {
-        bail!("`shuck run` requires `--shell` when reading from stdin.");
-    }
-
     let config = load_runtime_config(config_arguments, &cwd, args.script.as_deref())?;
     let resolved = resolve_interpreter(
         args.shell,
