@@ -1,0 +1,59 @@
+origin: novel
+new_category: Style
+new_code: S083
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A function definition lacks a leading comment block describing its purpose.
+rationale: >
+  Well-documented functions reduce the cognitive overhead of reading, reviewing, and
+  maintaining shell scripts. A comment block immediately before a function definition
+  tells callers what the function does, what arguments it expects, which global variables
+  it touches, and what it returns — information that is not recoverable from the
+  implementation alone without reading every line. Because mandating a doc block for every
+  trivial two-liner would produce more noise than signal, the rule is configurable: teams
+  can require documentation only for all functions, only for long functions (those above a
+  configurable line threshold), only for functions that accept positional parameters, or
+  only for functions whose names follow a "public" naming convention. The rule fires when a
+  function matching the configured policy has no associated comment block at all; the
+  companion rule S084 checks whether a present comment block covers the required content.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: require-for
+    type: string
+    default: "all"
+    description: >
+      Controls which functions are required to have a doc comment. Accepted values:
+      "all" — every function definition; "exported" — functions whose names do not start
+      with an underscore (treated as the public API); "long" — functions whose body
+      exceeds long-function-line-threshold lines; "parameterized" — functions that
+      reference positional parameters ($1, $@, $*, etc.) in their body. Defaults to "all".
+  - name: long-function-line-threshold
+    type: integer
+    default: 10
+    description: >
+      Minimum body line count for a function to be considered "long" when require-for
+      is set to "long". Functions with fewer lines than this threshold are exempt.
+      Defaults to 10.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      do_work() {
+        local input=$1
+        echo "processing: $input"
+      }
+      do_work "$1"
+  - kind: valid
+    code: |
+      #!/bin/bash
+      # Processes the given input string and writes the result to stdout.
+      do_work() {
+        local input=$1
+        echo "processing: $input"
+      }
+      do_work "$1"

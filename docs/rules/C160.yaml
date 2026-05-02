@@ -1,0 +1,46 @@
+origin: novel
+new_category: Correctness
+new_code: C160
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A source or dot command uses a relative path that is not anchored to the script's own directory.
+rationale: >
+  A bare relative path in a `source` or `.` invocation is resolved relative to the
+  current working directory at the time the script runs, not relative to the script
+  file itself. This means the same script behaves differently depending on where it is
+  invoked from: `source ./lib.sh` succeeds when run from the script's directory but
+  fails silently or loads the wrong file when run from any other directory. The correct
+  idiom is to anchor the path to the script's own directory using
+  `"${BASH_SOURCE[0]%/*}/lib.sh"`, `"$(dirname "$0")/lib.sh"`, or
+  `"$(dirname "${BASH_SOURCE[0]}")/lib.sh"`. This rule flags `source` and `.`
+  invocations whose path argument does not begin with one of those anchors or another
+  expression listed in `allowed-anchors`. Absolute paths and paths produced entirely by
+  command substitution that the rule cannot inspect statically are not flagged.
+  Note: ShellCheck may emit SC1090 or SC1091 on source lines it cannot follow; those are
+  independent informational diagnostics about static analysis coverage, not about path anchoring.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: allowed-anchors
+    type: list
+    default: ["${BASH_SOURCE[0]%/*}", "$(dirname \"$0\")", "$(dirname \"${BASH_SOURCE[0]}\")"]
+    description: >
+      List of path prefix expressions that are accepted as script-directory anchors.
+      A source path whose string representation begins with one of these expressions is
+      considered anchored and will not be flagged. Defaults to the three canonical
+      Bash script-directory idioms.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      source ./lib.sh
+      echo "done"
+  - kind: valid
+    code: |
+      #!/bin/bash
+      source "${BASH_SOURCE[0]%/*}/lib.sh"
+      echo "done"

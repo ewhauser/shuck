@@ -1,0 +1,77 @@
+origin: novel
+new_category: Style
+new_code: S086
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: Executable statements appear at the top level of a script outside the set of statement types that are allowed there.
+rationale: >
+  The Google Shell Style Guide prescribes that the top level of a well-structured
+  script should contain only a narrow set of statement types: constant declarations
+  (`readonly`, `declare -r`, and `export`), plain variable declarations without an
+  initialiser, function definitions, source commands, and the single `main "$@"`
+  invocation. Any other executable statement — conditionals, loops, command calls,
+  arithmetic — that appears directly at the top level makes the script harder to
+  source under test, harder to reason about, and easier to accidentally execute side
+  effects when sourced by another script. This rule flags those out-of-place
+  top-level statements. The `allowed-statements` option lets teams extend or
+  restrict the baseline set to match their own policy.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: allowed-statements
+    type: list
+    default: '["constant","declaration","function-definition","source","main-invocation"]'
+    description: >
+      The statement categories that are permitted at the top level. Values are:
+      "constant" (readonly/declare -r/export assignments), "declaration" (declare
+      without an initialiser), "function-definition", "source" (source/.),
+      and "main-invocation" (the configured main-name call). Any top-level statement
+      not matching a category in this list is flagged.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      readonly APP_NAME="myapp"
+
+      greet() {
+        echo "Hello from ${APP_NAME}"
+      }
+
+      # This conditional block is top-level executable code that should
+      # be moved inside a function.
+      if [[ -z "${HOME}" ]]; then
+        echo "No home directory set" >&2
+        exit 1
+      fi
+
+      main() {
+        greet
+      }
+
+      main "$@"
+  - kind: valid
+    code: |
+      #!/bin/bash
+      readonly APP_NAME="myapp"
+
+      check_env() {
+        if [[ -z "${HOME}" ]]; then
+          echo "No home directory set" >&2
+          exit 1
+        fi
+      }
+
+      greet() {
+        echo "Hello from ${APP_NAME}"
+      }
+
+      main() {
+        check_env
+        greet
+      }
+
+      main "$@"

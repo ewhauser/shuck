@@ -1,4 +1,4 @@
-legacy_code: ""
+origin: novel
 legacy_name: literal-control-escape
 new_category: Style
 new_code: S040

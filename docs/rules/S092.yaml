@@ -1,0 +1,31 @@
+origin: novel
+new_category: Style
+new_code: S092
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A constant declared with `readonly`, `declare -r`, or `export` does not match the configured naming pattern.
+rationale: Naming constants with uppercase letters and underscores (SCREAMING_SNAKE_CASE) is a widely followed convention that visually distinguishes immutable values from mutable locals and from functions. When a reader sees an all-caps name they know immediately that the value will not change within the script. Projects may supply an alternate regex via the `pattern` option.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: pattern
+    type: string
+    default: "^[A-Z_][A-Z0-9_]*$"
+    description: Regular expression that every constant declaration target must match. The default enforces SCREAMING_SNAKE_CASE.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      readonly maxRetries=3
+      readonly backoffMs=100
+      echo "${maxRetries}" "${backoffMs}"
+  - kind: valid
+    code: |
+      #!/bin/bash
+      readonly MAX_RETRIES=3
+      readonly BACKOFF_MS=100
+      echo "${MAX_RETRIES}" "${BACKOFF_MS}"

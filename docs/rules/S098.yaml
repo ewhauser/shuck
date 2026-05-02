@@ -1,0 +1,56 @@
+origin: novel
+new_category: Style
+new_code: S098
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A suppression directive uses a broad category selector or a file-wide disable outside the configured allowlist.
+rationale: >
+  Wide-scope suppressions — disabling an entire category such as `ALL`, `C`,
+  `S`, or similar prefixes, or issuing a `disable-file` directive — silence
+  large classes of diagnostics at once, often hiding real problems alongside
+  the ones being worked around. Category-level suppressions are almost never
+  intentional; they usually result from copy-paste or from wanting to quiet one
+  noisy rule without looking up its specific code. File-wide disables carry the
+  same risk at a larger scale. This rule flags directives whose selector list
+  contains any entry from the configured `disallowed-selectors`, and also
+  flags `disable-file` directives when `allow-disable-file` is false. Fine-grained
+  per-rule suppressions with justifications (see S097) are the preferred
+  alternative.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: disallowed-selectors
+    type: list
+    default: ["ALL", "C", "S", "P", "X", "K"]
+    description: >
+      Selector strings whose presence in any suppression directive causes this
+      rule to fire. Matched case-sensitively against the raw tokens in the
+      directive. Defaults to the full set of category-level selectors.
+  - name: allow-disable-file
+    type: bool
+    default: false
+    description: >
+      When true, file-wide `disable-file` directives are permitted and will
+      not trigger this rule. Defaults to false.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      # shuck: disable-file=ALL
+      process_files() {
+        local f
+        for f in "$@"; do
+          echo "$f"
+        done
+      }
+  - kind: valid
+    code: |
+      #!/bin/bash
+      # shuck: disable=S001 -- pattern glob is intentional here
+      for entry in $GLOB_PATTERN; do
+        echo "$entry"
+      done

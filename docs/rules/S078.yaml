@@ -1,0 +1,36 @@
+origin: novel
+new_category: Style
+new_code: S078
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: The shebang interpreter does not match the project's configured shell policy.
+rationale: >
+  Projects that standardize on a specific shell (commonly Bash) should ensure every
+  script's shebang reflects that policy. A mismatch — such as `#!/bin/sh` in a Bash-only
+  codebase — silently changes runtime semantics and can hide compatibility problems or
+  cause subtle behavioral differences between development and production. Enable this rule
+  and set `allowed-shells` to the shell or shells your project supports. Any script whose
+  shebang names a different interpreter will be flagged; change the shebang to an
+  allowed interpreter to resolve the diagnostic.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: allowed-shells
+    type: list
+    default: ["bash"]
+    description: >
+      Interpreter names that are permitted in shebangs. Accepts short names such as
+      "bash", "sh", "zsh", or "ksh". Defaults to ["bash"].
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/sh
+      echo hello
+  - kind: valid
+    code: |
+      #!/bin/bash
+      echo hello

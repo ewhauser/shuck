@@ -1,0 +1,30 @@
+origin: novel
+new_category: Style
+new_code: S099
+runtime_kind: ast
+shellcheck_code: SC2230
+shellcheck_level: style
+shells:
+  - bash
+description: A call to `which` locates executables using only the current PATH without honoring shell functions or builtins; prefer the portable `command -v` builtin instead.
+rationale: >
+  The `which` utility is not defined by POSIX and behaves inconsistently across platforms —
+  some versions ignore shell aliases and functions, others consult a separate configuration,
+  and some do not return a non-zero exit code when the command is absent. The shell builtin
+  `command -v` is standardised, respects the shell's own function and alias namespace, and
+  provides the same executable-path lookup without external-process overhead. Replacing
+  `which` with `command -v` makes scripts both more portable and more accurate.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      path=$(which python3)
+      "$path" --version
+  - kind: valid
+    code: |
+      #!/bin/bash
+      path=$(command -v python3)
+      "$path" --version

@@ -112,7 +112,7 @@ check_unique_optional_field() {
     basename=$(basename "${file}")
     value=$(yq -r "${field}" "${file}")
 
-    if [[ -z "${value}" || "${value}" == "null" ]]; then
+    if [[ -z "${value}" || "${value}" == "null" || "${value}" == "~" ]]; then
       continue
     fi
 
@@ -153,22 +153,37 @@ check_unique_optional_field() {
 
 validate_file() {
   local file=$1
-  local basename stem legacy_code new_code rule_path example_path doc_shells source_shells failed=0
+  local basename stem origin legacy_code new_code rule_path example_path doc_shells source_shells failed=0
 
   basename=$(basename "${file}")
   stem=${basename%.yaml}
+  origin=$(yq -r '.origin // "imported"' "${file}")
   legacy_code=$(yq -r '.legacy_code' "${file}")
   new_code=$(yq -r '.new_code' "${file}")
 
   if ! check_yq "${file}" 'type == "!!map"' "root document must be a mapping"; then
     failed=1
   fi
-  if ! check_yq "${file}" '((.legacy_code | type) == "!!str") and (.legacy_code | test("^SH-[0-9]{3}$"))' "legacy_code must look like SH-001"; then
+  if ! check_yq "${file}" '(.origin == null) or (.origin == "imported") or (.origin == "novel")' "origin must be omitted, \"imported\", or \"novel\""; then
     failed=1
   fi
-  if ! check_yq "${file}" '((.legacy_name | type) == "!!str") and ((.legacy_name | length) > 0)' "legacy_name must be a non-empty string"; then
-    failed=1
+
+  if [[ "${origin}" == "imported" ]]; then
+    if ! check_yq "${file}" '((.legacy_code | type) == "!!str") and (.legacy_code | test("^SH-[0-9]{3}$"))' "legacy_code must look like SH-001"; then
+      failed=1
+    fi
+    if ! check_yq "${file}" '((.legacy_name | type) == "!!str") and ((.legacy_name | length) > 0)' "legacy_name must be a non-empty string"; then
+      failed=1
+    fi
+  else
+    if ! check_yq "${file}" '(.legacy_code == null) or (((.legacy_code | type) == "!!str") and (.legacy_code | test("^SH-[0-9]{3}$")))' "legacy_code must be omitted or look like SH-001 for novel rules"; then
+      failed=1
+    fi
+    if ! check_yq "${file}" '(.legacy_name == null) or (((.legacy_name | type) == "!!str") and ((.legacy_name | length) > 0))' "legacy_name must be omitted or a non-empty string for novel rules"; then
+      failed=1
+    fi
   fi
+
   if ! check_yq "${file}" '.new_category == "Correctness" or .new_category == "Style" or .new_category == "Performance" or .new_category == "Portability" or .new_category == "Security"' "new_category must be one of Correctness, Style, Performance, Portability, or Security"; then
     failed=1
   fi
@@ -211,10 +226,30 @@ validate_file() {
   if ! check_yq "${file}" '(.safe_fix == false) or (((.fix_description | type) == "!!str") and ((.fix_description | length) > 0))' "fix_description must be a non-empty string when safe_fix is true"; then
     failed=1
   fi
-  if ! check_yq "${file}" '((.source | type) == "!!map") and ((.source.shell_checks_rule | type) == "!!str") and ((.source.shell_checks_rule | length) > 0) and ((.source.shell_checks_example | type) == "!!str") and ((.source.shell_checks_example | length) > 0)' "source must include shell_checks_rule and shell_checks_example"; then
+  if ! check_yq "${file}" '(.default_enabled == null) or ((.default_enabled | type) == "!!bool")' "default_enabled must be a boolean when present"; then
     failed=1
   fi
-  if ! check_yq "${file}" '((.examples | type) == "!!seq") and ((.examples | length) > 0) and ([.examples[] | (((.kind | type) == "!!str") and ((.kind | length) > 0) and ((.source | type) == "!!str") and ((.source | length) > 0) and ((.code | type) == "!!str") and ((.code | length) > 0))] | all)' "examples must be a non-empty list of entries with kind, source, and code"; then
+  if ! check_yq "${file}" '(.options == null) or (((.options | type) == "!!seq") and ([.options[] | select((.name | type) != "!!str" or (.name | length) == 0 or (.type | type) != "!!str" or (.type | length) == 0 or (.description | type) != "!!str" or (.description | length) == 0)] | length == 0))' "options must be a list of {name, type, default, description} when present"; then
+    failed=1
+  fi
+
+  if [[ "${origin}" == "imported" ]]; then
+    if ! check_yq "${file}" '((.source | type) == "!!map") and ((.source.shell_checks_rule | type) == "!!str") and ((.source.shell_checks_rule | length) > 0) and ((.source.shell_checks_example | type) == "!!str") and ((.source.shell_checks_example | length) > 0)' "source must include shell_checks_rule and shell_checks_example"; then
+      failed=1
+    fi
+    if ! check_yq "${file}" '((.examples | type) == "!!seq") and ((.examples | length) > 0) and ([.examples[] | (((.kind | type) == "!!str") and ((.kind | length) > 0) and ((.source | type) == "!!str") and ((.source | length) > 0) and ((.code | type) == "!!str") and ((.code | length) > 0))] | all)' "examples must be a non-empty list of entries with kind, source, and code"; then
+      failed=1
+    fi
+  else
+    if ! check_yq "${file}" '(.source == null) or ((.source | type) == "!!map")' "source must be omitted or a mapping for novel rules"; then
+      failed=1
+    fi
+    if ! check_yq "${file}" '((.examples | type) == "!!seq") and ((.examples | length) > 0) and ([.examples[] | (((.kind | type) == "!!str") and ((.kind | length) > 0) and ((.code | type) == "!!str") and ((.code | length) > 0))] | all)' "examples must be a non-empty list of entries with kind and code (source optional for novel rules)"; then
+      failed=1
+    fi
+  fi
+
+  if ! check_yq "${file}" '((.examples | type) != "!!seq") or ([.examples[] | select(.kind != "invalid" and .kind != "valid")] | length == 0)' "example kind must be \"invalid\" or \"valid\""; then
     failed=1
   fi
 
@@ -223,12 +258,12 @@ validate_file() {
     failed=1
   fi
 
-  if [[ ! -d "${shell_checks_root}" ]]; then
+  if [[ "${origin}" == "imported" && ! -d "${shell_checks_root}" ]]; then
     printf 'ERROR %s: sibling shell-checks repo not found at %s\n' "${basename}" "${shell_checks_root}" >&2
     failed=1
   fi
 
-  if [[ "${failed}" -eq 0 ]]; then
+  if [[ "${failed}" -eq 0 && "${origin}" == "imported" ]]; then
     rule_path=$(resolve_shell_checks_path "$(yq -r '.source.shell_checks_rule' "${file}")")
     example_path=$(resolve_shell_checks_path "$(yq -r '.source.shell_checks_example' "${file}")")
 
@@ -298,7 +333,7 @@ main() {
     fi
   done
 
-  if ! check_unique_field '.legacy_code' 'legacy_code' "${all_rule_files[@]}"; then
+  if ! check_unique_optional_field '.legacy_code' 'legacy_code' "${all_rule_files[@]}"; then
     failed=1
   fi
 

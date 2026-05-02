@@ -1,0 +1,38 @@
+origin: novel
+new_category: Style
+new_code: S081
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: The script does not begin with a comment block describing its purpose.
+rationale: >
+  A file-level header comment answers the first question any reader or operator will
+  ask: "what does this script do?" Without it, understanding the script requires reading
+  all of its logic before its intent becomes clear. The Google Shell Style Guide
+  requires every file to start with a description of its contents. This rule flags
+  scripts where the first non-shebang, non-blank line is not a comment. Add a brief
+  comment block immediately after the shebang (or at the top of the file if there is no
+  shebang) that describes the script's purpose. Set `ignore-shebang-only-files` to true
+  if scripts that contain nothing beyond a shebang should be exempt from the check.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: ignore-shebang-only-files
+    type: bool
+    default: false
+    description: >
+      When true, scripts whose only content is a shebang line are not flagged.
+      Defaults to false.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      ls -la
+  - kind: valid
+    code: |
+      #!/bin/bash
+      # Prints a listing of the current directory with timestamps.
+      ls -la

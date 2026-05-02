@@ -1,0 +1,55 @@
+origin: novel
+new_category: Style
+new_code: S082
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A TODO, FIXME, or XXX comment is missing an owner annotation or a message describing the work.
+rationale: >
+  Actionable comment markers such as TODO and FIXME are only useful when a reader
+  can tell who is responsible and what needs to be done. An annotation without an
+  owner — written as `(name)` or `(handle)` immediately after the keyword — cannot
+  be assigned or tracked. An annotation without a message leaves reviewers guessing
+  about the intent. Requiring both fields keeps the comment backlog triageable and
+  prevents stale markers from accumulating without clear accountability. The set of
+  recognized keywords and the two requirements are individually configurable so teams
+  can adopt the policy incrementally.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: kinds
+    type: list
+    default: ["TODO", "FIXME", "XXX"]
+    description: >
+      The comment markers that trigger this rule. Each entry is matched
+      case-sensitively at the start of a comment token. Defaults to
+      ["TODO", "FIXME", "XXX"].
+  - name: require-owner
+    type: bool
+    default: true
+    description: >
+      When true, flags any matching marker that is not followed immediately by
+      a parenthesised owner annotation such as (alice) or (b/12345). Defaults to true.
+  - name: require-message
+    type: bool
+    default: true
+    description: >
+      When true, flags any matching marker whose owner annotation (or the keyword
+      itself, when require-owner is false) is not followed by a non-empty message.
+      Defaults to true.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      # TODO finish later
+      # FIXME this is broken
+      echo hi
+  - kind: valid
+    code: |
+      #!/bin/bash
+      # TODO(alice): finish the input validation logic
+      # FIXME(bob): address the edge case for empty arrays
+      echo hi

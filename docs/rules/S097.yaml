@@ -1,0 +1,34 @@
+origin: novel
+new_category: Style
+new_code: S097
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A lint-suppression directive is missing a free-text justification explaining why the suppression is appropriate.
+rationale: >
+  Suppression directives silence diagnostics for everyone who reads the code
+  from that point forward. Without a rationale, the intent behind the
+  suppression is invisible: future maintainers cannot tell whether the code was
+  suppressed because the pattern is intentional, because the rule had a known
+  false-positive, or because the original author simply wanted to stop the
+  warning without investigating it. Requiring a trailing reason — a brief note
+  after the rule code — makes suppressions self-documenting and surfaces
+  suppressions that should be revisited when the surrounding code changes.
+  This rule fires on any `# shuck:` or `# shellcheck` directive that does not
+  include free-text after the code list.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      # shuck: disable=S001
+      echo $HOME
+  - kind: valid
+    code: |
+      #!/bin/bash
+      # shuck: disable=S001 -- HOME is controlled by the environment and cannot contain spaces
+      echo $HOME

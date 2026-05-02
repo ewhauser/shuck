@@ -1,0 +1,46 @@
+origin: novel
+new_category: Portability
+new_code: X083
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A script that declares a modern-Bash version floor uses constructs that work on much older Bash versions, bypassing the benefit of that floor.
+rationale: >
+  When a project commits to requiring a minimum Bash version — for example, Bash 5.0 — it
+  gains access to features introduced in that release and later. Using pre-floor idioms
+  alongside that requirement weakens the contract: the script could silently be run on a
+  far older interpreter, scripts within the same codebase lose consistency, and developers
+  miss more capable or safer alternatives that the stated minimum already provides. This
+  rule flags patterns that work on Bash versions well below the configured `min-version`
+  when a direct replacement requiring roughly that floor exists. A representative case:
+  piping through `tr '[:lower:]' '[:upper:]'` to fold case is universal across POSIX
+  shells, but a project requiring Bash 4.0+ can use the `${var^^}` expansion instead,
+  eliminating the subshell and external process. The rule's detection is bounded to idioms
+  where the modern alternative is a straightforward substitution; it does not penalise
+  code that legitimately mixes levels for portability reasons elsewhere in the same file.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: min-version
+    type: string
+    default: "5.0"
+    description: The minimum Bash version the project requires. Constructs that work on versions substantially below this floor are flagged when a version-appropriate replacement exists.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      # Piping through tr works on any POSIX shell; a project requiring Bash 4.0+
+      # can use ${var^^} instead, but a min-version=5.0 project especially should
+      name="hello world"
+      upper=$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')
+      echo "$upper"
+  - kind: valid
+    code: |
+      #!/bin/bash
+      # ${var^^} case-conversion operator requires Bash 4.0; preferred for a 5.0+ project
+      name="hello world"
+      upper="${name^^}"
+      echo "$upper"

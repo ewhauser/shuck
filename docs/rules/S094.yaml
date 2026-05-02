@@ -1,0 +1,55 @@
+origin: novel
+new_category: Style
+new_code: S094
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: A function reads or writes a non-local variable that is not named in the function's leading comment block.
+rationale: >
+  Functions that silently depend on or modify global state are a common source of
+  hard-to-trace bugs in shell scripts. When a function reaches outside its own local
+  scope — reading a variable that was set elsewhere, or writing a variable that callers
+  will observe — that dependency should be visible at the call site without requiring a
+  full read of the implementation. The Google Shell Style Guide requires a "Globals:"
+  section that lists each non-local variable the function reads or writes. This rule
+  complements S084 by operating at the variable level: rather than just checking that a
+  Globals section exists, it verifies that each specific non-local variable the function
+  references appears by name in that section. The `treat-readonly-as-documented` option
+  exempts variables that are declared `readonly` at the top level, on the grounds that
+  a readonly constant is part of the script's visible configuration rather than hidden
+  mutable state.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: treat-readonly-as-documented
+    type: bool
+    default: true
+    description: >
+      When true, non-local variables that are declared readonly (via readonly, declare -r,
+      or export with a -r flag) at the top level are treated as self-documenting constants
+      and do not need to appear in the Globals section. Defaults to true.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      # Logs a message with a severity prefix.
+      log_message() {
+        echo "[${LOG_LEVEL}] $1"
+      }
+      log_message "started"
+  - kind: valid
+    code: |
+      #!/bin/bash
+      # Logs a message with a severity prefix derived from LOG_LEVEL.
+      #
+      # Globals:
+      #   LOG_LEVEL (read)
+      # Arguments:
+      #   $1 - The message text to log.
+      log_message() {
+        echo "[${LOG_LEVEL}] $1"
+      }
+      log_message "started"

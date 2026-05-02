@@ -1,0 +1,57 @@
+origin: novel
+new_category: Correctness
+new_code: C158
+runtime_kind: ast
+shellcheck_code: ~
+shellcheck_level: ~
+shells:
+  - bash
+description: An assignment inside a function body modifies a variable that was not declared local to that function.
+rationale: >
+  In Bash, assignments inside a function silently modify the global namespace unless the
+  target is declared with `local`, `declare`, or `readonly` inside that function's scope.
+  This implicit global mutation is a common source of bugs: the calling scope's variable
+  is unexpectedly overwritten, two functions that happen to use the same name interfere
+  with each other, and the function becomes non-reentrant. The Google Shell Style Guide
+  requires all function-internal variables to be explicitly declared `local`. This rule
+  flags assignments to names that have no `local`/`declare`/`readonly` declaration in the
+  enclosing function scope. Variables marked `readonly` at the top level are considered
+  documented intentional globals (controlled by `treat-readonly-as-documented`), as are
+  variables that have been exported (controlled by `treat-export-as-intentional`). This
+  rule is the inverse of C014, which flags `local` used outside a function body. See also
+  C136 (local-cross-reference) and C150 (subshell-local-assignment) for related local-scoping checks.
+safe_fix: false
+fix_description: ~
+default_enabled: false
+options:
+  - name: treat-readonly-as-documented
+    type: bool
+    default: true
+    description: >
+      When true, global variables declared `readonly` at the top level are treated as
+      intentional globals and assignments to them inside functions are not flagged (they
+      will fail at runtime anyway). Defaults to true.
+  - name: treat-export-as-intentional
+    type: bool
+    default: true
+    description: >
+      When true, variables that have been exported at the top level via `export` are
+      treated as intentional globals and assignments to them inside functions are not
+      flagged. Defaults to true.
+examples:
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      foo() {
+        x=1
+        echo "$x"
+      }
+      foo
+  - kind: valid
+    code: |
+      #!/bin/bash
+      foo() {
+        local x=1
+        echo "$x"
+      }
+      foo
