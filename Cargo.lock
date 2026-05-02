@@ -1730,6 +1730,7 @@ dependencies = [
  "shuck-indexer",
  "shuck-linter",
  "shuck-parser",
+ "shuck-run",
  "shuck-semantic",
  "similar",
  "tempfile",
@@ -1795,6 +1796,21 @@ dependencies = [
  "serde_json",
  "shuck-ast",
  "smallvec",
+]
+
+[[package]]
+name = "shuck-run"
+version = "0.0.30"
+dependencies = [
+ "anyhow",
+ "etcetera",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "shuck-parser",
+ "tempfile",
+ "toml",
+ "url",
 ]
 
 [[package]]

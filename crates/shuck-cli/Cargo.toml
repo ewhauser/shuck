@@ -41,6 +41,7 @@ shuck-formatter = { workspace = true }
 shuck-indexer = { workspace = true }
 shuck-linter = { workspace = true }
 shuck-parser = { workspace = true }
+shuck-run = { workspace = true }
 shuck-semantic = { workspace = true }
 similar = { workspace = true }
 toml = { workspace = true }
@@ -57,6 +58,7 @@ sha2 = { workspace = true }
 shuck-indexer = { workspace = true }
 shuck-linter = { workspace = true }
 shuck-parser = { workspace = true }
+shuck-run = { workspace = true }
 shuck-semantic = { workspace = true }
 tempfile = { workspace = true }
 wait-timeout = "0.2"
