@@ -77,12 +77,7 @@ impl CachedDocumentRef {
     fn root(environment: &Environment) -> Result<Self> {
         let mut remote_url = Url::parse(&environment.registry_url)
             .with_context(|| format!("parse registry URL `{}`", environment.registry_url))?;
-        if !remote_url.path().ends_with(".json") {
-            let mut path = remote_url.path().to_owned();
-            if !path.ends_with('/') {
-                path.push('/');
-            }
-            remote_url.set_path(&path);
+        if remote_url.path().ends_with('/') {
             remote_url = remote_url
                 .join("index.json")
                 .context("resolve registry root index URL")?;

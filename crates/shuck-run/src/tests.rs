@@ -664,6 +664,79 @@ fn registry_site_root_url_resolves_root_index_document() {
 }
 
 #[test]
+fn explicit_registry_endpoint_url_is_fetched_as_given() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
+    let platform = current_platform().unwrap();
+    let endpoint_path = tempdir.path().join("registry-endpoint");
+
+    fs::create_dir_all(tempdir.path().join("shells/bash")).unwrap();
+    fs::write(
+        &endpoint_path,
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&json!({
+                "version": 2,
+                "kind": "shuck.shells.index",
+                "shells": {
+                    "bash": {
+                        "versions_url": "shells/bash/index.json",
+                    }
+                },
+            }))
+            .unwrap()
+        ),
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("shells/bash/index.json"),
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&json!({
+                "version": 2,
+                "kind": "shuck.shells.versions",
+                "shell": "bash",
+                "versions": {
+                    "5.2.21": {
+                        "manifest_url": "5.2.21.json",
+                    }
+                },
+            }))
+            .unwrap()
+        ),
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("shells/bash/5.2.21.json"),
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&json!({
+                "version": 2,
+                "kind": "shuck.shells.release",
+                "shell": "bash",
+                "release": "5.2.21",
+                "platforms": {
+                    platform: {
+                        "url": Url::from_file_path(archive).unwrap().to_string(),
+                        "sha256": sha256,
+                    }
+                },
+            }))
+            .unwrap()
+        ),
+    )
+    .unwrap();
+
+    let environment = test_environment(
+        tempdir.path(),
+        Url::from_file_path(endpoint_path).unwrap().to_string(),
+    );
+    let loaded = load_registry(&environment, false, false).unwrap();
+
+    assert!(loaded.shells.contains_key("bash"));
+}
+
+#[test]
 fn unresolved_shell_uses_managed_bash_without_implicit_system_fallback() {
     let tempdir = tempfile::tempdir().unwrap();
     let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
