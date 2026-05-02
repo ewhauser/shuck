@@ -118,6 +118,8 @@ pub enum ManagedShellArg {
     Dash,
     /// MirBSD Korn shell.
     Mksh,
+    /// BusyBox shell wrapper (Linux only).
+    Busybox,
 }
 
 impl From<ManagedShellArg> for shuck_run::Shell {
@@ -129,6 +131,7 @@ impl From<ManagedShellArg> for shuck_run::Shell {
             ManagedShellArg::Zsh => Self::Zsh,
             ManagedShellArg::Dash => Self::Dash,
             ManagedShellArg::Mksh => Self::Mksh,
+            ManagedShellArg::Busybox => Self::Busybox,
         }
     }
 }
@@ -417,7 +420,7 @@ impl CheckCommand {
 /// Arguments for `shuck run`.
 #[derive(Debug, Clone, ClapArgs)]
 pub struct RunCommand {
-    /// Shell interpreter name (`bash`, `gbash`, `bashkit`, `zsh`, `dash`, `mksh`).
+    /// Shell interpreter name (`bash`, `gbash`, `bashkit`, `zsh`, `dash`, `mksh`, or Linux-only `busybox`).
     #[arg(short = 's', long, value_enum)]
     pub shell: Option<ManagedShellArg>,
     /// Version constraint (for example `5.2`, `>=5.1,<6`, or `latest`).
@@ -456,7 +459,7 @@ pub struct InstallCommand {
     /// Force a fresh registry fetch even if the local registry cache is still fresh.
     #[arg(long)]
     pub refresh: bool,
-    /// Shell interpreter name (`bash`, `gbash`, `bashkit`, `zsh`, `dash`, `mksh`).
+    /// Shell interpreter name (`bash`, `gbash`, `bashkit`, `zsh`, `dash`, `mksh`, or Linux-only `busybox`).
     #[arg(required_unless_present = "list", value_enum)]
     pub shell: Option<ManagedShellArg>,
     /// Version constraint to install.
@@ -467,7 +470,7 @@ pub struct InstallCommand {
 /// Arguments for `shuck shell`.
 #[derive(Debug, Clone, ClapArgs)]
 pub struct ShellCommand {
-    /// Shell interpreter name (`bash`, `gbash`, `bashkit`, `zsh`, `dash`, `mksh`).
+    /// Shell interpreter name (`bash`, `gbash`, `bashkit`, `zsh`, `dash`, `mksh`, or Linux-only `busybox`).
     #[arg(short = 's', long, value_enum)]
     pub shell: Option<ManagedShellArg>,
     /// Version constraint (for example `5.2`, `>=5.1,<6`, or `latest`).
@@ -1155,6 +1158,18 @@ mod tests {
             command.script_args,
             vec![OsString::from("one"), OsString::from("two")]
         );
+    }
+
+    #[test]
+    fn parses_busybox_shell_variants() {
+        let run = parse_run(["shuck", "run", "--shell", "busybox", "deploy.sh"]);
+        assert_eq!(run.shell, Some(ManagedShellArg::Busybox));
+
+        let install = parse_install(["shuck", "install", "busybox", "1.36"]);
+        assert_eq!(install.shell, Some(ManagedShellArg::Busybox));
+
+        let shell = parse_shell(["shuck", "shell", "--shell", "busybox"]);
+        assert_eq!(shell.shell, Some(ManagedShellArg::Busybox));
     }
 
     #[test]

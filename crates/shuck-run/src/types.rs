@@ -14,6 +14,7 @@ pub enum Shell {
     Zsh,
     Dash,
     Mksh,
+    Busybox,
 }
 
 impl Shell {
@@ -25,6 +26,7 @@ impl Shell {
             Self::Zsh => "zsh",
             Self::Dash => "dash",
             Self::Mksh => "mksh",
+            Self::Busybox => "busybox",
         }
     }
 
@@ -36,8 +38,17 @@ impl Shell {
             "zsh" => Some(Self::Zsh),
             "dash" | "sh" => Some(Self::Dash),
             "mksh" | "ksh" => Some(Self::Mksh),
+            "busybox" => Some(Self::Busybox),
             _ => None,
         }
+    }
+
+    pub(crate) fn ensure_supported_on_current_platform(self) -> Result<()> {
+        if self != Self::Busybox || std::env::consts::OS == "linux" {
+            return Ok(());
+        }
+
+        bail!("busybox is only supported on Linux");
     }
 
     pub(crate) fn infer(source: &str, path: Option<&Path>) -> Option<Self> {
@@ -357,7 +368,9 @@ impl<'a> ResolveOptions<'a> {
 
 pub(crate) fn parse_shell_name(raw: &str) -> Result<Shell> {
     Shell::from_name(raw).ok_or_else(|| {
-        anyhow!("unsupported shell `{raw}`; expected one of: bash, gbash, bashkit, zsh, dash, mksh")
+        anyhow!(
+            "unsupported shell `{raw}`; expected one of: bash, gbash, bashkit, zsh, dash, mksh, busybox"
+        )
     })
 }
 

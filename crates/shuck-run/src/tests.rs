@@ -161,6 +161,10 @@ fn make_shell_archive(root: &Path, shell: Shell, version: &str) -> (PathBuf, Str
             "#!/bin/sh\nif [ \"$1\" = \"-c\" ]; then\n  printf '@(#)MIRBSD KSH R{}\\n'\n  exit 0\nfi\nif [ \"$1\" = \"-V\" ]; then\n  printf '@(#)MIRBSD KSH R{}\\n'\n  exit 0\nfi\nprintf '%s\\n' \"${{SHUCK_SHELL_VERSION}}\"\n",
             version, version
         ),
+        Shell::Busybox => format!(
+            "#!/bin/sh\nif [ \"$1\" = \"--help\" ]; then\n  printf 'BusyBox v{} () multi-call binary.\\n'\n  exit 0\nfi\nprintf '%s\\n' \"${{SHUCK_SHELL_VERSION}}\"\n",
+            version
+        ),
     };
     fs::write(&shell_path, script).unwrap();
     let mut permissions = fs::metadata(&shell_path).unwrap().permissions();
@@ -867,6 +871,93 @@ fn lists_available_versions() {
     assert_eq!(available.len(), 1);
     assert_eq!(available[0].versions[0].as_str(), "5.2.21");
     assert_eq!(available[0].versions[1].as_str(), "5.1.16");
+}
+
+#[test]
+fn busybox_system_resolution_detects_version() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let path_dir = tempdir.path().join("bin");
+    fs::create_dir_all(&path_dir).unwrap();
+    let shell_path = path_dir.join("busybox");
+    fs::write(
+        &shell_path,
+        "#!/bin/sh\nif [ \"$1\" = \"--help\" ]; then\n  printf 'BusyBox v1.36.1 () multi-call binary.\\n'\n  exit 0\nfi\nexit 0\n",
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&shell_path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&shell_path, permissions).unwrap();
+
+    let resolved = resolve_system_at_path(
+        Shell::Busybox,
+        &shell_path,
+        &VersionConstraint::parse(">=1.36,<2").unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(resolved.version.as_str(), "1.36.1");
+    assert_eq!(resolved.source, ResolutionSource::System);
+}
+
+#[test]
+fn busybox_resolution_is_linux_only() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let script_path = tempdir.path().join("deploy.sh");
+    fs::write(&script_path, "#!/bin/busybox sh\necho hi\n").unwrap();
+
+    if cfg!(target_os = "linux") {
+        let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Busybox, "1.36.1");
+        let registry_path =
+            registry_for_archive(tempdir.path(), Shell::Busybox, "1.36.1", &archive, &sha256);
+        let environment = test_environment(
+            tempdir.path(),
+            Url::from_file_path(registry_path).unwrap().to_string(),
+        );
+
+        let resolved = resolve_with_environment(
+            &environment,
+            ResolveOptions {
+                shell: None,
+                version: None,
+                system: false,
+                implicit_system_fallback: false,
+                script: Some(&script_path),
+                config: None,
+                verbose: false,
+                refresh_registry: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(resolved.shell, Shell::Busybox);
+        assert_eq!(resolved.version.as_str(), "1.36.1");
+        assert_eq!(resolved.source, ResolutionSource::Managed);
+        assert!(resolved.path.ends_with("bin/busybox"));
+        return;
+    }
+
+    let environment = test_environment(
+        tempdir.path(),
+        Url::from_file_path(tempdir.path().join("registry.json"))
+            .unwrap()
+            .to_string(),
+    );
+    let err = resolve_with_environment(
+        &environment,
+        ResolveOptions {
+            shell: None,
+            version: None,
+            system: false,
+            implicit_system_fallback: false,
+            script: Some(&script_path),
+            config: None,
+            verbose: false,
+            refresh_registry: false,
+        },
+    )
+    .unwrap_err();
+
+    assert!(err.to_string().contains("only supported on Linux"));
 }
 
 #[test]

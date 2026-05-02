@@ -21,6 +21,7 @@ pub(crate) fn install_with_environment(
     verbose: bool,
     refresh_registry: bool,
 ) -> Result<ResolvedInterpreter> {
+    shell.ensure_supported_on_current_platform()?;
     let registry = load_registry(environment, refresh_registry, verbose)?;
     let platform = current_platform()?;
     let (version, artifact) = select_release_for_platform(
