@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.0.31](https://github.com/ewhauser/shuck/compare/v0.0.30...v0.0.31) (2026-05-02)
+
+
+### Features
+
+* **cli:** add google named rule selector ([#785](https://github.com/ewhauser/shuck/issues/785)) ([d6cb49f](https://github.com/ewhauser/shuck/commit/d6cb49f67cc0b6d28c1389f4d86fe32c0101811f))
+* **run:** add gbash and bashkit runtimes ([#791](https://github.com/ewhauser/shuck/issues/791)) ([c64e81d](https://github.com/ewhauser/shuck/commit/c64e81d0cd0549a6a00f2d255ba5aec58b36b58c))
+* **run:** add managed shell runtime commands ([#787](https://github.com/ewhauser/shuck/issues/787)) ([8b2731e](https://github.com/ewhauser/shuck/commit/8b2731e7f3589310d2f50bd059c5e111bc41ee55))
+* **run:** support BusyBox on Linux ([#792](https://github.com/ewhauser/shuck/issues/792)) ([01beeae](https://github.com/ewhauser/shuck/commit/01beeae4c8060968edb8d6ef0a8d4c9e2ea20bfa))
+
+
+### Bug Fixes
+
+* **run:** support shell registry manifests ([#789](https://github.com/ewhauser/shuck/issues/789)) ([4a09e4f](https://github.com/ewhauser/shuck/commit/4a09e4ff82ba19907ae431754e3e57e6226f1878))
+
+
+### Documentation
+
+* **rules:** spec Google Shell Style rules and stub metadata ([#784](https://github.com/ewhauser/shuck/issues/784)) ([84556b4](https://github.com/ewhauser/shuck/commit/84556b498747876de6d5f1cb11dfa5aa7634bbcd))
+* **website:** add shuck run guide ([#793](https://github.com/ewhauser/shuck/issues/793)) ([ede00a9](https://github.com/ewhauser/shuck/commit/ede00a958e848b6bb836cdc8213292e55abda350))
+
 ## [0.0.30](https://github.com/ewhauser/shuck/compare/v0.0.29...v0.0.30) (2026-05-02)
 
 
