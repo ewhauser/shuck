@@ -67,7 +67,7 @@ extend-per-file-ignores = { "vendor/**" = ["ALL"] }
 
 #### `extend-select`
 
-Enable additional rules on top of the default or explicitly selected rule set.
+Enable additional rules or named selectors on top of the default or explicitly selected rule set.
 
 **Default value**: `[]`
 
@@ -77,7 +77,7 @@ Enable additional rules on top of the default or explicitly selected rule set.
 
 ```toml
 [lint]
-extend-select = ["S"]
+extend-select = ["google"]
 ```
 
 ---
@@ -135,7 +135,7 @@ per-file-ignores = { "scripts/*.sh" = ["S074"] }
 
 #### `select`
 
-Replace the default rule set with the selectors listed here.
+Replace the default rule set with the selectors listed here, including named selectors such as `google`.
 
 **Default value**: `all implemented non-style rules`
 
@@ -145,7 +145,7 @@ Replace the default rule set with the selectors listed here.
 
 ```toml
 [lint]
-select = ["C", "K"]
+select = ["google"]
 ```
 
 ---

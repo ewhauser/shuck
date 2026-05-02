@@ -94,6 +94,7 @@ Replaces the default rule set with the selectors you provide.
 
 Selectors can be:
 
+- A named selector like `google`
 - A full category prefix like `C` or `K`
 - A narrower prefix like `C12`
 - An exact rule code like `S074`
@@ -101,7 +102,7 @@ Selectors can be:
 
 ```toml
 [lint]
-select = ["ALL"]
+select = ["google"]
 ```
 
 ### `ignore`
@@ -120,7 +121,7 @@ Adds more rules on top of the current selection.
 
 ```toml
 [lint]
-extend-select = ["S"]
+extend-select = ["google"]
 ```
 
 ### `per-file-ignores`

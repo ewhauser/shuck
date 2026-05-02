@@ -192,10 +192,10 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 2] = [
             },
             ConfigFieldMetadata {
                 key: "extend-select",
-                docs: "Enable additional rules on top of the default or explicitly selected rule set.",
+                docs: "Enable additional rules or named selectors on top of the default or explicitly selected rule set.",
                 default: "[]",
                 value_type: "list[selector]",
-                example: r#"extend-select = ["S"]"#,
+                example: r#"extend-select = ["google"]"#,
             },
             ConfigFieldMetadata {
                 key: "fixable",
@@ -220,10 +220,10 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 2] = [
             },
             ConfigFieldMetadata {
                 key: "select",
-                docs: "Replace the default rule set with the selectors listed here.",
+                docs: "Replace the default rule set with the selectors listed here, including named selectors such as `google`.",
                 default: "all implemented non-style rules",
                 value_type: "list[selector]",
-                example: r#"select = ["C", "K"]"#,
+                example: r#"select = ["google"]"#,
             },
             ConfigFieldMetadata {
                 key: "unfixable",

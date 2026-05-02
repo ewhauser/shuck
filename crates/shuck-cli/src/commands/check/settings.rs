@@ -619,6 +619,7 @@ fn selector_specificity(selector: &RuleSelector) -> usize {
     match selector {
         RuleSelector::All => 0,
         RuleSelector::Category(_) => 1,
+        RuleSelector::Named(_) => 1,
         RuleSelector::Prefix(prefix) => 2 + prefix.len(),
         RuleSelector::Rule(_) => usize::MAX,
     }
@@ -669,7 +670,8 @@ mod tests {
         EmbeddedFormat, EmbeddedScript, ExtractedDialect, HostLineStart, ImplicitShellFlags,
     };
     use shuck_linter::{
-        Category, LinterSettings, Rule, RuleSelector, RuleSet, ShellCheckCodeMap, ShellDialect,
+        Category, LinterSettings, NamedGroup, Rule, RuleSelector, RuleSet, ShellCheckCodeMap,
+        ShellDialect,
     };
     use shuck_parser::parser::Parser;
     use tempfile::tempdir;
@@ -702,7 +704,7 @@ mod tests {
     };
     use crate::commands::project_runner::PendingProjectFile;
     use crate::config::ConfigArguments;
-    use crate::discover::{FileKind, normalize_path};
+    use crate::discover::{FileKind, ProjectRoot, normalize_path};
 
     #[test]
     fn select_replaces_default_rules() {
@@ -880,6 +882,84 @@ mod tests {
     }
 
     #[test]
+    fn config_select_accepts_named_groups() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[lint]\nselect = ['google']\n",
+        )
+        .unwrap();
+
+        let settings = resolve_project_check_settings(
+            &ProjectRoot {
+                storage_root: tempdir.path().to_path_buf(),
+                canonical_root: fs::canonicalize(tempdir.path()).unwrap(),
+            },
+            &ConfigArguments::default(),
+            &RuleSelectionArgs::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            settings.linter_settings.rules,
+            NamedGroup::Google.rule_set()
+        );
+    }
+
+    #[test]
+    fn config_extend_select_accepts_named_groups() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[lint]\nextend-select = ['google']\n",
+        )
+        .unwrap();
+
+        let settings = resolve_project_check_settings(
+            &ProjectRoot {
+                storage_root: tempdir.path().to_path_buf(),
+                canonical_root: fs::canonicalize(tempdir.path()).unwrap(),
+            },
+            &ConfigArguments::default(),
+            &RuleSelectionArgs::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            settings.linter_settings.rules,
+            LinterSettings::default_rules().union(&NamedGroup::Google.rule_set())
+        );
+    }
+
+    #[test]
+    fn named_group_can_be_trimmed_by_exact_rule_ignore() {
+        let rules = apply_rule_selector_layer(
+            RuleSet::EMPTY,
+            Some(&[RuleSelector::Named(NamedGroup::Google)]),
+            &[],
+            &[RuleSelector::Rule(Rule::UnusedAssignment)],
+        );
+
+        assert!(!rules.contains(Rule::UnusedAssignment));
+        assert!(rules.contains(Rule::UnquotedExpansion));
+    }
+
+    #[test]
+    fn named_group_can_be_trimmed_by_prefix_ignore() {
+        let rules = apply_rule_selector_layer(
+            RuleSet::EMPTY,
+            Some(&[RuleSelector::Named(NamedGroup::Google)]),
+            &[],
+            &[RuleSelector::Prefix("S00".to_owned())],
+        );
+
+        assert!(!rules.contains(Rule::UnquotedExpansion));
+        assert!(!rules.contains(Rule::ReadWithoutRaw));
+        assert!(rules.contains(Rule::ExportCommandSubstitution));
+        assert!(rules.contains(Rule::UnusedAssignment));
+    }
+
+    #[test]
     fn per_file_ignores_suppress_matching_rules_only() {
         let tempdir = tempdir().unwrap();
         fs::write(
@@ -986,6 +1066,64 @@ mod tests {
         assert_eq!(
             per_file_shell.shell_for_path(path),
             Some(ShellDialect::Bash)
+        );
+    }
+
+    #[test]
+    fn parses_named_group_rule_selectors() {
+        assert_eq!(
+            parse_rule_selectors(&["google".to_owned()], "lint.select").unwrap(),
+            vec![RuleSelector::Named(NamedGroup::Google)]
+        );
+    }
+
+    #[test]
+    fn select_google_matches_config_extend_select_on_google_only_fixture() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[lint]\nextend-select = ['google']\n",
+        )
+        .unwrap();
+        fs::write(
+            tempdir.path().join("script.sh"),
+            "#!/bin/sh\nunused=1\necho $1\n",
+        )
+        .unwrap();
+
+        let config_report = run_check_with_cwd(
+            &check_args(true),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        let mut args = check_args(true);
+        args.rule_selection = RuleSelectionArgs {
+            select: Some(vec![RuleSelector::Named(NamedGroup::Google)]),
+            ..RuleSelectionArgs::default()
+        };
+        let cli_report = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        let mut config_codes = diagnostic_codes(&config_report);
+        let mut cli_codes = diagnostic_codes(&cli_report);
+        config_codes.sort();
+        cli_codes.sort();
+
+        assert_eq!(config_codes, cli_codes);
+        assert_eq!(
+            cli_codes,
+            vec![
+                Rule::UnusedAssignment.code().to_owned(),
+                Rule::UnquotedExpansion.code().to_owned(),
+            ]
         );
     }
 

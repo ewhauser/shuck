@@ -439,7 +439,7 @@ fn parse_cli_rule_selector(value: &str) -> Result<RuleSelector, String> {
 /// Rule-selection flags shared by `shuck check`.
 #[derive(Debug, Clone, Default, ClapArgs)]
 pub struct RuleSelectionArgs {
-    /// Comma-separated list of rule codes to enable (or ALL, to enable all rules).
+    /// Comma-separated list of rule selectors to enable (for example `google`, `C`, or `C001`; or ALL to enable all rules).
     #[arg(
         long,
         value_delimiter = ',',
@@ -449,7 +449,7 @@ pub struct RuleSelectionArgs {
         hide_possible_values = true
     )]
     pub select: Option<Vec<RuleSelector>>,
-    /// Comma-separated list of rule codes to disable.
+    /// Comma-separated list of rule selectors to disable.
     #[arg(
         long,
         value_delimiter = ',',
@@ -459,7 +459,7 @@ pub struct RuleSelectionArgs {
         hide_possible_values = true
     )]
     pub ignore: Vec<RuleSelector>,
-    /// Like --select, but adds additional rule codes on top of those already specified.
+    /// Like --select, but adds additional rule selectors on top of those already specified.
     #[arg(
         long,
         value_delimiter = ',',
@@ -501,7 +501,7 @@ pub struct RuleSelectionArgs {
         help_heading = "Rule selection"
     )]
     pub extend_per_file_shell: Vec<PatternShellPair>,
-    /// List of rule codes to treat as eligible for fix. Only applicable when fix itself is enabled (e.g., via `--fix`).
+    /// List of rule selectors to treat as eligible for fix. Only applicable when fix itself is enabled (e.g., via `--fix`).
     #[arg(
         long,
         value_delimiter = ',',
@@ -511,7 +511,7 @@ pub struct RuleSelectionArgs {
         hide_possible_values = true
     )]
     pub fixable: Option<Vec<RuleSelector>>,
-    /// List of rule codes to treat as ineligible for fix. Only applicable when fix itself is enabled (e.g., via `--fix`).
+    /// List of rule selectors to treat as ineligible for fix. Only applicable when fix itself is enabled (e.g., via `--fix`).
     #[arg(
         long,
         value_delimiter = ',',
@@ -521,7 +521,7 @@ pub struct RuleSelectionArgs {
         hide_possible_values = true
     )]
     pub unfixable: Vec<RuleSelector>,
-    /// Like --fixable, but adds additional rule codes on top of those already specified.
+    /// Like --fixable, but adds additional rule selectors on top of those already specified.
     #[arg(
         long,
         value_delimiter = ',',
@@ -1007,6 +1007,33 @@ mod tests {
     }
 
     #[test]
+    fn parses_named_rule_selection_flags() {
+        let command = parse_check([
+            "shuck",
+            "check",
+            "--select",
+            "google",
+            "--extend-select",
+            "google",
+            "--fixable",
+            "google",
+        ]);
+
+        assert_eq!(
+            command.rule_selection.select,
+            Some(vec![RuleSelector::Named(shuck_linter::NamedGroup::Google)])
+        );
+        assert_eq!(
+            command.rule_selection.extend_select,
+            vec![RuleSelector::Named(shuck_linter::NamedGroup::Google)]
+        );
+        assert_eq!(
+            command.rule_selection.fixable,
+            Some(vec![RuleSelector::Named(shuck_linter::NamedGroup::Google)])
+        );
+    }
+
+    #[test]
     fn parses_per_file_ignore_pairs() {
         let command = parse_check([
             "shuck",
@@ -1030,6 +1057,19 @@ mod tests {
                 pattern: "!src/*.sh".to_owned(),
                 selector: RuleSelector::Category(shuck_linter::Category::Style),
             }]
+        );
+    }
+
+    #[test]
+    fn parses_named_per_file_ignore_pairs() {
+        let command = parse_check(["shuck", "check", "--per-file-ignores", "tests/*.sh:google"]);
+
+        assert_eq!(
+            command.rule_selection.per_file_ignores,
+            Some(vec![PatternRuleSelectorPair {
+                pattern: "tests/*.sh".to_owned(),
+                selector: RuleSelector::Named(shuck_linter::NamedGroup::Google),
+            }])
         );
     }
 
