@@ -572,7 +572,11 @@ fn invalid_cached_install_is_replaced() {
 
     assert_eq!(resolved.version.as_str(), "5.2.21");
     assert_eq!(resolved.source, ResolutionSource::Managed);
-    assert!(fs::read_to_string(&resolved.path).unwrap().contains("5.2.21"));
+    assert!(
+        fs::read_to_string(&resolved.path)
+            .unwrap()
+            .contains("5.2.21")
+    );
 }
 
 #[test]
@@ -643,7 +647,9 @@ fn failed_refresh_keeps_last_good_registry() {
 
     let environment = test_environment(
         tempdir.path(),
-        Url::from_file_path(&good_registry_path).unwrap().to_string(),
+        Url::from_file_path(&good_registry_path)
+            .unwrap()
+            .to_string(),
     );
     let loaded = load_registry(&environment, false, false).unwrap();
     assert!(loaded.shells.contains_key("bash"));

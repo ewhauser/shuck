@@ -142,8 +142,12 @@ fn refresh_registry_index(
     index_path: &Path,
     verbose: bool,
 ) -> Result<RegistryIndex> {
-    let temp_file = NamedTempFile::new_in(&environment.shells_root)
-        .with_context(|| format!("create temp registry in {}", environment.shells_root.display()))?;
+    let temp_file = NamedTempFile::new_in(&environment.shells_root).with_context(|| {
+        format!(
+            "create temp registry in {}",
+            environment.shells_root.display()
+        )
+    })?;
     fetch_url_to_path(&environment.registry_url, temp_file.path(), verbose)
         .with_context(|| format!("fetch {}", environment.registry_url))?;
     let registry = read_registry_index(temp_file.path())?;
