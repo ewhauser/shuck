@@ -2,12 +2,13 @@ use std::str::FromStr;
 
 use thiserror::Error;
 
-use crate::{Category, Rule, RuleSet, code_to_rule};
+use crate::{Category, NamedGroup, Rule, RuleSet, code_to_rule};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuleSelector {
     All,
     Category(Category),
+    Named(NamedGroup),
     Prefix(String),
     Rule(Rule),
 }
@@ -19,6 +20,7 @@ impl RuleSelector {
             Self::Category(category) => Rule::iter()
                 .filter(|rule| rule.category() == *category)
                 .collect(),
+            Self::Named(group) => group.rule_set(),
             Self::Prefix(prefix) => Rule::iter()
                 .filter(|rule| rule.code().starts_with(prefix))
                 .collect(),
@@ -40,6 +42,10 @@ impl FromStr for RuleSelector {
         let selector = value.trim();
         if selector == "ALL" {
             return Ok(Self::All);
+        }
+
+        if let Some(group) = NamedGroup::from_name(selector) {
+            return Ok(Self::Named(group));
         }
 
         if let Some(rule) = code_to_rule(selector) {
@@ -66,6 +72,12 @@ mod tests {
     fn parses_category_prefixes() {
         let selector = RuleSelector::from_str("C").unwrap();
         assert_eq!(selector, RuleSelector::Category(Category::Correctness));
+    }
+
+    #[test]
+    fn parses_named_groups() {
+        let selector = RuleSelector::from_str("google").unwrap();
+        assert_eq!(selector, RuleSelector::Named(NamedGroup::Google));
     }
 
     #[test]
@@ -106,6 +118,10 @@ mod tests {
         assert_eq!(
             RuleSelector::from_str("SH-092"),
             Err(SelectorParseError::Unknown("SH-092".to_owned()))
+        );
+        assert_eq!(
+            RuleSelector::from_str("goog"),
+            Err(SelectorParseError::Unknown("goog".to_owned()))
         );
     }
 }

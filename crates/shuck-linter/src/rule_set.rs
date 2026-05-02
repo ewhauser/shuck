@@ -12,6 +12,19 @@ impl RuleSet {
         Rule::iter().collect()
     }
 
+    pub const fn from_rules(rules: &[Rule]) -> Self {
+        let mut words = [0; WORD_COUNT];
+        let mut index = 0;
+        while index < rules.len() {
+            let rule = rules[index] as usize;
+            let word = rule / 64;
+            let bit = rule % 64;
+            words[word] |= 1u64 << bit;
+            index += 1;
+        }
+        Self(words)
+    }
+
     pub const fn contains(&self, rule: Rule) -> bool {
         let word = (rule as usize) / 64;
         let bit = (rule as usize) % 64;
@@ -103,5 +116,15 @@ mod tests {
 
         set.remove(Rule::UnusedAssignment);
         assert!(set.is_empty());
+    }
+
+    #[test]
+    fn can_be_built_in_const_context() {
+        const RULES: RuleSet = RuleSet::from_rules(&[Rule::UnusedAssignment, Rule::BareRead]);
+
+        assert_eq!(
+            RULES.iter().collect::<Vec<_>>(),
+            vec![Rule::UnusedAssignment, Rule::BareRead]
+        );
     }
 }

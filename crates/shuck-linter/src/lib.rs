@@ -19,6 +19,8 @@ mod fix_helpers;
 #[allow(missing_docs)]
 mod locator;
 #[allow(missing_docs)]
+mod named_groups;
+#[allow(missing_docs)]
 mod parse_diagnostics;
 #[allow(missing_docs)]
 mod registry;
@@ -82,11 +84,12 @@ pub(crate) use facts::{
 pub use fix::{Applicability, AppliedFixes, Edit, Fix, FixAvailability, apply_fixes};
 pub(crate) use fix_helpers::leading_static_word_prefix_fix_in_source;
 pub(crate) use locator::Locator;
+/// Rule selector parsing types.
+pub use named_groups::NamedGroup;
 /// Rule identifiers, categories, and registry lookup helpers.
 pub use registry::{Category, Rule, code_to_rule};
 /// Rule metadata lookup utilities.
 pub use rule_metadata::{RuleMetadata, ShellCheckLevel, rule_metadata, rule_metadata_by_code};
-/// Rule selector parsing types.
 pub use rule_selector::{RuleSelector, SelectorParseError};
 /// Sets of enabled or disabled rules.
 pub use rule_set::RuleSet;
