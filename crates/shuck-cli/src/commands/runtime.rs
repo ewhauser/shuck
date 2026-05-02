@@ -271,9 +271,16 @@ mod tests {
     }
 
     #[test]
-    fn non_unix_wait_mapping_preserves_child_exit_code() {
-        let mut command = ProcessCommand::new("sh");
-        command.args(["-c", "exit 7"]);
+    fn wait_mapping_preserves_child_exit_code() {
+        let command = if cfg!(windows) {
+            let mut command = ProcessCommand::new("cmd");
+            command.args(["/C", "exit 7"]);
+            command
+        } else {
+            let mut command = ProcessCommand::new("sh");
+            command.args(["-c", "exit 7"]);
+            command
+        };
         let status = exec_or_wait_for_test(command).unwrap();
         assert_eq!(status, ExitStatus::Code(7));
     }

@@ -1121,7 +1121,7 @@ impl fmt::Display for VersionOperator {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use std::os::unix::fs::PermissionsExt;
 
