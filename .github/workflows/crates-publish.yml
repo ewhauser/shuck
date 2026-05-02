@@ -68,7 +68,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          while IFS= read -r crate; do
+          crates_file="$(mktemp)"
+          python3 scripts/workspace-publish-crates.py > "${crates_file}"
+          mapfile -t crates < "${crates_file}"
+          rm -f "${crates_file}"
+          if [ "${#crates[@]}" -eq 0 ]; then
+            echo "No publishable crates found" >&2
+            exit 1
+          fi
+
+          for crate in "${crates[@]}"; do
             echo "::group::Publishing ${crate}"
             cargo publish -p "${crate}" --locked ${PUBLISH_FLAG}
             echo "::endgroup::"
@@ -77,4 +86,4 @@ jobs:
               # depends on it. Skip during dry-run where nothing is uploaded.
               sleep 20
             fi
-          done < <(python3 scripts/workspace-publish-crates.py)
+          done
