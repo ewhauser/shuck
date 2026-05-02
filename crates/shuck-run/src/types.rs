@@ -55,7 +55,7 @@ impl fmt::Display for Shell {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Version {
     raw: String,
     tokens: Vec<VersionToken>,
@@ -75,13 +75,16 @@ impl Version {
         {
             bail!("invalid version `{raw}`");
         }
+        if raw.split('.').any(|segment| segment.is_empty()) {
+            bail!("invalid version `{raw}`");
+        }
 
         let tokens = tokenize_version(raw);
         if tokens.is_empty() {
             bail!("invalid version `{raw}`");
         }
 
-        let segment_count = raw.split('.').filter(|segment| !segment.is_empty()).count();
+        let segment_count = raw.split('.').count();
         let prefix_match = should_treat_as_prefix(raw, &tokens, segment_count);
 
         Ok(Self {
@@ -125,6 +128,14 @@ impl Version {
         matched_segments >= self.segment_count
     }
 }
+
+impl PartialEq for Version {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for Version {}
 
 impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
