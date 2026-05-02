@@ -258,3 +258,27 @@ fn shell_subcommand_uses_system_shell() {
         .write_stdin("");
     cmd.assert().success();
 }
+
+#[test]
+fn shell_subcommand_defaults_to_managed_bash() {
+    let tempdir = tempdir().unwrap();
+    let bin_dir = tempdir.path().join("bin");
+    fake_system_shell(&bin_dir.join("bash"), "bash", "3.2.57");
+    let (archive, sha256) = fake_shell_archive(tempdir.path(), "bash", "5.2.21");
+    let registry = registry_body("bash", &[("5.2.21", &archive, &sha256)]);
+    let registry = registry_path(tempdir.path(), &registry);
+    let path = std::env::join_paths(
+        std::iter::once(bin_dir.clone()).chain(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        )),
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_runtime_env(&mut cmd, tempdir.path(), &registry);
+    cmd.current_dir(tempdir.path())
+        .env("PATH", path)
+        .arg("shell")
+        .write_stdin("printf '%s|%s\\n' \"$SHUCK_SHELL\" \"$SHUCK_SHELL_VERSION\"\n");
+    cmd.assert().success().stdout("bash|5.2.21\n");
+}

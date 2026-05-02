@@ -53,7 +53,8 @@ pub(crate) fn resolve_with_environment(
         VersionConstraint::Latest
     };
 
-    if options.system || (defaulted_shell && defaulted_version) {
+    if options.system || (options.implicit_system_fallback && defaulted_shell && defaulted_version)
+    {
         resolve_system(shell, &version)
     } else {
         install_with_environment(

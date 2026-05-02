@@ -142,6 +142,7 @@ fn resolves_cli_shell_and_config_version() {
             shell: Some(Shell::Bash),
             version: None,
             system: false,
+            implicit_system_fallback: false,
             script: None,
             config: Some(&config),
             verbose: false,
@@ -184,6 +185,7 @@ fn metadata_overrides_project_defaults() {
             shell: None,
             version: None,
             system: false,
+            implicit_system_fallback: false,
             script: Some(&script_path),
             config: Some(&config),
             verbose: false,
@@ -246,6 +248,7 @@ fn defaults_to_bash_when_only_a_version_constraint_is_provided() {
             shell: None,
             version: Some(VersionConstraint::parse("5.2").unwrap()),
             system: false,
+            implicit_system_fallback: false,
             script: None,
             config: None,
             verbose: false,
@@ -319,6 +322,7 @@ fn cli_shell_override_ignores_mismatched_metadata_version() {
             shell: Some(Shell::Bash),
             version: None,
             system: false,
+            implicit_system_fallback: false,
             script: Some(&script_path),
             config: None,
             verbose: false,
@@ -389,6 +393,7 @@ fn shell_specific_config_pin_overrides_generic_shell_version() {
             shell: None,
             version: None,
             system: false,
+            implicit_system_fallback: false,
             script: Some(&script_path),
             config: Some(&config),
             verbose: false,
@@ -453,6 +458,7 @@ fn shebang_without_other_constraints_uses_latest_available_version() {
             shell: None,
             version: None,
             system: false,
+            implicit_system_fallback: false,
             script: Some(&script_path),
             config: None,
             verbose: false,
@@ -525,6 +531,37 @@ fn partial_install_directory_is_replaced() {
     assert_eq!(resolved.version.as_str(), "5.2.21");
     assert!(resolved.path.exists());
     assert!(!install_dir.join("partial.txt").exists());
+}
+
+#[test]
+fn unresolved_shell_uses_managed_bash_without_implicit_system_fallback() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
+    let registry = registry_for_archive(Shell::Bash, "5.2.21", &archive, &sha256);
+    let registry_path = write_registry(tempdir.path(), &registry);
+    let environment = test_environment(
+        tempdir.path(),
+        Url::from_file_path(registry_path).unwrap().to_string(),
+    );
+
+    let resolved = resolve_with_environment(
+        &environment,
+        ResolveOptions {
+            shell: None,
+            version: None,
+            system: false,
+            implicit_system_fallback: false,
+            script: None,
+            config: None,
+            verbose: false,
+            refresh_registry: false,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(resolved.shell, Shell::Bash);
+    assert_eq!(resolved.version.as_str(), "5.2.21");
+    assert_eq!(resolved.source, ResolutionSource::Managed);
 }
 
 #[test]
