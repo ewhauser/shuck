@@ -897,3 +897,28 @@ fn path_lookup_skips_non_executable_entries() {
 
     assert_eq!(resolved, real_bash);
 }
+
+#[cfg(not(unix))]
+#[test]
+fn path_lookup_uses_pathext_variants() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let path_dir = tempdir.path().join("bin");
+    fs::create_dir_all(&path_dir).unwrap();
+
+    let bash_exe = path_dir.join("bash.exe");
+    fs::write(&bash_exe, "@echo off\r\n").unwrap();
+    let path_var = std::env::join_paths([path_dir.as_path()]).unwrap();
+
+    let previous_pathext = std::env::var_os("PATHEXT");
+    std::env::set_var("PATHEXT", ".EXE;.CMD");
+
+    let resolved = find_on_path_in(Some(path_var.as_os_str()), "bash").unwrap();
+
+    if let Some(previous_pathext) = previous_pathext {
+        std::env::set_var("PATHEXT", previous_pathext);
+    } else {
+        std::env::remove_var("PATHEXT");
+    }
+
+    assert_eq!(resolved, bash_exe);
+}

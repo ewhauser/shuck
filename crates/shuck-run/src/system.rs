@@ -49,9 +49,40 @@ fn find_on_path(name: &str) -> Option<PathBuf> {
 pub(crate) fn find_on_path_in(path_var: Option<&OsStr>, name: &str) -> Option<PathBuf> {
     let path_var = path_var?;
     std::env::split_paths(path_var).find_map(|directory| {
-        let candidate = directory.join(name);
-        is_executable_file(&candidate).then_some(candidate)
+        executable_names(name).into_iter().find_map(|candidate_name| {
+            let candidate = directory.join(candidate_name);
+            is_executable_file(&candidate).then_some(candidate)
+        })
     })
+}
+
+#[cfg(unix)]
+fn executable_names(name: &str) -> Vec<OsString> {
+    vec![OsString::from(name)]
+}
+
+#[cfg(not(unix))]
+fn executable_names(name: &str) -> Vec<OsString> {
+    let mut names = vec![OsString::from(name)];
+    if Path::new(name).extension().is_some() {
+        return names;
+    }
+
+    let pathext = std::env::var_os("PATHEXT")
+        .unwrap_or_else(|| OsString::from(".COM;.EXE;.BAT;.CMD"));
+    for extension in pathext.to_string_lossy().split(';') {
+        let extension = extension.trim();
+        if extension.is_empty() {
+            continue;
+        }
+        let mut candidate = OsString::from(name);
+        candidate.push(extension);
+        if !names.contains(&candidate) {
+            names.push(candidate);
+        }
+    }
+
+    names
 }
 
 #[cfg(unix)]
