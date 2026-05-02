@@ -2,7 +2,7 @@
 
 Shuck can be configured through a `shuck.toml` or `.shuck.toml` file.
 
-This page covers Shuck's stable native configuration for `shuck check`. ShellCheck compatibility mode uses `.shellcheckrc` instead; see the [ShellCheck compatibility guide](/docs/shellcheck-compat).
+This page covers Shuck's stable native configuration for `shuck check`, `shuck run`, and related native commands. ShellCheck compatibility mode uses `.shellcheckrc` instead; see the [ShellCheck compatibility guide](/docs/shellcheck-compat).
 
 ## Default behavior
 
@@ -179,6 +179,24 @@ extend-select = ["S"]
 fixable = ["C"]
 extend-fixable = ["S074"]
 ```
+
+## Runtime settings
+
+The `[run]` section controls managed interpreter defaults for `shuck run`, `shuck install`, and `shuck shell`.
+
+```toml
+[run]
+shell = "bash"
+shell-version = "5.2"
+
+[run.shells]
+bash = "5.2"
+zsh = "5.9"
+```
+
+Use `[run].shell` for a project-wide default interpreter, `[run].shell-version` for a generic version constraint, and `[run.shells]` for per-shell pins that apply after Shuck has resolved the script's shell.
+
+See the dedicated [Managed Runtime guide](/docs/run) for resolution order, inline script metadata, and `--system` behavior. The generated [Settings Reference](/docs/settings) also includes every supported `[run]` key.
 
 ## CLI-only file selection
 
