@@ -40,6 +40,8 @@ pub enum ExitStatus {
     Failure,
     /// The command failed due to invalid input, I/O, or another runtime error.
     Error,
+    /// The command exited with an explicit process status code.
+    Code(i32),
 }
 
 impl From<ExitStatus> for ExitCode {
@@ -48,6 +50,7 @@ impl From<ExitStatus> for ExitCode {
             ExitStatus::Success => ExitCode::from(0),
             ExitStatus::Failure => ExitCode::from(1),
             ExitStatus::Error => ExitCode::from(2),
+            ExitStatus::Code(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
         }
     }
 }
@@ -67,6 +70,9 @@ pub fn run(args: Args) -> Result<ExitStatus> {
 
     match command {
         Command::Check(command) => commands::check::check(*command, &config, cache_dir.as_deref()),
+        Command::Run(command) => commands::runtime::run(command, &config),
+        Command::Install(command) => commands::runtime::install(command),
+        Command::Shell(command) => commands::runtime::shell(command, &config),
         Command::Format(command) => format(command, &config, cache_dir.as_deref()),
         Command::Clean(command) => commands::clean::clean(command, &config, cache_dir.as_deref()),
     }

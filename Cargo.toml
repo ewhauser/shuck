@@ -26,6 +26,7 @@ shuck-formatter = { path = "crates/shuck-formatter", version = "0.0.30" }
 shuck-indexer = { path = "crates/shuck-indexer", version = "0.0.30" }
 shuck-linter = { path = "crates/shuck-linter", version = "0.0.30" }
 shuck-parser = { path = "crates/shuck-parser", version = "0.0.30" }
+shuck-run = { path = "crates/shuck-run", version = "0.0.30" }
 shuck-semantic = { path = "crates/shuck-semantic", version = "0.0.30" }
 shuck-cli = { path = "crates/shuck-cli", version = "0.0.30" }
 shuck-extract = { path = "crates/shuck-extract", version = "0.0.30" }

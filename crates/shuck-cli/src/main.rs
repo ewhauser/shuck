@@ -20,6 +20,7 @@ fn main() -> ExitCode {
 
     let args = Args::try_parse_from(argv).unwrap_or_else(|err| err.exit());
     match run(args) {
+        Ok(ExitStatus::Code(code)) => exit_with_child_status(code),
         Ok(status) => status.into(),
         Err(err) => report_error(&err),
     }
@@ -41,4 +42,14 @@ fn report_error(err: &anyhow::Error) -> ExitCode {
     }
 
     ExitStatus::Error.into()
+}
+
+#[cfg(windows)]
+fn exit_with_child_status(code: i32) -> ExitCode {
+    std::process::exit(code);
+}
+
+#[cfg(not(windows))]
+fn exit_with_child_status(code: i32) -> ExitCode {
+    ExitCode::from(u8::try_from(code).unwrap_or(1))
 }
