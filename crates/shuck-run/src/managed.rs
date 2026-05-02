@@ -8,7 +8,7 @@ use tempfile::Builder as TempFileBuilder;
 
 use crate::download::fetch_url_to_path;
 use crate::environment::current_platform;
-use crate::registry::{load_registry, select_version_for_platform};
+use crate::registry::{load_registry, select_release_for_platform};
 use crate::system::detect_shell_version;
 use crate::{
     Environment, ResolutionSource, ResolvedInterpreter, Shell, Version, VersionConstraint,
@@ -23,15 +23,14 @@ pub(crate) fn install_with_environment(
 ) -> Result<ResolvedInterpreter> {
     let registry = load_registry(environment, refresh_registry, verbose)?;
     let platform = current_platform()?;
-    let version = select_version_for_platform(&registry, shell, constraint, &platform)?;
-    let artifact = registry
-        .shells
-        .get(shell.as_str())
-        .and_then(|entry| entry.versions.get(version.as_str()))
-        .and_then(|entry| entry.platforms.get(&platform))
-        .ok_or_else(|| {
-            anyhow!("{shell} {version} does not have a prebuilt binary for {platform}.")
-        })?;
+    let (version, artifact) = select_release_for_platform(
+        &registry,
+        shell,
+        constraint,
+        &platform,
+        refresh_registry,
+        verbose,
+    )?;
 
     let install_dir = environment
         .shells_root

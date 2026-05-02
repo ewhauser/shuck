@@ -4,6 +4,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use url::Url;
 
@@ -22,10 +23,122 @@ fn test_environment(root: &Path, registry_url: String) -> Environment {
     }
 }
 
-fn write_registry(root: &Path, body: &str) -> PathBuf {
-    let registry_path = root.join("registry.json");
-    fs::write(&registry_path, body).unwrap();
-    registry_path
+#[derive(Clone)]
+struct RegistryEntry {
+    shell: Shell,
+    version: String,
+    platform: String,
+    url: String,
+    sha256: String,
+}
+
+fn registry_entry(
+    shell: Shell,
+    version: &str,
+    platform: &str,
+    archive: &Path,
+    sha256: &str,
+) -> RegistryEntry {
+    RegistryEntry {
+        shell,
+        version: version.to_owned(),
+        platform: platform.to_owned(),
+        url: Url::from_file_path(archive).unwrap().to_string(),
+        sha256: sha256.to_owned(),
+    }
+}
+
+fn write_registry_document(root: &Path, relative_path: &str, document: &Value) -> PathBuf {
+    let path = root.join("registry").join(relative_path);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    let contents = format!("{}\n", serde_json::to_string_pretty(document).unwrap());
+    fs::write(&path, contents).unwrap();
+    path
+}
+
+fn write_registry_site(root: &Path, entries: &[RegistryEntry]) -> PathBuf {
+    let mut grouped = BTreeMap::<String, BTreeMap<String, BTreeMap<String, RegistryEntry>>>::new();
+    for entry in entries {
+        grouped
+            .entry(entry.shell.as_str().to_owned())
+            .or_default()
+            .entry(entry.version.clone())
+            .or_default()
+            .insert(entry.platform.clone(), entry.clone());
+    }
+
+    let mut root_shells = Map::new();
+    for (shell, versions) in &grouped {
+        root_shells.insert(
+            shell.clone(),
+            json!({
+                "versions_url": format!("shells/{shell}/index.json"),
+            }),
+        );
+
+        let mut version_names = versions.keys().cloned().collect::<Vec<_>>();
+        version_names.sort_by(|left, right| {
+            Version::parse(right)
+                .unwrap()
+                .cmp(&Version::parse(left).unwrap())
+        });
+
+        let mut shell_versions = Map::new();
+        for version in version_names {
+            shell_versions.insert(
+                version.clone(),
+                json!({
+                    "manifest_url": format!("{version}.json"),
+                }),
+            );
+
+            let mut platforms = Map::new();
+            for (platform, entry) in versions.get(&version).unwrap() {
+                platforms.insert(
+                    platform.clone(),
+                    json!({
+                        "url": entry.url,
+                        "sha256": entry.sha256,
+                    }),
+                );
+            }
+
+            write_registry_document(
+                root,
+                &format!("shells/{shell}/{version}.json"),
+                &json!({
+                    "version": 2,
+                    "kind": "shuck.shells.release",
+                    "shell": shell,
+                    "release": version,
+                    "platforms": platforms,
+                }),
+            );
+        }
+
+        write_registry_document(
+            root,
+            &format!("shells/{shell}/index.json"),
+            &json!({
+                "version": 2,
+                "kind": "shuck.shells.versions",
+                "shell": shell,
+                "versions": shell_versions,
+            }),
+        );
+    }
+
+    write_registry_document(
+        root,
+        "index.json",
+        &json!({
+            "version": 2,
+            "kind": "shuck.shells.index",
+            "shells": root_shells,
+        }),
+    )
 }
 
 fn make_shell_archive(root: &Path, shell: Shell, version: &str) -> (PathBuf, String) {
@@ -72,31 +185,17 @@ fn make_shell_archive(root: &Path, shell: Shell, version: &str) -> (PathBuf, Str
     (archive_path, sha256)
 }
 
-fn registry_for_archive(shell: Shell, version: &str, archive: &Path, sha256: &str) -> String {
+fn registry_for_archive(
+    root: &Path,
+    shell: Shell,
+    version: &str,
+    archive: &Path,
+    sha256: &str,
+) -> PathBuf {
     let platform = current_platform().unwrap();
-    format!(
-        r#"{{
-  "version": 1,
-  "shells": {{
-    "{shell}": {{
-      "versions": {{
-        "{version}": {{
-          "platforms": {{
-            "{platform}": {{
-              "url": "{url}",
-              "sha256": "{sha256}"
-            }}
-          }}
-        }}
-      }}
-    }}
-  }}
-}}"#,
-        shell = shell.as_str(),
-        version = version,
-        platform = platform,
-        url = Url::from_file_path(archive).unwrap(),
-        sha256 = sha256
+    write_registry_site(
+        root,
+        &[registry_entry(shell, version, &platform, archive, sha256)],
     )
 }
 
@@ -135,8 +234,8 @@ fn parses_exact_and_range_constraints() {
 fn resolves_cli_shell_and_config_version() {
     let tempdir = tempfile::tempdir().unwrap();
     let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
-    let registry = registry_for_archive(Shell::Bash, "5.2.21", &archive, &sha256);
-    let registry_path = write_registry(tempdir.path(), &registry);
+    let registry_path =
+        registry_for_archive(tempdir.path(), Shell::Bash, "5.2.21", &archive, &sha256);
     let environment = test_environment(
         tempdir.path(),
         Url::from_file_path(registry_path).unwrap().to_string(),
@@ -172,8 +271,7 @@ fn resolves_cli_shell_and_config_version() {
 fn metadata_overrides_project_defaults() {
     let tempdir = tempfile::tempdir().unwrap();
     let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Zsh, "5.9");
-    let registry = registry_for_archive(Shell::Zsh, "5.9", &archive, &sha256);
-    let registry_path = write_registry(tempdir.path(), &registry);
+    let registry_path = registry_for_archive(tempdir.path(), Shell::Zsh, "5.9", &archive, &sha256);
     let environment = test_environment(
         tempdir.path(),
         Url::from_file_path(registry_path).unwrap().to_string(),
@@ -215,39 +313,13 @@ fn defaults_to_bash_when_only_a_version_constraint_is_provided() {
     let (archive_a, sha_a) = make_shell_archive(tempdir.path(), Shell::Bash, "5.1.16");
     let (archive_b, sha_b) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
     let platform = current_platform().unwrap();
-    let registry = format!(
-        r#"{{
-  "version": 1,
-  "shells": {{
-    "bash": {{
-      "versions": {{
-        "5.1.16": {{
-          "platforms": {{
-            "{platform}": {{
-              "url": "{url_a}",
-              "sha256": "{sha_a}"
-            }}
-          }}
-        }},
-        "5.2.21": {{
-          "platforms": {{
-            "{platform}": {{
-              "url": "{url_b}",
-              "sha256": "{sha_b}"
-            }}
-          }}
-        }}
-      }}
-    }}
-  }}
-}}"#,
-        platform = platform,
-        url_a = Url::from_file_path(archive_a).unwrap(),
-        sha_a = sha_a,
-        url_b = Url::from_file_path(archive_b).unwrap(),
-        sha_b = sha_b
+    let registry_path = write_registry_site(
+        tempdir.path(),
+        &[
+            registry_entry(Shell::Bash, "5.1.16", &platform, &archive_a, &sha_a),
+            registry_entry(Shell::Bash, "5.2.21", &platform, &archive_b, &sha_b),
+        ],
     );
-    let registry_path = write_registry(tempdir.path(), &registry);
     let environment = test_environment(
         tempdir.path(),
         Url::from_file_path(registry_path).unwrap().to_string(),
@@ -279,43 +351,13 @@ fn cli_shell_override_ignores_mismatched_metadata_version() {
     let (bash_archive, bash_sha) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
     let (zsh_archive, zsh_sha) = make_shell_archive(tempdir.path(), Shell::Zsh, "5.9");
     let platform = current_platform().unwrap();
-    let registry = format!(
-        r#"{{
-  "version": 1,
-  "shells": {{
-    "bash": {{
-      "versions": {{
-        "5.2.21": {{
-          "platforms": {{
-            "{platform}": {{
-              "url": "{bash_url}",
-              "sha256": "{bash_sha}"
-            }}
-          }}
-        }}
-      }}
-    }},
-    "zsh": {{
-      "versions": {{
-        "5.9": {{
-          "platforms": {{
-            "{platform}": {{
-              "url": "{zsh_url}",
-              "sha256": "{zsh_sha}"
-            }}
-          }}
-        }}
-      }}
-    }}
-  }}
-}}"#,
-        platform = platform,
-        bash_url = Url::from_file_path(bash_archive).unwrap(),
-        bash_sha = bash_sha,
-        zsh_url = Url::from_file_path(zsh_archive).unwrap(),
-        zsh_sha = zsh_sha
+    let registry_path = write_registry_site(
+        tempdir.path(),
+        &[
+            registry_entry(Shell::Bash, "5.2.21", &platform, &bash_archive, &bash_sha),
+            registry_entry(Shell::Zsh, "5.9", &platform, &zsh_archive, &zsh_sha),
+        ],
     );
-    let registry_path = write_registry(tempdir.path(), &registry);
     let environment = test_environment(
         tempdir.path(),
         Url::from_file_path(registry_path).unwrap().to_string(),
@@ -353,39 +395,13 @@ fn shell_specific_config_pin_overrides_generic_shell_version() {
     let (archive_a, sha_a) = make_shell_archive(tempdir.path(), Shell::Bash, "5.1.16");
     let (archive_b, sha_b) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
     let platform = current_platform().unwrap();
-    let registry = format!(
-        r#"{{
-  "version": 1,
-  "shells": {{
-    "bash": {{
-      "versions": {{
-        "5.1.16": {{
-          "platforms": {{
-            "{platform}": {{
-              "url": "{url_a}",
-              "sha256": "{sha_a}"
-            }}
-          }}
-        }},
-        "5.2.21": {{
-          "platforms": {{
-            "{platform}": {{
-              "url": "{url_b}",
-              "sha256": "{sha_b}"
-            }}
-          }}
-        }}
-      }}
-    }}
-  }}
-}}"#,
-        platform = platform,
-        url_a = Url::from_file_path(archive_a).unwrap(),
-        sha_a = sha_a,
-        url_b = Url::from_file_path(archive_b).unwrap(),
-        sha_b = sha_b
+    let registry_path = write_registry_site(
+        tempdir.path(),
+        &[
+            registry_entry(Shell::Bash, "5.1.16", &platform, &archive_a, &sha_a),
+            registry_entry(Shell::Bash, "5.2.21", &platform, &archive_b, &sha_b),
+        ],
     );
-    let registry_path = write_registry(tempdir.path(), &registry);
     let environment = test_environment(
         tempdir.path(),
         Url::from_file_path(registry_path).unwrap().to_string(),
@@ -423,39 +439,13 @@ fn shebang_without_other_constraints_uses_latest_available_version() {
     let (archive_a, sha_a) = make_shell_archive(tempdir.path(), Shell::Bash, "5.1.16");
     let (archive_b, sha_b) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
     let platform = current_platform().unwrap();
-    let registry = format!(
-        r#"{{
-  "version": 1,
-  "shells": {{
-    "bash": {{
-      "versions": {{
-        "5.1.16": {{
-          "platforms": {{
-            "{platform}": {{
-              "url": "{url_a}",
-              "sha256": "{sha_a}"
-            }}
-          }}
-        }},
-        "5.2.21": {{
-          "platforms": {{
-            "{platform}": {{
-              "url": "{url_b}",
-              "sha256": "{sha_b}"
-            }}
-          }}
-        }}
-      }}
-    }}
-  }}
-}}"#,
-        platform = platform,
-        url_a = Url::from_file_path(archive_a).unwrap(),
-        sha_a = sha_a,
-        url_b = Url::from_file_path(archive_b).unwrap(),
-        sha_b = sha_b
+    let registry_path = write_registry_site(
+        tempdir.path(),
+        &[
+            registry_entry(Shell::Bash, "5.1.16", &platform, &archive_a, &sha_a),
+            registry_entry(Shell::Bash, "5.2.21", &platform, &archive_b, &sha_b),
+        ],
     );
-    let registry_path = write_registry(tempdir.path(), &registry);
     let environment = test_environment(
         tempdir.path(),
         Url::from_file_path(registry_path).unwrap().to_string(),
@@ -486,13 +476,13 @@ fn shebang_without_other_constraints_uses_latest_available_version() {
 fn checksum_mismatch_aborts_install() {
     let tempdir = tempfile::tempdir().unwrap();
     let (archive, _sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
-    let registry = registry_for_archive(
+    let registry_path = registry_for_archive(
+        tempdir.path(),
         Shell::Bash,
         "5.2.21",
         &archive,
         "0000000000000000000000000000000000000000000000000000000000000000",
     );
-    let registry_path = write_registry(tempdir.path(), &registry);
     let environment = test_environment(
         tempdir.path(),
         Url::from_file_path(registry_path).unwrap().to_string(),
@@ -514,8 +504,8 @@ fn checksum_mismatch_aborts_install() {
 fn partial_install_directory_is_replaced() {
     let tempdir = tempfile::tempdir().unwrap();
     let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
-    let registry = registry_for_archive(Shell::Bash, "5.2.21", &archive, &sha256);
-    let registry_path = write_registry(tempdir.path(), &registry);
+    let registry_path =
+        registry_for_archive(tempdir.path(), Shell::Bash, "5.2.21", &archive, &sha256);
     let environment = test_environment(
         tempdir.path(),
         Url::from_file_path(registry_path).unwrap().to_string(),
@@ -548,8 +538,8 @@ fn partial_install_directory_is_replaced() {
 fn invalid_cached_install_is_replaced() {
     let tempdir = tempfile::tempdir().unwrap();
     let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
-    let registry = registry_for_archive(Shell::Bash, "5.2.21", &archive, &sha256);
-    let registry_path = write_registry(tempdir.path(), &registry);
+    let registry_path =
+        registry_for_archive(tempdir.path(), Shell::Bash, "5.2.21", &archive, &sha256);
     let environment = test_environment(
         tempdir.path(),
         Url::from_file_path(registry_path).unwrap().to_string(),
@@ -596,39 +586,19 @@ fn install_picks_latest_version_with_current_platform_artifact() {
     let (archive_old, sha_old) = make_shell_archive(tempdir.path(), Shell::Bash, "5.1.16");
     let (archive_new, sha_new) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
     let platform = current_platform().unwrap();
-    let registry = format!(
-        r#"{{
-  "version": 1,
-  "shells": {{
-    "bash": {{
-      "versions": {{
-        "5.1.16": {{
-          "platforms": {{
-            "{platform}": {{
-              "url": "{url_old}",
-              "sha256": "{sha_old}"
-            }}
-          }}
-        }},
-        "5.2.21": {{
-          "platforms": {{
-            "other-platform": {{
-              "url": "{url_new}",
-              "sha256": "{sha_new}"
-            }}
-          }}
-        }}
-      }}
-    }}
-  }}
-}}"#,
-        platform = platform,
-        url_old = Url::from_file_path(archive_old).unwrap(),
-        sha_old = sha_old,
-        url_new = Url::from_file_path(archive_new).unwrap(),
-        sha_new = sha_new
+    let registry_path = write_registry_site(
+        tempdir.path(),
+        &[
+            registry_entry(Shell::Bash, "5.1.16", &platform, &archive_old, &sha_old),
+            registry_entry(
+                Shell::Bash,
+                "5.2.21",
+                "other-platform",
+                &archive_new,
+                &sha_new,
+            ),
+        ],
     );
-    let registry_path = write_registry(tempdir.path(), &registry);
     let environment = test_environment(
         tempdir.path(),
         Url::from_file_path(registry_path).unwrap().to_string(),
@@ -651,8 +621,8 @@ fn install_picks_latest_version_with_current_platform_artifact() {
 fn failed_refresh_keeps_last_good_registry() {
     let tempdir = tempfile::tempdir().unwrap();
     let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
-    let good_registry = registry_for_archive(Shell::Bash, "5.2.21", &archive, &sha256);
-    let good_registry_path = write_registry(tempdir.path(), &good_registry);
+    let good_registry_path =
+        registry_for_archive(tempdir.path(), Shell::Bash, "5.2.21", &archive, &sha256);
     let bad_registry_path = tempdir.path().join("bad-registry.json");
     fs::write(&bad_registry_path, "{not json").unwrap();
 
@@ -677,11 +647,28 @@ fn failed_refresh_keeps_last_good_registry() {
 }
 
 #[test]
+fn registry_site_root_url_resolves_root_index_document() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
+    let registry_path =
+        registry_for_archive(tempdir.path(), Shell::Bash, "5.2.21", &archive, &sha256);
+    let registry_root = registry_path.parent().unwrap();
+
+    let environment = test_environment(
+        tempdir.path(),
+        Url::from_directory_path(registry_root).unwrap().to_string(),
+    );
+    let loaded = load_registry(&environment, false, false).unwrap();
+
+    assert!(loaded.shells.contains_key("bash"));
+}
+
+#[test]
 fn unresolved_shell_uses_managed_bash_without_implicit_system_fallback() {
     let tempdir = tempfile::tempdir().unwrap();
     let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
-    let registry = registry_for_archive(Shell::Bash, "5.2.21", &archive, &sha256);
-    let registry_path = write_registry(tempdir.path(), &registry);
+    let registry_path =
+        registry_for_archive(tempdir.path(), Shell::Bash, "5.2.21", &archive, &sha256);
     let environment = test_environment(
         tempdir.path(),
         Url::from_file_path(registry_path).unwrap().to_string(),
@@ -711,8 +698,8 @@ fn unresolved_shell_uses_managed_bash_without_implicit_system_fallback() {
 fn non_utf8_script_still_resolves_with_explicit_shell_and_version() {
     let tempdir = tempfile::tempdir().unwrap();
     let (archive, sha256) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
-    let registry = registry_for_archive(Shell::Bash, "5.2.21", &archive, &sha256);
-    let registry_path = write_registry(tempdir.path(), &registry);
+    let registry_path =
+        registry_for_archive(tempdir.path(), Shell::Bash, "5.2.21", &archive, &sha256);
     let environment = test_environment(
         tempdir.path(),
         Url::from_file_path(registry_path).unwrap().to_string(),
@@ -788,39 +775,13 @@ fn lists_available_versions() {
     let (archive_a, sha_a) = make_shell_archive(tempdir.path(), Shell::Bash, "5.1.16");
     let (archive_b, sha_b) = make_shell_archive(tempdir.path(), Shell::Bash, "5.2.21");
     let platform = current_platform().unwrap();
-    let registry = format!(
-        r#"{{
-  "version": 1,
-  "shells": {{
-    "bash": {{
-      "versions": {{
-        "5.1.16": {{
-          "platforms": {{
-            "{platform}": {{
-              "url": "{url_a}",
-              "sha256": "{sha_a}"
-            }}
-          }}
-        }},
-        "5.2.21": {{
-          "platforms": {{
-            "{platform}": {{
-              "url": "{url_b}",
-              "sha256": "{sha_b}"
-            }}
-          }}
-        }}
-      }}
-    }}
-  }}
-}}"#,
-        platform = platform,
-        url_a = Url::from_file_path(archive_a).unwrap(),
-        sha_a = sha_a,
-        url_b = Url::from_file_path(archive_b).unwrap(),
-        sha_b = sha_b
+    let registry_path = write_registry_site(
+        tempdir.path(),
+        &[
+            registry_entry(Shell::Bash, "5.1.16", &platform, &archive_a, &sha_a),
+            registry_entry(Shell::Bash, "5.2.21", &platform, &archive_b, &sha_b),
+        ],
     );
-    let registry_path = write_registry(tempdir.path(), &registry);
     let environment = test_environment(
         tempdir.path(),
         Url::from_file_path(registry_path).unwrap().to_string(),
