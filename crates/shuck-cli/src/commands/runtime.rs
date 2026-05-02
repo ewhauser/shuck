@@ -308,7 +308,9 @@ fn apply_runtime_environment(
     command.env("SHUCK_SHELL_VERSION", resolved.version.as_str());
     command.env("SHUCK_SHELL_PATH", &resolved.path);
 
-    if matches!(resolved.source, ResolutionSource::Managed) {
+    if matches!(resolved.source, ResolutionSource::Managed)
+        && !matches!(resolved.shell, Shell::Busybox)
+    {
         command.env("SHELL", &resolved.path);
     }
 }
@@ -354,7 +356,7 @@ fn exit_status_from_process(status: std::process::ExitStatus) -> ExitStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::OsString;
+    use std::ffi::{OsStr, OsString};
 
     #[test]
     fn stdin_mode_detection_handles_dash_and_empty_script() {
@@ -413,5 +415,25 @@ mod tests {
             collected,
             vec!["sh", "-c", "echo hi", "shuck-run", "one", "two"]
         );
+    }
+
+    #[test]
+    fn managed_busybox_does_not_override_shell_env() {
+        let mut command = ProcessCommand::new("busybox");
+        let resolved = shuck_run::ResolvedInterpreter {
+            shell: Shell::Busybox,
+            version: shuck_run::Version::parse("1.36.1").unwrap(),
+            path: PathBuf::from("/tmp/busybox"),
+            source: ResolutionSource::Managed,
+        };
+
+        apply_runtime_environment(&mut command, &resolved);
+
+        let shell = command
+            .get_envs()
+            .find(|(key, _)| *key == OsStr::new("SHELL"))
+            .and_then(|(_, value)| value)
+            .map(|value| value.to_os_string());
+        assert!(shell.is_none());
     }
 }
