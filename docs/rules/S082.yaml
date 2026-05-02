@@ -1,4 +1,5 @@
 origin: novel
+legacy_name: todo-format
 new_category: Style
 new_code: S082
 runtime_kind: ast

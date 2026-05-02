@@ -1,4 +1,5 @@
 origin: novel
+legacy_name: function-called-before-defined
 new_category: Correctness
 new_code: C161
 runtime_kind: ast

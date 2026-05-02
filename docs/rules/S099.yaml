@@ -1,4 +1,5 @@
 origin: novel
+legacy_name: which-vs-command-v
 new_category: Style
 new_code: S099
 runtime_kind: ast

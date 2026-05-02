@@ -1,4 +1,5 @@
 origin: novel
+legacy_name: implicit-global-in-function
 new_category: Correctness
 new_code: C158
 runtime_kind: ast

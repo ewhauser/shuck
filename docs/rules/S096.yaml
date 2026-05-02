@@ -1,4 +1,5 @@
 origin: novel
+legacy_name: error-not-on-stderr
 new_category: Style
 new_code: S096
 runtime_kind: ast

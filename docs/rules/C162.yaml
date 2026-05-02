@@ -1,4 +1,5 @@
 origin: novel
+legacy_name: extra-masked-returns
 new_category: Correctness
 new_code: C162
 runtime_kind: ast

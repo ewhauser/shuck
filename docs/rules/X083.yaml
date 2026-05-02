@@ -1,4 +1,5 @@
 origin: novel
+legacy_name: bash-feature-too-old
 new_category: Portability
 new_code: X083
 runtime_kind: ast

@@ -1,4 +1,5 @@
 origin: novel
+legacy_name: missing-file-description
 new_category: Style
 new_code: S081
 runtime_kind: ast

@@ -1,4 +1,5 @@
 origin: novel
+legacy_name: mutable-global
 new_category: Correctness
 new_code: C159
 runtime_kind: ast

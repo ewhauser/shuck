@@ -1,4 +1,5 @@
 origin: novel
+legacy_name: quote-safe-variables
 new_category: Style
 new_code: S100
 runtime_kind: ast

@@ -1,4 +1,5 @@
 origin: novel
+legacy_name: suppression-without-reason
 new_category: Style
 new_code: S097
 runtime_kind: ast

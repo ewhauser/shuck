@@ -1,4 +1,5 @@
 origin: novel
+legacy_name: functions-not-grouped
 new_category: Style
 new_code: S088
 runtime_kind: ast

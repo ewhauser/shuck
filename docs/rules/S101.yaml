@@ -1,4 +1,5 @@
 origin: novel
+legacy_name: require-variable-braces
 new_category: Style
 new_code: S101
 runtime_kind: ast

@@ -1,4 +1,5 @@
 origin: novel
+legacy_name: missing-cli-usage
 new_category: Style
 new_code: S095
 runtime_kind: ast

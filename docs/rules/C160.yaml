@@ -1,4 +1,5 @@
 origin: novel
+legacy_name: unanchored-source-path
 new_category: Correctness
 new_code: C160
 runtime_kind: ast

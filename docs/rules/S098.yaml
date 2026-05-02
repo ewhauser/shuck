@@ -1,4 +1,5 @@
 origin: novel
+legacy_name: blanket-suppression
 new_category: Style
 new_code: S098
 runtime_kind: ast
