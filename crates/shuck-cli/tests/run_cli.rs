@@ -262,8 +262,7 @@ fn run_stdin_with_shell_executes_managed_interpreter() {
 fn run_dry_run_supports_bashkit_shebang_and_config() {
     let tempdir = tempdir().unwrap();
     let (archive, sha256) = fake_shell_archive(tempdir.path(), "bashkit", "0.2.1");
-    let registry =
-        registry_path(tempdir.path(), "bashkit", &[("0.2.1", &archive, &sha256)]);
+    let registry = registry_path(tempdir.path(), "bashkit", &[("0.2.1", &archive, &sha256)]);
     fs::write(
         tempdir.path().join("shuck.toml"),
         "[run.shells]\nbashkit = '0.2'\n",
@@ -289,8 +288,7 @@ fn run_dry_run_supports_bashkit_shebang_and_config() {
 fn run_bashkit_script_preserves_script_args() {
     let tempdir = tempdir().unwrap();
     let (archive, sha256) = fake_shell_archive(tempdir.path(), "bashkit", "0.2.1");
-    let registry =
-        registry_path(tempdir.path(), "bashkit", &[("0.2.1", &archive, &sha256)]);
+    let registry = registry_path(tempdir.path(), "bashkit", &[("0.2.1", &archive, &sha256)]);
     let script_path = tempdir.path().join("args.sh");
     let canonical_script_path = fs::canonicalize(tempdir.path()).unwrap().join("args.sh");
     fs::write(
@@ -312,8 +310,7 @@ fn run_bashkit_script_preserves_script_args() {
 fn run_bashkit_stdin_preserves_script_args() {
     let tempdir = tempdir().unwrap();
     let (archive, sha256) = fake_shell_archive(tempdir.path(), "bashkit", "0.2.1");
-    let registry =
-        registry_path(tempdir.path(), "bashkit", &[("0.2.1", &archive, &sha256)]);
+    let registry = registry_path(tempdir.path(), "bashkit", &[("0.2.1", &archive, &sha256)]);
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     configure_runtime_env(&mut cmd, tempdir.path(), &registry);
