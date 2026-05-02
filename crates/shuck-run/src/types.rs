@@ -69,6 +69,9 @@ impl Version {
         if raw.is_empty() {
             bail!("version cannot be empty");
         }
+        if !raw.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '.') {
+            bail!("invalid version `{raw}`");
+        }
 
         let tokens = tokenize_version(raw);
         if tokens.is_empty() {

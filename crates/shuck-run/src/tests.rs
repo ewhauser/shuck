@@ -118,6 +118,8 @@ fn parses_exact_and_range_constraints() {
         VersionConstraint::parse(">=5.1,<6").unwrap(),
         VersionConstraint::Range(_)
     ));
+    assert!(VersionConstraint::parse(">=5.1 <6").is_err());
+    assert!(VersionConstraint::parse("5.2)").is_err());
 }
 
 #[test]

@@ -50,7 +50,7 @@ impl From<ExitStatus> for ExitCode {
             ExitStatus::Success => ExitCode::from(0),
             ExitStatus::Failure => ExitCode::from(1),
             ExitStatus::Error => ExitCode::from(2),
-            ExitStatus::Code(code) => ExitCode::from(code as u8),
+            ExitStatus::Code(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
         }
     }
 }
