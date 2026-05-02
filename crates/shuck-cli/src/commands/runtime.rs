@@ -1,5 +1,3 @@
-use std::ffi::OsString;
-use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
@@ -239,7 +237,9 @@ fn append_bashkit_run_mode_args(
 ) -> Result<()> {
     if let Some(raw_command) = args.command.as_deref() {
         command.arg("-c");
-        command.arg(bashkit_command_string(raw_command, &args.script_args)?);
+        command.arg(raw_command);
+        command.arg("shuck-run");
+        command.args(&args.script_args);
         return Ok(());
     }
 
@@ -249,7 +249,9 @@ fn append_bashkit_run_mode_args(
             .read_to_string(&mut source)
             .context("read bashkit script from stdin")?;
         command.arg("-c");
-        command.arg(bashkit_command_string(&source, &args.script_args)?);
+        command.arg(source);
+        command.arg("shuck-run");
+        command.args(&args.script_args);
         return Ok(());
     }
 
@@ -263,47 +265,9 @@ fn append_bashkit_run_mode_args(
         cwd.join(script)
     };
 
-    if args.script_args.is_empty() {
-        command.arg(script);
-        return Ok(());
-    }
-
-    let source =
-        fs::read_to_string(&script).with_context(|| format!("read {}", script.display()))?;
-    command.arg("-c");
-    command.arg(bashkit_command_string(&source, &args.script_args)?);
+    command.arg(script);
+    command.args(&args.script_args);
     Ok(())
-}
-
-fn bashkit_command_string(source: &str, script_args: &[OsString]) -> Result<String> {
-    if script_args.is_empty() {
-        return Ok(source.to_owned());
-    }
-
-    let mut command = String::from("set --");
-    for arg in script_args {
-        let arg = arg.to_str().ok_or_else(|| {
-            anyhow!("bashkit only supports UTF-8 script arguments when invoked via `shuck run`")
-        })?;
-        command.push(' ');
-        command.push_str(&shell_single_quote(arg));
-    }
-    command.push('\n');
-    command.push_str(source);
-    Ok(command)
-}
-
-fn shell_single_quote(raw: &str) -> String {
-    let mut quoted = String::from("'");
-    for ch in raw.chars() {
-        if ch == '\'' {
-            quoted.push_str("'\"'\"'");
-        } else {
-            quoted.push(ch);
-        }
-    }
-    quoted.push('\'');
-    quoted
 }
 
 fn apply_runtime_environment(

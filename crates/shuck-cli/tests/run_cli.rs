@@ -292,9 +292,11 @@ fn run_bashkit_script_preserves_script_args() {
     let (archive, sha256) = fake_shell_archive(tempdir.path(), "bashkit", "0.2.1");
     let registry = registry_body("bashkit", &[("0.2.1", &archive, &sha256)]);
     let registry = registry_path(tempdir.path(), &registry);
+    let script_path = tempdir.path().join("args.sh");
+    let canonical_script_path = fs::canonicalize(tempdir.path()).unwrap().join("args.sh");
     fs::write(
-        tempdir.path().join("args.sh"),
-        "#!/usr/bin/env bashkit\nprintf '%s|%s\\n' \"$1\" \"$2\"\n",
+        &script_path,
+        "#!/usr/bin/env bashkit\nprintf '%s|%s|%s\\n' \"$0\" \"$1\" \"$2\"\n",
     )
     .unwrap();
 
@@ -302,7 +304,9 @@ fn run_bashkit_script_preserves_script_args() {
     configure_runtime_env(&mut cmd, tempdir.path(), &registry);
     cmd.current_dir(tempdir.path())
         .args(["run", "--shell", "bashkit", "args.sh", "--", "one", "two"]);
-    cmd.assert().success().stdout("one|two\n");
+    cmd.assert()
+        .success()
+        .stdout(format!("{}|one|two\n", canonical_script_path.display()));
 }
 
 #[test]
