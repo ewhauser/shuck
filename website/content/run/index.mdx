@@ -1,0 +1,139 @@
+# Managed Runtime
+
+`shuck run` executes shell scripts with a resolved interpreter version instead of whatever shell happens to be on your machine. That gives you a lightweight way to pin Bash, Zsh, Dash, or mksh versions for local scripts, CI jobs, and one-off commands.
+
+Managed interpreters are downloaded on demand, cached globally, and reused across projects. The related `shuck install` and `shuck shell` commands use the same resolver and cache.
+
+## Basic usage
+
+```bash
+# Run a script with the shell and version Shuck resolves for it
+shuck run deploy.sh
+
+# Pin both the shell and version from the CLI
+shuck run --shell bash --shell-version 5.2 deploy.sh
+
+# Run an inline command string
+shuck run --shell zsh --shell-version 5.9 -c 'print $ZSH_VERSION'
+
+# Read the script from stdin
+printf 'echo hello\n' | shuck run --shell dash -
+
+# Pass arguments through to the script
+shuck run deploy.sh -- --env staging --force
+```
+
+Supported managed shells today are `bash`, `zsh`, `dash`, and `mksh`.
+
+## How resolution works
+
+Shuck resolves the shell name and version separately.
+
+For the shell name, precedence is:
+
+1. `--shell`
+2. Inline script metadata
+3. `[run].shell` in `shuck.toml` or `.shuck.toml`
+4. Shebang or file-extension inference
+5. Default `bash`
+
+For the version constraint, precedence is:
+
+1. `--shell-version`
+2. Inline script metadata
+3. `[run.shells].<shell>`
+4. `[run].shell-version`
+5. `latest`
+
+`[run.shells]` is evaluated after the shell has been resolved, so you can keep different default pins for different interpreters in the same project.
+
+`shuck run` has one special fallback: if you do not provide a script path, metadata, config, shell, or version, it uses the system `bash` on your `PATH`. As soon as Shuck resolves something more specific, it uses the managed-runtime path instead.
+
+## Inline script metadata
+
+Scripts can declare their runtime requirements in a leading metadata block:
+
+```bash
+# /// shuck
+# shell = "bash"
+# version = ">=5.1,<6"
+# [metadata]
+# description = "Deploy the staging stack"
+# ///
+
+set -euo pipefail
+```
+
+The metadata block must stay in the leading comment header, and only one `# /// shuck` block is allowed per script.
+
+Shuck currently understands:
+
+- `shell`
+- `version`
+- an optional `[metadata]` table for informational fields such as `description`
+
+Unknown keys are rejected so typos fail fast.
+
+## Project defaults
+
+Use the `[run]` section in `shuck.toml` or `.shuck.toml` to set project-wide defaults:
+
+```toml
+[run]
+shell = "bash"
+shell-version = "5.2"
+
+[run.shells]
+bash = "5.2"
+zsh = "5.9"
+dash = "0.5.12"
+mksh = "59c"
+```
+
+This is especially useful when a repository mixes shell dialects or needs to hold Bash on a newer version than the one that ships with macOS.
+
+Runtime commands follow the same config discovery and override model as `shuck check`, including `--config` and `--isolated`. See [Configuration](/docs/configuration) for the full config search rules and [Settings Reference](/docs/settings) for the generated key reference.
+
+## System vs managed interpreters
+
+Use `--system` when you explicitly want the interpreter already installed on your machine:
+
+```bash
+shuck run --system --shell bash --shell-version '>=5.1' deploy.sh
+```
+
+Shuck still validates the system interpreter version against your requested constraint. If the version does not match, the command fails and tells you to install a managed version instead.
+
+Without `--system`, Shuck downloads the matching interpreter into `~/.shuck/shells/` and reuses that cached copy for later runs.
+
+## Related commands
+
+`shuck install` preloads interpreters without running a script:
+
+```bash
+shuck install bash 5.2
+shuck install --list
+shuck install --list bash
+```
+
+`shuck shell` starts an interactive managed shell session:
+
+```bash
+shuck shell --shell bash --shell-version 5.2
+```
+
+Unlike `shuck run`, `shuck shell` defaults to a managed Bash session when nothing more specific is configured.
+
+## Runtime environment
+
+Before executing a script, Shuck exports a few environment variables describing the resolved interpreter:
+
+- `SHUCK_SHELL`
+- `SHUCK_SHELL_VERSION`
+- `SHUCK_SHELL_PATH`
+
+For managed interpreters, it also sets `SHELL` to the resolved binary path.
+
+## Current scope
+
+Managed runtime support currently targets Unix-like environments with published managed shell artifacts. `shuck run` does not support Windows yet.

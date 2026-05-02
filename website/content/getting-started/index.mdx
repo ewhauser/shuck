@@ -45,6 +45,20 @@ echo 'echo $foo' | shuck check -
 shuck check --fix .
 ```
 
+## Managed runtime
+
+Shuck can also run scripts with managed shell interpreters instead of whatever version happens to be installed on your machine.
+
+```bash
+# Run with the resolved interpreter for this script
+shuck run deploy.sh
+
+# Pin a specific shell version
+shuck run --shell bash --shell-version 5.2 deploy.sh
+```
+
+See the dedicated [Managed Runtime guide](/docs/run) for version resolution, inline metadata, `[run]` config, `shuck install`, and `shuck shell`.
+
 ## Suppression
 
 Use inline comments to suppress warnings for a line, a command, or a whole file. Shuck supports both native `# shuck:` directives and ShellCheck-compatible `# shellcheck` directives, including mapped `SC` codes.

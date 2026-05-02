@@ -9,6 +9,7 @@ export const docsNavigation: NavItem[] = [
     title: "Getting Started",
     items: [
       { title: "Overview", href: "/docs/getting-started" },
+      { title: "Managed Runtime", href: "/docs/run" },
       { title: "Configuration", href: "/docs/configuration" },
       { title: "Suppression", href: "/docs/suppression" },
       { title: "Settings Reference", href: "/docs/settings" },

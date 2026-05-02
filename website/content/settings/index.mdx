@@ -213,3 +213,113 @@ report-unreached-nested-definitions = true
 
 ---
 
+## `[run]`
+
+Interpreter defaults and managed shell version pins for `shuck run` and related commands.
+
+#### `shell`
+
+Default managed shell to use when a script does not declare its own shell.
+
+**Default value**: `none`
+
+**Type**: `string`
+
+**Example usage**:
+
+```toml
+[run]
+shell = "bash"
+```
+
+---
+
+#### `shell-version`
+
+Default version constraint to use when no script metadata or per-shell pin is more specific.
+
+**Default value**: `"latest"`
+
+**Type**: `string`
+
+**Example usage**:
+
+```toml
+[run]
+shell-version = "5.2"
+```
+
+---
+
+### `[run.shells]`
+
+Per-shell version pins applied after the shell has been resolved for the current script.
+
+#### `bash`
+
+Version constraint for Bash scripts.
+
+**Default value**: `none`
+
+**Type**: `string`
+
+**Example usage**:
+
+```toml
+[run.shells]
+bash = "5.2"
+```
+
+---
+
+#### `zsh`
+
+Version constraint for Zsh scripts.
+
+**Default value**: `none`
+
+**Type**: `string`
+
+**Example usage**:
+
+```toml
+[run.shells]
+zsh = "5.9"
+```
+
+---
+
+#### `dash`
+
+Version constraint for Dash scripts.
+
+**Default value**: `none`
+
+**Type**: `string`
+
+**Example usage**:
+
+```toml
+[run.shells]
+dash = "0.5.12"
+```
+
+---
+
+#### `mksh`
+
+Version constraint for mksh scripts.
+
+**Default value**: `none`
+
+**Type**: `string`
+
+**Example usage**:
+
+```toml
+[run.shells]
+mksh = "59c"
+```
+
+---
+
