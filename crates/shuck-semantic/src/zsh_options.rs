@@ -404,11 +404,17 @@ impl<'a> Analyzer<'a> {
                 continue;
             };
 
-            for &target_id in targets {
+            // Dynamic name patterns can still refer to multiple distinct function names, but a
+            // shadowed redefinition of the same name should resolve to the latest visible body.
+            let mut seen_names = FxHashSet::default();
+            for &target_id in targets.iter().rev() {
                 let binding = &self.bindings[target_id.index()];
                 if binding.kind != BindingKind::FunctionDefinition
                     || !binding_visible_at(self.scopes, binding, scope, reference.span)
                 {
+                    continue;
+                }
+                if !seen_names.insert(binding.name.as_str()) {
                     continue;
                 }
                 let Some(function_scope) =

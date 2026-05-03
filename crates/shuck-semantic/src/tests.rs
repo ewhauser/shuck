@@ -9940,3 +9940,49 @@ print $name
         "{source}"
     );
 }
+
+#[test]
+fn semantic_runtime_ksh_arrays_state_ignores_command_wrapped_dynamic_calls() {
+    let source = "\
+enable_ksh() {
+  emulate ksh
+}
+dispatcher=enable_ksh
+command $dispatcher
+print $name
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+    let offset = source.find("print $name").unwrap();
+
+    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
+    assert_eq!(
+        model.zsh_ksh_arrays_runtime_state_at(offset),
+        Some(OptionValue::Off),
+        "{source}"
+    );
+}
+
+#[test]
+fn semantic_runtime_ksh_arrays_state_prefers_latest_visible_dynamic_target() {
+    let source = "\
+fn() {
+  emulate ksh
+}
+fn() {
+  unsetopt ksh_arrays
+}
+dispatcher=fn
+setopt ksh_arrays
+$dispatcher
+print $name
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+    let offset = source.find("print $name").unwrap();
+
+    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
+    assert_eq!(
+        model.zsh_ksh_arrays_runtime_state_at(offset),
+        Some(OptionValue::Off),
+        "{source}"
+    );
+}
