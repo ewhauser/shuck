@@ -1244,8 +1244,13 @@ impl SemanticModel {
         current_scope: ScopeId,
         at: Span,
     ) -> Option<&Binding> {
-        if let Some(binding) = self.visible_binding_for_assoc_lookup(name, current_scope, at) {
-            return Some(binding);
+        if let Some(binding_id) = self.previous_visible_binding_id_in_scope_chain(
+            name,
+            current_scope,
+            at.start.offset,
+            None,
+        ) {
+            return Some(self.binding(binding_id));
         }
 
         self.visible_binding_from_named_callers(name, current_scope)
@@ -1331,12 +1336,13 @@ impl SemanticModel {
             }
 
             for call_site in self.call_sites_for(&function_name) {
-                if let Some(binding) = self.visible_binding_for_assoc_lookup(
+                if let Some(binding_id) = self.previous_visible_binding_id_in_scope_chain(
                     name,
                     call_site.scope,
-                    call_site.name_span,
+                    call_site.name_span.start.offset,
+                    None,
                 ) {
-                    return Some(binding);
+                    return Some(self.binding(binding_id));
                 }
 
                 if let Some(caller_names) = self.named_function_scope_names(call_site.scope) {
