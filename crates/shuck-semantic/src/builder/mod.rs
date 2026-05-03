@@ -190,7 +190,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             span: file.span,
             bindings: FxHashMap::default(),
         };
-        let runtime = RuntimePrelude::new(bash_runtime_vars_enabled);
+        let runtime = RuntimePrelude::new(shell_profile.dialect, bash_runtime_vars_enabled);
         let mut builder = Self {
             source,
             file_entry_contract_collector,

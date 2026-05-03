@@ -1064,6 +1064,17 @@ impl SemanticModel {
                 .is_some_and(|reference| self.runtime.is_preinitialized_array(&reference.name))
     }
 
+    /// Returns whether `name` is provided by the shell runtime for this model's dialect.
+    pub fn name_is_predefined_runtime(&self, name: &str) -> bool {
+        self.runtime.is_preinitialized(&Name::from(name))
+    }
+
+    /// Returns whether `name` is a well-known runtime-style name that typo suppression should
+    /// ignore for this model's shell dialect.
+    pub fn name_is_known_runtime(&self, name: &str) -> bool {
+        self.runtime.is_known_runtime_name(&Name::from(name))
+    }
+
     /// Returns whether `id` is guarded by parameter-expansion syntax that suppresses missing-name
     /// diagnostics.
     pub fn is_guarded_parameter_reference(&self, id: ReferenceId) -> bool {
