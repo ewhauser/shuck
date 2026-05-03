@@ -163,7 +163,7 @@ struct DeferredFunction<'a> {
 }
 
 mod arithmetic;
-pub use arithmetic::zsh_arithmetic_assoc_option_key_text;
+pub use arithmetic::zsh_arithmetic_assoc_option_key;
 mod bindings;
 mod declarations;
 mod inert;

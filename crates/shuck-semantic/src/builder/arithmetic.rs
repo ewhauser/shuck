@@ -262,7 +262,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         if self
             .arithmetic_index_uses_associative_word_semantics(owner_name, index.span.start.offset)
-            || self.arithmetic_index_uses_zsh_assoc_option_key_semantics(index)
+            || self.arithmetic_index_uses_zsh_assoc_option_key_semantics(owner_name, index)
         {
             self.visit_associative_arithmetic_key_into(index, flow, nested_regions);
             return;
@@ -281,10 +281,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     pub(super) fn arithmetic_index_uses_zsh_assoc_option_key_semantics(
         &self,
+        owner_name: &Name,
         index: &ArithmeticExprNode,
     ) -> bool {
         self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh
-            && zsh_arithmetic_assoc_option_key_text(index.span.slice(self.source))
+            && zsh_arithmetic_assoc_option_key(owner_name.as_str(), index.span.slice(self.source))
     }
 
     pub(super) fn visible_binding_is_assoc(&self, name: &Name, offset: usize) -> bool {
@@ -495,8 +496,12 @@ fn conditional_expr_is_logical_binary(expression: &ConditionalExpr) -> bool {
     )
 }
 
-/// Returns true for zsh arithmetic subscript text shaped like an option-spec key.
-pub fn zsh_arithmetic_assoc_option_key_text(text: &str) -> bool {
+/// Returns true for zsh arithmetic subscript text shaped like zinit-style option map keys.
+pub fn zsh_arithmetic_assoc_option_key(owner_name: &str, text: &str) -> bool {
+    if owner_name != "OPTS" {
+        return false;
+    }
+
     let text = text.trim();
     let Some((short_option, long_option)) = text.rsplit_once(',') else {
         return false;

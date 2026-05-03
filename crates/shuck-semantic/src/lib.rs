@@ -34,7 +34,7 @@ pub use binding::{
     BuiltinBindingTargetKind, LoopValueOrigin,
 };
 /// Zsh arithmetic subscript helpers shared with linter fact collection.
-pub use builder::zsh_arithmetic_assoc_option_key_text;
+pub use builder::zsh_arithmetic_assoc_option_key;
 /// Call-graph structures derived from the analyzed script.
 pub use call_graph::{
     CallGraph, CallSite, OverwrittenFunction, UnreachedFunction, UnreachedFunctionReason,

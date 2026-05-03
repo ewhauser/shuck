@@ -9112,6 +9112,22 @@ f() {
 }
 
 #[test]
+fn zsh_option_shaped_non_opts_indices_still_register_updates() {
+    let source = "\
+#!/bin/zsh
+f() {
+  local opt_=1 q=1 quiet=1
+  (( arr[opt_-q,--quiet] ))
+}
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+
+    assert_arithmetic_usage(&model, "opt_", 1, 0);
+    assert_arithmetic_usage(&model, "q", 1, 0);
+    assert_arithmetic_usage(&model, "quiet", 1, 1);
+}
+
+#[test]
 fn arithmetic_indexed_writes_preserve_associative_attributes() {
     let source = "\
 #!/bin/bash

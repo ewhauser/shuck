@@ -2553,7 +2553,12 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             return false;
         }
         if self.semantic.shell_profile().dialect == shuck_parser::parser::ShellDialect::Zsh
-            && shuck_semantic::zsh_arithmetic_assoc_option_key_text(subscript.syntax_text(self.source))
+            && owner_name.is_some_and(|name| {
+                shuck_semantic::zsh_arithmetic_assoc_option_key(
+                    name.as_str(),
+                    subscript.syntax_text(self.source),
+                )
+            })
         {
             return false;
         }
