@@ -669,7 +669,9 @@ fn is_bash_runtime_array_name(name: &str) -> bool {
 
 fn source_may_enable_zsh_ksh_arrays(source: &str) -> bool {
     let lower = source.to_ascii_lowercase();
-    lower.contains("ksh_arrays") || lower.contains("ksharrays") || lower.contains("emulate ksh")
+    lower.contains("ksh_arrays")
+        || lower.contains("ksharrays")
+        || (lower.contains("emulate") && lower.contains("ksh"))
 }
 
 #[cfg(test)]
@@ -1404,8 +1406,12 @@ emulate ksh
 other=(three four)
 print -r -- $other
 
+emulate -L ksh
+flagged=(five six)
+print -r -- $flagged
+
 f() {
-  indirect=(five six)
+  indirect=(seven eight)
   print -r -- $indirect
 }
 fn=f
@@ -1422,7 +1428,7 @@ $fn
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$arr", "$other", "$indirect"]
+            vec!["$arr", "$other", "$flagged", "$indirect"]
         );
     }
 
