@@ -86,7 +86,7 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
         if !looks_like_case_mismatch_reference(reference.name.as_str()) {
             continue;
         }
-        if is_known_runtime_name(reference.name.as_str()) {
+        if is_known_runtime_or_environment_name(checker, reference.name.as_str()) {
             continue;
         }
         if is_internal_placeholder_name(reference.name.as_str()) {
@@ -194,7 +194,8 @@ fn heredoc_findings(
             if !looks_like_case_mismatch_reference(reference_name) {
                 continue;
             }
-            if is_known_runtime_name(reference_name) || is_internal_placeholder_name(reference_name)
+            if is_known_runtime_or_environment_name(checker, reference_name)
+                || is_internal_placeholder_name(reference_name)
             {
                 continue;
             }
@@ -272,7 +273,9 @@ fn scope_compat_findings(
         if !looks_like_case_mismatch_reference(reference_name) {
             continue;
         }
-        if is_known_runtime_name(reference_name) || is_internal_placeholder_name(reference_name) {
+        if is_known_runtime_or_environment_name(checker, reference_name)
+            || is_internal_placeholder_name(reference_name)
+        {
             continue;
         }
         if has_prior_guarded_reference(guarded_name_offsets, reference_name, name_use.span) {
@@ -780,41 +783,9 @@ fn source_suffix_matches(source: &str, offset: usize, suffix: &str) -> bool {
         .is_some_and(|source_suffix| source_suffix.eq_ignore_ascii_case(suffix.as_bytes()))
 }
 
-fn is_known_runtime_name(name: &str) -> bool {
-    matches!(
-        name,
-        "IFS"
-            | "USER"
-            | "HOME"
-            | "SHELL"
-            | "PWD"
-            | "TERM"
-            | "PATH"
-            | "CDPATH"
-            | "LANG"
-            | "SUDO_USER"
-            | "DOAS_USER"
-            | "PPID"
-            | "HOSTNAME"
-            | "SECONDS"
-            | "LINENO"
-            | "FUNCNAME"
-            | "BASH_SOURCE"
-            | "BASH_LINENO"
-            | "RANDOM"
-            | "PIPESTATUS"
-            | "BASH_REMATCH"
-            | "READLINE_LINE"
-            | "BASH_VERSION"
-            | "BASH_VERSINFO"
-            | "OSTYPE"
-            | "HISTCONTROL"
-            | "HISTSIZE"
-            | "EUID"
-            | "TMPDIR"
-            | "GEM_HOME"
-            | "GEM_PATH"
-    ) || name.starts_with("LC_")
+fn is_known_runtime_or_environment_name(checker: &Checker<'_>, name: &str) -> bool {
+    checker.semantic().name_is_predefined_runtime(name)
+        || matches!(name, "PPID" | "EUID" | "TMPDIR" | "GEM_HOME" | "GEM_PATH")
 }
 
 fn is_internal_placeholder_name(name: &str) -> bool {
@@ -877,7 +848,7 @@ fn is_shell_name_byte(byte: u8) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_exact_uppercase_fold_matches() {
@@ -1547,6 +1518,43 @@ echo \"$OS_NAME\"
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$HOSTID", "$OS_NAME"]
+        );
+    }
+
+    #[test]
+    fn ignores_zsh_runtime_names_in_zsh_scripts() {
+        let source = "\
+#!/bin/zsh
+echo \"$path\"
+echo \"$MATCH\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn keeps_non_zsh_match_misspelling_reports() {
+        let source = "\
+#!/bin/sh
+match=demo
+echo \"$MATCH\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$MATCH"]
         );
     }
 

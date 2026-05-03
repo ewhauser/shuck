@@ -287,6 +287,12 @@ fn bash_runtime_source(shebang: &str) -> String {
     )
 }
 
+fn zsh_runtime_source(shebang: &str) -> String {
+    format!(
+        "{shebang}\nprintf '%s\\n' \"${{options[xtrace]}}\" \"${{functions[typeset]}}\" \"${{aliases[ls]}}\" \"${{commands[printf]}}\" \"${{parameters[path]}}\" \"${{termcap[ku]}}\" \"${{terminfo[kcuu1]}}\" \"${{path[1]}}\" \"${{pipestatus[1]}}\" \"${{funcstack[1]}}\" \"${{funcfiletrace[1]}}\" \"${{funcsourcetrace[1]}}\" \"${{psvar[1]}}\" \"${{widgets[widget]}}\" \"${{zsh_eval_context[1]}}\" \"${{module_path[1]}}\" \"${{manpath[1]}}\" \"${{mailpath[1]}}\" \"${{historywords[1]}}\" \"${{jobdirs[1]}}\" \"${{jobstates[1]}}\" \"${{jobtexts[1]}}\" \"${{signals[1]}}\" \"$MATCH\" \"$MBEGIN\" \"$MEND\" \"$BUFFER\" \"$LBUFFER\" \"$RBUFFER\" \"$CURSOR\" \"$WIDGET\" \"$KEYS\" \"$NUMERIC\" \"$POSTDISPLAY\" \"$region_highlight\" \"$LINES\" \"$COLUMNS\" \"$ZSH_VERSION\" \"$ZSH_NAME\" \"$ZSH_PATCHLEVEL\" \"$ZSH_SUBSHELL\" \"$ZSH_ARGZERO\"\n"
+    )
+}
+
 #[test]
 fn creates_file_and_function_scopes_and_resolves_local_shadowing() {
     let source = "VAR=global\nf() { local VAR=local; echo $VAR; }\n";
@@ -7081,6 +7087,87 @@ fn bash_runtime_array_references_are_classified() {
         .find(|reference| reference.name == "RANDOM")
         .unwrap();
     assert!(!model.reference_is_predefined_runtime_array(random.id));
+}
+
+#[test]
+fn zsh_runtime_vars_are_not_marked_uninitialized_in_zsh_scripts() {
+    let source = zsh_runtime_source("#!/bin/zsh");
+    let model = model(&source);
+    let names = [
+        "options",
+        "functions",
+        "aliases",
+        "commands",
+        "parameters",
+        "termcap",
+        "terminfo",
+        "path",
+        "pipestatus",
+        "funcstack",
+        "funcfiletrace",
+        "funcsourcetrace",
+        "psvar",
+        "widgets",
+        "zsh_eval_context",
+        "module_path",
+        "manpath",
+        "mailpath",
+        "historywords",
+        "jobdirs",
+        "jobstates",
+        "jobtexts",
+        "signals",
+        "MATCH",
+        "MBEGIN",
+        "MEND",
+        "BUFFER",
+        "LBUFFER",
+        "RBUFFER",
+        "CURSOR",
+        "WIDGET",
+        "KEYS",
+        "NUMERIC",
+        "POSTDISPLAY",
+        "region_highlight",
+        "LINES",
+        "COLUMNS",
+        "ZSH_VERSION",
+        "ZSH_NAME",
+        "ZSH_PATCHLEVEL",
+        "ZSH_SUBSHELL",
+        "ZSH_ARGZERO",
+    ];
+
+    let unresolved = unresolved_names(&model);
+    let uninitialized = uninitialized_names(&model);
+
+    assert_names_absent(&names, &unresolved);
+    assert_names_absent(&names, &uninitialized);
+}
+
+#[test]
+fn zsh_runtime_array_references_are_classified() {
+    let source = "\
+#!/bin/zsh
+printf '%s\\n' \"${path[1]}\" \"${options[xtrace]}\" \"${pipestatus[1]}\" \"$ZSH_VERSION\"
+";
+    let model = model(source);
+
+    for name in ["path", "options", "pipestatus"] {
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == name)
+            .unwrap();
+        assert!(model.reference_is_predefined_runtime_array(reference.id));
+    }
+
+    let version = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "ZSH_VERSION")
+        .unwrap();
+    assert!(!model.reference_is_predefined_runtime_array(version.id));
 }
 
 #[test]

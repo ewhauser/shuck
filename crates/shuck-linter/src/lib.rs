@@ -1294,6 +1294,12 @@ mod tests {
         )
     }
 
+    fn zsh_runtime_prelude_source(shebang: &str) -> String {
+        format!(
+            "{shebang}\nprintf '%s\\n' \"${{options[xtrace]}}\" \"${{functions[typeset]}}\" \"${{path[1]}}\" \"${{pipestatus[1]}}\" \"$MATCH\" \"$ZSH_VERSION\"\n"
+        )
+    }
+
     fn first_command_substitution_body(parts: &[WordPartNode]) -> Option<&StmtSeq> {
         for part in parts {
             match &part.kind {
@@ -4525,6 +4531,14 @@ printf '%s %s\\n' \"${#}\" \"${$}\"
     #[test]
     fn undefined_variable_ignores_bash_runtime_vars_in_bash_scripts() {
         let source = runtime_prelude_source("#!/bin/bash");
+        let diagnostics = lint_for_rule(&source, Rule::UndefinedVariable);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn undefined_variable_ignores_zsh_runtime_vars_in_zsh_scripts() {
+        let source = zsh_runtime_prelude_source("#!/bin/zsh");
         let diagnostics = lint_for_rule(&source, Rule::UndefinedVariable);
 
         assert!(diagnostics.is_empty());
