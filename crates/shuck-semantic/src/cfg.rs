@@ -552,6 +552,7 @@ pub(crate) struct RecordedElifBranch {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RecordedCommandInfo {
     pub(crate) static_callee: Option<compact_str::CompactString>,
+    pub(crate) dynamic_name_span: Option<Span>,
     pub(crate) static_args: Box<[Option<String>]>,
     pub(crate) source_path_template: Option<SourcePathTemplate>,
     pub(crate) zsh_effects: Vec<RecordedZshCommandEffect>,
@@ -560,6 +561,7 @@ pub(crate) struct RecordedCommandInfo {
 impl RecordedCommandInfo {
     pub(crate) fn is_empty(&self) -> bool {
         self.static_callee.is_none()
+            && self.dynamic_name_span.is_none()
             && self.static_args.is_empty()
             && self.source_path_template.is_none()
             && self.zsh_effects.is_empty()
@@ -572,6 +574,9 @@ pub(crate) enum RecordedZshCommandEffect {
         mode: ZshEmulationMode,
         local: bool,
     },
+    EmulateUnknown {
+        local: bool,
+    },
     SetOptions {
         updates: Vec<RecordedZshOptionUpdate>,
     },
@@ -580,6 +585,7 @@ pub(crate) enum RecordedZshCommandEffect {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RecordedZshOptionUpdate {
     Named { name: Box<str>, enable: bool },
+    UnknownName,
     LocalOptions { enable: bool },
 }
 

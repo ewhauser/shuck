@@ -631,6 +631,7 @@ pub struct SemanticModel {
     source_refs: Vec<SourceRef>,
     runtime: RuntimePrelude,
     declarations: Vec<Declaration>,
+    indirect_target_hints: FxHashMap<BindingId, IndirectTargetHint>,
     indirect_targets_by_binding: FxHashMap<BindingId, Vec<BindingId>>,
     indirect_targets_by_reference: FxHashMap<ReferenceId, Vec<BindingId>>,
     array_like_indirect_expansion_refs: FxHashSet<ReferenceId>,
@@ -644,6 +645,9 @@ pub struct SemanticModel {
     import_origins_by_binding: FxHashMap<BindingId, Vec<PathBuf>>,
     heuristic_unused_assignments: Vec<BindingId>,
     zsh_option_analysis: Option<ZshOptionAnalysis>,
+    zsh_ksh_arrays_may_enable_anywhere: OnceLock<bool>,
+    zsh_ksh_arrays_runtime_by_function:
+        OnceLock<FxHashMap<ScopeId, OnceLock<Option<ZshOptionAnalysis>>>>,
     assoc_lookup_binding_index: OnceLock<AssocLookupBindingIndex>,
     command_topology: OnceLock<CommandTopology>,
     references_sorted_by_start: OnceLock<Vec<ReferenceId>>,
@@ -794,11 +798,19 @@ impl SemanticModel {
             &built.indirect_expansion_refs,
             &built.indirect_target_hints,
         );
+        let zsh_dynamic_calls = zsh_options::DynamicCallAnalysisContext {
+            references: &built.references,
+            resolved: &built.resolved,
+            indirect_target_hints: &built.indirect_target_hints,
+            indirect_targets_by_binding: &indirect_targets_by_binding,
+            command_references: &built.command_references,
+        };
         let zsh_option_analysis = zsh_options::analyze(
             &built.shell_profile,
             &built.scopes,
             &built.bindings,
             &built.recorded_program,
+            zsh_dynamic_calls,
         );
         let scope_lookup = ScopeLookup::new(&built.scopes);
         Self {
@@ -822,6 +834,7 @@ impl SemanticModel {
             source_refs: built.source_refs,
             runtime: built.runtime,
             declarations: built.declarations,
+            indirect_target_hints: built.indirect_target_hints,
             indirect_targets_by_binding,
             indirect_targets_by_reference,
             array_like_indirect_expansion_refs,
@@ -835,6 +848,8 @@ impl SemanticModel {
             import_origins_by_binding: FxHashMap::default(),
             heuristic_unused_assignments: built.heuristic_unused_assignments,
             zsh_option_analysis,
+            zsh_ksh_arrays_may_enable_anywhere: OnceLock::new(),
+            zsh_ksh_arrays_runtime_by_function: OnceLock::new(),
             assoc_lookup_binding_index: OnceLock::new(),
             command_topology: OnceLock::new(),
             references_sorted_by_start: OnceLock::new(),
@@ -864,6 +879,87 @@ impl SemanticModel {
         self.zsh_option_analysis
             .as_ref()
             .and_then(|analysis| analysis.options_at(&self.scopes, offset))
+    }
+
+    fn may_enable_zsh_ksh_arrays_anywhere(&self) -> bool {
+        if self.shell_profile.zsh_options().is_none() {
+            return false;
+        }
+
+        *self.zsh_ksh_arrays_may_enable_anywhere.get_or_init(|| {
+            crate::zsh_options::may_enable_ksh_arrays_anywhere(&self.recorded_program)
+        })
+    }
+
+    /// Returns the conservative runtime state for `ksh_arrays` at `offset`.
+    ///
+    /// For function bodies in files that can enable `ksh_arrays`, this merges the ordinary
+    /// zsh-option snapshot with a second pass that re-evaluates the enclosing function under an
+    /// ambiguous `ksh_arrays` entry state. Callers can treat `Off` as a guaranteed native-zsh
+    /// context and anything else as potentially ksh-like.
+    pub fn zsh_ksh_arrays_runtime_state_at(&self, offset: usize) -> Option<OptionValue> {
+        self.shell_profile.zsh_options()?;
+        let ordinary = self.zsh_options_at(offset)?.ksh_arrays;
+        if !self.may_enable_zsh_ksh_arrays_anywhere() {
+            return Some(ordinary);
+        }
+
+        let scope = self.scope_at(offset);
+        let Some(function_scope) = self.enclosing_function_scope(scope) else {
+            return Some(ordinary);
+        };
+
+        let ambient = self
+            .zsh_ksh_arrays_runtime_analysis_for_function(function_scope)
+            .and_then(|analysis| analysis.options_at(&self.scopes, offset))
+            .map_or(ordinary, |options| options.ksh_arrays);
+
+        Some(ordinary.merge(ambient))
+    }
+
+    fn zsh_ksh_arrays_runtime_by_function(
+        &self,
+    ) -> &FxHashMap<ScopeId, OnceLock<Option<ZshOptionAnalysis>>> {
+        self.zsh_ksh_arrays_runtime_by_function.get_or_init(|| {
+            self.recorded_program
+                .function_bodies()
+                .keys()
+                .map(|&function_scope| (function_scope, OnceLock::new()))
+                .collect()
+        })
+    }
+
+    fn zsh_ksh_arrays_runtime_analysis_for_function(
+        &self,
+        function_scope: ScopeId,
+    ) -> Option<&ZshOptionAnalysis> {
+        self.zsh_ksh_arrays_runtime_by_function()
+            .get(&function_scope)?
+            .get_or_init(|| self.build_zsh_ksh_arrays_runtime_analysis_for_function(function_scope))
+            .as_ref()
+    }
+
+    fn build_zsh_ksh_arrays_runtime_analysis_for_function(
+        &self,
+        function_scope: ScopeId,
+    ) -> Option<ZshOptionAnalysis> {
+        let function_entry_offset = self.scope(function_scope).span.start.offset;
+        let mut function_entry = self.zsh_options_at(function_entry_offset)?.clone();
+        function_entry.ksh_arrays = OptionValue::Unknown;
+        crate::zsh_options::function_runtime_analysis_with_entry(
+            &self.scopes,
+            &self.bindings,
+            &self.recorded_program,
+            crate::zsh_options::DynamicCallAnalysisContext {
+                references: &self.references,
+                resolved: &self.resolved,
+                indirect_target_hints: &self.indirect_target_hints,
+                indirect_targets_by_binding: &self.indirect_targets_by_binding,
+                command_references: &self.command_references,
+            },
+            function_scope,
+            function_entry,
+        )
     }
 
     /// Returns all semantic scopes discovered in the file.

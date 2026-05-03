@@ -2,7 +2,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command, Name, Span};
 use shuck_semantic::{
     Binding, BindingAttributes, BindingId, BindingKind, DeclarationBuiltin, DeclarationOperand,
-    Reference, ReferenceId, ScopeId,
+    OptionValue, Reference, ReferenceId, ScopeId,
 };
 
 use crate::{Checker, LinterFacts, Rule, ShellDialect, Violation, WordQuote, facts::CommandId};
@@ -87,6 +87,13 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
         {
             return false;
         }
+
+        if self.zsh_reference_uses_native_array_scalar_policy(reference)
+            && !is_bash_runtime_array_name(reference.name.as_str())
+        {
+            return false;
+        }
+
         if let Some(binding) = self.semantic.resolved_binding(reference.id)
             && self.semantic.binding_visible_at(binding.id, reference.span)
             && !binding_is_array_like(binding)
@@ -226,6 +233,16 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
                     && self.semantic.binding_visible_at(binding.id, reference.span)
                     && binding_is_array_like(binding)
             })
+    }
+
+    fn zsh_reference_uses_native_array_scalar_policy(&self, reference: &Reference) -> bool {
+        if self.shell != ShellDialect::Zsh {
+            return false;
+        }
+
+        self.semantic
+            .zsh_ksh_arrays_runtime_state_at(reference.span.start.offset)
+            .is_some_and(|state| state == OptionValue::Off)
     }
 
     fn reference_reads_into_same_name_array_writer(&mut self, reference: &Reference) -> bool {
@@ -1318,7 +1335,7 @@ f() {
     }
 
     #[test]
-    fn zsh_later_array_bindings_after_scalar_local_barriers_still_warn() {
+    fn zsh_later_array_bindings_after_scalar_local_barriers_stay_clean() {
         let source = "\
 #!/bin/zsh
 items=(old)
@@ -1333,13 +1350,393 @@ f() {
             &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
         );
 
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn zsh_plain_array_and_assoc_scalar_expansions_are_allowed() {
+        let source = "\
+#!/bin/zsh
+local -a usage
+usage=(one two)
+print -l -- $usage
+
+local -aU pats
+pats=(a b)
+for pat in $pats; do :; done
+
+DECOMPRESSCMD=( unxz )
+[[ $DECOMPRESSCMD != /* ]]
+
+local -A OPTS
+OPTS[k]=1
+[[ -n $OPTS && -n ${OPTS[k]} ]]
+
+local -a ___opt
+___opt=(-a -b)
+.zinit-load-snippet $___opt foo
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn zsh_non_effect_mentions_of_ksh_arrays_do_not_disable_native_scalar_policy() {
+        let source = "\
+#!/bin/zsh
+# emulate ksh
+note='setopt ksh_arrays'
+arr=(one two)
+print -r -- $arr
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn zsh_emulate_local_function_shape_keeps_plain_array_expansions_clean() {
+        let source = "\
+#!/bin/zsh
+f() {
+  emulate -LR zsh ${=${options[xtrace]:#off}:+-o xtrace}
+  setopt extendedglob warncreateglobal typesetsilent noshortloops rcquotes
+  local id_as=$1 plugin_dir
+  local -A ICE
+  if [[ -n \"${ICE[compile]}\" ]]; then
+    local -aU pats list=()
+    pats=(${(s.;.)ICE[compile]})
+    local pat
+    for pat in $pats; do
+      list+=(\"${plugin_dir:A}/\"${~pat}(.N))
+    done
+  fi
+}
+g() {
+  emulate -LR ksh
+  local -a other=(one two)
+  print -r -- $other
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
         assert_eq!(
             diagnostics
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$items"]
+            vec!["$other"]
         );
+    }
+
+    #[test]
+    fn zsh_conditional_function_local_disable_still_warns_in_ambiguous_ksh_context() {
+        let source = "\
+#!/bin/zsh
+f() {
+  if [[ -n $flag ]]; then
+    emulate -LR zsh
+  fi
+  local -a arr=(one two)
+  print -r -- $arr
+}
+fn=f
+setopt ksh_arrays
+$fn
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
+        );
+    }
+
+    #[test]
+    fn zsh_ksh_array_mode_keeps_plain_array_reference_warnings() {
+        let source = "\
+#!/bin/zsh
+setopt ksh_arrays
+arr=(one two)
+print -r -- $arr
+
+emulate ksh
+other=(three four)
+print -r -- $other
+
+emulate -L ksh
+flagged=(five six)
+print -r -- $flagged
+
+f() {
+  indirect=(seven eight)
+  print -r -- $indirect
+}
+fn=f
+setopt ksh_arrays
+$fn
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr", "$other", "$flagged", "$indirect"]
+        );
+    }
+
+    #[test]
+    fn zsh_dynamic_ksh_array_option_names_keep_plain_array_reference_warnings() {
+        for source in [
+            "\
+#!/bin/zsh
+opt=ksh_arrays
+setopt \"$opt\"
+arr=(one two)
+print -r -- $arr
+",
+            "\
+#!/bin/zsh
+opt=no_ksh_arrays
+unsetopt \"$opt\"
+arr=(one two)
+print -r -- $arr
+",
+            "\
+#!/bin/zsh
+mode=ksh
+emulate \"$mode\"
+arr=(one two)
+print -r -- $arr
+",
+        ] {
+            let diagnostics = test_snippet(
+                source,
+                &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+            );
+
+            assert_eq!(
+                diagnostics
+                    .iter()
+                    .map(|diagnostic| diagnostic.span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$arr"],
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn zsh_pattern_ksh_array_option_names_keep_plain_array_reference_warnings() {
+        for source in [
+            "\
+#!/bin/zsh
+setopt -m 'ksh*'
+arr=(one two)
+print -r -- $arr
+",
+            "\
+#!/bin/zsh
+unsetopt -m 'no_ksh*'
+arr=(one two)
+print -r -- $arr
+",
+        ] {
+            let diagnostics = test_snippet(
+                source,
+                &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+            );
+
+            assert_eq!(
+                diagnostics
+                    .iter()
+                    .map(|diagnostic| diagnostic.span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$arr"],
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn zsh_double_dash_ksh_array_option_names_keep_plain_array_reference_warnings() {
+        for source in [
+            "\
+#!/bin/zsh
+setopt -- ksh_arrays
+arr=(one two)
+print -r -- $arr
+",
+            "\
+#!/bin/zsh
+unsetopt -- no_ksh_arrays
+arr=(one two)
+print -r -- $arr
+",
+        ] {
+            let diagnostics = test_snippet(
+                source,
+                &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+            );
+
+            assert_eq!(
+                diagnostics
+                    .iter()
+                    .map(|diagnostic| diagnostic.span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$arr"],
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn zsh_top_level_indirect_ksh_mode_call_keeps_plain_array_reference_warnings() {
+        let source = "\
+#!/bin/zsh
+f() {
+  emulate ksh
+}
+dispatcher=f
+$dispatcher
+arr=(one two)
+print -r -- $arr
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
+        );
+    }
+
+    #[test]
+    fn zsh_unresolved_dispatch_can_still_keep_plain_array_reference_warnings() {
+        let source = "\
+#!/bin/zsh
+enable_ksh() {
+  emulate ksh
+}
+$dispatcher
+arr=(one two)
+print -r -- $arr
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
+        );
+    }
+
+    #[test]
+    fn zsh_unknown_dispatcher_binding_can_still_keep_plain_array_reference_warnings() {
+        let source = "\
+#!/bin/zsh
+enable_ksh() {
+  emulate ksh
+}
+run_dispatcher() {
+  unsetopt ksh_arrays
+  dispatcher=$1
+  $dispatcher
+  arr=(one two)
+  print -r -- $arr
+}
+run_dispatcher enable_ksh
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
+        );
+    }
+
+    #[test]
+    fn zsh_wrapped_top_level_indirect_ksh_mode_keeps_plain_array_reference_warnings() {
+        let source = "\
+#!/bin/zsh
+f() {
+  emulate ksh
+}
+dispatcher=f
+noglob $dispatcher
+arr=(one two)
+print -r -- $arr
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
+        );
+    }
+
+    #[test]
+    fn zsh_top_level_explicit_disable_after_indirect_ksh_call_restores_native_scalar_policy() {
+        let source = "\
+#!/bin/zsh
+f() {
+  emulate ksh
+}
+dispatcher=f
+$dispatcher
+unsetopt ksh_arrays
+arr=(one two)
+print -r -- $arr
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]

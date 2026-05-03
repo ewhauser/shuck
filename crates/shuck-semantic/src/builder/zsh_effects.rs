@@ -29,6 +29,10 @@ pub(super) fn recorded_simple_command_info(
     let normalized = normalize_command_words(&words, source)
         .expect("recorded simple commands always include a command name");
     let static_callee = recorded_static_callee(&normalized).map(Into::into);
+    let dynamic_name_span = static_callee
+        .is_none()
+        .then_some(normalized.body_word_span())
+        .flatten();
     let static_args = recorded_static_args(command, &normalized, source);
     let source_path_template = normalized
         .literal_name
@@ -39,6 +43,7 @@ pub(super) fn recorded_simple_command_info(
 
     let mut info = RecordedCommandInfo {
         static_callee,
+        dynamic_name_span,
         static_args,
         source_path_template,
         zsh_effects: Vec::new(),
@@ -74,6 +79,7 @@ pub(super) fn recorded_simple_command_info(
 
     info.zsh_effects.retain(|effect| match effect {
         RecordedZshCommandEffect::Emulate { .. } => true,
+        RecordedZshCommandEffect::EmulateUnknown { .. } => true,
         RecordedZshCommandEffect::SetOptions { updates } => !updates.is_empty(),
     });
     info
@@ -149,11 +155,15 @@ fn is_recorded_assignment_word(word: &str) -> bool {
 pub(super) fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<RecordedZshCommandEffect> {
     let mut local = false;
     let mut mode = None;
+    let mut dynamic_mode = false;
     let mut updates = Vec::new();
     let mut index = 0usize;
 
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
+            if mode.is_none() && !dynamic_mode {
+                dynamic_mode = true;
+            }
             index += 1;
             continue;
         };
@@ -164,12 +174,19 @@ pub(super) fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<Recorde
             }
             "-o" | "+o" => {
                 let enable = text.starts_with('-');
-                if let Some(option) = args
+                match args
                     .get(index + 1)
                     .and_then(|word| static_word_text(word, source))
-                    && let Some(update) = parse_recorded_zsh_option_update(&option, enable)
                 {
-                    updates.push(update);
+                    Some(option) => {
+                        if let Some(update) = parse_recorded_zsh_option_update(&option, enable) {
+                            updates.push(update);
+                        }
+                    }
+                    None if args.get(index + 1).is_some() => {
+                        updates.push(RecordedZshOptionUpdate::UnknownName);
+                    }
+                    None => {}
                 }
                 index += 2;
                 continue;
@@ -198,7 +215,7 @@ pub(super) fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<Recorde
             continue;
         }
 
-        if mode.is_none() {
+        if mode.is_none() && !dynamic_mode {
             mode = match text.to_ascii_lowercase().as_str() {
                 "zsh" => Some(ZshEmulationMode::Zsh),
                 "sh" => Some(ZshEmulationMode::Sh),
@@ -211,7 +228,9 @@ pub(super) fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<Recorde
     }
 
     let mut effects = Vec::new();
-    if let Some(mode) = mode {
+    if dynamic_mode {
+        effects.push(RecordedZshCommandEffect::EmulateUnknown { local });
+    } else if let Some(mode) = mode {
         effects.push(RecordedZshCommandEffect::Emulate { mode, local });
     }
     if !updates.is_empty() {
@@ -225,11 +244,26 @@ pub(super) fn parse_setopt_updates(
     source: &str,
     enable: bool,
 ) -> Vec<RecordedZshOptionUpdate> {
-    args.iter()
-        .filter_map(|word| static_word_text(word, source))
-        .filter(|text| text != "--")
-        .filter_map(|text| parse_recorded_zsh_option_update(&text, enable))
-        .collect()
+    let mut updates = Vec::new();
+    let mut pattern_mode = false;
+
+    for word in args {
+        match static_word_text(word, source) {
+            Some(text) if text == "--" => {}
+            Some(text) if matches!(text.as_ref(), "-m" | "+m") => {
+                pattern_mode = true;
+            }
+            Some(_text) if pattern_mode => updates.push(RecordedZshOptionUpdate::UnknownName),
+            Some(text) => {
+                if let Some(update) = parse_recorded_zsh_option_update(&text, enable) {
+                    updates.push(update);
+                }
+            }
+            None => updates.push(RecordedZshOptionUpdate::UnknownName),
+        }
+    }
+
+    updates
 }
 
 pub(super) fn parse_set_builtin_option_updates(
@@ -248,12 +282,19 @@ pub(super) fn parse_set_builtin_option_updates(
         match text.as_ref() {
             "-o" | "+o" => {
                 let enable = text.starts_with('-');
-                if let Some(name) = args
+                match args
                     .get(index + 1)
                     .and_then(|word| static_word_text(word, source))
-                    && let Some(update) = parse_recorded_zsh_option_update(&name, enable)
                 {
-                    updates.push(update);
+                    Some(name) => {
+                        if let Some(update) = parse_recorded_zsh_option_update(&name, enable) {
+                            updates.push(update);
+                        }
+                    }
+                    None if args.get(index + 1).is_some() => {
+                        updates.push(RecordedZshOptionUpdate::UnknownName);
+                    }
+                    None => {}
                 }
                 index += 2;
             }
