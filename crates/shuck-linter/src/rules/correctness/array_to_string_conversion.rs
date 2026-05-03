@@ -96,6 +96,12 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
                     name.clone(),
                     ArrayHistoryState::from_binding(checker, binding, true, prior),
                 );
+            } else if binding_establishes_local_scalar_history(binding) {
+                push_array_history(
+                    &mut array_history,
+                    name.clone(),
+                    ArrayHistoryState::from_binding(checker, binding, false, None),
+                );
             }
 
             saw_array_history.then_some(binding.span)
@@ -483,6 +489,16 @@ fn binding_establishes_array_history(
     }
 }
 
+fn binding_establishes_local_scalar_history(binding: &Binding) -> bool {
+    matches!(
+        binding.kind,
+        BindingKind::Declaration(DeclarationBuiltin::Local)
+    ) && binding
+        .attributes
+        .contains(BindingAttributes::DECLARATION_INITIALIZED)
+        && !binding_is_array_like(binding)
+}
+
 fn binding_resets_array_history(binding: &Binding, builtin_history: &BuiltinArrayHistory) -> bool {
     match binding.kind {
         BindingKind::LoopVariable
@@ -768,6 +784,26 @@ arr=scalar
             vec!["arr"],
             "{diagnostics:#?}"
         );
+    }
+
+    #[test]
+    fn ignores_shadowed_array_history_after_initialized_local_scalar() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local cmd=cp
+  cmd=(curl -I)
+}
+g() {
+  local cmd=mv
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]
@@ -1086,7 +1122,7 @@ arr=value
     }
 
     #[test]
-    fn reports_global_scalar_reassignments_after_function_local_array_use() {
+    fn ignores_sibling_and_global_scalars_after_function_local_array_use() {
         let source = "\
 #!/bin/bash
 f() {
@@ -1105,14 +1141,7 @@ fuzzer=$1
             &LinterSettings::for_rule(Rule::ArrayToStringConversion),
         );
 
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
-                .collect::<Vec<_>>(),
-            vec!["fuzzer", "fuzzer"],
-            "{diagnostics:#?}"
-        );
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]
