@@ -975,6 +975,48 @@ fn test_zsh_unbraced_array_access_inside_double_quotes_stays_nested() {
 }
 
 #[test]
+fn test_zsh_unbraced_parameter_set_probe_array_access_parses_as_array_access() {
+    let input = "print -r -- $+ice[extract]\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let reference = expect_array_access(&command.args[2]);
+    assert_eq!(reference.name.as_str(), "+ice");
+    expect_subscript(reference, input, "extract");
+    assert_eq!(command.args[2].render_syntax(input), "$+ice[extract]");
+}
+
+#[test]
+fn test_zsh_unbraced_parameter_set_probe_array_access_in_conditionals_stays_nested() {
+    let source = "[[ $+ice[extract] -ne 0 ]]\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional command");
+    };
+
+    assert!(redirects.is_empty());
+    let ConditionalExpr::Binary(binary) = &command.expression else {
+        panic!("expected binary conditional");
+    };
+    let ConditionalExpr::Word(left) = binary.left.as_ref() else {
+        panic!("expected word lhs");
+    };
+    let reference = expect_array_access(left);
+    assert_eq!(reference.name.as_str(), "+ice");
+    expect_subscript(reference, source, "extract");
+    assert_eq!(left.render_syntax(source), "$+ice[extract]");
+}
+
+#[test]
 fn test_substring_and_array_slice_attach_arithmetic_companion_asts() {
     let input = "echo ${s:i+1:len*2} ${arr[@]:i:j}\n";
     let script = Parser::new(input).parse().unwrap().file;
@@ -3800,6 +3842,22 @@ fn test_parse_zsh_arithmetic_command_keeps_subscripted_shell_words_intact() {
     };
     let second_expr = second.expr_ast.as_ref().expect("expected arithmetic AST");
     expect_shell_word(second_expr, input, "$cmdnames[(Ie)$point]");
+}
+
+#[test]
+fn test_parse_zsh_arithmetic_command_keeps_parameter_set_probe_shell_words_intact() {
+    let input = "(( $+ice[extract] ))\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Arithmetic(command) = compound else {
+        panic!("expected arithmetic compound command");
+    };
+    let expr = command.expr_ast.as_ref().expect("expected arithmetic AST");
+    expect_shell_word(expr, input, "$+ice[extract]");
 }
 
 #[test]

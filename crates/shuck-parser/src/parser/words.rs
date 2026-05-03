@@ -4923,9 +4923,20 @@ impl<'a> Parser<'a> {
                     );
                     current_start = cursor;
                 } else {
-                    let var_name = Self::read_word_while(&mut chars, &mut cursor, |c| {
+                    let mut var_name = String::new();
+                    if self.dialect == ShellDialect::Zsh && chars.peek() == Some(&'+') {
+                        let mut lookahead = chars.clone();
+                        lookahead.next();
+                        if lookahead
+                            .peek()
+                            .is_some_and(|next| next.is_ascii_alphanumeric() || *next == '_')
+                        {
+                            var_name.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
+                        }
+                    }
+                    var_name.push_str(&Self::read_word_while(&mut chars, &mut cursor, |c| {
                         c.is_ascii_alphanumeric() || c == '_'
-                    });
+                    }));
                     if !var_name.is_empty() {
                         let part = if self.dialect == ShellDialect::Zsh
                             && Self::consume_word_char_if(&mut chars, &mut cursor, '[')
