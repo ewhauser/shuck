@@ -4927,12 +4927,27 @@ impl<'a> Parser<'a> {
                         c.is_ascii_alphanumeric() || c == '_'
                     });
                     if !var_name.is_empty() {
-                        Self::push_word_part(
-                            parts,
-                            WordPart::Variable(var_name.into()),
-                            part_start,
-                            cursor,
-                        );
+                        let part = if self.dialect == ShellDialect::Zsh
+                            && Self::consume_word_char_if(&mut chars, &mut cursor, '[')
+                        {
+                            let (index, raw_index) =
+                                self.read_array_index(&mut chars, &mut cursor, source_backed);
+                            let subscript = self.subscript_from_source_text(
+                                index,
+                                raw_index,
+                                SubscriptInterpretation::Contextual,
+                            );
+                            WordPart::ArrayAccess(self.parameter_var_ref(
+                                part_start,
+                                "$",
+                                &var_name,
+                                Some(subscript),
+                                cursor,
+                            ))
+                        } else {
+                            WordPart::Variable(var_name.into())
+                        };
+                        Self::push_word_part(parts, part, part_start, cursor);
                         current_start = cursor;
                     } else {
                         if current.is_empty() {
