@@ -43,7 +43,7 @@ rustc-hash = "2.0.0"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", default-features = false, features = ["fmt", "std"] }
 lsp-server = "0.7.6"
-lsp-types = { git = "https://github.com/astral-sh/lsp-types.git", rev = "e15db0593f0ecbbd80599c3f5880e4bf5da1ca0c", features = ["proposed"] }
+lsp-types = { version = "0.95.1", features = ["proposed"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
