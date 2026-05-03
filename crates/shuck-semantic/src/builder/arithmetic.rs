@@ -498,14 +498,21 @@ fn conditional_expr_is_logical_binary(expression: &ConditionalExpr) -> bool {
 /// Returns true for zsh arithmetic subscript text shaped like an option-spec key.
 pub fn zsh_arithmetic_assoc_option_key_text(text: &str) -> bool {
     let text = text.trim();
-    let Some((_, long_option)) = text.rsplit_once(',') else {
+    let Some((short_option, long_option)) = text.rsplit_once(',') else {
+        return false;
+    };
+    let Some(short_option) = short_option.strip_prefix("opt_-") else {
         return false;
     };
     let Some(long_option) = long_option.strip_prefix("--") else {
         return false;
     };
 
-    !long_option.is_empty()
+    !short_option.is_empty()
+        && short_option
+            .chars()
+            .all(|ch| ch == '-' || ch == '_' || ch.is_ascii_alphanumeric())
+        && !long_option.is_empty()
         && long_option
             .chars()
             .all(|ch| ch == '-' || ch == '_' || ch.is_ascii_alphanumeric())
