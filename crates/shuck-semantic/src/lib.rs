@@ -33,6 +33,8 @@ pub use binding::{
     AssignmentValueOrigin, Binding, BindingAttributes, BindingId, BindingKind, BindingOrigin,
     BuiltinBindingTargetKind, LoopValueOrigin,
 };
+/// Zsh arithmetic subscript helpers shared with linter fact collection.
+pub use builder::zsh_arithmetic_assoc_option_key_text;
 /// Call-graph structures derived from the analyzed script.
 pub use call_graph::{
     CallGraph, CallSite, OverwrittenFunction, UnreachedFunction, UnreachedFunctionReason,

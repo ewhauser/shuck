@@ -99,6 +99,21 @@ echo \"$count\"
     }
 
     #[test]
+    fn ignores_zsh_assoc_option_keys_in_arithmetic_subshells() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local quiet=0
+  ( (( !OPTS[opt_-q,--quiet] )) )
+  (( quiet ))
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn ignores_bash_pipeline_assignments_when_pipefail_is_enabled() {
         let source = "\
 #!/usr/bin/env bash

@@ -262,6 +262,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         if self
             .arithmetic_index_uses_associative_word_semantics(owner_name, index.span.start.offset)
+            || self.arithmetic_index_uses_zsh_assoc_option_key_semantics(index)
         {
             self.visit_associative_arithmetic_key_into(index, flow, nested_regions);
             return;
@@ -276,6 +277,14 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         offset: usize,
     ) -> bool {
         self.visible_binding_is_assoc(owner_name, offset)
+    }
+
+    pub(super) fn arithmetic_index_uses_zsh_assoc_option_key_semantics(
+        &self,
+        index: &ArithmeticExprNode,
+    ) -> bool {
+        self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh
+            && zsh_arithmetic_assoc_option_key_text(index.span.slice(self.source))
     }
 
     pub(super) fn visible_binding_is_assoc(&self, name: &Name, offset: usize) -> bool {
@@ -484,4 +493,20 @@ fn conditional_expr_is_logical_binary(expression: &ConditionalExpr) -> bool {
         ConditionalExpr::Binary(binary)
             if matches!(binary.op, ConditionalBinaryOp::And | ConditionalBinaryOp::Or)
     )
+}
+
+/// Returns true for zsh arithmetic subscript text shaped like an option-spec key.
+pub fn zsh_arithmetic_assoc_option_key_text(text: &str) -> bool {
+    let text = text.trim();
+    let Some((_, long_option)) = text.rsplit_once(',') else {
+        return false;
+    };
+    let Some(long_option) = long_option.strip_prefix("--") else {
+        return false;
+    };
+
+    !long_option.is_empty()
+        && long_option
+            .chars()
+            .all(|ch| ch == '-' || ch == '_' || ch.is_ascii_alphanumeric())
 }

@@ -250,6 +250,24 @@ printf '%s\\n' x | while read -r _; do PASS=1; done
     }
 
     #[test]
+    fn ignores_zsh_assoc_option_keys_in_arithmetic_subshells() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local quiet=0
+  ( (( !OPTS[opt_-q,--quiet] )) )
+  (( quiet ))
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn ignores_ifs_reads_after_pipeline_updates() {
         let source = "\
 #!/bin/sh

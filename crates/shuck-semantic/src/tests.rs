@@ -9066,6 +9066,37 @@ printf '%s\\n' \"$((box[m_width]))\" \"$((box[$dynamic_key]))\"
 }
 
 #[test]
+fn zsh_arithmetic_option_keys_do_not_register_key_reads_or_updates_without_assoc_binding() {
+    let source = "\
+#!/bin/zsh
+f() {
+  local quiet=0
+  ( (( !OPTS[opt_-q,--quiet] )) )
+  (( quiet ))
+}
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let unresolved = unresolved_names(&model);
+
+    assert_names_absent(&["opt_", "q"], &unresolved);
+    assert_arithmetic_usage(&model, "quiet", 1, 0);
+}
+
+#[test]
+fn zsh_regular_arithmetic_indices_still_register_updates() {
+    let source = "\
+#!/bin/zsh
+f() {
+  local i=1
+  (( arr[--i] ))
+}
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+
+    assert_arithmetic_usage(&model, "i", 1, 1);
+}
+
+#[test]
 fn arithmetic_indexed_writes_preserve_associative_attributes() {
     let source = "\
 #!/bin/bash
