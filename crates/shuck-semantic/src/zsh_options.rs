@@ -19,6 +19,12 @@ pub(crate) struct ZshOptionAnalysis {
     scope_index: Vec<ScopeIndexEntry>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct FunctionOptionRuntimeAnalysis {
+    pub(crate) analysis: ZshOptionAnalysis,
+    pub(crate) final_outward: ZshOptionState,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct ScopeIndexEntry {
     start: usize,
@@ -245,18 +251,14 @@ pub(crate) fn analyze(
     })
 }
 
-pub(crate) fn options_at_in_function_with_entry(
+pub(crate) fn function_runtime_analysis_with_entry(
     scopes: &[Scope],
     bindings: &[Binding],
     recorded_program: &RecordedProgram,
     function_scope: ScopeId,
     entry: ZshOptionState,
-    offset: usize,
-) -> Option<ZshOptionState> {
+) -> Option<FunctionOptionRuntimeAnalysis> {
     let function_span = scopes.get(function_scope.index())?.span;
-    if offset < function_span.start.offset || offset > function_span.end.offset {
-        return None;
-    }
 
     let mut analyzer = Analyzer {
         scopes,
@@ -266,11 +268,9 @@ pub(crate) fn options_at_in_function_with_entry(
         snapshots: FxHashMap::default(),
         active_function_scopes: FxHashSet::default(),
     };
-    analyzer.analyze_sequence(
+    let result = analyzer.analyze_function_scope(
         function_scope,
-        recorded_program.function_body(function_scope),
         EvalState::new(InternalState::from_public(entry)),
-        LeakBehavior::Function,
     );
 
     for snapshots in analyzer.snapshots.values_mut() {
@@ -291,13 +291,14 @@ pub(crate) fn options_at_in_function_with_entry(
         .collect();
     scope_index.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| b.end.cmp(&a.end)));
 
-    ZshOptionAnalysis {
-        scope_entries: analyzer.scope_entries,
-        snapshots: analyzer.snapshots,
-        scope_index,
-    }
-    .options_at(scopes, offset)
-    .cloned()
+    Some(FunctionOptionRuntimeAnalysis {
+        analysis: ZshOptionAnalysis {
+            scope_entries: analyzer.scope_entries,
+            snapshots: analyzer.snapshots,
+            scope_index,
+        },
+        final_outward: result.final_outward.public,
+    })
 }
 
 impl ZshOptionAnalysis {

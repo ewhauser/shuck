@@ -1507,6 +1507,32 @@ $fn
     }
 
     #[test]
+    fn zsh_top_level_indirect_ksh_mode_call_keeps_plain_array_reference_warnings() {
+        let source = "\
+#!/bin/zsh
+f() {
+  emulate ksh
+}
+dispatcher=f
+$dispatcher
+arr=(one two)
+print -r -- $arr
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
+        );
+    }
+
+    #[test]
     fn reports_runtime_arrays_inside_assign_default_and_error_operands() {
         let source = "\
 #!/bin/bash

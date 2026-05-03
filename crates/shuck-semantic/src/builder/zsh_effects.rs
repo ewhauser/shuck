@@ -29,6 +29,7 @@ pub(super) fn recorded_simple_command_info(
     let normalized = normalize_command_words(&words, source)
         .expect("recorded simple commands always include a command name");
     let static_callee = recorded_static_callee(&normalized).map(Into::into);
+    let dynamic_name_span = static_callee.is_none().then_some(command.name.span);
     let static_args = recorded_static_args(command, &normalized, source);
     let source_path_template = normalized
         .literal_name
@@ -39,6 +40,7 @@ pub(super) fn recorded_simple_command_info(
 
     let mut info = RecordedCommandInfo {
         static_callee,
+        dynamic_name_span,
         static_args,
         source_path_template,
         zsh_effects: Vec::new(),

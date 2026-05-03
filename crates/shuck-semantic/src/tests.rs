@@ -9858,3 +9858,30 @@ $dispatcher
         "{source}"
     );
 }
+
+#[test]
+fn semantic_runtime_ksh_arrays_state_treats_top_level_indirect_calls_as_ambiguous() {
+    let source = "\
+fn() {
+  emulate ksh
+}
+dispatcher=fn
+$dispatcher
+print $name
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+    let offset = source.find("print $name").unwrap();
+
+    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
+    assert!(
+        model
+            .zsh_options_at(offset)
+            .is_some_and(|options| options.ksh_arrays == OptionValue::Off),
+        "{source}"
+    );
+    assert_eq!(
+        model.zsh_ksh_arrays_runtime_state_at(offset),
+        Some(OptionValue::Unknown),
+        "{source}"
+    );
+}

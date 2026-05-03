@@ -133,6 +133,12 @@ struct AssocCallerSeenNames {
     hashed: Option<FxHashSet<Name>>,
 }
 
+#[derive(Debug, Clone)]
+struct KshArraysRuntimeFunctionState {
+    analysis: ZshOptionAnalysis,
+    outward_ksh_arrays: OptionValue,
+}
+
 impl AssocCallerSeenNames {
     const HASH_THRESHOLD: usize = 32;
 
@@ -646,6 +652,8 @@ pub struct SemanticModel {
     heuristic_unused_assignments: Vec<BindingId>,
     zsh_option_analysis: Option<ZshOptionAnalysis>,
     zsh_ksh_arrays_may_enable_anywhere: OnceLock<bool>,
+    zsh_ksh_arrays_runtime_by_function: OnceLock<FxHashMap<ScopeId, KshArraysRuntimeFunctionState>>,
+    zsh_ksh_arrays_ambiguous_top_level_effect_end_offsets: OnceLock<Box<[usize]>>,
     assoc_lookup_binding_index: OnceLock<AssocLookupBindingIndex>,
     command_topology: OnceLock<CommandTopology>,
     references_sorted_by_start: OnceLock<Vec<ReferenceId>>,
@@ -838,6 +846,8 @@ impl SemanticModel {
             heuristic_unused_assignments: built.heuristic_unused_assignments,
             zsh_option_analysis,
             zsh_ksh_arrays_may_enable_anywhere: OnceLock::new(),
+            zsh_ksh_arrays_runtime_by_function: OnceLock::new(),
+            zsh_ksh_arrays_ambiguous_top_level_effect_end_offsets: OnceLock::new(),
             assoc_lookup_binding_index: OnceLock::new(),
             command_topology: OnceLock::new(),
             references_sorted_by_start: OnceLock::new(),
@@ -905,34 +915,140 @@ impl SemanticModel {
     /// ambiguous `ksh_arrays` entry state. Callers can treat `Off` as a guaranteed native-zsh
     /// context and anything else as potentially ksh-like.
     pub fn zsh_ksh_arrays_runtime_state_at(&self, offset: usize) -> Option<OptionValue> {
-        if self.shell_profile.zsh_options().is_none() {
-            return None;
-        }
-
+        self.shell_profile.zsh_options()?;
         let ordinary = self.zsh_options_at(offset)?.ksh_arrays;
-        let scope = self.scope_at(offset);
-        let Some(function_scope) = self.enclosing_function_scope(scope) else {
-            return Some(ordinary);
-        };
         if !self.may_enable_zsh_ksh_arrays_anywhere() {
             return Some(ordinary);
         }
 
-        let function_entry_offset = self.scope(function_scope).span.start.offset;
-        let mut function_entry = self.zsh_options_at(function_entry_offset)?.clone();
-        function_entry.ksh_arrays = OptionValue::Unknown;
+        let scope = self.scope_at(offset);
+        let Some(function_scope) = self.enclosing_function_scope(scope) else {
+            let top_level_ambiguous = self
+                .zsh_ksh_arrays_ambiguous_top_level_effect_end_offsets()
+                .partition_point(|end_offset| *end_offset <= offset)
+                > 0;
+            return Some(if top_level_ambiguous {
+                ordinary.merge(OptionValue::Unknown)
+            } else {
+                ordinary
+            });
+        };
 
-        let ambient = crate::zsh_options::options_at_in_function_with_entry(
-            &self.scopes,
-            &self.bindings,
-            &self.recorded_program,
-            function_scope,
-            function_entry,
-            offset,
-        )
-        .map_or(ordinary, |options| options.ksh_arrays);
+        let ambient = self
+            .zsh_ksh_arrays_runtime_by_function()
+            .get(&function_scope)
+            .and_then(|state| state.analysis.options_at(&self.scopes, offset))
+            .map_or(ordinary, |options| options.ksh_arrays);
 
         Some(ordinary.merge(ambient))
+    }
+
+    fn zsh_ksh_arrays_runtime_by_function(
+        &self,
+    ) -> &FxHashMap<ScopeId, KshArraysRuntimeFunctionState> {
+        self.zsh_ksh_arrays_runtime_by_function.get_or_init(|| {
+            self.recorded_program
+                .function_bodies()
+                .keys()
+                .filter_map(|&function_scope| {
+                    let function_entry_offset = self.scope(function_scope).span.start.offset;
+                    let mut function_entry = self.zsh_options_at(function_entry_offset)?.clone();
+                    function_entry.ksh_arrays = OptionValue::Unknown;
+                    let runtime = crate::zsh_options::function_runtime_analysis_with_entry(
+                        &self.scopes,
+                        &self.bindings,
+                        &self.recorded_program,
+                        function_scope,
+                        function_entry,
+                    )?;
+                    Some((
+                        function_scope,
+                        KshArraysRuntimeFunctionState {
+                            outward_ksh_arrays: runtime.final_outward.ksh_arrays,
+                            analysis: runtime.analysis,
+                        },
+                    ))
+                })
+                .collect()
+        })
+    }
+
+    fn zsh_ksh_arrays_ambiguous_top_level_effect_end_offsets(&self) -> &[usize] {
+        self.zsh_ksh_arrays_ambiguous_top_level_effect_end_offsets
+            .get_or_init(|| {
+                let runtime_by_function = self.zsh_ksh_arrays_runtime_by_function();
+                let mut command_ids: Vec<CommandId> = (0..self.recorded_program.commands().len())
+                    .map(|index| CommandId(index as u32))
+                    .collect();
+                command_ids.sort_by_key(|id| self.recorded_program.command(*id).span.start.offset);
+
+                let mut end_offsets = Vec::new();
+                for command_id in command_ids {
+                    let command = self.recorded_program.command(command_id);
+                    let Some(scope) = command.scope else {
+                        continue;
+                    };
+                    if self.enclosing_function_scope(scope).is_some()
+                        || self.scope_is_transient(scope)
+                    {
+                        continue;
+                    }
+                    if command
+                        .flow_context
+                        .is_some_and(|flow| flow.in_subshell || flow.in_function)
+                    {
+                        continue;
+                    }
+
+                    let Some(info) = self
+                        .recorded_program
+                        .command_infos
+                        .get(&SpanKey::new(command.span))
+                    else {
+                        continue;
+                    };
+                    let Some(name_span) = info.dynamic_name_span else {
+                        continue;
+                    };
+
+                    let may_flip_ksh_arrays = self
+                        .references_in_command_span(command.span, name_span)
+                        .filter_map(|reference| {
+                            self.resolved_binding(reference.id)
+                                .map(|binding| (reference, binding.id))
+                        })
+                        .flat_map(|(reference, binding_id)| {
+                            self.indirect_targets_for_binding(binding_id)
+                                .iter()
+                                .copied()
+                                .filter(move |binding_id| {
+                                    matches!(
+                                        self.binding(*binding_id).kind,
+                                        BindingKind::FunctionDefinition
+                                    ) && self.binding_visible_at(*binding_id, reference.span)
+                                })
+                        })
+                        .filter_map(|binding_id| {
+                            self.recorded_program
+                                .function_body_scopes
+                                .get(&binding_id)
+                                .copied()
+                        })
+                        .any(|function_scope| {
+                            runtime_by_function
+                                .get(&function_scope)
+                                .is_some_and(|state| state.outward_ksh_arrays != OptionValue::Off)
+                        });
+                    if may_flip_ksh_arrays {
+                        end_offsets.push(command.span.end.offset);
+                    }
+                }
+
+                end_offsets.sort_unstable();
+                end_offsets.dedup();
+                end_offsets.into_boxed_slice()
+            })
+            .as_ref()
     }
 
     /// Returns all semantic scopes discovered in the file.
