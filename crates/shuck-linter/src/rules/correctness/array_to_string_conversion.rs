@@ -96,7 +96,9 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
                     name.clone(),
                     ArrayHistoryState::from_binding(checker, binding, true, prior),
                 );
-            } else if binding_establishes_local_scalar_history(binding) {
+            } else if checker.shell() == ShellDialect::Zsh
+                && binding_establishes_local_scalar_history(binding)
+            {
                 push_array_history(
                     &mut array_history,
                     name.clone(),
@@ -187,6 +189,10 @@ impl ArrayHistoryState {
     }
 
     fn visible_to_binding(self, checker: &Checker<'_>, binding: &Binding) -> bool {
+        if checker.shell() != ShellDialect::Zsh {
+            return true;
+        }
+
         !self.local
             || self.function_scope == checker.semantic().enclosing_function_scope(binding.scope)
     }
@@ -1122,9 +1128,39 @@ arr=value
     }
 
     #[test]
-    fn ignores_sibling_and_global_scalars_after_function_local_array_use() {
+    fn reports_bash_sibling_and_global_scalars_after_function_local_array_use() {
         let source = "\
 #!/bin/bash
+f() {
+  local fuzzer=$1
+  if [[ $fuzzer == *\"@\"* ]]; then
+    fuzzer=(${fuzzer//@/ }[0])
+  fi
+}
+g() {
+  local fuzzer=$1
+}
+fuzzer=$1
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["fuzzer", "fuzzer"],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn ignores_zsh_sibling_and_global_scalars_after_function_local_array_use() {
+        let source = "\
+#!/bin/zsh
 f() {
   local fuzzer=$1
   if [[ $fuzzer == *\"@\"* ]]; then
