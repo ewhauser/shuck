@@ -9763,6 +9763,22 @@ fn zsh_option_analysis_tracks_ksh_arrays_updates_by_offset() {
 }
 
 #[test]
+fn zsh_option_analysis_treats_dynamic_ksh_arrays_updates_as_unknown() {
+    for source in [
+        "opt=ksh_arrays\nsetopt \"$opt\"\nprint $name\n",
+        "opt=ksh_arrays\nset -o \"$opt\"\nprint $name\n",
+        "opt=ksh_arrays\nemulate -o \"$opt\" zsh\nprint $name\n",
+    ] {
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected zsh options");
+
+        assert_eq!(options.ksh_arrays, OptionValue::Unknown, "{source}");
+    }
+}
+
+#[test]
 fn semantic_helper_detects_real_ksh_array_enables() {
     for source in [
         "setopt ksh_arrays\nprint $name\n",
@@ -9772,6 +9788,8 @@ fn semantic_helper_detects_real_ksh_array_enables() {
         "emulate ksh\nprint $name\n",
         "emulate -L ksh\nprint $name\n",
         "emulate -R ksh\nprint $name\n",
+        "opt=ksh_arrays\nsetopt \"$opt\"\nprint $name\n",
+        "opt=ksh_arrays\nset -o \"$opt\"\nprint $name\n",
     ] {
         let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
         assert!(model.may_enable_zsh_ksh_arrays_anywhere(), "{source}");

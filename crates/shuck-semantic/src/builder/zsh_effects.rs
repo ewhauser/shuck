@@ -169,12 +169,19 @@ pub(super) fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<Recorde
             }
             "-o" | "+o" => {
                 let enable = text.starts_with('-');
-                if let Some(option) = args
+                match args
                     .get(index + 1)
                     .and_then(|word| static_word_text(word, source))
-                    && let Some(update) = parse_recorded_zsh_option_update(&option, enable)
                 {
-                    updates.push(update);
+                    Some(option) => {
+                        if let Some(update) = parse_recorded_zsh_option_update(&option, enable) {
+                            updates.push(update);
+                        }
+                    }
+                    None if args.get(index + 1).is_some() => {
+                        updates.push(RecordedZshOptionUpdate::UnknownName { enable });
+                    }
+                    None => {}
                 }
                 index += 2;
                 continue;
@@ -231,9 +238,11 @@ pub(super) fn parse_setopt_updates(
     enable: bool,
 ) -> Vec<RecordedZshOptionUpdate> {
     args.iter()
-        .filter_map(|word| static_word_text(word, source))
-        .filter(|text| text != "--")
-        .filter_map(|text| parse_recorded_zsh_option_update(&text, enable))
+        .filter_map(|word| match static_word_text(word, source) {
+            Some(text) if text == "--" => None,
+            Some(text) => parse_recorded_zsh_option_update(&text, enable),
+            None => Some(RecordedZshOptionUpdate::UnknownName { enable }),
+        })
         .collect()
 }
 
@@ -253,12 +262,19 @@ pub(super) fn parse_set_builtin_option_updates(
         match text.as_ref() {
             "-o" | "+o" => {
                 let enable = text.starts_with('-');
-                if let Some(name) = args
+                match args
                     .get(index + 1)
                     .and_then(|word| static_word_text(word, source))
-                    && let Some(update) = parse_recorded_zsh_option_update(&name, enable)
                 {
-                    updates.push(update);
+                    Some(name) => {
+                        if let Some(update) = parse_recorded_zsh_option_update(&name, enable) {
+                            updates.push(update);
+                        }
+                    }
+                    None if args.get(index + 1).is_some() => {
+                        updates.push(RecordedZshOptionUpdate::UnknownName { enable });
+                    }
+                    None => {}
                 }
                 index += 2;
             }

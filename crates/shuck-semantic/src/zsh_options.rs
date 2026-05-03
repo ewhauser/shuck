@@ -259,17 +259,28 @@ pub(crate) fn analyze(
     })
 }
 
+fn update_with_target(current: OptionValue, enable: bool) -> OptionValue {
+    let target = if enable {
+        OptionValue::On
+    } else {
+        OptionValue::Off
+    };
+    current.merge(target)
+}
+
 pub(crate) fn may_enable_ksh_arrays_anywhere(recorded_program: &RecordedProgram) -> bool {
     recorded_program.command_infos.values().any(|info| {
         info.zsh_effects.iter().any(|effect| match effect {
             RecordedZshCommandEffect::Emulate { mode, .. } => *mode == ZshEmulationMode::Ksh,
-            RecordedZshCommandEffect::SetOptions { updates } => updates.iter().any(|update| {
-                matches!(
-                    update,
-                    RecordedZshOptionUpdate::Named { name, enable: true }
-                        if name.as_ref() == "ksharrays"
-                )
-            }),
+            RecordedZshCommandEffect::SetOptions { updates } => {
+                updates.iter().any(|update| match update {
+                    RecordedZshOptionUpdate::UnknownName { enable: true } => true,
+                    RecordedZshOptionUpdate::Named { name, enable: true } => {
+                        name.as_ref() == "ksharrays"
+                    }
+                    _ => false,
+                })
+            }
         })
     })
 }
@@ -812,6 +823,16 @@ impl<'a> Analyzer<'a> {
                 } else {
                     OptionValue::Off
                 };
+            }
+            RecordedZshOptionUpdate::UnknownName { enable } => {
+                state.current.local_options =
+                    update_with_target(state.current.local_options, *enable);
+                for field in ZshOptionField::ALL {
+                    let value =
+                        update_with_target(get_option_field(&state.current.public, field), *enable);
+                    set_option_field(&mut state.current.public, field, value);
+                    self.apply_explicit_public_field(state, leak, field, value);
+                }
             }
             RecordedZshOptionUpdate::Named { name, enable } => {
                 let Some(field) = field_for_option_name(name) else {
