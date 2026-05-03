@@ -5,7 +5,7 @@ use shuck_semantic::{
     Reference, ReferenceId, ScopeId,
 };
 
-use crate::{Checker, LinterFacts, Rule, Violation, WordQuote, facts::CommandId};
+use crate::{Checker, LinterFacts, Rule, ShellDialect, Violation, WordQuote, facts::CommandId};
 
 pub struct QuotedBashSource;
 
@@ -32,7 +32,7 @@ pub fn quoted_bash_source(checker: &mut Checker) {
                 .filter(move |reference| reference.span == span)
         })
         .collect::<Vec<_>>();
-    let mut context = QuotedBashSourceContext::new(checker.facts(), semantic);
+    let mut context = QuotedBashSourceContext::new(checker.facts(), semantic, checker.shell());
     let spans = candidate_references
         .into_iter()
         .filter(|reference| context.reference_is_array_like(reference))
@@ -45,6 +45,7 @@ pub fn quoted_bash_source(checker: &mut Checker) {
 struct QuotedBashSourceContext<'a, 'src> {
     facts: &'a LinterFacts<'src>,
     semantic: &'a shuck_semantic::SemanticModel,
+    shell: ShellDialect,
     local_declarations: LocalDeclarationIndex,
     simple_command_ancestors_by_offset: FxHashMap<usize, Vec<SimpleCommandAncestor>>,
     same_command_writers_by_name: FxHashMap<Name, Vec<BindingId>>,
@@ -57,10 +58,15 @@ struct QuotedBashSourceContext<'a, 'src> {
 }
 
 impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
-    fn new(facts: &'a LinterFacts<'src>, semantic: &'a shuck_semantic::SemanticModel) -> Self {
+    fn new(
+        facts: &'a LinterFacts<'src>,
+        semantic: &'a shuck_semantic::SemanticModel,
+        shell: ShellDialect,
+    ) -> Self {
         Self {
             facts,
             semantic,
+            shell,
             local_declarations: LocalDeclarationIndex::build(semantic),
             simple_command_ancestors_by_offset: FxHashMap::default(),
             same_command_writers_by_name: FxHashMap::default(),
@@ -77,6 +83,7 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
         if self.semantic.is_guarded_parameter_reference(reference.id)
             || self.reference_has_prior_presence_test(reference)
             || self.reference_reads_into_same_name_array_writer(reference)
+            || self.reference_has_prior_zsh_scalar_local_barrier(reference)
         {
             return false;
         }
@@ -85,7 +92,9 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
             && !binding_is_array_like(binding)
             && !self.binding_inherits_indexed_array_type(binding)
             && (binding_resets_indexed_array_type(binding)
-                || self.binding_has_prior_local_barrier(binding))
+                || self.binding_has_prior_local_barrier(binding)
+                || (self.shell == ShellDialect::Zsh
+                    && binding_is_initialized_scalar_declaration(binding)))
         {
             return false;
         }
@@ -148,8 +157,9 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
                 .copied()
                 .filter(|candidate_id| {
                     let candidate = self.semantic.binding(*candidate_id);
-                    let same_scope_candidate_allowed =
-                        !initialized_scalar_declaration || append_declaration;
+                    let same_scope_candidate_allowed = !initialized_scalar_declaration
+                        || append_declaration
+                        || self.shell != ShellDialect::Zsh;
                     candidate.span.start.offset < binding.span.start.offset
                         && ((candidate.scope != binding.scope && !prior_local_barrier)
                             || same_scope_candidate_allowed)
@@ -176,6 +186,46 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
         self.binding_inherits_indexed_array_type_cache
             .insert(binding.id, inherited);
         inherited
+    }
+
+    fn reference_has_prior_zsh_scalar_local_barrier(&self, reference: &Reference) -> bool {
+        if self.shell != ShellDialect::Zsh {
+            return false;
+        }
+
+        let latest_barrier = self
+            .semantic
+            .ancestor_scopes(self.semantic.scope_at(reference.span.start.offset))
+            .flat_map(|scope| {
+                self.local_declarations
+                    .initialized_scalar_local_declarations_for(scope, &reference.name)
+                    .iter()
+                    .copied()
+            })
+            .filter(|span| span.end.offset < reference.span.start.offset)
+            .max_by_key(|span| span.start.offset);
+
+        latest_barrier.is_some_and(|barrier| {
+            !self.zsh_array_binding_after_scalar_local_barrier(reference, barrier)
+        })
+    }
+
+    fn zsh_array_binding_after_scalar_local_barrier(
+        &self,
+        reference: &Reference,
+        barrier: Span,
+    ) -> bool {
+        self.semantic
+            .bindings_for(&reference.name)
+            .iter()
+            .copied()
+            .map(|binding_id| self.semantic.binding(binding_id))
+            .any(|binding| {
+                binding.span.start.offset > barrier.start.offset
+                    && binding.span.start.offset < reference.span.start.offset
+                    && self.semantic.binding_visible_at(binding.id, reference.span)
+                    && binding_is_array_like(binding)
+            })
     }
 
     fn reference_reads_into_same_name_array_writer(&mut self, reference: &Reference) -> bool {
@@ -381,6 +431,7 @@ struct SimpleCommandAncestor {
 struct LocalDeclarationIndex {
     local_declarations_by_scope_name: FxHashMap<(ScopeId, Name), Vec<Span>>,
     name_only_local_declarations_by_scope_name: FxHashMap<(ScopeId, Name), Vec<Span>>,
+    initialized_scalar_local_declarations_by_scope_name: FxHashMap<(ScopeId, Name), Vec<Span>>,
     append_local_declaration_spans: FxHashSet<(ScopeId, Name, usize, usize)>,
 }
 
@@ -390,6 +441,8 @@ impl LocalDeclarationIndex {
             FxHashMap::<(ScopeId, Name), Vec<Span>>::default();
         let mut name_only_local_declarations_by_scope_name =
             FxHashMap::<(ScopeId, Name), Vec<Span>>::default();
+        let mut initialized_scalar_local_declarations_by_scope_name =
+            FxHashMap::<(ScopeId, Name), Vec<Span>>::default();
         let mut append_local_declaration_spans = FxHashSet::default();
 
         for declaration in semantic.declarations() {
@@ -398,6 +451,15 @@ impl LocalDeclarationIndex {
             }
 
             let scope = semantic.scope_at(declaration.span.start.offset);
+            let declaration_has_array_flag = declaration.operands.iter().any(|operand| {
+                matches!(
+                    operand,
+                    DeclarationOperand::Flag {
+                        flag: 'a' | 'A',
+                        ..
+                    }
+                )
+            });
             for operand in &declaration.operands {
                 match operand {
                     DeclarationOperand::Name { name, .. } => {
@@ -420,6 +482,12 @@ impl LocalDeclarationIndex {
                             .entry((scope, name.clone()))
                             .or_default()
                             .push(declaration.span);
+                        if !*append && !declaration_has_array_flag {
+                            initialized_scalar_local_declarations_by_scope_name
+                                .entry((scope, name.clone()))
+                                .or_default()
+                                .push(declaration.span);
+                        }
                         if *append {
                             append_local_declaration_spans.insert((
                                 scope,
@@ -437,6 +505,7 @@ impl LocalDeclarationIndex {
         Self {
             local_declarations_by_scope_name,
             name_only_local_declarations_by_scope_name,
+            initialized_scalar_local_declarations_by_scope_name,
             append_local_declaration_spans,
         }
     }
@@ -449,6 +518,12 @@ impl LocalDeclarationIndex {
 
     fn name_only_local_declarations_for(&self, scope: ScopeId, name: &Name) -> &[Span] {
         self.name_only_local_declarations_by_scope_name
+            .get(&(scope, name.clone()))
+            .map_or(&[], Vec::as_slice)
+    }
+
+    fn initialized_scalar_local_declarations_for(&self, scope: ScopeId, name: &Name) -> &[Span] {
+        self.initialized_scalar_local_declarations_by_scope_name
             .get(&(scope, name.clone()))
             .map_or(&[], Vec::as_slice)
     }
@@ -495,6 +570,16 @@ fn binding_resets_indexed_array_type(binding: &Binding) -> bool {
             && !binding
                 .attributes
                 .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC))
+}
+
+fn binding_is_initialized_scalar_declaration(binding: &Binding) -> bool {
+    matches!(binding.kind, BindingKind::Declaration(_))
+        && binding
+            .attributes
+            .contains(BindingAttributes::DECLARATION_INITIALIZED)
+        && !binding
+            .attributes
+            .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC)
 }
 
 fn binding_is_sticky_indexed_array(binding: &Binding) -> bool {
@@ -565,7 +650,7 @@ fn is_bash_runtime_array_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule, lint_file_at_path};
+    use crate::{LinterSettings, Rule, ShellDialect, lint_file_at_path};
     use shuck_indexer::Indexer;
     use shuck_parser::parser::Parser;
     use std::fs;
@@ -1190,6 +1275,70 @@ second_function() {
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$target"]
+        );
+    }
+
+    #[test]
+    fn zsh_initialized_local_scalar_rebindings_do_not_inherit_outer_array_type() {
+        let source = "\
+#!/bin/zsh
+cmd=(curl -I)
+f() {
+  local cmd=cp
+  eval \"$cmd\"
+  local ice_key=\"$cmd\"
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn zsh_initialized_local_scalar_rebindings_suppress_nested_subshell_refs() {
+        let source = "\
+#!/bin/zsh
+cmd=(curl -I)
+f() {
+  local cmd=cp
+  (
+    command $cmd -f src dst
+  )
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn zsh_later_array_bindings_after_scalar_local_barriers_still_warn() {
+        let source = "\
+#!/bin/zsh
+items=(old)
+f() {
+  local items=scalar
+  items=(new)
+  print -r -- $items
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$items"]
         );
     }
 
