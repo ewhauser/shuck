@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use shuck_ast::Name;
 use shuck_semantic::{
     Binding, BindingAttributes, BindingKind, Declaration, DeclarationBuiltin, DeclarationOperand,
+    ScopeId,
 };
 
 use crate::{Checker, ComparableNameUseKind, Rule, ShellDialect, Violation, WrapperKind};
@@ -38,18 +39,20 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
                 if event.offset > binding.span.start.offset {
                     break;
                 }
-                array_history.insert(event.name.clone(), event.array_like);
+                push_array_history(&mut array_history, event.name.clone(), event.state);
                 next_history_event += 1;
             }
 
             let name = binding.name.clone();
-            let saw_array_history = array_history
-                .get(&name)
-                .copied()
+            let saw_array_history = visible_array_history(&array_history, &name, checker, binding)
                 .unwrap_or_else(|| binding_uses_builtin_array_history(checker, binding));
 
             if declaration_resets_array_history(binding) {
-                array_history.insert(name, false);
+                push_array_history(
+                    &mut array_history,
+                    name,
+                    ArrayHistoryState::from_binding(checker, binding, false, None),
+                );
                 return None;
             }
             if !binding_can_trigger_array_to_string_conversion(
@@ -57,15 +60,29 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
                 &append_declaration_assignments,
             ) {
                 if binding_establishes_array_history(binding, &builtin_history) {
-                    array_history.insert(name, true);
+                    let prior = latest_array_history(&array_history, &name);
+                    push_array_history(
+                        &mut array_history,
+                        name,
+                        ArrayHistoryState::from_binding(checker, binding, true, prior),
+                    );
                 } else if binding_resets_array_history(binding, &builtin_history) {
-                    array_history.insert(name, false);
+                    push_array_history(
+                        &mut array_history,
+                        name,
+                        ArrayHistoryState::from_binding(checker, binding, false, None),
+                    );
                 }
                 return None;
             }
             if binding_is_array_like(binding) {
                 if binding_establishes_array_history(binding, &builtin_history) {
-                    array_history.insert(name, true);
+                    let prior = latest_array_history(&array_history, &name);
+                    push_array_history(
+                        &mut array_history,
+                        name,
+                        ArrayHistoryState::from_binding(checker, binding, true, prior),
+                    );
                 }
                 return None;
             }
@@ -73,7 +90,20 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
             checker.facts().binding_value(binding.id)?.scalar_word()?;
 
             if binding_establishes_array_history(binding, &builtin_history) {
-                array_history.insert(name.clone(), true);
+                let prior = latest_array_history(&array_history, &name);
+                push_array_history(
+                    &mut array_history,
+                    name.clone(),
+                    ArrayHistoryState::from_binding(checker, binding, true, prior),
+                );
+            } else if checker.shell() == ShellDialect::Zsh
+                && binding_establishes_local_scalar_history(binding)
+            {
+                push_array_history(
+                    &mut array_history,
+                    name.clone(),
+                    ArrayHistoryState::from_binding(checker, binding, false, None),
+                );
             }
 
             saw_array_history.then_some(binding.span)
@@ -83,11 +113,89 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
     checker.report_all_dedup(spans, || ArrayToStringConversion);
 }
 
+fn push_array_history(
+    array_history: &mut HashMap<Name, Vec<ArrayHistoryState>>,
+    name: Name,
+    state: ArrayHistoryState,
+) {
+    array_history.entry(name).or_default().push(state);
+}
+
+fn latest_array_history(
+    array_history: &HashMap<Name, Vec<ArrayHistoryState>>,
+    name: &Name,
+) -> Option<ArrayHistoryState> {
+    array_history
+        .get(name)
+        .and_then(|history| history.last())
+        .copied()
+}
+
+fn visible_array_history(
+    array_history: &HashMap<Name, Vec<ArrayHistoryState>>,
+    name: &Name,
+    checker: &Checker<'_>,
+    binding: &Binding,
+) -> Option<bool> {
+    array_history.get(name).and_then(|history| {
+        history
+            .iter()
+            .rev()
+            .find(|state| state.visible_to_binding(checker, binding))
+            .map(|state| state.array_like)
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ArrayHistoryEvent {
     offset: usize,
     name: Name,
+    state: ArrayHistoryState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ArrayHistoryState {
     array_like: bool,
+    local: bool,
+    function_scope: Option<ScopeId>,
+}
+
+impl ArrayHistoryState {
+    fn from_binding(
+        checker: &Checker<'_>,
+        binding: &Binding,
+        array_like: bool,
+        prior: Option<Self>,
+    ) -> Self {
+        let function_scope = checker.semantic().enclosing_function_scope(binding.scope);
+        let inherits_local_history =
+            prior.is_some_and(|state| state.local && state.function_scope == function_scope);
+        Self {
+            array_like,
+            local: binding.attributes.contains(BindingAttributes::LOCAL)
+                || binding.kind == BindingKind::Declaration(DeclarationBuiltin::Local)
+                || inherits_local_history,
+            function_scope,
+        }
+    }
+
+    fn from_offset(checker: &Checker<'_>, offset: usize, array_like: bool, local: bool) -> Self {
+        let scope = checker.semantic().scope_at(offset);
+        Self {
+            array_like,
+            local,
+            function_scope: checker.semantic().enclosing_function_scope(scope),
+        }
+    }
+
+    fn visible_to_binding(self, checker: &Checker<'_>, binding: &Binding) -> bool {
+        if checker.shell() != ShellDialect::Zsh {
+            return true;
+        }
+
+        !self.local
+            || self.function_scope == checker.semantic().enclosing_function_scope(binding.scope)
+    }
 }
 
 fn array_history_events(
@@ -98,7 +206,7 @@ fn array_history_events(
     let mut events = builtin_events.to_vec();
     events.extend(presence_test_reset_events(checker, bindings));
     events.extend(name_only_declaration_history_events(checker));
-    events.sort_by_key(|event| (event.offset, !event.array_like));
+    events.sort_by_key(|event| (event.offset, !event.state.array_like));
     events
 }
 
@@ -162,7 +270,12 @@ fn collect_command_array_history(
             history.events.push(ArrayHistoryEvent {
                 offset: target.span().start.offset,
                 name: Name::from(target.key().as_str()),
-                array_like: true,
+                state: ArrayHistoryState::from_offset(
+                    checker,
+                    target.span().start.offset,
+                    true,
+                    false,
+                ),
             });
         }
         return;
@@ -187,7 +300,12 @@ fn collect_command_array_history(
             history.events.push(ArrayHistoryEvent {
                 offset: target.span().start.offset,
                 name: Name::from(target.key().as_str()),
-                array_like: true,
+                state: ArrayHistoryState::from_offset(
+                    checker,
+                    target.span().start.offset,
+                    true,
+                    false,
+                ),
             });
         }
     }
@@ -207,6 +325,7 @@ fn presence_test_reset_events(
     for name in names {
         for fact in checker.facts().presence_test_references(&name) {
             push_reset_event(
+                checker,
                 &mut events,
                 &mut seen,
                 fact.command_span().start.offset,
@@ -215,6 +334,7 @@ fn presence_test_reset_events(
         }
         for fact in checker.facts().presence_test_names(&name) {
             push_reset_event(
+                checker,
                 &mut events,
                 &mut seen,
                 fact.command_span().start.offset,
@@ -238,7 +358,12 @@ fn name_only_declaration_history_events(checker: &Checker<'_>) -> Vec<ArrayHisto
                 events.push(ArrayHistoryEvent {
                     offset: span.start.offset,
                     name: name.clone(),
-                    array_like: false,
+                    state: ArrayHistoryState::from_offset(
+                        checker,
+                        span.start.offset,
+                        false,
+                        declaration.builtin == DeclarationBuiltin::Local,
+                    ),
                 });
             }
         }
@@ -290,6 +415,7 @@ fn declaration_flag_state(declaration: &Declaration) -> DeclarationFlagState {
 }
 
 fn push_reset_event(
+    checker: &Checker<'_>,
     events: &mut Vec<ArrayHistoryEvent>,
     seen: &mut HashSet<(usize, Name)>,
     offset: usize,
@@ -299,7 +425,7 @@ fn push_reset_event(
         events.push(ArrayHistoryEvent {
             offset,
             name: name.clone(),
-            array_like: false,
+            state: ArrayHistoryState::from_offset(checker, offset, false, false),
         });
     }
 }
@@ -367,6 +493,16 @@ fn binding_establishes_array_history(
         }
         _ => binding_is_array_like(binding),
     }
+}
+
+fn binding_establishes_local_scalar_history(binding: &Binding) -> bool {
+    matches!(
+        binding.kind,
+        BindingKind::Declaration(DeclarationBuiltin::Local)
+    ) && binding
+        .attributes
+        .contains(BindingAttributes::DECLARATION_INITIALIZED)
+        && !binding_is_array_like(binding)
 }
 
 fn binding_resets_array_history(binding: &Binding, builtin_history: &BuiltinArrayHistory) -> bool {
@@ -599,6 +735,104 @@ f() {
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["cmd"],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn ignores_shadowed_local_scalars_after_sibling_function_local_arrays() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local -a cmd
+  cmd=(curl -I)
+}
+g() {
+  local cmd=cp
+}
+h() {
+  local -a ___opt
+  ___opt=(-a -b)
+}
+i() {
+  local ___opt=\"$1\"
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_global_scalar_after_hidden_function_local_array_history() {
+        let source = "\
+#!/bin/zsh
+arr=(global)
+f() {
+  local -a arr
+  arr=(local)
+}
+arr=scalar
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["arr"],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn ignores_shadowed_array_history_after_initialized_local_scalar() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local cmd=cp
+  cmd=(curl -I)
+}
+g() {
+  local cmd=mv
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_same_function_local_scalar_after_initialized_local_array() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local -a p
+  p=(one two)
+  local p=$'\\n'
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["p"],
             "{diagnostics:#?}"
         );
     }
@@ -894,7 +1128,7 @@ arr=value
     }
 
     #[test]
-    fn reports_global_scalar_reassignments_after_function_local_array_use() {
+    fn reports_bash_sibling_and_global_scalars_after_function_local_array_use() {
         let source = "\
 #!/bin/bash
 f() {
@@ -921,6 +1155,29 @@ fuzzer=$1
             vec!["fuzzer", "fuzzer"],
             "{diagnostics:#?}"
         );
+    }
+
+    #[test]
+    fn ignores_zsh_sibling_and_global_scalars_after_function_local_array_use() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local fuzzer=$1
+  if [[ $fuzzer == *\"@\"* ]]; then
+    fuzzer=(${fuzzer//@/ }[0])
+  fi
+}
+g() {
+  local fuzzer=$1
+}
+fuzzer=$1
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]
