@@ -14,11 +14,6 @@ pub(crate) type MainLoopReceiver = crossbeam::channel::Receiver<Event>;
 
 impl Server {
     pub(super) fn main_loop(&mut self) -> crate::Result<()> {
-        self.initialize(&Client::new(
-            self.main_loop_sender.clone(),
-            self.connection.sender.clone(),
-        ));
-
         let mut scheduler = schedule::Scheduler::new(self.worker_threads);
         while let Ok(next_event) = self.next_event() {
             let Some(next_event) = next_event else {
@@ -61,6 +56,10 @@ impl Server {
                                     ));
                                 }
                                 return Ok(());
+                            }
+
+                            if notification.method == lsp_types::notification::Initialized::METHOD {
+                                self.on_initialized(&client);
                             }
 
                             api::notification(notification)
@@ -111,7 +110,7 @@ impl Server {
         )
     }
 
-    fn initialize(&mut self, client: &Client) {
+    fn on_initialized(&mut self, client: &Client) {
         let dynamic_registration = self
             .client_capabilities
             .workspace
