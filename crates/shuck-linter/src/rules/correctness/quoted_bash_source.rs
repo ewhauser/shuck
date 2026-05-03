@@ -236,11 +236,13 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
     }
 
     fn zsh_reference_uses_native_array_scalar_policy(&self, reference: &Reference) -> bool {
-        self.shell == ShellDialect::Zsh
-            && self
-                .semantic
-                .zsh_ksh_arrays_runtime_state_at(reference.span.start.offset)
-                .is_some_and(|state| state == OptionValue::Off)
+        if self.shell != ShellDialect::Zsh {
+            return false;
+        }
+
+        self.semantic
+            .zsh_ksh_arrays_runtime_state_at(reference.span.start.offset)
+            .is_some_and(|state| state == OptionValue::Off)
     }
 
     fn reference_reads_into_same_name_array_writer(&mut self, reference: &Reference) -> bool {

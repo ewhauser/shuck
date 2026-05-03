@@ -9737,11 +9737,41 @@ print *
 }
 
 #[test]
+fn zsh_option_analysis_tracks_ksh_arrays_updates_by_offset() {
+    for (source, expected) in [
+        ("setopt ksh_arrays\nprint $name\n", OptionValue::On),
+        ("setopt ksharrays\nprint $name\n", OptionValue::On),
+        ("unsetopt no_ksh_arrays\nprint $name\n", OptionValue::On),
+        ("unsetopt no-ksh-arrays\nprint $name\n", OptionValue::On),
+        ("emulate ksh\nprint $name\n", OptionValue::On),
+        ("emulate -R ksh\nprint $name\n", OptionValue::On),
+        ("unsetopt ksh_arrays\nprint $name\n", OptionValue::Off),
+        ("unsetopt ksharrays\nprint $name\n", OptionValue::Off),
+        ("setopt no_ksh_arrays\nprint $name\n", OptionValue::Off),
+        ("setopt no-ksh-arrays\nprint $name\n", OptionValue::Off),
+        ("emulate zsh\nprint $name\n", OptionValue::Off),
+        ("emulate sh\nprint $name\n", OptionValue::Off),
+        ("emulate csh\nprint $name\n", OptionValue::Off),
+    ] {
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected zsh options");
+
+        assert_eq!(options.ksh_arrays, expected, "{source}");
+    }
+}
+
+#[test]
 fn semantic_helper_detects_real_ksh_array_enables() {
     for source in [
         "setopt ksh_arrays\nprint $name\n",
+        "setopt ksharrays\nprint $name\n",
+        "unsetopt no_ksh_arrays\nprint $name\n",
+        "unsetopt no-ksh-arrays\nprint $name\n",
         "emulate ksh\nprint $name\n",
         "emulate -L ksh\nprint $name\n",
+        "emulate -R ksh\nprint $name\n",
     ] {
         let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
         assert!(model.may_enable_zsh_ksh_arrays_anywhere(), "{source}");
@@ -9753,12 +9783,28 @@ fn semantic_helper_ignores_non_effect_text_for_ksh_arrays() {
     for source in [
         "# emulate ksh in comments should not count\nprint $name\n",
         "msg='setopt ksh_arrays'\nprint $name\n",
+        "setopt no_ksh_arrays\nprint $name\n",
         "emulate sh\nprint $name\n",
+        "emulate zsh\nprint $name\n",
         "unsetopt ksh_arrays\nprint $name\n",
     ] {
         let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
         assert!(!model.may_enable_zsh_ksh_arrays_anywhere(), "{source}");
     }
+}
+
+#[test]
+fn semantic_ksh_arrays_helpers_skip_non_zsh_profiles() {
+    let source = "setopt ksh_arrays\nprint $name\n";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Bash));
+    let offset = source.find("print").unwrap();
+
+    assert!(!model.may_enable_zsh_ksh_arrays_anywhere(), "{source}");
+    assert_eq!(
+        model.zsh_ksh_arrays_runtime_state_at(offset),
+        None,
+        "{source}"
+    );
 }
 
 #[test]

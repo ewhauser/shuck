@@ -645,6 +645,7 @@ pub struct SemanticModel {
     import_origins_by_binding: FxHashMap<BindingId, Vec<PathBuf>>,
     heuristic_unused_assignments: Vec<BindingId>,
     zsh_option_analysis: Option<ZshOptionAnalysis>,
+    zsh_ksh_arrays_may_enable_anywhere: OnceLock<bool>,
     assoc_lookup_binding_index: OnceLock<AssocLookupBindingIndex>,
     command_topology: OnceLock<CommandTopology>,
     references_sorted_by_start: OnceLock<Vec<ReferenceId>>,
@@ -836,6 +837,7 @@ impl SemanticModel {
             import_origins_by_binding: FxHashMap::default(),
             heuristic_unused_assignments: built.heuristic_unused_assignments,
             zsh_option_analysis,
+            zsh_ksh_arrays_may_enable_anywhere: OnceLock::new(),
             assoc_lookup_binding_index: OnceLock::new(),
             command_topology: OnceLock::new(),
             references_sorted_by_start: OnceLock::new(),
@@ -872,16 +874,26 @@ impl SemanticModel {
     /// This is a structured, file-wide summary over recorded zsh effects. Callers that need
     /// per-offset behavior should still prefer [`SemanticModel::zsh_options_at`].
     pub fn may_enable_zsh_ksh_arrays_anywhere(&self) -> bool {
-        self.recorded_program.command_infos.values().any(|info| {
-            info.zsh_effects.iter().any(|effect| match effect {
-                RecordedZshCommandEffect::Emulate { mode, .. } => *mode == ZshEmulationMode::Ksh,
-                RecordedZshCommandEffect::SetOptions { updates } => updates.iter().any(|update| {
-                    matches!(
-                        update,
-                        RecordedZshOptionUpdate::Named { name, enable: true }
-                            if name.as_ref() == "ksharrays"
-                    )
-                }),
+        if self.shell_profile.zsh_options().is_none() {
+            return false;
+        }
+
+        *self.zsh_ksh_arrays_may_enable_anywhere.get_or_init(|| {
+            self.recorded_program.command_infos.values().any(|info| {
+                info.zsh_effects.iter().any(|effect| match effect {
+                    RecordedZshCommandEffect::Emulate { mode, .. } => {
+                        *mode == ZshEmulationMode::Ksh
+                    }
+                    RecordedZshCommandEffect::SetOptions { updates } => {
+                        updates.iter().any(|update| {
+                            matches!(
+                                update,
+                                RecordedZshOptionUpdate::Named { name, enable: true }
+                                    if name.as_ref() == "ksharrays"
+                            )
+                        })
+                    }
+                })
             })
         })
     }
@@ -893,6 +905,10 @@ impl SemanticModel {
     /// ambiguous `ksh_arrays` entry state. Callers can treat `Off` as a guaranteed native-zsh
     /// context and anything else as potentially ksh-like.
     pub fn zsh_ksh_arrays_runtime_state_at(&self, offset: usize) -> Option<OptionValue> {
+        if self.shell_profile.zsh_options().is_none() {
+            return None;
+        }
+
         let ordinary = self.zsh_options_at(offset)?.ksh_arrays;
         let scope = self.scope_at(offset);
         let Some(function_scope) = self.enclosing_function_scope(scope) else {
