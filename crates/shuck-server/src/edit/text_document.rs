@@ -18,6 +18,7 @@ pub struct TextDocument {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LanguageId {
     Bash,
+    ShellScript,
     Sh,
     Zsh,
     Ksh,
@@ -28,7 +29,8 @@ impl From<&str> for LanguageId {
     fn from(language_id: &str) -> Self {
         match language_id {
             "bash" => Self::Bash,
-            "shellscript" | "sh" => Self::Sh,
+            "shellscript" => Self::ShellScript,
+            "sh" => Self::Sh,
             "zsh" => Self::Zsh,
             "ksh" => Self::Ksh,
             _ => Self::Other,

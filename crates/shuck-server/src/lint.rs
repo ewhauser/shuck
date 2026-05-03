@@ -156,33 +156,33 @@ fn infer_document_shell(
     source: &str,
     path: Option<&Path>,
 ) -> Option<ShellDialect> {
-    if let Some(shell) = shell_from_language_id(query.language_id()) {
-        return Some(shell);
-    }
-
     let shell = ShellDialect::infer(source, path);
-    (shell != ShellDialect::Unknown && path_supports_shell_inference(path)).then_some(shell)
-}
 
-fn shell_from_language_id(language_id: Option<LanguageId>) -> Option<ShellDialect> {
-    match language_id {
-        Some(LanguageId::Bash) => Some(ShellDialect::Bash),
-        Some(LanguageId::Sh) => Some(ShellDialect::Sh),
-        Some(LanguageId::Zsh) => Some(ShellDialect::Zsh),
-        Some(LanguageId::Ksh) => Some(ShellDialect::Ksh),
-        Some(LanguageId::Other) | None => None,
+    match language_id_preference(query.language_id()) {
+        LanguageIdPreference::Concrete(shell) => Some(shell),
+        LanguageIdPreference::GenericShell => Some(match shell {
+            ShellDialect::Unknown => ShellDialect::Sh,
+            shell => shell,
+        }),
+        LanguageIdPreference::Unknown => (shell != ShellDialect::Unknown).then_some(shell),
     }
 }
 
-fn path_supports_shell_inference(path: Option<&Path>) -> bool {
-    path.and_then(|path| path.extension().and_then(|ext| ext.to_str()))
-        .map(|ext| {
-            matches!(
-                ext.to_ascii_lowercase().as_str(),
-                "sh" | "bash" | "dash" | "ksh" | "mksh" | "zsh"
-            )
-        })
-        .unwrap_or(true)
+enum LanguageIdPreference {
+    Concrete(ShellDialect),
+    GenericShell,
+    Unknown,
+}
+
+fn language_id_preference(language_id: Option<LanguageId>) -> LanguageIdPreference {
+    match language_id {
+        Some(LanguageId::Bash) => LanguageIdPreference::Concrete(ShellDialect::Bash),
+        Some(LanguageId::Sh) => LanguageIdPreference::Concrete(ShellDialect::Sh),
+        Some(LanguageId::Zsh) => LanguageIdPreference::Concrete(ShellDialect::Zsh),
+        Some(LanguageId::Ksh) => LanguageIdPreference::Concrete(ShellDialect::Ksh),
+        Some(LanguageId::ShellScript) => LanguageIdPreference::GenericShell,
+        Some(LanguageId::Other) | None => LanguageIdPreference::Unknown,
+    }
 }
 
 #[cfg(test)]
@@ -319,5 +319,44 @@ mod tests {
             diagnostics[0].code,
             Some(types::NumberOrString::String("C001".to_owned()))
         );
+    }
+
+    #[test]
+    fn generic_shell_language_id_allows_shebang_override() {
+        let snapshot = make_snapshot(
+            &std::env::temp_dir().join("generic-shell-script"),
+            "#!/bin/bash\nfoo=1\n",
+            "shellscript",
+            PositionEncoding::UTF16,
+        );
+
+        assert_eq!(
+            infer_document_shell(
+                snapshot.query(),
+                snapshot.query().document().contents(),
+                snapshot.query().file_path().as_deref(),
+            ),
+            Some(ShellDialect::Bash)
+        );
+    }
+
+    #[test]
+    fn shell_shebang_still_lints_on_custom_extension() {
+        let snapshot = make_snapshot(
+            &std::env::temp_dir().join("script.custom"),
+            "#!/bin/bash\nfoo=1\n",
+            "",
+            PositionEncoding::UTF16,
+        );
+
+        assert_eq!(
+            infer_document_shell(
+                snapshot.query(),
+                snapshot.query().document().contents(),
+                snapshot.query().file_path().as_deref(),
+            ),
+            Some(ShellDialect::Bash)
+        );
+        assert_eq!(generate_diagnostics(&snapshot).len(), 1);
     }
 }
