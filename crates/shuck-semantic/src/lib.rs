@@ -71,11 +71,52 @@ pub use reference::{Reference, ReferenceId, ReferenceKind};
 /// Scope types and identifiers tracked by the semantic model.
 pub use scope::{FunctionScopeKind, Scope, ScopeId, ScopeKind};
 /// Shell parser option types reused by the semantic analysis layer.
-pub use shuck_parser::{OptionValue, ShellProfile, ZshEmulationMode, ZshOptionState};
+pub use shuck_parser::{OptionValue, ShellDialect, ShellProfile, ZshEmulationMode, ZshOptionState};
 /// Source-reference records and resolution state.
 pub use source_ref::{SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution};
 /// Value-flow query object built over semantic bindings, call sites, CFG, and dataflow.
 pub use value_flow::SemanticValueFlow;
+
+/// How an unindexed array reference behaves at a source offset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArrayReferencePolicy {
+    /// The shell requires an explicit element or selector for array references.
+    RequiresExplicitSelector,
+    /// Native zsh treats an unindexed array reference as a scalar first-element read.
+    NativeZshScalar,
+    /// Runtime option state may select either policy.
+    Ambiguous,
+}
+
+/// Option-sensitive shell behavior visible at a source offset.
+#[derive(Debug)]
+pub struct ShellBehaviorAt<'model> {
+    shell: ShellDialect,
+    zsh_options: Option<&'model ZshOptionState>,
+    runtime_options: Option<ZshOptionState>,
+}
+
+impl ShellBehaviorAt<'_> {
+    fn effective_zsh_options(&self) -> Option<&ZshOptionState> {
+        self.runtime_options.as_ref().or(self.zsh_options)
+    }
+
+    /// Returns the array-reference policy implied by the shell and runtime option state.
+    pub fn array_reference_policy(&self) -> ArrayReferencePolicy {
+        if self.shell != ShellDialect::Zsh {
+            return ArrayReferencePolicy::RequiresExplicitSelector;
+        }
+
+        match self
+            .effective_zsh_options()
+            .map(|options| options.ksh_arrays)
+        {
+            Some(OptionValue::Off) => ArrayReferencePolicy::NativeZshScalar,
+            Some(OptionValue::Unknown) => ArrayReferencePolicy::Ambiguous,
+            Some(OptionValue::On) | None => ArrayReferencePolicy::RequiresExplicitSelector,
+        }
+    }
+}
 
 /// A function scope reached through a top-level `case "$1"` style CLI dispatcher.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -645,9 +686,8 @@ pub struct SemanticModel {
     import_origins_by_binding: FxHashMap<BindingId, Vec<PathBuf>>,
     heuristic_unused_assignments: Vec<BindingId>,
     zsh_option_analysis: Option<ZshOptionAnalysis>,
-    zsh_ksh_arrays_may_enable_anywhere: OnceLock<bool>,
-    zsh_ksh_arrays_runtime_by_function:
-        OnceLock<FxHashMap<ScopeId, OnceLock<Option<ZshOptionAnalysis>>>>,
+    zsh_runtime_ambiguous_entry_mask: OnceLock<zsh_options::ZshOptionMask>,
+    zsh_runtime_by_function: OnceLock<FxHashMap<ScopeId, OnceLock<Option<ZshOptionAnalysis>>>>,
     assoc_lookup_binding_index: OnceLock<AssocLookupBindingIndex>,
     command_topology: OnceLock<CommandTopology>,
     references_sorted_by_start: OnceLock<Vec<ReferenceId>>,
@@ -848,8 +888,8 @@ impl SemanticModel {
             import_origins_by_binding: FxHashMap::default(),
             heuristic_unused_assignments: built.heuristic_unused_assignments,
             zsh_option_analysis,
-            zsh_ksh_arrays_may_enable_anywhere: OnceLock::new(),
-            zsh_ksh_arrays_runtime_by_function: OnceLock::new(),
+            zsh_runtime_ambiguous_entry_mask: OnceLock::new(),
+            zsh_runtime_by_function: OnceLock::new(),
             assoc_lookup_binding_index: OnceLock::new(),
             command_topology: OnceLock::new(),
             references_sorted_by_start: OnceLock::new(),
@@ -881,46 +921,44 @@ impl SemanticModel {
             .and_then(|analysis| analysis.options_at(&self.scopes, offset))
     }
 
-    fn may_enable_zsh_ksh_arrays_anywhere(&self) -> bool {
+    /// Returns option-sensitive shell behavior visible at `offset`.
+    pub fn shell_behavior_at(&self, offset: usize) -> ShellBehaviorAt<'_> {
+        ShellBehaviorAt {
+            shell: self.shell_profile.dialect,
+            zsh_options: self.zsh_options_at(offset),
+            runtime_options: self.zsh_runtime_options_at(offset),
+        }
+    }
+
+    fn zsh_runtime_ambiguous_entry_mask(&self) -> zsh_options::ZshOptionMask {
         if self.shell_profile.zsh_options().is_none() {
-            return false;
+            return zsh_options::ZshOptionMask::default();
         }
 
-        *self.zsh_ksh_arrays_may_enable_anywhere.get_or_init(|| {
-            crate::zsh_options::may_enable_ksh_arrays_anywhere(&self.recorded_program)
+        *self.zsh_runtime_ambiguous_entry_mask.get_or_init(|| {
+            crate::zsh_options::runtime_ambiguous_entry_mask(&self.recorded_program)
         })
     }
 
-    /// Returns the conservative runtime state for `ksh_arrays` at `offset`.
-    ///
-    /// For function bodies in files that can enable `ksh_arrays`, this merges the ordinary
-    /// zsh-option snapshot with a second pass that re-evaluates the enclosing function under an
-    /// ambiguous `ksh_arrays` entry state. Callers can treat `Off` as a guaranteed native-zsh
-    /// context and anything else as potentially ksh-like.
-    pub fn zsh_ksh_arrays_runtime_state_at(&self, offset: usize) -> Option<OptionValue> {
+    fn zsh_runtime_options_at(&self, offset: usize) -> Option<ZshOptionState> {
         self.shell_profile.zsh_options()?;
-        let ordinary = self.zsh_options_at(offset)?.ksh_arrays;
-        if !self.may_enable_zsh_ksh_arrays_anywhere() {
-            return Some(ordinary);
+        let ordinary = self.zsh_options_at(offset)?.clone();
+        let ambiguous_entry = self.zsh_runtime_ambiguous_entry_mask();
+        if ambiguous_entry.is_empty() {
+            return None;
         }
 
         let scope = self.scope_at(offset);
-        let Some(function_scope) = self.enclosing_function_scope(scope) else {
-            return Some(ordinary);
-        };
-
+        let function_scope = self.enclosing_function_scope(scope)?;
         let ambient = self
-            .zsh_ksh_arrays_runtime_analysis_for_function(function_scope)
-            .and_then(|analysis| analysis.options_at(&self.scopes, offset))
-            .map_or(ordinary, |options| options.ksh_arrays);
+            .zsh_runtime_analysis_for_function(function_scope)
+            .and_then(|analysis| analysis.options_at(&self.scopes, offset));
 
-        Some(ordinary.merge(ambient))
+        Some(ambient.map_or(ordinary.clone(), |options| ordinary.merge(options)))
     }
 
-    fn zsh_ksh_arrays_runtime_by_function(
-        &self,
-    ) -> &FxHashMap<ScopeId, OnceLock<Option<ZshOptionAnalysis>>> {
-        self.zsh_ksh_arrays_runtime_by_function.get_or_init(|| {
+    fn zsh_runtime_by_function(&self) -> &FxHashMap<ScopeId, OnceLock<Option<ZshOptionAnalysis>>> {
+        self.zsh_runtime_by_function.get_or_init(|| {
             self.recorded_program
                 .function_bodies()
                 .keys()
@@ -929,23 +967,29 @@ impl SemanticModel {
         })
     }
 
-    fn zsh_ksh_arrays_runtime_analysis_for_function(
+    fn zsh_runtime_analysis_for_function(
         &self,
         function_scope: ScopeId,
     ) -> Option<&ZshOptionAnalysis> {
-        self.zsh_ksh_arrays_runtime_by_function()
+        self.zsh_runtime_by_function()
             .get(&function_scope)?
-            .get_or_init(|| self.build_zsh_ksh_arrays_runtime_analysis_for_function(function_scope))
+            .get_or_init(|| self.build_zsh_runtime_analysis_for_function(function_scope))
             .as_ref()
     }
 
-    fn build_zsh_ksh_arrays_runtime_analysis_for_function(
+    fn build_zsh_runtime_analysis_for_function(
         &self,
         function_scope: ScopeId,
     ) -> Option<ZshOptionAnalysis> {
         let function_entry_offset = self.scope(function_scope).span.start.offset;
         let mut function_entry = self.zsh_options_at(function_entry_offset)?.clone();
-        function_entry.ksh_arrays = OptionValue::Unknown;
+        for field in self.zsh_runtime_ambiguous_entry_mask().iter() {
+            crate::zsh_options::set_public_option_field(
+                &mut function_entry,
+                field,
+                OptionValue::Unknown,
+            );
+        }
         crate::zsh_options::function_runtime_analysis_with_entry(
             &self.scopes,
             &self.bindings,

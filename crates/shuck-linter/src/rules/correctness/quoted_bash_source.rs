@@ -1,8 +1,8 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command, Name, Span};
 use shuck_semantic::{
-    Binding, BindingAttributes, BindingId, BindingKind, DeclarationBuiltin, DeclarationOperand,
-    OptionValue, Reference, ReferenceId, ScopeId,
+    ArrayReferencePolicy, Binding, BindingAttributes, BindingId, BindingKind, DeclarationBuiltin,
+    DeclarationOperand, Reference, ReferenceId, ScopeId,
 };
 
 use crate::{Checker, LinterFacts, Rule, ShellDialect, Violation, WordQuote, facts::CommandId};
@@ -241,8 +241,9 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
         }
 
         self.semantic
-            .zsh_ksh_arrays_runtime_state_at(reference.span.start.offset)
-            .is_some_and(|state| state == OptionValue::Off)
+            .shell_behavior_at(reference.span.start.offset)
+            .array_reference_policy()
+            == ArrayReferencePolicy::NativeZshScalar
     }
 
     fn reference_reads_into_same_name_array_writer(&mut self, reference: &Reference) -> bool {

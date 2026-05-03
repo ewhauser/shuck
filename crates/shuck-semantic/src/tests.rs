@@ -9785,8 +9785,12 @@ fn zsh_option_analysis_treats_dynamic_ksh_arrays_updates_as_unknown() {
     }
 }
 
+fn array_reference_policy_at(model: &SemanticModel, offset: usize) -> ArrayReferencePolicy {
+    model.shell_behavior_at(offset).array_reference_policy()
+}
+
 #[test]
-fn semantic_helper_detects_real_ksh_array_enables() {
+fn semantic_behavior_detects_real_ksh_array_enables() {
     for source in [
         "setopt ksh_arrays\nprint $name\n",
         "setopt ksharrays\nprint $name\n",
@@ -9806,12 +9810,17 @@ fn semantic_helper_detects_real_ksh_array_enables() {
         "mode=ksh\nemulate \"$mode\"\nprint $name\n",
     ] {
         let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
-        assert!(model.may_enable_zsh_ksh_arrays_anywhere(), "{source}");
+        let offset = source.find("print").unwrap();
+        assert_ne!(
+            array_reference_policy_at(&model, offset),
+            ArrayReferencePolicy::NativeZshScalar,
+            "{source}"
+        );
     }
 }
 
 #[test]
-fn semantic_helper_ignores_non_effect_text_for_ksh_arrays() {
+fn semantic_behavior_ignores_non_effect_text_for_ksh_arrays() {
     for source in [
         "# emulate ksh in comments should not count\nprint $name\n",
         "msg='setopt ksh_arrays'\nprint $name\n",
@@ -9821,20 +9830,24 @@ fn semantic_helper_ignores_non_effect_text_for_ksh_arrays() {
         "unsetopt ksh_arrays\nprint $name\n",
     ] {
         let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
-        assert!(!model.may_enable_zsh_ksh_arrays_anywhere(), "{source}");
+        let offset = source.find("print").unwrap();
+        assert_eq!(
+            array_reference_policy_at(&model, offset),
+            ArrayReferencePolicy::NativeZshScalar,
+            "{source}"
+        );
     }
 }
 
 #[test]
-fn semantic_ksh_arrays_helpers_skip_non_zsh_profiles() {
+fn semantic_shell_behavior_uses_selector_policy_for_non_zsh_profiles() {
     let source = "setopt ksh_arrays\nprint $name\n";
     let model = model_with_profile(source, ShellProfile::native(ShellDialect::Bash));
     let offset = source.find("print").unwrap();
 
-    assert!(!model.may_enable_zsh_ksh_arrays_anywhere(), "{source}");
     assert_eq!(
-        model.zsh_ksh_arrays_runtime_state_at(offset),
-        None,
+        array_reference_policy_at(&model, offset),
+        ArrayReferencePolicy::RequiresExplicitSelector,
         "{source}"
     );
 }
@@ -9855,7 +9868,6 @@ $dispatcher
     let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
     let offset = source.find("print $name").unwrap();
 
-    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
     assert!(
         model
             .zsh_options_at(offset)
@@ -9863,8 +9875,8 @@ $dispatcher
         "{source}"
     );
     assert_eq!(
-        model.zsh_ksh_arrays_runtime_state_at(offset),
-        Some(OptionValue::Unknown),
+        array_reference_policy_at(&model, offset),
+        ArrayReferencePolicy::Ambiguous,
         "{source}"
     );
 }
@@ -9883,10 +9895,9 @@ $dispatcher
     let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
     let offset = source.find("print $name").unwrap();
 
-    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
     assert_eq!(
-        model.zsh_ksh_arrays_runtime_state_at(offset),
-        Some(OptionValue::Off),
+        array_reference_policy_at(&model, offset),
+        ArrayReferencePolicy::NativeZshScalar,
         "{source}"
     );
 }
@@ -9904,7 +9915,6 @@ print $name
     let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
     let offset = source.find("print $name").unwrap();
 
-    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
     assert!(
         model
             .zsh_options_at(offset)
@@ -9912,8 +9922,8 @@ print $name
         "{source}"
     );
     assert_eq!(
-        model.zsh_ksh_arrays_runtime_state_at(offset),
-        Some(OptionValue::On),
+        array_reference_policy_at(&model, offset),
+        ArrayReferencePolicy::RequiresExplicitSelector,
         "{source}"
     );
 }
@@ -9930,7 +9940,6 @@ print $name
     let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
     let offset = source.find("print $name").unwrap();
 
-    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
     assert!(
         model
             .zsh_options_at(offset)
@@ -9938,8 +9947,8 @@ print $name
         "{source}"
     );
     assert_eq!(
-        model.zsh_ksh_arrays_runtime_state_at(offset),
-        Some(OptionValue::Unknown),
+        array_reference_policy_at(&model, offset),
+        ArrayReferencePolicy::Ambiguous,
         "{source}"
     );
 }
@@ -9958,7 +9967,6 @@ print $name
     let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
     let offset = source.find("print $name").unwrap();
 
-    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
     assert!(
         model
             .zsh_options_at(offset)
@@ -9966,8 +9974,8 @@ print $name
         "{source}"
     );
     assert_eq!(
-        model.zsh_ksh_arrays_runtime_state_at(offset),
-        Some(OptionValue::Off),
+        array_reference_policy_at(&model, offset),
+        ArrayReferencePolicy::NativeZshScalar,
         "{source}"
     );
 }
@@ -9985,7 +9993,6 @@ print $name
     let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
     let offset = source.find("print $name").unwrap();
 
-    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
     assert!(
         model
             .zsh_options_at(offset)
@@ -9993,8 +10000,8 @@ print $name
         "{source}"
     );
     assert_eq!(
-        model.zsh_ksh_arrays_runtime_state_at(offset),
-        Some(OptionValue::On),
+        array_reference_policy_at(&model, offset),
+        ArrayReferencePolicy::RequiresExplicitSelector,
         "{source}"
     );
 }
@@ -10012,10 +10019,9 @@ print $name
     let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
     let offset = source.find("print $name").unwrap();
 
-    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
     assert_eq!(
-        model.zsh_ksh_arrays_runtime_state_at(offset),
-        Some(OptionValue::Off),
+        array_reference_policy_at(&model, offset),
+        ArrayReferencePolicy::NativeZshScalar,
         "{source}"
     );
 }
@@ -10037,10 +10043,9 @@ print $name
     let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
     let offset = source.find("print $name").unwrap();
 
-    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
     assert_eq!(
-        model.zsh_ksh_arrays_runtime_state_at(offset),
-        Some(OptionValue::Off),
+        array_reference_policy_at(&model, offset),
+        ArrayReferencePolicy::NativeZshScalar,
         "{source}"
     );
 }
@@ -10062,7 +10067,6 @@ run_dispatcher enable_ksh
     let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
     let offset = source.find("print $name").unwrap();
 
-    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
     assert!(
         model
             .zsh_options_at(offset)
@@ -10070,8 +10074,8 @@ run_dispatcher enable_ksh
         "{source}"
     );
     assert_eq!(
-        model.zsh_ksh_arrays_runtime_state_at(offset),
-        Some(OptionValue::Unknown),
+        array_reference_policy_at(&model, offset),
+        ArrayReferencePolicy::Ambiguous,
         "{source}"
     );
 }

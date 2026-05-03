@@ -48,7 +48,7 @@ struct ZshOptionSnapshot {
 #[derive(Debug, Clone)]
 struct FunctionSummary {
     final_outward: InternalState,
-    outward_touched: FxHashSet<ZshOptionField>,
+    outward_touched: ZshOptionMask,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,7 +128,7 @@ impl InternalState {
 struct EvalState {
     current: InternalState,
     outward: InternalState,
-    outward_touched: FxHashSet<ZshOptionField>,
+    outward_touched: ZshOptionMask,
 }
 
 impl EvalState {
@@ -136,23 +136,22 @@ impl EvalState {
         Self {
             current: entry.clone(),
             outward: entry,
-            outward_touched: FxHashSet::default(),
+            outward_touched: ZshOptionMask::default(),
         }
     }
 
     fn merge(&self, other: &Self) -> Self {
-        let mut outward_touched = self.outward_touched.clone();
-        outward_touched.extend(other.outward_touched.iter().copied());
         Self {
             current: self.current.merge(&other.current),
             outward: self.outward.merge(&other.outward),
-            outward_touched,
+            outward_touched: self.outward_touched.union(other.outward_touched),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum ZshOptionField {
+#[repr(u8)]
+pub(crate) enum ZshOptionField {
     ShWordSplit,
     GlobSubst,
     RcExpandParam,
@@ -212,6 +211,45 @@ impl ZshOptionField {
         Self::CBases,
         Self::OctalZeroes,
     ];
+
+    fn bit(self) -> u32 {
+        1u32 << (self as u8)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub(crate) struct ZshOptionMask(u32);
+
+impl ZshOptionMask {
+    pub(crate) const ALL: Self = Self((1u32 << ZshOptionField::ALL.len()) - 1);
+
+    pub(crate) fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    pub(crate) fn contains(self, field: ZshOptionField) -> bool {
+        self.0 & field.bit() != 0
+    }
+
+    pub(crate) fn insert(&mut self, field: ZshOptionField) {
+        self.0 |= field.bit();
+    }
+
+    fn insert_all(&mut self, fields: impl IntoIterator<Item = ZshOptionField>) {
+        for field in fields {
+            self.insert(field);
+        }
+    }
+
+    fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub(crate) fn iter(self) -> impl Iterator<Item = ZshOptionField> {
+        ZshOptionField::ALL
+            .into_iter()
+            .filter(move |field| self.contains(*field))
+    }
 }
 
 pub(crate) fn analyze(
@@ -261,22 +299,34 @@ pub(crate) fn analyze(
     })
 }
 
-pub(crate) fn may_enable_ksh_arrays_anywhere(recorded_program: &RecordedProgram) -> bool {
-    recorded_program.command_infos.values().any(|info| {
-        info.zsh_effects.iter().any(|effect| match effect {
-            RecordedZshCommandEffect::Emulate { mode, .. } => *mode == ZshEmulationMode::Ksh,
-            RecordedZshCommandEffect::EmulateUnknown { .. } => true,
-            RecordedZshCommandEffect::SetOptions { updates } => {
-                updates.iter().any(|update| match update {
-                    RecordedZshOptionUpdate::UnknownName => true,
-                    RecordedZshOptionUpdate::Named { name, enable: true } => {
-                        name.as_ref() == "ksharrays"
+pub(crate) fn runtime_ambiguous_entry_mask(recorded_program: &RecordedProgram) -> ZshOptionMask {
+    let mut mask = ZshOptionMask::default();
+    for info in recorded_program.command_infos.values() {
+        for effect in &info.zsh_effects {
+            match effect {
+                RecordedZshCommandEffect::Emulate { .. } => {
+                    return ZshOptionMask::ALL;
+                }
+                RecordedZshCommandEffect::EmulateUnknown { .. } => {
+                    return ZshOptionMask::ALL;
+                }
+                RecordedZshCommandEffect::SetOptions { updates } => {
+                    for update in updates {
+                        match update {
+                            RecordedZshOptionUpdate::UnknownName => return ZshOptionMask::ALL,
+                            RecordedZshOptionUpdate::Named { name, .. } => {
+                                if let Some(field) = field_for_option_name(name) {
+                                    mask.insert(field);
+                                }
+                            }
+                            RecordedZshOptionUpdate::LocalOptions { .. } => {}
+                        }
                     }
-                    _ => false,
-                })
+                }
             }
-        })
-    })
+        }
+    }
+    mask
 }
 
 pub(crate) fn function_runtime_analysis_with_entry(
@@ -327,6 +377,14 @@ pub(crate) fn function_runtime_analysis_with_entry(
         snapshots: analyzer.snapshots,
         scope_index,
     })
+}
+
+pub(crate) fn set_public_option_field(
+    state: &mut ZshOptionState,
+    field: ZshOptionField,
+    value: OptionValue,
+) {
+    set_option_field(state, field, value);
 }
 
 impl ZshOptionAnalysis {
@@ -397,10 +455,10 @@ impl<'a> Analyzer<'a> {
         leak: LeakBehavior,
         summary: &FunctionSummary,
     ) {
-        for field in &summary.outward_touched {
-            let value = get_option_field(&summary.final_outward.public, *field);
-            set_option_field(&mut state.current.public, *field, value);
-            self.apply_explicit_public_field(state, leak, *field, value);
+        for field in summary.outward_touched.iter() {
+            let value = get_option_field(&summary.final_outward.public, field);
+            set_option_field(&mut state.current.public, field, value);
+            self.apply_explicit_public_field(state, leak, field, value);
         }
         self.apply_emulation_state(state, leak, summary.final_outward.emulation);
     }
@@ -479,7 +537,7 @@ impl<'a> Analyzer<'a> {
         if saw_unresolved_name {
             let unchanged = FunctionSummary {
                 final_outward: state.current.clone(),
-                outward_touched: FxHashSet::default(),
+                outward_touched: ZshOptionMask::default(),
             };
             merged = Some(match merged {
                 Some(accumulated) => accumulated.merge(&unchanged),
@@ -700,7 +758,7 @@ impl<'a> Analyzer<'a> {
         let segments = self.recorded_program.pipeline_segments(segments);
 
         if emulation == EmulationState::Unknown {
-            let mut touched = FxHashSet::default();
+            let mut touched = ZshOptionMask::default();
             for segment in segments {
                 let segment_result = self.analyze_single_command_sequence(
                     segment.scope,
@@ -708,9 +766,9 @@ impl<'a> Analyzer<'a> {
                     EvalState::new(state.current.clone()),
                     LeakBehavior::Never,
                 );
-                touched.extend(segment_result.outward_touched.iter().copied());
+                touched = touched.union(segment_result.outward_touched);
             }
-            for field in touched {
+            for field in touched.iter() {
                 self.apply_explicit_public_field(&mut result, leak, field, OptionValue::Unknown);
             }
             return result;
@@ -807,7 +865,7 @@ impl<'a> Analyzer<'a> {
         if !self.active_function_scopes.insert(scope) {
             return FunctionSummary {
                 final_outward: entry.outward,
-                outward_touched: FxHashSet::default(),
+                outward_touched: ZshOptionMask::default(),
             };
         }
 
@@ -964,18 +1022,18 @@ impl<'a> Analyzer<'a> {
             LeakBehavior::Never => {}
             LeakBehavior::Always => {
                 state.outward.public = next.clone();
-                state.outward_touched.extend(fields.iter().copied());
+                state.outward_touched.insert_all(fields.iter().copied());
             }
             LeakBehavior::Function => match state.current.local_options {
                 OptionValue::On => {}
                 OptionValue::Off => {
                     state.outward.public = next.clone();
-                    state.outward_touched.extend(fields.iter().copied());
+                    state.outward_touched.insert_all(fields.iter().copied());
                 }
                 OptionValue::Unknown => {
                     let merged = state.outward.public.merge(next);
                     state.outward.public = merged;
-                    state.outward_touched.extend(fields.iter().copied());
+                    state.outward_touched.insert_all(fields.iter().copied());
                 }
             },
         }
@@ -1059,11 +1117,9 @@ impl<'a> Analyzer<'a> {
 
 impl FunctionSummary {
     fn merge(&self, other: &Self) -> Self {
-        let mut outward_touched = self.outward_touched.clone();
-        outward_touched.extend(other.outward_touched.iter().copied());
         Self {
             final_outward: self.final_outward.merge(&other.final_outward),
-            outward_touched,
+            outward_touched: self.outward_touched.union(other.outward_touched),
         }
     }
 }
