@@ -87,6 +87,11 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
         {
             return false;
         }
+
+        if self.shell == ShellDialect::Zsh && !is_bash_runtime_array_name(reference.name.as_str()) {
+            return false;
+        }
+
         if let Some(binding) = self.semantic.resolved_binding(reference.id)
             && self.semantic.binding_visible_at(binding.id, reference.span)
             && !binding_is_array_like(binding)
@@ -1333,13 +1338,38 @@ f() {
             &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
         );
 
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
-                .collect::<Vec<_>>(),
-            vec!["$items"]
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn zsh_plain_array_and_assoc_scalar_expansions_are_allowed() {
+        let source = "\
+#!/bin/zsh
+local -a usage
+usage=(one two)
+print -l -- $usage
+
+local -aU pats
+pats=(a b)
+for pat in $pats; do :; done
+
+DECOMPRESSCMD=( unxz )
+[[ $DECOMPRESSCMD != /* ]]
+
+local -A OPTS
+OPTS[k]=1
+[[ -n $OPTS && -n ${OPTS[k]} ]]
+
+local -a ___opt
+___opt=(-a -b)
+.zinit-load-snippet $___opt foo
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
         );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
