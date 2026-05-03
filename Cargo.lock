@@ -1808,6 +1808,7 @@ dependencies = [
  "sha2 0.11.0",
  "shuck-ast",
  "shuck-cache",
+ "shuck-config",
  "shuck-extract",
  "shuck-formatter",
  "shuck-indexer",
@@ -1822,6 +1823,19 @@ dependencies = [
  "url",
  "wait-timeout",
  "walkdir",
+]
+
+[[package]]
+name = "shuck-config"
+version = "0.0.32"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "shuck-formatter",
+ "shuck-run",
+ "tempfile",
+ "toml",
 ]
 
 [[package]]
@@ -1923,6 +1937,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shuck-ast",
+ "shuck-config",
  "shuck-indexer",
  "tracing",
  "tracing-subscriber",

@@ -203,8 +203,8 @@ mod tests {
         DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
     };
     use crate::commands::project_runner::PendingProjectFile;
-    use crate::config::ConfigArguments;
     use crate::discover::{FileKind, normalize_path};
+    use shuck_config::ConfigArguments;
 
     #[test]
     fn reports_parse_errors() {

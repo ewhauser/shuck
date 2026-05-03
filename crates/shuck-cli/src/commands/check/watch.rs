@@ -6,14 +6,14 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use anyhow::{Result, anyhow};
 use notify::{RecursiveMode, Watcher, recommended_watcher};
+use shuck_config::{
+    ConfigArguments, discovered_config_path_for_root, resolve_project_root_for_input,
+};
 
 use super::display::print_report;
 use super::run::run_check_with_cwd;
 use crate::ExitStatus;
 use crate::args::CheckCommand;
-use crate::config::{
-    ConfigArguments, discovered_config_path_for_root, resolve_project_root_for_input,
-};
 use crate::discover::{DEFAULT_IGNORED_DIR_NAMES, normalize_path};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -393,8 +393,8 @@ mod tests {
         DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
     };
     use crate::commands::project_runner::PendingProjectFile;
-    use crate::config::ConfigArguments;
     use crate::discover::{FileKind, normalize_path};
+    use shuck_config::ConfigArguments;
 
     #[test]
     fn watch_event_filter_ignores_access_other_ignored_dirs_and_cache_paths() {

@@ -12,8 +12,8 @@ use clap::{
 use shuck_formatter::{IndentStyle, ShellDialect};
 use shuck_linter::RuleSelector;
 
-use crate::config::{ConfigArgumentParser, ConfigArguments, SingleConfigArgument};
-use crate::format_settings::FormatSettingsPatch;
+use shuck_config::FormatSettingsPatch;
+use shuck_config::{ConfigArgumentParser, ConfigArguments, SingleConfigArgument};
 
 const STYLES: Styles = Styles::styled()
     .header(AnsiColor::Green.on_default().effects(Effects::BOLD))
@@ -956,7 +956,7 @@ mod tests {
     #[test]
     fn global_config_override_is_available_after_subcommand() {
         let command = StableCli::command();
-        let override_argument = crate::config::ConfigArgumentParser
+        let override_argument = shuck_config::ConfigArgumentParser
             .parse_ref(
                 &command,
                 None,
@@ -979,7 +979,7 @@ mod tests {
         let config_path = tempdir.path().join("shuck.toml");
         std::fs::write(&config_path, "[format]\nfunction-next-line = false\n").unwrap();
         let command = StableCli::command();
-        let override_argument = crate::config::ConfigArgumentParser
+        let override_argument = shuck_config::ConfigArgumentParser
             .parse_ref(
                 &command,
                 None,

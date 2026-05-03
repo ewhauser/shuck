@@ -9,9 +9,8 @@ use anyhow::{Context, Result, anyhow};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::{DirEntry, ParallelVisitor, WalkBuilder, WalkState};
+use shuck_config::{resolve_project_root_for_file, resolve_project_root_for_input};
 use shuck_extract::is_extractable;
-
-use crate::config::{resolve_project_root_for_file, resolve_project_root_for_input};
 
 pub(crate) const DEFAULT_IGNORED_DIR_NAMES: &[&str] = &[
     ".shuck_cache",

@@ -2,14 +2,14 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
+use shuck_config::{
+    ConfigArguments, resolve_project_root_for_file, resolve_project_root_for_input,
+};
 use shuck_formatter::{FormatError, FormattedSource, format_source, source_is_formatted};
 
 use crate::ExitStatus;
 use crate::args::FormatCommand;
 use crate::commands::format::{FormatMode, unified_diff, write_parse_error_line};
-use crate::config::{
-    ConfigArguments, resolve_project_root_for_file, resolve_project_root_for_input,
-};
 use crate::format_settings::resolve_project_format_settings;
 use crate::stdin::read_from_stdin;
 

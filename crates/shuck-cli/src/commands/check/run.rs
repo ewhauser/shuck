@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use rayon::prelude::*;
+use shuck_config::ConfigArguments;
 use shuck_linter::{Applicability, LinterSettings, RuleSelector, ShellCheckCodeMap};
 
 use super::CheckReport;
@@ -10,7 +11,6 @@ use super::cache::{CheckCacheData, CheckCacheSettings, push_cached_diagnostics};
 use super::settings::{ResolvedCheckSettings, resolve_project_check_settings};
 use crate::args::{CheckCommand, FileSelectionArgs, RuleSelectionArgs};
 use crate::commands::project_runner::{ProjectRunRequest, prepare_project_runs_with_cache_key};
-use crate::config::ConfigArguments;
 use crate::discover::{DiscoveryOptions, FileKind};
 
 pub(super) fn run_check_with_cwd(
@@ -216,8 +216,8 @@ mod tests {
         DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
     };
     use crate::commands::project_runner::PendingProjectFile;
-    use crate::config::ConfigArguments;
     use crate::discover::{FileKind, normalize_path};
+    use shuck_config::ConfigArguments;
 
     #[test]
     fn parse_failure_with_warning_lint_stays_fatal_under_exit_zero() {

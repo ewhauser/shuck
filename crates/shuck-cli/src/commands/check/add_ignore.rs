@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
+use shuck_config::ConfigArguments;
 use shuck_linter::add_ignores_to_path;
 
 use super::analyze::read_shared_source;
@@ -13,7 +14,6 @@ use crate::ExitStatus;
 use crate::args::CheckCommand;
 use crate::commands::check_output::DisplayedDiagnostic;
 use crate::commands::project_runner::prepare_project_runs;
-use crate::config::ConfigArguments;
 use crate::discover::{DiscoveryOptions, FileKind};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -169,8 +169,8 @@ mod tests {
         DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
     };
     use crate::commands::project_runner::PendingProjectFile;
-    use crate::config::ConfigArguments;
     use crate::discover::{FileKind, normalize_path};
+    use shuck_config::ConfigArguments;
 
     #[test]
     fn add_ignore_respects_per_file_shell_overrides() {

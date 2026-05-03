@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs;
@@ -9,13 +11,11 @@ use anyhow::{Context, Result, anyhow};
 use clap::builder::{TypedValueParser, ValueParserFactory};
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use serde::Deserialize;
+use shuck_formatter::{IndentStyle, ShellDialect};
 use shuck_run::RunConfig;
 
-use crate::discover::normalize_path;
-use crate::format_settings::{FormatSettingsPatch, parse_config_indent_style};
-
 const CONFIG_FILENAMES: [&str; 2] = [".shuck.toml", "shuck.toml"];
-pub(crate) const CONFIG_DIALECT_UNSUPPORTED_ERROR: &str = "`[format].dialect` is not supported; formatter dialect is auto-discovered from the file name or shebang. Use `--dialect` for a per-run override";
+pub const CONFIG_DIALECT_UNSUPPORTED_ERROR: &str = "`[format].dialect` is not supported; formatter dialect is auto-discovered from the file name or shebang. Use `--dialect` for a per-run override";
 const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["check", "format", "lint", "run"];
 const CONFIG_OVERRIDE_CHECK_KEYS: &[&str] = &["embedded"];
 const CONFIG_OVERRIDE_FORMAT_KEYS: &[&str] = &[
@@ -52,7 +52,7 @@ const CONFIG_OVERRIDE_RUN_SHELL_NAMES: &[&str] =
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
-pub(crate) struct ShuckConfig {
+pub struct ShuckConfig {
     pub check: CheckConfig,
     pub format: FormatConfig,
     pub lint: LintConfig,
@@ -61,13 +61,13 @@ pub(crate) struct ShuckConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
-pub(crate) struct CheckConfig {
+pub struct CheckConfig {
     pub embedded: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
-pub(crate) struct FormatConfig {
+pub struct FormatConfig {
     pub dialect: Option<toml::Value>,
     pub indent_style: Option<String>,
     pub indent_width: Option<u8>,
@@ -81,7 +81,7 @@ pub(crate) struct FormatConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
-pub(crate) struct LintConfig {
+pub struct LintConfig {
     pub select: Option<Vec<String>>,
     pub ignore: Option<Vec<String>>,
     pub extend_select: Option<Vec<String>>,
@@ -97,7 +97,7 @@ pub(crate) struct LintConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
-pub(crate) struct LintRuleOptionsConfig {
+pub struct LintRuleOptionsConfig {
     pub c001: Option<C001RuleOptionsConfig>,
     pub c063: Option<C063RuleOptionsConfig>,
 }
@@ -115,7 +115,7 @@ impl LintRuleOptionsConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
-pub(crate) struct C001RuleOptionsConfig {
+pub struct C001RuleOptionsConfig {
     pub treat_indirect_expansion_targets_as_used: Option<bool>,
 }
 
@@ -130,7 +130,7 @@ impl C001RuleOptionsConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
-pub(crate) struct C063RuleOptionsConfig {
+pub struct C063RuleOptionsConfig {
     pub report_unreached_nested_definitions: Option<bool>,
 }
 
@@ -143,8 +143,23 @@ impl C063RuleOptionsConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FormatSettingsPatch {
+    pub dialect: Option<ShellDialect>,
+    pub indent_style: Option<IndentStyle>,
+    pub indent_width: Option<u8>,
+    pub binary_next_line: Option<bool>,
+    pub switch_case_indent: Option<bool>,
+    pub space_redirects: Option<bool>,
+    pub keep_padding: Option<bool>,
+    pub function_next_line: Option<bool>,
+    pub never_split: Option<bool>,
+    pub simplify: Option<bool>,
+    pub minify: Option<bool>,
+}
+
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct ConfigSectionMetadata {
+pub struct ConfigSectionMetadata {
     pub key: &'static str,
     pub docs: &'static str,
     pub fields: &'static [ConfigFieldMetadata],
@@ -152,7 +167,7 @@ pub(crate) struct ConfigSectionMetadata {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct ConfigFieldMetadata {
+pub struct ConfigFieldMetadata {
     pub key: &'static str,
     pub docs: &'static str,
     pub default: &'static str,
@@ -160,7 +175,7 @@ pub(crate) struct ConfigFieldMetadata {
     pub example: &'static str,
 }
 
-pub(crate) fn configuration_metadata() -> &'static [ConfigSectionMetadata] {
+pub fn configuration_metadata() -> &'static [ConfigSectionMetadata] {
     &CONFIGURATION_METADATA
 }
 
@@ -349,14 +364,14 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
 ];
 
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct ConfigArguments {
+pub struct ConfigArguments {
     isolated: bool,
     config_file: Option<PathBuf>,
     overrides: ShuckConfig,
 }
 
 impl ConfigArguments {
-    pub(crate) fn from_cli(
+    pub fn from_cli(
         config_options: Vec<SingleConfigArgument>,
         isolated: bool,
     ) -> std::result::Result<Self, clap::Error> {
@@ -413,23 +428,23 @@ You cannot specify more than one configuration file on the command line.
         })
     }
 
-    pub(crate) fn use_config_roots(&self) -> bool {
+    pub fn use_config_roots(&self) -> bool {
         !self.isolated && self.config_file.is_none()
     }
 
-    pub(crate) fn explicit_config_file(&self) -> Option<&Path> {
+    pub fn explicit_config_file(&self) -> Option<&Path> {
         self.config_file.as_deref()
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum SingleConfigArgument {
+pub enum SingleConfigArgument {
     FilePath(PathBuf),
     SettingsOverride(Box<ShuckConfig>),
 }
 
 #[derive(Clone)]
-pub(crate) struct ConfigArgumentParser;
+pub struct ConfigArgumentParser;
 
 impl ValueParserFactory for SingleConfigArgument {
     type Parser = ConfigArgumentParser;
@@ -464,10 +479,7 @@ impl TypedValueParser for ConfigArgumentParser {
     }
 }
 
-pub(crate) fn resolve_project_root_for_input(
-    input: &Path,
-    use_config_roots: bool,
-) -> io::Result<PathBuf> {
+pub fn resolve_project_root_for_input(input: &Path, use_config_roots: bool) -> io::Result<PathBuf> {
     let base_dir = base_dir_for_input(input)?;
     if use_config_roots {
         Ok(find_config_root(&base_dir)?.unwrap_or(base_dir))
@@ -476,7 +488,7 @@ pub(crate) fn resolve_project_root_for_input(
     }
 }
 
-pub(crate) fn resolve_project_root_for_file(
+pub fn resolve_project_root_for_file(
     file: &Path,
     fallback_start: &Path,
     use_config_roots: bool,
@@ -492,7 +504,7 @@ pub(crate) fn resolve_project_root_for_file(
     }
 }
 
-pub(crate) fn load_project_config(
+pub fn load_project_config(
     project_root: &Path,
     config_arguments: &ConfigArguments,
 ) -> Result<ShuckConfig> {
@@ -512,7 +524,7 @@ pub(crate) fn load_project_config(
 }
 
 impl FormatConfig {
-    pub(crate) fn to_patch(&self) -> Result<FormatSettingsPatch> {
+    pub fn to_patch(&self) -> Result<FormatSettingsPatch> {
         if self.dialect.is_some() {
             return Err(anyhow!(CONFIG_DIALECT_UNSUPPORTED_ERROR));
         }
@@ -844,6 +856,16 @@ A `--config` flag must either be a path to a `.toml` configuration file
     error
 }
 
+pub fn parse_config_indent_style(value: &str) -> Result<IndentStyle> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "tab" => Ok(IndentStyle::Tab),
+        "space" => Ok(IndentStyle::Space),
+        _ => Err(anyhow!(
+            "unsupported `[format].indent-style` value `{value}`; expected one of: tab, space"
+        )),
+    }
+}
+
 fn base_dir_for_input(input: &Path) -> io::Result<PathBuf> {
     let normalized = normalize_path(input);
     let metadata = fs::metadata(&normalized)?;
@@ -898,8 +920,12 @@ fn config_path_for_root(root: &Path) -> io::Result<Option<PathBuf>> {
     Ok(None)
 }
 
-pub(crate) fn discovered_config_path_for_root(root: &Path) -> io::Result<Option<PathBuf>> {
+pub fn discovered_config_path_for_root(root: &Path) -> io::Result<Option<PathBuf>> {
     config_path_for_root(root)
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    path.components().collect()
 }
 
 #[cfg(test)]

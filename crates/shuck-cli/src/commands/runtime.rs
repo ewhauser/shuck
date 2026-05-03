@@ -7,14 +7,14 @@ use anyhow::{Result, anyhow};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use tempfile::NamedTempFile;
 
+use shuck_config::{
+    ConfigArguments, load_project_config, resolve_project_root_for_file,
+    resolve_project_root_for_input,
+};
 use shuck_run::{ResolutionSource, ResolveOptions, RunConfig, Shell, VersionConstraint};
 
 use crate::ExitStatus;
 use crate::args::{InstallCommand, ManagedShellArg, RunCommand, ShellCommand};
-use crate::config::{
-    ConfigArguments, load_project_config, resolve_project_root_for_file,
-    resolve_project_root_for_input,
-};
 
 pub(crate) fn run(args: RunCommand, config_arguments: &ConfigArguments) -> Result<ExitStatus> {
     let cwd = std::env::current_dir()?;

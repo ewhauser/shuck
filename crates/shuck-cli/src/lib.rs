@@ -12,7 +12,6 @@ pub mod args;
 
 mod cache;
 mod commands;
-mod config;
 #[doc(hidden)]
 pub mod config_docs;
 mod discover;
@@ -27,9 +26,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Result;
+use shuck_config::ConfigArguments;
 
 use crate::args::{Args, Command, FormatCommand, TerminalColor};
-use crate::config::ConfigArguments;
 
 /// Exit status returned by [`run`].
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
