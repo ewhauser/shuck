@@ -114,6 +114,7 @@ use crate::builder::SemanticModelBuilder;
 use crate::call_graph::build_call_graph;
 use crate::cfg::{
     RecordedCommandKind, RecordedListOperator, RecordedPipelineOperatorKind, RecordedProgram,
+    RecordedZshCommandEffect, RecordedZshOptionUpdate,
 };
 #[cfg(test)]
 use crate::dataflow::DataflowResult;
@@ -864,6 +865,61 @@ impl SemanticModel {
         self.zsh_option_analysis
             .as_ref()
             .and_then(|analysis| analysis.options_at(&self.scopes, offset))
+    }
+
+    /// Returns whether any parsed command in this file can enable `ksh_arrays`.
+    ///
+    /// This is a structured, file-wide summary over recorded zsh effects. Callers that need
+    /// per-offset behavior should still prefer [`SemanticModel::zsh_options_at`].
+    pub fn may_enable_zsh_ksh_arrays_anywhere(&self) -> bool {
+        self.recorded_program.command_infos.values().any(|info| {
+            info.zsh_effects.iter().any(|effect| match effect {
+                RecordedZshCommandEffect::Emulate { mode, .. } => *mode == ZshEmulationMode::Ksh,
+                RecordedZshCommandEffect::SetOptions { updates } => updates.iter().any(|update| {
+                    matches!(
+                        update,
+                        RecordedZshOptionUpdate::Named { name, enable: true }
+                            if name.as_ref() == "ksharrays"
+                    )
+                }),
+            })
+        })
+    }
+
+    /// Returns whether a prior command in the current function scope chain explicitly disables
+    /// `ksh_arrays` before `offset`.
+    ///
+    /// This is useful when callers need to distinguish a lexical/default `ksh_arrays=Off`
+    /// snapshot from one that was re-established by an in-function `emulate` or `setopt`
+    /// command before the current use site.
+    pub fn has_prior_explicit_ksh_arrays_disable_in_current_function(&self, offset: usize) -> bool {
+        let current_scope = self.scope_at(offset);
+        let Some(function_scope) = self.enclosing_function_scope(current_scope) else {
+            return false;
+        };
+
+        let relevant_scopes = self
+            .ancestor_scopes(current_scope)
+            .take_while(|scope| *scope != function_scope)
+            .chain(std::iter::once(function_scope))
+            .collect::<FxHashSet<_>>();
+
+        self.commands().iter().copied().any(|command_id| {
+            let command = self.recorded_program.command(command_id);
+            command.span.start.offset < offset
+                && command
+                    .scope
+                    .is_some_and(|scope| relevant_scopes.contains(&scope))
+                && self
+                    .recorded_program
+                    .command_infos
+                    .get(&SpanKey::new(command.span))
+                    .is_some_and(|info| {
+                        info.zsh_effects
+                            .iter()
+                            .any(zsh_effect_explicitly_disables_ksh_arrays)
+                    })
+        })
     }
 
     /// Returns all semantic scopes discovered in the file.
@@ -2214,6 +2270,19 @@ impl SemanticModel {
             synthetic_reads: &self.synthetic_reads,
             entry_bindings: &self.entry_bindings,
         }
+    }
+}
+
+fn zsh_effect_explicitly_disables_ksh_arrays(effect: &RecordedZshCommandEffect) -> bool {
+    match effect {
+        RecordedZshCommandEffect::Emulate { mode, .. } => *mode != ZshEmulationMode::Ksh,
+        RecordedZshCommandEffect::SetOptions { updates } => updates.iter().any(|update| {
+            matches!(
+                update,
+                RecordedZshOptionUpdate::Named { name, enable: false }
+                    if name.as_ref() == "ksharrays"
+            )
+        }),
     }
 }
 

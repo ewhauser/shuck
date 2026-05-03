@@ -9735,3 +9735,55 @@ print *
         assert_eq!(options.glob, OptionValue::On, "{source}");
     }
 }
+
+#[test]
+fn semantic_helper_detects_real_ksh_array_enables() {
+    for source in [
+        "setopt ksh_arrays\nprint $name\n",
+        "emulate ksh\nprint $name\n",
+        "emulate -L ksh\nprint $name\n",
+    ] {
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        assert!(model.may_enable_zsh_ksh_arrays_anywhere(), "{source}");
+    }
+}
+
+#[test]
+fn semantic_helper_ignores_non_effect_text_for_ksh_arrays() {
+    for source in [
+        "# emulate ksh in comments should not count\nprint $name\n",
+        "msg='setopt ksh_arrays'\nprint $name\n",
+        "emulate sh\nprint $name\n",
+        "unsetopt ksh_arrays\nprint $name\n",
+    ] {
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        assert!(!model.may_enable_zsh_ksh_arrays_anywhere(), "{source}");
+    }
+}
+
+#[test]
+fn semantic_helper_tracks_prior_explicit_ksh_arrays_disable_in_function_scope() {
+    let source = "\
+native() {
+  emulate -LR zsh
+  print $native_name
+}
+ksh_mode() {
+  emulate -LR ksh
+  print $ksh_name
+}
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+    let native_offset = source.find("print $native_name").unwrap();
+    let ksh_offset = source.find("print $ksh_name").unwrap();
+
+    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
+    assert!(
+        model.has_prior_explicit_ksh_arrays_disable_in_current_function(native_offset),
+        "{source}"
+    );
+    assert!(
+        !model.has_prior_explicit_ksh_arrays_disable_in_current_function(ksh_offset),
+        "{source}"
+    );
+}

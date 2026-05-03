@@ -32,8 +32,7 @@ pub fn quoted_bash_source(checker: &mut Checker) {
                 .filter(move |reference| reference.span == span)
         })
         .collect::<Vec<_>>();
-    let mut context =
-        QuotedBashSourceContext::new(checker.facts(), checker.source(), semantic, checker.shell());
+    let mut context = QuotedBashSourceContext::new(checker.facts(), semantic, checker.shell());
     let spans = candidate_references
         .into_iter()
         .filter(|reference| context.reference_is_array_like(reference))
@@ -45,9 +44,9 @@ pub fn quoted_bash_source(checker: &mut Checker) {
 
 struct QuotedBashSourceContext<'a, 'src> {
     facts: &'a LinterFacts<'src>,
-    source: &'src str,
     semantic: &'a shuck_semantic::SemanticModel,
     shell: ShellDialect,
+    zsh_ksh_arrays_may_be_enabled_anywhere: bool,
     local_declarations: LocalDeclarationIndex,
     simple_command_ancestors_by_offset: FxHashMap<usize, Vec<SimpleCommandAncestor>>,
     same_command_writers_by_name: FxHashMap<Name, Vec<BindingId>>,
@@ -62,15 +61,14 @@ struct QuotedBashSourceContext<'a, 'src> {
 impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
     fn new(
         facts: &'a LinterFacts<'src>,
-        source: &'src str,
         semantic: &'a shuck_semantic::SemanticModel,
         shell: ShellDialect,
     ) -> Self {
         Self {
             facts,
-            source,
             semantic,
             shell,
+            zsh_ksh_arrays_may_be_enabled_anywhere: semantic.may_enable_zsh_ksh_arrays_anywhere(),
             local_declarations: LocalDeclarationIndex::build(semantic),
             simple_command_ancestors_by_offset: FxHashMap::default(),
             same_command_writers_by_name: FxHashMap::default(),
@@ -240,12 +238,25 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
     }
 
     fn zsh_reference_uses_native_array_scalar_policy(&self, reference: &Reference) -> bool {
-        self.shell == ShellDialect::Zsh
-            && !source_may_enable_zsh_ksh_arrays(self.source)
-            && self
+        if self.shell != ShellDialect::Zsh {
+            return false;
+        }
+
+        let offset = reference.span.start.offset;
+        if !self
+            .semantic
+            .zsh_options_at(offset)
+            .is_some_and(|options| options.ksh_arrays == OptionValue::Off)
+        {
+            return false;
+        }
+
+        let scope = self.semantic.scope_at(offset);
+        self.semantic.enclosing_function_scope(scope).is_none()
+            || !self.zsh_ksh_arrays_may_be_enabled_anywhere
+            || self
                 .semantic
-                .zsh_options_at(reference.span.start.offset)
-                .is_some_and(|options| options.ksh_arrays == OptionValue::Off)
+                .has_prior_explicit_ksh_arrays_disable_in_current_function(offset)
     }
 
     fn reference_reads_into_same_name_array_writer(&mut self, reference: &Reference) -> bool {
@@ -665,13 +676,6 @@ fn is_bash_runtime_array_name(name: &str) -> bool {
             | "MAPFILE"
             | "PIPESTATUS"
     )
-}
-
-fn source_may_enable_zsh_ksh_arrays(source: &str) -> bool {
-    let lower = source.to_ascii_lowercase();
-    lower.contains("ksh_arrays")
-        || lower.contains("ksharrays")
-        || (lower.contains("emulate") && lower.contains("ksh"))
 }
 
 #[cfg(test)]
@@ -1345,7 +1349,7 @@ f() {
     }
 
     #[test]
-    fn zsh_later_array_bindings_after_scalar_local_barriers_still_warn() {
+    fn zsh_later_array_bindings_after_scalar_local_barriers_stay_clean() {
         let source = "\
 #!/bin/zsh
 items=(old)
@@ -1392,6 +1396,61 @@ ___opt=(-a -b)
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn zsh_non_effect_mentions_of_ksh_arrays_do_not_disable_native_scalar_policy() {
+        let source = "\
+#!/bin/zsh
+# emulate ksh
+note='setopt ksh_arrays'
+arr=(one two)
+print -r -- $arr
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn zsh_emulate_local_function_shape_keeps_plain_array_expansions_clean() {
+        let source = "\
+#!/bin/zsh
+f() {
+  emulate -LR zsh ${=${options[xtrace]:#off}:+-o xtrace}
+  setopt extendedglob warncreateglobal typesetsilent noshortloops rcquotes
+  local id_as=$1 plugin_dir
+  local -A ICE
+  if [[ -n \"${ICE[compile]}\" ]]; then
+    local -aU pats list=()
+    pats=(${(s.;.)ICE[compile]})
+    local pat
+    for pat in $pats; do
+      list+=(\"${plugin_dir:A}/\"${~pat}(.N))
+    done
+  fi
+}
+g() {
+  emulate -LR ksh
+  local -a other=(one two)
+  print -r -- $other
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$other"]
+        );
     }
 
     #[test]
