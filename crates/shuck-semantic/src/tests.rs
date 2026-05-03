@@ -9770,6 +9770,8 @@ fn zsh_option_analysis_treats_dynamic_ksh_arrays_updates_as_unknown() {
         "opt=ksh_arrays\nemulate -o \"$opt\" zsh\nprint $name\n",
         "opt=no_ksh_arrays\nunsetopt \"$opt\"\nprint $name\n",
         "opt=no_ksh_arrays\nset +o \"$opt\"\nprint $name\n",
+        "setopt -m 'ksh*'\nprint $name\n",
+        "unsetopt -m 'no_ksh*'\nprint $name\n",
         "mode=ksh\nemulate \"$mode\"\nprint $name\n",
     ] {
         let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
@@ -9795,6 +9797,8 @@ fn semantic_helper_detects_real_ksh_array_enables() {
         "opt=ksh_arrays\nset -o \"$opt\"\nprint $name\n",
         "opt=no_ksh_arrays\nunsetopt \"$opt\"\nprint $name\n",
         "opt=no_ksh_arrays\nset +o \"$opt\"\nprint $name\n",
+        "setopt -m 'ksh*'\nprint $name\n",
+        "unsetopt -m 'no_ksh*'\nprint $name\n",
         "mode=ksh\nemulate \"$mode\"\nprint $name\n",
     ] {
         let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));

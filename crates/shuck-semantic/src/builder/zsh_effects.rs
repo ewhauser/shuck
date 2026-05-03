@@ -244,13 +244,26 @@ pub(super) fn parse_setopt_updates(
     source: &str,
     enable: bool,
 ) -> Vec<RecordedZshOptionUpdate> {
-    args.iter()
-        .filter_map(|word| match static_word_text(word, source) {
-            Some(text) if text == "--" => None,
-            Some(text) => parse_recorded_zsh_option_update(&text, enable),
-            None => Some(RecordedZshOptionUpdate::UnknownName),
-        })
-        .collect()
+    let mut updates = Vec::new();
+    let mut pattern_mode = false;
+
+    for word in args {
+        match static_word_text(word, source) {
+            Some(text) if text == "--" => break,
+            Some(text) if matches!(text.as_ref(), "-m" | "+m") => {
+                pattern_mode = true;
+            }
+            Some(_text) if pattern_mode => updates.push(RecordedZshOptionUpdate::UnknownName),
+            Some(text) => {
+                if let Some(update) = parse_recorded_zsh_option_update(&text, enable) {
+                    updates.push(update);
+                }
+            }
+            None => updates.push(RecordedZshOptionUpdate::UnknownName),
+        }
+    }
+
+    updates
 }
 
 pub(super) fn parse_set_builtin_option_updates(
