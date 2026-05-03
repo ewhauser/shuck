@@ -82,7 +82,10 @@ struct InternalState {
 
 impl InternalState {
     fn from_profile(profile: &ShellProfile) -> Option<Self> {
-        let public = profile.zsh_options()?.clone();
+        Some(Self::from_public(profile.zsh_options()?.clone()))
+    }
+
+    fn from_public(public: ZshOptionState) -> Self {
         let emulation = if public == ZshOptionState::for_emulate(ZshEmulationMode::Sh) {
             EmulationState::Sh
         } else if public == ZshOptionState::for_emulate(ZshEmulationMode::Ksh) {
@@ -92,11 +95,11 @@ impl InternalState {
         } else {
             EmulationState::Zsh
         };
-        Some(Self {
+        Self {
             public,
             local_options: OptionValue::Off,
             emulation,
-        })
+        }
     }
 
     fn merge(&self, other: &Self) -> Self {
@@ -240,6 +243,61 @@ pub(crate) fn analyze(
         snapshots: analyzer.snapshots,
         scope_index,
     })
+}
+
+pub(crate) fn options_at_in_function_with_entry(
+    scopes: &[Scope],
+    bindings: &[Binding],
+    recorded_program: &RecordedProgram,
+    function_scope: ScopeId,
+    entry: ZshOptionState,
+    offset: usize,
+) -> Option<ZshOptionState> {
+    let function_span = scopes.get(function_scope.index())?.span;
+    if offset < function_span.start.offset || offset > function_span.end.offset {
+        return None;
+    }
+
+    let mut analyzer = Analyzer {
+        scopes,
+        bindings,
+        recorded_program,
+        scope_entries: FxHashMap::default(),
+        snapshots: FxHashMap::default(),
+        active_function_scopes: FxHashSet::default(),
+    };
+    analyzer.analyze_sequence(
+        function_scope,
+        recorded_program.function_body(function_scope),
+        EvalState::new(InternalState::from_public(entry)),
+        LeakBehavior::Function,
+    );
+
+    for snapshots in analyzer.snapshots.values_mut() {
+        snapshots.sort_by_key(|snapshot| snapshot.offset);
+    }
+
+    let mut scope_index: Vec<ScopeIndexEntry> = scopes
+        .iter()
+        .filter(|scope| {
+            function_span.start.offset <= scope.span.start.offset
+                && scope.span.end.offset <= function_span.end.offset
+        })
+        .map(|scope| ScopeIndexEntry {
+            start: scope.span.start.offset,
+            end: scope.span.end.offset,
+            scope: scope.id,
+        })
+        .collect();
+    scope_index.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| b.end.cmp(&a.end)));
+
+    ZshOptionAnalysis {
+        scope_entries: analyzer.scope_entries,
+        snapshots: analyzer.snapshots,
+        scope_index,
+    }
+    .options_at(scopes, offset)
+    .cloned()
 }
 
 impl ZshOptionAnalysis {

@@ -886,40 +886,37 @@ impl SemanticModel {
         })
     }
 
-    /// Returns whether a prior command in the current function scope chain explicitly disables
-    /// `ksh_arrays` before `offset`.
+    /// Returns the conservative runtime state for `ksh_arrays` at `offset`.
     ///
-    /// This is useful when callers need to distinguish a lexical/default `ksh_arrays=Off`
-    /// snapshot from one that was re-established by an in-function `emulate` or `setopt`
-    /// command before the current use site.
-    pub fn has_prior_explicit_ksh_arrays_disable_in_current_function(&self, offset: usize) -> bool {
-        let current_scope = self.scope_at(offset);
-        let Some(function_scope) = self.enclosing_function_scope(current_scope) else {
-            return false;
+    /// For function bodies in files that can enable `ksh_arrays`, this merges the ordinary
+    /// zsh-option snapshot with a second pass that re-evaluates the enclosing function under an
+    /// ambiguous `ksh_arrays` entry state. Callers can treat `Off` as a guaranteed native-zsh
+    /// context and anything else as potentially ksh-like.
+    pub fn zsh_ksh_arrays_runtime_state_at(&self, offset: usize) -> Option<OptionValue> {
+        let ordinary = self.zsh_options_at(offset)?.ksh_arrays;
+        let scope = self.scope_at(offset);
+        let Some(function_scope) = self.enclosing_function_scope(scope) else {
+            return Some(ordinary);
         };
+        if !self.may_enable_zsh_ksh_arrays_anywhere() {
+            return Some(ordinary);
+        }
 
-        let relevant_scopes = self
-            .ancestor_scopes(current_scope)
-            .take_while(|scope| *scope != function_scope)
-            .chain(std::iter::once(function_scope))
-            .collect::<FxHashSet<_>>();
+        let function_entry_offset = self.scope(function_scope).span.start.offset;
+        let mut function_entry = self.zsh_options_at(function_entry_offset)?.clone();
+        function_entry.ksh_arrays = OptionValue::Unknown;
 
-        self.commands().iter().copied().any(|command_id| {
-            let command = self.recorded_program.command(command_id);
-            command.span.start.offset < offset
-                && command
-                    .scope
-                    .is_some_and(|scope| relevant_scopes.contains(&scope))
-                && self
-                    .recorded_program
-                    .command_infos
-                    .get(&SpanKey::new(command.span))
-                    .is_some_and(|info| {
-                        info.zsh_effects
-                            .iter()
-                            .any(zsh_effect_explicitly_disables_ksh_arrays)
-                    })
-        })
+        let ambient = crate::zsh_options::options_at_in_function_with_entry(
+            &self.scopes,
+            &self.bindings,
+            &self.recorded_program,
+            function_scope,
+            function_entry,
+            offset,
+        )
+        .map_or(ordinary, |options| options.ksh_arrays);
+
+        Some(ordinary.merge(ambient))
     }
 
     /// Returns all semantic scopes discovered in the file.
@@ -2270,19 +2267,6 @@ impl SemanticModel {
             synthetic_reads: &self.synthetic_reads,
             entry_bindings: &self.entry_bindings,
         }
-    }
-}
-
-fn zsh_effect_explicitly_disables_ksh_arrays(effect: &RecordedZshCommandEffect) -> bool {
-    match effect {
-        RecordedZshCommandEffect::Emulate { mode, .. } => *mode != ZshEmulationMode::Ksh,
-        RecordedZshCommandEffect::SetOptions { updates } => updates.iter().any(|update| {
-            matches!(
-                update,
-                RecordedZshOptionUpdate::Named { name, enable: false }
-                    if name.as_ref() == "ksharrays"
-            )
-        }),
     }
 }
 

@@ -46,7 +46,6 @@ struct QuotedBashSourceContext<'a, 'src> {
     facts: &'a LinterFacts<'src>,
     semantic: &'a shuck_semantic::SemanticModel,
     shell: ShellDialect,
-    zsh_ksh_arrays_may_be_enabled_anywhere: bool,
     local_declarations: LocalDeclarationIndex,
     simple_command_ancestors_by_offset: FxHashMap<usize, Vec<SimpleCommandAncestor>>,
     same_command_writers_by_name: FxHashMap<Name, Vec<BindingId>>,
@@ -68,7 +67,6 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
             facts,
             semantic,
             shell,
-            zsh_ksh_arrays_may_be_enabled_anywhere: semantic.may_enable_zsh_ksh_arrays_anywhere(),
             local_declarations: LocalDeclarationIndex::build(semantic),
             simple_command_ancestors_by_offset: FxHashMap::default(),
             same_command_writers_by_name: FxHashMap::default(),
@@ -238,25 +236,11 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
     }
 
     fn zsh_reference_uses_native_array_scalar_policy(&self, reference: &Reference) -> bool {
-        if self.shell != ShellDialect::Zsh {
-            return false;
-        }
-
-        let offset = reference.span.start.offset;
-        if !self
-            .semantic
-            .zsh_options_at(offset)
-            .is_some_and(|options| options.ksh_arrays == OptionValue::Off)
-        {
-            return false;
-        }
-
-        let scope = self.semantic.scope_at(offset);
-        self.semantic.enclosing_function_scope(scope).is_none()
-            || !self.zsh_ksh_arrays_may_be_enabled_anywhere
-            || self
+        self.shell == ShellDialect::Zsh
+            && self
                 .semantic
-                .has_prior_explicit_ksh_arrays_disable_in_current_function(offset)
+                .zsh_ksh_arrays_runtime_state_at(reference.span.start.offset)
+                .is_some_and(|state| state == OptionValue::Off)
     }
 
     fn reference_reads_into_same_name_array_writer(&mut self, reference: &Reference) -> bool {
@@ -1450,6 +1434,35 @@ g() {
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$other"]
+        );
+    }
+
+    #[test]
+    fn zsh_conditional_function_local_disable_still_warns_in_ambiguous_ksh_context() {
+        let source = "\
+#!/bin/zsh
+f() {
+  if [[ -n $flag ]]; then
+    emulate -LR zsh
+  fi
+  local -a arr=(one two)
+  print -r -- $arr
+}
+fn=f
+setopt ksh_arrays
+$fn
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
         );
     }
 

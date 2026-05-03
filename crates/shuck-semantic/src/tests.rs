@@ -9762,28 +9762,53 @@ fn semantic_helper_ignores_non_effect_text_for_ksh_arrays() {
 }
 
 #[test]
-fn semantic_helper_tracks_prior_explicit_ksh_arrays_disable_in_function_scope() {
+fn semantic_runtime_ksh_arrays_state_requires_guaranteed_function_local_disable() {
     let source = "\
-native() {
-  emulate -LR zsh
-  print $native_name
+fn() {
+  if [[ -n $flag ]]; then
+    emulate -LR zsh
+  fi
+  print $name
 }
-ksh_mode() {
-  emulate -LR ksh
-  print $ksh_name
-}
+$dispatcher=fn
+setopt ksh_arrays
+$dispatcher
 ";
     let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
-    let native_offset = source.find("print $native_name").unwrap();
-    let ksh_offset = source.find("print $ksh_name").unwrap();
+    let offset = source.find("print $name").unwrap();
 
     assert!(model.may_enable_zsh_ksh_arrays_anywhere());
     assert!(
-        model.has_prior_explicit_ksh_arrays_disable_in_current_function(native_offset),
+        model
+            .zsh_options_at(offset)
+            .is_some_and(|options| options.ksh_arrays == OptionValue::Off),
         "{source}"
     );
-    assert!(
-        !model.has_prior_explicit_ksh_arrays_disable_in_current_function(ksh_offset),
+    assert_eq!(
+        model.zsh_ksh_arrays_runtime_state_at(offset),
+        Some(OptionValue::Unknown),
+        "{source}"
+    );
+}
+
+#[test]
+fn semantic_runtime_ksh_arrays_state_keeps_unconditional_function_local_disable() {
+    let source = "\
+fn() {
+  emulate -LR zsh
+  print $name
+}
+$dispatcher=fn
+setopt ksh_arrays
+$dispatcher
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+    let offset = source.find("print $name").unwrap();
+
+    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
+    assert_eq!(
+        model.zsh_ksh_arrays_runtime_state_at(offset),
+        Some(OptionValue::Off),
         "{source}"
     );
 }
