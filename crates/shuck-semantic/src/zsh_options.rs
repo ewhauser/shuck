@@ -8,8 +8,8 @@ use crate::cfg::{
     RecordedZshCommandEffect, RecordedZshOptionUpdate,
 };
 use crate::{
-    Binding, BindingId, BindingKind, Reference, ReferenceId, Scope, ScopeId, ScopeKind, Span,
-    SpanKey,
+    Binding, BindingId, BindingKind, IndirectTargetHint, Reference, ReferenceId, Scope, ScopeId,
+    ScopeKind, Span, SpanKey,
 };
 
 #[derive(Debug, Clone)]
@@ -27,6 +27,7 @@ pub(crate) struct ZshOptionAnalysis {
 pub(crate) struct DynamicCallAnalysisContext<'a> {
     pub(crate) references: &'a [Reference],
     pub(crate) resolved: &'a FxHashMap<ReferenceId, BindingId>,
+    pub(crate) indirect_target_hints: &'a FxHashMap<BindingId, IndirectTargetHint>,
     pub(crate) indirect_targets_by_binding: &'a FxHashMap<BindingId, Vec<BindingId>>,
     pub(crate) command_references: &'a FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
 }
@@ -226,6 +227,7 @@ pub(crate) fn analyze(
         bindings,
         dynamic_calls,
         recorded_program,
+        treat_unknown_dispatch_bindings_as_ambiguous_in_functions: false,
         scope_entries: FxHashMap::default(),
         snapshots: FxHashMap::default(),
         active_function_scopes: FxHashSet::default(),
@@ -292,6 +294,7 @@ pub(crate) fn function_runtime_analysis_with_entry(
         bindings,
         dynamic_calls,
         recorded_program,
+        treat_unknown_dispatch_bindings_as_ambiguous_in_functions: true,
         scope_entries: FxHashMap::default(),
         snapshots: FxHashMap::default(),
         active_function_scopes: FxHashSet::default(),
@@ -365,12 +368,29 @@ struct Analyzer<'a> {
     bindings: &'a [Binding],
     dynamic_calls: DynamicCallAnalysisContext<'a>,
     recorded_program: &'a RecordedProgram,
+    treat_unknown_dispatch_bindings_as_ambiguous_in_functions: bool,
     scope_entries: FxHashMap<ScopeId, ZshOptionState>,
     snapshots: FxHashMap<ScopeId, Vec<ZshOptionSnapshot>>,
     active_function_scopes: FxHashSet<ScopeId>,
 }
 
 impl<'a> Analyzer<'a> {
+    fn scope_is_within_function(&self, start: ScopeId) -> bool {
+        let mut current = Some(start);
+        while let Some(scope) = current {
+            if matches!(self.scopes[scope.index()].kind, ScopeKind::Function(_)) {
+                return true;
+            }
+            current = self.scopes[scope.index()].parent;
+        }
+        false
+    }
+
+    fn should_treat_unknown_dispatch_binding_as_ambiguous(&self, scope: ScopeId) -> bool {
+        self.treat_unknown_dispatch_bindings_as_ambiguous_in_functions
+            || !self.scope_is_within_function(scope)
+    }
+
     fn apply_function_summary(
         &self,
         state: &mut EvalState,
@@ -414,6 +434,14 @@ impl<'a> Analyzer<'a> {
                 .indirect_targets_by_binding
                 .get(&binding_id)
             else {
+                if !self
+                    .dynamic_calls
+                    .indirect_target_hints
+                    .contains_key(&binding_id)
+                    && self.should_treat_unknown_dispatch_binding_as_ambiguous(scope)
+                {
+                    saw_unresolved_name = true;
+                }
                 continue;
             };
 

@@ -1599,6 +1599,36 @@ print -r -- $arr
     }
 
     #[test]
+    fn zsh_unknown_dispatcher_binding_can_still_keep_plain_array_reference_warnings() {
+        let source = "\
+#!/bin/zsh
+enable_ksh() {
+  emulate ksh
+}
+run_dispatcher() {
+  unsetopt ksh_arrays
+  dispatcher=$1
+  $dispatcher
+  arr=(one two)
+  print -r -- $arr
+}
+run_dispatcher enable_ksh
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
+        );
+    }
+
+    #[test]
     fn zsh_wrapped_top_level_indirect_ksh_mode_keeps_plain_array_reference_warnings() {
         let source = "\
 #!/bin/zsh

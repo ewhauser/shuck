@@ -10036,3 +10036,34 @@ print $name
         "{source}"
     );
 }
+
+#[test]
+fn semantic_runtime_ksh_arrays_state_treats_unknown_dispatcher_binding_as_ambiguous() {
+    let source = "\
+enable_ksh() {
+  emulate ksh
+}
+run_dispatcher() {
+  unsetopt ksh_arrays
+  dispatcher=$1
+  $dispatcher
+  print $name
+}
+run_dispatcher enable_ksh
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+    let offset = source.find("print $name").unwrap();
+
+    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
+    assert!(
+        model
+            .zsh_options_at(offset)
+            .is_some_and(|options| options.ksh_arrays == OptionValue::Off),
+        "{source}"
+    );
+    assert_eq!(
+        model.zsh_ksh_arrays_runtime_state_at(offset),
+        Some(OptionValue::Unknown),
+        "{source}"
+    );
+}

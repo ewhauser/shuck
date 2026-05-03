@@ -631,6 +631,7 @@ pub struct SemanticModel {
     source_refs: Vec<SourceRef>,
     runtime: RuntimePrelude,
     declarations: Vec<Declaration>,
+    indirect_target_hints: FxHashMap<BindingId, IndirectTargetHint>,
     indirect_targets_by_binding: FxHashMap<BindingId, Vec<BindingId>>,
     indirect_targets_by_reference: FxHashMap<ReferenceId, Vec<BindingId>>,
     array_like_indirect_expansion_refs: FxHashSet<ReferenceId>,
@@ -800,6 +801,7 @@ impl SemanticModel {
         let zsh_dynamic_calls = zsh_options::DynamicCallAnalysisContext {
             references: &built.references,
             resolved: &built.resolved,
+            indirect_target_hints: &built.indirect_target_hints,
             indirect_targets_by_binding: &indirect_targets_by_binding,
             command_references: &built.command_references,
         };
@@ -832,6 +834,7 @@ impl SemanticModel {
             source_refs: built.source_refs,
             runtime: built.runtime,
             declarations: built.declarations,
+            indirect_target_hints: built.indirect_target_hints,
             indirect_targets_by_binding,
             indirect_targets_by_reference,
             array_like_indirect_expansion_refs,
@@ -950,6 +953,7 @@ impl SemanticModel {
             crate::zsh_options::DynamicCallAnalysisContext {
                 references: &self.references,
                 resolved: &self.resolved,
+                indirect_target_hints: &self.indirect_target_hints,
                 indirect_targets_by_binding: &self.indirect_targets_by_binding,
                 command_references: &self.command_references,
             },
