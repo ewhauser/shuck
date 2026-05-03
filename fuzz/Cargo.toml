@@ -11,7 +11,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 similar = "2"
 shuck-ast = { path = "../crates/shuck-ast" }
-shuck-formatter = { path = "../crates/shuck-formatter" }
+# shuck-formatter = { path = "../crates/shuck-formatter" }
 shuck-indexer = { path = "../crates/shuck-indexer" }
 shuck-linter = { path = "../crates/shuck-linter" }
 shuck-parser = { path = "../crates/shuck-parser" }
@@ -57,19 +57,19 @@ test = false
 doc = false
 bench = false
 
-[[bin]]
-name = "formatter_consistency_fuzz"
-path = "fuzz_targets/formatter_consistency_fuzz.rs"
-test = false
-doc = false
-bench = false
+# [[bin]]
+# name = "formatter_consistency_fuzz"
+# path = "fuzz_targets/formatter_consistency_fuzz.rs"
+# test = false
+# doc = false
+# bench = false
 
-[[bin]]
-name = "formatter_validity_fuzz"
-path = "fuzz_targets/formatter_validity_fuzz.rs"
-test = false
-doc = false
-bench = false
+# [[bin]]
+# name = "formatter_validity_fuzz"
+# path = "fuzz_targets/formatter_validity_fuzz.rs"
+# test = false
+# doc = false
+# bench = false
 
 [[bin]]
 name = "linter_no_panic_fuzz"

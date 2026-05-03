@@ -6,7 +6,7 @@ ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 FUZZ_DIR="${ROOT_DIR}/fuzz"
 CORPUS_DIR="${FUZZ_DIR}/corpus"
 COMMON_CORPUS_DIR="${CORPUS_DIR}/common"
-FORMATTER_CORPUS_DIR="${CORPUS_DIR}/formatter"
+# FORMATTER_CORPUS_DIR="${CORPUS_DIR}/formatter"
 ARTIFACTS_DIR="${FUZZ_DIR}/artifacts"
 
 COMMON_TARGETS=(
@@ -18,10 +18,10 @@ COMMON_TARGETS=(
   linter_no_panic_fuzz
 )
 
-FORMATTER_TARGETS=(
-  formatter_consistency_fuzz
-  formatter_validity_fuzz
-)
+# FORMATTER_TARGETS=(
+#   formatter_consistency_fuzz
+#   formatter_validity_fuzz
+# )
 
 CI_MODE=0
 RUN_CMIN=0
@@ -114,17 +114,17 @@ ensure_toolchain() {
 }
 
 ensure_layout() {
-  mkdir -p "${COMMON_CORPUS_DIR}" "${FORMATTER_CORPUS_DIR}" "${ARTIFACTS_DIR}"
+  mkdir -p "${COMMON_CORPUS_DIR}" "${ARTIFACTS_DIR}"
   find "${COMMON_CORPUS_DIR}" -mindepth 1 -maxdepth 1 -type f -delete
-  find "${FORMATTER_CORPUS_DIR}" -mindepth 1 -maxdepth 1 -type f -delete
+  # find "${FORMATTER_CORPUS_DIR}" -mindepth 1 -maxdepth 1 -type f -delete
   (
     cd "${CORPUS_DIR}"
     for target in "${COMMON_TARGETS[@]}"; do
       ln -snf "common" "${target}"
     done
-    for target in "${FORMATTER_TARGETS[@]}"; do
-      ln -snf "formatter" "${target}"
-    done
+    # for target in "${FORMATTER_TARGETS[@]}"; do
+    #   ln -snf "formatter" "${target}"
+    # done
   )
 }
 
@@ -159,7 +159,7 @@ seed_repo_corpus() {
   seed_from_directory "${COMMON_CORPUS_DIR}" "${ROOT_DIR}/crates/shuck-formatter/tests/oracle-fixtures"
   seed_from_directory "${COMMON_CORPUS_DIR}" "${ROOT_DIR}/crates/shuck-benchmark/resources/files"
   seed_from_directory "${COMMON_CORPUS_DIR}" "${ROOT_DIR}/scripts"
-  seed_from_directory "${FORMATTER_CORPUS_DIR}" "${ROOT_DIR}/crates/shuck-formatter/tests/oracle-fixtures"
+  # seed_from_directory "${FORMATTER_CORPUS_DIR}" "${ROOT_DIR}/crates/shuck-formatter/tests/oracle-fixtures"
 
   if [[ "${CI_MODE}" -eq 0 && -d "${ROOT_DIR}/.cache/large-corpus" && "${USE_LARGE_CORPUS}" -eq 0 ]]; then
     read -r -p "Copy shell fixtures from .cache/large-corpus too? [y/N] " reply

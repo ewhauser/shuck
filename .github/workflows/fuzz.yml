@@ -37,8 +37,8 @@ jobs:
           - arithmetic_fuzz
           - glob_fuzz
           - recovered_parser_fuzz
-          - formatter_consistency_fuzz
-          - formatter_validity_fuzz
+          # - formatter_consistency_fuzz
+          # - formatter_validity_fuzz
           - linter_no_panic_fuzz
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6

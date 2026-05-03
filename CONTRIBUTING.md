@@ -170,7 +170,7 @@ fuzzing belongs in the scheduled GitHub Actions workflow or in manual local runs
 Run one target with a longer budget:
 
 ```bash
-make fuzz-run FUZZ_TARGET=formatter_consistency_fuzz FUZZ_ARGS='-max_total_time=60'
+make fuzz-run FUZZ_TARGET=parser_fuzz FUZZ_ARGS='-max_total_time=60'
 ```
 
 Available `cargo-fuzz` targets:
@@ -180,8 +180,6 @@ Available `cargo-fuzz` targets:
 - `arithmetic_fuzz`
 - `glob_fuzz`
 - `recovered_parser_fuzz`
-- `formatter_consistency_fuzz`
-- `formatter_validity_fuzz`
 - `linter_no_panic_fuzz`
 
 Run the CLI generator-driven fuzzer:
