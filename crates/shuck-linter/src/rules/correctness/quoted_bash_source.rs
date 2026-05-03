@@ -32,7 +32,8 @@ pub fn quoted_bash_source(checker: &mut Checker) {
                 .filter(move |reference| reference.span == span)
         })
         .collect::<Vec<_>>();
-    let mut context = QuotedBashSourceContext::new(checker.facts(), semantic, checker.shell());
+    let mut context =
+        QuotedBashSourceContext::new(checker.facts(), checker.source(), semantic, checker.shell());
     let spans = candidate_references
         .into_iter()
         .filter(|reference| context.reference_is_array_like(reference))
@@ -44,6 +45,7 @@ pub fn quoted_bash_source(checker: &mut Checker) {
 
 struct QuotedBashSourceContext<'a, 'src> {
     facts: &'a LinterFacts<'src>,
+    source: &'src str,
     semantic: &'a shuck_semantic::SemanticModel,
     shell: ShellDialect,
     local_declarations: LocalDeclarationIndex,
@@ -60,11 +62,13 @@ struct QuotedBashSourceContext<'a, 'src> {
 impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
     fn new(
         facts: &'a LinterFacts<'src>,
+        source: &'src str,
         semantic: &'a shuck_semantic::SemanticModel,
         shell: ShellDialect,
     ) -> Self {
         Self {
             facts,
+            source,
             semantic,
             shell,
             local_declarations: LocalDeclarationIndex::build(semantic),
@@ -237,6 +241,7 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
 
     fn zsh_reference_uses_native_array_scalar_policy(&self, reference: &Reference) -> bool {
         self.shell == ShellDialect::Zsh
+            && !source_may_enable_zsh_ksh_arrays(self.source)
             && self
                 .semantic
                 .zsh_options_at(reference.span.start.offset)
@@ -660,6 +665,11 @@ fn is_bash_runtime_array_name(name: &str) -> bool {
             | "MAPFILE"
             | "PIPESTATUS"
     )
+}
+
+fn source_may_enable_zsh_ksh_arrays(source: &str) -> bool {
+    let lower = source.to_ascii_lowercase();
+    lower.contains("ksh_arrays") || lower.contains("ksharrays") || lower.contains("emulate ksh")
 }
 
 #[cfg(test)]
@@ -1393,6 +1403,14 @@ print -r -- $arr
 emulate ksh
 other=(three four)
 print -r -- $other
+
+f() {
+  indirect=(five six)
+  print -r -- $indirect
+}
+fn=f
+setopt ksh_arrays
+$fn
 ";
         let diagnostics = test_snippet(
             source,
@@ -1404,7 +1422,7 @@ print -r -- $other
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$arr", "$other"]
+            vec!["$arr", "$other", "$indirect"]
         );
     }
 
