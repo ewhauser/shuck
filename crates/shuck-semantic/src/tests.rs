@@ -9860,7 +9860,7 @@ $dispatcher
 }
 
 #[test]
-fn semantic_runtime_ksh_arrays_state_treats_top_level_indirect_calls_as_ambiguous() {
+fn semantic_runtime_ksh_arrays_state_tracks_top_level_indirect_calls() {
     let source = "\
 fn() {
   emulate ksh
@@ -9876,12 +9876,67 @@ print $name
     assert!(
         model
             .zsh_options_at(offset)
+            .is_some_and(|options| options.ksh_arrays == OptionValue::On),
+        "{source}"
+    );
+    assert_eq!(
+        model.zsh_ksh_arrays_runtime_state_at(offset),
+        Some(OptionValue::On),
+        "{source}"
+    );
+}
+
+#[test]
+fn semantic_runtime_ksh_arrays_state_recovers_after_top_level_explicit_disable() {
+    let source = "\
+enable_ksh() {
+  emulate ksh
+}
+dispatcher=enable_ksh
+$dispatcher
+unsetopt ksh_arrays
+print $name
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+    let offset = source.find("print $name").unwrap();
+
+    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
+    assert!(
+        model
+            .zsh_options_at(offset)
             .is_some_and(|options| options.ksh_arrays == OptionValue::Off),
         "{source}"
     );
     assert_eq!(
         model.zsh_ksh_arrays_runtime_state_at(offset),
-        Some(OptionValue::Unknown),
+        Some(OptionValue::Off),
+        "{source}"
+    );
+}
+
+#[test]
+fn semantic_runtime_ksh_arrays_state_tracks_wrapped_top_level_indirect_calls() {
+    let source = "\
+enable_ksh() {
+  emulate ksh
+}
+dispatcher=enable_ksh
+noglob $dispatcher
+print $name
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+    let offset = source.find("print $name").unwrap();
+
+    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
+    assert!(
+        model
+            .zsh_options_at(offset)
+            .is_some_and(|options| options.ksh_arrays == OptionValue::On),
+        "{source}"
+    );
+    assert_eq!(
+        model.zsh_ksh_arrays_runtime_state_at(offset),
+        Some(OptionValue::On),
         "{source}"
     );
 }

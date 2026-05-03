@@ -1,12 +1,16 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_parser::{OptionValue, ShellProfile, ZshEmulationMode, ZshOptionState};
+use smallvec::SmallVec;
 
 use crate::cfg::{
     CommandId, RecordedCaseArmRange, RecordedCommand, RecordedCommandKind, RecordedCommandRange,
     RecordedElifBranchRange, RecordedPipelineSegmentRange, RecordedProgram,
     RecordedZshCommandEffect, RecordedZshOptionUpdate,
 };
-use crate::{Binding, BindingKind, Scope, ScopeId, ScopeKind, SpanKey};
+use crate::{
+    Binding, BindingId, BindingKind, Reference, ReferenceId, Scope, ScopeId, ScopeKind, Span,
+    SpanKey,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ZshOptionAnalysis {
@@ -22,7 +26,14 @@ pub(crate) struct ZshOptionAnalysis {
 #[derive(Debug, Clone)]
 pub(crate) struct FunctionOptionRuntimeAnalysis {
     pub(crate) analysis: ZshOptionAnalysis,
-    pub(crate) final_outward: ZshOptionState,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DynamicCallAnalysisContext<'a> {
+    pub(crate) references: &'a [Reference],
+    pub(crate) resolved: &'a FxHashMap<ReferenceId, BindingId>,
+    pub(crate) indirect_targets_by_binding: &'a FxHashMap<BindingId, Vec<BindingId>>,
+    pub(crate) command_references: &'a FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -212,11 +223,13 @@ pub(crate) fn analyze(
     scopes: &[Scope],
     bindings: &[Binding],
     recorded_program: &RecordedProgram,
+    dynamic_calls: DynamicCallAnalysisContext<'_>,
 ) -> Option<ZshOptionAnalysis> {
     let entry = InternalState::from_profile(shell_profile)?;
     let mut analyzer = Analyzer {
         scopes,
         bindings,
+        dynamic_calls,
         recorded_program,
         scope_entries: FxHashMap::default(),
         snapshots: FxHashMap::default(),
@@ -255,6 +268,7 @@ pub(crate) fn function_runtime_analysis_with_entry(
     scopes: &[Scope],
     bindings: &[Binding],
     recorded_program: &RecordedProgram,
+    dynamic_calls: DynamicCallAnalysisContext<'_>,
     function_scope: ScopeId,
     entry: ZshOptionState,
 ) -> Option<FunctionOptionRuntimeAnalysis> {
@@ -263,12 +277,13 @@ pub(crate) fn function_runtime_analysis_with_entry(
     let mut analyzer = Analyzer {
         scopes,
         bindings,
+        dynamic_calls,
         recorded_program,
         scope_entries: FxHashMap::default(),
         snapshots: FxHashMap::default(),
         active_function_scopes: FxHashSet::default(),
     };
-    let result = analyzer.analyze_function_scope(
+    analyzer.analyze_function_scope(
         function_scope,
         EvalState::new(InternalState::from_public(entry)),
     );
@@ -297,7 +312,6 @@ pub(crate) fn function_runtime_analysis_with_entry(
             snapshots: analyzer.snapshots,
             scope_index,
         },
-        final_outward: result.final_outward.public,
     })
 }
 
@@ -338,6 +352,7 @@ impl ZshOptionAnalysis {
 struct Analyzer<'a> {
     scopes: &'a [Scope],
     bindings: &'a [Binding],
+    dynamic_calls: DynamicCallAnalysisContext<'a>,
     recorded_program: &'a RecordedProgram,
     scope_entries: FxHashMap<ScopeId, ZshOptionState>,
     snapshots: FxHashMap<ScopeId, Vec<ZshOptionSnapshot>>,
@@ -345,6 +360,78 @@ struct Analyzer<'a> {
 }
 
 impl<'a> Analyzer<'a> {
+    fn apply_function_summary(
+        &self,
+        state: &mut EvalState,
+        leak: LeakBehavior,
+        summary: &FunctionSummary,
+    ) {
+        for field in &summary.outward_touched {
+            let value = get_option_field(&summary.final_outward.public, *field);
+            set_option_field(&mut state.current.public, *field, value);
+            self.apply_explicit_public_field(state, leak, *field, value);
+        }
+        self.apply_emulation_state(state, leak, summary.final_outward.emulation);
+    }
+
+    fn dynamic_function_summary(
+        &mut self,
+        scope: ScopeId,
+        command_span: Span,
+        name_span: Span,
+        state: &EvalState,
+    ) -> Option<FunctionSummary> {
+        let mut merged: Option<FunctionSummary> = None;
+        let mut seen_scopes = FxHashSet::default();
+        let reference_ids = self
+            .dynamic_calls
+            .command_references
+            .get(&SpanKey::new(command_span))?;
+
+        for &reference_id in reference_ids {
+            let reference = &self.dynamic_calls.references[reference_id.index()];
+            if !contains_span(name_span, reference.span) {
+                continue;
+            }
+            let Some(binding_id) = self.dynamic_calls.resolved.get(&reference_id).copied() else {
+                continue;
+            };
+            let Some(targets) = self
+                .dynamic_calls
+                .indirect_targets_by_binding
+                .get(&binding_id)
+            else {
+                continue;
+            };
+
+            for &target_id in targets {
+                let binding = &self.bindings[target_id.index()];
+                if binding.kind != BindingKind::FunctionDefinition
+                    || !binding_visible_at(self.scopes, binding, scope, reference.span)
+                {
+                    continue;
+                }
+                let Some(function_scope) =
+                    self.recorded_program.function_body_scopes.get(&target_id)
+                else {
+                    continue;
+                };
+                if !seen_scopes.insert(*function_scope) {
+                    continue;
+                }
+
+                let summary = self
+                    .analyze_function_scope(*function_scope, EvalState::new(state.current.clone()));
+                merged = Some(match merged {
+                    Some(accumulated) => accumulated.merge(&summary),
+                    None => summary,
+                });
+            }
+        }
+
+        merged
+    }
+
     fn analyze_single_command_sequence(
         &mut self,
         scope: ScopeId,
@@ -568,16 +655,17 @@ impl<'a> Analyzer<'a> {
         {
             let summary =
                 self.analyze_function_scope(function_scope, EvalState::new(state.current.clone()));
-            for field in &summary.outward_touched {
-                let value = get_option_field(&summary.final_outward.public, *field);
-                set_option_field(&mut state.current.public, *field, value);
-                self.apply_explicit_public_field(&mut state, leak, *field, value);
-            }
-            self.apply_emulation_state(&mut state, leak, summary.final_outward.emulation);
+            self.apply_function_summary(&mut state, leak, &summary);
             return state;
         }
 
         if let Some(info) = info {
+            if let Some(name_span) = info.dynamic_name_span
+                && let Some(summary) =
+                    self.dynamic_function_summary(scope, command.span, name_span, &state)
+            {
+                self.apply_function_summary(&mut state, leak, &summary);
+            }
             for effect in &info.zsh_effects {
                 match effect {
                     RecordedZshCommandEffect::Emulate { mode, local } => {
@@ -828,6 +916,30 @@ impl<'a> Analyzer<'a> {
             state: state.clone(),
         });
     }
+}
+
+impl FunctionSummary {
+    fn merge(&self, other: &Self) -> Self {
+        let mut outward_touched = self.outward_touched.clone();
+        outward_touched.extend(other.outward_touched.iter().copied());
+        Self {
+            final_outward: self.final_outward.merge(&other.final_outward),
+            outward_touched,
+        }
+    }
+}
+
+fn contains_span(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+}
+
+fn binding_visible_at(scopes: &[Scope], binding: &Binding, scope: ScopeId, at: Span) -> bool {
+    binding.span.start.offset <= at.start.offset
+        && ancestor_scopes(scopes, scope).any(|ancestor| ancestor == binding.scope)
+}
+
+fn ancestor_scopes(scopes: &[Scope], scope: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
+    std::iter::successors(Some(scope), move |scope_id| scopes[scope_id.index()].parent)
 }
 
 fn is_function_scope(scopes: &[Scope], scope: ScopeId) -> bool {

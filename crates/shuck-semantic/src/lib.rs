@@ -136,7 +136,6 @@ struct AssocCallerSeenNames {
 #[derive(Debug, Clone)]
 struct KshArraysRuntimeFunctionState {
     analysis: ZshOptionAnalysis,
-    outward_ksh_arrays: OptionValue,
 }
 
 impl AssocCallerSeenNames {
@@ -653,7 +652,6 @@ pub struct SemanticModel {
     zsh_option_analysis: Option<ZshOptionAnalysis>,
     zsh_ksh_arrays_may_enable_anywhere: OnceLock<bool>,
     zsh_ksh_arrays_runtime_by_function: OnceLock<FxHashMap<ScopeId, KshArraysRuntimeFunctionState>>,
-    zsh_ksh_arrays_ambiguous_top_level_effect_end_offsets: OnceLock<Box<[usize]>>,
     assoc_lookup_binding_index: OnceLock<AssocLookupBindingIndex>,
     command_topology: OnceLock<CommandTopology>,
     references_sorted_by_start: OnceLock<Vec<ReferenceId>>,
@@ -804,11 +802,18 @@ impl SemanticModel {
             &built.indirect_expansion_refs,
             &built.indirect_target_hints,
         );
+        let zsh_dynamic_calls = zsh_options::DynamicCallAnalysisContext {
+            references: &built.references,
+            resolved: &built.resolved,
+            indirect_targets_by_binding: &indirect_targets_by_binding,
+            command_references: &built.command_references,
+        };
         let zsh_option_analysis = zsh_options::analyze(
             &built.shell_profile,
             &built.scopes,
             &built.bindings,
             &built.recorded_program,
+            zsh_dynamic_calls,
         );
         let scope_lookup = ScopeLookup::new(&built.scopes);
         Self {
@@ -847,7 +852,6 @@ impl SemanticModel {
             zsh_option_analysis,
             zsh_ksh_arrays_may_enable_anywhere: OnceLock::new(),
             zsh_ksh_arrays_runtime_by_function: OnceLock::new(),
-            zsh_ksh_arrays_ambiguous_top_level_effect_end_offsets: OnceLock::new(),
             assoc_lookup_binding_index: OnceLock::new(),
             command_topology: OnceLock::new(),
             references_sorted_by_start: OnceLock::new(),
@@ -923,15 +927,7 @@ impl SemanticModel {
 
         let scope = self.scope_at(offset);
         let Some(function_scope) = self.enclosing_function_scope(scope) else {
-            let top_level_ambiguous = self
-                .zsh_ksh_arrays_ambiguous_top_level_effect_end_offsets()
-                .partition_point(|end_offset| *end_offset <= offset)
-                > 0;
-            return Some(if top_level_ambiguous {
-                ordinary.merge(OptionValue::Unknown)
-            } else {
-                ordinary
-            });
+            return Some(ordinary);
         };
 
         let ambient = self
@@ -958,97 +954,24 @@ impl SemanticModel {
                         &self.scopes,
                         &self.bindings,
                         &self.recorded_program,
+                        crate::zsh_options::DynamicCallAnalysisContext {
+                            references: &self.references,
+                            resolved: &self.resolved,
+                            indirect_targets_by_binding: &self.indirect_targets_by_binding,
+                            command_references: &self.command_references,
+                        },
                         function_scope,
                         function_entry,
                     )?;
                     Some((
                         function_scope,
                         KshArraysRuntimeFunctionState {
-                            outward_ksh_arrays: runtime.final_outward.ksh_arrays,
                             analysis: runtime.analysis,
                         },
                     ))
                 })
                 .collect()
         })
-    }
-
-    fn zsh_ksh_arrays_ambiguous_top_level_effect_end_offsets(&self) -> &[usize] {
-        self.zsh_ksh_arrays_ambiguous_top_level_effect_end_offsets
-            .get_or_init(|| {
-                let runtime_by_function = self.zsh_ksh_arrays_runtime_by_function();
-                let mut command_ids: Vec<CommandId> = (0..self.recorded_program.commands().len())
-                    .map(|index| CommandId(index as u32))
-                    .collect();
-                command_ids.sort_by_key(|id| self.recorded_program.command(*id).span.start.offset);
-
-                let mut end_offsets = Vec::new();
-                for command_id in command_ids {
-                    let command = self.recorded_program.command(command_id);
-                    let Some(scope) = command.scope else {
-                        continue;
-                    };
-                    if self.enclosing_function_scope(scope).is_some()
-                        || self.scope_is_transient(scope)
-                    {
-                        continue;
-                    }
-                    if command
-                        .flow_context
-                        .is_some_and(|flow| flow.in_subshell || flow.in_function)
-                    {
-                        continue;
-                    }
-
-                    let Some(info) = self
-                        .recorded_program
-                        .command_infos
-                        .get(&SpanKey::new(command.span))
-                    else {
-                        continue;
-                    };
-                    let Some(name_span) = info.dynamic_name_span else {
-                        continue;
-                    };
-
-                    let may_flip_ksh_arrays = self
-                        .references_in_command_span(command.span, name_span)
-                        .filter_map(|reference| {
-                            self.resolved_binding(reference.id)
-                                .map(|binding| (reference, binding.id))
-                        })
-                        .flat_map(|(reference, binding_id)| {
-                            self.indirect_targets_for_binding(binding_id)
-                                .iter()
-                                .copied()
-                                .filter(move |binding_id| {
-                                    matches!(
-                                        self.binding(*binding_id).kind,
-                                        BindingKind::FunctionDefinition
-                                    ) && self.binding_visible_at(*binding_id, reference.span)
-                                })
-                        })
-                        .filter_map(|binding_id| {
-                            self.recorded_program
-                                .function_body_scopes
-                                .get(&binding_id)
-                                .copied()
-                        })
-                        .any(|function_scope| {
-                            runtime_by_function
-                                .get(&function_scope)
-                                .is_some_and(|state| state.outward_ksh_arrays != OptionValue::Off)
-                        });
-                    if may_flip_ksh_arrays {
-                        end_offsets.push(command.span.end.offset);
-                    }
-                }
-
-                end_offsets.sort_unstable();
-                end_offsets.dedup();
-                end_offsets.into_boxed_slice()
-            })
-            .as_ref()
     }
 
     /// Returns all semantic scopes discovered in the file.

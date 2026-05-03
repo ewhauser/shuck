@@ -1533,6 +1533,53 @@ print -r -- $arr
     }
 
     #[test]
+    fn zsh_wrapped_top_level_indirect_ksh_mode_keeps_plain_array_reference_warnings() {
+        let source = "\
+#!/bin/zsh
+f() {
+  emulate ksh
+}
+dispatcher=f
+noglob $dispatcher
+arr=(one two)
+print -r -- $arr
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
+        );
+    }
+
+    #[test]
+    fn zsh_top_level_explicit_disable_after_indirect_ksh_call_restores_native_scalar_policy() {
+        let source = "\
+#!/bin/zsh
+f() {
+  emulate ksh
+}
+dispatcher=f
+$dispatcher
+unsetopt ksh_arrays
+arr=(one two)
+print -r -- $arr
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn reports_runtime_arrays_inside_assign_default_and_error_operands() {
         let source = "\
 #!/bin/bash
