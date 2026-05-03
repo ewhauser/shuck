@@ -1236,6 +1236,21 @@ impl SemanticModel {
             .map(|binding_id| self.binding(binding_id))
     }
 
+    /// Returns a visible binding for a contextual lookup, including named callers.
+    #[doc(hidden)]
+    pub fn visible_binding_for_lookup(
+        &self,
+        name: &Name,
+        current_scope: ScopeId,
+        at: Span,
+    ) -> Option<&Binding> {
+        if let Some(binding) = self.visible_binding_for_assoc_lookup(name, current_scope, at) {
+            return Some(binding);
+        }
+
+        self.visible_binding_from_named_callers(name, current_scope)
+    }
+
     /// Returns whether an associative binding is visible for a contextual array lookup.
     pub fn assoc_binding_visible_for_lookup(
         &self,
@@ -1297,6 +1312,42 @@ impl SemanticModel {
         }
 
         false
+    }
+
+    fn visible_binding_from_named_callers(
+        &self,
+        name: &Name,
+        current_scope: ScopeId,
+    ) -> Option<&Binding> {
+        let Some(function_names) = self.named_function_scope_names(current_scope) else {
+            return None;
+        };
+
+        let mut seen = AssocCallerSeenNames::new();
+        let mut worklist = SmallVec::<[Name; 4]>::new();
+        worklist.extend(function_names.iter().cloned());
+
+        while let Some(function_name) = worklist.pop() {
+            if !seen.insert(&function_name) {
+                continue;
+            }
+
+            for call_site in self.call_sites_for(&function_name) {
+                if let Some(binding) = self.visible_binding_for_assoc_lookup(
+                    name,
+                    call_site.scope,
+                    call_site.name_span,
+                ) {
+                    return Some(binding);
+                }
+
+                if let Some(caller_names) = self.named_function_scope_names(call_site.scope) {
+                    worklist.extend(caller_names.iter().cloned());
+                }
+            }
+        }
+
+        None
     }
 
     fn named_function_scope_names(&self, scope: ScopeId) -> Option<&[Name]> {

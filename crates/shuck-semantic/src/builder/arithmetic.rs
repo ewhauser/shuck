@@ -288,7 +288,67 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             && self
                 .resolve_reference(owner_name, self.current_scope(), index.span.start.offset)
                 .is_none()
+            && !self.zsh_option_key_has_known_non_assoc_caller_binding(owner_name)
             && zsh_arithmetic_assoc_option_key(owner_name.as_str(), index.span.slice(self.source))
+    }
+
+    fn zsh_option_key_has_known_non_assoc_caller_binding(&self, owner_name: &Name) -> bool {
+        let Some(function_names) = self.current_named_function_scope_names() else {
+            return false;
+        };
+
+        let mut seen = FxHashSet::default();
+        let mut worklist = SmallVec::<[Name; 4]>::new();
+        worklist.extend(function_names.iter().cloned());
+
+        while let Some(function_name) = worklist.pop() {
+            if !seen.insert(function_name.clone()) {
+                continue;
+            }
+
+            let Some(call_sites) = self.call_sites.get(&function_name) else {
+                continue;
+            };
+            for call_site in call_sites {
+                if let Some(binding_id) = self.resolve_reference(
+                    owner_name,
+                    call_site.scope,
+                    call_site.name_span.start.offset,
+                ) {
+                    if !self.bindings[binding_id.index()]
+                        .attributes
+                        .contains(BindingAttributes::ASSOC)
+                    {
+                        return true;
+                    }
+                    continue;
+                }
+
+                if let Some(caller_names) = self.named_function_scope_names(call_site.scope) {
+                    worklist.extend(caller_names.iter().cloned());
+                }
+            }
+        }
+
+        false
+    }
+
+    fn current_named_function_scope_names(&self) -> Option<&[Name]> {
+        self.named_function_scope_names(self.current_scope())
+    }
+
+    fn named_function_scope_names(&self, scope: ScopeId) -> Option<&[Name]> {
+        let mut current = Some(scope);
+        while let Some(scope_id) = current {
+            match &self.scopes[scope_id.index()].kind {
+                ScopeKind::Function(FunctionScopeKind::Named(names)) => {
+                    return Some(names.as_slice());
+                }
+                _ => current = self.scopes[scope_id.index()].parent,
+            }
+        }
+
+        None
     }
 
     pub(super) fn visible_binding_is_assoc(&self, name: &Name, offset: usize) -> bool {

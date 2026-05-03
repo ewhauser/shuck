@@ -2607,7 +2607,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     ) -> Option<&shuck_semantic::Binding> {
         let lookup_span = owner_name_span.unwrap_or(subscript.span());
         self.semantic
-            .visible_binding_for_assoc_lookup(owner_name, self.command_scope, lookup_span)
+            .visible_binding_for_lookup(owner_name, self.command_scope, lookup_span)
     }
 
     fn collect_array_index_arithmetic_spans(&mut self, word: &Word) {

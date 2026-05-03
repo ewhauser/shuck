@@ -130,6 +130,26 @@ f() {
     }
 
     #[test]
+    fn reports_zsh_option_shaped_caller_indexed_opts_arithmetic_subshells() {
+        let source = "\
+#!/bin/zsh
+caller() {
+  local -a OPTS
+  callee
+}
+callee() {
+  local quiet=0
+  ( (( OPTS[opt_-q,--quiet] )) )
+  (( quiet ))
+}
+caller
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    }
+
+    #[test]
     fn ignores_bash_pipeline_assignments_when_pipefail_is_enabled() {
         let source = "\
 #!/usr/bin/env bash
