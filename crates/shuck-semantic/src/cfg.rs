@@ -582,7 +582,7 @@ pub(crate) enum RecordedZshCommandEffect {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RecordedZshOptionUpdate {
     Named { name: Box<str>, enable: bool },
-    UnknownName { enable: bool },
+    UnknownName,
     LocalOptions { enable: bool },
 }
 

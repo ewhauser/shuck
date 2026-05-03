@@ -179,7 +179,7 @@ pub(super) fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<Recorde
                         }
                     }
                     None if args.get(index + 1).is_some() => {
-                        updates.push(RecordedZshOptionUpdate::UnknownName { enable });
+                        updates.push(RecordedZshOptionUpdate::UnknownName);
                     }
                     None => {}
                 }
@@ -241,7 +241,7 @@ pub(super) fn parse_setopt_updates(
         .filter_map(|word| match static_word_text(word, source) {
             Some(text) if text == "--" => None,
             Some(text) => parse_recorded_zsh_option_update(&text, enable),
-            None => Some(RecordedZshOptionUpdate::UnknownName { enable }),
+            None => Some(RecordedZshOptionUpdate::UnknownName),
         })
         .collect()
 }
@@ -272,7 +272,7 @@ pub(super) fn parse_set_builtin_option_updates(
                         }
                     }
                     None if args.get(index + 1).is_some() => {
-                        updates.push(RecordedZshOptionUpdate::UnknownName { enable });
+                        updates.push(RecordedZshOptionUpdate::UnknownName);
                     }
                     None => {}
                 }

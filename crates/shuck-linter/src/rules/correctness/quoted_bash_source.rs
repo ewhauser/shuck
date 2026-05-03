@@ -1508,25 +1508,36 @@ $fn
 
     #[test]
     fn zsh_dynamic_ksh_array_option_names_keep_plain_array_reference_warnings() {
-        let source = "\
+        for source in [
+            "\
 #!/bin/zsh
 opt=ksh_arrays
 setopt \"$opt\"
 arr=(one two)
 print -r -- $arr
-";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
-        );
+",
+            "\
+#!/bin/zsh
+opt=no_ksh_arrays
+unsetopt \"$opt\"
+arr=(one two)
+print -r -- $arr
+",
+        ] {
+            let diagnostics = test_snippet(
+                source,
+                &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+            );
 
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
-                .collect::<Vec<_>>(),
-            vec!["$arr"]
-        );
+            assert_eq!(
+                diagnostics
+                    .iter()
+                    .map(|diagnostic| diagnostic.span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$arr"],
+                "{source}"
+            );
+        }
     }
 
     #[test]

@@ -259,22 +259,13 @@ pub(crate) fn analyze(
     })
 }
 
-fn update_with_target(current: OptionValue, enable: bool) -> OptionValue {
-    let target = if enable {
-        OptionValue::On
-    } else {
-        OptionValue::Off
-    };
-    current.merge(target)
-}
-
 pub(crate) fn may_enable_ksh_arrays_anywhere(recorded_program: &RecordedProgram) -> bool {
     recorded_program.command_infos.values().any(|info| {
         info.zsh_effects.iter().any(|effect| match effect {
             RecordedZshCommandEffect::Emulate { mode, .. } => *mode == ZshEmulationMode::Ksh,
             RecordedZshCommandEffect::SetOptions { updates } => {
                 updates.iter().any(|update| match update {
-                    RecordedZshOptionUpdate::UnknownName { enable: true } => true,
+                    RecordedZshOptionUpdate::UnknownName => true,
                     RecordedZshOptionUpdate::Named { name, enable: true } => {
                         name.as_ref() == "ksharrays"
                     }
@@ -824,14 +815,11 @@ impl<'a> Analyzer<'a> {
                     OptionValue::Off
                 };
             }
-            RecordedZshOptionUpdate::UnknownName { enable } => {
-                state.current.local_options =
-                    update_with_target(state.current.local_options, *enable);
+            RecordedZshOptionUpdate::UnknownName => {
+                state.current.local_options = OptionValue::Unknown;
                 for field in ZshOptionField::ALL {
-                    let value =
-                        update_with_target(get_option_field(&state.current.public, field), *enable);
-                    set_option_field(&mut state.current.public, field, value);
-                    self.apply_explicit_public_field(state, leak, field, value);
+                    set_option_field(&mut state.current.public, field, OptionValue::Unknown);
+                    self.apply_explicit_public_field(state, leak, field, OptionValue::Unknown);
                 }
             }
             RecordedZshOptionUpdate::Named { name, enable } => {
