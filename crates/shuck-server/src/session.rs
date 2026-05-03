@@ -13,8 +13,8 @@ use crate::{PositionEncoding, TextDocument};
 
 pub(crate) use self::capabilities::ResolvedClientCapabilities;
 pub use self::index::DocumentQuery;
-pub use self::options::ClientOptions;
 pub(crate) use self::options::{AllOptions, WorkspaceOptionsMap};
+pub use self::options::{ClientOptions, GlobalOptions};
 pub use client::Client;
 
 mod capabilities;
@@ -103,7 +103,7 @@ impl Session {
             .update_text_document(key, content_changes, new_version, self.encoding())
     }
 
-    pub(crate) fn open_text_document(&mut self, url: Url, document: TextDocument) {
+    pub fn open_text_document(&mut self, url: Url, document: TextDocument) {
         self.index.open_text_document(url, document);
     }
 
