@@ -139,10 +139,18 @@ impl DocumentQuery {
         }
     }
 
+    pub(crate) fn file_path(&self) -> Option<PathBuf> {
+        self.file_url().to_file_path().ok()
+    }
+
     pub(crate) fn document(&self) -> &Arc<TextDocument> {
         match self {
             Self::Text { document, .. } => document,
         }
+    }
+
+    pub(crate) fn language_id(&self) -> Option<crate::edit::LanguageId> {
+        self.document().language_id()
     }
 
     pub(crate) fn settings(&self) -> &ShuckSettings {

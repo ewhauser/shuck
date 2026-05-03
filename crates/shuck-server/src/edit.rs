@@ -8,6 +8,7 @@ use shuck_ast::TextRange;
 
 pub(crate) use range::RangeExt;
 pub(crate) use text_document::DocumentVersion;
+pub(crate) use text_document::LanguageId;
 pub use text_document::TextDocument;
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]

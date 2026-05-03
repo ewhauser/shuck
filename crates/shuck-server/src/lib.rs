@@ -4,9 +4,10 @@
 use std::num::NonZeroUsize;
 
 pub use edit::{DocumentKey, PositionEncoding, TextDocument};
+pub use lint::generate_diagnostics;
 use lsp_types::CodeActionKind;
 pub use server::Server;
-pub use session::{Client, ClientOptions, DocumentQuery, DocumentSnapshot, Session};
+pub use session::{Client, ClientOptions, DocumentQuery, DocumentSnapshot, GlobalOptions, Session};
 pub use workspace::{Workspace, Workspaces};
 
 mod edit;
@@ -20,7 +21,7 @@ mod session;
 mod workspace;
 
 pub(crate) const SERVER_NAME: &str = "shuck";
-pub(crate) const DIAGNOSTIC_NAME: &str = "Shuck";
+pub(crate) const DIAGNOSTIC_NAME: &str = "shuck";
 
 pub(crate) const SOURCE_FIX_ALL_SHUCK: CodeActionKind = CodeActionKind::new("source.fixAll.shuck");
 

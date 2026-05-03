@@ -19,5 +19,7 @@ serde_json = { workspace = true }
 shuck-ast = { workspace = true }
 shuck-config = { workspace = true }
 shuck-indexer = { workspace = true }
+shuck-linter = { workspace = true }
+shuck-parser = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

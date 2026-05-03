@@ -1939,6 +1939,8 @@ dependencies = [
  "shuck-ast",
  "shuck-config",
  "shuck-indexer",
+ "shuck-linter",
+ "shuck-parser",
  "tracing",
  "tracing-subscriber",
 ]
