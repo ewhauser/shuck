@@ -1319,9 +1319,7 @@ impl SemanticModel {
         name: &Name,
         current_scope: ScopeId,
     ) -> Option<&Binding> {
-        let Some(function_names) = self.named_function_scope_names(current_scope) else {
-            return None;
-        };
+        let function_names = self.named_function_scope_names(current_scope)?;
 
         let mut seen = AssocCallerSeenNames::new();
         let mut worklist = SmallVec::<[Name; 4]>::new();
