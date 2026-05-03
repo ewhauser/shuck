@@ -394,6 +394,7 @@ impl<'a> Analyzer<'a> {
     ) -> Option<FunctionSummary> {
         let mut merged: Option<FunctionSummary> = None;
         let mut seen_scopes = FxHashSet::default();
+        let mut saw_unresolved_name = false;
         let reference_ids = self
             .dynamic_calls
             .command_references
@@ -405,6 +406,7 @@ impl<'a> Analyzer<'a> {
                 continue;
             }
             let Some(binding_id) = self.dynamic_calls.resolved.get(&reference_id).copied() else {
+                saw_unresolved_name = true;
                 continue;
             };
             let Some(targets) = self
@@ -446,7 +448,61 @@ impl<'a> Analyzer<'a> {
             }
         }
 
+        if saw_unresolved_name {
+            let unchanged = FunctionSummary {
+                final_outward: state.current.clone(),
+                outward_touched: FxHashSet::default(),
+            };
+            merged = Some(match merged {
+                Some(accumulated) => accumulated.merge(&unchanged),
+                None => unchanged,
+            });
+
+            for function_scope in self.visible_function_scopes_at(scope, name_span) {
+                if !seen_scopes.insert(function_scope) {
+                    continue;
+                }
+                let summary = self
+                    .analyze_function_scope(function_scope, EvalState::new(state.current.clone()));
+                merged = Some(match merged {
+                    Some(accumulated) => accumulated.merge(&summary),
+                    None => summary,
+                });
+            }
+        }
+
         merged
+    }
+
+    fn visible_function_scopes_at(&self, scope: ScopeId, at: Span) -> Vec<ScopeId> {
+        let mut visible = Vec::new();
+        let mut seen_names = FxHashSet::default();
+        let mut current = Some(scope);
+
+        while let Some(scope_id) = current {
+            for bindings in self.scopes[scope_id.index()].bindings.values() {
+                for binding_id in bindings.iter().rev().copied() {
+                    let binding = &self.bindings[binding_id.index()];
+                    if binding.span.start.offset > at.start.offset
+                        || binding.kind != BindingKind::FunctionDefinition
+                    {
+                        continue;
+                    }
+                    if !seen_names.insert(binding.name.as_str()) {
+                        break;
+                    }
+                    if let Some(function_scope) =
+                        self.recorded_program.function_body_scopes.get(&binding_id)
+                    {
+                        visible.push(*function_scope);
+                    }
+                    break;
+                }
+            }
+            current = self.scopes[scope_id.index()].parent;
+        }
+
+        visible
     }
 
     fn analyze_single_command_sequence(

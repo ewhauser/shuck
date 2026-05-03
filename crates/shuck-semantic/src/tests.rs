@@ -9840,7 +9840,7 @@ fn() {
   fi
   print $name
 }
-$dispatcher=fn
+dispatcher=fn
 setopt ksh_arrays
 $dispatcher
 ";
@@ -9851,7 +9851,7 @@ $dispatcher
     assert!(
         model
             .zsh_options_at(offset)
-            .is_some_and(|options| options.ksh_arrays == OptionValue::Off),
+            .is_some_and(|options| options.ksh_arrays == OptionValue::Unknown),
         "{source}"
     );
     assert_eq!(
@@ -9868,7 +9868,7 @@ fn() {
   emulate -LR zsh
   print $name
 }
-$dispatcher=fn
+dispatcher=fn
 setopt ksh_arrays
 $dispatcher
 ";
@@ -9906,6 +9906,32 @@ print $name
     assert_eq!(
         model.zsh_ksh_arrays_runtime_state_at(offset),
         Some(OptionValue::On),
+        "{source}"
+    );
+}
+
+#[test]
+fn semantic_runtime_ksh_arrays_state_treats_unresolved_dispatch_as_ambiguous() {
+    let source = "\
+enable_ksh() {
+  emulate ksh
+}
+$dispatcher
+print $name
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+    let offset = source.find("print $name").unwrap();
+
+    assert!(model.may_enable_zsh_ksh_arrays_anywhere());
+    assert!(
+        model
+            .zsh_options_at(offset)
+            .is_some_and(|options| options.ksh_arrays == OptionValue::Unknown),
+        "{source}"
+    );
+    assert_eq!(
+        model.zsh_ksh_arrays_runtime_state_at(offset),
+        Some(OptionValue::Unknown),
         "{source}"
     );
 }
