@@ -1,4 +1,5 @@
 use super::*;
+use crate::PlainUnindexedArrayReferenceFact;
 
 #[test]
 fn builds_surface_fragment_facts_and_static_utility_names() {
@@ -2071,9 +2072,10 @@ docker inspect -f '{{ if ne \"true\" (index .Config.Labels \"com.dokku.devcontai
 }
 
 #[test]
-fn collects_plain_unindexed_reference_spans() {
+fn builds_plain_unindexed_array_reference_facts_in_bash() {
     let source = "\
 #!/bin/bash
+arr=(one two)
 printf '%s\\n' $arr \"${arr}\" pre${arr}post \"${arr[0]}\" \"${arr[@]}\" \"${arr%one}\"
 cat <<EOF
 $arr
@@ -2085,13 +2087,276 @@ EOF
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
-                .plain_unindexed_reference_spans()
-                .iter()
-                .map(|span| span.slice(source))
+                .plain_unindexed_array_references()
+                .map(|fact| match fact {
+                    PlainUnindexedArrayReferenceFact::SelectorRequired(reference) => {
+                        ("selector", reference.diagnostic_span().slice(source))
+                    }
+                    PlainUnindexedArrayReferenceFact::NativeZshScalar(reference) => {
+                        (
+                            "native-zsh-scalar",
+                            reference.expansion_span().slice(source),
+                        )
+                    }
+                    PlainUnindexedArrayReferenceFact::Ambiguous(reference) => {
+                        ("ambiguous", reference.diagnostic_span().slice(source))
+                    }
+                })
                 .collect::<Vec<_>>(),
-            vec!["$arr", "${arr}", "${arr}", "$arr", "${arr}"]
+            vec![
+                ("selector", "$arr"),
+                ("selector", "${arr}"),
+                ("selector", "${arr}"),
+                ("selector", "$arr"),
+                ("selector", "${arr}"),
+            ]
         );
     });
+}
+
+#[test]
+fn plain_unindexed_array_references_classify_native_zsh_scalar_expansions() {
+    let source = "\
+#!/bin/zsh
+arr=(one two)
+print -r -- $arr
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            assert_eq!(
+                facts
+                    .plain_unindexed_array_references()
+                    .map(|fact| match fact {
+                        PlainUnindexedArrayReferenceFact::SelectorRequired(reference) => {
+                            ("selector", reference.diagnostic_span().slice(source))
+                        }
+                        PlainUnindexedArrayReferenceFact::NativeZshScalar(reference) => {
+                            (
+                                "native-zsh-scalar",
+                                reference.expansion_span().slice(source),
+                            )
+                        }
+                        PlainUnindexedArrayReferenceFact::Ambiguous(reference) => {
+                            ("ambiguous", reference.diagnostic_span().slice(source))
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+                vec![("native-zsh-scalar", "$arr")]
+            );
+        },
+    );
+}
+
+#[test]
+fn plain_unindexed_array_references_classify_setopt_ksh_arrays_expansions() {
+    let source = "\
+#!/bin/zsh
+setopt ksh_arrays
+arr=(one two)
+print -r -- $arr
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            assert_eq!(
+                facts
+                    .plain_unindexed_array_references()
+                    .map(|fact| match fact {
+                        PlainUnindexedArrayReferenceFact::SelectorRequired(reference) => {
+                            ("selector", reference.diagnostic_span().slice(source))
+                        }
+                        PlainUnindexedArrayReferenceFact::NativeZshScalar(reference) => {
+                            (
+                                "native-zsh-scalar",
+                                reference.expansion_span().slice(source),
+                            )
+                        }
+                        PlainUnindexedArrayReferenceFact::Ambiguous(reference) => {
+                            ("ambiguous", reference.diagnostic_span().slice(source))
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+                vec![("selector", "$arr")]
+            );
+        },
+    );
+}
+
+#[test]
+fn plain_unindexed_array_references_classify_emulate_ksh_expansions() {
+    let source = "\
+#!/bin/zsh
+emulate ksh
+arr=(one two)
+print -r -- $arr
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            assert_eq!(
+                facts
+                    .plain_unindexed_array_references()
+                    .map(|fact| match fact {
+                        PlainUnindexedArrayReferenceFact::SelectorRequired(reference) => {
+                            ("selector", reference.diagnostic_span().slice(source))
+                        }
+                        PlainUnindexedArrayReferenceFact::NativeZshScalar(reference) => {
+                            (
+                                "native-zsh-scalar",
+                                reference.expansion_span().slice(source),
+                            )
+                        }
+                        PlainUnindexedArrayReferenceFact::Ambiguous(reference) => {
+                            ("ambiguous", reference.diagnostic_span().slice(source))
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+                vec![("selector", "$arr")]
+            );
+        },
+    );
+}
+
+#[test]
+fn plain_unindexed_array_references_classify_dynamic_option_names_as_ambiguous() {
+    let source = "\
+#!/bin/zsh
+opt=ksh_arrays
+setopt \"$opt\"
+arr=(one two)
+print -r -- $arr
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            assert_eq!(
+                facts
+                    .plain_unindexed_array_references()
+                    .map(|fact| match fact {
+                        PlainUnindexedArrayReferenceFact::SelectorRequired(reference) => {
+                            ("selector", reference.diagnostic_span().slice(source))
+                        }
+                        PlainUnindexedArrayReferenceFact::NativeZshScalar(reference) => {
+                            (
+                                "native-zsh-scalar",
+                                reference.expansion_span().slice(source),
+                            )
+                        }
+                        PlainUnindexedArrayReferenceFact::Ambiguous(reference) => {
+                            ("ambiguous", reference.diagnostic_span().slice(source))
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+                vec![("ambiguous", "$arr")]
+            );
+        },
+    );
+}
+
+#[test]
+fn plain_unindexed_array_references_classify_dynamic_function_calls() {
+    let source = "\
+#!/bin/zsh
+enable_ksh() {
+  emulate ksh
+}
+dispatcher=enable_ksh
+$dispatcher
+arr=(one two)
+print -r -- $arr
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            assert_eq!(
+                facts
+                    .plain_unindexed_array_references()
+                    .map(|fact| match fact {
+                        PlainUnindexedArrayReferenceFact::SelectorRequired(reference) => {
+                            ("selector", reference.diagnostic_span().slice(source))
+                        }
+                        PlainUnindexedArrayReferenceFact::NativeZshScalar(reference) => {
+                            (
+                                "native-zsh-scalar",
+                                reference.expansion_span().slice(source),
+                            )
+                        }
+                        PlainUnindexedArrayReferenceFact::Ambiguous(reference) => {
+                            ("ambiguous", reference.diagnostic_span().slice(source))
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+                vec![("selector", "$arr")]
+            );
+        },
+    );
+}
+
+#[test]
+fn plain_unindexed_array_references_classify_ambiguous_function_local_state() {
+    let source = "\
+#!/bin/zsh
+f() {
+  if [[ -n $flag ]]; then
+    emulate -LR zsh
+  fi
+  local -a arr=(one two)
+  print -r -- $arr
+}
+fn=f
+setopt ksh_arrays
+$fn
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            assert_eq!(
+                facts
+                    .plain_unindexed_array_references()
+                    .map(|fact| match fact {
+                        PlainUnindexedArrayReferenceFact::SelectorRequired(reference) => {
+                            ("selector", reference.diagnostic_span().slice(source))
+                        }
+                        PlainUnindexedArrayReferenceFact::NativeZshScalar(reference) => {
+                            (
+                                "native-zsh-scalar",
+                                reference.expansion_span().slice(source),
+                            )
+                        }
+                        PlainUnindexedArrayReferenceFact::Ambiguous(reference) => {
+                            ("ambiguous", reference.diagnostic_span().slice(source))
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+                vec![("ambiguous", "$arr")]
+            );
+        },
+    );
 }
 
 #[test]

@@ -109,4 +109,31 @@ mod architecture_tests {
             violations.join("\n"),
         );
     }
+
+    #[test]
+    fn c100_rule_avoids_raw_zsh_option_state_queries() {
+        let rule_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/rules/correctness/quoted_bash_source.rs");
+        let source = fs::read_to_string(&rule_path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", rule_path.display()));
+        let forbidden_tokens = [
+            "zsh_options_at",
+            "zsh_ksh_arrays_runtime_state_at",
+            "ZshOptionState",
+            "OptionValue",
+            "shell_behavior_at",
+            "ArrayReferencePolicy",
+        ];
+        let violations = forbidden_tokens
+            .iter()
+            .copied()
+            .filter(|token| source.contains(token))
+            .collect::<Vec<_>>();
+
+        assert!(
+            violations.is_empty(),
+            "C100 should consume behavior-partitioned facts instead of raw zsh option state:\n{}",
+            violations.join("\n"),
+        );
+    }
 }

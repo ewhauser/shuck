@@ -43,7 +43,7 @@ use self::{
 };
 use crate::{
     AmbientShellOptions, CommandTopology, CommandTopologyTraversal, LinterSemanticArtifacts,
-    Locator, ShellDialect,
+    Locator, ShellDialect, WordQuote,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
@@ -65,11 +65,12 @@ use shuck_indexer::{Indexer, LineIndex};
 #[cfg(test)]
 use shuck_parser::parser::Parser;
 use shuck_semantic::{
-    Binding, BindingId, BindingKind, CaseCliDispatch, Declaration, DeclarationBuiltin,
-    DeclarationOperand as SemanticDeclarationOperand, NonpersistentAssignmentAnalysisContext,
-    NonpersistentAssignmentAnalysisOptions, NonpersistentAssignmentCommandContext,
-    NonpersistentAssignmentExtraRead, OptionValue, Reference, ReferenceId, ReferenceKind, ScopeId,
-    SemanticAnalysis, SemanticModel, SemanticPipelineOperatorKind, ZshOptionState,
+    Binding, BindingAttributes, BindingId, BindingKind, CaseCliDispatch, Declaration,
+    DeclarationBuiltin, DeclarationOperand as SemanticDeclarationOperand,
+    NonpersistentAssignmentAnalysisContext, NonpersistentAssignmentAnalysisOptions,
+    NonpersistentAssignmentCommandContext, NonpersistentAssignmentExtraRead, OptionValue,
+    Reference, ReferenceId, ReferenceKind, ScopeId, SemanticAnalysis, SemanticModel,
+    SemanticPipelineOperatorKind, ZshOptionState,
 };
 use smallvec::SmallVec;
 use std::{borrow::Cow, ops::ControlFlow, sync::OnceLock};
@@ -94,8 +95,9 @@ pub use self::normalized_commands::{
     DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind,
 };
 pub use self::surface::{
-    BacktickFragmentFact, LegacyArithmeticFragmentFact, PositionalParameterFragmentFact,
-    SingleQuotedFragmentFact,
+    AmbiguousArrayReference, BacktickFragmentFact, LegacyArithmeticFragmentFact,
+    NativeZshScalarArrayReference, PlainUnindexedArrayReferenceFact,
+    PositionalParameterFragmentFact, SelectorRequiredArrayReference, SingleQuotedFragmentFact,
 };
 
 include!("traversal.rs");

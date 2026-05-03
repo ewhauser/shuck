@@ -61,16 +61,18 @@ pub use facts::words::{
 };
 /// Extracted structural facts available to rules and callers.
 pub use facts::{
-    BacktickFragmentFact, CommandFact, CommandFactRef, CommandFacts, ConditionalBareWordFact,
-    ConditionalBinaryFact, ConditionalFact, ConditionalMixedLogicalOperatorFact,
-    ConditionalNodeFact, ConditionalOperandFact, ConditionalOperatorFamily,
-    ConditionalPortabilityFacts, ConditionalUnaryFact, ForHeaderFact, FunctionCallArityFacts,
-    FunctionHeaderFact, LegacyArithmeticFragmentFact, ListFact, ListOperatorFact,
-    LoopHeaderWordFact, PipelineFact, PipelineOperatorFact, PipelineSegmentFact,
+    AmbiguousArrayReference, BacktickFragmentFact, CommandFact, CommandFactRef, CommandFacts,
+    ConditionalBareWordFact, ConditionalBinaryFact, ConditionalFact,
+    ConditionalMixedLogicalOperatorFact, ConditionalNodeFact, ConditionalOperandFact,
+    ConditionalOperatorFamily, ConditionalPortabilityFacts, ConditionalUnaryFact, ForHeaderFact,
+    FunctionCallArityFacts, FunctionHeaderFact, LegacyArithmeticFragmentFact, ListFact,
+    ListOperatorFact, LoopHeaderWordFact, NativeZshScalarArrayReference, PipelineFact,
+    PipelineOperatorFact, PipelineSegmentFact, PlainUnindexedArrayReferenceFact,
     PositionalParameterFragmentFact, RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis,
-    RedirectTargetKind, SelectHeaderFact, SimpleTestFact, SimpleTestOperatorFamily,
-    SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact, StatementFact, SubstitutionFact,
-    SubstitutionHostKind, SubstitutionOutputIntent, SudoFamilyInvoker,
+    RedirectTargetKind, SelectHeaderFact, SelectorRequiredArrayReference, SimpleTestFact,
+    SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact,
+    StatementFact, SubstitutionFact, SubstitutionHostKind, SubstitutionOutputIntent,
+    SudoFamilyInvoker,
 };
 /// Fact collection types and stable identifiers into those collections.
 pub use facts::{
