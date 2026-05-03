@@ -1523,6 +1523,13 @@ unsetopt \"$opt\"
 arr=(one two)
 print -r -- $arr
 ",
+            "\
+#!/bin/zsh
+mode=ksh
+emulate \"$mode\"
+arr=(one two)
+print -r -- $arr
+",
         ] {
             let diagnostics = test_snippet(
                 source,

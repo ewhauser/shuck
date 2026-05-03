@@ -263,6 +263,7 @@ pub(crate) fn may_enable_ksh_arrays_anywhere(recorded_program: &RecordedProgram)
     recorded_program.command_infos.values().any(|info| {
         info.zsh_effects.iter().any(|effect| match effect {
             RecordedZshCommandEffect::Emulate { mode, .. } => *mode == ZshEmulationMode::Ksh,
+            RecordedZshCommandEffect::EmulateUnknown { .. } => true,
             RecordedZshCommandEffect::SetOptions { updates } => {
                 updates.iter().any(|update| match update {
                     RecordedZshOptionUpdate::UnknownName => true,
@@ -693,6 +694,14 @@ impl<'a> Analyzer<'a> {
                             is_function_scope(self.scopes, scope),
                         );
                     }
+                    RecordedZshCommandEffect::EmulateUnknown { local } => {
+                        self.apply_unknown_emulate(
+                            &mut state,
+                            leak,
+                            *local,
+                            is_function_scope(self.scopes, scope),
+                        );
+                    }
                     RecordedZshCommandEffect::SetOptions { updates } => {
                         for update in updates {
                             self.apply_option_update(
@@ -798,6 +807,29 @@ impl<'a> Analyzer<'a> {
         {
             state.outward.emulation = EmulationState::from_mode(mode);
         }
+    }
+
+    fn apply_unknown_emulate(
+        &self,
+        state: &mut EvalState,
+        leak: LeakBehavior,
+        local: bool,
+        in_function: bool,
+    ) {
+        let localize = local && in_function;
+        for field in ZshOptionField::ALL {
+            set_option_field(&mut state.current.public, field, OptionValue::Unknown);
+        }
+        state.current.emulation = EmulationState::Unknown;
+        if localize {
+            state.current.local_options = OptionValue::On;
+            return;
+        }
+
+        for field in ZshOptionField::ALL {
+            self.apply_explicit_public_field(state, leak, field, OptionValue::Unknown);
+        }
+        self.apply_emulation_state(state, leak, EmulationState::Unknown);
     }
 
     fn apply_option_update(

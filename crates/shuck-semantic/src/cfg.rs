@@ -574,6 +574,9 @@ pub(crate) enum RecordedZshCommandEffect {
         mode: ZshEmulationMode,
         local: bool,
     },
+    EmulateUnknown {
+        local: bool,
+    },
     SetOptions {
         updates: Vec<RecordedZshOptionUpdate>,
     },

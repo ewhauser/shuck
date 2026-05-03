@@ -79,6 +79,7 @@ pub(super) fn recorded_simple_command_info(
 
     info.zsh_effects.retain(|effect| match effect {
         RecordedZshCommandEffect::Emulate { .. } => true,
+        RecordedZshCommandEffect::EmulateUnknown { .. } => true,
         RecordedZshCommandEffect::SetOptions { updates } => !updates.is_empty(),
     });
     info
@@ -154,11 +155,15 @@ fn is_recorded_assignment_word(word: &str) -> bool {
 pub(super) fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<RecordedZshCommandEffect> {
     let mut local = false;
     let mut mode = None;
+    let mut dynamic_mode = false;
     let mut updates = Vec::new();
     let mut index = 0usize;
 
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
+            if mode.is_none() && !dynamic_mode {
+                dynamic_mode = true;
+            }
             index += 1;
             continue;
         };
@@ -210,7 +215,7 @@ pub(super) fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<Recorde
             continue;
         }
 
-        if mode.is_none() {
+        if mode.is_none() && !dynamic_mode {
             mode = match text.to_ascii_lowercase().as_str() {
                 "zsh" => Some(ZshEmulationMode::Zsh),
                 "sh" => Some(ZshEmulationMode::Sh),
@@ -223,7 +228,9 @@ pub(super) fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<Recorde
     }
 
     let mut effects = Vec::new();
-    if let Some(mode) = mode {
+    if dynamic_mode {
+        effects.push(RecordedZshCommandEffect::EmulateUnknown { local });
+    } else if let Some(mode) = mode {
         effects.push(RecordedZshCommandEffect::Emulate { mode, local });
     }
     if !updates.is_empty() {
