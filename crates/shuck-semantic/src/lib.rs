@@ -114,7 +114,6 @@ use crate::builder::SemanticModelBuilder;
 use crate::call_graph::build_call_graph;
 use crate::cfg::{
     RecordedCommandKind, RecordedListOperator, RecordedPipelineOperatorKind, RecordedProgram,
-    RecordedZshCommandEffect, RecordedZshOptionUpdate,
 };
 #[cfg(test)]
 use crate::dataflow::DataflowResult;
@@ -131,11 +130,6 @@ const MAX_TERMINATION_REACHABILITY_WORK: usize = 20_000;
 struct AssocCallerSeenNames {
     inline: SmallVec<[Name; 8]>,
     hashed: Option<FxHashSet<Name>>,
-}
-
-#[derive(Debug, Clone)]
-struct KshArraysRuntimeFunctionState {
-    analysis: ZshOptionAnalysis,
 }
 
 impl AssocCallerSeenNames {
@@ -651,7 +645,8 @@ pub struct SemanticModel {
     heuristic_unused_assignments: Vec<BindingId>,
     zsh_option_analysis: Option<ZshOptionAnalysis>,
     zsh_ksh_arrays_may_enable_anywhere: OnceLock<bool>,
-    zsh_ksh_arrays_runtime_by_function: OnceLock<FxHashMap<ScopeId, KshArraysRuntimeFunctionState>>,
+    zsh_ksh_arrays_runtime_by_function:
+        OnceLock<FxHashMap<ScopeId, OnceLock<Option<ZshOptionAnalysis>>>>,
     assoc_lookup_binding_index: OnceLock<AssocLookupBindingIndex>,
     command_topology: OnceLock<CommandTopology>,
     references_sorted_by_start: OnceLock<Vec<ReferenceId>>,
@@ -883,32 +878,13 @@ impl SemanticModel {
             .and_then(|analysis| analysis.options_at(&self.scopes, offset))
     }
 
-    /// Returns whether any parsed command in this file can enable `ksh_arrays`.
-    ///
-    /// This is a structured, file-wide summary over recorded zsh effects. Callers that need
-    /// per-offset behavior should still prefer [`SemanticModel::zsh_options_at`].
-    pub fn may_enable_zsh_ksh_arrays_anywhere(&self) -> bool {
+    fn may_enable_zsh_ksh_arrays_anywhere(&self) -> bool {
         if self.shell_profile.zsh_options().is_none() {
             return false;
         }
 
         *self.zsh_ksh_arrays_may_enable_anywhere.get_or_init(|| {
-            self.recorded_program.command_infos.values().any(|info| {
-                info.zsh_effects.iter().any(|effect| match effect {
-                    RecordedZshCommandEffect::Emulate { mode, .. } => {
-                        *mode == ZshEmulationMode::Ksh
-                    }
-                    RecordedZshCommandEffect::SetOptions { updates } => {
-                        updates.iter().any(|update| {
-                            matches!(
-                                update,
-                                RecordedZshOptionUpdate::Named { name, enable: true }
-                                    if name.as_ref() == "ksharrays"
-                            )
-                        })
-                    }
-                })
-            })
+            crate::zsh_options::may_enable_ksh_arrays_anywhere(&self.recorded_program)
         })
     }
 
@@ -931,9 +907,8 @@ impl SemanticModel {
         };
 
         let ambient = self
-            .zsh_ksh_arrays_runtime_by_function()
-            .get(&function_scope)
-            .and_then(|state| state.analysis.options_at(&self.scopes, offset))
+            .zsh_ksh_arrays_runtime_analysis_for_function(function_scope)
+            .and_then(|analysis| analysis.options_at(&self.scopes, offset))
             .map_or(ordinary, |options| options.ksh_arrays);
 
         Some(ordinary.merge(ambient))
@@ -941,37 +916,46 @@ impl SemanticModel {
 
     fn zsh_ksh_arrays_runtime_by_function(
         &self,
-    ) -> &FxHashMap<ScopeId, KshArraysRuntimeFunctionState> {
+    ) -> &FxHashMap<ScopeId, OnceLock<Option<ZshOptionAnalysis>>> {
         self.zsh_ksh_arrays_runtime_by_function.get_or_init(|| {
             self.recorded_program
                 .function_bodies()
                 .keys()
-                .filter_map(|&function_scope| {
-                    let function_entry_offset = self.scope(function_scope).span.start.offset;
-                    let mut function_entry = self.zsh_options_at(function_entry_offset)?.clone();
-                    function_entry.ksh_arrays = OptionValue::Unknown;
-                    let runtime = crate::zsh_options::function_runtime_analysis_with_entry(
-                        &self.scopes,
-                        &self.bindings,
-                        &self.recorded_program,
-                        crate::zsh_options::DynamicCallAnalysisContext {
-                            references: &self.references,
-                            resolved: &self.resolved,
-                            indirect_targets_by_binding: &self.indirect_targets_by_binding,
-                            command_references: &self.command_references,
-                        },
-                        function_scope,
-                        function_entry,
-                    )?;
-                    Some((
-                        function_scope,
-                        KshArraysRuntimeFunctionState {
-                            analysis: runtime.analysis,
-                        },
-                    ))
-                })
+                .map(|&function_scope| (function_scope, OnceLock::new()))
                 .collect()
         })
+    }
+
+    fn zsh_ksh_arrays_runtime_analysis_for_function(
+        &self,
+        function_scope: ScopeId,
+    ) -> Option<&ZshOptionAnalysis> {
+        self.zsh_ksh_arrays_runtime_by_function()
+            .get(&function_scope)?
+            .get_or_init(|| self.build_zsh_ksh_arrays_runtime_analysis_for_function(function_scope))
+            .as_ref()
+    }
+
+    fn build_zsh_ksh_arrays_runtime_analysis_for_function(
+        &self,
+        function_scope: ScopeId,
+    ) -> Option<ZshOptionAnalysis> {
+        let function_entry_offset = self.scope(function_scope).span.start.offset;
+        let mut function_entry = self.zsh_options_at(function_entry_offset)?.clone();
+        function_entry.ksh_arrays = OptionValue::Unknown;
+        crate::zsh_options::function_runtime_analysis_with_entry(
+            &self.scopes,
+            &self.bindings,
+            &self.recorded_program,
+            crate::zsh_options::DynamicCallAnalysisContext {
+                references: &self.references,
+                resolved: &self.resolved,
+                indirect_targets_by_binding: &self.indirect_targets_by_binding,
+                command_references: &self.command_references,
+            },
+            function_scope,
+            function_entry,
+        )
     }
 
     /// Returns all semantic scopes discovered in the file.

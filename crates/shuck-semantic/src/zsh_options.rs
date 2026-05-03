@@ -23,11 +23,6 @@ pub(crate) struct ZshOptionAnalysis {
     scope_index: Vec<ScopeIndexEntry>,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct FunctionOptionRuntimeAnalysis {
-    pub(crate) analysis: ZshOptionAnalysis,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct DynamicCallAnalysisContext<'a> {
     pub(crate) references: &'a [Reference],
@@ -264,6 +259,21 @@ pub(crate) fn analyze(
     })
 }
 
+pub(crate) fn may_enable_ksh_arrays_anywhere(recorded_program: &RecordedProgram) -> bool {
+    recorded_program.command_infos.values().any(|info| {
+        info.zsh_effects.iter().any(|effect| match effect {
+            RecordedZshCommandEffect::Emulate { mode, .. } => *mode == ZshEmulationMode::Ksh,
+            RecordedZshCommandEffect::SetOptions { updates } => updates.iter().any(|update| {
+                matches!(
+                    update,
+                    RecordedZshOptionUpdate::Named { name, enable: true }
+                        if name.as_ref() == "ksharrays"
+                )
+            }),
+        })
+    })
+}
+
 pub(crate) fn function_runtime_analysis_with_entry(
     scopes: &[Scope],
     bindings: &[Binding],
@@ -271,7 +281,7 @@ pub(crate) fn function_runtime_analysis_with_entry(
     dynamic_calls: DynamicCallAnalysisContext<'_>,
     function_scope: ScopeId,
     entry: ZshOptionState,
-) -> Option<FunctionOptionRuntimeAnalysis> {
+) -> Option<ZshOptionAnalysis> {
     let function_span = scopes.get(function_scope.index())?.span;
 
     let mut analyzer = Analyzer {
@@ -306,12 +316,10 @@ pub(crate) fn function_runtime_analysis_with_entry(
         .collect();
     scope_index.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| b.end.cmp(&a.end)));
 
-    Some(FunctionOptionRuntimeAnalysis {
-        analysis: ZshOptionAnalysis {
-            scope_entries: analyzer.scope_entries,
-            snapshots: analyzer.snapshots,
-            scope_index,
-        },
+    Some(ZshOptionAnalysis {
+        scope_entries: analyzer.scope_entries,
+        snapshots: analyzer.snapshots,
+        scope_index,
     })
 }
 
