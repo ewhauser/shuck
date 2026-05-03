@@ -156,6 +156,10 @@ fn infer_document_shell(
     source: &str,
     path: Option<&Path>,
 ) -> Option<ShellDialect> {
+    if let Some(shell) = infer_source_declared_shell(source) {
+        return Some(shell);
+    }
+
     let shell = ShellDialect::infer(source, path);
 
     match language_id_preference(query.language_id()) {
@@ -166,6 +170,41 @@ fn infer_document_shell(
         }),
         LanguageIdPreference::Unknown => (shell != ShellDialect::Unknown).then_some(shell),
     }
+}
+
+fn infer_source_declared_shell(source: &str) -> Option<ShellDialect> {
+    infer_shellcheck_header(source).or_else(|| infer_shebang_shell(source))
+}
+
+fn infer_shebang_shell(source: &str) -> Option<ShellDialect> {
+    let interpreter = shuck_parser::shebang::interpreter_name(source.lines().next()?)?;
+    let shell = ShellDialect::from_name(interpreter);
+    (shell != ShellDialect::Unknown).then_some(shell)
+}
+
+fn infer_shellcheck_header(source: &str) -> Option<ShellDialect> {
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with("#!") {
+            continue;
+        }
+
+        let Some(comment) = trimmed.strip_prefix('#') else {
+            break;
+        };
+        let body = comment.trim_start().to_ascii_lowercase();
+        let Some(shell_name) = body.strip_prefix("shellcheck shell=") else {
+            continue;
+        };
+
+        let shell =
+            ShellDialect::from_name(shell_name.split_whitespace().next().unwrap_or_default());
+        if shell != ShellDialect::Unknown {
+            return Some(shell);
+        }
+    }
+
+    None
 }
 
 enum LanguageIdPreference {
@@ -358,5 +397,24 @@ mod tests {
             Some(ShellDialect::Bash)
         );
         assert_eq!(generate_diagnostics(&snapshot).len(), 1);
+    }
+
+    #[test]
+    fn source_declared_shell_overrides_concrete_language_id() {
+        let snapshot = make_snapshot(
+            &std::env::temp_dir().join("header-override.sh"),
+            "# shellcheck shell=bash\nfoo=1\n",
+            "sh",
+            PositionEncoding::UTF16,
+        );
+
+        assert_eq!(
+            infer_document_shell(
+                snapshot.query(),
+                snapshot.query().document().contents(),
+                snapshot.query().file_path().as_deref(),
+            ),
+            Some(ShellDialect::Bash)
+        );
     }
 }
