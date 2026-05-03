@@ -784,7 +784,7 @@ fn source_suffix_matches(source: &str, offset: usize, suffix: &str) -> bool {
 }
 
 fn is_known_runtime_or_environment_name(checker: &Checker<'_>, name: &str) -> bool {
-    checker.semantic().name_is_predefined_runtime(name)
+    checker.semantic().name_is_known_runtime(name)
         || matches!(name, "PPID" | "EUID" | "TMPDIR" | "GEM_HOME" | "GEM_PATH")
 }
 
@@ -1098,9 +1098,17 @@ echo \"$PATH\"
 gem_home=1
 gem_path=1
 euid=1
+bash_version=1
+ostype=1
+histsize=1
+funcname=1
 echo \"$GEM_HOME\"
 echo \"$GEM_PATH\"
 echo \"$EUID\"
+echo \"$BASH_VERSION\"
+echo \"$OSTYPE\"
+echo \"$HISTSIZE\"
+echo \"$FUNCNAME\"
 tmpdir=1
 echo \"$TMPDIR\"
 ";

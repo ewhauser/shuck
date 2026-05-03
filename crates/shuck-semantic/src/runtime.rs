@@ -218,6 +218,14 @@ impl RuntimePrelude {
                 && contains_name(self.zsh_preinitialized, name))
     }
 
+    pub(crate) fn is_known_runtime_name(&self, name: &Name) -> bool {
+        contains_name(self.common_preinitialized, name)
+            || contains_name(self.bash_preinitialized, name)
+            || is_locale_binding(name)
+            || (self.shell_dialect == ShellDialect::Zsh
+                && contains_name(self.zsh_preinitialized, name))
+    }
+
     pub(crate) fn is_preinitialized_array(&self, name: &Name) -> bool {
         (self.bash_enabled && contains_name(BASH_PREINITIALIZED_ARRAYS, name))
             || (self.shell_dialect == ShellDialect::Zsh

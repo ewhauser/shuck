@@ -1069,6 +1069,11 @@ impl SemanticModel {
         self.runtime.is_preinitialized(&Name::from(name))
     }
 
+    /// Returns whether `name` is a well-known shell runtime name in any supported dialect.
+    pub fn name_is_known_runtime(&self, name: &str) -> bool {
+        self.runtime.is_known_runtime_name(&Name::from(name))
+    }
+
     /// Returns whether `id` is guarded by parameter-expansion syntax that suppresses missing-name
     /// diagnostics.
     pub fn is_guarded_parameter_reference(&self, id: ReferenceId) -> bool {
