@@ -1234,6 +1234,41 @@ impl SemanticModel {
             .map(|binding_id| self.binding(binding_id))
     }
 
+    /// Returns a visible binding for a contextual lookup, including named callers.
+    #[doc(hidden)]
+    pub fn visible_binding_for_lookup(
+        &self,
+        name: &Name,
+        current_scope: ScopeId,
+        at: Span,
+    ) -> Option<&Binding> {
+        if let Some(binding_id) = self.previous_visible_binding_id_in_scope_chain(
+            name,
+            current_scope,
+            at.start.offset,
+            None,
+        ) {
+            return Some(self.binding(binding_id));
+        }
+
+        self.visible_binding_from_named_callers(name, current_scope)
+    }
+
+    /// Returns a visible binding that decides contextual associative lookups.
+    #[doc(hidden)]
+    pub fn visible_assoc_lookup_binding_for_lookup(
+        &self,
+        name: &Name,
+        current_scope: ScopeId,
+        at: Span,
+    ) -> Option<&Binding> {
+        if let Some(binding) = self.visible_binding_for_assoc_lookup(name, current_scope, at) {
+            return Some(binding);
+        }
+
+        self.visible_assoc_lookup_binding_from_named_callers(name, current_scope)
+    }
+
     /// Returns whether an associative binding is visible for a contextual array lookup.
     pub fn assoc_binding_visible_for_lookup(
         &self,
@@ -1295,6 +1330,75 @@ impl SemanticModel {
         }
 
         false
+    }
+
+    fn visible_assoc_lookup_binding_from_named_callers(
+        &self,
+        name: &Name,
+        current_scope: ScopeId,
+    ) -> Option<&Binding> {
+        let function_names = self.named_function_scope_names(current_scope)?;
+
+        let mut seen = AssocCallerSeenNames::new();
+        let mut worklist = SmallVec::<[Name; 4]>::new();
+        worklist.extend(function_names.iter().cloned());
+
+        while let Some(function_name) = worklist.pop() {
+            if !seen.insert(&function_name) {
+                continue;
+            }
+
+            for call_site in self.call_sites_for(&function_name) {
+                if let Some(binding) = self.visible_binding_for_assoc_lookup(
+                    name,
+                    call_site.scope,
+                    call_site.name_span,
+                ) {
+                    return Some(binding);
+                }
+
+                if let Some(caller_names) = self.named_function_scope_names(call_site.scope) {
+                    worklist.extend(caller_names.iter().cloned());
+                }
+            }
+        }
+
+        None
+    }
+
+    fn visible_binding_from_named_callers(
+        &self,
+        name: &Name,
+        current_scope: ScopeId,
+    ) -> Option<&Binding> {
+        let function_names = self.named_function_scope_names(current_scope)?;
+
+        let mut seen = AssocCallerSeenNames::new();
+        let mut worklist = SmallVec::<[Name; 4]>::new();
+        worklist.extend(function_names.iter().cloned());
+
+        while let Some(function_name) = worklist.pop() {
+            if !seen.insert(&function_name) {
+                continue;
+            }
+
+            for call_site in self.call_sites_for(&function_name) {
+                if let Some(binding_id) = self.previous_visible_binding_id_in_scope_chain(
+                    name,
+                    call_site.scope,
+                    call_site.name_span.start.offset,
+                    None,
+                ) {
+                    return Some(self.binding(binding_id));
+                }
+
+                if let Some(caller_names) = self.named_function_scope_names(call_site.scope) {
+                    worklist.extend(caller_names.iter().cloned());
+                }
+            }
+        }
+
+        None
     }
 
     fn named_function_scope_names(&self, scope: ScopeId) -> Option<&[Name]> {

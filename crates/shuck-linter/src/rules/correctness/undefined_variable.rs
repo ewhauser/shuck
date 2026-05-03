@@ -264,6 +264,21 @@ map+=([assoc_bare_key]=value)
     }
 
     #[test]
+    fn suppresses_zsh_option_map_key_arithmetic_references() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local quiet=0
+  ( (( !OPTS[opt_-q,--quiet] )) )
+  (( quiet ))
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn subscript_suppression_hides_later_same_name_uses() {
         let source = "\
 #!/bin/bash
