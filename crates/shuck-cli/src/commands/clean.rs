@@ -6,11 +6,11 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use shuck_cache::{legacy_cache_dir, read_project_root_from_cache_file};
+use shuck_config::{ConfigArguments, resolve_project_root_for_input};
 
 use crate::ExitStatus;
 use crate::args::CleanCommand;
 use crate::cache::resolve_cache_root;
-use crate::config::{ConfigArguments, resolve_project_root_for_input};
 
 pub(crate) fn clean(
     args: CleanCommand,

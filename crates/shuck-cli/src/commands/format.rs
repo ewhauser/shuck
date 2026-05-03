@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use shuck_cache::{FileCacheKey, PackageCache};
+use shuck_config::ConfigArguments;
 use shuck_formatter::{
     FormatError, FormattedSource, ShellFormatOptions, format_source, source_is_formatted,
 };
@@ -14,7 +15,6 @@ use crate::ExitStatus;
 use crate::args::FormatCommand;
 use crate::cache::resolve_cache_root;
 use crate::commands::project_runner::{PendingProjectFile, prepare_project_runs};
-use crate::config::ConfigArguments;
 use crate::discover::{DiscoveryOptions, FileKind};
 use crate::format_settings::{ResolvedFormatSettings, resolve_project_format_settings};
 
@@ -310,7 +310,7 @@ mod tests {
 
     use super::*;
     use crate::args::FileSelectionArgs;
-    use crate::config::ConfigArguments;
+    use shuck_config::ConfigArguments;
 
     fn make_file_read_only(path: &Path) {
         let mut permissions = fs::metadata(path).unwrap().permissions();

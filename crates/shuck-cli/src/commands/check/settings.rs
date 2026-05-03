@@ -5,13 +5,13 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use globset::{Glob, GlobMatcher};
 use shuck_cache::{CacheKey, CacheKeyHasher};
+use shuck_config::{ConfigArguments, LintConfig, load_project_config};
 use shuck_linter::{
     CompiledPerFileIgnoreList, LinterSettings, PerFileIgnore, Rule, RuleSelector, RuleSet,
     ShellDialect,
 };
 
 use crate::args::{PatternRuleSelectorPair, PatternShellPair, RuleSelectionArgs};
-use crate::config::{ConfigArguments, LintConfig, load_project_config};
 use crate::discover::{ProjectRoot, normalize_path};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -703,8 +703,8 @@ mod tests {
         DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
     };
     use crate::commands::project_runner::PendingProjectFile;
-    use crate::config::ConfigArguments;
     use crate::discover::{FileKind, ProjectRoot, normalize_path};
+    use shuck_config::ConfigArguments;
 
     #[test]
     fn select_replaces_default_rules() {

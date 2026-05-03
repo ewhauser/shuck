@@ -4,7 +4,7 @@
 
 use std::fmt::Write;
 
-use crate::config::{ConfigFieldMetadata, ConfigSectionMetadata, configuration_metadata};
+use shuck_config::{ConfigFieldMetadata, ConfigSectionMetadata, configuration_metadata};
 
 pub fn generate_settings_reference() -> String {
     let mut output = String::new();

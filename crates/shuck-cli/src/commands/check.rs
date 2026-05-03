@@ -1,12 +1,12 @@
 use std::path::Path;
 
 use anyhow::{Result, anyhow};
+use shuck_config::ConfigArguments;
 
 use crate::ExitStatus;
 use crate::args::CheckCommand;
 use crate::cache::resolve_cache_root;
 use crate::commands::check_output::{DisplayedDiagnostic, DisplayedDiagnosticKind};
-use crate::config::ConfigArguments;
 
 mod add_ignore;
 mod analyze;

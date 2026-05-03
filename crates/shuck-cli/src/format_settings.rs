@@ -2,27 +2,11 @@ use std::path::Path;
 
 use anyhow::{Result, anyhow};
 use shuck_cache::{CacheKey, CacheKeyHasher};
+use shuck_config::{ConfigArguments, FormatSettingsPatch, load_project_config};
 use shuck_formatter::{IndentStyle, ShellDialect, ShellFormatOptions};
-
-use crate::config::{ConfigArguments, load_project_config};
 
 const CLI_INDENT_WIDTH_ERROR: &str = "`--indent-width` must be at least 1";
 const CONFIG_INDENT_WIDTH_ERROR: &str = "`[format].indent-width` must be at least 1";
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct FormatSettingsPatch {
-    pub dialect: Option<ShellDialect>,
-    pub indent_style: Option<IndentStyle>,
-    pub indent_width: Option<u8>,
-    pub binary_next_line: Option<bool>,
-    pub switch_case_indent: Option<bool>,
-    pub space_redirects: Option<bool>,
-    pub keep_padding: Option<bool>,
-    pub function_next_line: Option<bool>,
-    pub never_split: Option<bool>,
-    pub simplify: Option<bool>,
-    pub minify: Option<bool>,
-}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ResolvedFormatSettings {
@@ -110,16 +94,6 @@ pub(crate) fn resolve_project_format_settings(
     Ok(settings)
 }
 
-pub(crate) fn parse_config_indent_style(value: &str) -> Result<IndentStyle> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "tab" => Ok(IndentStyle::Tab),
-        "space" => Ok(IndentStyle::Space),
-        _ => Err(anyhow!(
-            "unsupported `[format].indent-style` value `{value}`; expected one of: tab, space"
-        )),
-    }
-}
-
 const fn indent_style_key(style: IndentStyle) -> u8 {
     match style {
         IndentStyle::Space => 0,
@@ -146,8 +120,7 @@ mod tests {
 
     use super::*;
     use crate::args::{FileSelectionArgs, FormatCommand};
-    use crate::config::{CONFIG_DIALECT_UNSUPPORTED_ERROR, FormatConfig};
-
+    use shuck_config::{CONFIG_DIALECT_UNSUPPORTED_ERROR, FormatConfig};
     fn format_args() -> FormatCommand {
         FormatCommand {
             files: vec![PathBuf::from(".")],

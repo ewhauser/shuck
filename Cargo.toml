@@ -21,6 +21,7 @@ categories = ["command-line-utilities", "development-tools"]
 shuck-ast = { path = "crates/shuck-ast", version = "0.0.32" }
 shuck-benchmark = { path = "crates/shuck-benchmark" }
 shuck-cache = { path = "crates/shuck-cache", version = "0.0.32" }
+shuck-config = { path = "crates/shuck-config", version = "0.0.32" }
 shuck-format = { path = "crates/shuck-format", version = "0.0.32" }
 shuck-formatter = { path = "crates/shuck-formatter", version = "0.0.32" }
 shuck-indexer = { path = "crates/shuck-indexer", version = "0.0.32" }
