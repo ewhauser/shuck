@@ -62,4 +62,12 @@ impl Task {
     pub(crate) fn nothing() -> Self {
         Self::sync(|_, _| {})
     }
+
+    #[cfg(test)]
+    pub(crate) fn run_for_test(self, session: &mut Session, client: &Client) {
+        match self {
+            Self::Background(BackgroundTaskBuilder { builder, .. }) => builder(session)(client),
+            Self::Sync(SyncTask { func }) => func(session, client),
+        }
+    }
 }

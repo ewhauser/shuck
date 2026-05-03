@@ -15,6 +15,13 @@ impl super::BackgroundDocumentRequestHandler for Hover {
         std::borrow::Cow::Borrowed(&params.text_document_position_params.text_document.uri)
     }
 
+    fn run_without_snapshot(
+        _client: &Client,
+        _params: types::HoverParams,
+    ) -> Result<Option<types::Hover>> {
+        Ok(None)
+    }
+
     fn run_with_snapshot(
         snapshot: DocumentSnapshot,
         client: &Client,

@@ -1,3 +1,5 @@
+use anyhow::anyhow;
+use lsp_server::ErrorCode;
 use lsp_types::notification::Notification as LspNotification;
 use lsp_types::request::Request;
 
@@ -21,6 +23,16 @@ pub(super) trait BackgroundDocumentRequestHandler: RequestHandler {
     fn document_url(
         params: &<<Self as RequestHandler>::RequestType as Request>::Params,
     ) -> std::borrow::Cow<'_, lsp_types::Url>;
+
+    fn run_without_snapshot(
+        _client: &Client,
+        _params: <<Self as RequestHandler>::RequestType as Request>::Params,
+    ) -> Result<<<Self as RequestHandler>::RequestType as Request>::Result> {
+        Err(crate::server::Error::new(
+            anyhow!("text document URI does not point to an open document"),
+            ErrorCode::InvalidRequest,
+        ))
+    }
 
     fn run_with_snapshot(
         snapshot: DocumentSnapshot,

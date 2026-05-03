@@ -13,6 +13,13 @@ impl super::RequestHandler for CodeActions {
 impl super::BackgroundDocumentRequestHandler for CodeActions {
     super::define_document_url!(params: &types::CodeActionParams);
 
+    fn run_without_snapshot(
+        _client: &Client,
+        _params: types::CodeActionParams,
+    ) -> Result<Option<types::CodeActionResponse>> {
+        Ok(None)
+    }
+
     fn run_with_snapshot(
         snapshot: DocumentSnapshot,
         client: &Client,

@@ -148,7 +148,17 @@ where
             .cancellation_token(&id)
             .expect("request should be registered before scheduling");
         let Some(snapshot) = session.take_snapshot(R::document_url(&params).into_owned()) else {
-            return Box::new(|_| {});
+            tracing::debug!(
+                "Skipping {} because the document is no longer open",
+                R::METHOD
+            );
+            return Box::new(move |client| {
+                if cancellation_token.is_cancelled() {
+                    return;
+                }
+
+                respond::<R>(&id, R::run_without_snapshot(client, params), client);
+            });
         };
         Box::new(move |client| {
             if cancellation_token.is_cancelled() {
@@ -295,5 +305,83 @@ where
 {
     fn with_failure_code(self, code: lsp_server::ErrorCode) -> Result<T> {
         self.map_err(|error| Error::new(error.into(), code))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crossbeam::channel;
+    use lsp_server::{Message, Request as LspRequest, RequestId};
+    use lsp_types::{
+        ClientCapabilities, HoverParams, Position, TextDocumentIdentifier,
+        TextDocumentPositionParams, Url, WorkDoneProgressParams,
+    };
+
+    use super::*;
+    use crate::server::Event;
+    use crate::session::AllOptions;
+    use crate::{PositionEncoding, Workspace, Workspaces};
+
+    fn test_client() -> (Client, channel::Receiver<Event>) {
+        let (event_tx, event_rx) = channel::unbounded();
+        let (connection_tx, _connection_rx) = channel::unbounded::<Message>();
+        (Client::new(event_tx, connection_tx), event_rx)
+    }
+
+    fn test_session(client: &Client) -> Session {
+        let workspace_url = Url::from_file_path(std::env::current_dir().unwrap())
+            .expect("current directory should convert to a file URL");
+        let workspaces = Workspaces::new(vec![Workspace::default(workspace_url)]);
+        let AllOptions { global, .. } = AllOptions::from_value(serde_json::Value::Null, client);
+        let global = global.into_settings(client.clone());
+
+        Session::new(
+            &ClientCapabilities::default(),
+            PositionEncoding::default(),
+            global,
+            &workspaces,
+            client,
+        )
+        .expect("test session should initialize")
+    }
+
+    #[test]
+    fn missing_snapshot_background_request_still_sends_a_response() {
+        let (client, event_rx) = test_client();
+        let mut session = test_session(&client);
+        let uri = Url::parse("file:///tmp/missing.sh").expect("test URI should parse");
+        let request_id: RequestId = 1.into();
+        session
+            .request_queue_mut()
+            .incoming_mut()
+            .register(request_id.clone(), request::Hover::METHOD.to_string());
+
+        let request = LspRequest {
+            id: request_id.clone(),
+            method: request::Hover::METHOD.to_string(),
+            params: serde_json::to_value(HoverParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: Position::new(0, 0),
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            })
+            .expect("hover params should serialize"),
+        };
+
+        let task = background_request_task::<request::Hover>(request, BackgroundSchedule::Worker)
+            .expect("hover request should schedule");
+        task.run_for_test(&mut session, &client);
+
+        let Event::SendResponse(response) = event_rx
+            .try_recv()
+            .expect("missing snapshot path should enqueue a response")
+        else {
+            panic!("expected queued response event");
+        };
+
+        assert_eq!(response.id, request_id);
+        assert!(response.error.is_none());
+        assert_eq!(response.result, Some(serde_json::Value::Null));
     }
 }

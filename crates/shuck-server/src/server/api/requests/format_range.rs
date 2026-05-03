@@ -12,6 +12,13 @@ impl super::RequestHandler for FormatRange {
 impl super::BackgroundDocumentRequestHandler for FormatRange {
     super::define_document_url!(params: &types::DocumentRangeFormattingParams);
 
+    fn run_without_snapshot(
+        _client: &Client,
+        _params: types::DocumentRangeFormattingParams,
+    ) -> crate::server::Result<crate::format::FormatResponse> {
+        Ok(None)
+    }
+
     fn run_with_snapshot(
         snapshot: DocumentSnapshot,
         client: &Client,

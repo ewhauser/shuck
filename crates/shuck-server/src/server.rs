@@ -52,8 +52,11 @@ impl Server {
 
         let (main_loop_sender, main_loop_receiver) = crossbeam::channel::bounded(32);
 
+        #[allow(deprecated)]
         let InitializeParams {
             initialization_options,
+            root_path,
+            root_uri,
             workspace_folders,
             ..
         } = init_params;
@@ -66,8 +69,12 @@ impl Server {
 
         crate::logging::init_logging(global.tracing.log_level.unwrap_or_default(), None);
 
-        let workspaces =
-            Workspaces::from_workspace_folders(workspace_folders, workspace.unwrap_or_default())?;
+        let workspaces = Workspaces::from_workspace_folders(
+            workspace_folders,
+            root_uri,
+            root_path,
+            workspace.unwrap_or_default(),
+        )?;
         let global = global.into_settings(client.clone());
 
         Ok(Self {
