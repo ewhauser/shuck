@@ -285,6 +285,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         index: &ArithmeticExprNode,
     ) -> bool {
         self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh
+            && self
+                .resolve_reference(owner_name, self.current_scope(), index.span.start.offset)
+                .is_none()
             && zsh_arithmetic_assoc_option_key(owner_name.as_str(), index.span.slice(self.source))
     }
 

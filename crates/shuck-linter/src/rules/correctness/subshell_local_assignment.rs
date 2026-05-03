@@ -268,6 +268,25 @@ f() {
     }
 
     #[test]
+    fn reports_zsh_option_shaped_indexed_opts_arithmetic_subshells() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local -a OPTS
+  local quiet=0
+  ( (( OPTS[opt_-q,--quiet] )) )
+  (( quiet ))
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    }
+
+    #[test]
     fn ignores_ifs_reads_after_pipeline_updates() {
         let source = "\
 #!/bin/sh

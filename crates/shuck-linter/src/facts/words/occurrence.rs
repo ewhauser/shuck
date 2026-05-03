@@ -2552,8 +2552,18 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         ) {
             return false;
         }
+
+        if owner_name.is_some_and(|name| {
+            self.assoc_binding_visible_for_subscript(name, owner_name_span, subscript)
+        }) {
+            return false;
+        }
+
         if self.semantic.shell_profile().dialect == shuck_parser::parser::ShellDialect::Zsh
             && owner_name.is_some_and(|name| {
+                self.binding_visible_for_subscript(name, owner_name_span, subscript)
+                    .is_none()
+                    &&
                 shuck_semantic::zsh_arithmetic_assoc_option_key(
                     name.as_str(),
                     subscript.syntax_text(self.source),
@@ -2563,9 +2573,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             return false;
         }
 
-        !owner_name.is_some_and(|name| {
-            self.assoc_binding_visible_for_subscript(name, owner_name_span, subscript)
-        })
+        true
     }
 
     fn assoc_binding_visible_for_subscript(
@@ -2589,6 +2597,17 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 .assoc_binding_visible_for_lookup(owner_name, self.command_scope, lookup_span);
         self.assoc_binding_visibility_memo.insert(key, visible);
         visible
+    }
+
+    fn binding_visible_for_subscript(
+        &self,
+        owner_name: &Name,
+        owner_name_span: Option<Span>,
+        subscript: &Subscript,
+    ) -> Option<&shuck_semantic::Binding> {
+        let lookup_span = owner_name_span.unwrap_or(subscript.span());
+        self.semantic
+            .visible_binding_for_assoc_lookup(owner_name, self.command_scope, lookup_span)
     }
 
     fn collect_array_index_arithmetic_spans(&mut self, word: &Word) {
