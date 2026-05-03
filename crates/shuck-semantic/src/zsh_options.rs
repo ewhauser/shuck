@@ -304,8 +304,10 @@ pub(crate) fn runtime_ambiguous_entry_mask(recorded_program: &RecordedProgram) -
     for info in recorded_program.command_infos.values() {
         for effect in &info.zsh_effects {
             match effect {
-                RecordedZshCommandEffect::Emulate { .. } => {
-                    return ZshOptionMask::ALL;
+                RecordedZshCommandEffect::Emulate { mode, .. } => {
+                    if *mode == ZshEmulationMode::Ksh {
+                        mask.insert(ZshOptionField::KshArrays);
+                    }
                 }
                 RecordedZshCommandEffect::EmulateUnknown { .. } => {
                     return ZshOptionMask::ALL;
