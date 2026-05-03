@@ -918,6 +918,63 @@ fn test_decl_name_and_array_access_attach_arithmetic_index_asts() {
 }
 
 #[test]
+fn test_zsh_unbraced_array_access_parses_as_array_access() {
+    let input = "print $Plugins[MY_PLUGIN_DIR]\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let reference = expect_array_access(&command.args[0]);
+    assert_eq!(reference.name.as_str(), "Plugins");
+    expect_subscript(reference, input, "MY_PLUGIN_DIR");
+    assert_eq!(
+        command.args[0].render_syntax(input),
+        "$Plugins[MY_PLUGIN_DIR]"
+    );
+}
+
+#[test]
+fn test_zsh_unbraced_array_access_inside_double_quotes_stays_nested() {
+    let source = "[[ -n \"$termcap[ku]\" ]]\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional command");
+    };
+
+    assert!(redirects.is_empty());
+    let ConditionalExpr::Unary(unary) = &command.expression else {
+        panic!("expected unary conditional");
+    };
+    let ConditionalExpr::Word(word) = unary.expr.as_ref() else {
+        panic!("expected quoted word operand");
+    };
+    let [
+        WordPartNode {
+            kind: WordPart::DoubleQuoted { parts, .. },
+            ..
+        },
+    ] = word.parts.as_slice()
+    else {
+        panic!("expected one double-quoted expansion, got {:?}", word.parts);
+    };
+    let [nested] = parts.as_slice() else {
+        panic!("expected one nested part, got {parts:?}");
+    };
+    let reference = array_access_reference(&nested.kind).expect("expected nested array access");
+    assert_eq!(reference.name.as_str(), "termcap");
+    expect_subscript(reference, source, "ku");
+    assert_eq!(word.render_syntax(source), "\"$termcap[ku]\"");
+}
+
+#[test]
 fn test_substring_and_array_slice_attach_arithmetic_companion_asts() {
     let input = "echo ${s:i+1:len*2} ${arr[@]:i:j}\n";
     let script = Parser::new(input).parse().unwrap().file;

@@ -3264,11 +3264,16 @@ fn fmt_word_part_with_source_mode(
             fmt_var_ref_with_source(f, reference, source)?;
             f.write_str("}")?;
         }
-        WordPart::ArrayAccess(reference) => {
-            write!(f, "${{")?;
-            fmt_var_ref_with_source(f, reference, source)?;
-            f.write_str("}")?;
-        }
+        WordPart::ArrayAccess(reference) => match source {
+            Some(source) if reference.is_source_backed() && span.end.offset <= source.len() => {
+                f.write_str(span.slice(source))?
+            }
+            _ => {
+                write!(f, "${{")?;
+                fmt_var_ref_with_source(f, reference, source)?;
+                f.write_str("}")?;
+            }
+        },
         WordPart::ArrayLength(reference) => {
             write!(f, "${{#")?;
             fmt_var_ref_with_source(f, reference, source)?;
