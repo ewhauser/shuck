@@ -1,3 +1,280 @@
+fn collect_zsh_option_map_arithmetic_suppressed_subscripts(
+    command: &Command,
+    semantic: &SemanticModel,
+    command_scope: ScopeId,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match command {
+        Command::Compound(CompoundCommand::Arithmetic(command)) => {
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                command.expr_ast.as_ref(),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+        }
+        Command::Compound(CompoundCommand::ArithmeticFor(command)) => {
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                command.init_ast.as_ref(),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                command.condition_ast.as_ref(),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                command.step_ast.as_ref(),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+        }
+        _ => {}
+    }
+}
+
+fn collect_zsh_option_map_suppressed_subscripts_in_expr(
+    expression: Option<&ArithmeticExprNode>,
+    semantic: &SemanticModel,
+    command_scope: ScopeId,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let Some(expression) = expression else {
+        return;
+    };
+
+    match &expression.kind {
+        ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) | ArithmeticExpr::ShellWord(_) => {}
+        ArithmeticExpr::Indexed { name, index } => {
+            if arithmetic_index_uses_zsh_option_map_key_semantics(
+                semantic,
+                command_scope,
+                name,
+                index,
+                source,
+            ) {
+                spans.push(index.span);
+            } else {
+                collect_zsh_option_map_suppressed_subscripts_in_expr(
+                    Some(index),
+                    semantic,
+                    command_scope,
+                    source,
+                    spans,
+                );
+            }
+        }
+        ArithmeticExpr::Parenthesized { expression } => {
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                Some(expression),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+        }
+        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                Some(expr),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+        }
+        ArithmeticExpr::Binary { left, right, .. } => {
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                Some(left),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                Some(right),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+        }
+        ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                Some(condition),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                Some(then_expr),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                Some(else_expr),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+        }
+        ArithmeticExpr::Assignment { target, value, .. } => {
+            collect_zsh_option_map_suppressed_subscripts_in_lvalue(
+                target,
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                Some(value),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+        }
+    }
+}
+
+fn collect_zsh_option_map_suppressed_subscripts_in_lvalue(
+    target: &ArithmeticLvalue,
+    semantic: &SemanticModel,
+    command_scope: ScopeId,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match target {
+        ArithmeticLvalue::Variable(_) => {}
+        ArithmeticLvalue::Indexed { name, index } => {
+            if arithmetic_index_uses_zsh_option_map_key_semantics(
+                semantic,
+                command_scope,
+                name,
+                index,
+                source,
+            ) {
+                spans.push(index.span);
+            } else {
+                collect_zsh_option_map_suppressed_subscripts_in_expr(
+                    Some(index),
+                    semantic,
+                    command_scope,
+                    source,
+                    spans,
+                );
+            }
+        }
+    }
+}
+
+fn arithmetic_index_uses_zsh_option_map_key_semantics(
+    semantic: &SemanticModel,
+    command_scope: ScopeId,
+    owner_name: &Name,
+    index: &ArithmeticExprNode,
+    source: &str,
+) -> bool {
+    if semantic.assoc_binding_visible_for_lookup(owner_name, command_scope, index.span) {
+        return true;
+    }
+
+    zsh_option_map_binding_permits_implicit_assoc_key(
+        semantic.visible_binding_for_lookup(owner_name, command_scope, index.span),
+        owner_name,
+        source,
+    )
+        && semantic.shell_profile().dialect == shuck_parser::parser::ShellDialect::Zsh
+        && zsh_option_map_subscript_key(owner_name.as_str(), index.span.slice(source))
+}
+
+fn zsh_option_map_binding_permits_implicit_assoc_key(
+    binding: Option<&Binding>,
+    owner_name: &Name,
+    source: &str,
+) -> bool {
+    let Some(binding) = binding else {
+        return true;
+    };
+    if binding.attributes.contains(shuck_semantic::BindingAttributes::ASSOC) {
+        return true;
+    }
+
+    zsh_option_map_binding_origin(owner_name, binding, source)
+}
+
+fn zsh_option_map_binding_origin(owner_name: &Name, binding: &Binding, source: &str) -> bool {
+    match &binding.origin {
+        shuck_semantic::BindingOrigin::Assignment {
+            definition_span, ..
+        } => zsh_option_map_assignment_target(owner_name, definition_span.slice(source)),
+        shuck_semantic::BindingOrigin::ArithmeticAssignment { target_span, .. } => {
+            zsh_option_map_assignment_target(owner_name, target_span.slice(source))
+        }
+        shuck_semantic::BindingOrigin::ParameterDefaultAssignment { .. }
+        | shuck_semantic::BindingOrigin::LoopVariable { .. }
+        | shuck_semantic::BindingOrigin::Imported { .. }
+        | shuck_semantic::BindingOrigin::FunctionDefinition { .. }
+        | shuck_semantic::BindingOrigin::BuiltinTarget { .. }
+        | shuck_semantic::BindingOrigin::Declaration { .. }
+        | shuck_semantic::BindingOrigin::Nameref { .. } => false,
+    }
+}
+
+fn zsh_option_map_assignment_target(owner_name: &Name, text: &str) -> bool {
+    let Some(rest) = text.strip_prefix(owner_name.as_str()) else {
+        return false;
+    };
+    let Some(subscript) = rest.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) else {
+        return false;
+    };
+
+    zsh_option_map_subscript_key(owner_name.as_str(), subscript)
+}
+
+fn zsh_option_map_subscript_key(owner_name: &str, text: &str) -> bool {
+    if owner_name != "OPTS" {
+        return false;
+    }
+
+    let text = text.trim();
+    let Some((short_option, long_option)) = text.rsplit_once(',') else {
+        return false;
+    };
+    let Some(short_option) = short_option.strip_prefix("opt_-") else {
+        return false;
+    };
+    let Some(long_option) = long_option.strip_prefix("--") else {
+        return false;
+    };
+
+    !short_option.is_empty()
+        && short_option
+            .chars()
+            .all(|ch| ch == '-' || ch == '_' || ch.is_ascii_alphanumeric())
+        && !long_option.is_empty()
+        && long_option
+            .chars()
+            .all(|ch| ch == '-' || ch == '_' || ch.is_ascii_alphanumeric())
+}
+
 fn collect_base_prefix_spans_in_command_parts(
     command: &Command,
     source: &str,

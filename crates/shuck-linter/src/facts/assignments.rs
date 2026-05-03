@@ -1022,6 +1022,7 @@ fn build_nonpersistent_assignment_spans(
     commands: &[CommandFact<'_>],
     source: &str,
     suppress_bash_pipefail_pipeline_side_effects: bool,
+    arithmetic_only_suppressed_subscript_spans: &[Span],
 ) -> NonpersistentAssignmentSpans {
     let command_contexts = build_nonpersistent_assignment_command_contexts(commands);
     let prompt_runtime_reads = build_prompt_runtime_read_spans(commands, source)
@@ -1047,6 +1048,13 @@ fn build_nonpersistent_assignment_spans(
     let mut assignment_sites = Vec::new();
 
     for effect in analysis.effects {
+        if arithmetic_only_suppressed_subscript_spans
+            .iter()
+            .any(|span| span_contains(*span, effect.assignment_span))
+        {
+            continue;
+        }
+
         let assignment_binding = semantic.binding(effect.assignment_binding);
         assignment_sites.push(NamedSpan {
             name: effect.name.clone(),
@@ -1070,6 +1078,10 @@ fn build_nonpersistent_assignment_spans(
         subshell_assignment_sites: assignment_sites,
         subshell_later_use_sites: later_use_sites,
     }
+}
+
+fn span_contains(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
 }
 
 fn build_subshell_loop_assignment_report_spans(

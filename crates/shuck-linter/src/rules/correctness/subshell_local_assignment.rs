@@ -108,6 +108,107 @@ echo \"$count\"
     }
 
     #[test]
+    fn ignores_zsh_option_map_keys_without_visible_opts_binding() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local quiet=0
+  ( (( !OPTS[opt_-q,--quiet] )) )
+  (( quiet ))
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_option_map_keys_in_if_arithmetic_conditions() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local quiet=0
+  (
+    if (( ! OPTS[opt_-q,--quiet] )) {
+      :
+    }
+  )
+  (( quiet ))
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_option_map_keys_after_option_map_assignment() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local quiet=0
+  OPTS[opt_-q,--quiet]=1
+  ( (( OPTS[opt_-q,--quiet] )) )
+  (( quiet ))
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_zsh_option_shaped_indexed_opts_arithmetic_subshells() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local -a OPTS
+  local opt_=1 q=1 quiet=0
+  ( (( OPTS[opt_-q,--quiet] )) )
+  (( quiet ))
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_zsh_option_shaped_caller_indexed_opts_arithmetic_subshells() {
+        let source = "\
+#!/bin/zsh
+callee() {
+  local opt_=1 q=1 quiet=0
+  ( (( OPTS[opt_-q,--quiet] )) )
+  (( quiet ))
+}
+caller() {
+  local -a OPTS
+  callee
+}
+caller
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_for_loop_child_assignments_on_the_loop_keyword() {
         let source = "\
 #!/bin/sh

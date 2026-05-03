@@ -22,6 +22,7 @@ struct ArithmeticFactSummary {
     arithmetic_score_line_spans: Vec<Span>,
     dollar_in_arithmetic_spans: Vec<Span>,
     arithmetic_command_substitution_spans: Vec<Span>,
+    arithmetic_only_suppressed_subscript_spans: Vec<Span>,
 }
 
 #[derive(Debug, Default)]
@@ -234,6 +235,13 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                         arithmetic: &mut arithmetic_summary,
                         surface: &mut surface_fragments,
                     },
+                );
+                collect_zsh_option_map_arithmetic_suppressed_subscripts(
+                    visit.command,
+                    self.semantic,
+                    scope,
+                    self.source,
+                    &mut arithmetic_summary.arithmetic_only_suppressed_subscript_spans,
                 );
                 collect_base_prefix_spans_in_command_parts(
                     visit.command,
@@ -617,27 +625,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let backtick_command_name_spans = build_backtick_command_name_spans(&commands);
         let dollar_question_after_command_spans =
             build_dollar_question_after_command_spans(&self.file.body, self.source);
-        let nonpersistent_assignment_spans = build_nonpersistent_assignment_spans(
-            self.semantic,
-            &commands,
-            self.source,
-            matches!(self.shell, ShellDialect::Bash) && pipefail_enabled_anywhere,
-        );
-        let heredoc_summary =
-            build_heredoc_fact_summary(
-                &commands,
-                locator,
-                self.file.span.end.offset,
-            );
-        let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);
-        let literal_brace_spans = build_literal_brace_spans(
-            &word_nodes,
-            &word_occurrences,
-            CommandFacts::new(&commands, &fact_store, &command_fact_indices_by_id),
-            &fact_store,
-            locator,
-            self._indexer.region_index().heredoc_ranges(),
-        );
         let SurfaceFragmentFacts {
             single_quoted,
             dollar_double_quoted,
@@ -664,8 +651,36 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             positional_parameter_trims,
             suppressed_subscript_spans,
             subscript_later_suppression_spans,
-            arithmetic_only_suppressed_subscript_spans,
+            mut arithmetic_only_suppressed_subscript_spans,
         } = surface_fragments.finish();
+        arithmetic_only_suppressed_subscript_spans.extend(
+            arithmetic_summary
+                .arithmetic_only_suppressed_subscript_spans
+                .iter()
+                .copied(),
+        );
+        let nonpersistent_assignment_spans = build_nonpersistent_assignment_spans(
+            self.semantic,
+            &commands,
+            self.source,
+            matches!(self.shell, ShellDialect::Bash) && pipefail_enabled_anywhere,
+            &arithmetic_only_suppressed_subscript_spans,
+        );
+        let heredoc_summary =
+            build_heredoc_fact_summary(
+                &commands,
+                locator,
+                self.file.span.end.offset,
+            );
+        let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);
+        let literal_brace_spans = build_literal_brace_spans(
+            &word_nodes,
+            &word_occurrences,
+            CommandFacts::new(&commands, &fact_store, &command_fact_indices_by_id),
+            &fact_store,
+            locator,
+            self._indexer.region_index().heredoc_ranges(),
+        );
         let function_positional_parameter_facts = build_function_positional_parameter_facts(
             self.semantic,
             &commands,
