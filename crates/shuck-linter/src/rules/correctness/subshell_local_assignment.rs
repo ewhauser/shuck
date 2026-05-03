@@ -186,6 +186,26 @@ f() {
     }
 
     #[test]
+    fn reports_zsh_option_shaped_indexed_opts_after_option_map_assignment() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local -a OPTS
+  local opt_=1 q=1 quiet=0
+  OPTS[opt_-q,--quiet]=1
+  ( (( OPTS[opt_-q,--quiet] )) )
+  (( quiet ))
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_zsh_option_shaped_caller_indexed_opts_arithmetic_subshells() {
         let source = "\
 #!/bin/zsh

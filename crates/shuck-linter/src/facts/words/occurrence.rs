@@ -2558,10 +2558,20 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         }) {
             return false;
         }
+        if owner_name.is_some_and(|name| {
+            self.assoc_lookup_binding_blocks_zsh_option_map_fallback(
+                name,
+                owner_name_span,
+                subscript,
+            )
+        }) {
+            return true;
+        }
 
         if self.semantic.shell_profile().dialect == shuck_parser::parser::ShellDialect::Zsh
             && owner_name.is_some_and(|name| {
                 super::zsh_option_map_binding_permits_implicit_assoc_key(
+                    self.semantic,
                     self.binding_visible_for_subscript(name, owner_name_span, subscript),
                     name,
                     self.source,
@@ -2599,6 +2609,29 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 .assoc_binding_visible_for_lookup(owner_name, self.command_scope, lookup_span);
         self.assoc_binding_visibility_memo.insert(key, visible);
         visible
+    }
+
+    fn assoc_lookup_binding_blocks_zsh_option_map_fallback(
+        &self,
+        owner_name: &Name,
+        owner_name_span: Option<Span>,
+        subscript: &Subscript,
+    ) -> bool {
+        let lookup_span = owner_name_span.unwrap_or(subscript.span());
+        self.semantic
+            .visible_assoc_lookup_binding_for_lookup(owner_name, self.command_scope, lookup_span)
+            .is_some_and(|binding| {
+                !binding
+                    .attributes
+                    .contains(shuck_semantic::BindingAttributes::ASSOC)
+                    && (!super::zsh_option_map_binding_origin(owner_name, binding, self.source)
+                        || super::zsh_option_map_binding_has_prior_assoc_lookup_blocker(
+                            self.semantic,
+                            owner_name,
+                            binding,
+                            self.source,
+                        ))
+            })
     }
 
     fn binding_visible_for_subscript(

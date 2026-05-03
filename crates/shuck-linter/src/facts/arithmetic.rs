@@ -192,11 +192,26 @@ fn arithmetic_index_uses_zsh_option_map_key_semantics(
     index: &ArithmeticExprNode,
     source: &str,
 ) -> bool {
-    if semantic.assoc_binding_visible_for_lookup(owner_name, command_scope, index.span) {
-        return true;
+    if let Some(binding) =
+        semantic.visible_assoc_lookup_binding_for_lookup(owner_name, command_scope, index.span)
+    {
+        if binding
+            .attributes
+            .contains(shuck_semantic::BindingAttributes::ASSOC)
+        {
+            return true;
+        }
+        if !zsh_option_map_binding_origin(owner_name, binding, source)
+            || zsh_option_map_binding_has_prior_assoc_lookup_blocker(
+                semantic, owner_name, binding, source,
+            )
+        {
+            return false;
+        }
     }
 
     zsh_option_map_binding_permits_implicit_assoc_key(
+        semantic,
         semantic.visible_binding_for_lookup(owner_name, command_scope, index.span),
         owner_name,
         source,
@@ -206,6 +221,7 @@ fn arithmetic_index_uses_zsh_option_map_key_semantics(
 }
 
 fn zsh_option_map_binding_permits_implicit_assoc_key(
+    semantic: &SemanticModel,
     binding: Option<&Binding>,
     owner_name: &Name,
     source: &str,
@@ -218,6 +234,9 @@ fn zsh_option_map_binding_permits_implicit_assoc_key(
     }
 
     zsh_option_map_binding_origin(owner_name, binding, source)
+        && !zsh_option_map_binding_has_prior_assoc_lookup_blocker(
+            semantic, owner_name, binding, source,
+        )
 }
 
 fn zsh_option_map_binding_origin(owner_name: &Name, binding: &Binding, source: &str) -> bool {
@@ -236,6 +255,34 @@ fn zsh_option_map_binding_origin(owner_name: &Name, binding: &Binding, source: &
         | shuck_semantic::BindingOrigin::Declaration { .. }
         | shuck_semantic::BindingOrigin::Nameref { .. } => false,
     }
+}
+
+fn zsh_option_map_binding_has_prior_assoc_lookup_blocker(
+    semantic: &SemanticModel,
+    owner_name: &Name,
+    binding: &Binding,
+    source: &str,
+) -> bool {
+    semantic.bindings_for(owner_name).iter().copied().any(|id| {
+        let candidate = semantic.binding(id);
+        candidate.scope == binding.scope
+            && candidate.span.start.offset < binding.span.start.offset
+            && zsh_option_map_binding_blocks_assoc_lookup(candidate)
+            && !zsh_option_map_binding_origin(owner_name, candidate, source)
+    })
+}
+
+fn zsh_option_map_binding_blocks_assoc_lookup(binding: &Binding) -> bool {
+    binding
+        .attributes
+        .contains(shuck_semantic::BindingAttributes::LOCAL)
+        || !matches!(
+            binding.kind,
+            BindingKind::Assignment
+                | BindingKind::AppendAssignment
+                | BindingKind::ArrayAssignment
+                | BindingKind::ArithmeticAssignment
+        )
 }
 
 fn zsh_option_map_assignment_target(owner_name: &Name, text: &str) -> bool {
