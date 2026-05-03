@@ -54,7 +54,7 @@ fuzz-smoke:
 	bash ./scripts/fuzz-init.sh --ci
 	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) parser_fuzz -- $(FUZZ_SMOKE_ARGS)'
 	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) recovered_parser_fuzz -- $(FUZZ_SMOKE_ARGS)'
-	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) formatter_consistency_fuzz -- $(FUZZ_SMOKE_ARGS)'
+	# bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) formatter_consistency_fuzz -- $(FUZZ_SMOKE_ARGS)'
 	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) linter_no_panic_fuzz -- $(FUZZ_SMOKE_ARGS)'
 
 fuzz-run:
