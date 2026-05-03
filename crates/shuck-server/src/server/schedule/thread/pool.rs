@@ -21,7 +21,8 @@ struct Job {
 impl Pool {
     pub(crate) fn new(threads: NonZeroUsize) -> Self {
         let threads = usize::from(threads);
-        let (job_sender, job_receiver) = crossbeam::channel::bounded(std::cmp::min(threads * 2, 4));
+        // Keep the LSP main loop responsive even when background work piles up.
+        let (job_sender, job_receiver) = crossbeam::channel::unbounded();
         let extant_tasks = Arc::new(AtomicUsize::new(0));
 
         let mut handles = Vec::with_capacity(threads);
@@ -85,5 +86,55 @@ fn spawn_worker(
         }) {
         Ok(handle) => handle,
         Err(error) => panic!("failed to spawn background worker thread: {error}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroUsize;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use crossbeam::channel;
+
+    use super::{Pool, ThreadPriority};
+
+    #[test]
+    fn spawn_does_not_block_when_workers_are_busy() {
+        let pool = Arc::new(Pool::new(NonZeroUsize::MIN));
+        let (started_tx, started_rx) = channel::bounded(1);
+        let (release_tx, release_rx) = channel::bounded::<()>(1);
+
+        pool.spawn(ThreadPriority::Worker, move || {
+            started_tx
+                .send(())
+                .expect("test worker should report startup");
+            release_rx
+                .recv()
+                .expect("test should release the blocking worker");
+        });
+        started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("worker should start before the queue is saturated");
+
+        pool.spawn(ThreadPriority::Worker, || {});
+        pool.spawn(ThreadPriority::Worker, || {});
+
+        let pool_for_thread = pool.clone();
+        let (done_tx, done_rx) = channel::bounded(1);
+        std::thread::spawn(move || {
+            pool_for_thread.spawn(ThreadPriority::Worker, || {});
+            done_tx
+                .send(())
+                .expect("test thread should report when spawn returns");
+        });
+
+        done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("spawning should stay non-blocking when the pool backlog grows");
+
+        release_tx
+            .send(())
+            .expect("test should release the blocking worker");
     }
 }
