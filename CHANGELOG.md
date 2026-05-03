@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.0.32](https://github.com/ewhauser/shuck/compare/v0.0.31...v0.0.32) (2026-05-03)
+
+
+### Features
+
+* **website:** add real-world repo benchmarks ([#800](https://github.com/ewhauser/shuck/issues/800)) ([c344ed3](https://github.com/ewhauser/shuck/commit/c344ed3e828768dd90a7ce5822e05a2940397b81))
+
+
+### Bug Fixes
+
+* **parser:** parse unbraced zsh subscripts ([#796](https://github.com/ewhauser/shuck/issues/796)) ([653d2fa](https://github.com/ewhauser/shuck/commit/653d2faebf7042be9f304923e4c2ce200367cad1))
+* **parser:** parse zsh $+name subscripts ([#798](https://github.com/ewhauser/shuck/issues/798)) ([fb00399](https://github.com/ewhauser/shuck/commit/fb0039930dc815db467ad4c21cd8889e667b9c6c))
+* **semantic:** model zsh predefined runtime names ([#795](https://github.com/ewhauser/shuck/issues/795)) ([c54a327](https://github.com/ewhauser/shuck/commit/c54a3273dc44e4ce93bce2a90772f76d1ad7a292))
+
+
+### Documentation
+
+* **specs:** add 018 language server spec ([#797](https://github.com/ewhauser/shuck/issues/797)) ([af039f4](https://github.com/ewhauser/shuck/commit/af039f48ee8330c57abdfa66b9b83eb3ccfde421))
+
 ## [0.0.31](https://github.com/ewhauser/shuck/compare/v0.0.30...v0.0.31) (2026-05-02)
 
 
