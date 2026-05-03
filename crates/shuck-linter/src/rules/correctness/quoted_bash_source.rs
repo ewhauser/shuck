@@ -1580,6 +1580,38 @@ print -r -- $arr
     }
 
     #[test]
+    fn zsh_double_dash_ksh_array_option_names_keep_plain_array_reference_warnings() {
+        for source in [
+            "\
+#!/bin/zsh
+setopt -- ksh_arrays
+arr=(one two)
+print -r -- $arr
+",
+            "\
+#!/bin/zsh
+unsetopt -- no_ksh_arrays
+arr=(one two)
+print -r -- $arr
+",
+        ] {
+            let diagnostics = test_snippet(
+                source,
+                &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+            );
+
+            assert_eq!(
+                diagnostics
+                    .iter()
+                    .map(|diagnostic| diagnostic.span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$arr"],
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
     fn zsh_top_level_indirect_ksh_mode_call_keeps_plain_array_reference_warnings() {
         let source = "\
 #!/bin/zsh

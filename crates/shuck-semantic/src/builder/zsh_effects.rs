@@ -249,7 +249,7 @@ pub(super) fn parse_setopt_updates(
 
     for word in args {
         match static_word_text(word, source) {
-            Some(text) if text == "--" => break,
+            Some(text) if text == "--" => {}
             Some(text) if matches!(text.as_ref(), "-m" | "+m") => {
                 pattern_mode = true;
             }
