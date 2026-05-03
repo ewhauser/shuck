@@ -70,6 +70,7 @@ pub fn run(args: Args) -> Result<ExitStatus> {
 
     match command {
         Command::Check(command) => commands::check::check(*command, &config, cache_dir.as_deref()),
+        Command::Server(_command) => commands::server::server(),
         Command::Run(command) => commands::runtime::run(command, &config),
         Command::Install(command) => commands::runtime::install(command),
         Command::Shell(command) => commands::runtime::shell(command, &config),
