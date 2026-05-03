@@ -1,6 +1,12 @@
 import localSnapshotJson from "@/generated/benchmarks/local-m5-max.json";
 import ciSnapshotJson from "@/generated/benchmarks/ci-latest.json";
-import type { BenchmarkDataset, BenchmarkMeasurement } from "@/app/lib/benchmarks";
+import repoCorpusJson from "@/generated/benchmarks/repo-corpus-local.json";
+import type {
+  BenchmarkDataset,
+  BenchmarkMeasurement,
+  RepoCorpusCase,
+  RepoCorpusDataset,
+} from "@/app/lib/benchmarks";
 import {
   describeRelativePerformance,
   formatBytes,
@@ -17,8 +23,16 @@ import {
 
 const localSnapshot = localSnapshotJson as BenchmarkDataset;
 const ciSnapshot = ciSnapshotJson as BenchmarkDataset;
+const repoCorpus = repoCorpusJson as RepoCorpusDataset;
 const snapshots = [localSnapshot, ciSnapshot];
 const corpus = (pickLatestDatasetWithCorpus(snapshots) ?? localSnapshot).corpus;
+
+function getRepoMeasurement(
+  benchmarkCase: RepoCorpusCase,
+  tool: string,
+): BenchmarkMeasurement | undefined {
+  return benchmarkCase.measurements.find((candidate) => candidate.tool === tool);
+}
 
 function measurementText(measurement: BenchmarkMeasurement | undefined) {
   if (!measurement) {
@@ -98,7 +112,7 @@ function SnapshotDetails({ dataset }: { dataset: BenchmarkDataset }) {
 
   return (
     <>
-      <h2>{dataset.name}</h2>
+      <h3>{dataset.name}</h3>
       <p>{dataset.description}</p>
 
       <table>
@@ -191,6 +205,114 @@ function SnapshotDetails({ dataset }: { dataset: BenchmarkDataset }) {
   );
 }
 
+function RepoCorpusSection({ dataset }: { dataset: RepoCorpusDataset }) {
+  if (!dataset.available || dataset.cases.length === 0) {
+    return (
+      <>
+        <h2>On real-world repos</h2>
+        <p>
+          Repo-corpus benchmarks have not been generated for this build. Run{" "}
+          <code>make bench-repo-corpus</code> locally to populate this section.
+        </p>
+      </>
+    );
+  }
+
+  const summary = dataset.summary;
+
+  return (
+    <>
+      <h2>On real-world repos</h2>
+      <p>
+        Each row below is a single linter invocation over every shell script in
+        the corresponding open-source repository. Both tools see the same
+        filtered file list (no <code>.zsh</code> sources, no git hook samples)
+        and lint with all rules enabled.
+      </p>
+
+      {summary ? (
+        <p>
+          <strong>Total across {formatInteger(summary.repoCount)} repos:</strong>{" "}
+          shuck {formatDuration(summary.shuckTotalSeconds)} vs shellcheck{" "}
+          {formatDuration(summary.comparisonTotalSeconds)} ={" "}
+          {formatRatio(summary.speedupRatio)} speedup over{" "}
+          {formatInteger(summary.totalFiles)} files /{" "}
+          {formatInteger(summary.totalLines)} lines.
+        </p>
+      ) : null}
+
+      <table>
+        <thead>
+          <tr>
+            <th>Repo</th>
+            <th>Files</th>
+            <th>Lines</th>
+            <th>shuck</th>
+            <th>shellcheck</th>
+            <th>Speedup</th>
+          </tr>
+        </thead>
+        <tbody>
+          {dataset.cases.map((repoCase) => {
+            const shuck = getRepoMeasurement(repoCase, "shuck");
+            const shellcheck = getRepoMeasurement(repoCase, "shellcheck");
+            return (
+              <tr key={repoCase.slug}>
+                <td>
+                  <strong>
+                    <a href={repoCase.repoUrl}>{repoCase.repo}</a>
+                  </strong>
+                  <br />
+                  <span>
+                    {repoCase.commitUrl && repoCase.commitShort ? (
+                      <a href={repoCase.commitUrl}>{repoCase.commitShort}</a>
+                    ) : (
+                      repoCase.commitShort ?? "n/a"
+                    )}
+                    {repoCase.captureDate ? ` · ${repoCase.captureDate}` : ""}
+                  </span>
+                </td>
+                <td>
+                  {formatInteger(repoCase.fileCount)}
+                  {repoCase.truncated ? (
+                    <>
+                      <br />
+                      <span>
+                        of {formatInteger(repoCase.availableFileCount)}{" "}
+                        (truncated)
+                      </span>
+                    </>
+                  ) : null}
+                </td>
+                <td>
+                  {formatInteger(repoCase.totalLines)}
+                  <br />
+                  <span>{formatBytes(repoCase.totalBytes)}</span>
+                </td>
+                <td>{measurementText(shuck)}</td>
+                <td>{measurementText(shellcheck)}</td>
+                <td>{formatRatio(shellcheck?.relativeToShuck)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      <p>
+        <span>
+          Captured {formatDate(dataset.generatedAt)} on{" "}
+          {dataset.environment.label}.
+          {dataset.toolVersions.shuck ? ` ${dataset.toolVersions.shuck}` : ""}
+          {dataset.toolVersions.shellcheck
+            ? ` vs shellcheck ${dataset.toolVersions.shellcheck}`
+            : ""}
+          .
+        </span>
+      </p>
+    </>
+  );
+}
+
 function CaseTable({ dataset }: { dataset: BenchmarkDataset }) {
   if (!dataset.available) {
     return null;
@@ -198,7 +320,7 @@ function CaseTable({ dataset }: { dataset: BenchmarkDataset }) {
 
   return (
     <>
-      <h3>{dataset.environment.kind === "ci" ? "Linux CI results" : "Apple M5 results"}</h3>
+      <h4>{dataset.environment.kind === "ci" ? "Linux CI results" : "Apple M5 results"}</h4>
       <table>
         <thead>
           <tr>
@@ -259,35 +381,36 @@ export default function BenchmarksDoc() {
       <h1>Benchmarks</h1>
 
       <p>
-        This page publishes the macro CLI benchmark results produced by{" "}
-        <code>make bench-macro</code>. It is intended as a technical reference for
-        engineers evaluating runtime characteristics, not as a cross-machine league
-        table.
+        Two views are published here. The first measures shuck against
+        shellcheck on whole real-world shell repositories &mdash; the
+        situation a developer hits in CI on a changed-files run. The second
+        measures the same comparison on individual fixtures, which is closer
+        to the editor / language-server feedback loop.
       </p>
 
       <p>
-        Two datasets are shown:
+        Compare tools within the same snapshot. Absolute numbers across
+        different machines are useful for rough orientation only.
       </p>
 
-      <ul>
-        <li>
-          A checked-in Apple M5 Max snapshot generated from local benchmark exports.
-        </li>
-        <li>
-          A Linux CI snapshot regenerated during the GitHub Pages deploy for the
-          latest published release.
-        </li>
-      </ul>
+      <RepoCorpusSection dataset={repoCorpus} />
+
+      <h2>On a single file</h2>
 
       <p>
-        Compare tools within the same snapshot. Absolute numbers across different
-        machines are useful for rough orientation only.
+        The fixtures below are individual shell scripts checked into the
+        benchmark crate. Sub-second numbers here are the relevant signal for
+        editor integrations and pre-commit hooks: shuck completing under
+        ~50&nbsp;ms makes lint-on-keystroke practical without debouncing.
+        Two datasets are shown &mdash; a checked-in Apple M5 Max snapshot
+        captured from a local run, and a Linux CI snapshot regenerated during
+        the GitHub Pages deploy for the latest published release.
       </p>
 
-      <h2>Snapshot Overview</h2>
+      <h3>Snapshot overview</h3>
       <OverviewTable />
 
-      <h2>Methodology</h2>
+      <h3>Methodology</h3>
 
       <ul>
         <li>
@@ -315,14 +438,14 @@ export default function BenchmarksDoc() {
         </li>
       </ul>
 
-      <h2>Reproducing Results</h2>
+      <h3>Reproducing results</h3>
 
-      <h3>Refresh the checked-in local snapshot</h3>
+      <h4>Refresh the checked-in local snapshot</h4>
       <pre>
         <code>make bench-macro-site-local</code>
       </pre>
 
-      <h3>Generate a CI-style dataset manually</h3>
+      <h4>Generate a CI-style dataset manually</h4>
       <pre>
         <code>{`./scripts/benchmarks/setup.sh hyperfine shellcheck
 ./scripts/benchmarks/run.sh
@@ -337,6 +460,11 @@ python3 ./scripts/benchmarks/export_website_data.py \\
   --environment-label "GitHub Actions ubuntu-latest"`}</code>
       </pre>
 
+      <h4>Refresh the repo-corpus snapshot</h4>
+      <pre>
+        <code>make bench-repo-corpus</code>
+      </pre>
+
       {snapshots.map((dataset) => (
         <div key={dataset.id}>
           <SnapshotDetails dataset={dataset} />
@@ -344,7 +472,7 @@ python3 ./scripts/benchmarks/export_website_data.py \\
         </div>
       ))}
 
-      <h2>Benchmark Corpus</h2>
+      <h2>Benchmark corpus</h2>
 
       <p>
         The benchmark corpus is vendored into the repository so every run uses the

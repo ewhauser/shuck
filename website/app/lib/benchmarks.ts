@@ -42,6 +42,71 @@ export type BenchmarkCase = {
   fixture?: BenchmarkFixture;
 };
 
+export type RepoCorpusCase = {
+  slug: string;
+  repo: string;
+  fileCount: number;
+  availableFileCount: number;
+  truncated: boolean;
+  truncateLimit: number | null;
+  totalBytes: number;
+  totalLines: number;
+  commit: string | null;
+  commitShort: string | null;
+  captureDate: string | null;
+  repoUrl: string;
+  commitUrl: string | null;
+  measurements: BenchmarkMeasurement[];
+};
+
+export type RepoCorpusDataset = {
+  schemaVersion: number;
+  available: boolean;
+  id: string;
+  name: string;
+  description: string;
+  generatedAt: string;
+  commit: {
+    sha: string | null;
+    shortSha: string | null;
+  };
+  links: {
+    repositoryUrl: string | null;
+    commitUrl: string | null;
+    runUrl: string | null;
+  };
+  environment: {
+    kind: "local" | "ci";
+    label: string;
+    os: string;
+    arch: string;
+    cpu: string | null;
+    python: string;
+  };
+  toolVersions: {
+    shuck: string | null;
+    hyperfine: string | null;
+    shellcheck: string | null;
+  };
+  methodology: {
+    benchmarkCommand: string;
+    warmupRuns: number;
+    measuredRuns: number;
+    shuckCommand: string;
+    comparisonCommand: string;
+    notes: string | null;
+  };
+  summary: {
+    repoCount: number;
+    totalFiles: number;
+    totalLines: number;
+    shuckTotalSeconds: number;
+    comparisonTotalSeconds: number;
+    speedupRatio: number | null;
+  } | null;
+  cases: RepoCorpusCase[];
+};
+
 export type BenchmarkDataset = {
   schemaVersion: number;
   available: boolean;
