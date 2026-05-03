@@ -785,7 +785,6 @@ fn source_suffix_matches(source: &str, offset: usize, suffix: &str) -> bool {
 
 fn is_known_runtime_or_environment_name(checker: &Checker<'_>, name: &str) -> bool {
     checker.semantic().name_is_known_runtime(name)
-        || matches!(name, "PPID" | "EUID" | "TMPDIR" | "GEM_HOME" | "GEM_PATH")
 }
 
 fn is_internal_placeholder_name(name: &str) -> bool {
@@ -1563,6 +1562,27 @@ echo \"$MATCH\"
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$MATCH"]
+        );
+    }
+
+    #[test]
+    fn keeps_bash_completion_names_reportable_in_sh() {
+        let source = "\
+#!/bin/sh
+comp_words=demo
+echo \"$COMP_WORDS\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$COMP_WORDS"]
         );
     }
 

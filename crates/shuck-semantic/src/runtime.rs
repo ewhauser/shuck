@@ -89,6 +89,43 @@ const BASH_PREINITIALIZED_ARRAYS: &[&str] = &[
     "PIPESTATUS",
 ];
 
+const COMMON_KNOWN_RUNTIME_NAMES: &[&str] = &[
+    "IFS",
+    "USER",
+    "HOME",
+    "SHELL",
+    "PWD",
+    "TERM",
+    "PATH",
+    "CDPATH",
+    "LANG",
+    "SUDO_USER",
+    "DOAS_USER",
+    "PPID",
+    "HOSTNAME",
+    "SECONDS",
+    "EUID",
+    "TMPDIR",
+    "GEM_HOME",
+    "GEM_PATH",
+];
+
+const BASH_KNOWN_RUNTIME_NAMES: &[&str] = &[
+    "LINENO",
+    "FUNCNAME",
+    "BASH_SOURCE",
+    "BASH_LINENO",
+    "RANDOM",
+    "PIPESTATUS",
+    "BASH_REMATCH",
+    "READLINE_LINE",
+    "BASH_VERSION",
+    "BASH_VERSINFO",
+    "OSTYPE",
+    "HISTCONTROL",
+    "HISTSIZE",
+];
+
 const ZSH_PREINITIALIZED: &[&str] = &[
     "ARGC",
     "BUFFER",
@@ -219,8 +256,8 @@ impl RuntimePrelude {
     }
 
     pub(crate) fn is_known_runtime_name(&self, name: &Name) -> bool {
-        contains_name(self.common_preinitialized, name)
-            || contains_name(self.bash_preinitialized, name)
+        contains_name(COMMON_KNOWN_RUNTIME_NAMES, name)
+            || contains_name(BASH_KNOWN_RUNTIME_NAMES, name)
             || is_locale_binding(name)
             || (self.shell_dialect == ShellDialect::Zsh
                 && contains_name(self.zsh_preinitialized, name))
