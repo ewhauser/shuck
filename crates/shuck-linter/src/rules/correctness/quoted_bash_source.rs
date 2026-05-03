@@ -2,7 +2,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command, Name, Span};
 use shuck_semantic::{
     Binding, BindingAttributes, BindingId, BindingKind, DeclarationBuiltin, DeclarationOperand,
-    Reference, ReferenceId, ScopeId,
+    OptionValue, Reference, ReferenceId, ScopeId,
 };
 
 use crate::{Checker, LinterFacts, Rule, ShellDialect, Violation, WordQuote, facts::CommandId};
@@ -88,7 +88,9 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
             return false;
         }
 
-        if self.shell == ShellDialect::Zsh && !is_bash_runtime_array_name(reference.name.as_str()) {
+        if self.zsh_reference_uses_native_array_scalar_policy(reference)
+            && !is_bash_runtime_array_name(reference.name.as_str())
+        {
             return false;
         }
 
@@ -231,6 +233,14 @@ impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
                     && self.semantic.binding_visible_at(binding.id, reference.span)
                     && binding_is_array_like(binding)
             })
+    }
+
+    fn zsh_reference_uses_native_array_scalar_policy(&self, reference: &Reference) -> bool {
+        self.shell == ShellDialect::Zsh
+            && self
+                .semantic
+                .zsh_options_at(reference.span.start.offset)
+                .is_some_and(|options| options.ksh_arrays == OptionValue::Off)
     }
 
     fn reference_reads_into_same_name_array_writer(&mut self, reference: &Reference) -> bool {
@@ -1370,6 +1380,32 @@ ___opt=(-a -b)
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn zsh_ksh_array_mode_keeps_plain_array_reference_warnings() {
+        let source = "\
+#!/bin/zsh
+setopt ksh_arrays
+arr=(one two)
+print -r -- $arr
+
+emulate ksh
+other=(three four)
+print -r -- $other
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr", "$other"]
+        );
     }
 
     #[test]
