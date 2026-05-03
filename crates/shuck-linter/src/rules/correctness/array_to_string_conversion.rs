@@ -39,19 +39,17 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
                 if event.offset > binding.span.start.offset {
                     break;
                 }
-                array_history.insert(event.name.clone(), event.state);
+                push_array_history(&mut array_history, event.name.clone(), event.state);
                 next_history_event += 1;
             }
 
             let name = binding.name.clone();
-            let saw_array_history = array_history
-                .get(&name)
-                .filter(|state| state.visible_to_binding(checker, binding))
-                .map(|state| state.array_like)
+            let saw_array_history = visible_array_history(&array_history, &name, checker, binding)
                 .unwrap_or_else(|| binding_uses_builtin_array_history(checker, binding));
 
             if declaration_resets_array_history(binding) {
-                array_history.insert(
+                push_array_history(
+                    &mut array_history,
                     name,
                     ArrayHistoryState::from_binding(checker, binding, false, None),
                 );
@@ -62,13 +60,15 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
                 &append_declaration_assignments,
             ) {
                 if binding_establishes_array_history(binding, &builtin_history) {
-                    let prior = array_history.get(&name).copied();
-                    array_history.insert(
+                    let prior = latest_array_history(&array_history, &name);
+                    push_array_history(
+                        &mut array_history,
                         name,
                         ArrayHistoryState::from_binding(checker, binding, true, prior),
                     );
                 } else if binding_resets_array_history(binding, &builtin_history) {
-                    array_history.insert(
+                    push_array_history(
+                        &mut array_history,
                         name,
                         ArrayHistoryState::from_binding(checker, binding, false, None),
                     );
@@ -77,8 +77,9 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
             }
             if binding_is_array_like(binding) {
                 if binding_establishes_array_history(binding, &builtin_history) {
-                    let prior = array_history.get(&name).copied();
-                    array_history.insert(
+                    let prior = latest_array_history(&array_history, &name);
+                    push_array_history(
+                        &mut array_history,
                         name,
                         ArrayHistoryState::from_binding(checker, binding, true, prior),
                     );
@@ -89,8 +90,9 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
             checker.facts().binding_value(binding.id)?.scalar_word()?;
 
             if binding_establishes_array_history(binding, &builtin_history) {
-                let prior = array_history.get(&name).copied();
-                array_history.insert(
+                let prior = latest_array_history(&array_history, &name);
+                push_array_history(
+                    &mut array_history,
                     name.clone(),
                     ArrayHistoryState::from_binding(checker, binding, true, prior),
                 );
@@ -101,6 +103,39 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ArrayToStringConversion);
+}
+
+fn push_array_history(
+    array_history: &mut HashMap<Name, Vec<ArrayHistoryState>>,
+    name: Name,
+    state: ArrayHistoryState,
+) {
+    array_history.entry(name).or_default().push(state);
+}
+
+fn latest_array_history(
+    array_history: &HashMap<Name, Vec<ArrayHistoryState>>,
+    name: &Name,
+) -> Option<ArrayHistoryState> {
+    array_history
+        .get(name)
+        .and_then(|history| history.last())
+        .copied()
+}
+
+fn visible_array_history(
+    array_history: &HashMap<Name, Vec<ArrayHistoryState>>,
+    name: &Name,
+    checker: &Checker<'_>,
+    binding: &Binding,
+) -> Option<bool> {
+    array_history.get(name).and_then(|history| {
+        history
+            .iter()
+            .rev()
+            .find(|state| state.visible_to_binding(checker, binding))
+            .map(|state| state.array_like)
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -707,6 +742,32 @@ i() {
         );
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_global_scalar_after_hidden_function_local_array_history() {
+        let source = "\
+#!/bin/zsh
+arr=(global)
+f() {
+  local -a arr
+  arr=(local)
+}
+arr=scalar
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["arr"],
+            "{diagnostics:#?}"
+        );
     }
 
     #[test]
