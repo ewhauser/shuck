@@ -1,4 +1,4 @@
-.PHONY: build test run check check-scripts setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark test-oracle-shellcheck-cli fuzz-setup fuzz-list fuzz-smoke fuzz-run fuzz-cli bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-large-corpus-hotspots bench-macro bench-macro-single bench-macro-format bench-macro-format-summary bench-macro-format-single bench-macro-site-local profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view profile-large-corpus profile-large-corpus-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli harden-release check-release-security
+.PHONY: build test run check check-scripts setup-hooks setup-large-corpus ensure-cache test-large-corpus large-corpus-report large-corpus-report-from-log large-corpus-report-open test-oracle-shfmt test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark test-oracle-shellcheck-cli fuzz-setup fuzz-list fuzz-smoke fuzz-run fuzz-cli bench bench-save bench-compare bench-parser bench-arithmetic bench-lexer bench-semantic bench-linter bench-formatter bench-large-corpus-hotspots bench-macro bench-macro-single bench-macro-format bench-macro-format-summary bench-macro-format-single bench-macro-site-local bench-repo-corpus profile-parser profile-parser-view profile-arithmetic profile-arithmetic-view profile-formatter profile-formatter-view profile-linter profile-linter-view profile-cli profile-cli-view profile-large-corpus profile-large-corpus-view flame-parser flame-arithmetic flame-formatter flame-linter flame-cli harden-release check-release-security
 
 ARGS ?= --help
 BENCH_FILE ?=
@@ -193,6 +193,20 @@ bench-macro:
 
 bench-macro-site-local: bench-macro
 	$(NIX_DEVELOP) python3 ./scripts/benchmarks/export_website_data.py --repo-root . --bench-dir "$(BENCHMARK_WEBSITE_BENCH_DIR)" --output "$(BENCHMARK_WEBSITE_LOCAL_OUTPUT)" --dataset-id local-m5-max --dataset-name "Apple M5 Max checked-in snapshot" --dataset-description "Checked-in make bench-macro results captured on an Apple M5 Max macOS development machine." --environment-kind local --environment-label "Apple M5 Max macOS snapshot" --notes "Regenerate this checked-in snapshot on the Apple M5 Max machine when you want to refresh the website's local reference numbers."
+
+bench-repo-corpus: ensure-cache
+	cargo build --release -p shuck-cli
+	$(NIX_DEVELOP) ./scripts/benchmarks/run_repo_corpus.sh
+	$(NIX_DEVELOP) python3 ./scripts/benchmarks/export_repo_corpus.py \
+		--repo-root . \
+		--bench-dir .cache/repo-corpus \
+		--manifest .cache/large-corpus/manifest.yaml \
+		--output website/generated/benchmarks/repo-corpus-local.json \
+		--dataset-id repo-corpus-local \
+		--dataset-name "Repo-corpus snapshot (local)" \
+		--dataset-description "Whole-repo benchmarks against curated open-source repositories cloned at pinned commits." \
+		--environment-kind local \
+		--notes "Each repo is shallow-cloned at the SHA in .cache/large-corpus/manifest.yaml so source-following, project-root resolution, and any in-tree .shellcheckrc behave the way they would for an end user. Both tools receive the same filelist (extension match for *.sh / *.bash / *.ksh plus extensionless executables with shell shebangs; symlinks and *.zsh excluded). shellcheck runs without -x, matching its default behavior."
 
 bench-macro-single:
 	test -n "$(BENCH_FILE)"

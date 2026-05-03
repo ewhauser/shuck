@@ -1,0 +1,543 @@
+{
+  "schemaVersion": 1,
+  "available": true,
+  "id": "repo-corpus-local",
+  "name": "Repo-corpus snapshot (local)",
+  "description": "Whole-repo benchmarks against curated open-source repositories cloned at pinned commits.",
+  "generatedAt": "2026-05-03T04:29:53Z",
+  "commit": {
+    "sha": "e7c8545ab4ad3195e3d6d6741a42ab8912947aa2",
+    "shortSha": "e7c8545"
+  },
+  "links": {
+    "repositoryUrl": "https://github.com/ewhauser/shuck",
+    "commitUrl": "https://github.com/ewhauser/shuck/commit/e7c8545ab4ad3195e3d6d6741a42ab8912947aa2",
+    "runUrl": null
+  },
+  "environment": {
+    "kind": "local",
+    "label": "Apple M5 Max local snapshot",
+    "os": "macOS 26.4",
+    "arch": "arm64",
+    "cpu": "Apple M5 Max",
+    "python": "3.14.3"
+  },
+  "toolVersions": {
+    "shuck": "shuck 0.0.31",
+    "hyperfine": "hyperfine 1.20.0",
+    "shellcheck": "0.11.0"
+  },
+  "methodology": {
+    "benchmarkCommand": "make bench-repo-corpus",
+    "warmupRuns": 1,
+    "measuredRuns": 3,
+    "shuckCommand": "xargs shuck check --no-cache --select ALL <filelist>",
+    "comparisonCommand": "xargs shellcheck --enable=all --severity=style <filelist>",
+    "notes": "Each repo is shallow-cloned at the SHA in .cache/large-corpus/manifest.yaml so source-following, project-root resolution, and any in-tree .shellcheckrc behave the way they would for an end user. Both tools receive the same filelist (extension match for *.sh / *.bash / *.ksh plus extensionless executables with shell shebangs; symlinks and *.zsh excluded). shellcheck runs without -x, matching its default behavior."
+  },
+  "summary": {
+    "repoCount": 9,
+    "totalFiles": 7671,
+    "totalLines": 614131,
+    "shuckTotalSeconds": 3.583174317673334,
+    "comparisonTotalSeconds": 139.51320398267336,
+    "speedupRatio": 38.93564521674279
+  },
+  "cases": [
+    {
+      "slug": "Bash-it__bash-it",
+      "repo": "Bash-it/bash-it",
+      "fileCount": 343,
+      "availableFileCount": 343,
+      "truncated": false,
+      "truncateLimit": 4000,
+      "totalBytes": 713532,
+      "totalLines": 24432,
+      "commit": "39f60ff4b2a16837d76e8f18da19816c07ca5747",
+      "commitShort": "39f60ff",
+      "captureDate": "2026-04-04",
+      "repoUrl": "https://github.com/Bash-it/bash-it",
+      "commitUrl": "https://github.com/Bash-it/bash-it/commit/39f60ff4b2a16837d76e8f18da19816c07ca5747",
+      "measurements": [
+        {
+          "tool": "shuck",
+          "command": "shuck",
+          "meanSeconds": 0.14608492733333334,
+          "stddevSeconds": 0.015531569617695579,
+          "medianSeconds": 0.143487163,
+          "minSeconds": 0.132016039,
+          "maxSeconds": 0.16275158,
+          "userSeconds": 0.2621393533333334,
+          "systemSeconds": 0.06264578666666666,
+          "meanMemoryBytes": 49911125,
+          "maxMemoryBytes": 51298304,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 1.0
+        },
+        {
+          "tool": "shellcheck",
+          "command": "shellcheck",
+          "meanSeconds": 8.457519413,
+          "stddevSeconds": 2.9000761714688847,
+          "medianSeconds": 8.23357108,
+          "minSeconds": 5.675909788,
+          "maxSeconds": 11.463077371,
+          "userSeconds": 7.637016686666667,
+          "systemSeconds": 0.24985111999999998,
+          "meanMemoryBytes": 134643712,
+          "maxMemoryBytes": 134643712,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 57.894538248301416
+        }
+      ]
+    },
+    {
+      "slug": "SlackBuildsOrg__slackbuilds",
+      "repo": "SlackBuildsOrg/slackbuilds",
+      "fileCount": 3967,
+      "availableFileCount": 3967,
+      "truncated": false,
+      "truncateLimit": 4000,
+      "totalBytes": 1415297,
+      "totalLines": 47203,
+      "commit": "d6997a19df9be310bfab38da902e2af03bdee8d5",
+      "commitShort": "d6997a1",
+      "captureDate": "2026-04-04",
+      "repoUrl": "https://github.com/SlackBuildsOrg/slackbuilds",
+      "commitUrl": "https://github.com/SlackBuildsOrg/slackbuilds/commit/d6997a19df9be310bfab38da902e2af03bdee8d5",
+      "measurements": [
+        {
+          "tool": "shuck",
+          "command": "shuck",
+          "meanSeconds": 0.6360337818266668,
+          "stddevSeconds": 0.0004258081789918018,
+          "medianSeconds": 0.6360842121600001,
+          "minSeconds": 0.6355850041600001,
+          "maxSeconds": 0.63643212916,
+          "userSeconds": 0.4637459533333333,
+          "systemSeconds": 0.20067843333333335,
+          "meanMemoryBytes": 55705600,
+          "maxMemoryBytes": 55705600,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 1.0
+        },
+        {
+          "tool": "shellcheck",
+          "command": "shellcheck",
+          "meanSeconds": 9.634807753826665,
+          "stddevSeconds": 0.29011683428986595,
+          "medianSeconds": 9.57954492016,
+          "minSeconds": 9.37629708716,
+          "maxSeconds": 9.94858125416,
+          "userSeconds": 9.148863953333334,
+          "systemSeconds": 0.4275967666666667,
+          "meanMemoryBytes": 69124096,
+          "maxMemoryBytes": 69124096,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 15.148264178918035
+        }
+      ]
+    },
+    {
+      "slug": "acmesh-official__acme.sh",
+      "repo": "acmesh-official/acme.sh",
+      "fileCount": 249,
+      "availableFileCount": 249,
+      "truncated": false,
+      "truncateLimit": 4000,
+      "totalBytes": 1594418,
+      "totalLines": 53369,
+      "commit": "563415d21fea772b24c1d4703d5245ccb52ce232",
+      "commitShort": "563415d",
+      "captureDate": "2026-04-04",
+      "repoUrl": "https://github.com/acmesh-official/acme.sh",
+      "commitUrl": "https://github.com/acmesh-official/acme.sh/commit/563415d21fea772b24c1d4703d5245ccb52ce232",
+      "measurements": [
+        {
+          "tool": "shuck",
+          "command": "shuck",
+          "meanSeconds": 0.3274854136133334,
+          "stddevSeconds": 0.004374034508301256,
+          "medianSeconds": 0.32847310828000004,
+          "minSeconds": 0.32270198328000005,
+          "maxSeconds": 0.33128114928,
+          "userSeconds": 0.6663409533333332,
+          "systemSeconds": 0.05393035999999999,
+          "meanMemoryBytes": 138095274,
+          "maxMemoryBytes": 138805248,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 1.0
+        },
+        {
+          "tool": "shellcheck",
+          "command": "shellcheck",
+          "meanSeconds": 24.732101246946666,
+          "stddevSeconds": 1.3959572726589187,
+          "medianSeconds": 24.85648569128,
+          "minSeconds": 23.27811410828,
+          "maxSeconds": 26.06170394128,
+          "userSeconds": 23.904968286666662,
+          "systemSeconds": 0.65835236,
+          "meanMemoryBytes": 4580179968,
+          "maxMemoryBytes": 4587880448,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 75.521230011631
+        }
+      ]
+    },
+    {
+      "slug": "bats-core__bats-core",
+      "repo": "bats-core/bats-core",
+      "fileCount": 68,
+      "availableFileCount": 68,
+      "truncated": false,
+      "truncateLimit": 4000,
+      "totalBytes": 167513,
+      "totalLines": 5828,
+      "commit": "d9faff0d7bc32e7adebc6552446f978118d3ab3b",
+      "commitShort": "d9faff0",
+      "captureDate": "2026-04-04",
+      "repoUrl": "https://github.com/bats-core/bats-core",
+      "commitUrl": "https://github.com/bats-core/bats-core/commit/d9faff0d7bc32e7adebc6552446f978118d3ab3b",
+      "measurements": [
+        {
+          "tool": "shuck",
+          "command": "shuck",
+          "meanSeconds": 0.025517165053333332,
+          "stddevSeconds": 0.0005664154515462412,
+          "medianSeconds": 0.025402790720000002,
+          "minSeconds": 0.02501666472,
+          "maxSeconds": 0.02613203972,
+          "userSeconds": 0.04576626,
+          "systemSeconds": 0.01674811333333333,
+          "meanMemoryBytes": 36225024,
+          "maxMemoryBytes": 36225024,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 1.0
+        },
+        {
+          "tool": "shellcheck",
+          "command": "shellcheck",
+          "meanSeconds": 1.1087244290533336,
+          "stddevSeconds": 0.007730520679234642,
+          "medianSeconds": 1.11290616472,
+          "minSeconds": 1.09980379072,
+          "maxSeconds": 1.11346333172,
+          "userSeconds": 1.0670279266666665,
+          "systemSeconds": 0.03129711333333333,
+          "meanMemoryBytes": 87277568,
+          "maxMemoryBytes": 87277568,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 43.450141374874235
+        }
+      ]
+    },
+    {
+      "slug": "bitnami__containers",
+      "repo": "bitnami/containers",
+      "fileCount": 2923,
+      "availableFileCount": 2923,
+      "truncated": false,
+      "truncateLimit": 4000,
+      "totalBytes": 12379909,
+      "totalLines": 420978,
+      "commit": "dbee50edd8096c49144124316540367ea5bb5bd6",
+      "commitShort": "dbee50e",
+      "captureDate": "2026-04-04",
+      "repoUrl": "https://github.com/bitnami/containers",
+      "commitUrl": "https://github.com/bitnami/containers/commit/dbee50edd8096c49144124316540367ea5bb5bd6",
+      "measurements": [
+        {
+          "tool": "shuck",
+          "command": "shuck",
+          "meanSeconds": 0.9063673931733334,
+          "stddevSeconds": 0.00918578332003181,
+          "medianSeconds": 0.90148462884,
+          "minSeconds": 0.9006541708400001,
+          "maxSeconds": 0.9169633798400001,
+          "userSeconds": 2.13173522,
+          "systemSeconds": 0.6143390333333333,
+          "meanMemoryBytes": 48824320,
+          "maxMemoryBytes": 48824320,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 1.0
+        },
+        {
+          "tool": "shellcheck",
+          "command": "shellcheck",
+          "meanSeconds": 57.911236156840005,
+          "stddevSeconds": 0.35689731017037624,
+          "medianSeconds": 57.97415029584,
+          "minSeconds": 57.52706525384,
+          "maxSeconds": 58.23249292084,
+          "userSeconds": 55.96466255333333,
+          "systemSeconds": 1.4209263666666665,
+          "meanMemoryBytes": 184352768,
+          "maxMemoryBytes": 184352768,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 63.89377706327646
+        }
+      ]
+    },
+    {
+      "slug": "dylanaraps__neofetch",
+      "repo": "dylanaraps/neofetch",
+      "fileCount": 1,
+      "availableFileCount": 1,
+      "truncated": false,
+      "truncateLimit": 4000,
+      "totalBytes": 376936,
+      "totalLines": 11592,
+      "commit": "ccd5d9f52609bbdcd5d8fa78c4fdb0f12954125f",
+      "commitShort": "ccd5d9f",
+      "captureDate": "2026-04-04",
+      "repoUrl": "https://github.com/dylanaraps/neofetch",
+      "commitUrl": "https://github.com/dylanaraps/neofetch/commit/ccd5d9f52609bbdcd5d8fa78c4fdb0f12954125f",
+      "measurements": [
+        {
+          "tool": "shuck",
+          "command": "shuck",
+          "meanSeconds": 0.05146611789333333,
+          "stddevSeconds": 0.0010172139233201284,
+          "medianSeconds": 0.051239145560000005,
+          "minSeconds": 0.05058156256,
+          "maxSeconds": 0.05257764556,
+          "userSeconds": 0.042610706666666665,
+          "systemSeconds": 0.008577406666666667,
+          "meanMemoryBytes": 67026944,
+          "maxMemoryBytes": 67026944,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 1.0
+        },
+        {
+          "tool": "shellcheck",
+          "command": "shellcheck",
+          "meanSeconds": 1.65323160356,
+          "stddevSeconds": 0.09197145885723536,
+          "medianSeconds": 1.60166510356,
+          "minSeconds": 1.59861322856,
+          "maxSeconds": 1.7594164785600002,
+          "userSeconds": 1.5897373733333335,
+          "systemSeconds": 0.04688940666666667,
+          "meanMemoryBytes": 557924352,
+          "maxMemoryBytes": 557924352,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 32.12271823156399
+        }
+      ]
+    },
+    {
+      "slug": "nvm-sh__nvm",
+      "repo": "nvm-sh/nvm",
+      "fileCount": 44,
+      "availableFileCount": 44,
+      "truncated": false,
+      "truncateLimit": 4000,
+      "totalBytes": 228721,
+      "totalLines": 7128,
+      "commit": "d200a215594bdda07e130117c9d392fff29cba84",
+      "commitShort": "d200a21",
+      "captureDate": "2026-04-04",
+      "repoUrl": "https://github.com/nvm-sh/nvm",
+      "commitUrl": "https://github.com/nvm-sh/nvm/commit/d200a215594bdda07e130117c9d392fff29cba84",
+      "measurements": [
+        {
+          "tool": "shuck",
+          "command": "shuck",
+          "meanSeconds": 0.8322489035000001,
+          "stddevSeconds": 0.13833173085377398,
+          "medianSeconds": 0.8973906815000001,
+          "minSeconds": 0.6733725145000001,
+          "maxSeconds": 0.9259835145000002,
+          "userSeconds": 1.1017022133333334,
+          "systemSeconds": 0.1126339,
+          "meanMemoryBytes": 143026858,
+          "maxMemoryBytes": 149602304,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 1.0
+        },
+        {
+          "tool": "shellcheck",
+          "command": "shellcheck",
+          "meanSeconds": 10.117963361166666,
+          "stddevSeconds": 2.082698009843345,
+          "medianSeconds": 9.140086263499999,
+          "minSeconds": 8.7041543475,
+          "maxSeconds": 12.5096494725,
+          "userSeconds": 9.752968546666667,
+          "systemSeconds": 0.31316489999999997,
+          "meanMemoryBytes": 3039002624,
+          "maxMemoryBytes": 3039002624,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 12.15737661968174
+        }
+      ]
+    },
+    {
+      "slug": "super-linter__super-linter",
+      "repo": "super-linter/super-linter",
+      "fileCount": 72,
+      "availableFileCount": 72,
+      "truncated": false,
+      "truncateLimit": 4000,
+      "totalBytes": 428115,
+      "totalLines": 11056,
+      "commit": "487d0d80e66b54831132fe7b2095f9388a624462",
+      "commitShort": "487d0d8",
+      "captureDate": "2026-04-04",
+      "repoUrl": "https://github.com/super-linter/super-linter",
+      "commitUrl": "https://github.com/super-linter/super-linter/commit/487d0d80e66b54831132fe7b2095f9388a624462",
+      "measurements": [
+        {
+          "tool": "shuck",
+          "command": "shuck",
+          "meanSeconds": 0.040522655440000006,
+          "stddevSeconds": 0.0003700612731048734,
+          "medianSeconds": 0.04044484944000001,
+          "minSeconds": 0.04019768344000001,
+          "maxSeconds": 0.040925433440000006,
+          "userSeconds": 0.08233058666666666,
+          "systemSeconds": 0.02003877333333333,
+          "meanMemoryBytes": 43974656,
+          "maxMemoryBytes": 43974656,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 1.0
+        },
+        {
+          "tool": "shellcheck",
+          "command": "shellcheck",
+          "meanSeconds": 2.7866067807733335,
+          "stddevSeconds": 0.04793123412135916,
+          "medianSeconds": 2.80616730844,
+          "minSeconds": 2.7319885584400003,
+          "maxSeconds": 2.8216644754400004,
+          "userSeconds": 2.712436586666667,
+          "systemSeconds": 0.057952773333333325,
+          "meanMemoryBytes": 129187840,
+          "maxMemoryBytes": 129187840,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 68.76663808222862
+        }
+      ]
+    },
+    {
+      "slug": "v1s1t0r1sh3r3__airgeddon",
+      "repo": "v1s1t0r1sh3r3/airgeddon",
+      "fileCount": 4,
+      "availableFileCount": 4,
+      "truncated": false,
+      "truncateLimit": 4000,
+      "totalBytes": 2544584,
+      "totalLines": 32545,
+      "commit": "d7e24237acd32b8d38e28e0d9e93001dfee44131",
+      "commitShort": "d7e2423",
+      "captureDate": "2026-04-04",
+      "repoUrl": "https://github.com/v1s1t0r1sh3r3/airgeddon",
+      "commitUrl": "https://github.com/v1s1t0r1sh3r3/airgeddon/commit/d7e24237acd32b8d38e28e0d9e93001dfee44131",
+      "measurements": [
+        {
+          "tool": "shuck",
+          "command": "shuck",
+          "meanSeconds": 0.6174479598400001,
+          "stddevSeconds": 0.020554283463914812,
+          "medianSeconds": 0.60816882084,
+          "minSeconds": 0.6031692378400001,
+          "maxSeconds": 0.64100582084,
+          "userSeconds": 1.0211389466666667,
+          "systemSeconds": 0.060239013333333334,
+          "meanMemoryBytes": 627408896,
+          "maxMemoryBytes": 627408896,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 1.0
+        },
+        {
+          "tool": "shellcheck",
+          "command": "shellcheck",
+          "meanSeconds": 23.111013237506665,
+          "stddevSeconds": 2.960101022344482,
+          "medianSeconds": 21.70212119584,
+          "minSeconds": 21.11852294584,
+          "maxSeconds": 26.51239557084,
+          "userSeconds": 22.265486613333326,
+          "systemSeconds": 0.6582800133333332,
+          "meanMemoryBytes": 4564549632,
+          "maxMemoryBytes": 4568743936,
+          "runCount": 3,
+          "exitCodes": [
+            123
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 37.42989651062325
+        }
+      ]
+    }
+  ]
+}

@@ -272,6 +272,40 @@ bash = "5.2"
 
 ---
 
+#### `gbash`
+
+Version constraint for gbash scripts.
+
+**Default value**: `none`
+
+**Type**: `string`
+
+**Example usage**:
+
+```toml
+[run.shells]
+gbash = "0.0.32"
+```
+
+---
+
+#### `bashkit`
+
+Version constraint for Bashkit scripts.
+
+**Default value**: `none`
+
+**Type**: `string`
+
+**Example usage**:
+
+```toml
+[run.shells]
+bashkit = "0.2.1"
+```
+
+---
+
 #### `zsh`
 
 Version constraint for Zsh scripts.
@@ -319,6 +353,23 @@ Version constraint for mksh scripts.
 ```toml
 [run.shells]
 mksh = "59c"
+```
+
+---
+
+#### `busybox`
+
+Version constraint for BusyBox scripts on Linux hosts.
+
+**Default value**: `none`
+
+**Type**: `string`
+
+**Example usage**:
+
+```toml
+[run.shells]
+busybox = "1.36.1"
 ```
 
 ---
