@@ -42,6 +42,7 @@ shuck-indexer = { workspace = true }
 shuck-linter = { workspace = true }
 shuck-parser = { workspace = true }
 shuck-run = { workspace = true }
+shuck-server = { workspace = true }
 shuck-semantic = { workspace = true }
 similar = { workspace = true }
 tempfile = { workspace = true }

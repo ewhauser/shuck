@@ -202,6 +202,8 @@ struct GlobalArgs {
 enum StableCommand {
     /// Lint shell files and supported embedded shell scripts.
     Check(Box<CheckCommand>),
+    /// Start the language server over stdio.
+    Server(ServerCommand),
     /// Run a shell script with a managed interpreter.
     Run(RunCommand),
     /// Pre-install a managed shell interpreter or list available versions.
@@ -218,6 +220,8 @@ enum StableCommand {
 enum ExperimentalCommand {
     /// Lint shell files and supported embedded shell scripts.
     Check(Box<CheckCommand>),
+    /// Start the language server over stdio.
+    Server(ServerCommand),
     /// Run a shell script with a managed interpreter.
     Run(RunCommand),
     /// Pre-install a managed shell interpreter or list available versions.
@@ -279,6 +283,7 @@ impl Args {
         } = global;
         let command = match command {
             StableCommand::Check(command) => Command::Check(command),
+            StableCommand::Server(command) => Command::Server(command),
             StableCommand::Run(command) => Command::Run(command),
             StableCommand::Install(command) => Command::Install(command),
             StableCommand::Shell(command) => Command::Shell(command),
@@ -311,6 +316,7 @@ impl Args {
         } = global;
         let command = match command {
             ExperimentalCommand::Check(command) => Command::Check(command),
+            ExperimentalCommand::Server(command) => Command::Server(command),
             ExperimentalCommand::Run(command) => Command::Run(command),
             ExperimentalCommand::Install(command) => Command::Install(command),
             ExperimentalCommand::Shell(command) => Command::Shell(command),
@@ -332,6 +338,8 @@ impl Args {
 pub enum Command {
     /// Lint shell files and supported embedded shell scripts.
     Check(Box<CheckCommand>),
+    /// Start the language server over stdio.
+    Server(ServerCommand),
     /// Run a shell script with a managed interpreter.
     Run(RunCommand),
     /// Pre-install a managed shell interpreter or list available versions.
@@ -352,6 +360,10 @@ fn experimental_enabled() -> bool {
         )
     })
 }
+
+/// Arguments for `shuck server`.
+#[derive(Debug, Clone, Default, ClapArgs)]
+pub struct ServerCommand {}
 
 /// Arguments for `shuck check`.
 #[derive(Debug, Clone, ClapArgs)]
