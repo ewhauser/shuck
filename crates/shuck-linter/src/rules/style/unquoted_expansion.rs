@@ -337,6 +337,7 @@ fn report_word_expansions<F>(
         backtick_escaped_parameter_spans,
         part_filter,
     } = options;
+    let star_spans = fact.unquoted_star_parameter_spans();
 
     let analysis = fact.analysis();
     if !analysis
@@ -345,6 +346,7 @@ fn report_word_expansions<F>(
         && !analysis
             .pathname_expansion_behavior
             .unquoted_substitution_results_can_glob()
+        && star_spans.is_empty()
     {
         return;
     }
@@ -356,7 +358,6 @@ fn report_word_expansions<F>(
         Default::default()
     };
     let use_replacement_spans = fact.use_replacement_spans();
-    let star_spans = fact.unquoted_star_parameter_spans();
     if scalar_spans.is_empty() && star_spans.is_empty() {
         return;
     }
@@ -1634,6 +1635,23 @@ rsync ${RSYNC_OPTIONS[*]} src dst
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["${RSYNC_OPTIONS[*]}"]
+        );
+    }
+
+    #[test]
+    fn reports_unquoted_star_parameter_in_native_zsh_mode() {
+        let source = "print $*\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$*"]
         );
     }
 
