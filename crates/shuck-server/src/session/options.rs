@@ -87,7 +87,7 @@ impl AllOptions {
         let global = serde_json::from_value::<GlobalOptions>(value).unwrap_or_default();
         Self {
             global,
-            workspace: Some(WorkspaceOptionsMap::default()),
+            workspace: None,
         }
     }
 }

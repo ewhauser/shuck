@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use lsp_types as types;
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use shuck_indexer::LineIndex;
 use shuck_linter::{
@@ -58,16 +59,27 @@ pub fn generate_diagnostics(snapshot: &DocumentSnapshot) -> Vec<types::Diagnosti
     };
 
     let raw = collect_raw_diagnostics(snapshot, shell, source, path.as_deref());
+    let directive_edits = directive_edits_by_line(
+        snapshot,
+        source,
+        query.document().index(),
+        path.as_deref(),
+        &raw.shell_diagnostics,
+    );
     let mut diagnostics = raw
         .shell_diagnostics
         .into_iter()
         .map(|diagnostic| {
+            let directive_edit = directive_edits
+                .get(&diagnostic.span.start.line)
+                .cloned()
+                .flatten();
             to_lsp_diagnostic(
                 snapshot,
                 &diagnostic,
                 source,
                 query.document().index(),
-                path.as_deref(),
+                directive_edit,
             )
         })
         .collect::<Vec<_>>();
@@ -209,10 +221,16 @@ fn to_lsp_diagnostic(
     diagnostic: &ShuckDiagnostic,
     source: &str,
     line_index: &LineIndex,
-    path: Option<&Path>,
+    directive_edit: Option<types::TextEdit>,
 ) -> types::Diagnostic {
     let code = diagnostic.code().to_owned();
-    let data = associated_diagnostic_data_for_shuck(snapshot, diagnostic, source, line_index, path);
+    let data = associated_diagnostic_data_for_shuck(
+        snapshot,
+        diagnostic,
+        source,
+        line_index,
+        directive_edit,
+    );
 
     types::Diagnostic {
         range: crate::edit::to_lsp_range(
@@ -237,7 +255,7 @@ fn associated_diagnostic_data_for_shuck(
     diagnostic: &ShuckDiagnostic,
     source: &str,
     line_index: &LineIndex,
-    path: Option<&Path>,
+    directive_edit: Option<types::TextEdit>,
 ) -> Option<serde_json::Value> {
     let edits = diagnostic
         .fix
@@ -256,15 +274,6 @@ fn associated_diagnostic_data_for_shuck(
         .fix_title
         .clone()
         .unwrap_or_else(|| diagnostic.message.clone());
-    let directive_edit = shuck_linter::build_ignore_edit_for_line(
-        source,
-        snapshot.shuck_settings().linter(),
-        diagnostic.span.start.line,
-        None,
-        path,
-    )
-    .map(|edit| to_lsp_text_edit(&edit, source, line_index, snapshot.encoding()));
-
     match serde_json::to_value(AssociatedDiagnosticData {
         title,
         code: diagnostic.code().to_owned(),
@@ -278,6 +287,34 @@ fn associated_diagnostic_data_for_shuck(
             None
         }
     }
+}
+
+fn directive_edits_by_line(
+    snapshot: &DocumentSnapshot,
+    source: &str,
+    line_index: &LineIndex,
+    path: Option<&Path>,
+    diagnostics: &[ShuckDiagnostic],
+) -> FxHashMap<usize, Option<types::TextEdit>> {
+    let mut edits = FxHashMap::default();
+
+    for line in diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.span.start.line)
+    {
+        edits.entry(line).or_insert_with(|| {
+            shuck_linter::build_ignore_edit_for_line(
+                source,
+                snapshot.shuck_settings().linter(),
+                line,
+                None,
+                path,
+            )
+            .map(|edit| to_lsp_text_edit(&edit, source, line_index, snapshot.encoding()))
+        });
+    }
+
+    edits
 }
 
 fn parse_error_to_lsp(

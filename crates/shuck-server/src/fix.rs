@@ -337,11 +337,34 @@ fn action_kind_matches(
 }
 
 fn ranges_overlap(left: &types::Range, right: &types::Range) -> bool {
-    position_leq(left.start, right.end) && position_leq(right.start, left.end)
+    if range_is_empty(left) {
+        return range_contains(right, left.start);
+    }
+    if range_is_empty(right) {
+        return range_contains(left, right.start);
+    }
+
+    position_lt(left.start, right.end) && position_lt(right.start, left.end)
+}
+
+fn range_contains(range: &types::Range, position: types::Position) -> bool {
+    if range_is_empty(range) {
+        return range.start == position;
+    }
+
+    position_leq(range.start, position) && position_lt(position, range.end)
+}
+
+fn range_is_empty(range: &types::Range) -> bool {
+    range.start == range.end
 }
 
 fn position_leq(left: types::Position, right: types::Position) -> bool {
     (left.line, left.character) <= (right.line, right.character)
+}
+
+fn position_lt(left: types::Position, right: types::Position) -> bool {
+    (left.line, left.character) < (right.line, right.character)
 }
 
 fn command_uri(arguments: &[serde_json::Value]) -> crate::server::Result<lsp_types::Url> {
@@ -545,6 +568,30 @@ mod tests {
             .expect("fix-all action should be present");
         assert!(fix_all.edit.is_none());
         assert!(fix_all.data.is_some());
+    }
+
+    #[test]
+    fn adjacent_ranges_do_not_overlap() {
+        let left = Range::new(Position::new(0, 0), Position::new(0, 3));
+        let right = Range::new(Position::new(0, 3), Position::new(0, 5));
+
+        assert!(!ranges_overlap(&left, &right));
+    }
+
+    #[test]
+    fn empty_requested_range_overlaps_when_inside_diagnostic() {
+        let diagnostic = Range::new(Position::new(0, 0), Position::new(0, 3));
+        let cursor = Range::new(Position::new(0, 2), Position::new(0, 2));
+
+        assert!(ranges_overlap(&diagnostic, &cursor));
+    }
+
+    #[test]
+    fn empty_requested_range_at_diagnostic_end_does_not_overlap() {
+        let diagnostic = Range::new(Position::new(0, 0), Position::new(0, 3));
+        let cursor = Range::new(Position::new(0, 3), Position::new(0, 3));
+
+        assert!(!ranges_overlap(&diagnostic, &cursor));
     }
 
     #[test]

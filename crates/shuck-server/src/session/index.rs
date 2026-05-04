@@ -9,7 +9,7 @@ use rustc_hash::FxHashMap;
 
 use crate::edit::{DocumentKey, DocumentVersion};
 use crate::session::settings::{GlobalClientSettings, ShuckSettings};
-use crate::session::{Client, ClientOptions};
+use crate::session::{Client, ClientOptions, WorkspaceOptionsMap};
 use crate::workspace::Workspaces;
 use crate::{PositionEncoding, TextDocument};
 
@@ -22,6 +22,7 @@ pub(crate) struct Index {
 
 #[derive(Clone)]
 struct WorkspaceSettings {
+    url: Url,
     root: PathBuf,
     options: Option<ClientOptions>,
 }
@@ -49,6 +50,7 @@ impl Index {
                     .to_file_path()
                     .ok()
                     .map(|root| WorkspaceSettings {
+                        url: workspace.url().clone(),
                         root,
                         options: workspace.options().cloned(),
                     })
@@ -138,6 +140,7 @@ impl Index {
             .any(|workspace| workspace.root == path)
         {
             self.workspace_settings.push(WorkspaceSettings {
+                url,
                 root: path,
                 options: None,
             });
@@ -175,6 +178,12 @@ impl Index {
             .filter(|workspace| path.starts_with(&workspace.root))
             .max_by_key(|workspace| workspace.root.components().count())
             .and_then(|workspace| workspace.options.as_ref())
+    }
+
+    pub(super) fn update_workspace_options(&mut self, mut workspace_options: WorkspaceOptionsMap) {
+        for workspace in &mut self.workspace_settings {
+            workspace.options = workspace_options.remove(&workspace.url);
+        }
     }
 
     pub(super) fn open_document_count(&self) -> usize {
