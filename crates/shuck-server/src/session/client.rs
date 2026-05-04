@@ -142,6 +142,19 @@ impl Client {
         )
     }
 
+    pub(crate) fn log_message(
+        &self,
+        message: impl Display,
+        message_type: lsp_types::MessageType,
+    ) -> crate::Result<()> {
+        self.send_notification::<lsp_types::notification::LogMessage>(
+            lsp_types::LogMessageParams {
+                typ: message_type,
+                message: message.to_string(),
+            },
+        )
+    }
+
     pub(crate) fn show_error_message(&self, message: impl Display) {
         if let Err(err) = self.show_message(message, lsp_types::MessageType::ERROR) {
             tracing::error!("Failed to send error message to client: {err}");

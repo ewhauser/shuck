@@ -67,7 +67,10 @@ impl Server {
             &client,
         );
 
-        crate::logging::init_logging(global.tracing.log_level.unwrap_or_default(), None);
+        crate::logging::init_logging(
+            global.tracing.log_level.unwrap_or_default(),
+            global.tracing.log_file.as_deref(),
+        );
 
         let workspaces = Workspaces::from_workspace_folders(
             workspace_folders,
@@ -94,6 +97,9 @@ impl Server {
     }
 
     pub fn run(mut self) -> crate::Result<()> {
+        let panic_client =
+            Client::new(self.main_loop_sender.clone(), self.connection.sender.clone());
+        let _panic_hook = install_panic_hook(panic_client);
         spawn_main_loop(move || self.main_loop())?
             .join()
             .map_err(|_| anyhow::anyhow!("main loop thread panicked"))?
@@ -136,8 +142,8 @@ impl Server {
                 }),
                 file_operations: None,
             }),
-            document_formatting_provider: Some(OneOf::Left(true)),
-            document_range_formatting_provider: Some(OneOf::Left(true)),
+            document_formatting_provider: None,
+            document_range_formatting_provider: None,
             diagnostic_provider: Some(types::DiagnosticServerCapabilities::Options(
                 DiagnosticOptions {
                     identifier: Some(crate::DIAGNOSTIC_NAME.into()),
@@ -193,16 +199,143 @@ impl SupportedCodeAction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum SupportedCommand {
     ApplyAutofix,
+    ApplyDirective,
+    PrintDebugInformation,
 }
 
 impl SupportedCommand {
     fn all() -> impl Iterator<Item = Self> {
-        [Self::ApplyAutofix].into_iter()
+        [
+            Self::ApplyAutofix,
+            Self::ApplyDirective,
+            Self::PrintDebugInformation,
+        ]
+        .into_iter()
     }
 
     fn identifier(self) -> &'static str {
         match self {
             Self::ApplyAutofix => "shuck.applyAutofix",
+            Self::ApplyDirective => "shuck.applyDirective",
+            Self::PrintDebugInformation => "shuck.printDebugInformation",
         }
+    }
+}
+
+type PanicHook = Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Sync + Send + 'static>;
+
+struct PanicHookGuard {
+    previous: Option<PanicHook>,
+}
+
+impl Drop for PanicHookGuard {
+    fn drop(&mut self) {
+        if let Some(previous) = self.previous.take() {
+            std::panic::set_hook(previous);
+        }
+    }
+}
+
+fn install_panic_hook(client: Client) -> PanicHookGuard {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        report_panic(&client, panic_info);
+    }));
+    PanicHookGuard {
+        previous: Some(previous),
+    }
+}
+
+fn report_panic(client: &Client, panic_info: &std::panic::PanicHookInfo<'_>) {
+    let summary = panic_info
+        .payload()
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| {
+            panic_info
+                .payload()
+                .downcast_ref::<&'static str>()
+                .map(|message| (*message).to_owned())
+        })
+        .unwrap_or_else(|| "unknown panic".to_owned());
+    let location = panic_info
+        .location()
+        .map(|location| format!("{}:{}:{}", location.file(), location.line(), location.column()));
+    let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+    emit_panic_report(client, &summary, location.as_deref(), &backtrace);
+}
+
+fn emit_panic_report(
+    client: &Client,
+    summary: &str,
+    location: Option<&str>,
+    backtrace: &str,
+) {
+    let location = location.unwrap_or("unknown location");
+    let details = format!("Shuck server panicked at {location}: {summary}\n{backtrace}");
+    tracing::error!("{details}");
+    eprintln!("{details}");
+    if let Err(error) = client.log_message(&details, lsp_types::MessageType::ERROR) {
+        tracing::error!("Failed to send panic log message to client: {error}");
+    }
+    client.show_error_message(format!("Shuck server panicked: {summary}"));
+}
+
+#[cfg(test)]
+mod tests {
+    use crossbeam::channel;
+    use lsp_server::Message;
+    use lsp_types::notification::Notification;
+
+    use super::*;
+    use crate::Client;
+
+    #[test]
+    fn does_not_advertise_formatting_capabilities() {
+        let capabilities = Server::server_capabilities(PositionEncoding::UTF16);
+        assert!(capabilities.document_formatting_provider.is_none());
+        assert!(capabilities.document_range_formatting_provider.is_none());
+    }
+
+    #[test]
+    fn advertises_only_non_formatting_execute_commands() {
+        let capabilities = Server::server_capabilities(PositionEncoding::UTF16);
+        let commands = capabilities
+            .execute_command_provider
+            .expect("server should advertise execute commands")
+            .commands;
+
+        assert!(commands.contains(&"shuck.applyAutofix".to_owned()));
+        assert!(commands.contains(&"shuck.applyDirective".to_owned()));
+        assert!(commands.contains(&"shuck.printDebugInformation".to_owned()));
+        assert!(!commands.contains(&"shuck.applyFormat".to_owned()));
+    }
+
+    #[test]
+    fn panic_reports_are_sent_to_the_client() {
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+
+        emit_panic_report(&client, "boom", Some("test.rs:1:1"), "stack backtrace");
+
+        let first = client_receiver
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("panic log notification should be sent");
+        let second = client_receiver
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("panic showMessage notification should be sent");
+
+        let messages = [first, second];
+        assert!(messages.iter().any(|message| matches!(
+            message,
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::LogMessage::METHOD
+        )));
+        assert!(messages.iter().any(|message| matches!(
+            message,
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::ShowMessage::METHOD
+        )));
     }
 }

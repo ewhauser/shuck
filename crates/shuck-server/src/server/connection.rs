@@ -12,6 +12,10 @@ impl ConnectionInitializer {
         (Self { connection }, threads)
     }
 
+    pub(crate) fn from_connection(connection: lsp::Connection) -> Self {
+        Self { connection }
+    }
+
     pub(super) fn initialize_start(
         &self,
     ) -> crate::Result<(lsp::RequestId, lsp_types::InitializeParams)> {

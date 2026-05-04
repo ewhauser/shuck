@@ -179,3 +179,83 @@ pub(crate) fn to_lsp_range(
         end: offset_to_position(text, index, usize::from(range.end()), encoding),
     }
 }
+
+pub(crate) fn single_replacement_edit(
+    text: &str,
+    replacement: &str,
+    index: &shuck_indexer::LineIndex,
+    encoding: PositionEncoding,
+) -> Option<lsp_types::TextEdit> {
+    if text == replacement {
+        return None;
+    }
+
+    let prefix_len = common_prefix_len(text, replacement);
+    let suffix_len = common_suffix_len(&text[prefix_len..], &replacement[prefix_len..]);
+    let original_end = text.len().saturating_sub(suffix_len);
+    let replacement_end = replacement.len().saturating_sub(suffix_len);
+
+    Some(lsp_types::TextEdit {
+        range: to_lsp_range(
+            TextRange::new(
+                shuck_ast::TextSize::new(prefix_len as u32),
+                shuck_ast::TextSize::new(original_end as u32),
+            ),
+            text,
+            index,
+            encoding,
+        ),
+        new_text: replacement[prefix_len..replacement_end].to_owned(),
+    })
+}
+
+fn common_prefix_len(left: &str, right: &str) -> usize {
+    left.chars()
+        .zip(right.chars())
+        .take_while(|(left, right)| left == right)
+        .map(|(ch, _)| ch.len_utf8())
+        .sum()
+}
+
+fn common_suffix_len(left: &str, right: &str) -> usize {
+    left.chars()
+        .rev()
+        .zip(right.chars().rev())
+        .take_while(|(left, right)| left == right)
+        .map(|(ch, _)| ch.len_utf8())
+        .sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_replacement_edit_keeps_shared_prefix_and_suffix() {
+        let source = "echo old value\n";
+        let replacement = "echo new value\n";
+        let index = shuck_indexer::LineIndex::new(source);
+
+        let edit = single_replacement_edit(source, replacement, &index, PositionEncoding::UTF16)
+            .expect("edit should be present");
+
+        assert_eq!(
+            edit.range,
+            lsp_types::Range {
+                start: lsp_types::Position::new(0, 5),
+                end: lsp_types::Position::new(0, 8),
+            }
+        );
+        assert_eq!(edit.new_text, "new");
+    }
+
+    #[test]
+    fn single_replacement_edit_returns_none_for_identical_text() {
+        let source = "echo hi\n";
+        let index = shuck_indexer::LineIndex::new(source);
+
+        assert!(
+            single_replacement_edit(source, source, &index, PositionEncoding::UTF16).is_none()
+        );
+    }
+}

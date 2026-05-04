@@ -11,6 +11,7 @@ description = "Language server scaffold for shuck"
 [dependencies]
 anyhow = { workspace = true }
 crossbeam = { workspace = true }
+globset = { workspace = true }
 lsp-server = { workspace = true }
 lsp-types = { workspace = true }
 rustc-hash = { workspace = true }
@@ -18,8 +19,12 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 shuck-ast = { workspace = true }
 shuck-config = { workspace = true }
+shuck-formatter = { workspace = true }
 shuck-indexer = { workspace = true }
 shuck-linter = { workspace = true }
 shuck-parser = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

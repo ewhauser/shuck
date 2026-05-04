@@ -39,7 +39,7 @@ pub fn add_ignores_to_path(
     let shellcheck_map = ShellCheckCodeMap::default();
     let mut source =
         fs::read_to_string(path).with_context(|| format!("read source from {}", path.display()))?;
-    let mut analysis = analyze_source(path, &source, settings, &shellcheck_map);
+    let mut analysis = analyze_source(&source, settings, &shellcheck_map, Some(path));
     let mut directives_added = 0usize;
 
     let target_lines = analysis
@@ -49,7 +49,7 @@ pub fn add_ignores_to_path(
         .collect::<BTreeSet<_>>();
 
     for line in target_lines {
-        analysis = analyze_source(path, &source, settings, &shellcheck_map);
+        analysis = analyze_source(&source, settings, &shellcheck_map, Some(path));
         let line_diagnostics = analysis
             .diagnostics
             .iter()
@@ -72,7 +72,8 @@ pub fn add_ignores_to_path(
         };
 
         let candidate_source = apply_edit(&source, &edit);
-        let candidate_analysis = analyze_source(path, &candidate_source, settings, &shellcheck_map);
+        let candidate_analysis =
+            analyze_source(&candidate_source, settings, &shellcheck_map, Some(path));
         if !edit_is_valid(&analysis, &candidate_analysis, line, &line_diagnostics) {
             continue;
         }
@@ -94,6 +95,45 @@ pub fn add_ignores_to_path(
     })
 }
 
+pub fn build_ignore_edit_for_line(
+    source: &str,
+    settings: &LinterSettings,
+    line: usize,
+    reason: Option<&str>,
+    source_path: Option<&Path>,
+) -> Option<crate::Edit> {
+    let shellcheck_map = ShellCheckCodeMap::default();
+    let analysis = analyze_source(source, settings, &shellcheck_map, source_path);
+    let line_diagnostics = analysis
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.span.start.line == line)
+        .cloned()
+        .collect::<Vec<_>>();
+    if line_diagnostics.is_empty() {
+        return None;
+    }
+
+    let edit = build_ignore_edit(
+        source,
+        &analysis,
+        line,
+        &line_diagnostics,
+        reason,
+        &shellcheck_map,
+    )?;
+    let candidate_source = apply_edit(source, &edit);
+    let candidate_analysis =
+        analyze_source(&candidate_source, settings, &shellcheck_map, source_path);
+    edit_is_valid(&analysis, &candidate_analysis, line, &line_diagnostics).then_some(
+        crate::Edit::replacement_at(
+            usize::from(edit.range.start()),
+            usize::from(edit.range.end()),
+            edit.replacement,
+        ),
+    )
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AnalyzedSource {
     directives: Vec<SuppressionDirective>,
@@ -104,12 +144,12 @@ struct AnalyzedSource {
 }
 
 fn analyze_source(
-    path: &Path,
     source: &str,
     settings: &LinterSettings,
     shellcheck_map: &ShellCheckCodeMap,
+    source_path: Option<&Path>,
 ) -> AnalyzedSource {
-    let shell = resolve_shell(settings, source, Some(path));
+    let shell = resolve_shell(settings, source, source_path);
     let parse_result = parse_for_lint(source, shell);
     let indexer = Indexer::new(source, &parse_result);
     let directives = parse_directives(source, indexer.comment_index(), shellcheck_map);
@@ -119,7 +159,7 @@ fn analyze_source(
         &indexer,
         settings,
         &directives,
-        Some(path),
+        source_path,
     );
     let strict_parse_error = strict_parse_error(&parse_result);
     let parse_error = strict_parse_error
@@ -189,11 +229,10 @@ fn build_ignore_edit(
         .collect::<Vec<_>>();
     line_rules.sort_unstable_by_key(|rule| rule.code());
     line_rules.dedup();
-    let existing_ignore = analysis.directives.iter().find(|directive| {
-        directive.source == SuppressionSource::Shuck
-            && directive.action == SuppressionAction::Ignore
-            && usize::try_from(directive.line).ok() == Some(line)
-    });
+    let existing_ignore = analysis
+        .directives
+        .iter()
+        .find(|directive| directive_matches_ignore_line(directive, line));
 
     let mut merged_rules = existing_ignore
         .map(|directive| directive.codes.clone())
@@ -216,7 +255,15 @@ fn build_ignore_edit(
             })
         });
 
-    let mut comment = format!("# shuck: ignore={}", join_codes(&merged_rules));
+    let mut comment = match existing_ignore.map(|directive| directive.source) {
+        Some(SuppressionSource::ShellCheck) => {
+            format!(
+                "# shellcheck disable={}",
+                join_shellcheck_codes(&merged_rules, shellcheck_map)
+            )
+        }
+        _ => format!("# shuck: ignore={}", join_codes(&merged_rules)),
+    };
     if let Some(comment_reason) = comment_reason {
         comment.push_str(" # ");
         comment.push_str(comment_reason);
@@ -252,21 +299,38 @@ fn existing_ignore_reason<'a>(
     comment_text: &'a str,
     shellcheck_map: &ShellCheckCodeMap,
 ) -> Option<&'a str> {
-    let body = strip_comment_prefix(comment_text);
-    let remainder = strip_prefix_ignore_ascii_case(body, "shuck:")?;
+    if let Some(remainder) = strip_prefix_ignore_ascii_case(strip_comment_prefix(comment_text), "shuck:") {
+        let (without_reason, reason) = remainder
+            .split_once('#')
+            .map_or((remainder, None), |(before, after)| {
+                (before, Some(after.trim()))
+            });
+        let (action, codes) = without_reason.split_once('=')?;
+        if parse_shuck_action(action.trim()) != Some(SuppressionAction::Ignore)
+            || parse_codes(codes, |code| resolve_suppression_code(code, shellcheck_map)).is_empty()
+        {
+            return None;
+        }
+
+        return reason.filter(|reason| !reason.is_empty());
+    }
+
+    let remainder = shellcheck_comment_remainder(comment_text)?;
     let (without_reason, reason) = remainder
         .split_once('#')
         .map_or((remainder, None), |(before, after)| {
             (before, Some(after.trim()))
         });
-    let (action, codes) = without_reason.split_once('=')?;
-    if parse_shuck_action(action.trim()) != Some(SuppressionAction::Ignore)
-        || parse_codes(codes, |code| resolve_suppression_code(code, shellcheck_map)).is_empty()
-    {
-        return None;
-    }
-
-    reason.filter(|reason| !reason.is_empty())
+    let has_disable_codes = without_reason.split_ascii_whitespace().any(|part| {
+        let Some(codes) = strip_prefix_ignore_ascii_case(part, "disable=") else {
+            return false;
+        };
+        !parse_codes(codes, |code| resolve_suppression_code(code, shellcheck_map)).is_empty()
+    });
+    has_disable_codes
+        .then_some(reason)
+        .flatten()
+        .filter(|reason| !reason.is_empty())
 }
 
 fn edit_is_valid(
@@ -290,8 +354,7 @@ fn edit_is_valid(
     target_rules.sort_unstable_by_key(|rule| rule.code());
     target_rules.dedup();
     let recognized = candidate.directives.iter().any(|directive| {
-        directive.source == SuppressionSource::Shuck
-            && directive.action == SuppressionAction::Ignore
+        directive_matches_ignore_line(directive, usize::try_from(line).unwrap_or_default())
             && directive.line == line
             && target_rules
                 .iter()
@@ -407,6 +470,30 @@ fn join_codes(rules: &[Rule]) -> String {
     rendered
 }
 
+fn join_shellcheck_codes(rules: &[Rule], shellcheck_map: &ShellCheckCodeMap) -> String {
+    let mut rendered = String::new();
+    for (index, rule) in rules.iter().enumerate() {
+        if index > 0 {
+            rendered.push_str(", ");
+        }
+        if let Some(code) = shellcheck_map.code_for_rule(*rule) {
+            rendered.push_str(&format!("SC{code:04}"));
+        } else {
+            rendered.push_str(rule.code());
+        }
+    }
+    rendered
+}
+
+fn directive_matches_ignore_line(directive: &SuppressionDirective, line: usize) -> bool {
+    usize::try_from(directive.line).ok() == Some(line)
+        && matches!(
+            (directive.source, directive.action),
+            (SuppressionSource::Shuck, SuppressionAction::Ignore)
+                | (SuppressionSource::ShellCheck, SuppressionAction::Disable)
+        )
+}
+
 fn strip_comment_prefix(text: &str) -> &str {
     text.trim_start().trim_start_matches('#').trim_start()
 }
@@ -416,6 +503,11 @@ fn strip_prefix_ignore_ascii_case<'a>(text: &'a str, prefix: &str) -> Option<&'a
     candidate
         .eq_ignore_ascii_case(prefix)
         .then(|| &text[prefix.len()..])
+}
+
+fn shellcheck_comment_remainder(text: &str) -> Option<&str> {
+    let body = strip_comment_prefix(text);
+    strip_prefix_ignore_ascii_case(body, "shellcheck")
 }
 
 fn parse_shuck_action(value: &str) -> Option<SuppressionAction> {
@@ -526,6 +618,49 @@ mod tests {
         assert_eq!(
             updated,
             "#!/bin/bash\necho $foo  # shuck: ignore=C006, S001 # legacy\n"
+        );
+    }
+
+    #[test]
+    fn merges_with_existing_shellcheck_disable_and_preserves_reason() {
+        let source = "#!/bin/bash\necho $foo  # shellcheck disable=SC2086 # legacy\n";
+        let (result, updated) = run_add_ignore(source, None);
+
+        assert_eq!(result.directives_added, 1);
+        assert!(result.diagnostics.is_empty());
+        assert_eq!(
+            updated,
+            "#!/bin/bash\necho $foo  # shellcheck disable=SC2086, SC2154 # legacy\n"
+        );
+    }
+
+    #[test]
+    fn builds_in_memory_ignore_edit_for_existing_shellcheck_disable() {
+        let source = "#!/bin/bash\necho $foo  # shellcheck disable=SC2086 # reason\n";
+        let edit = build_ignore_edit_for_line(
+            source,
+            &LinterSettings::default(),
+            2,
+            None,
+            Some(Path::new("script.sh")),
+        )
+        .expect("line should produce an ignore edit");
+        let updated = Edit::replacement_at(
+            usize::from(edit.range().start()),
+            usize::from(edit.range().end()),
+            edit.content(),
+        );
+        let applied = apply_edit(
+            source,
+            &IgnoreEdit {
+                range: updated.range(),
+                replacement: updated.content().to_owned(),
+            },
+        );
+
+        assert_eq!(
+            applied,
+            "#!/bin/bash\necho $foo  # shellcheck disable=SC2086, SC2154 # reason\n"
         );
     }
 

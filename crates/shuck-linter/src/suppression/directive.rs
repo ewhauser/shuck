@@ -37,7 +37,7 @@ pub enum SuppressionSource {
 ///
 /// Structural attachment for inline directives is validated after semantic traversal, once
 /// command/header facts are available without another recursive AST walk.
-pub(crate) fn parse_directives(
+pub fn parse_directives(
     source: &str,
     comment_index: &CommentIndex,
     shellcheck_map: &ShellCheckCodeMap,

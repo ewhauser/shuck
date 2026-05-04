@@ -9,7 +9,7 @@ use rustc_hash::FxHashMap;
 
 use crate::edit::{DocumentKey, DocumentVersion};
 use crate::session::Client;
-use crate::session::settings::{ClientSettings, GlobalClientSettings, ShuckSettings};
+use crate::session::settings::{GlobalClientSettings, ShuckSettings};
 use crate::workspace::Workspaces;
 use crate::{PositionEncoding, TextDocument};
 
@@ -17,7 +17,6 @@ use crate::{PositionEncoding, TextDocument};
 pub(crate) struct Index {
     documents: FxHashMap<Url, Arc<TextDocument>>,
     workspace_roots: Vec<PathBuf>,
-    client_settings: Arc<ClientSettings>,
 }
 
 #[derive(Clone)]
@@ -32,7 +31,7 @@ pub enum DocumentQuery {
 impl Index {
     pub(super) fn new(
         workspaces: &Workspaces,
-        global: &GlobalClientSettings,
+        _global: &GlobalClientSettings,
         _client: &Client,
     ) -> crate::Result<Self> {
         let workspace_roots = workspaces
@@ -42,7 +41,6 @@ impl Index {
         Ok(Self {
             documents: FxHashMap::default(),
             workspace_roots,
-            client_settings: global.to_settings_arc(),
         })
     }
 
@@ -50,21 +48,23 @@ impl Index {
         DocumentKey::Text(url)
     }
 
-    pub(super) fn make_document_ref(&self, key: DocumentKey) -> Option<DocumentQuery> {
+    pub(super) fn make_document_ref(
+        &self,
+        key: DocumentKey,
+        settings: Arc<crate::session::settings::ShuckSettings>,
+    ) -> Option<DocumentQuery> {
         let DocumentKey::Text(url) = key;
         let document = self.documents.get(&url)?.clone();
         Some(DocumentQuery::Text {
             file_url: url,
             document,
-            settings: Arc::new(ShuckSettings),
+            settings,
         })
     }
 
-    pub(super) fn client_settings(&self, key: &DocumentKey) -> Option<Arc<ClientSettings>> {
+    pub(super) fn has_open_document(&self, key: &DocumentKey) -> bool {
         let DocumentKey::Text(url) = key;
-        self.documents
-            .contains_key(url)
-            .then(|| self.client_settings.clone())
+        self.documents.contains_key(url)
     }
 
     pub(super) fn update_text_document(
@@ -129,6 +129,14 @@ impl Index {
 
     pub(super) fn config_file_paths(&self) -> impl Iterator<Item = &Path> {
         std::iter::empty()
+    }
+
+    pub(super) fn workspace_roots(&self) -> &[PathBuf] {
+        &self.workspace_roots
+    }
+
+    pub(super) fn open_document_count(&self) -> usize {
+        self.documents.len()
     }
 }
 

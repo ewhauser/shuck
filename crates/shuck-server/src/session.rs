@@ -33,6 +33,7 @@ pub struct Session {
     shutdown_requested: bool,
 }
 
+#[derive(Clone)]
 pub struct DocumentSnapshot {
     resolved_client_capabilities: Arc<ResolvedClientCapabilities>,
     client_settings: Arc<ClientSettings>,
@@ -82,13 +83,15 @@ impl Session {
 
     pub fn take_snapshot(&self, url: Url) -> Option<DocumentSnapshot> {
         let key = self.key_from_url(url);
+        let settings = Arc::new(ShuckSettings::resolve(
+            key.clone().into_url().to_file_path().ok().as_deref(),
+            self.index.workspace_roots(),
+            self.global_settings.options(),
+        ));
         Some(DocumentSnapshot {
             resolved_client_capabilities: self.resolved_client_capabilities.clone(),
-            client_settings: self
-                .index
-                .client_settings(&key)
-                .unwrap_or_else(|| self.global_settings.to_settings_arc()),
-            document_ref: self.index.make_document_ref(key)?,
+            client_settings: self.global_settings.to_settings_arc(),
+            document_ref: self.index.make_document_ref(key, settings)?,
             position_encoding: self.position_encoding,
         })
     }
@@ -134,6 +137,18 @@ impl Session {
 
     pub(crate) fn config_file_paths(&self) -> impl Iterator<Item = &Path> {
         self.index.config_file_paths()
+    }
+
+    pub(crate) fn update_client_options(&mut self, options: ClientOptions) {
+        self.global_settings.update_options(options);
+    }
+
+    pub(crate) fn open_document_count(&self) -> usize {
+        self.index.open_document_count()
+    }
+
+    pub(crate) fn workspace_roots(&self) -> &[std::path::PathBuf] {
+        self.index.workspace_roots()
     }
 }
 
