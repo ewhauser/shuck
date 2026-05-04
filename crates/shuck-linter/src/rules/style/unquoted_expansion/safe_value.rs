@@ -5364,11 +5364,20 @@ done
             .into_iter()
             .next()
             .expect("expected reaching loop binding");
-        let definition_span = match semantic.binding(binding_id).origin {
+        let definition_span = match &semantic.binding(binding_id).origin {
             BindingOrigin::LoopVariable {
                 definition_span, ..
-            } => definition_span,
-            ref other => panic!("expected loop-variable binding, got {other:?}"),
+            } => *definition_span,
+            other @ BindingOrigin::Assignment { .. }
+            | other @ BindingOrigin::ParameterDefaultAssignment { .. }
+            | other @ BindingOrigin::Imported { .. }
+            | other @ BindingOrigin::FunctionDefinition { .. }
+            | other @ BindingOrigin::BuiltinTarget { .. }
+            | other @ BindingOrigin::ArithmeticAssignment { .. }
+            | other @ BindingOrigin::Declaration { .. }
+            | other @ BindingOrigin::Nameref { .. } => {
+                panic!("expected loop-variable binding, got {other:?}")
+            }
         };
 
         assert!(
