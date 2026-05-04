@@ -1,0 +1,131 @@
+# Editor Integration
+
+Shuck ships with a first-party Language Server Protocol server in the main CLI. Start it with `shuck server` and point your editor at that command over stdio.
+
+That gives editor diagnostics from the current in-memory buffer instead of rerunning `shuck check` from scratch on every save.
+
+## Current scope
+
+The current server already covers the core editor feedback loop:
+
+- Real-time diagnostics for open shell buffers
+- Incremental document sync over LSP
+- Dialect inference from the buffer `languageId`, shebang, and file path
+- Quick fixes, disable-this-line actions, and `source.fixAll.shuck` code actions
+- Hover help for suppression codes in `# shuck:` and `# shellcheck` directives
+
+Formatting is not advertised to editors yet, so it is still best to keep your existing shell formatter setup alongside Shuck for now.
+
+## Before you start
+
+Make sure `shuck` is installed and available on your `PATH`:
+
+```bash
+shuck --version
+shuck server
+```
+
+If `shuck server` starts successfully, your editor only needs to launch that command over stdio.
+
+Shuck also resolves `.shuck.toml` or `shuck.toml` from the workspace and layers any LSP-provided Shuck settings on top when the client supports them.
+
+## Neovim
+
+Neovim 0.11+ can use the built-in LSP client directly through [`vim.lsp`](https://neovim.io/doc/user/lsp/):
+
+```lua
+vim.lsp.config("shuck", {
+  cmd = { "shuck", "server" },
+  filetypes = { "sh", "bash", "zsh", "ksh" },
+  root_markers = { ".shuck.toml", "shuck.toml", ".git" },
+})
+
+vim.lsp.enable("shuck")
+```
+
+If your setup normalizes shell buffers to `sh`, leaving only `sh` in `filetypes` is fine too.
+
+## Vim
+
+With [`vim-lsp`](https://github.com/prabirshrestha/vim-lsp), register Shuck in your `.vimrc`:
+
+```vim
+if executable('shuck')
+    augroup shuck_lsp
+        au!
+        au User lsp_setup call lsp#register_server({
+            \ 'name': 'shuck',
+            \ 'cmd': {server_info->['shuck', 'server']},
+            \ 'allowlist': ['sh'],
+            \ })
+    augroup END
+endif
+```
+
+Most Vim setups detect shell scripts as `sh`. If yours uses dedicated `bash`, `zsh`, or `ksh` filetypes, add them to the allowlist as well.
+
+## Emacs
+
+[`Eglot`](https://www.gnu.org/software/emacs/manual/html_mono/eglot.html) can launch `shuck server` for shell buffers by extending `eglot-server-programs`:
+
+```elisp
+(with-eval-after-load 'eglot
+  (add-to-list 'eglot-server-programs
+               '(sh-mode . ("shuck" "server"))))
+```
+
+Then open a shell script and run `M-x eglot`.
+
+If you use additional shell major modes, add them to the same entry or register a second one for those modes.
+
+## Zed
+
+Zed currently routes language servers through extensions rather than letting you point a language directly at an arbitrary stdio command from settings alone. The practical route today is a small dev extension that launches `shuck server` for `Shell Script` buffers.
+
+In `extension.toml`, register a shell language server:
+
+```toml
+id = "shuck"
+name = "Shuck"
+version = "0.0.1"
+schema_version = 1
+
+[language_servers.shuck]
+name = "Shuck"
+languages = ["Shell Script"]
+
+[language_servers.shuck.language_ids]
+"Shell Script" = "shellscript"
+```
+
+Then implement `language_server_command` in the extension's Rust entrypoint, following the [Zed language extension docs](https://zed.dev/docs/extensions/languages):
+
+```rust
+fn language_server_command(
+    &mut self,
+    _language_server_id: &zed::LanguageServerId,
+    _worktree: &zed::Worktree,
+) -> Result<zed::Command> {
+    Ok(zed::Command {
+        command: "shuck".into(),
+        args: vec!["server".into()],
+        env: Default::default(),
+    })
+}
+```
+
+Once the extension is installed, prefer it for shell files in your Zed settings:
+
+```json
+{
+  "languages": {
+    "Shell Script": {
+      "language_servers": ["shuck", "..."]
+    }
+  }
+}
+```
+
+## Related docs
+
+For project-wide lint configuration, see [Configuration](/docs/configuration) and [Settings Reference](/docs/settings).

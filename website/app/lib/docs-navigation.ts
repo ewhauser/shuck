@@ -9,8 +9,9 @@ export const docsNavigation: NavItem[] = [
     title: "Getting Started",
     items: [
       { title: "Overview", href: "/docs/getting-started" },
-      { title: "Managed Runtime", href: "/docs/run" },
       { title: "Configuration", href: "/docs/configuration" },
+      { title: "Managed Runtime", href: "/docs/run" },
+      { title: "Editor Integration", href: "/docs/editors" },
       { title: "Suppression", href: "/docs/suppression" },
       { title: "Settings Reference", href: "/docs/settings" },
       { title: "ShellCheck Compatibility", href: "/docs/shellcheck-compat" },
