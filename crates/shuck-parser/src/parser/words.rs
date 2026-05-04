@@ -716,25 +716,8 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let needs_reparse = word.parts.windows(2).any(|pair| {
-            let [left, right] = pair else {
-                return false;
-            };
-
-            let WordPart::Literal(text) = &left.kind else {
-                return false;
-            };
-            if !matches!(
-                text.as_str(self.input, left.span).chars().next_back(),
-                Some('?' | '*' | '+' | '@' | '!')
-            ) {
-                return false;
-            }
-
-            matches!(right.kind, WordPart::ZshQualifiedGlob(_))
-                && left.span.end.offset == right.span.start.offset
-                && right.span.slice(self.input).starts_with('(')
-        });
+        let needs_reparse = self.word_is_safe_for_prefixed_bare_group_reparse(word)
+            && Self::literal_text_has_prefixed_bare_group(word.span.slice(self.input));
 
         needs_reparse.then(|| {
             self.word_with_parts(
@@ -745,6 +728,107 @@ impl<'a> Parser<'a> {
                 word.span,
             )
         })
+    }
+
+    fn word_is_safe_for_prefixed_bare_group_reparse(&self, word: &Word) -> bool {
+        word.parts.iter().all(|part| match &part.kind {
+            WordPart::Literal(text) => text.is_source_backed(),
+            WordPart::ZshQualifiedGlob(glob) => {
+                Self::zsh_glob_is_safe_for_prefixed_bare_group_reparse(glob)
+            }
+            _ => false,
+        })
+    }
+
+    fn zsh_glob_is_safe_for_prefixed_bare_group_reparse(glob: &ZshQualifiedGlob) -> bool {
+        glob.segments
+            .iter()
+            .all(Self::zsh_glob_segment_is_safe_for_prefixed_bare_group_reparse)
+            && glob.qualifiers.is_none()
+    }
+
+    fn zsh_glob_segment_is_safe_for_prefixed_bare_group_reparse(segment: &ZshGlobSegment) -> bool {
+        match segment {
+            ZshGlobSegment::Pattern(pattern) => {
+                Self::pattern_is_safe_for_prefixed_bare_group_reparse(pattern)
+            }
+            ZshGlobSegment::InlineControl(_) => true,
+        }
+    }
+
+    fn pattern_is_safe_for_prefixed_bare_group_reparse(pattern: &Pattern) -> bool {
+        pattern.parts.iter().all(|part| match &part.kind {
+            PatternPart::Literal(text) => text.is_source_backed(),
+            PatternPart::AnyString | PatternPart::AnyChar => true,
+            PatternPart::CharClass(text) => text.is_source_backed(),
+            PatternPart::Group { patterns, .. } => patterns
+                .iter()
+                .all(Self::pattern_is_safe_for_prefixed_bare_group_reparse),
+            PatternPart::Word(_) => false,
+        })
+    }
+
+    fn literal_text_has_prefixed_bare_group(text: &str) -> bool {
+        let mut escaped = false;
+        let mut bracket_depth = 0usize;
+        let mut previous_char = None;
+
+        for (index, ch) in text.char_indices() {
+            if escaped {
+                escaped = false;
+                previous_char = Some(ch);
+                continue;
+            }
+
+            if ch == '\\' {
+                escaped = true;
+                previous_char = Some(ch);
+                continue;
+            }
+
+            match ch {
+                '[' => bracket_depth = bracket_depth.saturating_add(1),
+                ']' if bracket_depth > 0 => bracket_depth -= 1,
+                '(' if bracket_depth == 0
+                    && matches!(previous_char, Some('?' | '*' | '+' | '@' | '!'))
+                    && Self::literal_text_group_has_top_level_separator(text, index) =>
+                {
+                    return true;
+                }
+                _ => {}
+            }
+
+            previous_char = Some(ch);
+        }
+
+        false
+    }
+
+    fn literal_text_group_has_top_level_separator(text: &str, open_index: usize) -> bool {
+        let mut escaped = false;
+        let mut paren_depth = 0usize;
+
+        for ch in text[open_index + '('.len_utf8()..].chars() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            if ch == '\\' {
+                escaped = true;
+                continue;
+            }
+
+            match ch {
+                '(' => paren_depth = paren_depth.saturating_add(1),
+                ')' if paren_depth == 0 => return false,
+                ')' => paren_depth -= 1,
+                '|' if paren_depth == 0 => return true,
+                _ => {}
+            }
+        }
+
+        false
     }
 
     pub(super) fn pattern_from_zsh_case_span(&mut self, span: Span) -> Pattern {

@@ -2771,6 +2771,79 @@ fn test_zsh_conditional_ksh_glob_requires_option() {
 }
 
 #[test]
+fn test_zsh_conditional_prefixed_bare_group_reparse_handles_single_glob_word() {
+    let input = "[[ $mode == *@(disable|enable) ]]\n";
+
+    let default_script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+    let (default_compound, _) = expect_compound(&default_script.body[0]);
+    let AstCompoundCommand::Conditional(default_command) = default_compound else {
+        panic!("expected conditional compound command");
+    };
+    let ConditionalExpr::Binary(default_binary) = &default_command.expression else {
+        panic!("expected binary conditional");
+    };
+    let ConditionalExpr::Pattern(default_pattern) = default_binary.right.as_ref() else {
+        panic!("expected pattern rhs");
+    };
+    assert_eq!(default_pattern.render_syntax(input), "*@(disable|enable)");
+    let [wildcard, prefix, group] = default_pattern.parts.as_slice() else {
+        panic!("expected wildcard, literal prefix, and bare zsh group");
+    };
+    assert!(matches!(&wildcard.kind, PatternPart::AnyString));
+    assert!(matches!(&prefix.kind, PatternPart::Literal(_)));
+    let PatternPart::Group { kind, patterns } = &group.kind else {
+        panic!("expected bare zsh group after literal prefix");
+    };
+    assert_eq!(*kind, PatternGroupKind::ExactlyOne);
+    assert_eq!(
+        patterns
+            .iter()
+            .map(|pattern| pattern.render_syntax(input))
+            .collect::<Vec<_>>(),
+        vec!["disable", "enable"]
+    );
+
+    let script = parse_zsh_with_options(input, |options| {
+        options.ksh_glob = OptionValue::On;
+    })
+    .file;
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional compound command");
+    };
+    let ConditionalExpr::Binary(binary) = &command.expression else {
+        panic!("expected binary conditional");
+    };
+    let ConditionalExpr::Pattern(pattern) = binary.right.as_ref() else {
+        panic!("expected pattern rhs");
+    };
+    assert_eq!(pattern.render_syntax(input), "*@(disable|enable)");
+    let glob = expect_pattern_zsh_qualified_glob(pattern);
+    let [segment] = glob.segments.as_slice() else {
+        panic!("expected a single pattern segment");
+    };
+    assert!(matches!(
+        expect_zsh_glob_pattern_segment(segment).parts.as_slice(),
+        [
+            PatternPartNode {
+                kind: PatternPart::AnyString,
+                ..
+            },
+            PatternPartNode {
+                kind: PatternPart::Group {
+                    kind: PatternGroupKind::ExactlyOne,
+                    ..
+                },
+                ..
+            }
+        ]
+    ));
+}
+
+#[test]
 fn test_zsh_conditional_extended_glob_backreference_requires_option() {
     let input = "[[ $buf == (#b)(*) ]]\n";
 
