@@ -51,7 +51,6 @@ pub enum DocumentQuery {
 impl Index {
     pub(super) fn new(
         workspaces: &Workspaces,
-        cache_project_settings: bool,
         _global: &GlobalClientSettings,
         _client: &Client,
     ) -> crate::Result<Self> {
@@ -77,7 +76,7 @@ impl Index {
             documents: FxHashMap::default(),
             workspace_roots,
             workspace_settings,
-            cache_project_settings,
+            cache_project_settings: false,
             project_settings_cache: RwLock::new(FxHashMap::default()),
         })
     }
@@ -251,6 +250,13 @@ impl Index {
             .write()
             .expect("settings cache lock should not be poisoned")
             .clear();
+    }
+
+    pub(super) fn set_project_settings_cache_enabled(&mut self, enabled: bool) {
+        self.cache_project_settings = enabled;
+        if !enabled {
+            self.clear_project_settings_cache();
+        }
     }
 
     fn workspace_settings_for_url(&self, url: &Url) -> Option<&WorkspaceSettings> {

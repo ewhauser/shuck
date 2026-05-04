@@ -72,6 +72,7 @@ mod tests {
             &client,
         )
         .expect("test session should initialize");
+        session.set_project_settings_cache_enabled(true);
         let uri = Url::from_file_path(&file_path).expect("script path should convert to a URL");
         session.open_text_document(
             uri.clone(),

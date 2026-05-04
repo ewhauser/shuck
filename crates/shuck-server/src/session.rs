@@ -49,9 +49,8 @@ impl Session {
         workspaces: &Workspaces,
         client: &Client,
     ) -> crate::Result<Self> {
-        let cache_project_settings = supports_dynamic_watched_files(client_capabilities);
         Ok(Self {
-            index: index::Index::new(workspaces, cache_project_settings, &global, client)?,
+            index: index::Index::new(workspaces, &global, client)?,
             position_encoding,
             global_settings: global,
             resolved_client_capabilities: Arc::new(ResolvedClientCapabilities::new(
@@ -138,6 +137,10 @@ impl Session {
         self.index.config_file_paths()
     }
 
+    pub(crate) fn set_project_settings_cache_enabled(&mut self, enabled: bool) {
+        self.index.set_project_settings_cache_enabled(enabled);
+    }
+
     pub(crate) fn update_client_options(&mut self, options: ClientOptions) {
         self.global_settings.update_options(options);
         self.index.clear_project_settings_cache();
@@ -185,15 +188,6 @@ impl DocumentSnapshot {
     pub(crate) fn encoding(&self) -> PositionEncoding {
         self.position_encoding
     }
-}
-
-fn supports_dynamic_watched_files(client_capabilities: &ClientCapabilities) -> bool {
-    client_capabilities
-        .workspace
-        .as_ref()
-        .and_then(|workspace| workspace.did_change_watched_files)
-        .and_then(|watched_files| watched_files.dynamic_registration)
-        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -256,6 +250,7 @@ mod tests {
             &client,
         )
         .expect("test session should initialize");
+        session.set_project_settings_cache_enabled(true);
         session.update_client_options(ClientOptions {
             lint: Some(shuck_config::LintConfig {
                 select: Some(vec!["C001".to_owned()]),
@@ -328,6 +323,7 @@ mod tests {
             &client,
         )
         .expect("test session should initialize");
+        session.set_project_settings_cache_enabled(true);
 
         let uri = Url::from_file_path(workspace_two.path().join("script.sh"))
             .expect("test path should convert to a URL");
@@ -397,6 +393,7 @@ mod tests {
             &client,
         )
         .expect("test session should initialize");
+        session.set_project_settings_cache_enabled(true);
 
         let uri = Url::from_file_path(workspace.path().join("script.sh"))
             .expect("test path should convert to a URL");
