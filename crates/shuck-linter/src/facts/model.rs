@@ -3,6 +3,7 @@ pub struct LinterFacts<'a> {
     semantic_artifacts: &'a LinterSemanticArtifacts<'a>,
     source: &'a str,
     line_index: &'a LineIndex,
+    shell: ShellDialect,
     commands: Vec<CommandFact<'a>>,
     command_fact_indices_by_id: Vec<Option<usize>>,
     structural_command_ids: Vec<CommandId>,
@@ -33,6 +34,7 @@ pub struct LinterFacts<'a> {
     possible_variable_misspelling_use_scan: OnceLock<bool>,
     possible_variable_misspelling_index: OnceLock<PossibleVariableMisspellingIndex>,
     possible_variable_misspelling_scope_compat_name_uses: OnceLock<Vec<ComparableNameUse>>,
+    plain_unindexed_array_references: OnceLock<Vec<PlainUnindexedArrayReferenceFact>>,
     redundant_echo_space_facts: OnceLock<Vec<RedundantEchoSpaceFact>>,
     suppressed_subscript_reference_spans: FxHashSet<FactSpan>,
     subscript_later_suppression_reference_spans: FxHashSet<FactSpan>,
@@ -982,8 +984,13 @@ impl<'a> LinterFacts<'a> {
         &self.indexed_array_reference_fragments
     }
 
-    pub fn plain_unindexed_reference_spans(&self) -> &[Span] {
-        &self.plain_unindexed_reference_spans
+    pub fn plain_unindexed_array_references(
+        &self,
+    ) -> impl Iterator<Item = PlainUnindexedArrayReferenceFact> + '_ {
+        self.plain_unindexed_array_references
+            .get_or_init(|| build_plain_unindexed_array_reference_facts(self))
+            .iter()
+            .copied()
     }
 
     pub fn parameter_pattern_special_target_fragments(

@@ -213,6 +213,82 @@ impl IndexedArrayReferenceFragmentFact {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlainUnindexedArrayReferenceFact {
+    SelectorRequired(SelectorRequiredArrayReference),
+    NativeZshScalar(NativeZshScalarArrayReference),
+    Ambiguous(AmbiguousArrayReference),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelectorRequiredArrayReference {
+    reference_id: ReferenceId,
+    diagnostic_span: Span,
+}
+
+impl SelectorRequiredArrayReference {
+    pub(crate) fn new(reference_id: ReferenceId, diagnostic_span: Span) -> Self {
+        Self {
+            reference_id,
+            diagnostic_span,
+        }
+    }
+
+    pub fn reference_id(&self) -> ReferenceId {
+        self.reference_id
+    }
+
+    pub fn diagnostic_span(&self) -> Span {
+        self.diagnostic_span
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NativeZshScalarArrayReference {
+    reference_id: ReferenceId,
+    expansion_span: Span,
+}
+
+impl NativeZshScalarArrayReference {
+    pub(crate) fn new(reference_id: ReferenceId, expansion_span: Span) -> Self {
+        Self {
+            reference_id,
+            expansion_span,
+        }
+    }
+
+    pub fn reference_id(&self) -> ReferenceId {
+        self.reference_id
+    }
+
+    pub fn expansion_span(&self) -> Span {
+        self.expansion_span
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AmbiguousArrayReference {
+    reference_id: ReferenceId,
+    diagnostic_span: Span,
+}
+
+impl AmbiguousArrayReference {
+    pub(crate) fn new(reference_id: ReferenceId, diagnostic_span: Span) -> Self {
+        Self {
+            reference_id,
+            diagnostic_span,
+        }
+    }
+
+    pub fn reference_id(&self) -> ReferenceId {
+        self.reference_id
+    }
+
+    pub fn diagnostic_span(&self) -> Span {
+        self.diagnostic_span
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ParameterPatternSpecialTargetFragmentFact {
     span: Span,
