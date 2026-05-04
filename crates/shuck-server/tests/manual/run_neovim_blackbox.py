@@ -14,12 +14,16 @@ import tempfile
 SCRIPT_PATH = Path(__file__).resolve()
 MANUAL_ROOT = SCRIPT_PATH.parent
 REPO_ROOT = MANUAL_ROOT.parents[3]
-FIXTURE_ROOT = MANUAL_ROOT / "fixtures" / "project"
+FIXTURE_ROOT = MANUAL_ROOT / "fixtures" / "workspace"
 
-SCENARIOS = {
-    "diagnostics": "bad.sh",
-    "hover": "hover.sh",
-}
+SCENARIOS = [
+    "diagnostics/open_edit",
+    "hover/rule_directive",
+    "code_actions/quick_fix",
+    "code_actions/fix_all",
+    "formatting/request_round_trip",
+    "configuration/reload_workspace_config",
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -79,18 +83,16 @@ def stage_fixture_workspace() -> tuple[tempfile.TemporaryDirectory[str], Path]:
 def run_case(case_name: str, server_binary: Path, nvim: str) -> None:
     tempdir, project_root = stage_fixture_workspace()
     try:
-        target_file = project_root / SCENARIOS[case_name]
         env = os.environ.copy()
         env["SHUCK_LSP_CASE"] = case_name
         env["SHUCK_LSP_SERVER_BINARY"] = str(server_binary)
-        env["SHUCK_LSP_TARGET_FILE"] = str(target_file)
+        env["SHUCK_LSP_WORKSPACE_ROOT"] = str(project_root)
 
         cmd = [
             nvim,
             "--headless",
             "-u",
             str(MANUAL_ROOT / "minimal_init.lua"),
-            str(target_file),
             "-c",
             "lua require('shuck_server_blackbox').run()",
         ]
