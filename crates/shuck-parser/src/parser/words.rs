@@ -13,18 +13,12 @@ enum PatternSegment<'a> {
     Word(&'a WordPartNode),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PatternParseMode {
-    Standard,
-    ZshCase,
-    ZshConditional,
-}
-
 struct PatternParser<'a> {
     input: &'a str,
     segments: Vec<PatternSegment<'a>>,
     full_span: Span,
-    mode: PatternParseMode,
+    features: ZshGlobParseFeatures,
+    allow_prefixed_bare_groups_without_ksh: bool,
 }
 
 enum WordTargetBoundary {
@@ -64,23 +58,29 @@ impl<'a> PatternParser<'a> {
     const MAX_PATTERN_GROUP_DEPTH: usize = 8;
     const MAX_ZSH_CASE_GROUP_PRESCAN_BYTES: usize = 512;
 
-    fn new(input: &'a str, word: &'a Word) -> Self {
-        Self::from_word_parts_with_mode(input, &word.parts, word.span, PatternParseMode::Standard)
+    fn new(input: &'a str, word: &'a Word, features: ZshGlobParseFeatures) -> Self {
+        Self::from_word_parts_with_options(input, &word.parts, word.span, features, false)
     }
 
-    fn from_word_parts(input: &'a str, parts: &'a [WordPartNode], full_span: Span) -> Self {
-        Self::from_word_parts_with_mode(input, parts, full_span, PatternParseMode::Standard)
+    fn for_pattern_context(input: &'a str, word: &'a Word, features: ZshGlobParseFeatures) -> Self {
+        Self::from_word_parts_with_options(input, &word.parts, word.span, features, true)
     }
 
-    fn with_mode(input: &'a str, word: &'a Word, mode: PatternParseMode) -> Self {
-        Self::from_word_parts_with_mode(input, &word.parts, word.span, mode)
-    }
-
-    fn from_word_parts_with_mode(
+    fn from_word_parts(
         input: &'a str,
         parts: &'a [WordPartNode],
         full_span: Span,
-        mode: PatternParseMode,
+        features: ZshGlobParseFeatures,
+    ) -> Self {
+        Self::from_word_parts_with_options(input, parts, full_span, features, false)
+    }
+
+    fn from_word_parts_with_options(
+        input: &'a str,
+        parts: &'a [WordPartNode],
+        full_span: Span,
+        features: ZshGlobParseFeatures,
+        allow_prefixed_bare_groups_without_ksh: bool,
     ) -> Self {
         let mut segments = Vec::with_capacity(parts.len());
 
@@ -98,7 +98,8 @@ impl<'a> PatternParser<'a> {
             input,
             segments,
             full_span,
-            mode,
+            features,
+            allow_prefixed_bare_groups_without_ksh,
         }
     }
 
@@ -176,7 +177,7 @@ impl<'a> PatternParser<'a> {
 
                     if allow_groups
                         && let Some((group, next_cursor)) =
-                            self.try_parse_zsh_case_group(*cursor, group_depth)
+                            self.try_parse_bare_zsh_group(*cursor, group_depth)
                     {
                         self.flush_literal(
                             &mut parts,
@@ -269,15 +270,12 @@ impl<'a> PatternParser<'a> {
         }
     }
 
-    fn try_parse_zsh_case_group(
+    fn try_parse_bare_zsh_group(
         &self,
         cursor: PatternCursor,
         group_depth: usize,
     ) -> Option<(PatternPartNode, PatternCursor)> {
-        if !matches!(
-            self.mode,
-            PatternParseMode::ZshCase | PatternParseMode::ZshConditional
-        ) {
+        if !self.features.bare_groups {
             return None;
         }
 
@@ -285,7 +283,10 @@ impl<'a> PatternParser<'a> {
         if self.is_escaped(cursor) || opener != '(' {
             return None;
         }
-        if !self.has_zsh_case_group_separator(cursor) {
+        if self.prefix_reserves_group_for_ksh(cursor) {
+            return None;
+        }
+        if !self.has_bare_zsh_group_separator(cursor) {
             return None;
         }
 
@@ -323,7 +324,7 @@ impl<'a> PatternParser<'a> {
         }
     }
 
-    fn has_zsh_case_group_separator(&self, cursor: PatternCursor) -> bool {
+    fn has_bare_zsh_group_separator(&self, cursor: PatternCursor) -> bool {
         let mut escaped = false;
         let mut paren_depth = 0usize;
         let mut scanned = 0usize;
@@ -385,16 +386,15 @@ impl<'a> PatternParser<'a> {
             return false;
         };
 
-        if matches!(
-            self.mode,
-            PatternParseMode::ZshCase | PatternParseMode::ZshConditional
-        ) && ch == '('
-            && self.has_zsh_case_group_separator(cursor)
+        if self.features.bare_groups
+            && ch == '('
+            && !self.prefix_reserves_group_for_ksh(cursor)
+            && self.has_bare_zsh_group_separator(cursor)
         {
             return true;
         }
 
-        if !matches!(ch, '?' | '*' | '+' | '@' | '!') {
+        if !self.features.ksh_groups || !matches!(ch, '?' | '*' | '+' | '@' | '!') {
             return false;
         }
 
@@ -405,6 +405,26 @@ impl<'a> PatternParser<'a> {
         let next_offset = cursor.literal_offset + ch.len_utf8();
         text.get(next_offset..)
             .is_some_and(|rest| rest.starts_with('('))
+    }
+
+    fn prefix_reserves_group_for_ksh(&self, cursor: PatternCursor) -> bool {
+        self.is_immediately_preceded_by_ksh_group_operator(cursor)
+            && (self.features.ksh_groups || !self.allow_prefixed_bare_groups_without_ksh)
+    }
+
+    fn is_immediately_preceded_by_ksh_group_operator(&self, cursor: PatternCursor) -> bool {
+        let Some(PatternSegment::Literal { text, .. }) = self.segments.get(cursor.segment_index)
+        else {
+            return false;
+        };
+        if cursor.literal_offset == 0 {
+            return false;
+        }
+
+        text[..cursor.literal_offset]
+            .chars()
+            .next_back()
+            .is_some_and(|ch| matches!(ch, '?' | '*' | '+' | '@' | '!'))
     }
 
     fn flush_literal(
@@ -485,7 +505,10 @@ impl<'a> PatternParser<'a> {
             return None;
         };
         let opener = self.peek_literal_char(cursor)?;
-        if self.is_escaped(cursor) || !matches!(opener, '?' | '*' | '+' | '@' | '!') {
+        if self.is_escaped(cursor)
+            || !self.features.ksh_groups
+            || !matches!(opener, '?' | '*' | '+' | '@' | '!')
+        {
             return None;
         }
         let mut chars = text[cursor.literal_offset..].chars();
@@ -667,16 +690,145 @@ impl<'a> PatternParser<'a> {
 
 impl<'a> Parser<'a> {
     pub(super) fn pattern_from_word(&self, word: &Word) -> Pattern {
-        PatternParser::new(self.input, word).parse()
+        PatternParser::new(
+            self.input,
+            word,
+            self.zsh_glob_parse_features_at(word.span.start.offset),
+        )
+        .parse()
     }
 
     pub(super) fn pattern_from_conditional_word(&self, word: &Word) -> Pattern {
-        let mode = if self.dialect == ShellDialect::Zsh {
-            PatternParseMode::ZshConditional
-        } else {
-            PatternParseMode::Standard
-        };
-        PatternParser::with_mode(self.input, word, mode).parse()
+        let features = self.zsh_glob_parse_features_at(word.span.start.offset);
+        let source_backed_word = self
+            .conditional_prefixed_bare_group_source_word(word, features)
+            .unwrap_or_else(|| word.clone());
+
+        PatternParser::for_pattern_context(self.input, &source_backed_word, features).parse()
+    }
+
+    fn conditional_prefixed_bare_group_source_word(
+        &self,
+        word: &Word,
+        features: ZshGlobParseFeatures,
+    ) -> Option<Word> {
+        if features.ksh_groups || !features.bare_groups {
+            return None;
+        }
+
+        let needs_reparse = self.word_is_safe_for_prefixed_bare_group_reparse(word)
+            && Self::literal_text_has_prefixed_bare_group(word.span.slice(self.input));
+
+        needs_reparse.then(|| {
+            self.word_with_parts(
+                vec![WordPartNode::new(
+                    WordPart::Literal(LiteralText::source()),
+                    word.span,
+                )],
+                word.span,
+            )
+        })
+    }
+
+    fn word_is_safe_for_prefixed_bare_group_reparse(&self, word: &Word) -> bool {
+        word.parts.iter().all(|part| match &part.kind {
+            WordPart::Literal(text) => text.is_source_backed(),
+            WordPart::ZshQualifiedGlob(glob) => {
+                Self::zsh_glob_is_safe_for_prefixed_bare_group_reparse(glob)
+            }
+            _ => false,
+        })
+    }
+
+    fn zsh_glob_is_safe_for_prefixed_bare_group_reparse(glob: &ZshQualifiedGlob) -> bool {
+        glob.segments
+            .iter()
+            .all(Self::zsh_glob_segment_is_safe_for_prefixed_bare_group_reparse)
+            && glob.qualifiers.is_none()
+    }
+
+    fn zsh_glob_segment_is_safe_for_prefixed_bare_group_reparse(segment: &ZshGlobSegment) -> bool {
+        match segment {
+            ZshGlobSegment::Pattern(pattern) => {
+                Self::pattern_is_safe_for_prefixed_bare_group_reparse(pattern)
+            }
+            ZshGlobSegment::InlineControl(_) => true,
+        }
+    }
+
+    fn pattern_is_safe_for_prefixed_bare_group_reparse(pattern: &Pattern) -> bool {
+        pattern.parts.iter().all(|part| match &part.kind {
+            PatternPart::Literal(text) => text.is_source_backed(),
+            PatternPart::AnyString | PatternPart::AnyChar => true,
+            PatternPart::CharClass(text) => text.is_source_backed(),
+            PatternPart::Group { patterns, .. } => patterns
+                .iter()
+                .all(Self::pattern_is_safe_for_prefixed_bare_group_reparse),
+            PatternPart::Word(_) => false,
+        })
+    }
+
+    fn literal_text_has_prefixed_bare_group(text: &str) -> bool {
+        let mut escaped = false;
+        let mut bracket_depth = 0usize;
+        let mut previous_char = None;
+
+        for (index, ch) in text.char_indices() {
+            if escaped {
+                escaped = false;
+                previous_char = Some(ch);
+                continue;
+            }
+
+            if ch == '\\' {
+                escaped = true;
+                previous_char = Some(ch);
+                continue;
+            }
+
+            match ch {
+                '[' => bracket_depth = bracket_depth.saturating_add(1),
+                ']' if bracket_depth > 0 => bracket_depth -= 1,
+                '(' if bracket_depth == 0
+                    && matches!(previous_char, Some('?' | '*' | '+' | '@' | '!'))
+                    && Self::literal_text_group_has_top_level_separator(text, index) =>
+                {
+                    return true;
+                }
+                _ => {}
+            }
+
+            previous_char = Some(ch);
+        }
+
+        false
+    }
+
+    fn literal_text_group_has_top_level_separator(text: &str, open_index: usize) -> bool {
+        let mut escaped = false;
+        let mut paren_depth = 0usize;
+
+        for ch in text[open_index + '('.len_utf8()..].chars() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            if ch == '\\' {
+                escaped = true;
+                continue;
+            }
+
+            match ch {
+                '(' => paren_depth = paren_depth.saturating_add(1),
+                ')' if paren_depth == 0 => return false,
+                ')' => paren_depth -= 1,
+                '|' if paren_depth == 0 => return true,
+                _ => {}
+            }
+        }
+
+        false
     }
 
     pub(super) fn pattern_from_zsh_case_span(&mut self, span: Span) -> Pattern {
@@ -686,7 +838,16 @@ impl<'a> Parser<'a> {
         } else {
             self.decode_word_text(text, span, span.start, true)
         };
-        PatternParser::with_mode(self.input, &word, PatternParseMode::ZshCase).parse()
+        let features = self.zsh_glob_parse_features_at(span.start.offset);
+        self.pattern_from_zsh_case_word_with_features(&word, features)
+    }
+
+    pub(super) fn pattern_from_zsh_case_word_with_features(
+        &self,
+        word: &Word,
+        features: ZshGlobParseFeatures,
+    ) -> Pattern {
+        PatternParser::for_pattern_context(self.input, word, features).parse()
     }
 
     pub(super) fn pattern_from_source_text(&mut self, text: &SourceText) -> Pattern {
@@ -719,7 +880,13 @@ impl<'a> Parser<'a> {
             },
             &mut parts,
         );
-        let pattern = PatternParser::from_word_parts(self.input, &parts, span).parse();
+        let pattern = PatternParser::from_word_parts(
+            self.input,
+            &parts,
+            span,
+            self.zsh_glob_parse_features_at(span.start.offset),
+        )
+        .parse();
         self.source_text_pattern_depth -= 1;
         pattern
     }

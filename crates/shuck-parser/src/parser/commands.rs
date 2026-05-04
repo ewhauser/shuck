@@ -2131,12 +2131,42 @@ impl<'a> Parser<'a> {
     }
 
     fn record_zsh_case_group_parts_from_current_case_header(&mut self) {
-        let Ok((pattern_spans, _)) = self.scan_zsh_case_pattern_spans() else {
+        let start = self.current_span.start;
+        let mut split_features = self.zsh_glob_parse_features_at(start.offset);
+        if self.dialect != ShellDialect::Zsh {
+            split_features.bare_groups = true;
+        }
+
+        let Some((pattern_spans, _)) = (if self.input[start.offset..].starts_with('(')
+            && let Some(wrapper_close) = self.scan_zsh_case_group_close(start)
+            && self.case_wrapper_close_is_arm_delimiter(wrapper_close)
+        {
+            let inner_start = start.advanced_by("(");
+            let inner_span = Span::from_positions(inner_start, wrapper_close.start);
+            self.split_zsh_case_pattern_alternatives_with_features(inner_span, split_features)
+                .map(|patterns| (patterns, wrapper_close))
+        } else if let Some(delimiter_span) = self.scan_zsh_case_arm_delimiter(start) {
+            let header_span = Span::from_positions(start, delimiter_span.start);
+            self.split_zsh_case_pattern_alternatives_with_features(header_span, split_features)
+                .map(|patterns| (patterns, delimiter_span))
+        } else {
+            None
+        }) else {
             return;
         };
 
         for span in pattern_spans {
-            let pattern = self.pattern_from_zsh_case_span(span);
+            let mut features = self.zsh_glob_parse_features_at(span.start.offset);
+            if self.dialect != ShellDialect::Zsh {
+                features.bare_groups = true;
+            }
+            let text = span.slice(self.input);
+            let word = if Self::source_text_needs_quote_preserving_decode(text) {
+                self.decode_fragment_word_text(text, span, span.start, true)
+            } else {
+                self.decode_word_text(text, span, span.start, true)
+            };
+            let pattern = self.pattern_from_zsh_case_word_with_features(&word, features);
             for (index, part) in pattern.parts.iter().enumerate() {
                 if matches!(
                     &part.kind,
@@ -2230,12 +2260,24 @@ impl<'a> Parser<'a> {
     }
 
     fn split_zsh_case_pattern_alternatives(&self, span: Span) -> Option<Vec<Span>> {
+        self.split_zsh_case_pattern_alternatives_with_features(
+            span,
+            self.zsh_glob_parse_features_at(span.start.offset),
+        )
+    }
+
+    fn split_zsh_case_pattern_alternatives_with_features(
+        &self,
+        span: Span,
+        features: ZshGlobParseFeatures,
+    ) -> Option<Vec<Span>> {
         let mut state = ZshCaseScanState::new(span.start);
         let mut chars = self.input[span.start.offset..span.end.offset]
             .chars()
             .peekable();
         let mut part_start = span.start;
         let mut parts = Vec::new();
+        let mut previous_char = None;
 
         while let Some(ch) = chars.peek().copied() {
             if state.escaped {
@@ -2299,7 +2341,14 @@ impl<'a> Parser<'a> {
                     && state.bracket_depth == 0
                     && state.brace_depth == 0 =>
                 {
-                    state.paren_depth += 1;
+                    let has_ksh_group_prefix =
+                        matches!(previous_char, Some('?' | '*' | '+' | '@' | '!'));
+                    let ksh_group_start = features.ksh_groups && has_ksh_group_prefix;
+                    let bare_group_start =
+                        features.bare_groups && (!has_ksh_group_prefix || !features.ksh_groups);
+                    if bare_group_start || ksh_group_start {
+                        state.paren_depth += 1;
+                    }
                     Self::next_word_char_unwrap(&mut chars, &mut state.position);
                 }
                 ')' if !state.in_single
@@ -2330,6 +2379,8 @@ impl<'a> Parser<'a> {
                     Self::next_word_char_unwrap(&mut chars, &mut state.position);
                 }
             }
+
+            previous_char = Some(ch);
         }
 
         parts.push(
