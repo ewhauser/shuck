@@ -2344,7 +2344,8 @@ impl<'a> Parser<'a> {
                     let has_ksh_group_prefix =
                         matches!(previous_char, Some('?' | '*' | '+' | '@' | '!'));
                     let ksh_group_start = features.ksh_groups && has_ksh_group_prefix;
-                    let bare_group_start = features.bare_groups && !has_ksh_group_prefix;
+                    let bare_group_start =
+                        features.bare_groups && (!has_ksh_group_prefix || !features.ksh_groups);
                     if bare_group_start || ksh_group_start {
                         state.paren_depth += 1;
                     }

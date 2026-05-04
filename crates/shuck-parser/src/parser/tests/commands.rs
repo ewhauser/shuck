@@ -2173,13 +2173,23 @@ fn test_zsh_case_ksh_glob_requires_option() {
     let AstCompoundCommand::Case(default_command) = default_compound else {
         panic!("expected case command");
     };
+    assert_eq!(default_command.cases[0].patterns.len(), 1);
+    let default_pattern = &default_command.cases[0].patterns[0];
+    assert_eq!(default_pattern.render_syntax(input), "@(disable|enable)");
+    assert!(matches!(
+        &default_pattern.parts[0].kind,
+        PatternPart::Literal(_)
+    ));
+    let PatternPart::Group { kind, patterns } = &default_pattern.parts[1].kind else {
+        panic!("expected bare zsh group after literal prefix");
+    };
+    assert_eq!(*kind, PatternGroupKind::ExactlyOne);
     assert_eq!(
-        default_command.cases[0]
-            .patterns
+        patterns
             .iter()
             .map(|pattern| pattern.render_syntax(input))
             .collect::<Vec<_>>(),
-        vec!["@(disable", "enable)"]
+        vec!["disable", "enable"]
     );
 
     let script = parse_zsh_with_options(input, |options| {
@@ -2708,20 +2718,22 @@ fn test_zsh_conditional_ksh_glob_requires_option() {
     let ConditionalExpr::Pattern(default_pattern) = default_binary.right.as_ref() else {
         panic!("expected pattern rhs");
     };
-    assert_eq!(default_pattern.render(input), "@(disable|enable)");
-    assert!(!matches!(
-        default_pattern.parts.as_slice(),
-        [PatternPartNode {
-            kind: PatternPart::Word(word),
-            ..
-        }] if matches!(
-            word.parts.as_slice(),
-            [WordPartNode {
-                kind: WordPart::ZshQualifiedGlob(_),
-                ..
-            }]
-        )
-    ));
+    assert_eq!(default_pattern.render_syntax(input), "@(disable|enable)");
+    let [prefix, group] = default_pattern.parts.as_slice() else {
+        panic!("expected literal prefix followed by bare zsh group");
+    };
+    assert!(matches!(&prefix.kind, PatternPart::Literal(_)));
+    let PatternPart::Group { kind, patterns } = &group.kind else {
+        panic!("expected bare zsh group after literal prefix");
+    };
+    assert_eq!(*kind, PatternGroupKind::ExactlyOne);
+    assert_eq!(
+        patterns
+            .iter()
+            .map(|pattern| pattern.render_syntax(input))
+            .collect::<Vec<_>>(),
+        vec!["disable", "enable"]
+    );
 
     let script = parse_zsh_with_options(input, |options| {
         options.ksh_glob = OptionValue::On;
@@ -2737,19 +2749,24 @@ fn test_zsh_conditional_ksh_glob_requires_option() {
     let ConditionalExpr::Pattern(pattern) = binary.right.as_ref() else {
         panic!("expected pattern rhs");
     };
-    let [part] = pattern.parts.as_slice() else {
-        panic!("expected a single glob-aware word part");
-    };
-    let PatternPart::Word(word) = &part.kind else {
-        panic!("expected glob-aware word pattern part");
-    };
-    let glob = expect_zsh_qualified_glob(word);
+    assert_eq!(pattern.render_syntax(input), "@(disable|enable)");
+    let glob = expect_pattern_zsh_qualified_glob(pattern);
     let [segment] = glob.segments.as_slice() else {
         panic!("expected a single pattern segment");
     };
+    let [part] = expect_zsh_glob_pattern_segment(segment).parts.as_slice() else {
+        panic!("expected a single group part");
+    };
+    let PatternPart::Group { kind, patterns } = &part.kind else {
+        panic!("expected ksh glob group");
+    };
+    assert_eq!(*kind, PatternGroupKind::ExactlyOne);
     assert_eq!(
-        expect_zsh_glob_pattern_segment(segment).render_syntax(input),
-        "@(disable|enable)"
+        patterns
+            .iter()
+            .map(|pattern| pattern.render_syntax(input))
+            .collect::<Vec<_>>(),
+        vec!["disable", "enable"]
     );
 }
 
@@ -2971,7 +2988,17 @@ fn test_zsh_setopt_ksh_glob_changes_following_conditional_pattern_parse() {
     let ConditionalExpr::Pattern(first_pattern) = first_binary.right.as_ref() else {
         panic!("expected pattern rhs");
     };
-    assert!(!pattern_has_zsh_qualified_glob(first_pattern));
+    let [first_prefix, first_group] = first_pattern.parts.as_slice() else {
+        panic!("expected literal prefix followed by bare zsh group");
+    };
+    assert!(matches!(&first_prefix.kind, PatternPart::Literal(_)));
+    assert!(matches!(
+        &first_group.kind,
+        PatternPart::Group {
+            kind: PatternGroupKind::ExactlyOne,
+            ..
+        }
+    ));
 
     let (second_compound, _) = expect_compound(&script.body[2]);
     let AstCompoundCommand::Conditional(second_command) = second_compound else {
@@ -2983,7 +3010,22 @@ fn test_zsh_setopt_ksh_glob_changes_following_conditional_pattern_parse() {
     let ConditionalExpr::Pattern(second_pattern) = second_binary.right.as_ref() else {
         panic!("expected pattern rhs");
     };
-    assert!(pattern_has_zsh_qualified_glob(second_pattern));
+    let second_glob = expect_pattern_zsh_qualified_glob(second_pattern);
+    let [second_segment] = second_glob.segments.as_slice() else {
+        panic!("expected a single pattern segment");
+    };
+    assert!(matches!(
+        expect_zsh_glob_pattern_segment(second_segment)
+            .parts
+            .as_slice(),
+        [PatternPartNode {
+            kind: PatternPart::Group {
+                kind: PatternGroupKind::ExactlyOne,
+                ..
+            },
+            ..
+        }]
+    ));
 }
 
 #[test]

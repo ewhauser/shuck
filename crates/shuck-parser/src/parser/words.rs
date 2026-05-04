@@ -18,6 +18,7 @@ struct PatternParser<'a> {
     segments: Vec<PatternSegment<'a>>,
     full_span: Span,
     features: ZshGlobParseFeatures,
+    allow_prefixed_bare_groups_without_ksh: bool,
 }
 
 enum WordTargetBoundary {
@@ -58,7 +59,11 @@ impl<'a> PatternParser<'a> {
     const MAX_ZSH_CASE_GROUP_PRESCAN_BYTES: usize = 512;
 
     fn new(input: &'a str, word: &'a Word, features: ZshGlobParseFeatures) -> Self {
-        Self::from_word_parts(input, &word.parts, word.span, features)
+        Self::from_word_parts_with_options(input, &word.parts, word.span, features, false)
+    }
+
+    fn for_pattern_context(input: &'a str, word: &'a Word, features: ZshGlobParseFeatures) -> Self {
+        Self::from_word_parts_with_options(input, &word.parts, word.span, features, true)
     }
 
     fn from_word_parts(
@@ -66,6 +71,16 @@ impl<'a> PatternParser<'a> {
         parts: &'a [WordPartNode],
         full_span: Span,
         features: ZshGlobParseFeatures,
+    ) -> Self {
+        Self::from_word_parts_with_options(input, parts, full_span, features, false)
+    }
+
+    fn from_word_parts_with_options(
+        input: &'a str,
+        parts: &'a [WordPartNode],
+        full_span: Span,
+        features: ZshGlobParseFeatures,
+        allow_prefixed_bare_groups_without_ksh: bool,
     ) -> Self {
         let mut segments = Vec::with_capacity(parts.len());
 
@@ -84,6 +99,7 @@ impl<'a> PatternParser<'a> {
             segments,
             full_span,
             features,
+            allow_prefixed_bare_groups_without_ksh,
         }
     }
 
@@ -267,7 +283,7 @@ impl<'a> PatternParser<'a> {
         if self.is_escaped(cursor) || opener != '(' {
             return None;
         }
-        if self.is_immediately_preceded_by_ksh_group_operator(cursor) {
+        if self.prefix_reserves_group_for_ksh(cursor) {
             return None;
         }
         if !self.has_bare_zsh_group_separator(cursor) {
@@ -372,7 +388,7 @@ impl<'a> PatternParser<'a> {
 
         if self.features.bare_groups
             && ch == '('
-            && !self.is_immediately_preceded_by_ksh_group_operator(cursor)
+            && !self.prefix_reserves_group_for_ksh(cursor)
             && self.has_bare_zsh_group_separator(cursor)
         {
             return true;
@@ -389,6 +405,11 @@ impl<'a> PatternParser<'a> {
         let next_offset = cursor.literal_offset + ch.len_utf8();
         text.get(next_offset..)
             .is_some_and(|rest| rest.starts_with('('))
+    }
+
+    fn prefix_reserves_group_for_ksh(&self, cursor: PatternCursor) -> bool {
+        self.is_immediately_preceded_by_ksh_group_operator(cursor)
+            && (self.features.ksh_groups || !self.allow_prefixed_bare_groups_without_ksh)
     }
 
     fn is_immediately_preceded_by_ksh_group_operator(&self, cursor: PatternCursor) -> bool {
@@ -678,12 +699,52 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn pattern_from_conditional_word(&self, word: &Word) -> Pattern {
-        PatternParser::new(
-            self.input,
-            word,
-            self.zsh_glob_parse_features_at(word.span.start.offset),
-        )
-        .parse()
+        let features = self.zsh_glob_parse_features_at(word.span.start.offset);
+        let source_backed_word = self
+            .conditional_prefixed_bare_group_source_word(word, features)
+            .unwrap_or_else(|| word.clone());
+
+        PatternParser::for_pattern_context(self.input, &source_backed_word, features).parse()
+    }
+
+    fn conditional_prefixed_bare_group_source_word(
+        &self,
+        word: &Word,
+        features: ZshGlobParseFeatures,
+    ) -> Option<Word> {
+        if features.ksh_groups || !features.bare_groups {
+            return None;
+        }
+
+        let needs_reparse = word.parts.windows(2).any(|pair| {
+            let [left, right] = pair else {
+                return false;
+            };
+
+            let WordPart::Literal(text) = &left.kind else {
+                return false;
+            };
+            if !matches!(
+                text.as_str(self.input, left.span).chars().next_back(),
+                Some('?' | '*' | '+' | '@' | '!')
+            ) {
+                return false;
+            }
+
+            matches!(right.kind, WordPart::ZshQualifiedGlob(_))
+                && left.span.end.offset == right.span.start.offset
+                && right.span.slice(self.input).starts_with('(')
+        });
+
+        needs_reparse.then(|| {
+            self.word_with_parts(
+                vec![WordPartNode::new(
+                    WordPart::Literal(LiteralText::source()),
+                    word.span,
+                )],
+                word.span,
+            )
+        })
     }
 
     pub(super) fn pattern_from_zsh_case_span(&mut self, span: Span) -> Pattern {
@@ -702,7 +763,7 @@ impl<'a> Parser<'a> {
         word: &Word,
         features: ZshGlobParseFeatures,
     ) -> Pattern {
-        PatternParser::new(self.input, word, features).parse()
+        PatternParser::for_pattern_context(self.input, word, features).parse()
     }
 
     pub(super) fn pattern_from_source_text(&mut self, text: &SourceText) -> Pattern {
