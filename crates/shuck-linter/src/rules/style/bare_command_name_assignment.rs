@@ -78,4 +78,31 @@ f() {
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn respects_zsh_equals_path_expansion_for_assignment_values() {
+        let source = "\
+#!/bin/zsh
+unsetopt equals
+tool==grep run
+setopt magic_equal_subst
+magic_literal==grep run
+setopt equals
+path==grep run
+setopt magic_equal_subst
+magic==grep run
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::BareCommandNameAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["tool==grep run", "magic_literal==grep run"]
+        );
+    }
 }
