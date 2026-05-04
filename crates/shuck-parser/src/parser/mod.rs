@@ -1603,11 +1603,9 @@ impl<'a> Parser<'a> {
                         &mut segments,
                         text,
                         span.start,
-                        pattern_start,
-                        index,
+                        (pattern_start, index),
                         source_backed,
                         features,
-                        &mut saw_glob_syntax,
                     );
                     segments.push(ZshGlobSegment::InlineControl(control));
                     saw_glob_syntax = true;
@@ -1626,11 +1624,9 @@ impl<'a> Parser<'a> {
                         &mut segments,
                         text,
                         span.start,
-                        pattern_start,
-                        index,
+                        (pattern_start, index),
                         source_backed,
                         features,
-                        &mut saw_glob_syntax,
                     );
                     qualifiers = Some(group);
                     saw_glob_syntax = true;
@@ -1652,11 +1648,9 @@ impl<'a> Parser<'a> {
                         &mut segments,
                         text,
                         span.start,
-                        pattern_start,
-                        index,
+                        (pattern_start, index),
                         source_backed,
                         features,
-                        &mut saw_glob_syntax,
                     );
                     qualifiers = Some(group);
                     saw_glob_syntax = true;
@@ -1669,15 +1663,13 @@ impl<'a> Parser<'a> {
             index += text[index..].chars().next()?.len_utf8();
         }
 
-        self.push_zsh_pattern_segment(
+        saw_glob_syntax |= self.push_zsh_pattern_segment(
             &mut segments,
             text,
             span.start,
-            pattern_start,
-            text.len(),
+            (pattern_start, text.len()),
             source_backed,
             features,
-            &mut saw_glob_syntax,
         );
 
         segments
@@ -1691,25 +1683,25 @@ impl<'a> Parser<'a> {
         segments: &mut Vec<ZshGlobSegment>,
         text: &str,
         base: Position,
-        start: usize,
-        end: usize,
+        bounds: (usize, usize),
         source_backed: bool,
         features: ZshGlobParseFeatures,
-        saw_glob_syntax: &mut bool,
-    ) {
+    ) -> bool {
+        let (start, end) = bounds;
         if start >= end {
-            return;
+            return false;
         }
 
-        let start_position = Self::text_position(base, text, start);
-        let end_position = Self::text_position(base, text, end);
-        let span = Span::from_positions(start_position, end_position);
+        let span = Span::from_positions(
+            Self::text_position(base, text, start),
+            Self::text_position(base, text, end),
+        );
         let pattern_word =
             self.decode_word_text(&text[start..end], span, span.start, source_backed);
         let pattern = self.pattern_from_word(&pattern_word);
-        *saw_glob_syntax |=
-            self.pattern_has_glob_syntax_with_features(&pattern, features);
+        let saw_glob_syntax = self.pattern_has_glob_syntax_with_features(&pattern, features);
         segments.push(ZshGlobSegment::Pattern(pattern));
+        saw_glob_syntax
     }
 
     fn parse_zsh_inline_glob_control(
@@ -1939,10 +1931,7 @@ impl<'a> Parser<'a> {
             PatternPart::Group { .. } => true,
             PatternPart::Word(word) => Self::pattern_has_glob_word(word),
             PatternPart::Literal(text) => {
-                Self::literal_text_has_zsh_glob_syntax(
-                    text.as_str(self.input, part.span),
-                    features,
-                )
+                Self::literal_text_has_zsh_glob_syntax(text.as_str(self.input, part.span), features)
             }
         })
     }
@@ -1969,7 +1958,9 @@ impl<'a> Parser<'a> {
         let mut index = 0usize;
 
         while index < bytes.len() {
-            let ch = text[index..].chars().next().unwrap();
+            let Some(ch) = text[index..].chars().next() else {
+                break;
+            };
 
             if escaped {
                 escaped = false;

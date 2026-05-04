@@ -2153,10 +2153,7 @@ fn test_zsh_case_bare_group_requires_sh_glob_off() {
             .iter()
             .map(|pattern| pattern.render_syntax(input))
             .collect::<Vec<_>>(),
-        vec![
-            "https://github.com/ohmyzsh/ohmyzsh(",
-            ".git)",
-        ]
+        vec!["https://github.com/ohmyzsh/ohmyzsh(", ".git)",]
     );
 }
 

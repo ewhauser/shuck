@@ -2345,8 +2345,7 @@ impl<'a> Parser<'a> {
                         matches!(previous_char, Some('?' | '*' | '+' | '@' | '!'));
                     let ksh_group_start = features.ksh_groups && has_ksh_group_prefix;
                     let bare_group_start = features.bare_groups && !has_ksh_group_prefix;
-                    if bare_group_start || ksh_group_start
-                    {
+                    if bare_group_start || ksh_group_start {
                         state.paren_depth += 1;
                     }
                     Self::next_word_char_unwrap(&mut chars, &mut state.position);
