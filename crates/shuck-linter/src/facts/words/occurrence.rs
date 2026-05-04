@@ -38,6 +38,7 @@ pub struct WordOccurrence {
     pub(super) runtime_literal: RuntimeLiteralAnalysis,
     pub(super) operand_class: Option<TestOperandClass>,
     pub(super) enclosing_expansion_context: Option<ExpansionContext>,
+    pub(super) split_sensitive_unquoted_command_substitution_spans: IdRange<Span>,
     pub(super) array_assignment_split_scalar_expansion_spans: IdRange<Span>,
 }
 
@@ -388,6 +389,12 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.facts
             .fact_store
             .word_spans(self.derived().unquoted_command_substitution_spans)
+    }
+
+    pub fn split_sensitive_unquoted_command_substitution_spans(self) -> &'facts [Span] {
+        self.facts
+            .fact_store
+            .word_spans(self.occurrence().split_sensitive_unquoted_command_substitution_spans)
     }
 
     pub fn unquoted_dollar_paren_command_substitution_spans(self) -> &'facts [Span] {
@@ -1261,6 +1268,31 @@ pub(super) fn simple_command_word_at(command: &SimpleCommand, index: usize) -> &
         &command.name
     } else {
         &command.args[index - 1]
+    }
+}
+
+fn collect_split_sensitive_unquoted_command_substitution_spans(
+    parts: &[WordPartNode],
+    quoted: bool,
+    options: Option<&ZshOptionState>,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_split_sensitive_unquoted_command_substitution_spans(
+                    parts, true, options, spans,
+                );
+            }
+            WordPart::CommandSubstitution { .. }
+                if !quoted
+                    && analyze_part(&part.kind, quoted, options).can_expand_to_multiple_fields =>
+            {
+                spans.push(part.span);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -2252,6 +2284,15 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             | WordFactContext::CaseSubject
             | WordFactContext::ArithmeticCommand => None,
         };
+        self.word_span_scratch.clear();
+        collect_split_sensitive_unquoted_command_substitution_spans(
+            &word.parts,
+            false,
+            self.command_zsh_options.as_ref(),
+            self.word_span_scratch,
+        );
+        let split_sensitive_unquoted_command_substitution_spans =
+            self.word_spans.push_many(self.word_span_scratch.drain(..));
         let id = WordOccurrenceId::new(self.word_occurrences.len());
         self.word_occurrences.push(WordOccurrence {
             node_id,
@@ -2262,6 +2303,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             runtime_literal,
             operand_class,
             enclosing_expansion_context: None,
+            split_sensitive_unquoted_command_substitution_spans,
             array_assignment_split_scalar_expansion_spans: IdRange::empty(),
         });
         if let WordFactContext::Expansion(enclosing_expansion_context) = context {

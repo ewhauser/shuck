@@ -1349,16 +1349,21 @@ fn collect_array_assignment_split_scalar_expansion_spans(
     let fact = &word_occurrences[id.index()];
     let word = occurrence_word(word_nodes, fact);
     let derived = word_node_derived(&word_nodes[fact.node_id.index()]);
-    split_sensitive_spans.extend(
-        fact_store
-            .word_spans(derived.unquoted_scalar_expansion_spans)
-            .iter()
-            .copied(),
-    );
+    if word_nodes[fact.node_id.index()]
+        .analysis
+        .can_expand_to_multiple_fields
+    {
+        split_sensitive_spans.extend(
+            fact_store
+                .word_spans(derived.unquoted_scalar_expansion_spans)
+                .iter()
+                .copied(),
+        );
+    }
 
     let fact_span = occurrence_span(word_nodes, fact);
     let unquoted_command_substitution_spans =
-        fact_store.word_spans(derived.unquoted_command_substitution_spans);
+        fact_store.word_spans(fact.split_sensitive_unquoted_command_substitution_spans);
 
     if !unquoted_command_substitution_spans.is_empty() {
         // commands is sorted by start offset (compare_command_facts_by_offset),
