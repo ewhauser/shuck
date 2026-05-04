@@ -8,8 +8,8 @@ use lsp_types::{FileEvent, Url};
 use rustc_hash::FxHashMap;
 
 use crate::edit::{DocumentKey, DocumentVersion};
-use crate::session::{Client, ClientOptions};
 use crate::session::settings::{GlobalClientSettings, ShuckSettings};
+use crate::session::{Client, ClientOptions};
 use crate::workspace::Workspaces;
 use crate::{PositionEncoding, TextDocument};
 
@@ -132,7 +132,11 @@ impl Index {
         if !self.workspace_roots.contains(&path) {
             self.workspace_roots.push(path.clone());
         }
-        if !self.workspace_settings.iter().any(|workspace| workspace.root == path) {
+        if !self
+            .workspace_settings
+            .iter()
+            .any(|workspace| workspace.root == path)
+        {
             self.workspace_settings.push(WorkspaceSettings {
                 root: path,
                 options: None,

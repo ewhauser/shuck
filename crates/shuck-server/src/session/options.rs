@@ -76,7 +76,8 @@ impl AllOptions {
             .as_object()
             .is_some_and(|object| object.contains_key("shuck"))
         {
-            let options = serde_json::from_value::<InitializationOptions>(value).unwrap_or_default();
+            let options =
+                serde_json::from_value::<InitializationOptions>(value).unwrap_or_default();
             return Self {
                 global: options.shuck,
                 workspace: options.workspace,

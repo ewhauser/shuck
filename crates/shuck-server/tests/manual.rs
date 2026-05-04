@@ -3,10 +3,10 @@ use std::time::Duration;
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId};
 use lsp_types::{
-    ClientCapabilities, CodeAction, CodeActionContext, CodeActionParams,
-    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult,
-    HoverParams, PartialResultParams, Position, Range, TextDocumentIdentifier,
-    TextDocumentPositionParams, Url, WorkDoneProgressParams,
+    ClientCapabilities, CodeAction, CodeActionContext, CodeActionParams, DocumentDiagnosticParams,
+    DocumentDiagnosticReport, DocumentDiagnosticReportResult, HoverParams, PartialResultParams,
+    Position, Range, TextDocumentIdentifier, TextDocumentPositionParams, Url,
+    WorkDoneProgressParams,
 };
 
 fn send_request(connection: &Connection, id: i32, method: &str, params: serde_json::Value) {
@@ -28,13 +28,20 @@ fn recv_response(connection: &Connection, id: i32) -> serde_json::Value {
             .expect("server should respond");
         match message {
             Message::Response(response) if response.id == RequestId::from(id) => {
-                assert!(response.error.is_none(), "unexpected LSP error: {:?}", response.error);
+                assert!(
+                    response.error.is_none(),
+                    "unexpected LSP error: {:?}",
+                    response.error
+                );
                 return response
                     .result
                     .expect("successful response should carry a result");
             }
             Message::Notification(_) => continue,
-            Message::Request(request) => panic!("unexpected server request during replay: {}", request.method),
+            Message::Request(request) => panic!(
+                "unexpected server request during replay: {}",
+                request.method
+            ),
             Message::Response(_) => continue,
         }
     }
@@ -77,7 +84,8 @@ fn replays_a_small_lsp_session() {
 
     let workspace_root = tempfile::tempdir().expect("tempdir should be created");
     let script_path = workspace_root.path().join("script.sh");
-    let script_uri = Url::from_file_path(&script_path).expect("script path should convert to a URL");
+    let script_uri =
+        Url::from_file_path(&script_path).expect("script path should convert to a URL");
 
     send_request(
         &client_connection,
@@ -132,8 +140,9 @@ fn replays_a_small_lsp_session() {
         })
         .expect("diagnostic params should serialize"),
     );
-    let diagnostic_report: DocumentDiagnosticReportResult = serde_json::from_value(recv_response(&client_connection, 2))
-        .expect("diagnostic response should deserialize");
+    let diagnostic_report: DocumentDiagnosticReportResult =
+        serde_json::from_value(recv_response(&client_connection, 2))
+            .expect("diagnostic response should deserialize");
     let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) =
         diagnostic_report
     else {
@@ -161,8 +170,9 @@ fn replays_a_small_lsp_session() {
         })
         .expect("code action params should serialize"),
     );
-    let actions: Vec<lsp_types::CodeActionOrCommand> = serde_json::from_value(recv_response(&client_connection, 3))
-        .expect("code action response should deserialize");
+    let actions: Vec<lsp_types::CodeActionOrCommand> =
+        serde_json::from_value(recv_response(&client_connection, 3))
+            .expect("code action response should deserialize");
     let fix_all = actions
         .into_iter()
         .filter_map(|entry| match entry {
@@ -216,9 +226,11 @@ fn replays_a_small_lsp_session() {
         .expect("hover params should serialize"),
     );
     let hover = recv_response(&client_connection, 5);
-    assert!(hover["contents"]["value"]
-        .as_str()
-        .is_some_and(|value| value.contains("Undefined Variable")));
+    assert!(
+        hover["contents"]["value"]
+            .as_str()
+            .is_some_and(|value| value.contains("Undefined Variable"))
+    );
 
     send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
     let _ = recv_response(&client_connection, 99);

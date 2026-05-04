@@ -72,7 +72,9 @@ pub fn generate_diagnostics(snapshot: &DocumentSnapshot) -> Vec<types::Diagnosti
         })
         .collect::<Vec<_>>();
 
-    if snapshot.client_settings().show_syntax_errors() && let Some(parse_error) = raw.parse_error {
+    if snapshot.client_settings().show_syntax_errors()
+        && let Some(parse_error) = raw.parse_error
+    {
         diagnostics.insert(
             0,
             parse_error_to_lsp(snapshot, source, query.document().index(), parse_error),
@@ -111,7 +113,12 @@ pub(crate) fn fix_all_document_edits(
     let fixable_diagnostics = raw
         .shell_diagnostics
         .iter()
-        .filter(|diagnostic| snapshot.shuck_settings().fixable_rules().contains(diagnostic.rule))
+        .filter(|diagnostic| {
+            snapshot
+                .shuck_settings()
+                .fixable_rules()
+                .contains(diagnostic.rule)
+        })
         .cloned()
         .collect::<Vec<_>>();
     let applied = shuck_linter::apply_fixes(source, &fixable_diagnostics, applicability);
@@ -507,7 +514,11 @@ mod tests {
         );
 
         let diagnostics = generate_diagnostics(&snapshot);
-        assert!(diagnostics.iter().any(|diagnostic| diagnostic.message.contains("parse error")));
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("parse error"))
+        );
     }
 
     #[test]

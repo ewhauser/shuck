@@ -26,9 +26,9 @@ pub(crate) fn code_actions(
             };
 
             if should_offer_fix(&snapshot, &data) {
-                actions.push(types::CodeActionOrCommand::CodeAction(diagnostic_fix_action(
-                    &snapshot, &diagnostic, &data,
-                )));
+                actions.push(types::CodeActionOrCommand::CodeAction(
+                    diagnostic_fix_action(&snapshot, &diagnostic, &data),
+                ));
             }
 
             if let Some(edit) = data.directive_edit.clone() {
@@ -231,12 +231,14 @@ fn fix_all_action(
         .resolved_client_capabilities()
         .code_action_deferred_edit_resolution
     {
-        action.data = Some(serde_json::to_value(ResolveCodeActionData {
-            kind: ResolveCodeActionKind::FixAll,
-            uri: snapshot.query().file_url().clone(),
-            include_unsafe: snapshot.client_settings().unsafe_fixes(),
-        })
-        .map_err(anyhow::Error::new)?);
+        action.data = Some(
+            serde_json::to_value(ResolveCodeActionData {
+                kind: ResolveCodeActionKind::FixAll,
+                uri: snapshot.query().file_url().clone(),
+                include_unsafe: snapshot.client_settings().unsafe_fixes(),
+            })
+            .map_err(anyhow::Error::new)?,
+        );
     } else {
         action.edit = Some(workspace_edit_for_document(snapshot, edits));
     }
@@ -299,7 +301,9 @@ fn apply_workspace_edit(
             if !response.applied {
                 tracing::warn!(
                     "Client rejected workspace edit: {}",
-                    response.failure_reason.unwrap_or_else(|| "unknown reason".to_owned())
+                    response
+                        .failure_reason
+                        .unwrap_or_else(|| "unknown reason".to_owned())
                 );
             }
         },
@@ -396,16 +400,14 @@ mod tests {
     use crossbeam::channel;
     use lsp_server::Message;
     use lsp_types::{
-        CodeActionContext, CodeActionParams, ClientCapabilities, PartialResultParams, Position,
-        Range, TextDocumentContentChangeEvent, TextDocumentIdentifier, Url,
-        WorkDoneProgressParams,
+        ClientCapabilities, CodeActionContext, CodeActionParams, PartialResultParams, Position,
+        Range, TextDocumentContentChangeEvent, TextDocumentIdentifier, Url, WorkDoneProgressParams,
     };
 
     use super::*;
     use crate::{
         ClientOptions, GlobalOptions, PositionEncoding, Session, TextDocument, Workspace,
-        Workspaces,
-        lint::generate_diagnostics,
+        Workspaces, lint::generate_diagnostics,
     };
 
     fn make_session(
@@ -413,12 +415,7 @@ mod tests {
         source: &str,
         language_id: &str,
         file_name: &str,
-    ) -> (
-        Session,
-        Client,
-        channel::Receiver<Message>,
-        lsp_types::Url,
-    ) {
+    ) -> (Session, Client, channel::Receiver<Message>, lsp_types::Url) {
         let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
         let (client_sender, client_receiver) = channel::unbounded();
         let client = Client::new(main_loop_sender, client_sender);
@@ -450,9 +447,7 @@ mod tests {
         (session, client, client_receiver, uri)
     }
 
-    fn extract_actions(
-        response: types::CodeActionResponse,
-    ) -> Vec<types::CodeAction> {
+    fn extract_actions(response: types::CodeActionResponse) -> Vec<types::CodeAction> {
         response
             .into_iter()
             .map(|entry| match entry {
@@ -534,8 +529,16 @@ mod tests {
 
         let actions = extract_actions(response);
 
-        assert!(actions.iter().any(|action| action.title.contains("rename the unused assignment target")));
-        assert!(actions.iter().any(|action| action.title.contains("Disable for this line")));
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.title.contains("rename the unused assignment target"))
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.title.contains("Disable for this line"))
+        );
         let fix_all = actions
             .iter()
             .find(|action| action.kind == Some(crate::SOURCE_FIX_ALL_SHUCK))
@@ -599,7 +602,11 @@ mod tests {
         )
         .expect("fix-all action request should succeed")
         .expect("fix-all action should be present");
-        let action = match response.into_iter().next().expect("fix-all action expected") {
+        let action = match response
+            .into_iter()
+            .next()
+            .expect("fix-all action expected")
+        {
             types::CodeActionOrCommand::CodeAction(action) => action,
             types::CodeActionOrCommand::Command(_) => panic!("expected a code action"),
         };
@@ -611,9 +618,11 @@ mod tests {
             fix_all_document_edits(&expected_snapshot, shuck_linter::Applicability::Unsafe),
         );
 
-        let resolved = resolve_code_action(&session, &client, action)
-            .expect("resolve request should succeed");
-        let edit = resolved.edit.expect("resolved action should include an edit");
+        let resolved =
+            resolve_code_action(&session, &client, action).expect("resolve request should succeed");
+        let edit = resolved
+            .edit
+            .expect("resolved action should include an edit");
         assert_eq!(edit, expected_edit);
     }
 
@@ -705,15 +714,21 @@ mod tests {
 
         let actions = extract_actions(response);
 
-        assert!(actions
-            .iter()
-            .any(|action| action.title.contains("Disable for this line")));
-        assert!(!actions
-            .iter()
-            .any(|action| action.title.contains("rename the unused assignment target")));
-        assert!(!actions
-            .iter()
-            .any(|action| action.kind == Some(crate::SOURCE_FIX_ALL_SHUCK)));
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.title.contains("Disable for this line"))
+        );
+        assert!(
+            !actions
+                .iter()
+                .any(|action| action.title.contains("rename the unused assignment target"))
+        );
+        assert!(
+            !actions
+                .iter()
+                .any(|action| action.kind == Some(crate::SOURCE_FIX_ALL_SHUCK))
+        );
     }
 
     #[test]
@@ -816,9 +831,11 @@ mod tests {
             .expect("fix-all action should be returned for parent kind filters");
 
             let actions = extract_actions(response);
-            assert!(actions
-                .iter()
-                .any(|action| action.kind == Some(crate::SOURCE_FIX_ALL_SHUCK)));
+            assert!(
+                actions
+                    .iter()
+                    .any(|action| action.kind == Some(crate::SOURCE_FIX_ALL_SHUCK))
+            );
         }
     }
 }

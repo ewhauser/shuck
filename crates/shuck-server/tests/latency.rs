@@ -27,14 +27,21 @@ fn recv_response(connection: &Connection, id: i32) -> serde_json::Value {
             .expect("server should respond");
         match message {
             Message::Response(response) if response.id == RequestId::from(id) => {
-                assert!(response.error.is_none(), "unexpected LSP error: {:?}", response.error);
+                assert!(
+                    response.error.is_none(),
+                    "unexpected LSP error: {:?}",
+                    response.error
+                );
                 return response
                     .result
                     .expect("successful response should carry a result");
             }
             Message::Notification(_) => continue,
             Message::Request(request) => {
-                panic!("unexpected server request during latency test: {}", request.method)
+                panic!(
+                    "unexpected server request during latency test: {}",
+                    request.method
+                )
             }
             Message::Response(_) => continue,
         }
@@ -75,7 +82,8 @@ fn measure_pull_diagnostics_round_trip() {
 
     let workspace_root = tempfile::tempdir().expect("tempdir should be created");
     let script_path = workspace_root.path().join("latency.sh");
-    let script_uri = Url::from_file_path(&script_path).expect("script path should convert to a URL");
+    let script_uri =
+        Url::from_file_path(&script_path).expect("script path should convert to a URL");
     let source = shell_source_of_size(5 * 1024);
 
     send_request(

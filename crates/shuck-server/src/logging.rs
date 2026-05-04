@@ -17,7 +17,10 @@ pub(crate) fn init_logging(log_level: LogLevel, log_file: Option<&Path>) {
                 );
             }
             Err(error) => {
-                eprintln!("failed to open shuck LSP log file {}: {error}", log_file.display());
+                eprintln!(
+                    "failed to open shuck LSP log file {}: {error}",
+                    log_file.display()
+                );
                 let _ = tracing::subscriber::set_global_default(builder.finish());
             }
         }

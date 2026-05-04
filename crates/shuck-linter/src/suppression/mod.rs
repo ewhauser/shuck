@@ -3,10 +3,10 @@ mod index;
 mod rewrite;
 mod shellcheck_map;
 
+pub use directive::parse_directives;
 pub(crate) use directive::{
     DirectiveAttachmentFacts, DirectiveCommandVisit, filter_attached_directives,
 };
-pub use directive::parse_directives;
 pub use directive::{SuppressionAction, SuppressionDirective, SuppressionSource};
 pub use index::SuppressionIndex;
 pub(crate) use index::{

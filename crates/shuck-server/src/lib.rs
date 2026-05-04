@@ -59,7 +59,10 @@ pub fn run_connection(connection: lsp_server::Connection) -> Result<()> {
     let worker_threads = std::thread::available_parallelism()
         .unwrap_or(four)
         .min(four);
-    Server::new(worker_threads, server::ConnectionInitializer::from_connection(connection))
-        .map_err(|err| err.context("Failed to start server"))?
-        .run()
+    Server::new(
+        worker_threads,
+        server::ConnectionInitializer::from_connection(connection),
+    )
+    .map_err(|err| err.context("Failed to start server"))?
+    .run()
 }

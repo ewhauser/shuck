@@ -1,5 +1,7 @@
 use lsp_types as types;
-use shuck_linter::{ShellCheckCodeMap, SuppressionAction, SuppressionSource, rule_metadata_by_code};
+use shuck_linter::{
+    ShellCheckCodeMap, SuppressionAction, SuppressionSource, rule_metadata_by_code,
+};
 use shuck_parser::parser::Parser;
 
 use crate::edit::RangeExt;
@@ -30,25 +32,30 @@ pub(crate) fn hover(
         .to_text_range(source, query.document().index(), snapshot.encoding())
         .start(),
     );
-    let line = usize::try_from(params.text_document_position_params.position.line)
-        .unwrap_or_default()
-        + 1;
+    let line =
+        usize::try_from(params.text_document_position_params.position.line).unwrap_or_default() + 1;
     let Some(directive) = directives.iter().find(|directive| {
         usize::try_from(directive.line).ok() == Some(line)
             && offset >= usize::from(directive.range.start())
             && offset <= usize::from(directive.range.end())
             && matches!(
                 (directive.source, directive.action),
-                (SuppressionSource::Shuck, SuppressionAction::Ignore | SuppressionAction::Disable | SuppressionAction::DisableFile)
-                    | (SuppressionSource::ShellCheck, SuppressionAction::Disable)
+                (
+                    SuppressionSource::Shuck,
+                    SuppressionAction::Ignore
+                        | SuppressionAction::Disable
+                        | SuppressionAction::DisableFile
+                ) | (SuppressionSource::ShellCheck, SuppressionAction::Disable)
             )
     }) else {
         return Ok(None);
     };
 
-    let Some((display_code, canonical_code, start_offset, end_offset)) =
-        code_at_offset(directive.range.slice(source), usize::from(directive.range.start()), offset)
-    else {
+    let Some((display_code, canonical_code, start_offset, end_offset)) = code_at_offset(
+        directive.range.slice(source),
+        usize::from(directive.range.start()),
+        offset,
+    ) else {
         return Ok(None);
     };
     let Some(metadata) = rule_metadata_by_code(&canonical_code) else {
@@ -109,10 +116,20 @@ fn code_at_offset(
         }
 
         if let Some(rule) = shuck_linter::code_to_rule(token) {
-            return Some((token.to_owned(), rule.code().to_owned(), start_offset, end_offset));
+            return Some((
+                token.to_owned(),
+                rule.code().to_owned(),
+                start_offset,
+                end_offset,
+            ));
         }
         if let Some(rule) = ShellCheckCodeMap::default().resolve(token) {
-            return Some((token.to_owned(), rule.code().to_owned(), start_offset, end_offset));
+            return Some((
+                token.to_owned(),
+                rule.code().to_owned(),
+                start_offset,
+                end_offset,
+            ));
         }
     }
 
@@ -143,7 +160,9 @@ mod tests {
     };
 
     use super::*;
-    use crate::{Client, GlobalOptions, PositionEncoding, Session, TextDocument, Workspace, Workspaces};
+    use crate::{
+        Client, GlobalOptions, PositionEncoding, Session, TextDocument, Workspace, Workspaces,
+    };
 
     fn make_snapshot(source: &str) -> (DocumentSnapshot, Client) {
         let (main_loop_sender, _main_loop_receiver) = channel::unbounded();

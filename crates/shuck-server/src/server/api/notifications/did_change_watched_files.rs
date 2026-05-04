@@ -28,7 +28,9 @@ mod tests {
 
     use super::*;
     use crate::server::api::traits::SyncNotificationHandler;
-    use crate::{Client, GlobalOptions, PositionEncoding, Session, TextDocument, Workspace, Workspaces};
+    use crate::{
+        Client, GlobalOptions, PositionEncoding, Session, TextDocument, Workspace, Workspaces,
+    };
 
     #[test]
     fn config_changes_are_reflected_on_the_next_snapshot() {
@@ -63,11 +65,13 @@ mod tests {
         let before = session
             .take_snapshot(uri.clone())
             .expect("test document should produce a snapshot");
-        assert!(before
-            .shuck_settings()
-            .linter()
-            .rules
-            .contains(shuck_linter::Rule::UnusedAssignment));
+        assert!(
+            before
+                .shuck_settings()
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UnusedAssignment)
+        );
         assert_eq!(before.shuck_settings().linter().rules.len(), 1);
 
         std::fs::write(&config_path, "[lint]\nselect = ['C006']\n")
@@ -88,11 +92,13 @@ mod tests {
         let after = session
             .take_snapshot(uri)
             .expect("test document should produce a snapshot");
-        assert!(after
-            .shuck_settings()
-            .linter()
-            .rules
-            .contains(shuck_linter::Rule::UndefinedVariable));
+        assert!(
+            after
+                .shuck_settings()
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UndefinedVariable)
+        );
         assert_eq!(after.shuck_settings().linter().rules.len(), 1);
     }
 }

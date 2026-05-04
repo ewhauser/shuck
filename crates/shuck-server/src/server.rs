@@ -97,8 +97,10 @@ impl Server {
     }
 
     pub fn run(mut self) -> crate::Result<()> {
-        let panic_client =
-            Client::new(self.main_loop_sender.clone(), self.connection.sender.clone());
+        let panic_client = Client::new(
+            self.main_loop_sender.clone(),
+            self.connection.sender.clone(),
+        );
         let _panic_hook = install_panic_hook(panic_client);
         spawn_main_loop(move || self.main_loop())?
             .join()
@@ -258,19 +260,19 @@ fn report_panic(client: &Client, panic_info: &std::panic::PanicHookInfo<'_>) {
                 .map(|message| (*message).to_owned())
         })
         .unwrap_or_else(|| "unknown panic".to_owned());
-    let location = panic_info
-        .location()
-        .map(|location| format!("{}:{}:{}", location.file(), location.line(), location.column()));
+    let location = panic_info.location().map(|location| {
+        format!(
+            "{}:{}:{}",
+            location.file(),
+            location.line(),
+            location.column()
+        )
+    });
     let backtrace = std::backtrace::Backtrace::force_capture().to_string();
     emit_panic_report(client, &summary, location.as_deref(), &backtrace);
 }
 
-fn emit_panic_report(
-    client: &Client,
-    summary: &str,
-    location: Option<&str>,
-    backtrace: &str,
-) {
+fn emit_panic_report(client: &Client, summary: &str, location: Option<&str>, backtrace: &str) {
     let location = location.unwrap_or("unknown location");
     let details = format!("Shuck server panicked at {location}: {summary}\n{backtrace}");
     tracing::error!("{details}");

@@ -104,9 +104,12 @@ impl ShuckSettings {
                 });
             project_root
         });
-        let config_root = project_root
-            .clone()
-            .unwrap_or_else(|| workspace_roots.first().cloned().unwrap_or_else(|| PathBuf::from(".")));
+        let config_root = project_root.clone().unwrap_or_else(|| {
+            workspace_roots
+                .first()
+                .cloned()
+                .unwrap_or_else(|| PathBuf::from("."))
+        });
 
         Self {
             linter: linter_settings_for_layers(
@@ -208,14 +211,15 @@ fn lint_layers<'a>(
     project_config: &'a ShuckConfig,
     option_layers: &'a [&'a ClientOptions],
 ) -> impl Iterator<Item = RuleSelectionLayer> + 'a {
-    std::iter::once(parse_lint_config_layer(&project_config.lint))
-        .chain(option_layers.iter().map(|options| {
+    std::iter::once(parse_lint_config_layer(&project_config.lint)).chain(option_layers.iter().map(
+        |options| {
             options
                 .lint
                 .as_ref()
                 .map(parse_lint_config_layer)
                 .unwrap_or_default()
-        }))
+        },
+    ))
 }
 
 fn linter_settings_for_layers(
@@ -340,7 +344,10 @@ fn formatter_settings_for_config(config: &ShuckConfig) -> ShellFormatOptions {
     options
 }
 
-fn fixable_rules_for_layers(project_config: &ShuckConfig, option_layers: &[&ClientOptions]) -> RuleSet {
+fn fixable_rules_for_layers(
+    project_config: &ShuckConfig,
+    option_layers: &[&ClientOptions],
+) -> RuleSet {
     let mut fixable_rules = RuleSet::all();
 
     for layer in lint_layers(project_config, option_layers) {
@@ -356,20 +363,17 @@ fn fixable_rules_for_layers(project_config: &ShuckConfig, option_layers: &[&Clie
 }
 
 fn selectors_to_rule_set_from_parsed(selectors: &[RuleSelector]) -> RuleSet {
-    selectors
-        .iter()
-        .fold(RuleSet::EMPTY, |rules, selector| rules.union(&selector.into_rule_set()))
+    selectors.iter().fold(RuleSet::EMPTY, |rules, selector| {
+        rules.union(&selector.into_rule_set())
+    })
 }
 
 fn parse_lint_config_layer(lint: &LintConfig) -> RuleSelectionLayer {
     RuleSelectionLayer {
         select: parse_selector_list(lint.select.as_deref(), "lint.select"),
         ignore: parse_selector_list(lint.ignore.as_deref(), "lint.ignore").unwrap_or_default(),
-        extend_select: parse_selector_list(
-            lint.extend_select.as_deref(),
-            "lint.extend-select",
-        )
-        .unwrap_or_default(),
+        extend_select: parse_selector_list(lint.extend_select.as_deref(), "lint.extend-select")
+            .unwrap_or_default(),
         per_file_ignores: lint
             .per_file_ignores
             .as_ref()
@@ -391,11 +395,8 @@ fn parse_lint_config_layer(lint: &LintConfig) -> RuleSelectionLayer {
         fixable: parse_selector_list(lint.fixable.as_deref(), "lint.fixable"),
         unfixable: parse_selector_list(lint.unfixable.as_deref(), "lint.unfixable")
             .unwrap_or_default(),
-        extend_fixable: parse_selector_list(
-            lint.extend_fixable.as_deref(),
-            "lint.extend-fixable",
-        )
-        .unwrap_or_default(),
+        extend_fixable: parse_selector_list(lint.extend_fixable.as_deref(), "lint.extend-fixable")
+            .unwrap_or_default(),
     }
 }
 
@@ -403,8 +404,9 @@ fn parse_per_file_ignore_specs(
     entries: &BTreeMap<String, Vec<String>>,
     scope: &str,
 ) -> Vec<PerFileIgnoreSpec> {
-    entries.iter().filter_map(|(pattern, selectors)| {
-        match parse_selectors(selectors) {
+    entries
+        .iter()
+        .filter_map(|(pattern, selectors)| match parse_selectors(selectors) {
             Ok(parsed) => Some(PerFileIgnoreSpec {
                 pattern: pattern.clone(),
                 selectors: parsed,
@@ -413,8 +415,8 @@ fn parse_per_file_ignore_specs(
                 tracing::warn!("Ignoring invalid {scope} entry for {pattern:?}: {error}");
                 None
             }
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 fn parse_selectors(selectors: &[String]) -> anyhow::Result<Vec<RuleSelector>> {
@@ -568,10 +570,7 @@ struct CompiledPerFileShell {
 }
 
 impl CompiledPerFileShellList {
-    fn resolve(
-        project_root: PathBuf,
-        per_file_shell: Vec<PerFileShell>,
-    ) -> anyhow::Result<Self> {
+    fn resolve(project_root: PathBuf, per_file_shell: Vec<PerFileShell>) -> anyhow::Result<Self> {
         let entries = per_file_shell
             .into_iter()
             .map(|per_file_shell| {
@@ -622,10 +621,7 @@ impl CompiledPerFileShellList {
     }
 }
 
-fn parse_per_file_shell_map(
-    entries: &BTreeMap<String, String>,
-    scope: &str,
-) -> Vec<PerFileShell> {
+fn parse_per_file_shell_map(entries: &BTreeMap<String, String>, scope: &str) -> Vec<PerFileShell> {
     entries
         .iter()
         .filter_map(|(pattern, shell_name)| {
@@ -723,7 +719,12 @@ mod tests {
         );
 
         assert_eq!(settings.project_root(), Some(tempdir.path()));
-        assert!(settings.linter().rules.contains(shuck_linter::Rule::UnusedAssignment));
+        assert!(
+            settings
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UnusedAssignment)
+        );
         assert_eq!(settings.linter().rules.len(), 1);
     }
 
@@ -792,7 +793,11 @@ mod tests {
             &[&options],
         );
 
-        assert!(!settings.fixable_rules().contains(shuck_linter::Rule::UnusedAssignment));
+        assert!(
+            !settings
+                .fixable_rules()
+                .contains(shuck_linter::Rule::UnusedAssignment)
+        );
     }
 
     #[test]
@@ -809,13 +814,14 @@ mod tests {
             }),
             ..ClientOptions::default()
         };
-        let settings = ShuckSettings::resolve(
-            None,
-            &[],
-            &[&options],
-        );
+        let settings = ShuckSettings::resolve(None, &[], &[&options]);
 
-        assert!(settings.linter().rules.contains(shuck_linter::Rule::UnusedAssignment));
+        assert!(
+            settings
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UnusedAssignment)
+        );
         assert_eq!(settings.linter().rules.len(), 1);
         assert_eq!(
             settings.formatter().indent_style(),
@@ -865,7 +871,12 @@ mod tests {
             &[&options],
         );
 
-        assert!(settings.linter().rules.contains(shuck_linter::Rule::UnusedAssignment));
+        assert!(
+            settings
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UnusedAssignment)
+        );
         assert_eq!(settings.linter().rules.len(), 1);
     }
 
@@ -916,8 +927,18 @@ mod tests {
             &[&client_options],
         );
 
-        assert!(settings.linter().rules.contains(shuck_linter::Rule::UnusedAssignment));
-        assert!(!settings.linter().rules.contains(shuck_linter::Rule::UndefinedVariable));
+        assert!(
+            settings
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UnusedAssignment)
+        );
+        assert!(
+            !settings
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UndefinedVariable)
+        );
         assert_eq!(settings.linter().rules.len(), 1);
     }
 
@@ -946,8 +967,16 @@ mod tests {
             &[&client_options],
         );
 
-        assert!(settings.fixable_rules().contains(shuck_linter::Rule::UnusedAssignment));
-        assert!(!settings.fixable_rules().contains(shuck_linter::Rule::UndefinedVariable));
+        assert!(
+            settings
+                .fixable_rules()
+                .contains(shuck_linter::Rule::UnusedAssignment)
+        );
+        assert!(
+            !settings
+                .fixable_rules()
+                .contains(shuck_linter::Rule::UndefinedVariable)
+        );
     }
 
     #[test]

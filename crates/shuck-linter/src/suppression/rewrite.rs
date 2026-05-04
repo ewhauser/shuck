@@ -299,7 +299,9 @@ fn existing_ignore_reason<'a>(
     comment_text: &'a str,
     shellcheck_map: &ShellCheckCodeMap,
 ) -> Option<&'a str> {
-    if let Some(remainder) = strip_prefix_ignore_ascii_case(strip_comment_prefix(comment_text), "shuck:") {
+    if let Some(remainder) =
+        strip_prefix_ignore_ascii_case(strip_comment_prefix(comment_text), "shuck:")
+    {
         let (without_reason, reason) = remainder
             .split_once('#')
             .map_or((remainder, None), |(before, after)| {
@@ -635,14 +637,9 @@ mod tests {
         let settings =
             LinterSettings::for_rules([Rule::UndefinedVariable, Rule::UnquotedExpansion]);
         let source = "#!/bin/bash\necho $foo  # shuck: ignore=S001 # reason\n";
-        let edit = build_ignore_edit_for_line(
-            source,
-            &settings,
-            2,
-            None,
-            Some(Path::new("script.sh")),
-        )
-        .expect("line should produce an ignore edit");
+        let edit =
+            build_ignore_edit_for_line(source, &settings, 2, None, Some(Path::new("script.sh")))
+                .expect("line should produce an ignore edit");
         let updated = crate::Edit::replacement_at(
             usize::from(edit.range().start()),
             usize::from(edit.range().end()),
@@ -769,8 +766,7 @@ mod tests {
             "#!/bin/bash\necho $foo  # shuck: ignore=C006\necho $bar\necho \"unterminated\n";
 
         let current = analyze_source(current_source, &settings, &shellcheck_map, Some(path));
-        let candidate =
-            analyze_source(candidate_source, &settings, &shellcheck_map, Some(path));
+        let candidate = analyze_source(candidate_source, &settings, &shellcheck_map, Some(path));
         let line_diagnostics = current
             .diagnostics
             .iter()
@@ -793,8 +789,7 @@ mod tests {
         let candidate_source = "#!/bin/bash\necho $foo  # shuck: ignore=C006\necho ok\n";
 
         let current = analyze_source(current_source, &settings, &shellcheck_map, Some(path));
-        let candidate =
-            analyze_source(candidate_source, &settings, &shellcheck_map, Some(path));
+        let candidate = analyze_source(candidate_source, &settings, &shellcheck_map, Some(path));
         let line_diagnostics = current
             .diagnostics
             .iter()

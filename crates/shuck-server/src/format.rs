@@ -61,7 +61,9 @@ mod tests {
     use lsp_types::{ClientCapabilities, PositionEncodingKind, Url};
 
     use super::*;
-    use crate::{Client, GlobalOptions, PositionEncoding, Session, TextDocument, Workspace, Workspaces};
+    use crate::{
+        Client, GlobalOptions, PositionEncoding, Session, TextDocument, Workspace, Workspaces,
+    };
 
     #[test]
     fn range_formatting_returns_empty_edits_for_already_formatted_buffer() {
@@ -103,10 +105,7 @@ mod tests {
             &client,
             types::DocumentRangeFormattingParams {
                 text_document: types::TextDocumentIdentifier { uri },
-                range: types::Range::new(
-                    types::Position::new(0, 0),
-                    types::Position::new(0, 7),
-                ),
+                range: types::Range::new(types::Position::new(0, 0), types::Position::new(0, 7)),
                 options: types::FormattingOptions::default(),
                 work_done_progress_params: types::WorkDoneProgressParams::default(),
             },

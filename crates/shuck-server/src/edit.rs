@@ -254,8 +254,6 @@ mod tests {
         let source = "echo hi\n";
         let index = shuck_indexer::LineIndex::new(source);
 
-        assert!(
-            single_replacement_edit(source, source, &index, PositionEncoding::UTF16).is_none()
-        );
+        assert!(single_replacement_edit(source, source, &index, PositionEncoding::UTF16).is_none());
     }
 }

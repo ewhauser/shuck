@@ -147,12 +147,10 @@ impl Client {
         message: impl Display,
         message_type: lsp_types::MessageType,
     ) -> crate::Result<()> {
-        self.send_notification::<lsp_types::notification::LogMessage>(
-            lsp_types::LogMessageParams {
-                typ: message_type,
-                message: message.to_string(),
-            },
-        )
+        self.send_notification::<lsp_types::notification::LogMessage>(lsp_types::LogMessageParams {
+            typ: message_type,
+            message: message.to_string(),
+        })
     }
 
     pub(crate) fn show_error_message(&self, message: impl Display) {

@@ -330,7 +330,11 @@ mod tests {
     fn test_client() -> (Client, channel::Receiver<Event>, channel::Receiver<Message>) {
         let (event_tx, event_rx) = channel::unbounded();
         let (connection_tx, connection_rx) = channel::unbounded::<Message>();
-        (Client::new(event_tx, connection_tx), event_rx, connection_rx)
+        (
+            Client::new(event_tx, connection_tx),
+            event_rx,
+            connection_rx,
+        )
     }
 
     fn test_session(client: &Client) -> Session {
@@ -476,7 +480,10 @@ mod tests {
                 Message::Response(response) => break response,
                 Message::Notification(_) => continue,
                 Message::Request(request) => {
-                    panic!("unexpected client request during cancellation test: {}", request.method)
+                    panic!(
+                        "unexpected client request during cancellation test: {}",
+                        request.method
+                    )
                 }
             }
         };
@@ -527,8 +534,8 @@ mod tests {
             crate::TextDocument::new("foo=1\n".to_owned(), 1).with_language_id("shellscript"),
         );
 
-        let change_notification = sync_notification_task::<notification::DidChange>(
-            lsp_server::Notification::new(
+        let change_notification =
+            sync_notification_task::<notification::DidChange>(lsp_server::Notification::new(
                 notification::DidChange::METHOD.to_owned(),
                 serde_json::to_value(DidChangeTextDocumentParams {
                     text_document: VersionedTextDocumentIdentifier {
@@ -542,9 +549,8 @@ mod tests {
                     }],
                 })
                 .expect("didChange params should serialize"),
-            ),
-        )
-        .expect("didChange notification should schedule");
+            ))
+            .expect("didChange notification should schedule");
         change_notification.run_for_test(&mut session, &client);
 
         let request_id: RequestId = 3.into();

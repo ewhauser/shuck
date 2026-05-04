@@ -260,11 +260,13 @@ mod tests {
             .take_snapshot(uri)
             .expect("test document should produce a snapshot");
 
-        assert!(snapshot
-            .shuck_settings()
-            .linter()
-            .rules
-            .contains(shuck_linter::Rule::UndefinedVariable));
+        assert!(
+            snapshot
+                .shuck_settings()
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UndefinedVariable)
+        );
         assert_eq!(snapshot.shuck_settings().linter().rules.len(), 1);
         assert_eq!(
             snapshot.shuck_settings().formatter().indent_style(),
