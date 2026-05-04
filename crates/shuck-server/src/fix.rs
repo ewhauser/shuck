@@ -297,7 +297,7 @@ fn apply_workspace_edit(
             label: Some(label.to_owned()),
             edit: workspace_edit_for_document(snapshot, edits),
         },
-        |_, response| {
+        |_, _, response| {
             if !response.applied {
                 tracing::warn!(
                     "Client rejected workspace edit: {}",

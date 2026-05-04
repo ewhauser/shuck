@@ -8,7 +8,8 @@ use serde_json::Value;
 use crate::Session;
 use crate::server::{ConnectionSender, Event, MainLoopSender};
 
-pub(crate) type ClientResponseHandler = Box<dyn FnOnce(&Client, lsp_server::Response) + Send>;
+pub(crate) type ClientResponseHandler =
+    Box<dyn FnOnce(&Client, &mut Session, lsp_server::Response) + Send>;
 
 #[derive(Clone, Debug)]
 pub struct Client {
@@ -28,13 +29,16 @@ impl Client {
         &self,
         session: &Session,
         params: R::Params,
-        response_handler: impl FnOnce(&Client, R::Result) + Send + 'static,
+        response_handler: impl FnOnce(&Client, &mut Session, R::Result) + Send + 'static,
     ) -> crate::Result<()>
     where
         R: lsp_types::request::Request,
     {
-        let response_handler = Box::new(move |client: &Client, response: lsp_server::Response| {
-            match (response.error, response.result) {
+        let response_handler = Box::new(
+            move |client: &Client, session: &mut Session, response: lsp_server::Response| match (
+                response.error,
+                response.result,
+            ) {
                 (Some(err), _) => {
                     tracing::error!(
                         "Client request failed (method={} code={}): {}",
@@ -44,7 +48,7 @@ impl Client {
                     );
                 }
                 (None, Some(response)) => match serde_json::from_value(response) {
-                    Ok(response) => response_handler(client, response),
+                    Ok(response) => response_handler(client, session, response),
                     Err(error) => {
                         tracing::error!(
                             "Failed to deserialize client response for {}: {error}",
@@ -55,7 +59,7 @@ impl Client {
                 (None, None) => {
                     if TypeId::of::<R::Result>() == TypeId::of::<()>() {
                         match serde_json::from_value(Value::Null) {
-                            Ok(response) => response_handler(client, response),
+                            Ok(response) => response_handler(client, session, response),
                             Err(error) => {
                                 tracing::error!(
                                     "Failed to deserialize unit client response for {}: {error}",
@@ -70,8 +74,8 @@ impl Client {
                         );
                     }
                 }
-            }
-        });
+            },
+        );
 
         let id = session
             .request_queue()

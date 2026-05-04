@@ -31,6 +31,26 @@ pub struct ShuckSettings {
     project_root: Option<PathBuf>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SettingsResolveContext {
+    config_root: PathBuf,
+    project_root: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ResolvedProjectSettings {
+    linter: ResolvedLinterSettings,
+    formatter: ShellFormatOptions,
+    fixable_rules: RuleSet,
+    project_root: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+struct ResolvedLinterSettings {
+    base: LinterSettings,
+    per_file_shell: CompiledPerFileShellList,
+}
+
 pub struct GlobalClientSettings {
     options: ClientOptions,
     #[allow(dead_code)]
@@ -85,43 +105,10 @@ impl ShuckSettings {
         workspace_roots: &[PathBuf],
         option_layers: &[&ClientOptions],
     ) -> Self {
-        let mut project_config = ShuckConfig::default();
-
-        let project_root = file_path.map(|file_path| {
-            let fallback_root = containing_workspace_root(file_path, workspace_roots)
-                .or_else(|| file_path.parent().map(Path::to_path_buf))
-                .unwrap_or_else(|| PathBuf::from("."));
-            let project_root = resolve_project_root_for_file(file_path, &fallback_root, true)
-                .unwrap_or(fallback_root.clone());
-
-            project_config = load_project_config(&project_root, &ConfigArguments::default())
-                .unwrap_or_else(|error| {
-                    tracing::warn!(
-                        "Failed to load shuck config for {}: {error}",
-                        project_root.display()
-                    );
-                    ShuckConfig::default()
-                });
-            project_root
-        });
-        let config_root = project_root.clone().unwrap_or_else(|| {
-            workspace_roots
-                .first()
-                .cloned()
-                .unwrap_or_else(|| PathBuf::from("."))
-        });
-
-        Self {
-            linter: linter_settings_for_layers(
-                &config_root,
-                file_path,
-                &project_config,
-                option_layers,
-            ),
-            formatter: formatter_settings_for_layers(&project_config, option_layers),
-            fixable_rules: fixable_rules_for_layers(&project_config, option_layers),
-            project_root,
-        }
+        let context = file_path
+            .map(|file_path| SettingsResolveContext::for_file(file_path, workspace_roots))
+            .unwrap_or_else(|| SettingsResolveContext::without_file(workspace_roots));
+        ResolvedProjectSettings::resolve(&context, option_layers).for_file(file_path)
     }
 
     pub(crate) fn linter(&self) -> &LinterSettings {
@@ -149,6 +136,88 @@ impl Default for ShuckSettings {
             fixable_rules: RuleSet::all(),
             project_root: None,
         }
+    }
+}
+
+impl SettingsResolveContext {
+    pub(crate) fn for_file(file_path: &Path, workspace_roots: &[PathBuf]) -> Self {
+        let fallback_root = containing_workspace_root(file_path, workspace_roots)
+            .or_else(|| file_path.parent().map(Path::to_path_buf))
+            .unwrap_or_else(|| PathBuf::from("."));
+        let project_root = resolve_project_root_for_file(file_path, &fallback_root, true)
+            .unwrap_or(fallback_root.clone());
+
+        Self {
+            config_root: project_root.clone(),
+            project_root: Some(project_root),
+        }
+    }
+
+    pub(crate) fn without_file(workspace_roots: &[PathBuf]) -> Self {
+        Self {
+            config_root: workspace_roots
+                .first()
+                .cloned()
+                .unwrap_or_else(|| PathBuf::from(".")),
+            project_root: None,
+        }
+    }
+
+    pub(crate) fn config_root(&self) -> &Path {
+        &self.config_root
+    }
+}
+
+impl ResolvedProjectSettings {
+    pub(crate) fn resolve(
+        context: &SettingsResolveContext,
+        option_layers: &[&ClientOptions],
+    ) -> Self {
+        let project_config = context
+            .project_root
+            .as_ref()
+            .map(|project_root| {
+                load_project_config(project_root, &ConfigArguments::default()).unwrap_or_else(
+                    |error| {
+                        tracing::warn!(
+                            "Failed to load shuck config for {}: {error}",
+                            project_root.display()
+                        );
+                        ShuckConfig::default()
+                    },
+                )
+            })
+            .unwrap_or_default();
+
+        Self {
+            linter: resolved_linter_settings_for_layers(
+                context.config_root(),
+                &project_config,
+                option_layers,
+            ),
+            formatter: formatter_settings_for_layers(&project_config, option_layers),
+            fixable_rules: fixable_rules_for_layers(&project_config, option_layers),
+            project_root: context.project_root.clone(),
+        }
+    }
+
+    pub(crate) fn for_file(&self, file_path: Option<&Path>) -> ShuckSettings {
+        ShuckSettings {
+            linter: self.linter.for_file(file_path),
+            formatter: self.formatter.clone(),
+            fixable_rules: self.fixable_rules,
+            project_root: self.project_root.clone(),
+        }
+    }
+}
+
+impl ResolvedLinterSettings {
+    fn for_file(&self, file_path: Option<&Path>) -> LinterSettings {
+        let mut linter = self.base.clone();
+        linter.shell = file_path
+            .and_then(|file_path| self.per_file_shell.shell_for_path(file_path))
+            .unwrap_or(LinterShellDialect::Unknown);
+        linter
     }
 }
 
@@ -222,12 +291,11 @@ fn lint_layers<'a>(
     ))
 }
 
-fn linter_settings_for_layers(
+fn resolved_linter_settings_for_layers(
     project_root: &Path,
-    file_path: Option<&Path>,
     project_config: &ShuckConfig,
     option_layers: &[&ClientOptions],
-) -> LinterSettings {
+) -> ResolvedLinterSettings {
     let mut rules = LinterSettings::default_rules();
     let mut per_file_ignores = Vec::new();
     let mut per_file_shell = Vec::new();
@@ -262,23 +330,22 @@ fn linter_settings_for_layers(
     let compiled_per_file_ignores =
         CompiledPerFileIgnoreList::resolve(project_root.to_path_buf(), per_file_ignores)
             .unwrap_or_default();
-    let shell = file_path
-        .and_then(|file_path| {
-            CompiledPerFileShellList::resolve(project_root.to_path_buf(), per_file_shell)
-                .unwrap_or_else(|error| {
-                    tracing::warn!("Failed to compile per-file shell settings: {error}");
-                    CompiledPerFileShellList::default()
-                })
-                .shell_for_path(file_path)
-        })
-        .unwrap_or(LinterShellDialect::Unknown);
+    let compiled_per_file_shell =
+        CompiledPerFileShellList::resolve(project_root.to_path_buf(), per_file_shell)
+            .unwrap_or_else(|error| {
+                tracing::warn!("Failed to compile per-file shell settings: {error}");
+                CompiledPerFileShellList::default()
+            });
 
-    LinterSettings {
-        rules,
-        shell,
-        per_file_ignores: Arc::new(compiled_per_file_ignores),
-        rule_options,
-        ..LinterSettings::default()
+    ResolvedLinterSettings {
+        base: LinterSettings {
+            rules,
+            shell: LinterShellDialect::Unknown,
+            per_file_ignores: Arc::new(compiled_per_file_ignores),
+            rule_options,
+            ..LinterSettings::default()
+        },
+        per_file_shell: compiled_per_file_shell,
     }
 }
 

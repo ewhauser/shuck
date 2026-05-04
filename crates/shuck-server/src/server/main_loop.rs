@@ -71,7 +71,7 @@ impl Server {
                                 .outgoing_mut()
                                 .complete(&response.id)
                             {
-                                handler(&client, response);
+                                handler(&client, &mut self.session, response);
                             } else {
                                 tracing::error!(
                                     "Received an unexpected response for request {}",
@@ -154,7 +154,8 @@ impl Server {
             }],
         };
 
-        let response_handler = |_: &Client, ()| {
+        let response_handler = |_: &Client, session: &mut crate::Session, ()| {
+            session.set_project_settings_cache_enabled(true);
             tracing::info!("Registered configuration file watcher");
         };
 

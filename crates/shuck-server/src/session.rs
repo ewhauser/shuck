@@ -82,30 +82,10 @@ impl Session {
     }
 
     pub fn take_snapshot(&self, url: Url) -> Option<DocumentSnapshot> {
-        let workspace_options = self.index.workspace_options_for_url(&url);
+        let (settings, client_settings) = self
+            .index
+            .resolve_snapshot_settings(&url, self.global_settings.options());
         let key = self.key_from_url(url);
-        let file_path = key.clone().into_url().to_file_path().ok();
-        let (settings, client_settings) = if let Some(workspace_options) = workspace_options {
-            let option_layers = [self.global_settings.options(), workspace_options];
-            (
-                Arc::new(ShuckSettings::resolve(
-                    file_path.as_deref(),
-                    self.index.workspace_roots(),
-                    &option_layers,
-                )),
-                Arc::new(ClientSettings::from_layered_options(&option_layers)),
-            )
-        } else {
-            let option_layers = [self.global_settings.options()];
-            (
-                Arc::new(ShuckSettings::resolve(
-                    file_path.as_deref(),
-                    self.index.workspace_roots(),
-                    &option_layers,
-                )),
-                Arc::new(ClientSettings::from_layered_options(&option_layers)),
-            )
-        };
         Some(DocumentSnapshot {
             resolved_client_capabilities: self.resolved_client_capabilities.clone(),
             client_settings,
@@ -157,8 +137,13 @@ impl Session {
         self.index.config_file_paths()
     }
 
+    pub(crate) fn set_project_settings_cache_enabled(&mut self, enabled: bool) {
+        self.index.set_project_settings_cache_enabled(enabled);
+    }
+
     pub(crate) fn update_client_options(&mut self, options: ClientOptions) {
         self.global_settings.update_options(options);
+        self.index.clear_project_settings_cache();
     }
 
     pub(crate) fn update_configuration(
@@ -169,6 +154,8 @@ impl Session {
         self.global_settings.update_options(options);
         if let Some(workspace_options) = workspace_options {
             self.index.update_workspace_options(workspace_options);
+        } else {
+            self.index.clear_project_settings_cache();
         }
     }
 
@@ -206,10 +193,26 @@ impl DocumentSnapshot {
 #[cfg(test)]
 mod tests {
     use crossbeam::channel;
-    use lsp_types::{ClientCapabilities, Url};
+    use lsp_types::{
+        ClientCapabilities, DidChangeWatchedFilesClientCapabilities, Url,
+        WorkspaceClientCapabilities,
+    };
 
     use super::*;
     use crate::{ClientOptions, GlobalOptions, TextDocument, Workspace, Workspaces};
+
+    fn client_capabilities_with_dynamic_watched_files() -> ClientCapabilities {
+        ClientCapabilities {
+            workspace: Some(WorkspaceClientCapabilities {
+                did_change_watched_files: Some(DidChangeWatchedFilesClientCapabilities {
+                    dynamic_registration: Some(true),
+                    relative_pattern_support: None,
+                }),
+                ..WorkspaceClientCapabilities::default()
+            }),
+            ..ClientCapabilities::default()
+        }
+    }
 
     #[test]
     fn take_snapshot_merges_global_and_workspace_options() {
@@ -240,13 +243,14 @@ mod tests {
         let client = Client::new(main_loop_sender, client_sender);
         let global = GlobalOptions::default().into_settings(client.clone());
         let mut session = Session::new(
-            &ClientCapabilities::default(),
+            &client_capabilities_with_dynamic_watched_files(),
             PositionEncoding::UTF16,
             global,
             &workspaces,
             &client,
         )
         .expect("test session should initialize");
+        session.set_project_settings_cache_enabled(true);
         session.update_client_options(ClientOptions {
             lint: Some(shuck_config::LintConfig {
                 select: Some(vec!["C001".to_owned()]),
@@ -312,13 +316,14 @@ mod tests {
         let client = Client::new(main_loop_sender, client_sender);
         let global = GlobalOptions::default().into_settings(client.clone());
         let mut session = Session::new(
-            &ClientCapabilities::default(),
+            &client_capabilities_with_dynamic_watched_files(),
             PositionEncoding::UTF16,
             global,
             &workspaces,
             &client,
         )
         .expect("test session should initialize");
+        session.set_project_settings_cache_enabled(true);
 
         let uri = Url::from_file_path(workspace_two.path().join("script.sh"))
             .expect("test path should convert to a URL");
@@ -361,6 +366,140 @@ mod tests {
                 .linter()
                 .rules
                 .contains(shuck_linter::Rule::UnusedAssignment)
+        );
+        assert_eq!(after.shuck_settings().linter().rules.len(), 1);
+    }
+
+    #[test]
+    fn update_client_options_invalidates_cached_project_settings() {
+        let workspace = tempfile::tempdir().expect("workspace should be created");
+        std::fs::write(
+            workspace.path().join(".shuck.toml"),
+            "[lint]\nselect = ['C001']\n",
+        )
+        .expect("config should be written");
+        let workspace_uri =
+            Url::from_file_path(workspace.path()).expect("workspace path should convert");
+        let workspaces = Workspaces::new(vec![Workspace::default(workspace_uri)]);
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, _client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+        let global = GlobalOptions::default().into_settings(client.clone());
+        let mut session = Session::new(
+            &client_capabilities_with_dynamic_watched_files(),
+            PositionEncoding::UTF16,
+            global,
+            &workspaces,
+            &client,
+        )
+        .expect("test session should initialize");
+        session.set_project_settings_cache_enabled(true);
+
+        let uri = Url::from_file_path(workspace.path().join("script.sh"))
+            .expect("test path should convert to a URL");
+        session.open_text_document(
+            uri.clone(),
+            TextDocument::new("foo=1\n".to_owned(), 1).with_language_id("shellscript"),
+        );
+
+        let before = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot");
+        assert!(
+            before
+                .shuck_settings()
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UnusedAssignment)
+        );
+        assert_eq!(before.shuck_settings().linter().rules.len(), 1);
+
+        session.update_client_options(ClientOptions {
+            lint: Some(shuck_config::LintConfig {
+                select: Some(vec!["C006".to_owned()]),
+                ..shuck_config::LintConfig::default()
+            }),
+            ..ClientOptions::default()
+        });
+
+        let after = session
+            .take_snapshot(uri)
+            .expect("test document should produce a snapshot");
+        assert!(
+            after
+                .shuck_settings()
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UndefinedVariable)
+        );
+        assert_eq!(after.shuck_settings().linter().rules.len(), 1);
+    }
+
+    #[test]
+    fn nested_config_creation_switches_to_a_new_cache_key() {
+        let workspace = tempfile::tempdir().expect("workspace should be created");
+        std::fs::write(
+            workspace.path().join(".shuck.toml"),
+            "[lint]\nselect = ['C001']\n",
+        )
+        .expect("config should be written");
+        let nested = workspace.path().join("nested");
+        std::fs::create_dir_all(&nested).expect("nested dir should be created");
+        let workspace_uri =
+            Url::from_file_path(workspace.path()).expect("workspace path should convert");
+        let workspaces = Workspaces::new(vec![Workspace::default(workspace_uri)]);
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, _client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+        let global = GlobalOptions::default().into_settings(client.clone());
+        let mut session = Session::new(
+            &client_capabilities_with_dynamic_watched_files(),
+            PositionEncoding::UTF16,
+            global,
+            &workspaces,
+            &client,
+        )
+        .expect("test session should initialize");
+        session.set_project_settings_cache_enabled(true);
+
+        let uri = Url::from_file_path(nested.join("script.sh"))
+            .expect("test path should convert to a URL");
+        session.open_text_document(
+            uri.clone(),
+            TextDocument::new("foo=1\n".to_owned(), 1).with_language_id("shellscript"),
+        );
+
+        let before = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot");
+        assert_eq!(
+            before.shuck_settings().project_root(),
+            Some(workspace.path())
+        );
+        assert!(
+            before
+                .shuck_settings()
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UnusedAssignment)
+        );
+
+        std::fs::write(nested.join(".shuck.toml"), "[lint]\nselect = ['C006']\n")
+            .expect("nested config should be written");
+
+        let after = session
+            .take_snapshot(uri)
+            .expect("test document should produce a snapshot");
+        assert_eq!(
+            after.shuck_settings().project_root(),
+            Some(nested.as_path())
+        );
+        assert!(
+            after
+                .shuck_settings()
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UndefinedVariable)
         );
         assert_eq!(after.shuck_settings().linter().rules.len(), 1);
     }
