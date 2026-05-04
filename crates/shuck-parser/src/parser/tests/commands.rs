@@ -799,6 +799,32 @@ fn test_zsh_function_keyword_preserves_multi_name_backslash_newline_brace_body()
 }
 
 #[test]
+fn test_zsh_function_keyword_preserves_multi_name_compact_empty_brace_body() {
+    let input = "function foo bar {}\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    assert_eq!(
+        function
+            .header
+            .static_names()
+            .map(Name::as_str)
+            .collect::<Vec<_>>(),
+        vec!["foo", "bar"]
+    );
+
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    assert!(redirects.is_empty());
+    assert!(body.is_empty());
+}
+
+#[test]
 fn test_zsh_function_keyword_allows_nameless_anonymous_function_command() {
     let input = "function { local x=1; print -- anon:$#; } a b\n";
     let script = Parser::with_dialect(input, ShellDialect::Zsh)

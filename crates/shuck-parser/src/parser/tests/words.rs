@@ -6692,6 +6692,20 @@ fn test_zsh_upstream_alternative_glob_examples_parse() {
 }
 
 #[test]
+fn test_zsh_upstream_alternative_glob_examples_preserve_full_argument_spans() {
+    for syntax in ["file.(txt|doc|pdf)", "file.{txt,doc,pdf}"] {
+        let source = format!("echo {syntax}\n");
+        let output = Parser::with_dialect(&source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let command = expect_simple(&output.file.body[0]);
+
+        assert_eq!(command.args.len(), 1, "expected one arg for {syntax:?}");
+        assert_eq!(command.args[0].span.slice(&source), syntax);
+    }
+}
+
+#[test]
 fn test_zsh_numeric_glob_range_example_parses() {
     Parser::with_dialect("ls <1-100>.txt\n", ShellDialect::Zsh)
         .parse()

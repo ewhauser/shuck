@@ -1530,6 +1530,9 @@ impl<'a> Lexer<'a> {
                                 && (chunk.ends_with('=')
                                     || Self::word_can_take_parenthesized_suffix(chunk)))
                 );
+                let continues = continues
+                    || (self.peek_char() == Some('(')
+                        && self.looks_like_zsh_alternative_glob_suffix(chunk));
 
                 if !continues {
                     let end = self.current_position();
@@ -1541,7 +1544,9 @@ impl<'a> Lexer<'a> {
                 }
 
                 if self.peek_char() == Some('(')
-                    && (chunk.ends_with('=') || Self::word_can_take_parenthesized_suffix(chunk))
+                    && (chunk.ends_with('=')
+                        || Self::word_can_take_parenthesized_suffix(chunk)
+                        || self.looks_like_zsh_alternative_glob_suffix(chunk))
                 {
                     return self.read_complex_word(start);
                 }
@@ -2174,7 +2179,10 @@ impl<'a> Lexer<'a> {
                 Some('$') if self.second_char() == Some('"') => {
                     word.push_segment(self.read_dollar_double_quoted_segment()?);
                 }
-                Some('(') if Self::lexed_word_can_take_parenthesized_suffix(word) => {
+                Some('(')
+                    if Self::lexed_word_can_take_parenthesized_suffix(word)
+                        || self.looks_like_zsh_alternative_glob_suffix(&word.joined_text()) =>
+                {
                     let Some(segment) = self.read_parenthesized_word_suffix_segment() else {
                         unreachable!("peeked '(' should produce a suffix segment");
                     };
@@ -3828,6 +3836,48 @@ impl<'a> Lexer<'a> {
 
     fn word_can_take_parenthesized_suffix(text: &str) -> bool {
         text.ends_with(['@', '?', '*', '+', '!']) || Self::looks_like_zsh_glob_qualifier_base(text)
+    }
+
+    fn looks_like_zsh_alternative_glob_suffix(&mut self, prefix: &str) -> bool {
+        if self.current_zsh_options().is_none()
+            || self.peek_char() != Some('(')
+            || !prefix.ends_with('.')
+        {
+            return false;
+        }
+
+        let mut chars = self.lookahead_chars();
+        if chars.next() != Some('(') {
+            return false;
+        }
+
+        let mut depth = 1usize;
+        let mut escaped = false;
+        let mut saw_glob_marker = false;
+
+        for ch in chars {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            match ch {
+                '\\' => escaped = true,
+                '(' => depth += 1,
+                ')' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return saw_glob_marker;
+                    }
+                }
+                '|' if depth == 1 => {
+                    saw_glob_marker = true;
+                }
+                _ => {}
+            }
+        }
+
+        false
     }
 
     fn lexed_word_can_take_parenthesized_suffix(word: &LexedWord<'_>) -> bool {
@@ -6391,6 +6441,18 @@ ac_top_builddir_sub=`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||
     fn test_extglob_after_escaped_literal_keeps_suffix_group() {
         let source = r#"foo\_bar@(baz|qux)"#;
         let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::Word);
+        assert_eq!(token.span.slice(source), source);
+        assert!(lexer.next_lexed_token().is_none());
+    }
+
+    #[test]
+    fn test_zsh_alternative_glob_after_dot_keeps_suffix_group() {
+        let source = "file.(txt|doc|pdf)";
+        let profile = ShellProfile::native(crate::parser::ShellDialect::Zsh);
+        let mut lexer = Lexer::with_profile(source, &profile);
 
         let token = lexer.next_lexed_token().unwrap();
         assert_eq!(token.kind, TokenKind::Word);
