@@ -49,8 +49,9 @@ impl Session {
         workspaces: &Workspaces,
         client: &Client,
     ) -> crate::Result<Self> {
+        let cache_project_settings = supports_dynamic_watched_files(client_capabilities);
         Ok(Self {
-            index: index::Index::new(workspaces, &global, client)?,
+            index: index::Index::new(workspaces, cache_project_settings, &global, client)?,
             position_encoding,
             global_settings: global,
             resolved_client_capabilities: Arc::new(ResolvedClientCapabilities::new(
@@ -186,13 +187,38 @@ impl DocumentSnapshot {
     }
 }
 
+fn supports_dynamic_watched_files(client_capabilities: &ClientCapabilities) -> bool {
+    client_capabilities
+        .workspace
+        .as_ref()
+        .and_then(|workspace| workspace.did_change_watched_files)
+        .and_then(|watched_files| watched_files.dynamic_registration)
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use crossbeam::channel;
-    use lsp_types::{ClientCapabilities, Url};
+    use lsp_types::{
+        ClientCapabilities, DidChangeWatchedFilesClientCapabilities, Url,
+        WorkspaceClientCapabilities,
+    };
 
     use super::*;
     use crate::{ClientOptions, GlobalOptions, TextDocument, Workspace, Workspaces};
+
+    fn client_capabilities_with_dynamic_watched_files() -> ClientCapabilities {
+        ClientCapabilities {
+            workspace: Some(WorkspaceClientCapabilities {
+                did_change_watched_files: Some(DidChangeWatchedFilesClientCapabilities {
+                    dynamic_registration: Some(true),
+                    relative_pattern_support: None,
+                }),
+                ..WorkspaceClientCapabilities::default()
+            }),
+            ..ClientCapabilities::default()
+        }
+    }
 
     #[test]
     fn take_snapshot_merges_global_and_workspace_options() {
@@ -223,7 +249,7 @@ mod tests {
         let client = Client::new(main_loop_sender, client_sender);
         let global = GlobalOptions::default().into_settings(client.clone());
         let mut session = Session::new(
-            &ClientCapabilities::default(),
+            &client_capabilities_with_dynamic_watched_files(),
             PositionEncoding::UTF16,
             global,
             &workspaces,
@@ -295,7 +321,7 @@ mod tests {
         let client = Client::new(main_loop_sender, client_sender);
         let global = GlobalOptions::default().into_settings(client.clone());
         let mut session = Session::new(
-            &ClientCapabilities::default(),
+            &client_capabilities_with_dynamic_watched_files(),
             PositionEncoding::UTF16,
             global,
             &workspaces,
@@ -364,7 +390,7 @@ mod tests {
         let client = Client::new(main_loop_sender, client_sender);
         let global = GlobalOptions::default().into_settings(client.clone());
         let mut session = Session::new(
-            &ClientCapabilities::default(),
+            &client_capabilities_with_dynamic_watched_files(),
             PositionEncoding::UTF16,
             global,
             &workspaces,

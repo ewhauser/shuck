@@ -21,6 +21,7 @@ pub(crate) struct Index {
     documents: FxHashMap<Url, Arc<TextDocument>>,
     workspace_roots: Vec<PathBuf>,
     workspace_settings: Vec<WorkspaceSettings>,
+    cache_project_settings: bool,
     project_settings_cache:
         RwLock<FxHashMap<ProjectSettingsCacheKey, Arc<ResolvedProjectSettings>>>,
 }
@@ -50,6 +51,7 @@ pub enum DocumentQuery {
 impl Index {
     pub(super) fn new(
         workspaces: &Workspaces,
+        cache_project_settings: bool,
         _global: &GlobalClientSettings,
         _client: &Client,
     ) -> crate::Result<Self> {
@@ -75,6 +77,7 @@ impl Index {
             documents: FxHashMap::default(),
             workspace_roots,
             workspace_settings,
+            cache_project_settings,
             project_settings_cache: RwLock::new(FxHashMap::default()),
         })
     }
@@ -264,6 +267,14 @@ impl Index {
         workspace_root: Option<&Path>,
         option_layers: &[&ClientOptions],
     ) -> Arc<ShuckSettings> {
+        if !self.cache_project_settings {
+            return Arc::new(ShuckSettings::resolve(
+                file_path,
+                self.workspace_roots(),
+                option_layers,
+            ));
+        }
+
         let Some(file_path) = file_path else {
             return Arc::new(ShuckSettings::resolve(
                 None,
