@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.0.33](https://github.com/ewhauser/shuck/compare/v0.0.32...v0.0.33) (2026-05-04)
+
+
+### Features
+
+* **server:** bootstrap LSP scaffold ([#813](https://github.com/ewhauser/shuck/issues/813)) ([8a8dcac](https://github.com/ewhauser/shuck/commit/8a8dcac29d901fafa55cf9e81f843e8bd681db9b))
+* **server:** finish the remaining LSP behavior ([#821](https://github.com/ewhauser/shuck/issues/821)) ([a875ff9](https://github.com/ewhauser/shuck/commit/a875ff992db641f754eb4c7955665899ed1ba41c))
+* **server:** implement LSP diagnostics pipeline ([#815](https://github.com/ewhauser/shuck/issues/815)) ([5fa78b0](https://github.com/ewhauser/shuck/commit/5fa78b05e13aa92944d32785d48287ca47859be5))
+
+
+### Bug Fixes
+
+* **linter:** allow zsh plain array scalar reads ([#809](https://github.com/ewhauser/shuck/issues/809)) ([9fb5557](https://github.com/ewhauser/shuck/commit/9fb5557f635bda2ce251e5ec90350e24295cd71e))
+* **linter:** isolate local array history by function ([#799](https://github.com/ewhauser/shuck/issues/799)) ([e4b8be1](https://github.com/ewhauser/shuck/commit/e4b8be184bb0ad4748aed37071b936f27ff7bb24))
+* **linter:** stop zsh scalar locals inheriting array refs ([#803](https://github.com/ewhauser/shuck/issues/803)) ([13548e5](https://github.com/ewhauser/shuck/commit/13548e563310cfcdd628b86979db44dfc8a8237d))
+* **linter:** suppress zsh option-map arithmetic keys ([#810](https://github.com/ewhauser/shuck/issues/810)) ([c4e739e](https://github.com/ewhauser/shuck/commit/c4e739e483a4d4e20acb7a09215963221121756c))
+* **server:** cache resolved project settings ([#823](https://github.com/ewhauser/shuck/issues/823)) ([73ce2a4](https://github.com/ewhauser/shuck/commit/73ce2a47efa12032b6bbf62d4cd2ad231590614e))
+
+
+### Documentation
+
+* specify option-sensitive facts ([#817](https://github.com/ewhauser/shuck/issues/817)) ([d7617a3](https://github.com/ewhauser/shuck/commit/d7617a3234e69d58e89839ec26f8ec339df79dbf))
+* **website:** add editor integration guide ([#824](https://github.com/ewhauser/shuck/issues/824)) ([658eec5](https://github.com/ewhauser/shuck/commit/658eec5ebb41e215d7bdfb3f7094993e50accc0f))
+
+
+### Refactor
+
+* **config:** extract shared shuck-config crate ([#814](https://github.com/ewhauser/shuck/issues/814)) ([cfa1e98](https://github.com/ewhauser/shuck/commit/cfa1e98ab98e8f279bf0d7905df6cf5d9c411b13))
+* **linter:** add remaining option-sensitive facts ([#825](https://github.com/ewhauser/shuck/issues/825)) ([5a8f3b4](https://github.com/ewhauser/shuck/commit/5a8f3b4348c3d9c091ead773aa90c0bd3d62945c))
+* **linter:** deny wildcard enum matches in rules ([#820](https://github.com/ewhauser/shuck/issues/820)) ([9dae7e2](https://github.com/ewhauser/shuck/commit/9dae7e20a6b39b46c43d9ba49546facb2253a18c))
+* **linter:** finish option-sensitive glob behavior migration ([#822](https://github.com/ewhauser/shuck/issues/822)) ([6900e1a](https://github.com/ewhauser/shuck/commit/6900e1ade4f90d31e916684b2630b2ca545518e6))
+* **linter:** move C100 array policy into facts ([#819](https://github.com/ewhauser/shuck/issues/819)) ([276ebb5](https://github.com/ewhauser/shuck/commit/276ebb5a6dca66bf446834fa8b754afe6747b520))
+* **semantic:** add option-sensitive behavior query ([#818](https://github.com/ewhauser/shuck/issues/818)) ([91692a5](https://github.com/ewhauser/shuck/commit/91692a549d0243d0b99bfd667deea8545dd22c38))
+
 ## [0.0.32](https://github.com/ewhauser/shuck/compare/v0.0.31...v0.0.32) (2026-05-03)
 
 
