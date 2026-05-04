@@ -1078,8 +1078,17 @@ impl<'a> Lexer<'a> {
         start: Position,
         capture: &Option<String>,
     ) -> bool {
-        let text = self.current_word_text(start, capture).to_string();
-        self.looks_like_zsh_glob_modifier_suffix(&text)
+        if self.current_zsh_options().is_none() || self.peek_char() != Some('(') {
+            return false;
+        }
+
+        let text = self.current_word_text(start, capture);
+        if !text.contains('/') {
+            return false;
+        }
+
+        let mut chars = self.lookahead_chars();
+        matches!((chars.next(), chars.next()), (Some('('), Some(':')))
     }
 
     /// Get the next source-backed token from the input, skipping line comments.
