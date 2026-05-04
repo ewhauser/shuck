@@ -1,5 +1,8 @@
 use super::*;
-use crate::PlainUnindexedArrayReferenceFact;
+use crate::{
+    FieldSplittingBehavior, GlobFailureBehavior, PathnameExpansionBehavior,
+    PlainUnindexedArrayReferenceFact,
+};
 
 #[test]
 fn builds_surface_fragment_facts_and_static_utility_names() {
@@ -1993,6 +1996,112 @@ fn builds_word_facts_for_zsh_qualified_globs() {
 
             assert!(glob.classification().is_expanded());
             assert!(glob.analysis().hazards.pathname_matching);
+        },
+    );
+}
+
+#[test]
+fn builds_option_sensitive_word_behaviors_for_zsh_words() {
+    let source = "\
+#!/usr/bin/env zsh
+setopt sh_word_split
+print $name
+noglob rm *
+print ${~~name}
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            let split = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .find(|fact| fact.span().slice(source) == "$name")
+                .expect("expected split-sensitive fact");
+            let wrapped_glob = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .find(|fact| fact.span().slice(source) == "*")
+                .expect("expected wrapped glob fact");
+            let double_tilde = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .find(|fact| fact.span().slice(source) == "${~~name}")
+                .expect("expected double-tilde fact");
+
+            assert_eq!(
+                split.analysis().field_splitting_behavior,
+                FieldSplittingBehavior::UnquotedOnly
+            );
+            assert_eq!(
+                wrapped_glob.runtime_literal().pathname_expansion_behavior,
+                PathnameExpansionBehavior::Disabled
+            );
+            assert_eq!(
+                double_tilde.analysis().pathname_expansion_behavior,
+                PathnameExpansionBehavior::LiteralGlobsOnly
+            );
+        },
+    );
+}
+
+#[test]
+fn builds_ambiguous_pathname_behaviors_for_dynamic_zsh_words() {
+    let source = "\
+#!/usr/bin/env zsh
+opt=glob_subst
+setopt \"$opt\"
+print $name
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            let ambiguous = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .find(|fact| fact.span().slice(source) == "$name")
+                .expect("expected ambiguous scalar fact");
+
+            assert_eq!(
+                ambiguous.analysis().pathname_expansion_behavior,
+                PathnameExpansionBehavior::Ambiguous
+            );
+            assert!(ambiguous.analysis().hazards.pathname_matching);
+        },
+    );
+}
+
+#[test]
+fn builds_glob_failure_behaviors_for_zsh_globs() {
+    let source = "\
+#!/usr/bin/env zsh
+setopt null_glob csh_null_glob
+rm *
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            let glob = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .find(|fact| fact.span().slice(source) == "*")
+                .expect("expected glob fact");
+
+            assert!(
+                glob.runtime_literal()
+                    .pathname_expansion_behavior
+                    .literal_globs_can_expand()
+            );
+            assert_eq!(
+                glob.runtime_literal().glob_failure_behavior,
+                GlobFailureBehavior::CshNullGlob
+            );
         },
     );
 }

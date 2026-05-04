@@ -338,7 +338,14 @@ fn report_word_expansions<F>(
         part_filter,
     } = options;
 
-    if !fact.analysis().hazards.field_splitting && !fact.analysis().hazards.pathname_matching {
+    let analysis = fact.analysis();
+    if !analysis
+        .field_splitting_behavior
+        .unquoted_results_can_split()
+        && !analysis
+            .pathname_expansion_behavior
+            .unquoted_substitution_results_can_glob()
+    {
         return;
     }
 
@@ -5365,6 +5372,68 @@ printf '%s\\n' ${!dynamic}
     }
 
     #[test]
+    fn reports_unquoted_scalars_after_setopt_glob_subst_in_zsh() {
+        let source = "setopt glob_subst\nprint $name\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$name"]
+        );
+    }
+
+    #[test]
+    fn reports_unquoted_scalars_after_dynamic_glob_subst_in_zsh() {
+        let source = "opt=glob_subst\nsetopt \"$opt\"\nprint $name\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$name"]
+        );
+    }
+
+    #[test]
+    fn skips_unquoted_scalars_when_no_glob_masks_glob_subst_in_zsh() {
+        let source = "setopt glob_subst no_glob\nprint $name\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_unquoted_scalars_when_sh_word_split_is_set_even_with_no_glob_in_zsh() {
+        let source = "setopt sh_word_split no_glob\nprint $name\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$name"]
+        );
+    }
+
+    #[test]
     fn reports_zsh_force_split_modifier_even_without_sh_word_split() {
         let source = "print ${=name}\n";
         let diagnostics = test_snippet(
@@ -5378,6 +5447,23 @@ printf '%s\\n' ${!dynamic}
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["${=name}"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_force_glob_modifier_even_without_glob_subst() {
+        let source = "print ${~name}\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${~name}"]
         );
     }
 

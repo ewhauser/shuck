@@ -41,11 +41,10 @@ fn reportable_glob_diagnostic(
     if command_exempts_glob_warning(command.effective_name()) {
         return None;
     }
-    if checker
-        .facts()
-        .command(fact.command_id())
-        .zsh_options()
-        .is_some_and(|options| options.glob.is_definitely_off())
+    if !fact
+        .runtime_literal()
+        .pathname_expansion_behavior
+        .literal_globs_can_expand()
     {
         return None;
     }
@@ -248,6 +247,72 @@ printf '%s\\n' *
     #[test]
     fn ignores_noglob_wrapped_commands_in_zsh() {
         let source = "noglob rm *\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LeadingGlobArgument)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn still_reports_when_no_nomatch_keeps_unmatched_globs_literal() {
+        let source = "setopt no_nomatch\nrm *\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LeadingGlobArgument)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["*"]
+        );
+    }
+
+    #[test]
+    fn still_reports_when_null_glob_drops_unmatched_patterns() {
+        let source = "setopt null_glob\nrm *\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LeadingGlobArgument)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["*"]
+        );
+    }
+
+    #[test]
+    fn still_reports_when_glob_failure_options_do_not_disable_globbing() {
+        let source = "setopt null_glob csh_null_glob\nrm *\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LeadingGlobArgument)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["*"]
+        );
+    }
+
+    #[test]
+    fn ignores_when_no_glob_overrides_glob_failure_options_in_zsh() {
+        let source = "setopt no_glob null_glob csh_null_glob\nrm *\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::LeadingGlobArgument)

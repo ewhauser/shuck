@@ -1,4 +1,6 @@
-use crate::{Checker, Rule, Violation};
+use rustc_hash::FxHashSet;
+
+use crate::{Checker, ExpansionContext, FactSpan, Rule, Violation, WordFactHostKind};
 
 pub struct RmGlobOnVariablePath;
 
@@ -13,17 +15,35 @@ impl Violation for RmGlobOnVariablePath {
 }
 
 pub fn rm_glob_on_variable_path(checker: &mut Checker) {
+    let source = checker.source();
+    let reportable_word_spans = checker
+        .facts()
+        .expansion_word_facts(ExpansionContext::CommandArgument)
+        .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
+        .filter(|fact| {
+            fact.unquoted_glob_pattern_spans(source).is_empty()
+                || fact
+                    .runtime_literal()
+                    .pathname_expansion_behavior
+                    .literal_globs_can_expand()
+        })
+        .map(|fact| (fact.command_id(), FactSpan::new(fact.span())))
+        .collect::<FxHashSet<_>>();
+    let reportable_word_spans = &reportable_word_spans;
+
     let spans = checker
         .facts()
         .structural_commands()
         .filter(|fact| fact.effective_name_is("rm"))
-        .filter(|fact| {
-            !fact
-                .zsh_options()
-                .is_some_and(|options| options.glob.is_definitely_off())
+        .filter_map(|fact| fact.options().rm().map(|rm| (fact.id(), rm)))
+        .flat_map(|(command_id, rm)| {
+            rm.dangerous_path_spans()
+                .iter()
+                .copied()
+                .filter(move |span| {
+                    reportable_word_spans.contains(&(command_id, FactSpan::new(*span)))
+                })
         })
-        .filter_map(|fact| fact.options().rm())
-        .flat_map(|rm| rm.dangerous_path_spans().iter().copied())
         .collect::<Vec<_>>();
 
     checker.report_all(spans, || RmGlobOnVariablePath);
@@ -195,5 +215,66 @@ mod tests {
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_glob_driven_rm_paths_when_no_glob_is_active_in_zsh() {
+        let source = "#!/usr/bin/env zsh\nsetopt no_glob\ndir=/tmp\nrm -rf \"$dir\"/*\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RmGlobOnVariablePath)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_noglob_wrapped_globbed_rm_paths_in_zsh() {
+        let source = "#!/usr/bin/env zsh\ndir=/tmp\nnoglob rm -rf \"$dir\"/*\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RmGlobOnVariablePath)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn still_reports_non_glob_rm_paths_when_no_glob_is_active_in_zsh() {
+        let source = "#!/usr/bin/env zsh\nsetopt no_glob\nDESTDIR=/dest\nrm -rf \"$DESTDIR\"/usr\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RmGlobOnVariablePath)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"$DESTDIR\"/usr"]
+        );
+    }
+
+    #[test]
+    fn still_reports_globbed_rm_paths_when_glob_failure_options_do_not_disable_globbing() {
+        let source =
+            "#!/usr/bin/env zsh\nsetopt null_glob csh_null_glob\ndir=/tmp\nrm -rf \"$dir\"/*\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RmGlobOnVariablePath)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"$dir\"/*"]
+        );
     }
 }
