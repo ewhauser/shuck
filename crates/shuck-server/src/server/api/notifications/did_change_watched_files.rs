@@ -76,6 +76,19 @@ mod tests {
 
         std::fs::write(&config_path, "[lint]\nselect = ['C006']\n")
             .expect("config should be updated");
+
+        let cached = session
+            .take_snapshot(uri.clone())
+            .expect("settings should stay cached until invalidated");
+        assert!(
+            cached
+                .shuck_settings()
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UnusedAssignment)
+        );
+        assert_eq!(cached.shuck_settings().linter().rules.len(), 1);
+
         DidChangeWatchedFiles::run(
             &mut session,
             &client,
