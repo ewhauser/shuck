@@ -2321,6 +2321,95 @@ fn test_brace_syntax_marks_unquoted_expansion_candidates() {
 }
 
 #[test]
+fn test_zsh_brace_ccl_marks_character_class_expansion_candidates() {
+    let source = "print {ab} \"{ab}\" {a,b} {1..3}\n";
+    let output = parse_zsh_with_options(source, |options| {
+        options.brace_ccl = OptionValue::On;
+    });
+
+    let command = expect_simple(&output.file.body[0]);
+
+    assert_eq!(brace_slices(&command.args[0], source), vec!["{ab}"]);
+    assert_eq!(
+        command.args[0].brace_syntax()[0].kind,
+        BraceSyntaxKind::Expansion(BraceExpansionKind::CharacterClass)
+    );
+    assert!(command.args[0].has_active_brace_expansion());
+
+    assert_eq!(brace_slices(&command.args[1], source), vec!["{ab}"]);
+    assert_eq!(
+        command.args[1].brace_syntax()[0].kind,
+        BraceSyntaxKind::Expansion(BraceExpansionKind::CharacterClass)
+    );
+    assert_eq!(
+        command.args[1].brace_syntax()[0].quote_context,
+        BraceQuoteContext::DoubleQuoted
+    );
+    assert!(!command.args[1].has_active_brace_expansion());
+
+    assert_eq!(
+        command.args[2].brace_syntax()[0].kind,
+        BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList)
+    );
+    assert_eq!(
+        command.args[3].brace_syntax()[0].kind,
+        BraceSyntaxKind::Expansion(BraceExpansionKind::Sequence)
+    );
+}
+
+#[test]
+fn test_zsh_brace_ccl_ignores_quote_only_character_classes() {
+    let source = "print {\"\"} {''} {$''} {\"a\"} {\\\"}\n";
+    let output = parse_zsh_with_options(source, |options| {
+        options.brace_ccl = OptionValue::On;
+    });
+
+    let command = expect_simple(&output.file.body[0]);
+
+    for word in &command.args[..3] {
+        assert!(!word.has_active_brace_expansion());
+        assert!(word.brace_syntax().iter().all(|brace| {
+            !matches!(
+                brace.kind,
+                BraceSyntaxKind::Expansion(BraceExpansionKind::CharacterClass)
+            )
+        }));
+    }
+
+    for word in &command.args[3..] {
+        assert_eq!(
+            word.brace_syntax()[0].kind,
+            BraceSyntaxKind::Expansion(BraceExpansionKind::CharacterClass)
+        );
+        assert!(word.has_active_brace_expansion());
+    }
+}
+
+#[test]
+fn test_zsh_midfile_brace_ccl_toggles_brace_syntax_collection() {
+    let source = "setopt brace_ccl\nprint {ab}\nunsetopt brace_ccl\nprint {cd}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let first = expect_simple(&output.file.body[1]);
+    assert_eq!(brace_slices(&first.args[0], source), vec!["{ab}"]);
+    assert_eq!(
+        first.args[0].brace_syntax()[0].kind,
+        BraceSyntaxKind::Expansion(BraceExpansionKind::CharacterClass)
+    );
+    assert!(first.args[0].has_active_brace_expansion());
+
+    let second = expect_simple(&output.file.body[3]);
+    assert_eq!(brace_slices(&second.args[0], source), vec!["{cd}"]);
+    assert_eq!(
+        second.args[0].brace_syntax()[0].kind,
+        BraceSyntaxKind::Literal
+    );
+    assert!(!second.args[0].has_active_brace_expansion());
+}
+
+#[test]
 fn test_brace_syntax_marks_literal_and_quoted_brace_forms() {
     let literal_input = "HEAD@{1}";
     let literal = Parser::parse_word_string(literal_input);

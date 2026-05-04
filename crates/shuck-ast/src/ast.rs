@@ -1674,6 +1674,7 @@ pub enum ZshGlobQualifier {
 pub enum BraceExpansionKind {
     CommaList,
     Sequence,
+    CharacterClass,
 }
 
 /// Quoting context for brace-like syntax inside a word.

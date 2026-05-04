@@ -1007,6 +1007,11 @@ impl<'a> Lexer<'a> {
         })
     }
 
+    fn brace_ccl_enabled(&mut self) -> bool {
+        self.current_zsh_options()
+            .is_some_and(|options| options.brace_ccl.is_definitely_on())
+    }
+
     fn should_treat_hash_as_word_char(&mut self) -> bool {
         if !self.comments_enabled() {
             return true;
@@ -3462,8 +3467,9 @@ impl<'a> Lexer<'a> {
     /// Brace group: { cmd; } (contains spaces, semicolons, newlines)
     /// Caps lookahead to prevent O(n^2) scanning when input
     /// contains many unmatched `{` characters (issue #997).
-    fn looks_like_brace_expansion(&self) -> bool {
+    fn looks_like_brace_expansion(&mut self) -> bool {
         const MAX_LOOKAHEAD: usize = 10_000;
+        let brace_ccl_enabled = self.brace_ccl_enabled();
 
         let mut chars = self.lookahead_chars();
 
@@ -3509,7 +3515,7 @@ impl<'a> Lexer<'a> {
                     depth -= 1;
                     if depth == 0 {
                         // Found matching }, check if we have brace expansion markers
-                        return has_comma || has_dot_dot;
+                        return has_comma || has_dot_dot || (brace_ccl_enabled && scanned > 1);
                     }
                 }
                 ',' if at_top_level => has_comma = true,
@@ -3706,8 +3712,9 @@ impl<'a> Lexer<'a> {
 
     /// Check whether the text after an escaped `{` looks like a brace-expansion
     /// surface that should stay attached to the current word, e.g. `\{a,b}`.
-    fn escaped_brace_sequence_looks_like_brace_expansion(&self) -> bool {
+    fn escaped_brace_sequence_looks_like_brace_expansion(&mut self) -> bool {
         const MAX_LOOKAHEAD: usize = 10_000;
+        let brace_ccl_enabled = self.brace_ccl_enabled();
 
         let mut chars = self.lookahead_chars();
         let mut depth = 1;
@@ -3726,7 +3733,7 @@ impl<'a> Lexer<'a> {
                 '}' => {
                     depth -= 1;
                     if depth == 0 {
-                        return has_comma || has_dot_dot;
+                        return has_comma || has_dot_dot || (brace_ccl_enabled && scanned > 1);
                     }
                 }
                 ',' if depth == 1 => has_comma = true,
@@ -6694,6 +6701,18 @@ ac_top_builddir_sub=`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||
         assert_next_token(&mut lexer, TokenKind::Word, Some("{"));
         assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
         assert_next_token(&mut lexer, TokenKind::Word, Some("}"));
+    }
+
+    #[test]
+    fn test_zsh_midfile_setopt_brace_ccl_keeps_adjacent_brace_expansions_in_one_word() {
+        let source = "setopt brace_ccl\n{ab}{0-2}\n";
+        let profile = ShellProfile::native(crate::parser::ShellDialect::Zsh);
+        let mut lexer = Lexer::with_profile(source, &profile);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("setopt"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("brace_ccl"));
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("{ab}{0-2}"));
     }
 
     #[test]
