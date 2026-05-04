@@ -14,6 +14,18 @@ fn is_fully_quoted(word: &Word) -> bool {
     word.is_fully_quoted()
 }
 
+fn zsh_profile_with_options(update: impl FnOnce(&mut ZshOptionState)) -> ShellProfile {
+    let mut options = ZshOptionState::zsh_default();
+    update(&mut options);
+    ShellProfile::with_zsh_options(ShellDialect::Zsh, options)
+}
+
+fn parse_zsh_with_options(input: &str, update: impl FnOnce(&mut ZshOptionState)) -> ParseResult {
+    Parser::with_profile(input, zsh_profile_with_options(update))
+        .parse()
+        .unwrap()
+}
+
 fn heredoc_body_is_literal(body: &HeredocBody) -> bool {
     body.mode == HeredocBodyMode::Literal
 }
@@ -292,6 +304,32 @@ fn expect_zsh_glob_pattern_segment(segment: &ZshGlobSegment) -> &Pattern {
         panic!("expected pattern segment");
     };
     pattern
+}
+
+fn pattern_has_zsh_qualified_glob(pattern: &Pattern) -> bool {
+    pattern.parts.iter().any(|part| {
+        matches!(
+            &part.kind,
+            PatternPart::Word(word)
+                if matches!(
+                    word.parts.as_slice(),
+                    [WordPartNode {
+                        kind: WordPart::ZshQualifiedGlob(_),
+                        ..
+                    }]
+                )
+        )
+    })
+}
+
+fn expect_pattern_zsh_qualified_glob(pattern: &Pattern) -> &ZshQualifiedGlob {
+    let [part] = pattern.parts.as_slice() else {
+        panic!("expected single pattern word part");
+    };
+    let PatternPart::Word(word) = &part.kind else {
+        panic!("expected pattern word part, got {:?}", part.kind);
+    };
+    expect_zsh_qualified_glob(word)
 }
 
 fn expect_array_length_part(part: &WordPart) -> &VarRef {

@@ -6132,9 +6132,9 @@ fn test_zsh_trailing_glob_qualifier_parses_prefixed_glob_with_negation() {
 #[test]
 fn test_zsh_inline_glob_case_insensitive_control_preserves_segments() {
     let source = "print (#i)*.jpg\n";
-    let output = Parser::with_dialect(source, ShellDialect::Zsh)
-        .parse()
-        .unwrap();
+    let output = parse_zsh_with_options(source, |options| {
+        options.extended_glob = OptionValue::On;
+    });
     let AstCommand::Simple(command) = &output.file.body[0].command else {
         panic!("expected simple command");
     };
@@ -6160,9 +6160,9 @@ fn test_zsh_inline_glob_case_insensitive_control_preserves_segments() {
 #[test]
 fn test_zsh_inline_glob_backreference_control_preserves_segments() {
     let source = "print (#b)(*)\n";
-    let output = Parser::with_dialect(source, ShellDialect::Zsh)
-        .parse()
-        .unwrap();
+    let output = parse_zsh_with_options(source, |options| {
+        options.extended_glob = OptionValue::On;
+    });
     let AstCommand::Simple(command) = &output.file.body[0].command else {
         panic!("expected simple command");
     };
@@ -6183,6 +6183,43 @@ fn test_zsh_inline_glob_backreference_control_preserves_segments() {
         "(*)"
     );
     assert!(glob.qualifiers.is_none());
+}
+
+#[test]
+fn test_zsh_extended_glob_inline_backreference_word_requires_option() {
+    let source = "print (#b)(*)\n";
+
+    let default_output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let default_command = expect_simple(&default_output.file.body[0]);
+    let default_glob = expect_zsh_qualified_glob(&default_command.args[0]);
+    let [default_segment] = default_glob.segments.as_slice() else {
+        panic!("expected a single source-preserved pattern segment");
+    };
+    assert_eq!(
+        expect_zsh_glob_pattern_segment(default_segment).render_syntax(source),
+        "(#b)(*)"
+    );
+    assert!(default_glob.qualifiers.is_none());
+
+    let output = parse_zsh_with_options(source, |options| {
+        options.extended_glob = OptionValue::On;
+    });
+    let command = expect_simple(&output.file.body[0]);
+    let glob = expect_zsh_qualified_glob(&command.args[0]);
+    let [control, segment] = glob.segments.as_slice() else {
+        panic!("expected inline control followed by pattern segment");
+    };
+    assert!(matches!(
+        control,
+        ZshGlobSegment::InlineControl(ZshInlineGlobControl::Backreferences { span })
+            if span.slice(source) == "(#b)"
+    ));
+    assert_eq!(
+        expect_zsh_glob_pattern_segment(segment).render_syntax(source),
+        "(*)"
+    );
 }
 
 #[test]
@@ -6211,9 +6248,9 @@ fn test_zsh_inline_glob_anchor_controls_preserve_segments() {
 #[test]
 fn test_zsh_hash_q_glob_qualifier_parses_terminal_flag_group() {
     let source = "print *.log(#qN)\n";
-    let output = Parser::with_dialect(source, ShellDialect::Zsh)
-        .parse()
-        .unwrap();
+    let output = parse_zsh_with_options(source, |options| {
+        options.extended_glob = OptionValue::On;
+    });
     let AstCommand::Simple(command) = &output.file.body[0].command else {
         panic!("expected simple command");
     };
@@ -6237,11 +6274,39 @@ fn test_zsh_hash_q_glob_qualifier_parses_terminal_flag_group() {
 }
 
 #[test]
-fn test_zsh_hash_q_glob_qualifier_parses_recursive_pattern_with_letter_sequence_and_range() {
-    let source = "print **/*(#q.om[1,3])\n";
-    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+fn test_zsh_extended_glob_hash_q_qualifier_requires_option() {
+    let source = "print *.log(#qN)\n";
+
+    let default_output = Parser::with_dialect(source, ShellDialect::Zsh)
         .parse()
         .unwrap();
+    let default_command = expect_simple(&default_output.file.body[0]);
+    let default_glob = expect_zsh_qualified_glob(&default_command.args[0]);
+    let [default_segment] = default_glob.segments.as_slice() else {
+        panic!("expected a single source-preserved pattern segment");
+    };
+    assert_eq!(
+        expect_zsh_glob_pattern_segment(default_segment).render_syntax(source),
+        "*.log(#qN)"
+    );
+    assert!(default_glob.qualifiers.is_none());
+
+    let output = parse_zsh_with_options(source, |options| {
+        options.extended_glob = OptionValue::On;
+    });
+    let command = expect_simple(&output.file.body[0]);
+    let glob = expect_zsh_qualified_glob(&command.args[0]);
+    let qualifiers = expect_zsh_glob_qualifiers(glob);
+    assert_eq!(qualifiers.kind, ZshGlobQualifierKind::HashQ);
+    assert_eq!(qualifiers.span.slice(source), "(#qN)");
+}
+
+#[test]
+fn test_zsh_hash_q_glob_qualifier_parses_recursive_pattern_with_letter_sequence_and_range() {
+    let source = "print **/*(#q.om[1,3])\n";
+    let output = parse_zsh_with_options(source, |options| {
+        options.extended_glob = OptionValue::On;
+    });
     let AstCommand::Simple(command) = &output.file.body[0].command else {
         panic!("expected simple command");
     };
@@ -6287,23 +6352,261 @@ fn test_zsh_hash_q_glob_qualifier_parses_recursive_pattern_with_letter_sequence_
 }
 
 #[test]
-fn test_zsh_glob_falls_back_for_unsupported_hash_control_group() {
+fn test_zsh_glob_preserves_unsupported_hash_control_group_as_source_backed_glob() {
     let source = "print *(#a)\n";
-    let output = Parser::with_dialect(source, ShellDialect::Zsh)
-        .parse()
-        .unwrap();
+    let output = parse_zsh_with_options(source, |options| {
+        options.extended_glob = OptionValue::On;
+    });
     let AstCommand::Simple(command) = &output.file.body[0].command else {
         panic!("expected simple command");
     };
 
-    assert_eq!(command.args[0].span.slice(source), "*(#a)");
+    let glob = expect_zsh_qualified_glob(&command.args[0]);
+    let [segment] = glob.segments.as_slice() else {
+        panic!("expected a single source-preserved pattern segment");
+    };
+    assert_eq!(
+        expect_zsh_glob_pattern_segment(segment).render_syntax(source),
+        "*(#a)"
+    );
+}
+
+#[test]
+fn test_zsh_ksh_glob_word_requires_option() {
+    let source = "print @(foo|bar)\n";
+
+    let default_output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let default_command = expect_simple(&default_output.file.body[0]);
+    assert_eq!(default_command.args[0].span.slice(source), "@(foo|bar)");
     assert!(!matches!(
-        command.args[0].parts.as_slice(),
+        default_command.args[0].parts.as_slice(),
         [WordPartNode {
             kind: WordPart::ZshQualifiedGlob(_),
             ..
         }]
     ));
+
+    let output = parse_zsh_with_options(source, |options| {
+        options.ksh_glob = OptionValue::On;
+    });
+    let command = expect_simple(&output.file.body[0]);
+    let glob = expect_zsh_qualified_glob(&command.args[0]);
+    let [segment] = glob.segments.as_slice() else {
+        panic!("expected a single pattern segment");
+    };
+    let [part] = expect_zsh_glob_pattern_segment(segment).parts.as_slice() else {
+        panic!("expected a single group part");
+    };
+    let PatternPart::Group { kind, patterns } = &part.kind else {
+        panic!("expected ksh glob group");
+    };
+    assert_eq!(*kind, PatternGroupKind::ExactlyOne);
+    assert_eq!(
+        patterns
+            .iter()
+            .map(|pattern| pattern.render_syntax(source))
+            .collect::<Vec<_>>(),
+        vec!["foo", "bar"]
+    );
+}
+
+#[test]
+fn test_zsh_extended_glob_tilde_word_requires_option() {
+    let source = "print foo~bar\n";
+
+    let default_output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let default_command = expect_simple(&default_output.file.body[0]);
+    assert_eq!(default_command.args[0].span.slice(source), "foo~bar");
+    assert!(!matches!(
+        default_command.args[0].parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::ZshQualifiedGlob(_),
+            ..
+        }]
+    ));
+
+    let output = parse_zsh_with_options(source, |options| {
+        options.extended_glob = OptionValue::On;
+    });
+    let command = expect_simple(&output.file.body[0]);
+    let glob = expect_zsh_qualified_glob(&command.args[0]);
+    let [segment] = glob.segments.as_slice() else {
+        panic!("expected a single pattern segment");
+    };
+    assert_eq!(
+        expect_zsh_glob_pattern_segment(segment).render_syntax(source),
+        "foo~bar"
+    );
+}
+
+#[test]
+fn test_zsh_extended_glob_hash_repetition_word_requires_option() {
+    let source = "print foo##\n";
+
+    let default_output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let default_command = expect_simple(&default_output.file.body[0]);
+    assert_eq!(default_command.args[0].span.slice(source), "foo##");
+    assert!(!matches!(
+        default_command.args[0].parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::ZshQualifiedGlob(_),
+            ..
+        }]
+    ));
+
+    let output = parse_zsh_with_options(source, |options| {
+        options.extended_glob = OptionValue::On;
+    });
+    let command = expect_simple(&output.file.body[0]);
+    let glob = expect_zsh_qualified_glob(&command.args[0]);
+    let [segment] = glob.segments.as_slice() else {
+        panic!("expected a single pattern segment");
+    };
+    assert_eq!(
+        expect_zsh_glob_pattern_segment(segment).render_syntax(source),
+        "foo##"
+    );
+}
+
+#[test]
+fn test_zsh_sh_glob_disables_bare_optional_suffix_replacement_pattern_word() {
+    let source = "print ${(S)value//ohmyzsh(|.git)/X}\n";
+
+    let default_output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let default_command = expect_simple(&default_output.file.body[0]);
+    let default_parameter = expect_parameter(&default_command.args[0]);
+    let default_operation = match &default_parameter.syntax {
+        ParameterExpansionSyntax::Zsh(parameter) => parameter
+            .operation
+            .as_ref()
+            .expect("expected replacement operation"),
+        _ => panic!("expected zsh parameter syntax"),
+    };
+    let default_pattern = default_operation
+        .pattern_word_ast()
+        .expect("expected replacement pattern word");
+    let default_glob = expect_zsh_qualified_glob(default_pattern);
+    let [segment] = default_glob.segments.as_slice() else {
+        panic!("expected a single pattern segment");
+    };
+    let pattern = expect_zsh_glob_pattern_segment(segment);
+    assert_eq!(
+        pattern_part_slices(pattern, source),
+        vec!["ohmyzsh", "(|.git)"]
+    );
+    let part = &pattern.parts[1];
+    let PatternPart::Group { patterns, .. } = &part.kind else {
+        panic!("expected bare zsh group");
+    };
+    assert_eq!(
+        patterns
+            .iter()
+            .map(|pattern| pattern.render_syntax(source))
+            .collect::<Vec<_>>(),
+        vec!["", ".git"]
+    );
+
+    let sh_glob_output = parse_zsh_with_options(source, |options| {
+        options.sh_glob = OptionValue::On;
+    });
+    let sh_glob_command = expect_simple(&sh_glob_output.file.body[0]);
+    let sh_glob_parameter = expect_parameter(&sh_glob_command.args[0]);
+    let sh_glob_operation = match &sh_glob_parameter.syntax {
+        ParameterExpansionSyntax::Zsh(parameter) => parameter
+            .operation
+            .as_ref()
+            .expect("expected replacement operation"),
+        _ => panic!("expected zsh parameter syntax"),
+    };
+    let sh_glob_pattern = sh_glob_operation
+        .pattern_word_ast()
+        .expect("expected replacement pattern word");
+    assert_eq!(sh_glob_pattern.span.slice(source), "ohmyzsh(|.git)");
+    assert!(!matches!(
+        sh_glob_pattern.parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::ZshQualifiedGlob(_),
+            ..
+        }]
+    ));
+}
+
+#[test]
+fn test_zsh_sh_glob_disables_numeric_range_replacement_pattern_word() {
+    let source = "print ${(S)value//jobspec:<->/X}\n";
+
+    let default_output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let default_command = expect_simple(&default_output.file.body[0]);
+    let default_parameter = expect_parameter(&default_command.args[0]);
+    let default_operation = match &default_parameter.syntax {
+        ParameterExpansionSyntax::Zsh(parameter) => parameter
+            .operation
+            .as_ref()
+            .expect("expected replacement operation"),
+        _ => panic!("expected zsh parameter syntax"),
+    };
+    let default_word = default_operation
+        .pattern_word_ast()
+        .expect("expected replacement pattern word");
+    assert!(matches!(
+        default_word.parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::ZshQualifiedGlob(_),
+            ..
+        }]
+    ));
+
+    let sh_glob_output = parse_zsh_with_options(source, |options| {
+        options.sh_glob = OptionValue::On;
+    });
+    let sh_glob_command = expect_simple(&sh_glob_output.file.body[0]);
+    let sh_glob_parameter = expect_parameter(&sh_glob_command.args[0]);
+    let sh_glob_operation = match &sh_glob_parameter.syntax {
+        ParameterExpansionSyntax::Zsh(parameter) => parameter
+            .operation
+            .as_ref()
+            .expect("expected replacement operation"),
+        _ => panic!("expected zsh parameter syntax"),
+    };
+    let sh_glob_word = sh_glob_operation
+        .pattern_word_ast()
+        .expect("expected replacement pattern word");
+    assert_eq!(sh_glob_word.span.slice(source), "jobspec:<->");
+    assert!(!matches!(
+        sh_glob_word.parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::ZshQualifiedGlob(_),
+            ..
+        }]
+    ));
+}
+
+#[test]
+fn test_zsh_sh_glob_still_allows_ksh_groups_when_enabled() {
+    let source = "print @(foo|bar)\n";
+    let output = parse_zsh_with_options(source, |options| {
+        options.sh_glob = OptionValue::On;
+        options.ksh_glob = OptionValue::On;
+    });
+    let command = expect_simple(&output.file.body[0]);
+    let glob = expect_zsh_qualified_glob(&command.args[0]);
+    let [segment] = glob.segments.as_slice() else {
+        panic!("expected a single pattern segment");
+    };
+    assert_eq!(
+        expect_zsh_glob_pattern_segment(segment).render_syntax(source),
+        "@(foo|bar)"
+    );
 }
 
 #[test]
@@ -7084,6 +7387,230 @@ fn test_parse_zsh_nested_join_modifier_inside_replacement_word() {
         array.span.slice(source),
         "(${(@)${:-{$#parts..1}}/(#m)*/$parent${(pj./.)parts[1,MATCH]}})"
     );
+}
+
+#[test]
+fn test_zsh_replacement_pattern_word_requires_extended_glob() {
+    let source = "print ${(S)value//(#m)o/X}\n";
+
+    let default_output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let default_command = expect_simple(&default_output.file.body[0]);
+    let default_parameter = expect_parameter(&default_command.args[0]);
+    let default_operation = match &default_parameter.syntax {
+        ParameterExpansionSyntax::Zsh(parameter) => parameter
+            .operation
+            .as_ref()
+            .expect("expected replacement operation"),
+        _ => panic!("expected zsh parameter syntax"),
+    };
+    let default_pattern = default_operation
+        .pattern_word_ast()
+        .expect("expected replacement pattern word");
+    assert!(!matches!(
+        default_pattern.parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::ZshQualifiedGlob(_),
+            ..
+        }]
+    ));
+
+    let output = parse_zsh_with_options(source, |options| {
+        options.extended_glob = OptionValue::On;
+    });
+    let command = expect_simple(&output.file.body[0]);
+    let parameter = expect_parameter(&command.args[0]);
+    let operation = match &parameter.syntax {
+        ParameterExpansionSyntax::Zsh(parameter) => parameter
+            .operation
+            .as_ref()
+            .expect("expected replacement operation"),
+        _ => panic!("expected zsh parameter syntax"),
+    };
+    let pattern = operation
+        .pattern_word_ast()
+        .expect("expected replacement pattern word");
+    let glob = expect_zsh_qualified_glob(pattern);
+    let [segment] = glob.segments.as_slice() else {
+        panic!("expected a single source-preserved pattern segment");
+    };
+    assert_eq!(
+        expect_zsh_glob_pattern_segment(segment).render_syntax(source),
+        "(#m)o"
+    );
+}
+
+#[test]
+fn test_zsh_setopt_and_unsetopt_change_following_word_parse() {
+    let source = concat!(
+        "print foo~bar\n",
+        "setopt extended_glob\n",
+        "print foo~bar\n",
+        "unsetopt extended_glob\n",
+        "print foo~bar\n",
+    );
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let first = expect_simple(&output.file.body[0]);
+    assert!(!matches!(
+        first.args[0].parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::ZshQualifiedGlob(_),
+            ..
+        }]
+    ));
+
+    let second = expect_simple(&output.file.body[2]);
+    assert!(matches!(
+        second.args[0].parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::ZshQualifiedGlob(_),
+            ..
+        }]
+    ));
+
+    let third = expect_simple(&output.file.body[4]);
+    assert!(!matches!(
+        third.args[0].parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::ZshQualifiedGlob(_),
+            ..
+        }]
+    ));
+}
+
+#[test]
+fn test_zsh_setopt_and_unsetopt_sh_glob_change_following_replacement_pattern_parse() {
+    let source = concat!(
+        "print ${(S)value//jobspec:<->/X}\n",
+        "setopt sh_glob\n",
+        "print ${(S)value//jobspec:<->/X}\n",
+        "unsetopt sh_glob\n",
+        "print ${(S)value//jobspec:<->/X}\n",
+    );
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let first = expect_simple(&output.file.body[0]);
+    let first_parameter = expect_parameter(&first.args[0]);
+    let first_pattern = match &first_parameter.syntax {
+        ParameterExpansionSyntax::Zsh(parameter) => parameter
+            .operation
+            .as_ref()
+            .expect("expected replacement operation")
+            .pattern_word_ast()
+            .expect("expected replacement pattern word"),
+        _ => panic!("expected zsh parameter syntax"),
+    };
+    assert!(matches!(
+        first_pattern.parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::ZshQualifiedGlob(_),
+            ..
+        }]
+    ));
+
+    let second = expect_simple(&output.file.body[2]);
+    let second_parameter = expect_parameter(&second.args[0]);
+    let second_pattern = match &second_parameter.syntax {
+        ParameterExpansionSyntax::Zsh(parameter) => parameter
+            .operation
+            .as_ref()
+            .expect("expected replacement operation")
+            .pattern_word_ast()
+            .expect("expected replacement pattern word"),
+        _ => panic!("expected zsh parameter syntax"),
+    };
+    assert!(!matches!(
+        second_pattern.parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::ZshQualifiedGlob(_),
+            ..
+        }]
+    ));
+
+    let third = expect_simple(&output.file.body[4]);
+    let third_parameter = expect_parameter(&third.args[0]);
+    let third_pattern = match &third_parameter.syntax {
+        ParameterExpansionSyntax::Zsh(parameter) => parameter
+            .operation
+            .as_ref()
+            .expect("expected replacement operation")
+            .pattern_word_ast()
+            .expect("expected replacement pattern word"),
+        _ => panic!("expected zsh parameter syntax"),
+    };
+    assert!(matches!(
+        third_pattern.parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::ZshQualifiedGlob(_),
+            ..
+        }]
+    ));
+}
+
+#[test]
+fn test_zsh_setopt_ksh_glob_changes_following_word_parse() {
+    let source = concat!(
+        "print @(foo|bar)\n",
+        "setopt ksh_glob\n",
+        "print @(foo|bar)\n",
+    );
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let first = expect_simple(&output.file.body[0]);
+    assert!(!matches!(
+        first.args[0].parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::ZshQualifiedGlob(_),
+            ..
+        }]
+    ));
+
+    let second = expect_simple(&output.file.body[2]);
+    assert!(matches!(
+        second.args[0].parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::ZshQualifiedGlob(_),
+            ..
+        }]
+    ));
+}
+
+#[test]
+fn test_zsh_emulate_extended_glob_changes_following_word_parse() {
+    let source = concat!(
+        "print foo##\n",
+        "emulate -L zsh -o extended_glob\n",
+        "print foo##\n",
+    );
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let first = expect_simple(&output.file.body[0]);
+    assert!(!matches!(
+        first.args[0].parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::ZshQualifiedGlob(_),
+            ..
+        }]
+    ));
+
+    let second = expect_simple(&output.file.body[2]);
+    assert!(matches!(
+        second.args[0].parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::ZshQualifiedGlob(_),
+            ..
+        }]
+    ));
 }
 
 #[test]
