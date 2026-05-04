@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::lint::{
     AssociatedDiagnosticData, associated_diagnostic_data, directive_edit_for_line,
-    fix_all_document_edits,
+    fix_all_document_edits, generate_diagnostics,
 };
 use crate::session::{Client, DocumentSnapshot, Session};
 
@@ -20,7 +20,7 @@ pub(crate) fn code_actions(
     let include_fix_all = wants_kind(only, &crate::SOURCE_FIX_ALL_SHUCK);
 
     if include_quickfix {
-        for diagnostic in params.context.diagnostics {
+        for diagnostic in diagnostics_for_range(&snapshot, &params.range) {
             let Some(data) = associated_diagnostic_data(&snapshot, &diagnostic) else {
                 continue;
             };
@@ -308,7 +308,36 @@ fn apply_workspace_edit(
 }
 
 fn wants_kind(only: Option<&Vec<types::CodeActionKind>>, expected: &types::CodeActionKind) -> bool {
-    only.is_none_or(|kinds| kinds.iter().any(|kind| kind == expected))
+    only.is_none_or(|kinds| kinds.iter().any(|kind| action_kind_matches(kind, expected)))
+}
+
+fn diagnostics_for_range(
+    snapshot: &DocumentSnapshot,
+    requested_range: &types::Range,
+) -> Vec<types::Diagnostic> {
+    generate_diagnostics(snapshot)
+        .into_iter()
+        .filter(|diagnostic| ranges_overlap(&diagnostic.range, requested_range))
+        .collect()
+}
+
+fn action_kind_matches(
+    requested: &types::CodeActionKind,
+    provided: &types::CodeActionKind,
+) -> bool {
+    provided.as_str() == requested.as_str()
+        || provided
+            .as_str()
+            .strip_prefix(requested.as_str())
+            .is_some_and(|suffix| suffix.starts_with('.'))
+}
+
+fn ranges_overlap(left: &types::Range, right: &types::Range) -> bool {
+    position_leq(left.start, right.end) && position_leq(right.start, left.end)
+}
+
+fn position_leq(left: types::Position, right: types::Position) -> bool {
+    (left.line, left.character) <= (right.line, right.character)
 }
 
 fn command_uri(arguments: &[serde_json::Value]) -> crate::server::Result<lsp_types::Url> {
@@ -368,7 +397,8 @@ mod tests {
     use lsp_server::Message;
     use lsp_types::{
         CodeActionContext, CodeActionParams, ClientCapabilities, PartialResultParams, Position,
-        Range, TextDocumentIdentifier, Url, WorkDoneProgressParams,
+        Range, TextDocumentContentChangeEvent, TextDocumentIdentifier, Url,
+        WorkDoneProgressParams,
     };
 
     use super::*;
@@ -420,6 +450,42 @@ mod tests {
         (session, client, client_receiver, uri)
     }
 
+    fn extract_actions(
+        response: types::CodeActionResponse,
+    ) -> Vec<types::CodeAction> {
+        response
+            .into_iter()
+            .map(|entry| match entry {
+                types::CodeActionOrCommand::CodeAction(action) => action,
+                types::CodeActionOrCommand::Command(command) => {
+                    panic!("unexpected command response: {}", command.title)
+                }
+            })
+            .collect()
+    }
+
+    fn first_edit_range(action: &types::CodeAction) -> Range {
+        let edit = action
+            .edit
+            .as_ref()
+            .expect("code action should include an edit");
+        let document_changes = edit
+            .document_changes
+            .as_ref()
+            .expect("workspace edit should use document changes");
+        let types::DocumentChanges::Edits(edits) = document_changes else {
+            panic!("workspace edit should contain document edits");
+        };
+        let text_edit = edits[0]
+            .edits
+            .first()
+            .expect("workspace edit should contain at least one text edit");
+        let types::OneOf::Left(text_edit) = text_edit else {
+            panic!("workspace edit should contain plain text edits");
+        };
+        text_edit.range
+    }
+
     fn deferred_capabilities() -> ClientCapabilities {
         serde_json::from_value(serde_json::json!({
             "textDocument": {
@@ -466,15 +532,7 @@ mod tests {
         .expect("code action request should succeed")
         .expect("violating document should produce actions");
 
-        let actions = response
-            .into_iter()
-            .map(|entry| match entry {
-                types::CodeActionOrCommand::CodeAction(action) => action,
-                types::CodeActionOrCommand::Command(command) => {
-                    panic!("unexpected command response: {}", command.title)
-                }
-            })
-            .collect::<Vec<_>>();
+        let actions = extract_actions(response);
 
         assert!(actions.iter().any(|action| action.title.contains("rename the unused assignment target")));
         assert!(actions.iter().any(|action| action.title.contains("Disable for this line")));
@@ -645,15 +703,7 @@ mod tests {
         .expect("code action request should succeed")
         .expect("violating document should still produce a disable action");
 
-        let actions = response
-            .into_iter()
-            .map(|entry| match entry {
-                types::CodeActionOrCommand::CodeAction(action) => action,
-                types::CodeActionOrCommand::Command(command) => {
-                    panic!("unexpected command response: {}", command.title)
-                }
-            })
-            .collect::<Vec<_>>();
+        let actions = extract_actions(response);
 
         assert!(actions
             .iter()
@@ -664,5 +714,111 @@ mod tests {
         assert!(!actions
             .iter()
             .any(|action| action.kind == Some(crate::SOURCE_FIX_ALL_SHUCK)));
+    }
+
+    #[test]
+    fn code_actions_recompute_live_quickfix_and_disable_edits() {
+        let capabilities = deferred_capabilities();
+        let (mut session, client, _client_receiver, uri) =
+            make_session(capabilities, "foo=1\n", "shellscript", "script.sh");
+        let stale_snapshot = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot");
+        let stale_diagnostics = generate_diagnostics(&stale_snapshot);
+
+        let key = session.key_from_url(uri.clone());
+        session
+            .update_text_document(
+                &key,
+                vec![TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: "\nfoo=1\n".to_owned(),
+                }],
+                2,
+            )
+            .expect("text document update should succeed");
+
+        let live_snapshot = session
+            .take_snapshot(uri.clone())
+            .expect("updated document should produce a snapshot");
+        let response = code_actions(
+            live_snapshot,
+            &client,
+            CodeActionParams {
+                text_document: TextDocumentIdentifier { uri },
+                range: Range::new(Position::new(1, 0), Position::new(1, 3)),
+                context: CodeActionContext {
+                    diagnostics: stale_diagnostics,
+                    only: Some(vec![types::CodeActionKind::QUICKFIX]),
+                    trigger_kind: None,
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            },
+        )
+        .expect("code action request should succeed")
+        .expect("live diagnostic should still produce actions");
+
+        let actions = extract_actions(response);
+        let quickfix = actions
+            .iter()
+            .find(|action| action.title.contains("rename the unused assignment target"))
+            .expect("quickfix action should be present");
+        let disable = actions
+            .iter()
+            .find(|action| action.title.contains("Disable for this line"))
+            .expect("disable action should be present");
+
+        assert_eq!(first_edit_range(quickfix).start.line, 1);
+        assert_eq!(first_edit_range(disable).start.line, 1);
+        assert_eq!(
+            quickfix
+                .diagnostics
+                .as_ref()
+                .expect("quickfix should preserve associated diagnostic")[0]
+                .range
+                .start
+                .line,
+            1
+        );
+    }
+
+    #[test]
+    fn code_actions_match_parent_fix_all_kinds() {
+        let capabilities = deferred_capabilities();
+        let (session, client, _client_receiver, uri) =
+            make_session(capabilities, "foo=1\n", "shellscript", "script.sh");
+
+        for only in [
+            types::CodeActionKind::SOURCE_FIX_ALL,
+            types::CodeActionKind::SOURCE,
+        ] {
+            let snapshot = session
+                .take_snapshot(uri.clone())
+                .expect("test document should produce a snapshot");
+            let response = code_actions(
+                snapshot,
+                &client,
+                CodeActionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    range: Range::new(Position::new(0, 0), Position::new(0, 3)),
+                    context: CodeActionContext {
+                        diagnostics: Vec::new(),
+                        only: Some(vec![only]),
+                        trigger_kind: None,
+                    },
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
+                },
+            )
+            .expect("code action request should succeed")
+            .expect("fix-all action should be returned for parent kind filters");
+
+            let actions = extract_actions(response);
+            assert!(actions
+                .iter()
+                .any(|action| action.kind == Some(crate::SOURCE_FIX_ALL_SHUCK)));
+        }
     }
 }

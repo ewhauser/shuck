@@ -8,7 +8,7 @@ use lsp_types::{FileEvent, Url};
 use rustc_hash::FxHashMap;
 
 use crate::edit::{DocumentKey, DocumentVersion};
-use crate::session::Client;
+use crate::session::{Client, ClientOptions};
 use crate::session::settings::{GlobalClientSettings, ShuckSettings};
 use crate::workspace::Workspaces;
 use crate::{PositionEncoding, TextDocument};
@@ -17,6 +17,13 @@ use crate::{PositionEncoding, TextDocument};
 pub(crate) struct Index {
     documents: FxHashMap<Url, Arc<TextDocument>>,
     workspace_roots: Vec<PathBuf>,
+    workspace_settings: Vec<WorkspaceSettings>,
+}
+
+#[derive(Clone)]
+struct WorkspaceSettings {
+    root: PathBuf,
+    options: Option<ClientOptions>,
 }
 
 #[derive(Clone)]
@@ -34,13 +41,27 @@ impl Index {
         _global: &GlobalClientSettings,
         _client: &Client,
     ) -> crate::Result<Self> {
-        let workspace_roots = workspaces
+        let workspace_settings = workspaces
             .iter()
-            .filter_map(|workspace| workspace.url().to_file_path().ok())
+            .filter_map(|workspace| {
+                workspace
+                    .url()
+                    .to_file_path()
+                    .ok()
+                    .map(|root| WorkspaceSettings {
+                        root,
+                        options: workspace.options().cloned(),
+                    })
+            })
+            .collect::<Vec<_>>();
+        let workspace_roots = workspace_settings
+            .iter()
+            .map(|workspace| workspace.root.clone())
             .collect();
         Ok(Self {
             documents: FxHashMap::default(),
             workspace_roots,
+            workspace_settings,
         })
     }
 
@@ -109,7 +130,13 @@ impl Index {
             .to_file_path()
             .map_err(|()| anyhow!("failed to convert workspace URL to file path: {url}"))?;
         if !self.workspace_roots.contains(&path) {
-            self.workspace_roots.push(path);
+            self.workspace_roots.push(path.clone());
+        }
+        if !self.workspace_settings.iter().any(|workspace| workspace.root == path) {
+            self.workspace_settings.push(WorkspaceSettings {
+                root: path,
+                options: None,
+            });
         }
         Ok(())
     }
@@ -119,6 +146,8 @@ impl Index {
             anyhow!("failed to convert workspace URL to file path: {workspace_url}")
         })?;
         self.workspace_roots.retain(|root| root != &path);
+        self.workspace_settings
+            .retain(|workspace| workspace.root != path);
         self.documents.retain(|url, _| {
             url.to_file_path()
                 .map(|file_path| !file_path.starts_with(&path))
@@ -133,6 +162,15 @@ impl Index {
 
     pub(super) fn workspace_roots(&self) -> &[PathBuf] {
         &self.workspace_roots
+    }
+
+    pub(super) fn workspace_options_for_url(&self, url: &Url) -> Option<&ClientOptions> {
+        let path = url.to_file_path().ok()?;
+        self.workspace_settings
+            .iter()
+            .filter(|workspace| path.starts_with(&workspace.root))
+            .max_by_key(|workspace| workspace.root.components().count())
+            .and_then(|workspace| workspace.options.as_ref())
     }
 
     pub(super) fn open_document_count(&self) -> usize {

@@ -50,7 +50,7 @@ impl ClientSettings {
         self.show_syntax_errors
     }
 
-    fn from_options(options: &ClientOptions) -> Self {
+    pub(crate) fn from_options(options: &ClientOptions) -> Self {
         Self {
             fix_all: options.fix_all.unwrap_or(true),
             unsafe_fixes: options.unsafe_fixes.unwrap_or(false),
@@ -157,13 +157,18 @@ fn linter_settings_for_config(
     config: &ShuckConfig,
 ) -> LinterSettings {
     let mut rules = LinterSettings::default_rules();
-    rules = apply_selector_list(rules, config.lint.select.as_deref());
-    rules = rules.union(&selectors_to_rule_set(
-        config.lint.extend_select.as_deref().unwrap_or(&[]),
-    ));
-    rules = rules.subtract(&selectors_to_rule_set(
-        config.lint.ignore.as_deref().unwrap_or(&[]),
-    ));
+    if let Some(select) = parse_selector_list(config.lint.select.as_deref(), "lint.select") {
+        rules = selectors_to_rule_set_from_parsed(&select);
+    }
+    if let Some(extend_select) = parse_selector_list(
+        config.lint.extend_select.as_deref(),
+        "lint.extend-select",
+    ) {
+        rules = rules.union(&selectors_to_rule_set_from_parsed(&extend_select));
+    }
+    if let Some(ignore) = parse_selector_list(config.lint.ignore.as_deref(), "lint.ignore") {
+        rules = rules.subtract(&selectors_to_rule_set_from_parsed(&ignore));
+    }
 
     let per_file_ignores = per_file_ignores_for_config(config);
     let compiled_per_file_ignores =
@@ -232,12 +237,8 @@ fn formatter_settings_for_config(config: &ShuckConfig) -> ShellFormatOptions {
     options
 }
 
-fn apply_selector_list(rules: RuleSet, selectors: Option<&[String]>) -> RuleSet {
-    selectors.map_or(rules, selectors_to_rule_set)
-}
-
 fn fixable_rules_for_config(config: &ShuckConfig) -> RuleSet {
-    let fixable = parse_optional_selector_list(config.lint.fixable.as_deref(), "lint.fixable");
+    let fixable = parse_selector_list(config.lint.fixable.as_deref(), "lint.fixable");
     let extend_fixable =
         parse_selector_list(config.lint.extend_fixable.as_deref(), "lint.extend-fixable");
     let unfixable = parse_selector_list(config.lint.unfixable.as_deref(), "lint.unfixable");
@@ -245,13 +246,9 @@ fn fixable_rules_for_config(config: &ShuckConfig) -> RuleSet {
     apply_rule_selector_layer(
         RuleSet::all(),
         fixable.as_deref(),
-        &extend_fixable,
-        &unfixable,
+        extend_fixable.as_deref().unwrap_or(&[]),
+        unfixable.as_deref().unwrap_or(&[]),
     )
-}
-
-fn selectors_to_rule_set(selectors: &[String]) -> RuleSet {
-    selectors_to_rule_set_from_parsed(&parse_selectors(selectors).unwrap_or_default())
 }
 
 fn selectors_to_rule_set_from_parsed(selectors: &[RuleSelector]) -> RuleSet {
@@ -288,21 +285,15 @@ fn parse_selectors(selectors: &[String]) -> anyhow::Result<Vec<RuleSelector>> {
         .collect()
 }
 
-fn parse_optional_selector_list(
-    selectors: Option<&[String]>,
-    scope: &str,
-) -> Option<Vec<RuleSelector>> {
-    selectors.map(|selectors| match parse_selectors(selectors) {
-        Ok(parsed) => parsed,
+fn parse_selector_list(selectors: Option<&[String]>, scope: &str) -> Option<Vec<RuleSelector>> {
+    let selectors = selectors?;
+    match parse_selectors(selectors) {
+        Ok(parsed) => Some(parsed),
         Err(error) => {
             tracing::warn!("Ignoring invalid {scope} selectors: {error}");
-            Vec::new()
+            None
         }
-    })
-}
-
-fn parse_selector_list(selectors: Option<&[String]>, scope: &str) -> Vec<RuleSelector> {
-    parse_optional_selector_list(selectors, scope).unwrap_or_default()
+    }
 }
 
 fn apply_rule_selector_layer(
@@ -669,5 +660,69 @@ mod tests {
             shuck_formatter::IndentStyle::Space
         );
         assert_eq!(settings.formatter().indent_width(), 2);
+    }
+
+    #[test]
+    fn invalid_selectors_leave_default_rules_enabled() {
+        let tempdir = tempfile::tempdir().expect("tempdir should be created");
+        std::fs::write(
+            tempdir.path().join(".shuck.toml"),
+            "[lint]\nselect = ['C001', 'oops']\n",
+        )
+        .expect("config should be written");
+
+        let file_path = tempdir.path().join("script.sh");
+        std::fs::write(&file_path, "foo=1\n").expect("source should be written");
+
+        let settings = ShuckSettings::resolve(
+            Some(&file_path),
+            &[tempdir.path().to_path_buf()],
+            &ClientOptions::default(),
+        );
+
+        assert_eq!(settings.linter().rules, LinterSettings::default_rules());
+    }
+
+    #[test]
+    fn invalid_ignore_selectors_do_not_clear_valid_rule_selection() {
+        let tempdir = tempfile::tempdir().expect("tempdir should be created");
+        std::fs::write(
+            tempdir.path().join(".shuck.toml"),
+            "[lint]\nselect = ['C001']\nignore = ['oops']\n",
+        )
+        .expect("config should be written");
+
+        let file_path = tempdir.path().join("script.sh");
+        std::fs::write(&file_path, "foo=1\n").expect("source should be written");
+
+        let settings = ShuckSettings::resolve(
+            Some(&file_path),
+            &[tempdir.path().to_path_buf()],
+            &ClientOptions::default(),
+        );
+
+        assert!(settings.linter().rules.contains(shuck_linter::Rule::UnusedAssignment));
+        assert_eq!(settings.linter().rules.len(), 1);
+    }
+
+    #[test]
+    fn invalid_fixable_selectors_leave_fixable_rules_enabled() {
+        let tempdir = tempfile::tempdir().expect("tempdir should be created");
+        std::fs::write(
+            tempdir.path().join(".shuck.toml"),
+            "[lint]\nfixable = ['oops']\n",
+        )
+        .expect("config should be written");
+
+        let file_path = tempdir.path().join("script.sh");
+        std::fs::write(&file_path, "foo=1\n").expect("source should be written");
+
+        let settings = ShuckSettings::resolve(
+            Some(&file_path),
+            &[tempdir.path().to_path_buf()],
+            &ClientOptions::default(),
+        );
+
+        assert_eq!(settings.fixable_rules(), RuleSet::all());
     }
 }
