@@ -434,4 +434,73 @@ mod tests {
         );
         assert_eq!(after.shuck_settings().linter().rules.len(), 1);
     }
+
+    #[test]
+    fn nested_config_creation_switches_to_a_new_cache_key() {
+        let workspace = tempfile::tempdir().expect("workspace should be created");
+        std::fs::write(
+            workspace.path().join(".shuck.toml"),
+            "[lint]\nselect = ['C001']\n",
+        )
+        .expect("config should be written");
+        let nested = workspace.path().join("nested");
+        std::fs::create_dir_all(&nested).expect("nested dir should be created");
+        let workspace_uri =
+            Url::from_file_path(workspace.path()).expect("workspace path should convert");
+        let workspaces = Workspaces::new(vec![Workspace::default(workspace_uri)]);
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, _client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+        let global = GlobalOptions::default().into_settings(client.clone());
+        let mut session = Session::new(
+            &client_capabilities_with_dynamic_watched_files(),
+            PositionEncoding::UTF16,
+            global,
+            &workspaces,
+            &client,
+        )
+        .expect("test session should initialize");
+        session.set_project_settings_cache_enabled(true);
+
+        let uri = Url::from_file_path(nested.join("script.sh"))
+            .expect("test path should convert to a URL");
+        session.open_text_document(
+            uri.clone(),
+            TextDocument::new("foo=1\n".to_owned(), 1).with_language_id("shellscript"),
+        );
+
+        let before = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot");
+        assert_eq!(
+            before.shuck_settings().project_root(),
+            Some(workspace.path())
+        );
+        assert!(
+            before
+                .shuck_settings()
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UnusedAssignment)
+        );
+
+        std::fs::write(nested.join(".shuck.toml"), "[lint]\nselect = ['C006']\n")
+            .expect("nested config should be written");
+
+        let after = session
+            .take_snapshot(uri)
+            .expect("test document should produce a snapshot");
+        assert_eq!(
+            after.shuck_settings().project_root(),
+            Some(nested.as_path())
+        );
+        assert!(
+            after
+                .shuck_settings()
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UndefinedVariable)
+        );
+        assert_eq!(after.shuck_settings().linter().rules.len(), 1);
+    }
 }
