@@ -1,0 +1,80 @@
+name = "rc_expand_param array fanout"
+source = '''
+arr=(a b)
+__shuck_probe_options native rcexpandparam ksharrays
+__shuck_probe_fields native $arr
+__shuck_probe_fields native_affix ${arr}x
+setopt rc_expand_param
+__shuck_probe_options rc_on rcexpandparam
+__shuck_probe_fields rc_affix ${arr}x
+__shuck_probe_fields force_rc ${^arr}x
+__shuck_probe_fields force_rc_off ${^^arr}x
+setopt ksh_arrays
+__shuck_probe_options ksh_arrays rcexpandparam ksharrays
+__shuck_probe_fields ksh_affix ${arr}x
+'''
+
+[option_probes.native]
+rcexpandparam = "off"
+ksharrays = "off"
+
+[option_probes.rc_on]
+rcexpandparam = "on"
+
+[option_probes.ksh_arrays]
+rcexpandparam = "on"
+ksharrays = "on"
+
+[field_probes.native]
+count = 2
+values = ["a", "b"]
+
+[field_probes.native.shuck]
+multi = true
+field_splitting = false
+pathname_matching = false
+
+[field_probes.native_affix]
+count = 2
+values = ["a", "bx"]
+
+[field_probes.native_affix.shuck]
+multi = true
+field_splitting = false
+pathname_matching = false
+
+[field_probes.rc_affix]
+count = 2
+values = ["ax", "bx"]
+
+[field_probes.rc_affix.shuck]
+multi = true
+field_splitting = false
+pathname_matching = false
+
+[field_probes.force_rc]
+count = 2
+values = ["ax", "bx"]
+
+[field_probes.force_rc.shuck]
+multi = true
+field_splitting = false
+pathname_matching = false
+
+[field_probes.force_rc_off]
+count = 2
+values = ["a", "bx"]
+
+[field_probes.force_rc_off.shuck]
+multi = true
+field_splitting = false
+pathname_matching = false
+
+[field_probes.ksh_affix]
+count = 1
+values = ["ax"]
+
+[field_probes.ksh_affix.shuck]
+multi = false
+field_splitting = false
+pathname_matching = false
