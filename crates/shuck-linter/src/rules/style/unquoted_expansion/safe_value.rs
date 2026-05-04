@@ -56,7 +56,12 @@ impl SafeValueQuery {
             | ExpansionContext::ConditionalPattern
             | ExpansionContext::ParameterPattern => Some(Self::Pattern),
             ExpansionContext::RegexOperand => Some(Self::Regex),
-            _ => None,
+            ExpansionContext::AssignmentValue
+            | ExpansionContext::ForList
+            | ExpansionContext::SelectList
+            | ExpansionContext::StringTestOperand
+            | ExpansionContext::ConditionalVarRefSubscript
+            | ExpansionContext::TrapAction => None,
         }
     }
 
@@ -1013,7 +1018,13 @@ impl<'a> SafeValueIndex<'a> {
                                 .iter()
                                 .any(|word| span_contains(word.span, at))
                     }
-                    _ => false,
+                    Command::Simple(_)
+                    | Command::Builtin(_)
+                    | Command::Decl(_)
+                    | Command::Binary(_)
+                    | Command::Compound(_)
+                    | Command::Function(_)
+                    | Command::AnonymousFunction(_) => false,
                 }
             })
     }
@@ -1038,7 +1049,13 @@ impl<'a> SafeValueIndex<'a> {
                                 .iter()
                                 .any(|word| span_contains(word.span, at))
                     }
-                    _ => false,
+                    Command::Simple(_)
+                    | Command::Builtin(_)
+                    | Command::Decl(_)
+                    | Command::Binary(_)
+                    | Command::Compound(_)
+                    | Command::Function(_)
+                    | Command::AnonymousFunction(_) => false,
                 }
             })
     }
@@ -1628,7 +1645,14 @@ impl<'a> SafeValueIndex<'a> {
                 value: AssignmentValueOrigin::PlainScalarAccess,
                 ..
             } => self.plain_scalar_field_safe_binding_class(binding_id, query, visiting),
-            _ => None,
+            BindingOrigin::Assignment { .. }
+            | BindingOrigin::LoopVariable { .. }
+            | BindingOrigin::ParameterDefaultAssignment { .. }
+            | BindingOrigin::Imported { .. }
+            | BindingOrigin::FunctionDefinition { .. }
+            | BindingOrigin::BuiltinTarget { .. }
+            | BindingOrigin::ArithmeticAssignment { .. }
+            | BindingOrigin::Nameref { .. } => None,
         }
     }
 
@@ -2038,8 +2062,15 @@ impl<'a> SafeValueIndex<'a> {
                 {
                     status_bindings.push(binding_id);
                 }
+                BindingOrigin::Assignment { .. }
+                | BindingOrigin::LoopVariable { .. }
+                | BindingOrigin::ParameterDefaultAssignment { .. }
+                | BindingOrigin::Imported { .. }
+                | BindingOrigin::FunctionDefinition { .. }
+                | BindingOrigin::BuiltinTarget { .. }
+                | BindingOrigin::ArithmeticAssignment { .. }
+                | BindingOrigin::Nameref { .. } => return false,
                 BindingOrigin::Declaration { .. } => {}
-                _ => return false,
             }
         }
 
@@ -3211,7 +3242,16 @@ impl<'a> SafeValueIndex<'a> {
                     BindingOrigin::Declaration { .. } => binding.attributes.intersects(
                         BindingAttributes::DECLARATION_INITIALIZED | BindingAttributes::INTEGER,
                     ),
-                    _ => self.binding_can_supply_parameter_value(binding_id),
+                    BindingOrigin::Assignment { .. }
+                    | BindingOrigin::LoopVariable { .. }
+                    | BindingOrigin::ParameterDefaultAssignment { .. }
+                    | BindingOrigin::Imported { .. }
+                    | BindingOrigin::FunctionDefinition { .. }
+                    | BindingOrigin::BuiltinTarget { .. }
+                    | BindingOrigin::ArithmeticAssignment { .. }
+                    | BindingOrigin::Nameref { .. } => {
+                        self.binding_can_supply_parameter_value(binding_id)
+                    }
                 };
                 binding.scope == scope
                     && binding.span.end.offset <= at.start.offset
@@ -3705,7 +3745,7 @@ impl<'a> SafeValueIndex<'a> {
             ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { .. }) => {
                 S001QuoteExposure::QuoteInertNonEmpty
             }
-            _ => {
+            ParameterExpansionSyntax::Bourne(_) | ParameterExpansionSyntax::Zsh(_) => {
                 if self.parameter_part_is_safe(parameter, at, query) {
                     S001QuoteExposure::QuoteInertNonEmpty
                 } else {
@@ -4065,7 +4105,13 @@ impl<'a> SafeValueIndex<'a> {
                 {
                     Some(command.body.span)
                 }
-                _ => None,
+                Command::Simple(_)
+                | Command::Builtin(_)
+                | Command::Decl(_)
+                | Command::Binary(_)
+                | Command::Compound(_)
+                | Command::Function(_)
+                | Command::AnonymousFunction(_) => None,
             })
             .min_by_key(|span| span.end.offset - span.start.offset)
     }
@@ -4156,9 +4202,25 @@ fn plain_scalar_reference_name_from_part(part: &WordPart) -> Option<Name> {
             {
                 Some(reference.name.clone())
             }
-            _ => None,
+            ParameterExpansionSyntax::Bourne(_) | ParameterExpansionSyntax::Zsh(_) => None,
         },
-        _ => None,
+        WordPart::Literal(_)
+        | WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::Variable(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => None,
     }
 }
 
@@ -4207,7 +4269,22 @@ fn part_is_safe_special_parameter_access(part: &WordPart) -> bool {
             Some(BourneParameterExpansion::Access { reference })
                 if safe_special_parameter(&reference.name) && reference.subscript.is_none()
         ),
-        _ => false,
+        WordPart::Literal(_)
+        | WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => false,
     }
 }
 
@@ -4253,7 +4330,23 @@ fn parts_have_arithmetic_expansion(parts: &[WordPartNode]) -> bool {
     parts.iter().any(|part| match &part.kind {
         WordPart::ArithmeticExpansion { .. } => true,
         WordPart::DoubleQuoted { parts, .. } => parts_have_arithmetic_expansion(parts),
-        _ => false,
+        WordPart::Literal(_)
+        | WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::Variable(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::Parameter(_)
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => false,
     })
 }
 
@@ -4271,7 +4364,22 @@ fn part_contains_special_parameter_slice(part: &WordPart) -> bool {
             .any(|part| part_contains_special_parameter_slice(&part.kind)),
         WordPart::Substring { reference, .. } => special_parameter_slice_reference(reference),
         WordPart::Parameter(parameter) => parameter_contains_special_parameter_slice(parameter),
-        _ => false,
+        WordPart::Literal(_)
+        | WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::Variable(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => false,
     }
 }
 

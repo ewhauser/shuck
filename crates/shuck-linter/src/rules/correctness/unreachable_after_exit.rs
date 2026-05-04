@@ -204,7 +204,14 @@ fn function_definition_span(
     let binding = checker.semantic().binding(binding);
     match binding.origin {
         BindingOrigin::FunctionDefinition { definition_span } => Some(definition_span),
-        _ => None,
+        BindingOrigin::Assignment { .. }
+        | BindingOrigin::LoopVariable { .. }
+        | BindingOrigin::ParameterDefaultAssignment { .. }
+        | BindingOrigin::Imported { .. }
+        | BindingOrigin::BuiltinTarget { .. }
+        | BindingOrigin::ArithmeticAssignment { .. }
+        | BindingOrigin::Declaration { .. }
+        | BindingOrigin::Nameref { .. } => None,
     }
 }
 

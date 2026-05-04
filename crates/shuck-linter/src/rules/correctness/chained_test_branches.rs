@@ -76,7 +76,7 @@ fn matches_and_then_or_chain(list: &ListFact<'_>) -> bool {
         match operator.op() {
             BinaryOp::And if !saw_or => saw_and = true,
             BinaryOp::Or if saw_and => saw_or = true,
-            _ => return false,
+            BinaryOp::And | BinaryOp::Or | BinaryOp::Pipe | BinaryOp::PipeAll => return false,
         }
     }
 

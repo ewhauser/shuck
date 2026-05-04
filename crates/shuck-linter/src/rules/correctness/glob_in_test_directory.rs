@@ -59,7 +59,10 @@ fn conditional_file_test_spans(conditional: &ConditionalFact<'_>, source: &str) 
                 .operand()
                 .word()
                 .and_then(|word| reportable_glob_span(word, source)),
-            _ => None,
+            ConditionalNodeFact::BareWord(_)
+            | ConditionalNodeFact::Unary(_)
+            | ConditionalNodeFact::Binary(_)
+            | ConditionalNodeFact::Other(_) => None,
         })
         .collect()
 }

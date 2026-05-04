@@ -42,7 +42,13 @@ pub(crate) fn loop_control_violations(
                 keyword_span(command.span, "continue"),
                 "continue",
             )),
-            _ => None,
+            Command::Simple(_)
+            | Command::Builtin(_)
+            | Command::Decl(_)
+            | Command::Binary(_)
+            | Command::Compound(_)
+            | Command::Function(_)
+            | Command::AnonymousFunction(_) => None,
         })
         .filter(|(command_span, _, keyword)| {
             let inside_function = checker

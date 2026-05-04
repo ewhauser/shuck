@@ -32,6 +32,7 @@ mod rule_selector;
 mod rule_set;
 #[allow(missing_docs)]
 /// Rule implementations and rule-oriented helper modules.
+#[deny(clippy::wildcard_enum_match_arm)]
 pub mod rules;
 #[allow(missing_docs)]
 mod settings;

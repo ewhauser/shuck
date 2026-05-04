@@ -53,11 +53,29 @@ fn is_hazardous_sudo_redirect(redirect: &Redirect) -> bool {
 fn sudo_redirect_span(redirect: &Redirect) -> Span {
     let start = match redirect.kind {
         RedirectKind::OutputBoth => redirect.span.start.advanced_by("&"),
-        _ => redirect.span.start,
+        RedirectKind::Output
+        | RedirectKind::Clobber
+        | RedirectKind::Append
+        | RedirectKind::Input
+        | RedirectKind::ReadWrite
+        | RedirectKind::HereDoc
+        | RedirectKind::HereDocStrip
+        | RedirectKind::HereString
+        | RedirectKind::DupOutput
+        | RedirectKind::DupInput => redirect.span.start,
     };
     let end = match redirect.kind {
         RedirectKind::Append => start.advanced_by(">>"),
-        _ => start.advanced_by(">"),
+        RedirectKind::Output
+        | RedirectKind::Clobber
+        | RedirectKind::Input
+        | RedirectKind::ReadWrite
+        | RedirectKind::HereDoc
+        | RedirectKind::HereDocStrip
+        | RedirectKind::HereString
+        | RedirectKind::DupOutput
+        | RedirectKind::DupInput
+        | RedirectKind::OutputBoth => start.advanced_by(">"),
     };
 
     if redirect.kind == RedirectKind::Input {

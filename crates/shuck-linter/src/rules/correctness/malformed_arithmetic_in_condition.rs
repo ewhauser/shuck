@@ -99,7 +99,9 @@ fn conditional_contains_numeric_comparison(conditional: &crate::ConditionalFact<
                 | ConditionalBinaryOp::ArithmeticLt
                 | ConditionalBinaryOp::ArithmeticGt
         ),
-        _ => false,
+        ConditionalNodeFact::BareWord(_)
+        | ConditionalNodeFact::Unary(_)
+        | ConditionalNodeFact::Other(_) => false,
     })
 }
 

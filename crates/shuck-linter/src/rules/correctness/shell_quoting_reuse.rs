@@ -376,7 +376,18 @@ fn is_test_v_variable_binding(binding: &Binding) -> bool {
         BindingKind::Imported => !binding
             .attributes
             .contains(BindingAttributes::IMPORTED_FUNCTION),
-        _ => true,
+        BindingKind::Assignment
+        | BindingKind::ParameterDefaultAssignment
+        | BindingKind::AppendAssignment
+        | BindingKind::ArrayAssignment
+        | BindingKind::Declaration(_)
+        | BindingKind::LoopVariable
+        | BindingKind::ReadTarget
+        | BindingKind::MapfileTarget
+        | BindingKind::PrintfTarget
+        | BindingKind::GetoptsTarget
+        | BindingKind::ArithmeticAssignment
+        | BindingKind::Nameref => true,
     }
 }
 

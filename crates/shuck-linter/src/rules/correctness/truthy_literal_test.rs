@@ -112,7 +112,10 @@ fn conditional_diagnostics(
             {
                 conditional_diagnostic(word.operand(), source)
             }
-            _ => None,
+            ConditionalNodeFact::BareWord(_)
+            | ConditionalNodeFact::Unary(_)
+            | ConditionalNodeFact::Binary(_)
+            | ConditionalNodeFact::Other(_) => None,
         })
         .collect()
 }

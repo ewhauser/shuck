@@ -725,7 +725,14 @@ fn report_function_definition(
     let binding = checker.semantic().binding(binding_id);
     let definition_span = match &binding.origin {
         BindingOrigin::FunctionDefinition { definition_span } => *definition_span,
-        _ => binding.span,
+        BindingOrigin::Assignment { .. }
+        | BindingOrigin::LoopVariable { .. }
+        | BindingOrigin::ParameterDefaultAssignment { .. }
+        | BindingOrigin::Imported { .. }
+        | BindingOrigin::BuiltinTarget { .. }
+        | BindingOrigin::ArithmeticAssignment { .. }
+        | BindingOrigin::Declaration { .. }
+        | BindingOrigin::Nameref { .. } => binding.span,
     };
     let diagnostic_span = trim_trailing_function_separator(definition_span, checker.source());
 
@@ -900,7 +907,13 @@ fn apparent_infinite_loop_body_span(
             condition_text_is(source, command.condition.span, &["false"])
                 .then_some(command.body.span)
         }
-        _ => None,
+        shuck_ast::Command::Simple(_)
+        | shuck_ast::Command::Builtin(_)
+        | shuck_ast::Command::Decl(_)
+        | shuck_ast::Command::Binary(_)
+        | shuck_ast::Command::Compound(_)
+        | shuck_ast::Command::Function(_)
+        | shuck_ast::Command::AnonymousFunction(_) => None,
     }
 }
 

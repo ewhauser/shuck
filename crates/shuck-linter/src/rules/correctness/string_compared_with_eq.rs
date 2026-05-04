@@ -61,7 +61,10 @@ fn conditional_string_eq_spans(
                 }
                 spans
             }
-            _ => Vec::new(),
+            ConditionalNodeFact::BareWord(_)
+            | ConditionalNodeFact::Unary(_)
+            | ConditionalNodeFact::Binary(_)
+            | ConditionalNodeFact::Other(_) => Vec::new(),
         })
         .collect()
 }

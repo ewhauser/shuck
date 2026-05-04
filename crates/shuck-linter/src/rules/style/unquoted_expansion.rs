@@ -277,7 +277,16 @@ fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool 
         | ExpansionContext::RedirectTarget(_)
         | ExpansionContext::DescriptorDupTarget(_) => true,
         ExpansionContext::DeclarationAssignmentValue => shell != ShellDialect::Bash,
-        _ => false,
+        ExpansionContext::AssignmentValue
+        | ExpansionContext::ForList
+        | ExpansionContext::SelectList
+        | ExpansionContext::CasePattern
+        | ExpansionContext::ConditionalPattern
+        | ExpansionContext::StringTestOperand
+        | ExpansionContext::RegexOperand
+        | ExpansionContext::ConditionalVarRefSubscript
+        | ExpansionContext::ParameterPattern
+        | ExpansionContext::TrapAction => false,
     }
 }
 

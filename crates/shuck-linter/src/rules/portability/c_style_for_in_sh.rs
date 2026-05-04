@@ -27,7 +27,13 @@ pub fn c_style_for_in_sh(checker: &mut Checker) {
             Command::Compound(CompoundCommand::ArithmeticFor(_)) => {
                 Some(keyword_span(fact.span_in_source(checker.source()), "for"))
             }
-            _ => None,
+            Command::Simple(_)
+            | Command::Builtin(_)
+            | Command::Decl(_)
+            | Command::Binary(_)
+            | Command::Compound(_)
+            | Command::Function(_)
+            | Command::AnonymousFunction(_) => None,
         })
         .collect::<Vec<_>>();
 

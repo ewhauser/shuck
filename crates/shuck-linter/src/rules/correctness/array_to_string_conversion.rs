@@ -452,7 +452,10 @@ fn append_declaration_assignment_name_spans(checker: &Checker<'_>) -> HashSet<(u
             DeclarationOperand::Assignment {
                 name_span, append, ..
             } if *append => Some((name_span.start.offset, name_span.end.offset)),
-            _ => None,
+            DeclarationOperand::Flag { .. }
+            | DeclarationOperand::Name { .. }
+            | DeclarationOperand::Assignment { .. }
+            | DeclarationOperand::DynamicWord { .. } => None,
         })
         .collect()
 }
@@ -491,7 +494,17 @@ fn binding_establishes_array_history(
         {
             false
         }
-        _ => binding_is_array_like(binding),
+        BindingKind::Assignment
+        | BindingKind::ParameterDefaultAssignment
+        | BindingKind::AppendAssignment
+        | BindingKind::ArrayAssignment
+        | BindingKind::Declaration(_)
+        | BindingKind::FunctionDefinition
+        | BindingKind::LoopVariable
+        | BindingKind::PrintfTarget
+        | BindingKind::GetoptsTarget
+        | BindingKind::ArithmeticAssignment
+        | BindingKind::Nameref => binding_is_array_like(binding),
     }
 }
 
@@ -536,7 +549,21 @@ fn declaration_resets_array_history(binding: &Binding) -> bool {
                 .contains(BindingAttributes::DECLARATION_INITIALIZED)
                 && !binding_is_array_like(binding)
         }
-        _ => false,
+        BindingKind::Assignment
+        | BindingKind::ParameterDefaultAssignment
+        | BindingKind::AppendAssignment
+        | BindingKind::ArrayAssignment
+        | BindingKind::FunctionDefinition
+        | BindingKind::LoopVariable
+        | BindingKind::ReadTarget
+        | BindingKind::MapfileTarget
+        | BindingKind::PrintfTarget
+        | BindingKind::GetoptsTarget
+        | BindingKind::ArithmeticAssignment
+        | BindingKind::Nameref
+        | BindingKind::Imported
+        | BindingKind::Declaration(DeclarationBuiltin::Export)
+        | BindingKind::Declaration(DeclarationBuiltin::Readonly) => false,
     }
 }
 
@@ -598,7 +625,12 @@ fn command_forces_builtin_resolution(
     for wrapper in command.wrappers() {
         match wrapper {
             WrapperKind::Command | WrapperKind::Builtin => saw_forcing_wrapper = true,
-            _ => return false,
+            WrapperKind::Noglob
+            | WrapperKind::Exec
+            | WrapperKind::Busybox
+            | WrapperKind::FindExec
+            | WrapperKind::FindExecDir
+            | WrapperKind::SudoFamily => return false,
         }
     }
 
@@ -616,7 +648,12 @@ fn command_wrapper_is_shadowed_function(
         let wrapper_name = match wrapper {
             WrapperKind::Command => "command",
             WrapperKind::Builtin => "builtin",
-            _ => return false,
+            WrapperKind::Noglob
+            | WrapperKind::Exec
+            | WrapperKind::Busybox
+            | WrapperKind::FindExec
+            | WrapperKind::FindExecDir
+            | WrapperKind::SudoFamily => return false,
         };
 
         if !lookup_bypasses_functions
