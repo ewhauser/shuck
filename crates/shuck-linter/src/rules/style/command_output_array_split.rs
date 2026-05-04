@@ -16,7 +16,11 @@ pub fn command_output_array_split(checker: &mut Checker) {
     let spans = checker
         .facts()
         .array_assignment_split_word_facts()
-        .flat_map(|fact| fact.unquoted_command_substitution_spans().iter().copied())
+        .flat_map(|fact| {
+            fact.split_sensitive_unquoted_command_substitution_spans()
+                .iter()
+                .copied()
+        })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || CommandOutputArraySplit);
@@ -27,7 +31,7 @@ mod tests {
     use std::path::Path;
 
     use crate::test::{test_snippet, test_snippet_at_path};
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_unquoted_command_substitutions_in_array_assignments() {
@@ -152,6 +156,23 @@ check() {
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$(printf '%s\\n' 'Solarized (dark)' base16)"]
+        );
+    }
+
+    #[test]
+    fn skips_native_zsh_array_command_substitutions_without_split_behavior() {
+        let source = "arr=($(cmd))\nsetopt sh_word_split\narr=($(cmd))\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CommandOutputArraySplit).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(cmd)"]
         );
     }
 }

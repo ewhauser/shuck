@@ -45,7 +45,7 @@ pub fn unquoted_command_substitution(checker: &mut Checker) {
         .word_facts()
         .iter()
         .flat_map(|fact| {
-            fact.unquoted_command_substitution_spans()
+            fact.split_sensitive_unquoted_command_substitution_spans()
                 .iter()
                 .copied()
                 .filter(|span| {
@@ -460,6 +460,24 @@ kill $(cat \"$pidfile\")
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$(cat \"$pidfile\")"]
+        );
+    }
+
+    #[test]
+    fn skips_native_zsh_command_substitutions_without_split_behavior() {
+        let source = "print $(cmd)\nsetopt sh_word_split\nprint $(cmd)\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(cmd)"]
         );
     }
 

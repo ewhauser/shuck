@@ -1048,6 +1048,7 @@ fn build_word_occurrence_index(
                 runtime_literal: RuntimeLiteralAnalysis::default(),
                 operand_class: None,
                 enclosing_expansion_context: Some(pending.enclosing_expansion_context),
+                split_sensitive_unquoted_command_substitution_spans: IdRange::empty(),
                 array_assignment_split_scalar_expansion_spans: IdRange::empty(),
             }),
     );

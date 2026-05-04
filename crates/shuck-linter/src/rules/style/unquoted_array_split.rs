@@ -196,6 +196,23 @@ arr=(${flag:+-f} ${flag:+$fallback} ${name:+\"$name\" \"$regex\"} ${items[@]+\"$
     }
 
     #[test]
+    fn skips_native_zsh_scalar_array_elements_without_split_behavior() {
+        let source = "arr=($name)\nsetopt sh_word_split\narr=($name)\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedArraySplit).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$name"]
+        );
+    }
+
+    #[test]
     fn ignores_expansions_inside_brace_expansion_templates() {
         let source = "\
 #!/bin/bash

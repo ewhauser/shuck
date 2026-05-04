@@ -2313,6 +2313,15 @@ fn builds_word_facts_for_filename_builder_command_substitutions() {
             "parts: {:?}",
             fact.word().parts
         );
+        assert_eq!(
+            fact.split_sensitive_unquoted_command_substitution_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(echo ${KERNEL} | tr '-' '_')"],
+            "parts: {:?}",
+            fact.word().parts
+        );
     });
 }
 
