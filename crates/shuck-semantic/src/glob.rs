@@ -25,6 +25,8 @@ pub enum PathnameExpansionBehavior {
     Disabled,
     /// Literal glob characters are active, but substitution results are not globbed.
     LiteralGlobsOnly,
+    /// Runtime option state may enable literal glob expansion, but substitution results stay plain.
+    LiteralGlobsOnlyOrDisabled,
     /// Unquoted substitution results can also trigger pathname expansion.
     SubstitutionResultsWhenUnquoted,
     /// Runtime option state may select either behavior family.
@@ -90,7 +92,10 @@ impl ShellBehaviorAt<'_> {
 
         match options.glob {
             OptionValue::Off => PathnameExpansionBehavior::Disabled,
-            OptionValue::Unknown => PathnameExpansionBehavior::Ambiguous,
+            OptionValue::Unknown => match options.glob_subst {
+                OptionValue::Off => PathnameExpansionBehavior::LiteralGlobsOnlyOrDisabled,
+                OptionValue::On | OptionValue::Unknown => PathnameExpansionBehavior::Ambiguous,
+            },
             OptionValue::On => match options.glob_subst {
                 OptionValue::Off => PathnameExpansionBehavior::LiteralGlobsOnly,
                 OptionValue::On => PathnameExpansionBehavior::SubstitutionResultsWhenUnquoted,
@@ -213,6 +218,10 @@ mod tests {
                 "opt=glob_subst\nsetopt \"$opt\"\nprint $name\n",
                 PathnameExpansionBehavior::Ambiguous,
             ),
+            (
+                "if cond; then setopt no_glob; fi\nprint $name\n",
+                PathnameExpansionBehavior::LiteralGlobsOnlyOrDisabled,
+            ),
         ] {
             let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
             let offset = source.find("print").expect("expected print offset");
@@ -250,6 +259,26 @@ mod tests {
                 "{source}"
             );
         }
+    }
+
+    #[test]
+    fn pathname_expansion_keeps_glob_subst_off_when_glob_is_flow_merged() {
+        let source = "\
+if cond; then
+  setopt no_glob
+fi
+print $name
+";
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let offset = source.find("print").expect("expected print offset");
+        let behavior = model.shell_behavior_at(offset).pathname_expansion();
+
+        assert_eq!(
+            behavior,
+            PathnameExpansionBehavior::LiteralGlobsOnlyOrDisabled
+        );
+        assert!(behavior.literal_globs_can_expand());
+        assert!(!behavior.unquoted_substitution_results_can_glob());
     }
 
     #[test]

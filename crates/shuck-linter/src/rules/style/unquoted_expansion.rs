@@ -5417,6 +5417,17 @@ printf '%s\\n' ${!dynamic}
     }
 
     #[test]
+    fn skips_unquoted_scalars_when_glob_is_flow_merged_but_glob_subst_is_off_in_zsh() {
+        let source = "if cond; then setopt no_glob; fi\nprint $name\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_unquoted_scalars_when_sh_word_split_is_set_even_with_no_glob_in_zsh() {
         let source = "setopt sh_word_split no_glob\nprint $name\n";
         let diagnostics = test_snippet(

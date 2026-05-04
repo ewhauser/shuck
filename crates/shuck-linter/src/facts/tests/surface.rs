@@ -2075,6 +2075,50 @@ print $name
 }
 
 #[test]
+fn builds_flow_merged_literal_only_pathname_behaviors_for_zsh_words() {
+    let source = "\
+#!/usr/bin/env zsh
+if cond; then
+  setopt no_glob
+fi
+print $name
+rm *
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            let scalar = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .find(|fact| fact.span().slice(source) == "$name")
+                .expect("expected scalar fact");
+            let glob = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .find(|fact| fact.span().slice(source) == "*")
+                .expect("expected glob fact");
+
+            assert_eq!(
+                scalar.analysis().pathname_expansion_behavior,
+                PathnameExpansionBehavior::LiteralGlobsOnlyOrDisabled
+            );
+            assert!(!scalar.analysis().hazards.pathname_matching);
+            assert_eq!(
+                glob.runtime_literal().pathname_expansion_behavior,
+                PathnameExpansionBehavior::LiteralGlobsOnlyOrDisabled
+            );
+            assert!(
+                glob.runtime_literal()
+                    .pathname_expansion_behavior
+                    .literal_globs_can_expand()
+            );
+        },
+    );
+}
+
+#[test]
 fn builds_glob_failure_behaviors_for_zsh_globs() {
     let source = "\
 #!/usr/bin/env zsh

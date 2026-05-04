@@ -323,7 +323,10 @@ pub(super) fn pathname_expansion_behavior_for_options(
                 OptionValue::On => PathnameExpansionBehavior::SubstitutionResultsWhenUnquoted,
                 OptionValue::Unknown => PathnameExpansionBehavior::Ambiguous,
             },
-            OptionValue::Unknown => PathnameExpansionBehavior::Ambiguous,
+            OptionValue::Unknown => match options.glob_subst {
+                OptionValue::Off => PathnameExpansionBehavior::LiteralGlobsOnlyOrDisabled,
+                OptionValue::On | OptionValue::Unknown => PathnameExpansionBehavior::Ambiguous,
+            },
         },
         None => PathnameExpansionBehavior::SubstitutionResultsWhenUnquoted,
     }
@@ -369,10 +372,26 @@ fn merge_pathname_expansion_behavior(
     current: Option<PathnameExpansionBehavior>,
     next: PathnameExpansionBehavior,
 ) -> Option<PathnameExpansionBehavior> {
+    use PathnameExpansionBehavior::{
+        Ambiguous, Disabled, LiteralGlobsOnly, LiteralGlobsOnlyOrDisabled,
+    };
+
     Some(match current {
         None => next,
         Some(existing) if existing == next => existing,
-        Some(_) => PathnameExpansionBehavior::Ambiguous,
+        Some(Ambiguous) | Some(_) if next == Ambiguous => Ambiguous,
+        Some(Disabled) if next == LiteralGlobsOnly => LiteralGlobsOnlyOrDisabled,
+        Some(LiteralGlobsOnly) if next == Disabled => LiteralGlobsOnlyOrDisabled,
+        Some(LiteralGlobsOnlyOrDisabled)
+            if matches!(next, Disabled | LiteralGlobsOnly | LiteralGlobsOnlyOrDisabled) =>
+        {
+            LiteralGlobsOnlyOrDisabled
+        }
+        Some(Disabled) if next == LiteralGlobsOnlyOrDisabled => LiteralGlobsOnlyOrDisabled,
+        Some(LiteralGlobsOnly) if next == LiteralGlobsOnlyOrDisabled => {
+            LiteralGlobsOnlyOrDisabled
+        }
+        Some(_) => Ambiguous,
     })
 }
 

@@ -426,6 +426,7 @@ mod expansion_analysis_tests {
             Some(&shuck_semantic::ZshOptionState {
                 sh_word_split: shuck_semantic::OptionValue::Unknown,
                 glob: shuck_semantic::OptionValue::Unknown,
+                glob_subst: shuck_semantic::OptionValue::Unknown,
                 ..shuck_semantic::ZshOptionState::zsh_default()
             }),
         );
@@ -441,6 +442,34 @@ mod expansion_analysis_tests {
         assert!(analysis.hazards.field_splitting);
         assert!(analysis.hazards.pathname_matching);
         assert!(analysis.can_expand_to_multiple_fields);
+    }
+
+    #[test]
+    fn analyze_word_keeps_glob_subst_off_when_glob_state_is_unknown() {
+        let source = "print $name\n";
+        let file = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap()
+            .file;
+        let Command::Simple(command) = &file.body[0].command else {
+            panic!("expected simple command");
+        };
+        let analysis = analyze_word(
+            &command.args[0],
+            source,
+            Some(&shuck_semantic::ZshOptionState {
+                glob: shuck_semantic::OptionValue::Unknown,
+                glob_subst: shuck_semantic::OptionValue::Off,
+                ..shuck_semantic::ZshOptionState::zsh_default()
+            }),
+        );
+
+        assert_eq!(
+            analysis.pathname_expansion_behavior,
+            PathnameExpansionBehavior::LiteralGlobsOnlyOrDisabled
+        );
+        assert!(!analysis.hazards.pathname_matching);
+        assert!(!analysis.can_expand_to_multiple_fields);
     }
 
     #[test]

@@ -323,6 +323,24 @@ printf '%s\\n' *
     }
 
     #[test]
+    fn still_reports_when_glob_is_flow_merged_in_zsh() {
+        let source = "if cond; then setopt no_glob; fi\nrm *\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LeadingGlobArgument)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["*"]
+        );
+    }
+
+    #[test]
     fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
         let result = test_path_with_fix(
             Path::new("correctness").join("C012.sh").as_path(),
