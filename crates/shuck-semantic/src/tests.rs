@@ -9812,6 +9812,10 @@ fn semantic_behavior_tracks_subscript_indexing_options() {
             SubscriptIndexBehavior::ZeroBased,
         ),
         (
+            "setopt ksh_arrays\nif cond; then setopt ksh_zero_subscript; fi\nprint ${arr[1]}\n",
+            SubscriptIndexBehavior::ZeroBased,
+        ),
+        (
             "setopt ksh_arrays\nunsetopt ksh_arrays\nprint ${arr[1]}\n",
             SubscriptIndexBehavior::OneBased,
         ),

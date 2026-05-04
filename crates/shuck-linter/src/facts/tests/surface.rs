@@ -3478,6 +3478,8 @@ fn indexed_array_reference_fragments_record_subscript_index_behavior() {
 printf '%s\\n' ${arr[1]}
 setopt ksh_arrays
 printf '%s\\n' ${arr[1]}
+if cond; then setopt ksh_zero_subscript; fi
+printf '%s\\n' ${arr[1]}
 unsetopt ksh_arrays
 setopt ksh_zero_subscript
 printf '%s\\n' ${arr[0]}
@@ -3501,6 +3503,7 @@ printf '%s\\n' ${arr[0]}
                 .collect::<Vec<_>>(),
             vec![
                 ("${arr[1]}", SubscriptIndexBehavior::OneBased),
+                ("${arr[1]}", SubscriptIndexBehavior::ZeroBased),
                 ("${arr[1]}", SubscriptIndexBehavior::ZeroBased),
                 ("${arr[0]}", SubscriptIndexBehavior::OneBasedWithZeroAlias,),
                 ("${arr[0]}", SubscriptIndexBehavior::Ambiguous),

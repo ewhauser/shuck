@@ -162,10 +162,10 @@ impl ShellBehaviorAt<'_> {
         };
 
         match (options.ksh_arrays, options.ksh_zero_subscript) {
-            (OptionValue::Unknown, _) | (_, OptionValue::Unknown) => {
+            (OptionValue::On, _) => SubscriptIndexBehavior::ZeroBased,
+            (OptionValue::Unknown, _) | (OptionValue::Off, OptionValue::Unknown) => {
                 SubscriptIndexBehavior::Ambiguous
             }
-            (OptionValue::On, _) => SubscriptIndexBehavior::ZeroBased,
             (OptionValue::Off, OptionValue::On) => SubscriptIndexBehavior::OneBasedWithZeroAlias,
             (OptionValue::Off, OptionValue::Off) => SubscriptIndexBehavior::OneBased,
         }
