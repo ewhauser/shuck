@@ -622,30 +622,28 @@ mod tests {
     }
 
     #[test]
-    fn merges_with_existing_shellcheck_disable_and_preserves_reason() {
+    fn skips_existing_shellcheck_disable_after_regular_code() {
         let source = "#!/bin/bash\necho $foo  # shellcheck disable=SC2086 # legacy\n";
         let (result, updated) = run_add_ignore(source, None);
 
-        assert_eq!(result.directives_added, 1);
-        assert!(result.diagnostics.is_empty());
-        assert_eq!(
-            updated,
-            "#!/bin/bash\necho $foo  # shellcheck disable=SC2086, SC2154 # legacy\n"
-        );
+        assert_eq!(result.directives_added, 0);
+        assert_eq!(updated, source);
     }
 
     #[test]
-    fn builds_in_memory_ignore_edit_for_existing_shellcheck_disable() {
-        let source = "#!/bin/bash\necho $foo  # shellcheck disable=SC2086 # reason\n";
+    fn builds_in_memory_ignore_edit_for_existing_ignore() {
+        let settings =
+            LinterSettings::for_rules([Rule::UndefinedVariable, Rule::UnquotedExpansion]);
+        let source = "#!/bin/bash\necho $foo  # shuck: ignore=S001 # reason\n";
         let edit = build_ignore_edit_for_line(
             source,
-            &LinterSettings::default(),
+            &settings,
             2,
             None,
             Some(Path::new("script.sh")),
         )
         .expect("line should produce an ignore edit");
-        let updated = Edit::replacement_at(
+        let updated = crate::Edit::replacement_at(
             usize::from(edit.range().start()),
             usize::from(edit.range().end()),
             edit.content(),
@@ -660,7 +658,7 @@ mod tests {
 
         assert_eq!(
             applied,
-            "#!/bin/bash\necho $foo  # shellcheck disable=SC2086, SC2154 # reason\n"
+            "#!/bin/bash\necho $foo  # shuck: ignore=C006, S001 # reason\n"
         );
     }
 
@@ -770,8 +768,9 @@ mod tests {
         let candidate_source =
             "#!/bin/bash\necho $foo  # shuck: ignore=C006\necho $bar\necho \"unterminated\n";
 
-        let current = analyze_source(path, current_source, &settings, &shellcheck_map);
-        let candidate = analyze_source(path, candidate_source, &settings, &shellcheck_map);
+        let current = analyze_source(current_source, &settings, &shellcheck_map, Some(path));
+        let candidate =
+            analyze_source(candidate_source, &settings, &shellcheck_map, Some(path));
         let line_diagnostics = current
             .diagnostics
             .iter()
@@ -793,8 +792,9 @@ mod tests {
         let current_source = "#!/bin/bash\necho $foo\necho $bar\n";
         let candidate_source = "#!/bin/bash\necho $foo  # shuck: ignore=C006\necho ok\n";
 
-        let current = analyze_source(path, current_source, &settings, &shellcheck_map);
-        let candidate = analyze_source(path, candidate_source, &settings, &shellcheck_map);
+        let current = analyze_source(current_source, &settings, &shellcheck_map, Some(path));
+        let candidate =
+            analyze_source(candidate_source, &settings, &shellcheck_map, Some(path));
         let line_diagnostics = current
             .diagnostics
             .iter()

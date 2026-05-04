@@ -172,6 +172,8 @@ pub(crate) fn execute_command(
 
 fn should_offer_fix(snapshot: &DocumentSnapshot, data: &AssociatedDiagnosticData) -> bool {
     !data.edits.is_empty()
+        && shuck_linter::code_to_rule(&data.code)
+            .is_some_and(|rule| snapshot.shuck_settings().fixable_rules().contains(rule))
         && (snapshot.client_settings().unsafe_fixes()
             || data.applicability == crate::lint::DiagnosticApplicability::Safe)
 }
@@ -581,5 +583,86 @@ mod tests {
             panic!("expected a client request");
         };
         assert_eq!(request.method, "workspace/applyEdit");
+    }
+
+    #[test]
+    fn code_actions_skip_rules_marked_unfixable_in_project_config() {
+        let capabilities = deferred_capabilities();
+        let workspace_root = tempfile::tempdir().expect("tempdir should be created");
+        std::fs::write(
+            workspace_root.path().join(".shuck.toml"),
+            "[lint]\nunfixable = ['C001']\n",
+        )
+        .expect("config should be written");
+        let script_path = workspace_root.path().join("script.sh");
+        std::fs::write(&script_path, "foo=1\n").expect("source should be written");
+
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, _client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+        let workspace_uri = Url::from_file_path(workspace_root.path())
+            .expect("workspace path should convert to a URL");
+        let workspaces = Workspaces::new(vec![Workspace::default(workspace_uri)]);
+        let global = GlobalOptions::default().into_settings(client.clone());
+        let mut session = Session::new(
+            &capabilities,
+            PositionEncoding::UTF16,
+            global,
+            &workspaces,
+            &client,
+        )
+        .expect("test session should initialize");
+        session.update_client_options(ClientOptions {
+            unsafe_fixes: Some(true),
+            ..ClientOptions::default()
+        });
+
+        let uri = Url::from_file_path(&script_path).expect("test path should convert to a URL");
+        session.open_text_document(
+            uri.clone(),
+            TextDocument::new("foo=1\n".to_owned(), 1).with_language_id("shellscript"),
+        );
+        let snapshot = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot");
+        let diagnostics = generate_diagnostics(&snapshot);
+
+        let response = code_actions(
+            snapshot,
+            &client,
+            CodeActionParams {
+                text_document: TextDocumentIdentifier { uri },
+                range: Range::new(Position::new(0, 0), Position::new(0, 3)),
+                context: CodeActionContext {
+                    diagnostics,
+                    only: None,
+                    trigger_kind: None,
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            },
+        )
+        .expect("code action request should succeed")
+        .expect("violating document should still produce a disable action");
+
+        let actions = response
+            .into_iter()
+            .map(|entry| match entry {
+                types::CodeActionOrCommand::CodeAction(action) => action,
+                types::CodeActionOrCommand::Command(command) => {
+                    panic!("unexpected command response: {}", command.title)
+                }
+            })
+            .collect::<Vec<_>>();
+
+        assert!(actions
+            .iter()
+            .any(|action| action.title.contains("Disable for this line")));
+        assert!(!actions
+            .iter()
+            .any(|action| action.title.contains("rename the unused assignment target")));
+        assert!(!actions
+            .iter()
+            .any(|action| action.kind == Some(crate::SOURCE_FIX_ALL_SHUCK)));
     }
 }

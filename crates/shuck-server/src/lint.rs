@@ -108,7 +108,13 @@ pub(crate) fn fix_all_document_edits(
     };
 
     let source = snapshot.query().document().contents();
-    let applied = shuck_linter::apply_fixes(source, &raw.shell_diagnostics, applicability);
+    let fixable_diagnostics = raw
+        .shell_diagnostics
+        .iter()
+        .filter(|diagnostic| snapshot.shuck_settings().fixable_rules().contains(diagnostic.rule))
+        .cloned()
+        .collect::<Vec<_>>();
+    let applied = shuck_linter::apply_fixes(source, &fixable_diagnostics, applicability);
     if applied.fixes_applied == 0 || applied.code == source {
         return Vec::new();
     }
