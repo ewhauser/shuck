@@ -5,7 +5,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.0.32"
+version = "0.0.33"
 edition = "2024"
 rust-version = "1.94.1"
 license = "MIT"
@@ -18,20 +18,20 @@ categories = ["command-line-utilities", "development-tools"]
 [workspace.dependencies]
 # Internal crates — path plus version so publishes to crates.io resolve.
 # The release script bumps these in lockstep with workspace.package.version.
-shuck-ast = { path = "crates/shuck-ast", version = "0.0.32" }
+shuck-ast = { path = "crates/shuck-ast", version = "0.0.33" }
 shuck-benchmark = { path = "crates/shuck-benchmark" }
-shuck-cache = { path = "crates/shuck-cache", version = "0.0.32" }
-shuck-config = { path = "crates/shuck-config", version = "0.0.32" }
-shuck-format = { path = "crates/shuck-format", version = "0.0.32" }
-shuck-formatter = { path = "crates/shuck-formatter", version = "0.0.32" }
-shuck-indexer = { path = "crates/shuck-indexer", version = "0.0.32" }
-shuck-linter = { path = "crates/shuck-linter", version = "0.0.32" }
-shuck-parser = { path = "crates/shuck-parser", version = "0.0.32" }
-shuck-run = { path = "crates/shuck-run", version = "0.0.32" }
-shuck-semantic = { path = "crates/shuck-semantic", version = "0.0.32" }
-shuck-cli = { path = "crates/shuck-cli", version = "0.0.32" }
-shuck-extract = { path = "crates/shuck-extract", version = "0.0.32" }
-shuck-server = { path = "crates/shuck-server", version = "0.0.32" }
+shuck-cache = { path = "crates/shuck-cache", version = "0.0.33" }
+shuck-config = { path = "crates/shuck-config", version = "0.0.33" }
+shuck-format = { path = "crates/shuck-format", version = "0.0.33" }
+shuck-formatter = { path = "crates/shuck-formatter", version = "0.0.33" }
+shuck-indexer = { path = "crates/shuck-indexer", version = "0.0.33" }
+shuck-linter = { path = "crates/shuck-linter", version = "0.0.33" }
+shuck-parser = { path = "crates/shuck-parser", version = "0.0.33" }
+shuck-run = { path = "crates/shuck-run", version = "0.0.33" }
+shuck-semantic = { path = "crates/shuck-semantic", version = "0.0.33" }
+shuck-cli = { path = "crates/shuck-cli", version = "0.0.33" }
+shuck-extract = { path = "crates/shuck-extract", version = "0.0.33" }
+shuck-server = { path = "crates/shuck-server", version = "0.0.33" }
 
 # Error handling
 thiserror = "2"
