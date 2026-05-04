@@ -6728,8 +6728,8 @@ fn test_zsh_glob_qualifier_in_command_substitution_preserves_inner_argument() {
     let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
         panic!("expected scalar assignment");
     };
-    let body = first_command_substitution_body(&word.parts)
-        .expect("expected command substitution body");
+    let body =
+        first_command_substitution_body(&word.parts).expect("expected command substitution body");
     let inner = expect_simple(&body[0]);
 
     assert_eq!(inner.name.render(source), "echo");

@@ -215,7 +215,10 @@ fn test_parse_redirect_with_descriptor_on_continuation_line_from_upstream() {
     assert_eq!(stmt.redirects.len(), 1);
     assert_eq!(stmt.redirects[0].fd, Some(2));
     assert_eq!(stmt.redirects[0].kind, RedirectKind::Output);
-    assert_eq!(redirect_word_target(&stmt.redirects[0]).render(input), "/dev/null");
+    assert_eq!(
+        redirect_word_target(&stmt.redirects[0]).render(input),
+        "/dev/null"
+    );
 }
 
 #[test]
