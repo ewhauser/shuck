@@ -160,6 +160,30 @@ jobs:
       - name: "Run tests"
         run: cargo test --workspace --all-features
 
+  lsp-integration-tests:
+    name: "LSP Integration Tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: "Install Nix"
+        uses: DeterminateSystems/determinate-nix-action@32cb6a5ae30bb0dfc996fa7baf8bf1ed28442fa4 # v3.17.3
+      - uses: DeterminateSystems/flakehub-cache-action@77fe95416299b8d1351b57bf10a1042a0ed75708 # v3.17.3
+      - name: "Install Rust toolchain"
+        run: rustup show
+      - name: "Run Neovim LSP integration tests"
+        run: |
+          nix develop --command \
+            python3 crates/shuck-server/tests/manual/run_neovim_blackbox.py
+
   benchmark-main-baseline:
     name: "benchmark main baseline"
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
