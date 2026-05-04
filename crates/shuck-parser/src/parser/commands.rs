@@ -4192,6 +4192,9 @@ impl<'a> Parser<'a> {
         if self.dialect == ShellDialect::Zsh {
             let mut entries = Vec::new();
             while self.current_token_kind.is_some_and(TokenKind::is_word_like) {
+                if !entries.is_empty() && self.current_token_is_compact_zsh_brace_body() {
+                    break;
+                }
                 entries.push(self.parse_function_header_entry()?);
                 if self.at(TokenKind::LeftParen) {
                     break;

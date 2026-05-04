@@ -116,6 +116,48 @@ fn test_parse_named_fd_redirect_read_write() {
 }
 
 #[test]
+fn test_parse_zsh_here_string_examples_from_upstream() {
+    for (input, expected_name) in [
+        ("cat <<< \"hello\"\n", "cat"),
+        ("grep pattern <<< \"$variable\"\n", "grep"),
+        ("cat 0<<< \"data\"\n", "cat"),
+    ] {
+        let script = Parser::with_dialect(input, ShellDialect::Zsh)
+            .parse()
+            .unwrap()
+            .file;
+        let stmt = &script.body[0];
+        let command = expect_simple(stmt);
+
+        assert_eq!(command.name.render(input), expected_name);
+        assert_eq!(stmt.redirects.len(), 1);
+        assert_eq!(stmt.redirects[0].kind, RedirectKind::HereString);
+    }
+}
+
+#[test]
+fn test_parse_zsh_here_string_pipeline_binds_to_left_command() {
+    let input = "command <<< \"input\" | other\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+    let stmt = &script.body[0];
+    let AstCommand::Binary(binary) = &stmt.command else {
+        panic!("expected pipeline command");
+    };
+    assert_eq!(binary.op, BinaryOp::Pipe);
+
+    let left = expect_simple(&binary.left);
+    assert_eq!(left.name.render(input), "command");
+    assert_eq!(binary.left.redirects.len(), 1);
+    assert_eq!(binary.left.redirects[0].kind, RedirectKind::HereString);
+
+    let right = expect_simple(&binary.right);
+    assert_eq!(right.name.render(input), "other");
+}
+
+#[test]
 fn test_parse_process_substitution_argument_with_here_string_inside_outer_process_substitution() {
     let input = "\
 readarray -t deps < <(
@@ -157,6 +199,26 @@ readarray -t deps < <(
     );
     assert_eq!(body[0].redirects.len(), 1);
     assert_eq!(body[0].redirects[0].kind, RedirectKind::HereString);
+}
+
+#[test]
+fn test_parse_redirect_with_descriptor_on_continuation_line_from_upstream() {
+    let input = "echo foo \\\n    2>/dev/null\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+    let stmt = &script.body[0];
+    let command = expect_simple(stmt);
+
+    assert_eq!(command.name.render(input), "echo");
+    assert_eq!(stmt.redirects.len(), 1);
+    assert_eq!(stmt.redirects[0].fd, Some(2));
+    assert_eq!(stmt.redirects[0].kind, RedirectKind::Output);
+    assert_eq!(
+        redirect_word_target(&stmt.redirects[0]).render(input),
+        "/dev/null"
+    );
 }
 
 #[test]

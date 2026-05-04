@@ -771,6 +771,60 @@ fn test_zsh_function_keyword_preserves_multi_name_stub_body() {
 }
 
 #[test]
+fn test_zsh_function_keyword_preserves_multi_name_backslash_newline_brace_body() {
+    let input = "function foo \\\n    bar \\\n{ \n    echo hi\n}\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    assert_eq!(
+        function
+            .header
+            .static_names()
+            .map(Name::as_str)
+            .collect::<Vec<_>>(),
+        vec!["foo", "bar"]
+    );
+
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    assert!(redirects.is_empty());
+    assert_eq!(body.len(), 1);
+    assert_eq!(expect_simple(&body[0]).name.render(input), "echo");
+    assert_eq!(expect_simple(&body[0]).args[0].render(input), "hi");
+}
+
+#[test]
+fn test_zsh_function_keyword_preserves_multi_name_compact_empty_brace_body() {
+    let input = "function foo bar {}\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    assert_eq!(
+        function
+            .header
+            .static_names()
+            .map(Name::as_str)
+            .collect::<Vec<_>>(),
+        vec!["foo", "bar"]
+    );
+
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    assert!(redirects.is_empty());
+    assert!(body.is_empty());
+}
+
+#[test]
 fn test_zsh_function_keyword_allows_nameless_anonymous_function_command() {
     let input = "function { local x=1; print -- anon:$#; } a b\n";
     let script = Parser::with_dialect(input, ShellDialect::Zsh)
@@ -3102,11 +3156,73 @@ fn test_zsh_setopt_ksh_glob_changes_following_conditional_pattern_parse() {
 }
 
 #[test]
+fn test_parse_zsh_conditional_pattern_rhs_accepts_hash_q_glob_qualifier() {
+    let input = "[[ foo.txt == *.txt(#qN) ]]\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional compound command");
+    };
+
+    let ConditionalExpr::Binary(binary) = &command.expression else {
+        panic!("expected binary conditional");
+    };
+    assert_eq!(binary.op, ConditionalBinaryOp::PatternEq);
+
+    let ConditionalExpr::Pattern(pattern) = binary.right.as_ref() else {
+        panic!("expected pattern rhs");
+    };
+    assert_eq!(pattern.render(input), "*.txt(#qN)");
+}
+
+#[test]
+fn test_parse_zsh_conditional_pattern_rhs_accepts_negated_hash_q_glob_qualifier() {
+    let input = "[[ $file != *.tmp(#qN) ]]\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional compound command");
+    };
+
+    let ConditionalExpr::Binary(binary) = &command.expression else {
+        panic!("expected binary conditional");
+    };
+    assert_eq!(binary.op, ConditionalBinaryOp::PatternNe);
+
+    let ConditionalExpr::Pattern(pattern) = binary.right.as_ref() else {
+        panic!("expected pattern rhs");
+    };
+    assert_eq!(pattern.render(input), "*.tmp(#qN)");
+}
+
+#[test]
 fn test_parse_zsh_if_with_defaulting_subscript_and_or_condition() {
     let input = "if [[ $zsyh_user_options[ignorebraces] == on || ${zsyh_user_options[ignoreclosebraces]:-off} == on ]]; then\n  print ok\nfi\n";
     Parser::with_dialect(input, ShellDialect::Zsh)
         .parse()
         .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_job_spec_commands_preserve_percent_arguments() {
+    for input in ["fg %1\n", "bg %2\n"] {
+        let script = Parser::with_dialect(input, ShellDialect::Zsh)
+            .parse()
+            .unwrap()
+            .file;
+        let command = expect_simple(&script.body[0]);
+
+        assert_eq!(command.args.len(), 1);
+        assert!(command.args[0].span.slice(input).starts_with('%'));
+    }
 }
 
 #[test]
