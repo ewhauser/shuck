@@ -16,7 +16,9 @@
           packages = [
             pkgs.hyperfine
             pkgs.samply
+            pkgs.neovim
             pkgs.python3
+            pkgs.lua
             pkgs.shellcheck
             pkgs.shfmt
             pkgs.zsh
