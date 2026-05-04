@@ -62,8 +62,8 @@ pub use facts::words::{
 };
 /// Extracted structural facts available to rules and callers.
 pub use facts::{
-    AmbiguousArrayReference, BacktickFragmentFact, CommandFact, CommandFactRef, CommandFacts,
-    ConditionalBareWordFact, ConditionalBinaryFact, ConditionalFact,
+    AmbiguousArrayReference, ArithmeticLiteralFact, BacktickFragmentFact, CommandFact,
+    CommandFactRef, CommandFacts, ConditionalBareWordFact, ConditionalBinaryFact, ConditionalFact,
     ConditionalMixedLogicalOperatorFact, ConditionalNodeFact, ConditionalOperandFact,
     ConditionalOperatorFamily, ConditionalPortabilityFacts, ConditionalUnaryFact, ForHeaderFact,
     FunctionCallArityFacts, FunctionHeaderFact, LegacyArithmeticFragmentFact, ListFact,
@@ -106,7 +106,11 @@ pub use settings::{
 /// Shell dialect selection used by the linter.
 pub use shell::ShellDialect;
 /// Option-sensitive shell behavior enums reused by linter facts and rules.
-pub use shuck_semantic::{FieldSplittingBehavior, GlobFailureBehavior, PathnameExpansionBehavior};
+pub use shuck_semantic::{
+    ArithmeticLiteralBehavior, FieldSplittingBehavior, GlobDotBehavior, GlobFailureBehavior,
+    GlobPatternBehavior, PathnameExpansionBehavior, PatternOperatorBehavior,
+    SubscriptIndexBehavior,
+};
 /// Suppression directives, shellcheck mappings, and rewrite helpers.
 pub use suppression::{
     AddIgnoreParseError, AddIgnoreResult, ShellCheckCodeMap, SuppressionAction,

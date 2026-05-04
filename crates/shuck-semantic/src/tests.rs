@@ -9790,6 +9790,101 @@ fn array_reference_policy_at(model: &SemanticModel, offset: usize) -> ArrayRefer
 }
 
 #[test]
+fn semantic_behavior_tracks_subscript_indexing_options() {
+    let bash_source = "print ${arr[0]}\n";
+    let bash_model = model_with_profile(bash_source, ShellProfile::native(ShellDialect::Bash));
+    let bash_offset = bash_source.find("print").unwrap();
+    assert_eq!(
+        bash_model
+            .shell_behavior_at(bash_offset)
+            .subscript_indexing(),
+        SubscriptIndexBehavior::ZeroBased,
+    );
+
+    for (source, expected) in [
+        ("print ${arr[1]}\n", SubscriptIndexBehavior::OneBased),
+        (
+            "setopt ksh_arrays\nprint ${arr[1]}\n",
+            SubscriptIndexBehavior::ZeroBased,
+        ),
+        (
+            "setopt ksh_arrays ksh_zero_subscript\nprint ${arr[0]}\n",
+            SubscriptIndexBehavior::ZeroBased,
+        ),
+        (
+            "setopt ksh_arrays\nif cond; then setopt ksh_zero_subscript; fi\nprint ${arr[1]}\n",
+            SubscriptIndexBehavior::ZeroBased,
+        ),
+        (
+            "setopt ksh_arrays\nunsetopt ksh_arrays\nprint ${arr[1]}\n",
+            SubscriptIndexBehavior::OneBased,
+        ),
+        (
+            "setopt ksh_zero_subscript\nprint ${arr[0]}\n",
+            SubscriptIndexBehavior::OneBasedWithZeroAlias,
+        ),
+        (
+            "opt=ksh_zero_subscript\nsetopt \"$opt\"\nprint ${arr[0]}\n",
+            SubscriptIndexBehavior::Ambiguous,
+        ),
+    ] {
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let offset = source.find("print").unwrap();
+
+        assert_eq!(
+            model.shell_behavior_at(offset).subscript_indexing(),
+            expected,
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn semantic_behavior_tracks_arithmetic_literal_options() {
+    let bash_source = "print $(( 010 + 0x10 ))\n";
+    let bash_model = model_with_profile(bash_source, ShellProfile::native(ShellDialect::Bash));
+    let bash_offset = bash_source.find("print").unwrap();
+    assert_eq!(
+        bash_model
+            .shell_behavior_at(bash_offset)
+            .arithmetic_literals(),
+        ArithmeticLiteralBehavior::CStyleAndLeadingZeroOctal,
+    );
+
+    for (source, expected) in [
+        (
+            "print $(( 010 + 0x10 ))\n",
+            ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,
+        ),
+        (
+            "setopt c_bases\nprint $(( 010 + 0x10 ))\n",
+            ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,
+        ),
+        (
+            "setopt octal_zeroes\nprint $(( 010 + 0x10 ))\n",
+            ArithmeticLiteralBehavior::LeadingZeroOctal,
+        ),
+        (
+            "setopt c_bases octal_zeroes\nprint $(( 010 + 0x10 ))\n",
+            ArithmeticLiteralBehavior::LeadingZeroOctal,
+        ),
+        (
+            "opt=octal_zeroes\nsetopt \"$opt\"\nprint $(( 010 + 0x10 ))\n",
+            ArithmeticLiteralBehavior::Ambiguous,
+        ),
+    ] {
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let offset = source.find("print").unwrap();
+
+        assert_eq!(
+            model.shell_behavior_at(offset).arithmetic_literals(),
+            expected,
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn semantic_behavior_detects_real_ksh_array_enables() {
     for source in [
         "setopt ksh_arrays\nprint $name\n",

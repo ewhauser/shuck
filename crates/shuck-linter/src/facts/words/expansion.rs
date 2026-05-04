@@ -102,6 +102,8 @@ pub struct RuntimeLiteralAnalysis {
     pub runtime_sensitive: bool,
     pub pathname_expansion_behavior: PathnameExpansionBehavior,
     pub glob_failure_behavior: GlobFailureBehavior,
+    pub glob_dot_behavior: GlobDotBehavior,
+    pub glob_pattern_behavior: GlobPatternBehavior,
     pub hazards: ExpansionHazards,
 }
 
@@ -111,6 +113,8 @@ impl Default for RuntimeLiteralAnalysis {
             runtime_sensitive: false,
             pathname_expansion_behavior: PathnameExpansionBehavior::Disabled,
             glob_failure_behavior: GlobFailureBehavior::KeepLiteralOnNoMatch,
+            glob_dot_behavior: GlobDotBehavior::ExplicitDotRequired,
+            glob_pattern_behavior: default_glob_pattern_behavior(),
             hazards: ExpansionHazards::default(),
         }
     }
@@ -357,6 +361,57 @@ pub(super) fn glob_failure_behavior_for_options(
     }
 }
 
+pub(super) fn glob_dot_behavior_for_options(options: Option<&ZshOptionState>) -> GlobDotBehavior {
+    match options {
+        Some(options) => match options.glob_dots {
+            OptionValue::Off => GlobDotBehavior::ExplicitDotRequired,
+            OptionValue::On => GlobDotBehavior::DotfilesIncluded,
+            OptionValue::Unknown => GlobDotBehavior::Ambiguous,
+        },
+        None => GlobDotBehavior::ExplicitDotRequired,
+    }
+}
+
+pub(super) fn glob_pattern_behavior_for_options(
+    options: Option<&ZshOptionState>,
+) -> GlobPatternBehavior {
+    options.map_or_else(default_glob_pattern_behavior, |options| {
+        semantic_glob_pattern_behavior(
+            pattern_operator_behavior_for_options(options.extended_glob),
+            pattern_operator_behavior_for_options(options.ksh_glob),
+            pattern_operator_behavior_for_options(options.sh_glob),
+        )
+    })
+}
+
+fn default_glob_pattern_behavior() -> GlobPatternBehavior {
+    semantic_glob_pattern_behavior(
+        PatternOperatorBehavior::Disabled,
+        PatternOperatorBehavior::Disabled,
+        PatternOperatorBehavior::Disabled,
+    )
+}
+
+fn semantic_glob_pattern_behavior(
+    extended_glob: PatternOperatorBehavior,
+    ksh_glob: PatternOperatorBehavior,
+    sh_glob: PatternOperatorBehavior,
+) -> GlobPatternBehavior {
+    GlobPatternBehavior::from_parts(
+        extended_glob,
+        ksh_glob,
+        sh_glob,
+    )
+}
+
+fn pattern_operator_behavior_for_options(value: OptionValue) -> PatternOperatorBehavior {
+    match value {
+        OptionValue::Off => PatternOperatorBehavior::Disabled,
+        OptionValue::On => PatternOperatorBehavior::Enabled,
+        OptionValue::Unknown => PatternOperatorBehavior::Ambiguous,
+    }
+}
+
 fn merge_field_splitting_behavior(
     current: Option<FieldSplittingBehavior>,
     next: FieldSplittingBehavior,
@@ -490,6 +545,8 @@ pub(crate) fn analyze_literal_runtime(
     let mut analysis = RuntimeLiteralAnalysis {
         pathname_expansion_behavior: pathname_expansion_behavior_for_options(options),
         glob_failure_behavior: glob_failure_behavior_for_options(options),
+        glob_dot_behavior: glob_dot_behavior_for_options(options),
+        glob_pattern_behavior: glob_pattern_behavior_for_options(options),
         ..RuntimeLiteralAnalysis::default()
     };
     let mut state = RuntimeLiteralState::default();

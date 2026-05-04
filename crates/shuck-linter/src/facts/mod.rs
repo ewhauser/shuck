@@ -65,13 +65,14 @@ use shuck_indexer::{Indexer, LineIndex};
 #[cfg(test)]
 use shuck_parser::parser::Parser;
 use shuck_semantic::{
-    Binding, BindingAttributes, BindingId, BindingKind, CaseCliDispatch, Declaration,
-    DeclarationBuiltin, DeclarationOperand as SemanticDeclarationOperand, FieldSplittingBehavior,
-    GlobFailureBehavior, NonpersistentAssignmentAnalysisContext,
-    NonpersistentAssignmentAnalysisOptions, NonpersistentAssignmentCommandContext,
-    NonpersistentAssignmentExtraRead, OptionValue, PathnameExpansionBehavior, Reference,
-    ReferenceId, ReferenceKind, ScopeId, SemanticAnalysis, SemanticModel,
-    SemanticPipelineOperatorKind, ZshOptionState,
+    ArithmeticLiteralBehavior, Binding, BindingAttributes, BindingId, BindingKind, CaseCliDispatch,
+    Declaration, DeclarationBuiltin, DeclarationOperand as SemanticDeclarationOperand,
+    FieldSplittingBehavior, GlobDotBehavior, GlobFailureBehavior, GlobPatternBehavior,
+    NonpersistentAssignmentAnalysisContext, NonpersistentAssignmentAnalysisOptions,
+    NonpersistentAssignmentCommandContext, NonpersistentAssignmentExtraRead, OptionValue,
+    PathnameExpansionBehavior, PatternOperatorBehavior, Reference, ReferenceId, ReferenceKind,
+    ScopeId, SemanticAnalysis, SemanticModel, SemanticPipelineOperatorKind, SubscriptIndexBehavior,
+    ZshOptionState,
 };
 use smallvec::SmallVec;
 use std::{borrow::Cow, ops::ControlFlow, sync::OnceLock};
@@ -96,8 +97,8 @@ pub use self::normalized_commands::{
     DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind,
 };
 pub use self::surface::{
-    AmbiguousArrayReference, BacktickFragmentFact, LegacyArithmeticFragmentFact,
-    NativeZshScalarArrayReference, PlainUnindexedArrayReferenceFact,
+    AmbiguousArrayReference, ArithmeticLiteralFact, BacktickFragmentFact,
+    LegacyArithmeticFragmentFact, NativeZshScalarArrayReference, PlainUnindexedArrayReferenceFact,
     PositionalParameterFragmentFact, SelectorRequiredArrayReference, SingleQuotedFragmentFact,
 };
 
