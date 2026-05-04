@@ -2013,13 +2013,15 @@ impl<'a> Parser<'a> {
         };
 
         let mut saw_body = false;
+        let mut saw_hyphen = false;
         for ch in rest.chars() {
             if ch == '>' {
-                return saw_body;
+                return saw_body && saw_hyphen;
             }
             if !matches!(ch, '0'..='9' | '-') {
                 return false;
             }
+            saw_hyphen |= ch == '-';
             saw_body = true;
         }
 

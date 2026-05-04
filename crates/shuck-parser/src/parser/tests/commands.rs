@@ -2905,6 +2905,51 @@ fn test_parse_zsh_conditional_pattern_with_numeric_range_prefix_and_and_rhs() {
 }
 
 #[test]
+fn test_zsh_conditional_numeric_range_requires_hyphen() {
+    let literal_input = "[[ $jobspec == jobspec:<123> ]]\n";
+    let literal_script = Parser::with_dialect(literal_input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+    let (literal_compound, _) = expect_compound(&literal_script.body[0]);
+    let AstCompoundCommand::Conditional(literal_command) = literal_compound else {
+        panic!("expected conditional compound command");
+    };
+    let ConditionalExpr::Binary(literal_binary) = &literal_command.expression else {
+        panic!("expected binary conditional");
+    };
+    let ConditionalExpr::Pattern(literal_pattern) = literal_binary.right.as_ref() else {
+        panic!("expected pattern rhs");
+    };
+    assert_eq!(literal_pattern.render(literal_input), "jobspec:<123>");
+    assert!(!pattern_has_zsh_qualified_glob(literal_pattern));
+
+    let range_input = "[[ $jobspec == jobspec:<1-9> ]]\n";
+    let range_script = Parser::with_dialect(range_input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+    let (range_compound, _) = expect_compound(&range_script.body[0]);
+    let AstCompoundCommand::Conditional(range_command) = range_compound else {
+        panic!("expected conditional compound command");
+    };
+    let ConditionalExpr::Binary(range_binary) = &range_command.expression else {
+        panic!("expected binary conditional");
+    };
+    let ConditionalExpr::Pattern(range_pattern) = range_binary.right.as_ref() else {
+        panic!("expected pattern rhs");
+    };
+    let glob = expect_pattern_zsh_qualified_glob(range_pattern);
+    let [segment] = glob.segments.as_slice() else {
+        panic!("expected a single pattern segment");
+    };
+    assert_eq!(
+        expect_zsh_glob_pattern_segment(segment).render_syntax(range_input),
+        "jobspec:<1-9>"
+    );
+}
+
+#[test]
 fn test_zsh_setopt_ksh_glob_changes_following_conditional_pattern_parse() {
     let input = concat!(
         "[[ $mode == @(disable|enable) ]]\n",
