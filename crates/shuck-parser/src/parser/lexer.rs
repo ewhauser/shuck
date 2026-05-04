@@ -1073,6 +1073,24 @@ impl<'a> Lexer<'a> {
             .is_some_and(|ch| matches!(ch, '@' | '?' | '*' | '+' | '!'))
     }
 
+    fn current_word_surface_can_take_zsh_glob_modifier_suffix(
+        &mut self,
+        start: Position,
+        capture: &Option<String>,
+    ) -> bool {
+        if self.current_zsh_options().is_none() || self.peek_char() != Some('(') {
+            return false;
+        }
+
+        let text = self.current_word_text(start, capture);
+        if !text.contains('/') {
+            return false;
+        }
+
+        let mut chars = self.lookahead_chars();
+        matches!((chars.next(), chars.next()), (Some('('), Some(':')))
+    }
+
     /// Get the next source-backed token from the input, skipping line comments.
     ///
     /// Returned tokens expose their [`TokenKind`] and source [`Span`]. Comments
@@ -1532,7 +1550,8 @@ impl<'a> Lexer<'a> {
                 );
                 let continues = continues
                     || (self.peek_char() == Some('(')
-                        && self.looks_like_zsh_alternative_glob_suffix(chunk));
+                        && (self.looks_like_zsh_alternative_glob_suffix(chunk)
+                            || self.looks_like_zsh_glob_modifier_suffix(chunk)));
 
                 if !continues {
                     let end = self.current_position();
@@ -1546,7 +1565,8 @@ impl<'a> Lexer<'a> {
                 if self.peek_char() == Some('(')
                     && (chunk.ends_with('=')
                         || Self::word_can_take_parenthesized_suffix(chunk)
-                        || self.looks_like_zsh_alternative_glob_suffix(chunk))
+                        || self.looks_like_zsh_alternative_glob_suffix(chunk)
+                        || self.looks_like_zsh_glob_modifier_suffix(chunk))
                 {
                     return self.read_complex_word(start);
                 }
@@ -1790,10 +1810,12 @@ impl<'a> Lexer<'a> {
                         _ => {}
                     }
                 }
-            } else if ch == '(' && self.current_word_surface_ends_with_extglob_prefix(start, &word)
+            } else if ch == '('
+                && (self.current_word_surface_ends_with_extglob_prefix(start, &word)
+                    || self.current_word_surface_can_take_zsh_glob_modifier_suffix(start, &word))
             {
-                // Extglob: @(...), ?(...), *(...), +(...), !(...)
-                // Consume through matching ) including nested parens
+                // Extglob and zsh glob modifiers consume through matching )
+                // including nested parens.
                 Self::push_capture_char(&mut word, ch);
                 self.advance();
                 let mut depth = 1;
@@ -2181,7 +2203,8 @@ impl<'a> Lexer<'a> {
                 }
                 Some('(')
                     if Self::lexed_word_can_take_parenthesized_suffix(word)
-                        || self.looks_like_zsh_alternative_glob_suffix(&word.joined_text()) =>
+                        || self.looks_like_zsh_alternative_glob_suffix(&word.joined_text())
+                        || self.looks_like_zsh_glob_modifier_suffix(&word.joined_text()) =>
                 {
                     let Some(segment) = self.read_parenthesized_word_suffix_segment() else {
                         unreachable!("peeked '(' should produce a suffix segment");
@@ -3878,6 +3901,18 @@ impl<'a> Lexer<'a> {
         }
 
         false
+    }
+
+    fn looks_like_zsh_glob_modifier_suffix(&mut self, prefix: &str) -> bool {
+        if self.current_zsh_options().is_none()
+            || self.peek_char() != Some('(')
+            || !prefix.contains('/')
+        {
+            return false;
+        }
+
+        let mut chars = self.lookahead_chars();
+        matches!((chars.next(), chars.next()), (Some('('), Some(':')))
     }
 
     fn lexed_word_can_take_parenthesized_suffix(word: &LexedWord<'_>) -> bool {
@@ -6458,6 +6493,23 @@ ac_top_builddir_sub=`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||
         assert_eq!(token.kind, TokenKind::Word);
         assert_eq!(token.span.slice(source), source);
         assert!(lexer.next_lexed_token().is_none());
+    }
+
+    #[test]
+    fn test_zsh_path_glob_modifier_keeps_suffix_group() {
+        let source = "/path/file(:h)";
+        let profile = ShellProfile::native(crate::parser::ShellDialect::Zsh);
+        let mut lexer = Lexer::with_profile(source, &profile);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::Word);
+        assert_eq!(token.span.slice(source), source);
+        assert!(lexer.next_lexed_token().is_none());
+
+        let mut default_lexer = Lexer::new(source);
+        let token = default_lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::Word);
+        assert_eq!(token.span.slice(source), "/path/file");
     }
 
     #[test]

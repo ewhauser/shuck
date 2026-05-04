@@ -6683,6 +6683,78 @@ fn test_zsh_additional_upstream_glob_examples_parse_as_single_arguments() {
 }
 
 #[test]
+fn test_zsh_remaining_upstream_glob_qualifier_examples_parse_as_single_arguments() {
+    for (command_name, syntax) in [
+        ("print", "*(/)"),
+        ("print", "*(*)"),
+        ("print", "*(%)"),
+        ("print", "*(:t)"),
+        ("print", "*(:r)"),
+        ("echo", "*(Lk+100)"),
+        ("echo", "*(Lm-1)"),
+        ("echo", "*(Lg2)"),
+        ("echo", "*(mh-1)"),
+        ("echo", "*(mm+30)"),
+        ("echo", "*(ms-3600)"),
+        ("echo", "*(cD-1)"),
+        ("echo", "*(om)"),
+        ("echo", "*(On)"),
+        ("echo", "*(oL)"),
+        ("echo", "*(oc)"),
+        ("echo", "*.txt(:r)"),
+        ("echo", "*.tar.gz(:r:r)"),
+        ("echo", "/path/file(:h)"),
+        ("echo", "/path/file(:t)"),
+        ("ls", "**/*.py(mh-24.L+1k)"),
+    ] {
+        let source = format!("{command_name} {syntax}\n");
+        let output = Parser::with_dialect(&source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let command = expect_simple(&output.file.body[0]);
+
+        assert_eq!(command.args.len(), 1, "expected one arg for {syntax:?}");
+        assert_eq!(command.args[0].span.slice(&source), syntax);
+    }
+}
+
+#[test]
+fn test_zsh_remaining_upstream_extended_glob_examples_parse_as_single_arguments() {
+    for syntax in [
+        "(#a1)approx*",
+        "(#a3)vague*",
+        "(#i)*.TXT",
+        "(#b)(*).backup~$match[1]",
+        "*.txt(#qN.)",
+        "(#i)*.txt(.)",
+        "(#q)test*(N)",
+        "(#l)FILE*(.om)",
+    ] {
+        let source = format!("echo {syntax}\n");
+        let output = parse_zsh_with_options(&source, |options| {
+            options.extended_glob = OptionValue::On;
+        });
+        let command = expect_simple(&output.file.body[0]);
+
+        assert_eq!(command.args.len(), 1, "expected one arg for {syntax:?}");
+        assert_eq!(command.args[0].span.slice(&source), syntax);
+    }
+}
+
+#[test]
+fn test_zsh_remaining_upstream_complex_glob_examples_parse() {
+    for source in [
+        "print glob.tmp/**/*~*/dir3(/*|(#e))(/)\n",
+        "find . -name \"*.c\" -o -name \"*.h\" | grep -v test\n",
+        "echo ${files[@]:#*.tmp}\n",
+    ] {
+        parse_zsh_with_options(source, |options| {
+            options.extended_glob = OptionValue::On;
+        });
+    }
+}
+
+#[test]
 fn test_zsh_upstream_alternative_glob_examples_parse() {
     for source in ["echo file.(txt|doc|pdf)\n", "echo file.{txt,doc,pdf}\n"] {
         Parser::with_dialect(source, ShellDialect::Zsh)
@@ -7507,9 +7579,11 @@ fn test_zsh_additional_upstream_pattern_removal_examples_parse() {
 #[test]
 fn test_zsh_additional_upstream_declaration_examples_parse() {
     for source in [
+        "array=(one two three)\n",
         "integer count=42\n",
         "float pi=3.14\n",
         "typeset -A hash\nhash=(key1 value1 key2 value2)\n",
+        "local -a array\n",
         "0=${(%):-%N}\n",
     ] {
         Parser::with_dialect(source, ShellDialect::Zsh)
