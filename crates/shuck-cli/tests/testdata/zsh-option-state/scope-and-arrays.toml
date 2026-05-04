@@ -51,6 +51,16 @@ shwordsplit = "on"
 count = 2
 values = ["one", "two"]
 
+[field_probes.array_native.shuck]
+multi = true
+field_splitting = false
+pathname_matching = false
+
 [field_probes.array_ksh]
 count = 1
 values = ["one"]
+
+[field_probes.array_ksh.shuck]
+multi = false
+field_splitting = false
+pathname_matching = false

@@ -908,6 +908,119 @@ pub(super) fn build_unquoted_command_argument_use_offsets(
     offsets_by_name
 }
 
+fn apply_zsh_array_fanout(
+    word: &Word,
+    semantic: &SemanticModel,
+    scope: ScopeId,
+    options: Option<&ZshOptionState>,
+    analysis: &mut ExpansionAnalysis,
+) {
+    if semantic.shell_profile().dialect != shuck_parser::parser::ShellDialect::Zsh
+        || zsh_unindexed_array_fanout_is_disabled(options)
+        || !word_has_unquoted_visible_array_reference(word, semantic, scope)
+    {
+        return;
+    }
+
+    analysis.array_valued = true;
+    analysis.can_expand_to_multiple_fields = true;
+    if !matches!(analysis.value_shape, ExpansionValueShape::Unknown) {
+        analysis.value_shape = ExpansionValueShape::MultiField;
+    }
+}
+
+fn zsh_unindexed_array_fanout_is_disabled(options: Option<&ZshOptionState>) -> bool {
+    matches!(options.map(|options| options.ksh_arrays), Some(OptionValue::On))
+}
+
+fn word_has_unquoted_visible_array_reference(
+    word: &Word,
+    semantic: &SemanticModel,
+    scope: ScopeId,
+) -> bool {
+    parts_have_unquoted_visible_array_reference(&word.parts, semantic, scope, false)
+}
+
+fn parts_have_unquoted_visible_array_reference(
+    parts: &[WordPartNode],
+    semantic: &SemanticModel,
+    scope: ScopeId,
+    in_double_quotes: bool,
+) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                if parts_have_unquoted_visible_array_reference(parts, semantic, scope, true) {
+                    return true;
+                }
+            }
+            WordPart::Variable(name) if !in_double_quotes => {
+                if visible_name_is_array_like(name, part.span, semantic, scope) {
+                    return true;
+                }
+            }
+            WordPart::Parameter(parameter) if !in_double_quotes => {
+                if zsh_parameter_targets_visible_array(parameter, semantic, scope) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    false
+}
+
+fn zsh_parameter_targets_visible_array(
+    parameter: &ParameterExpansion,
+    semantic: &SemanticModel,
+    scope: ScopeId,
+) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+        | ParameterExpansionSyntax::Zsh(ZshParameterExpansion {
+            target: ZshExpansionTarget::Reference(reference),
+            length_prefix: None,
+            ..
+        }) if reference.subscript.is_none() => {
+            visible_name_is_array_like(&reference.name, reference.name_span, semantic, scope)
+        }
+        _ => false,
+    }
+}
+
+fn visible_name_is_array_like(
+    name: &Name,
+    span: Span,
+    semantic: &SemanticModel,
+    scope: ScopeId,
+) -> bool {
+    semantic
+        .analysis()
+        .value_flow()
+        .reaching_value_bindings_for_name_with_synthetic_use_block(
+            name,
+            span,
+            Some(
+                semantic
+                    .analysis()
+                    .flow_entry_block_for_binding_scopes(&[scope], span.start.offset),
+            ),
+        )
+        .into_iter()
+        .any(|binding_id| binding_is_array_like(semantic.binding(binding_id)))
+}
+
+fn binding_is_array_like(binding: &Binding) -> bool {
+    binding
+        .attributes
+        .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC)
+        || matches!(
+            binding.kind,
+            BindingKind::ArrayAssignment | BindingKind::MapfileTarget
+        )
+}
+
 #[cfg_attr(shuck_profiling, inline(never))]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_word_facts_for_command<'a>(
@@ -2221,7 +2334,14 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         }
 
         let id = WordNodeId::new(self.word_nodes.len());
-        let analysis = analyze_word(word, self.source, self.command_zsh_options.as_ref());
+        let mut analysis = analyze_word(word, self.source, self.command_zsh_options.as_ref());
+        apply_zsh_array_fanout(
+            word,
+            self.semantic,
+            self.command_scope,
+            self.command_zsh_options.as_ref(),
+            &mut analysis,
+        );
         let derived =
             derive_word_fact_data(word, self.locator, self.word_spans, self.word_span_scratch);
         self.word_nodes.push(WordNode {

@@ -160,4 +160,30 @@ done
             vec!["$name"]
         );
     }
+
+    #[test]
+    fn zsh_array_fanout_comes_from_word_facts() {
+        let source = "\
+arr=(a b)
+for item in ${arr}x; do
+\tprint -r -- $item
+done
+setopt ksh_arrays
+for item in ${arr}x; do
+\tprint -r -- $item
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SingleIterationLoop).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr}x"]
+        );
+    }
 }
