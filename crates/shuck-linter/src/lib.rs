@@ -2024,6 +2024,86 @@ coproc {
   read -r reply
   print -r -- $reply
 }
+
+while getopts ":wtfvh-:" opt; do
+  case "$opt" in
+    -)
+      case "${OPTARG}" in
+        wait)
+          WAIT=1
+          ;;
+        help|version)
+          REDIRECT_STDERR=1
+          EXPECT_OUTPUT=1
+          ;;
+        foreground|benchmark|benchmark-test|test)
+          EXPECT_OUTPUT=1
+          ;;
+      esac
+      ;;
+    w)
+      WAIT=1
+      ;;
+    h|v)
+      REDIRECT_STDERR=1
+      EXPECT_OUTPUT=1
+      ;;
+    f|t)
+      EXPECT_OUTPUT=1
+      ;;
+  esac
+done
+
+filelist=()
+fid=0
+find "$prefix/$folder" -type l | while read file; do
+  target=`$readlink $file | grep '/\.npm/'`
+  if [ "x$target" != "x" ]; then
+    filelist[$fid]="$file"
+    let 'fid++'
+    base=`basename "$file"`
+    find "`dirname $file`" -type l -name "$base"'*' \
+      | while read link; do
+          filelist[$fid]="$link"
+          let 'fid++'
+        done
+  fi
+done
+
+args=()
+if [[ -n $verbose ]]; then
+  args+=("--reporter=spec")
+else
+  args+=("--reporter=singleline")
+fi
+
+case ${mode} in
+  valgrind)
+    valgrind                                     \
+      --suppressions=./script/util/valgrind.supp \
+      --dsymutil=yes                             \
+      --leak-check=${leak_check}                 \
+      $cmd "${args[@]}" 2>&1 |                   \
+      grep --color -E '\w+_tests?.cc:\d+|$'
+    ;;
+  SVG)
+    $cmd "${args[@]}" 2> >(grep -v 'Assertion failed' | dot -Tsvg >> index.html)
+    ;;
+esac
+
+html_replace_tokens () {
+  local url=$1
+  sed "s|@NAME@|$name|g" \
+    | sed "s|@URL@|$url|g" \
+    | perl -p -e 's/<h1([^>]*)>(.*?)<\/h1>/<h1>\2<\/h1>/g' \
+    | (if [ $(basename $(dirname $dest)) == "doc" ]; then
+        perl -p -e 's/ href="\.\.\// href="/g'
+      else
+        cat
+      fi)
+}
+
+0=${(%):-%N}
 "#
     }
 

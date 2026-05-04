@@ -116,6 +116,25 @@ fn test_parse_named_fd_redirect_read_write() {
 }
 
 #[test]
+fn test_parse_zsh_output_append_redirect_from_upstream() {
+    let input = "command >> output.txt\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+    let stmt = &script.body[0];
+    let command = expect_simple(stmt);
+
+    assert_eq!(command.name.render(input), "command");
+    assert_eq!(stmt.redirects.len(), 1);
+    assert_eq!(stmt.redirects[0].kind, RedirectKind::Append);
+    assert_eq!(
+        redirect_word_target(&stmt.redirects[0]).render(input),
+        "output.txt"
+    );
+}
+
+#[test]
 fn test_parse_zsh_here_string_examples_from_upstream() {
     for (input, expected_name) in [
         ("cat <<< \"hello\"\n", "cat"),

@@ -3204,6 +3204,92 @@ fn test_parse_zsh_conditional_pattern_rhs_accepts_negated_hash_q_glob_qualifier(
 }
 
 #[test]
+fn test_parse_zsh_remaining_upstream_conditionals_and_control_flow_examples() {
+    for input in [
+        "[[ ( a == b ) || ( c == d ) ]]\n",
+        "[[ ! -f file ]]\n",
+        "[[ -f file1 && ( -r file1 || -w file1 ) ]]\n",
+        "case $var in\n    *.txt) echo \"text file\" ;;\n    *.sh) echo \"shell script\" ;;\n    *) echo \"other\" ;;\nesac\n",
+        "if [[ $a -eq $b ]]; then\n    echo \"equal\"\nfi\n",
+        "if [[ $a -gt 5 ]]; then\n    echo \"greater\"\nelif [[ $a -lt 0 ]]; then\n    echo \"less\"\nelse\n    echo \"between\"\nfi\n",
+        "until [[ $count -ge 10 ]]; do\n    echo $count\n    ((count++))\ndone\n",
+        "while true; do\n    if [[ $done ]]; then\n        break\n    fi\n    echo \"working\"\ndone\n",
+    ] {
+        Parser::with_dialect(input, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+    }
+}
+
+#[test]
+fn test_parse_zsh_remaining_upstream_advanced_command_examples() {
+    for input in [
+        "cat file.txt | grep pattern | sort | uniq\n",
+        "sleep 10 &\n",
+        "sleep 10 &!\n",
+        "sleep 10 &|\n",
+    ] {
+        Parser::with_dialect(input, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+    }
+}
+
+#[test]
+fn test_parse_zsh_newer_than_conditional_from_upstream() {
+    let input = "[[ file1 -nt file2 ]]\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional compound command");
+    };
+    let ConditionalExpr::Binary(binary) = &command.expression else {
+        panic!("expected binary conditional");
+    };
+    assert_eq!(binary.op, ConditionalBinaryOp::NewerThan);
+}
+
+#[test]
+fn test_parse_zsh_ansi_c_string_regex_match_expression_from_upstream() {
+    let input = "[[ \"$x\" =~ \"^foo\"$'\\t'\"bar\" ]]\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional compound command");
+    };
+    let ConditionalExpr::Binary(binary) = &command.expression else {
+        panic!("expected binary conditional");
+    };
+    assert_eq!(binary.op, ConditionalBinaryOp::RegexMatch);
+
+    let ConditionalExpr::Regex(word) = binary.right.as_ref() else {
+        panic!("expected regex rhs");
+    };
+    assert_eq!(word.span.slice(input), "\"^foo\"$'\\t'\"bar\"");
+}
+
+#[test]
+fn test_parse_zsh_remaining_upstream_conditional_glob_examples() {
+    for input in [
+        "[[ $file == *.txt ]]\n",
+        "[[ $name != (#i)*.TMP ]]\n",
+        "[[ -f *.log(.) ]]\n",
+    ] {
+        parse_zsh_with_options(input, |options| {
+            options.extended_glob = OptionValue::On;
+        });
+    }
+}
+
+#[test]
 fn test_parse_zsh_if_with_defaulting_subscript_and_or_condition() {
     let input = "if [[ $zsyh_user_options[ignorebraces] == on || ${zsyh_user_options[ignoreclosebraces]:-off} == on ]]; then\n  print ok\nfi\n";
     Parser::with_dialect(input, ShellDialect::Zsh)
