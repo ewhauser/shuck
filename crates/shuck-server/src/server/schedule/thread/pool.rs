@@ -74,13 +74,12 @@ fn spawn_worker(
                 extant_tasks.fetch_sub(1, Ordering::SeqCst);
                 if let Err(error) = result {
                     if let Some(message) = error.downcast_ref::<String>() {
-                        tracing::error!("Worker thread panicked with: {message}; aborting");
+                        tracing::error!("Worker thread panicked with: {message}");
                     } else if let Some(message) = error.downcast_ref::<&str>() {
-                        tracing::error!("Worker thread panicked with: {message}; aborting");
+                        tracing::error!("Worker thread panicked with: {message}");
                     } else {
-                        tracing::error!("Worker thread panicked; aborting");
+                        tracing::error!("Worker thread panicked");
                     }
-                    std::process::abort();
                 }
             }
         }) {

@@ -523,6 +523,10 @@ pub fn load_project_config(
     Ok(config)
 }
 
+pub fn apply_config_overrides(config: &mut ShuckConfig, overrides: ShuckConfig) {
+    config.apply_overrides(overrides);
+}
+
 impl FormatConfig {
     pub fn to_patch(&self) -> Result<FormatSettingsPatch> {
         if self.dialect.is_some() {

@@ -11,10 +11,10 @@ impl super::RequestHandler for CodeActionResolve {
 
 impl super::SyncRequestHandler for CodeActionResolve {
     fn run(
-        _session: &mut Session,
+        session: &mut Session,
         client: &Client,
         params: types::CodeAction,
     ) -> crate::server::Result<types::CodeAction> {
-        fix::resolve_code_action(client, params)
+        fix::resolve_code_action(session, client, params)
     }
 }

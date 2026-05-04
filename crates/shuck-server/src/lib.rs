@@ -51,3 +51,18 @@ pub fn run() -> Result<()> {
         (Err(server), Err(io)) => Err(server.context(format!("IO thread error: {io}"))),
     }
 }
+
+#[doc(hidden)]
+pub fn run_connection(connection: lsp_server::Connection) -> Result<()> {
+    let four = NonZeroUsize::try_from(4usize)
+        .map_err(|_| anyhow::anyhow!("failed to create non-zero worker count"))?;
+    let worker_threads = std::thread::available_parallelism()
+        .unwrap_or(four)
+        .min(four);
+    Server::new(
+        worker_threads,
+        server::ConnectionInitializer::from_connection(connection),
+    )
+    .map_err(|err| err.context("Failed to start server"))?
+    .run()
+}

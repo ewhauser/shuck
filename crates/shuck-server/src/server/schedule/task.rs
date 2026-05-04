@@ -70,4 +70,12 @@ impl Task {
             Self::Sync(SyncTask { func }) => func(session, client),
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn build_background_for_test(self, session: &Session) -> Option<BackgroundFn> {
+        match self {
+            Self::Background(BackgroundTaskBuilder { builder, .. }) => Some(builder(session)),
+            Self::Sync(_) => None,
+        }
+    }
 }

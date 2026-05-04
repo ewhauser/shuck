@@ -105,11 +105,11 @@ pub use settings::{
 };
 /// Shell dialect selection used by the linter.
 pub use shell::ShellDialect;
-pub(crate) use suppression::parse_directives;
 /// Suppression directives, shellcheck mappings, and rewrite helpers.
 pub use suppression::{
     AddIgnoreParseError, AddIgnoreResult, ShellCheckCodeMap, SuppressionAction,
     SuppressionDirective, SuppressionIndex, SuppressionSource, add_ignores_to_path,
+    build_ignore_edit_for_line, parse_directives,
 };
 /// Trait implemented by rule-specific diagnostic payloads.
 pub use violation::Violation;

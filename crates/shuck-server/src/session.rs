@@ -33,6 +33,7 @@ pub struct Session {
     shutdown_requested: bool,
 }
 
+#[derive(Clone)]
 pub struct DocumentSnapshot {
     resolved_client_capabilities: Arc<ResolvedClientCapabilities>,
     client_settings: Arc<ClientSettings>,
@@ -81,14 +82,34 @@ impl Session {
     }
 
     pub fn take_snapshot(&self, url: Url) -> Option<DocumentSnapshot> {
+        let workspace_options = self.index.workspace_options_for_url(&url);
         let key = self.key_from_url(url);
+        let file_path = key.clone().into_url().to_file_path().ok();
+        let (settings, client_settings) = if let Some(workspace_options) = workspace_options {
+            let option_layers = [self.global_settings.options(), workspace_options];
+            (
+                Arc::new(ShuckSettings::resolve(
+                    file_path.as_deref(),
+                    self.index.workspace_roots(),
+                    &option_layers,
+                )),
+                Arc::new(ClientSettings::from_layered_options(&option_layers)),
+            )
+        } else {
+            let option_layers = [self.global_settings.options()];
+            (
+                Arc::new(ShuckSettings::resolve(
+                    file_path.as_deref(),
+                    self.index.workspace_roots(),
+                    &option_layers,
+                )),
+                Arc::new(ClientSettings::from_layered_options(&option_layers)),
+            )
+        };
         Some(DocumentSnapshot {
             resolved_client_capabilities: self.resolved_client_capabilities.clone(),
-            client_settings: self
-                .index
-                .client_settings(&key)
-                .unwrap_or_else(|| self.global_settings.to_settings_arc()),
-            document_ref: self.index.make_document_ref(key)?,
+            client_settings,
+            document_ref: self.index.make_document_ref(key, settings)?,
             position_encoding: self.position_encoding,
         })
     }
@@ -135,6 +156,29 @@ impl Session {
     pub(crate) fn config_file_paths(&self) -> impl Iterator<Item = &Path> {
         self.index.config_file_paths()
     }
+
+    pub(crate) fn update_client_options(&mut self, options: ClientOptions) {
+        self.global_settings.update_options(options);
+    }
+
+    pub(crate) fn update_configuration(
+        &mut self,
+        options: ClientOptions,
+        workspace_options: Option<WorkspaceOptionsMap>,
+    ) {
+        self.global_settings.update_options(options);
+        if let Some(workspace_options) = workspace_options {
+            self.index.update_workspace_options(workspace_options);
+        }
+    }
+
+    pub(crate) fn open_document_count(&self) -> usize {
+        self.index.open_document_count()
+    }
+
+    pub(crate) fn workspace_roots(&self) -> &[std::path::PathBuf] {
+        self.index.workspace_roots()
+    }
 }
 
 impl DocumentSnapshot {
@@ -156,5 +200,168 @@ impl DocumentSnapshot {
 
     pub(crate) fn encoding(&self) -> PositionEncoding {
         self.position_encoding
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crossbeam::channel;
+    use lsp_types::{ClientCapabilities, Url};
+
+    use super::*;
+    use crate::{ClientOptions, GlobalOptions, TextDocument, Workspace, Workspaces};
+
+    #[test]
+    fn take_snapshot_merges_global_and_workspace_options() {
+        let workspace_one = tempfile::tempdir().expect("workspace should be created");
+        let workspace_two = tempfile::tempdir().expect("workspace should be created");
+        let workspace_one_uri =
+            Url::from_file_path(workspace_one.path()).expect("workspace path should convert");
+        let workspace_two_uri =
+            Url::from_file_path(workspace_two.path()).expect("workspace path should convert");
+
+        let workspaces = Workspaces::new(vec![
+            Workspace::default(workspace_one_uri),
+            Workspace::new(workspace_two_uri.clone()).with_options(ClientOptions {
+                lint: Some(shuck_config::LintConfig {
+                    select: Some(vec!["C006".to_owned()]),
+                    ..shuck_config::LintConfig::default()
+                }),
+                format: Some(shuck_config::FormatConfig {
+                    indent_width: Some(2),
+                    ..shuck_config::FormatConfig::default()
+                }),
+                fix_all: Some(false),
+                ..ClientOptions::default()
+            }),
+        ]);
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, _client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+        let global = GlobalOptions::default().into_settings(client.clone());
+        let mut session = Session::new(
+            &ClientCapabilities::default(),
+            PositionEncoding::UTF16,
+            global,
+            &workspaces,
+            &client,
+        )
+        .expect("test session should initialize");
+        session.update_client_options(ClientOptions {
+            lint: Some(shuck_config::LintConfig {
+                select: Some(vec!["C001".to_owned()]),
+                ..shuck_config::LintConfig::default()
+            }),
+            format: Some(shuck_config::FormatConfig {
+                indent_style: Some("space".to_owned()),
+                ..shuck_config::FormatConfig::default()
+            }),
+            show_syntax_errors: Some(true),
+            ..ClientOptions::default()
+        });
+
+        let uri = Url::from_file_path(workspace_two.path().join("script.sh"))
+            .expect("test path should convert to a URL");
+        session.open_text_document(
+            uri.clone(),
+            TextDocument::new("foo=1\n".to_owned(), 1).with_language_id("shellscript"),
+        );
+
+        let snapshot = session
+            .take_snapshot(uri)
+            .expect("test document should produce a snapshot");
+
+        assert!(
+            snapshot
+                .shuck_settings()
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UndefinedVariable)
+        );
+        assert_eq!(snapshot.shuck_settings().linter().rules.len(), 1);
+        assert_eq!(
+            snapshot.shuck_settings().formatter().indent_style(),
+            shuck_formatter::IndentStyle::Space
+        );
+        assert_eq!(snapshot.shuck_settings().formatter().indent_width(), 2);
+        assert!(!snapshot.client_settings().fix_all());
+        assert!(snapshot.client_settings().show_syntax_errors());
+    }
+
+    #[test]
+    fn update_configuration_updates_workspace_specific_options() {
+        let workspace_one = tempfile::tempdir().expect("workspace should be created");
+        let workspace_two = tempfile::tempdir().expect("workspace should be created");
+        let workspace_one_uri =
+            Url::from_file_path(workspace_one.path()).expect("workspace path should convert");
+        let workspace_two_uri =
+            Url::from_file_path(workspace_two.path()).expect("workspace path should convert");
+
+        let workspaces = Workspaces::new(vec![
+            Workspace::default(workspace_one_uri),
+            Workspace::new(workspace_two_uri.clone()).with_options(ClientOptions {
+                lint: Some(shuck_config::LintConfig {
+                    select: Some(vec!["C006".to_owned()]),
+                    ..shuck_config::LintConfig::default()
+                }),
+                ..ClientOptions::default()
+            }),
+        ]);
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, _client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+        let global = GlobalOptions::default().into_settings(client.clone());
+        let mut session = Session::new(
+            &ClientCapabilities::default(),
+            PositionEncoding::UTF16,
+            global,
+            &workspaces,
+            &client,
+        )
+        .expect("test session should initialize");
+
+        let uri = Url::from_file_path(workspace_two.path().join("script.sh"))
+            .expect("test path should convert to a URL");
+        session.open_text_document(
+            uri.clone(),
+            TextDocument::new("foo=1\n".to_owned(), 1).with_language_id("shellscript"),
+        );
+
+        let before = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot");
+        assert!(
+            before
+                .shuck_settings()
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UndefinedVariable)
+        );
+        assert_eq!(before.shuck_settings().linter().rules.len(), 1);
+
+        let mut workspace_options = WorkspaceOptionsMap::default();
+        workspace_options.insert(
+            workspace_two_uri,
+            ClientOptions {
+                lint: Some(shuck_config::LintConfig {
+                    select: Some(vec!["C001".to_owned()]),
+                    ..shuck_config::LintConfig::default()
+                }),
+                ..ClientOptions::default()
+            },
+        );
+        session.update_configuration(ClientOptions::default(), Some(workspace_options));
+
+        let after = session
+            .take_snapshot(uri)
+            .expect("test document should produce a snapshot");
+        assert!(
+            after
+                .shuck_settings()
+                .linter()
+                .rules
+                .contains(shuck_linter::Rule::UnusedAssignment)
+        );
+        assert_eq!(after.shuck_settings().linter().rules.len(), 1);
     }
 }

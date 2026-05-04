@@ -1931,6 +1931,7 @@ version = "0.0.32"
 dependencies = [
  "anyhow",
  "crossbeam",
+ "globset",
  "lsp-server",
  "lsp-types",
  "rustc-hash 2.1.2",
@@ -1938,9 +1939,11 @@ dependencies = [
  "serde_json",
  "shuck-ast",
  "shuck-config",
+ "shuck-formatter",
  "shuck-indexer",
  "shuck-linter",
  "shuck-parser",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]
