@@ -309,6 +309,14 @@ mod tests {
             behavior.glob_failure(),
             GlobFailureBehavior::KeepLiteralOnNoMatch
         );
+        assert_eq!(
+            behavior.glob_dot_matching(),
+            GlobDotBehavior::ExplicitDotRequired
+        );
+        let pattern = behavior.glob_pattern();
+        assert_eq!(pattern.extended_glob(), PatternOperatorBehavior::Disabled);
+        assert_eq!(pattern.ksh_glob(), PatternOperatorBehavior::Disabled);
+        assert_eq!(pattern.sh_glob(), PatternOperatorBehavior::Disabled);
     }
 
     #[test]
@@ -488,6 +496,10 @@ print $name
                 GlobDotBehavior::DotfilesIncluded,
             ),
             (
+                "setopt glob_dots\nunsetopt glob_dots\nprint *\n",
+                GlobDotBehavior::ExplicitDotRequired,
+            ),
+            (
                 "opt=glob_dots\nsetopt \"$opt\"\nprint *\n",
                 GlobDotBehavior::Ambiguous,
             ),
@@ -509,6 +521,12 @@ print $name
 print *
 setopt extended_glob ksh_glob sh_glob
 print *
+unsetopt extended_glob
+print *
+unsetopt ksh_glob
+print *
+unsetopt sh_glob
+print *
 opt=extended_glob
 unsetopt \"$opt\"
 print *
@@ -529,6 +547,33 @@ print *
         assert_eq!(enabled.extended_glob(), PatternOperatorBehavior::Enabled);
         assert_eq!(enabled.ksh_glob(), PatternOperatorBehavior::Enabled);
         assert_eq!(enabled.sh_glob(), PatternOperatorBehavior::Enabled);
+
+        let only_ksh_and_sh = model
+            .shell_behavior_at(print_offsets.next().expect("expected partial print"))
+            .glob_pattern();
+        assert_eq!(
+            only_ksh_and_sh.extended_glob(),
+            PatternOperatorBehavior::Disabled
+        );
+        assert_eq!(only_ksh_and_sh.ksh_glob(), PatternOperatorBehavior::Enabled);
+        assert_eq!(only_ksh_and_sh.sh_glob(), PatternOperatorBehavior::Enabled);
+
+        let only_sh = model
+            .shell_behavior_at(print_offsets.next().expect("expected sh print"))
+            .glob_pattern();
+        assert_eq!(only_sh.extended_glob(), PatternOperatorBehavior::Disabled);
+        assert_eq!(only_sh.ksh_glob(), PatternOperatorBehavior::Disabled);
+        assert_eq!(only_sh.sh_glob(), PatternOperatorBehavior::Enabled);
+
+        let disabled_again = model
+            .shell_behavior_at(print_offsets.next().expect("expected disabled print"))
+            .glob_pattern();
+        assert_eq!(
+            disabled_again.extended_glob(),
+            PatternOperatorBehavior::Disabled
+        );
+        assert_eq!(disabled_again.ksh_glob(), PatternOperatorBehavior::Disabled);
+        assert_eq!(disabled_again.sh_glob(), PatternOperatorBehavior::Disabled);
 
         let ambiguous = model
             .shell_behavior_at(print_offsets.next().expect("expected ambiguous print"))

@@ -1815,11 +1815,16 @@ fn base_prefix_arithmetic_literals_record_arithmetic_literal_behavior() {
     let source = "\
 #!/bin/zsh
 echo $((10#1))
-setopt c_bases octal_zeroes
+setopt c_bases
 echo $((10#2))
+unsetopt c_bases
+setopt octal_zeroes
+echo $((10#3))
+setopt c_bases
+echo $((10#4))
 opt=c_bases
 unsetopt \"$opt\"
-echo $((10#3))
+echo $((10#5))
 ";
     let output = Parser::with_dialect(source, shuck_parser::parser::ShellDialect::Zsh)
         .parse()
@@ -1836,9 +1841,32 @@ echo $((10#3))
             .collect::<Vec<_>>(),
         vec![
             ("10#1", ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,),
-            ("10#2", ArithmeticLiteralBehavior::CStyleAndLeadingZeroOctal,),
-            ("10#3", ArithmeticLiteralBehavior::Ambiguous),
+            ("10#2", ArithmeticLiteralBehavior::CStyleBasePrefixes),
+            ("10#3", ArithmeticLiteralBehavior::LeadingZeroOctal),
+            ("10#4", ArithmeticLiteralBehavior::CStyleAndLeadingZeroOctal),
+            ("10#5", ArithmeticLiteralBehavior::Ambiguous),
         ]
+    );
+}
+
+#[test]
+fn base_prefix_arithmetic_literals_record_bash_arithmetic_literal_behavior() {
+    let source = "\
+#!/bin/bash
+echo $((10#1))
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+
+    assert_eq!(
+        facts
+            .arithmetic_literal_facts()
+            .iter()
+            .map(|literal| (literal.span().slice(source), literal.behavior()))
+            .collect::<Vec<_>>(),
+        vec![("10#1", ArithmeticLiteralBehavior::CStyleAndLeadingZeroOctal,)]
     );
 }
 

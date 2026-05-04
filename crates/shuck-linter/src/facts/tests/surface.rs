@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
-    FieldSplittingBehavior, GlobFailureBehavior, PathnameExpansionBehavior,
-    PlainUnindexedArrayReferenceFact, SubscriptIndexBehavior,
+    FieldSplittingBehavior, GlobDotBehavior, GlobFailureBehavior, PathnameExpansionBehavior,
+    PatternOperatorBehavior, PlainUnindexedArrayReferenceFact, SubscriptIndexBehavior,
 };
 
 #[test]
@@ -2151,6 +2151,82 @@ rm *
 }
 
 #[test]
+fn builds_glob_dot_and_pattern_behaviors_for_zsh_globs() {
+    let source = "\
+#!/usr/bin/env zsh
+rm *
+setopt glob_dots extended_glob
+rm *
+setopt ksh_glob sh_glob
+rm *
+unsetopt extended_glob ksh_glob sh_glob
+rm *
+opt=glob_dots
+unsetopt \"$opt\"
+rm *
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            let glob_behaviors = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .filter(|fact| fact.span().slice(source) == "*")
+                .map(|fact| {
+                    let literal = fact.runtime_literal();
+                    let pattern = literal.glob_pattern_behavior;
+                    (
+                        literal.glob_dot_behavior,
+                        pattern.extended_glob(),
+                        pattern.ksh_glob(),
+                        pattern.sh_glob(),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                glob_behaviors,
+                vec![
+                    (
+                        GlobDotBehavior::ExplicitDotRequired,
+                        PatternOperatorBehavior::Disabled,
+                        PatternOperatorBehavior::Disabled,
+                        PatternOperatorBehavior::Disabled,
+                    ),
+                    (
+                        GlobDotBehavior::DotfilesIncluded,
+                        PatternOperatorBehavior::Enabled,
+                        PatternOperatorBehavior::Disabled,
+                        PatternOperatorBehavior::Disabled,
+                    ),
+                    (
+                        GlobDotBehavior::DotfilesIncluded,
+                        PatternOperatorBehavior::Enabled,
+                        PatternOperatorBehavior::Enabled,
+                        PatternOperatorBehavior::Enabled,
+                    ),
+                    (
+                        GlobDotBehavior::DotfilesIncluded,
+                        PatternOperatorBehavior::Disabled,
+                        PatternOperatorBehavior::Disabled,
+                        PatternOperatorBehavior::Disabled,
+                    ),
+                    (
+                        GlobDotBehavior::Ambiguous,
+                        PatternOperatorBehavior::Ambiguous,
+                        PatternOperatorBehavior::Ambiguous,
+                        PatternOperatorBehavior::Ambiguous,
+                    ),
+                ]
+            );
+        },
+    );
+}
+
+#[test]
 fn builds_word_facts_for_special_parameter_arguments() {
     let source = "\
 #!/bin/bash
@@ -3405,6 +3481,9 @@ printf '%s\\n' ${arr[1]}
 unsetopt ksh_arrays
 setopt ksh_zero_subscript
 printf '%s\\n' ${arr[0]}
+opt=ksh_zero_subscript
+unsetopt \"$opt\"
+printf '%s\\n' ${arr[0]}
 ";
 
     with_facts(source, None, |_, facts| {
@@ -3424,7 +3503,33 @@ printf '%s\\n' ${arr[0]}
                 ("${arr[1]}", SubscriptIndexBehavior::OneBased),
                 ("${arr[1]}", SubscriptIndexBehavior::ZeroBased),
                 ("${arr[0]}", SubscriptIndexBehavior::OneBasedWithZeroAlias,),
+                ("${arr[0]}", SubscriptIndexBehavior::Ambiguous),
             ]
+        );
+    });
+}
+
+#[test]
+fn indexed_array_reference_fragments_record_bash_subscript_index_behavior() {
+    let source = "\
+#!/bin/bash
+printf '%s\\n' ${arr[0]}
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .indexed_array_reference_fragments()
+                .iter()
+                .filter(|fragment| fragment.is_plain())
+                .map(|fragment| {
+                    (
+                        fragment.span().slice(source),
+                        fragment.subscript_index_behavior(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![("${arr[0]}", SubscriptIndexBehavior::ZeroBased)]
         );
     });
 }
