@@ -107,7 +107,6 @@ pub use settings::{
 pub use shell::ShellDialect;
 /// Option-sensitive shell behavior enums reused by linter facts and rules.
 pub use shuck_semantic::{FieldSplittingBehavior, GlobFailureBehavior, PathnameExpansionBehavior};
-pub(crate) use suppression::parse_directives;
 /// Suppression directives, shellcheck mappings, and rewrite helpers.
 pub use suppression::{
     AddIgnoreParseError, AddIgnoreResult, ShellCheckCodeMap, SuppressionAction,
