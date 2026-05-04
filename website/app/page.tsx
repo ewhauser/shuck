@@ -23,7 +23,8 @@ export default function Home() {
             />
             <p className="text-base text-fg-secondary leading-relaxed mb-6">
               A fast shell script linter, built in Rust. Checks for
-              correctness, portability, and style issues in your shell scripts.
+              correctness, portability, and style issues in your shell scripts,
+              with a built-in LSP server for editor integration.
             </p>
 
             {/* Install */}
@@ -40,6 +41,12 @@ export default function Home() {
                   shuck check .
                 </pre>
               </div>
+              <div>
+                <p className="text-xs text-fg-dim mb-1 font-medium">Editor LSP</p>
+                <pre className="rounded-md bg-bg-secondary border border-fg-dim/20 px-3 py-2 text-sm font-mono text-fg-primary overflow-x-auto">
+                  shuck server
+                </pre>
+              </div>
             </div>
 
             {/* Links */}
@@ -49,6 +56,12 @@ export default function Home() {
                 className="text-accent hover:underline"
               >
                 Docs
+              </Link>
+              <Link
+                href="/docs/editors"
+                className="text-accent hover:underline"
+              >
+                Editor Setup
               </Link>
               <Link
                 href="/docs/performance/benchmarks"
@@ -134,7 +147,7 @@ export default function Home() {
           <FeatureCard
             icon={<Plug className="h-5 w-5" />}
             title="Integrated"
-            description="Works with your editor, CI pipeline, and pre-commit hooks. One binary, zero dependencies."
+            description="Works with your editor through the built-in LSP server, plus CI pipelines and pre-commit hooks. One binary, zero dependencies."
           />
         </div>
       </section>
