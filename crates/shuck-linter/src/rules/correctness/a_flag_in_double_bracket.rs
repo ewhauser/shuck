@@ -32,7 +32,10 @@ pub fn a_flag_in_double_bracket(checker: &mut Checker) {
                     {
                         Some(unary.operator_span())
                     }
-                    _ => None,
+                    ConditionalNodeFact::BareWord(_)
+                    | ConditionalNodeFact::Unary(_)
+                    | ConditionalNodeFact::Binary(_)
+                    | ConditionalNodeFact::Other(_) => None,
                 })
                 .collect::<Vec<_>>()
         })

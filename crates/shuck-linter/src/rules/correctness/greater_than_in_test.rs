@@ -93,7 +93,15 @@ fn numeric_comparison_redirect_diagnostic(
     let (redirect_data, replacement) = match redirect.redirect().kind {
         RedirectKind::Input => (redirect.redirect(), "-lt"),
         RedirectKind::Output => (redirect.redirect(), "-gt"),
-        _ => return None,
+        RedirectKind::Clobber
+        | RedirectKind::Append
+        | RedirectKind::ReadWrite
+        | RedirectKind::HereDoc
+        | RedirectKind::HereDocStrip
+        | RedirectKind::HereString
+        | RedirectKind::DupOutput
+        | RedirectKind::DupInput
+        | RedirectKind::OutputBoth => return None,
     };
 
     let target = redirect_data.word_target()?;
@@ -208,7 +216,21 @@ fn numeric_double_bracket_operator_diagnostic(
     let replacement = match binary.op() {
         ConditionalBinaryOp::LexicalBefore => "-lt",
         ConditionalBinaryOp::LexicalAfter => "-gt",
-        _ => return None,
+        ConditionalBinaryOp::RegexMatch
+        | ConditionalBinaryOp::NewerThan
+        | ConditionalBinaryOp::OlderThan
+        | ConditionalBinaryOp::SameFile
+        | ConditionalBinaryOp::ArithmeticEq
+        | ConditionalBinaryOp::ArithmeticNe
+        | ConditionalBinaryOp::ArithmeticLe
+        | ConditionalBinaryOp::ArithmeticGe
+        | ConditionalBinaryOp::ArithmeticLt
+        | ConditionalBinaryOp::ArithmeticGt
+        | ConditionalBinaryOp::And
+        | ConditionalBinaryOp::Or
+        | ConditionalBinaryOp::PatternEqShort
+        | ConditionalBinaryOp::PatternEq
+        | ConditionalBinaryOp::PatternNe => return None,
     };
 
     if has_decimal_version_like_operand(binary, source)

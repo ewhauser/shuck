@@ -5,6 +5,11 @@ pub fn is_simple_command_named(command: &Command, source: &str, name: &str) -> b
         Command::Simple(command) => {
             static_word_text(&command.name, source).as_deref() == Some(name)
         }
-        _ => false,
+        Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => false,
     }
 }

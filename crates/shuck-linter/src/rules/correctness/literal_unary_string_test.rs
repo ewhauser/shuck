@@ -106,7 +106,10 @@ fn conditional_diagnostics(
             {
                 conditional_diagnostic(unary.op(), unary.operand(), source)
             }
-            _ => None,
+            ConditionalNodeFact::BareWord(_)
+            | ConditionalNodeFact::Unary(_)
+            | ConditionalNodeFact::Binary(_)
+            | ConditionalNodeFact::Other(_) => None,
         })
         .collect()
 }

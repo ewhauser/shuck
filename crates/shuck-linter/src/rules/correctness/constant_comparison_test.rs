@@ -173,7 +173,20 @@ fn evaluate_conditional_comparison(
         ConditionalBinaryOp::PatternNe => {
             (!looks_like_conditional_pattern(right)).then_some(left != right)
         }
-        _ => None,
+        ConditionalBinaryOp::RegexMatch
+        | ConditionalBinaryOp::NewerThan
+        | ConditionalBinaryOp::OlderThan
+        | ConditionalBinaryOp::SameFile
+        | ConditionalBinaryOp::ArithmeticEq
+        | ConditionalBinaryOp::ArithmeticNe
+        | ConditionalBinaryOp::ArithmeticLe
+        | ConditionalBinaryOp::ArithmeticGe
+        | ConditionalBinaryOp::ArithmeticLt
+        | ConditionalBinaryOp::ArithmeticGt
+        | ConditionalBinaryOp::And
+        | ConditionalBinaryOp::Or
+        | ConditionalBinaryOp::LexicalBefore
+        | ConditionalBinaryOp::LexicalAfter => None,
     }
 }
 

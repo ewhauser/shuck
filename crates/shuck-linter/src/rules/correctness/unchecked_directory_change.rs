@@ -76,7 +76,12 @@ pub(crate) fn report_span(fact: crate::facts::CommandFactRef<'_, '_>, source: &s
                 .unwrap_or(command.name.span.end);
             Span::from_positions(start, end)
         }
-        _ => fact.span(),
+        Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => fact.span(),
     }
 }
 

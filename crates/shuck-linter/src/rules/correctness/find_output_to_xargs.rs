@@ -135,7 +135,12 @@ fn find_command_span(segment: &PipelineSegmentFact<'_>, fact: CommandFactRef<'_,
                 .unwrap_or(simple.name.span.end);
             Span::from_positions(fact.body_span().start, end)
         }
-        _ => fact.body_span(),
+        Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => fact.body_span(),
     }
 }
 

@@ -97,7 +97,10 @@ fn collect_conditional_spans(
             {
                 unary.operand().word().map(|word| word.span)
             }
-            _ => None,
+            ConditionalNodeFact::BareWord(_)
+            | ConditionalNodeFact::Unary(_)
+            | ConditionalNodeFact::Binary(_)
+            | ConditionalNodeFact::Other(_) => None,
         })
         .collect::<Vec<_>>();
     let comparison_operand_spans = conditional
@@ -112,7 +115,10 @@ fn collect_conditional_spans(
                     binary.right().word().map(|word| word.span),
                 ])
             }
-            _ => None,
+            ConditionalNodeFact::BareWord(_)
+            | ConditionalNodeFact::Unary(_)
+            | ConditionalNodeFact::Binary(_)
+            | ConditionalNodeFact::Other(_) => None,
         })
         .flatten()
         .flatten()
@@ -148,7 +154,10 @@ fn collect_conditional_spans(
         {
             spans.push(unary.operator_span());
         }
-        _ => {}
+        ConditionalNodeFact::BareWord(_)
+        | ConditionalNodeFact::Unary(_)
+        | ConditionalNodeFact::Binary(_)
+        | ConditionalNodeFact::Other(_) => {}
     }
 
     for node in conditional.nodes().iter().skip(1) {
@@ -190,7 +199,10 @@ fn collect_conditional_spans(
             {
                 spans.push(unary.operator_span());
             }
-            _ => {}
+            ConditionalNodeFact::BareWord(_)
+            | ConditionalNodeFact::Unary(_)
+            | ConditionalNodeFact::Binary(_)
+            | ConditionalNodeFact::Other(_) => {}
         }
     }
 

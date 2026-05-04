@@ -27,7 +27,13 @@ pub fn standalone_arithmetic(checker: &mut Checker) {
             Command::Compound(CompoundCommand::Arithmetic(_)) => {
                 Some(fact.span_in_source(checker.source()))
             }
-            _ => None,
+            Command::Simple(_)
+            | Command::Builtin(_)
+            | Command::Decl(_)
+            | Command::Binary(_)
+            | Command::Compound(_)
+            | Command::Function(_)
+            | Command::AnonymousFunction(_) => None,
         })
         .collect::<Vec<_>>();
 

@@ -74,7 +74,10 @@ fn conditional_spans(conditional: &crate::ConditionalFact<'_>, source: &str) -> 
                     None
                 }
             }
-            _ => None,
+            ConditionalNodeFact::BareWord(_)
+            | ConditionalNodeFact::Unary(_)
+            | ConditionalNodeFact::Binary(_)
+            | ConditionalNodeFact::Other(_) => None,
         })
         .collect()
 }

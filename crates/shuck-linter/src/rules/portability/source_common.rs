@@ -34,7 +34,12 @@ fn source_anchor_span(
         Command::Simple(command) => {
             clip_first_line(simple_command_span(command, redirects), source)
         }
-        _ => clip_first_line(fallback, source),
+        Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => clip_first_line(fallback, source),
     }
 }
 

@@ -47,7 +47,15 @@ pub fn escaped_underscore(checker: &mut Checker) {
         })
         .filter(|escape| match escape.source_kind() {
             EscapeScanSourceKind::PatternCharClass => escape.escaped_byte() == b'-',
-            _ => is_regular_plain_word_escape_target(escape.escaped_byte()),
+            EscapeScanSourceKind::WordLiteralPart
+            | EscapeScanSourceKind::RedirectLiteralSegment
+            | EscapeScanSourceKind::DynamicPathCommandName
+            | EscapeScanSourceKind::PatternLiteral
+            | EscapeScanSourceKind::ParameterPatternCharClass
+            | EscapeScanSourceKind::SingleLiteralAssignmentWord
+            | EscapeScanSourceKind::BacktickFragment => {
+                is_regular_plain_word_escape_target(escape.escaped_byte())
+            }
         })
         .collect::<Vec<_>>();
     let non_fixable_spans = escapes

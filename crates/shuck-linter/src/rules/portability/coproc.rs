@@ -27,7 +27,13 @@ pub fn coproc(checker: &mut Checker) {
             Command::Compound(CompoundCommand::Coproc(_)) => {
                 Some(fact.span_in_source(checker.source()))
             }
-            _ => None,
+            Command::Simple(_)
+            | Command::Builtin(_)
+            | Command::Decl(_)
+            | Command::Binary(_)
+            | Command::Compound(_)
+            | Command::Function(_)
+            | Command::AnonymousFunction(_) => None,
         })
         .collect::<Vec<_>>();
 
