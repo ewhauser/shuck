@@ -66,10 +66,11 @@ use shuck_indexer::{Indexer, LineIndex};
 use shuck_parser::parser::Parser;
 use shuck_semantic::{
     Binding, BindingAttributes, BindingId, BindingKind, CaseCliDispatch, Declaration,
-    DeclarationBuiltin, DeclarationOperand as SemanticDeclarationOperand,
-    NonpersistentAssignmentAnalysisContext, NonpersistentAssignmentAnalysisOptions,
-    NonpersistentAssignmentCommandContext, NonpersistentAssignmentExtraRead, OptionValue,
-    Reference, ReferenceId, ReferenceKind, ScopeId, SemanticAnalysis, SemanticModel,
+    DeclarationBuiltin, DeclarationOperand as SemanticDeclarationOperand, FieldSplittingBehavior,
+    GlobFailureBehavior, NonpersistentAssignmentAnalysisContext,
+    NonpersistentAssignmentAnalysisOptions, NonpersistentAssignmentCommandContext,
+    NonpersistentAssignmentExtraRead, OptionValue, PathnameExpansionBehavior, Reference,
+    ReferenceId, ReferenceKind, ScopeId, SemanticAnalysis, SemanticModel,
     SemanticPipelineOperatorKind, ZshOptionState,
 };
 use smallvec::SmallVec;

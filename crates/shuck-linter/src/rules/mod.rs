@@ -136,4 +136,56 @@ mod architecture_tests {
             violations.join("\n"),
         );
     }
+
+    #[test]
+    fn c012_rule_avoids_raw_zsh_option_state_queries() {
+        let rule_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/rules/correctness/leading_glob_argument.rs");
+        let source = fs::read_to_string(&rule_path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", rule_path.display()));
+        let forbidden_tokens = [
+            "zsh_options_at",
+            "zsh_options()",
+            "ZshOptionState",
+            "OptionValue",
+            "shell_behavior_at",
+        ];
+        let violations = forbidden_tokens
+            .iter()
+            .copied()
+            .filter(|token| source.contains(token))
+            .collect::<Vec<_>>();
+
+        assert!(
+            violations.is_empty(),
+            "C012 should consume behavior-partitioned facts instead of raw zsh option state:\n{}",
+            violations.join("\n"),
+        );
+    }
+
+    #[test]
+    fn k001_rule_avoids_raw_zsh_option_state_queries() {
+        let rule_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/rules/security/rm_glob_on_variable_path.rs");
+        let source = fs::read_to_string(&rule_path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", rule_path.display()));
+        let forbidden_tokens = [
+            "zsh_options_at",
+            "zsh_options()",
+            "ZshOptionState",
+            "OptionValue",
+            "shell_behavior_at",
+        ];
+        let violations = forbidden_tokens
+            .iter()
+            .copied()
+            .filter(|token| source.contains(token))
+            .collect::<Vec<_>>();
+
+        assert!(
+            violations.is_empty(),
+            "K001 should consume behavior-partitioned facts instead of raw zsh option state:\n{}",
+            violations.join("\n"),
+        );
+    }
 }

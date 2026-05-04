@@ -16,6 +16,7 @@ mod declaration;
 mod dense_bit_set;
 mod function_call_reachability;
 mod function_resolution;
+mod glob;
 mod nonpersistent;
 mod reachability;
 mod reference;
@@ -60,6 +61,8 @@ pub use function_call_reachability::{
     DirectFunctionCallReachability, DirectFunctionCallWindow, FunctionCallCandidate,
     FunctionCallPersistence,
 };
+/// Option-sensitive globbing and expansion behavior queries.
+pub use glob::{FieldSplittingBehavior, GlobFailureBehavior, PathnameExpansionBehavior};
 /// Nonpersistent assignment effects, such as assignments made in subshells and read later outside.
 pub use nonpersistent::{
     NonpersistentAssignmentAnalysis, NonpersistentAssignmentAnalysisContext,
