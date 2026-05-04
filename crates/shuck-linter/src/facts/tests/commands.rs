@@ -1822,9 +1822,11 @@ setopt octal_zeroes
 echo $((10#3))
 setopt c_bases
 echo $((10#4))
-opt=c_bases
-unsetopt \"$opt\"
+unsetopt c_bases
 echo $((10#5))
+opt=octal_zeroes
+unsetopt \"$opt\"
+echo $((10#6))
 ";
     let output = Parser::with_dialect(source, shuck_parser::parser::ShellDialect::Zsh)
         .parse()
@@ -1841,10 +1843,11 @@ echo $((10#5))
             .collect::<Vec<_>>(),
         vec![
             ("10#1", ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,),
-            ("10#2", ArithmeticLiteralBehavior::CStyleBasePrefixes),
+            ("10#2", ArithmeticLiteralBehavior::DecimalUnlessExplicitBase),
             ("10#3", ArithmeticLiteralBehavior::LeadingZeroOctal),
-            ("10#4", ArithmeticLiteralBehavior::CStyleAndLeadingZeroOctal),
-            ("10#5", ArithmeticLiteralBehavior::Ambiguous),
+            ("10#4", ArithmeticLiteralBehavior::LeadingZeroOctal),
+            ("10#5", ArithmeticLiteralBehavior::LeadingZeroOctal),
+            ("10#6", ArithmeticLiteralBehavior::Ambiguous),
         ]
     );
 }

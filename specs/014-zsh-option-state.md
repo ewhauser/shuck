@@ -107,7 +107,7 @@ The following tracked options now have behavior-backed semantic queries and lint
 - `NOMATCH`, `NULL_GLOB`, and `CSH_NULL_GLOB` feed unmatched-glob behavior.
 - `GLOB_DOTS`, `EXTENDED_GLOB`, `KSH_GLOB`, and `SH_GLOB` feed glob/pattern behavior facts.
 - `KSH_ARRAYS` and `KSH_ZERO_SUBSCRIPT` feed array-reference and subscript-indexing behavior.
-- `C_BASES` and `OCTAL_ZEROES` feed arithmetic-literal behavior.
+- `OCTAL_ZEROES` feeds arithmetic-literal input behavior; `C_BASES` remains tracked for arithmetic output formatting.
 
 The remaining options in this inventory are still tracked for parser, syntax, or future fact
 support unless a later section states otherwise.

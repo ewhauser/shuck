@@ -112,8 +112,6 @@ pub enum SubscriptIndexBehavior {
 pub enum ArithmeticLiteralBehavior {
     /// Decimal literals are used unless an explicit shell arithmetic base is present.
     DecimalUnlessExplicitBase,
-    /// C-style numeric base prefixes such as `0x` are active.
-    CStyleBasePrefixes,
     /// Leading zeroes denote octal literals.
     LeadingZeroOctal,
     /// Both C-style base prefixes and leading-zero octal literals are active.
@@ -181,18 +179,10 @@ impl ShellBehaviorAt<'_> {
             return ArithmeticLiteralBehavior::DecimalUnlessExplicitBase;
         };
 
-        match (options.c_bases, options.octal_zeroes) {
-            (OptionValue::Unknown, _) | (_, OptionValue::Unknown) => {
-                ArithmeticLiteralBehavior::Ambiguous
-            }
-            (OptionValue::Off, OptionValue::Off) => {
-                ArithmeticLiteralBehavior::DecimalUnlessExplicitBase
-            }
-            (OptionValue::On, OptionValue::Off) => ArithmeticLiteralBehavior::CStyleBasePrefixes,
-            (OptionValue::Off, OptionValue::On) => ArithmeticLiteralBehavior::LeadingZeroOctal,
-            (OptionValue::On, OptionValue::On) => {
-                ArithmeticLiteralBehavior::CStyleAndLeadingZeroOctal
-            }
+        match options.octal_zeroes {
+            OptionValue::Off => ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,
+            OptionValue::On => ArithmeticLiteralBehavior::LeadingZeroOctal,
+            OptionValue::Unknown => ArithmeticLiteralBehavior::Ambiguous,
         }
     }
 }

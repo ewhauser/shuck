@@ -326,7 +326,6 @@ pub enum SubscriptIndexBehavior {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArithmeticLiteralBehavior {
     DecimalUnlessExplicitBase,
-    CStyleBasePrefixes,
     LeadingZeroOctal,
     CStyleAndLeadingZeroOctal,
     Ambiguous,
@@ -406,7 +405,7 @@ This means new rule files should not add direct AST walks or raw option queries.
 
 - Add fact behavior for `NULL_GLOB`, `CSH_NULL_GLOB`, `GLOB_DOTS`, `EXTENDED_GLOB`, `KSH_GLOB`, and `SH_GLOB` in glob/pattern facts.
 - Add `SubscriptIndexBehavior` for `KSH_ARRAYS` and `KSH_ZERO_SUBSCRIPT`.
-- Add `ArithmeticLiteralBehavior` for `C_BASES` and `OCTAL_ZEROES`.
+- Add `ArithmeticLiteralBehavior` for arithmetic input behavior. `OCTAL_ZEROES` changes literal interpretation; `C_BASES` remains tracked for arithmetic output formatting rather than widening input-literal facts.
 - Update the zsh option support inventory as each option moves from tracked-only to behavior-backed.
 
 ## Alternatives Considered

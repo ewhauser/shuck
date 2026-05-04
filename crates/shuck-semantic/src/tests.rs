@@ -9858,7 +9858,7 @@ fn semantic_behavior_tracks_arithmetic_literal_options() {
         ),
         (
             "setopt c_bases\nprint $(( 010 + 0x10 ))\n",
-            ArithmeticLiteralBehavior::CStyleBasePrefixes,
+            ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,
         ),
         (
             "setopt octal_zeroes\nprint $(( 010 + 0x10 ))\n",
@@ -9866,10 +9866,10 @@ fn semantic_behavior_tracks_arithmetic_literal_options() {
         ),
         (
             "setopt c_bases octal_zeroes\nprint $(( 010 + 0x10 ))\n",
-            ArithmeticLiteralBehavior::CStyleAndLeadingZeroOctal,
+            ArithmeticLiteralBehavior::LeadingZeroOctal,
         ),
         (
-            "opt=c_bases\nsetopt \"$opt\"\nprint $(( 010 + 0x10 ))\n",
+            "opt=octal_zeroes\nsetopt \"$opt\"\nprint $(( 010 + 0x10 ))\n",
             ArithmeticLiteralBehavior::Ambiguous,
         ),
     ] {
