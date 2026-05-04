@@ -1,7 +1,7 @@
 use lsp_types::Url;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
-use shuck_config::{FormatConfig, LintConfig, ShuckConfig, apply_config_overrides};
+use shuck_config::{FormatConfig, LintConfig, ShuckConfig};
 
 use crate::session::settings::GlobalClientSettings;
 use crate::{Client, logging};
@@ -44,26 +44,6 @@ impl ClientOptions {
             lint: self.lint.clone().unwrap_or_default(),
             format: self.format.clone().unwrap_or_default(),
             ..ShuckConfig::default()
-        }
-    }
-
-    pub(crate) fn merged(global: &Self, workspace: Option<&Self>) -> Self {
-        let Some(workspace) = workspace else {
-            return global.clone();
-        };
-
-        let mut config = global.to_config_overrides();
-        apply_config_overrides(&mut config, workspace.to_config_overrides());
-
-        Self {
-            lint: (global.lint.is_some() || workspace.lint.is_some()).then_some(config.lint),
-            format: (global.format.is_some() || workspace.format.is_some())
-                .then_some(config.format),
-            fix_all: workspace.fix_all.or(global.fix_all),
-            unsafe_fixes: workspace.unsafe_fixes.or(global.unsafe_fixes),
-            show_syntax_errors: workspace
-                .show_syntax_errors
-                .or(global.show_syntax_errors),
         }
     }
 }

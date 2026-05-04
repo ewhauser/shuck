@@ -82,19 +82,33 @@ impl Session {
     }
 
     pub fn take_snapshot(&self, url: Url) -> Option<DocumentSnapshot> {
-        let options = ClientOptions::merged(
-            self.global_settings.options(),
-            self.index.workspace_options_for_url(&url),
-        );
+        let workspace_options = self.index.workspace_options_for_url(&url);
         let key = self.key_from_url(url);
-        let settings = Arc::new(ShuckSettings::resolve(
-            key.clone().into_url().to_file_path().ok().as_deref(),
-            self.index.workspace_roots(),
-            &options,
-        ));
+        let file_path = key.clone().into_url().to_file_path().ok();
+        let (settings, client_settings) = if let Some(workspace_options) = workspace_options {
+            let option_layers = [self.global_settings.options(), workspace_options];
+            (
+                Arc::new(ShuckSettings::resolve(
+                    file_path.as_deref(),
+                    self.index.workspace_roots(),
+                    &option_layers,
+                )),
+                Arc::new(ClientSettings::from_layered_options(&option_layers)),
+            )
+        } else {
+            let option_layers = [self.global_settings.options()];
+            (
+                Arc::new(ShuckSettings::resolve(
+                    file_path.as_deref(),
+                    self.index.workspace_roots(),
+                    &option_layers,
+                )),
+                Arc::new(ClientSettings::from_layered_options(&option_layers)),
+            )
+        };
         Some(DocumentSnapshot {
             resolved_client_capabilities: self.resolved_client_capabilities.clone(),
-            client_settings: Arc::new(ClientSettings::from_options(&options)),
+            client_settings,
             document_ref: self.index.make_document_ref(key, settings)?,
             position_encoding: self.position_encoding,
         })

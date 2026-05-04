@@ -51,10 +51,30 @@ impl ClientSettings {
     }
 
     pub(crate) fn from_options(options: &ClientOptions) -> Self {
+        Self::from_layered_options(&[options])
+    }
+
+    pub(crate) fn from_layered_options(option_layers: &[&ClientOptions]) -> Self {
+        let mut fix_all = None;
+        let mut unsafe_fixes = None;
+        let mut show_syntax_errors = None;
+
+        for options in option_layers {
+            if options.fix_all.is_some() {
+                fix_all = options.fix_all;
+            }
+            if options.unsafe_fixes.is_some() {
+                unsafe_fixes = options.unsafe_fixes;
+            }
+            if options.show_syntax_errors.is_some() {
+                show_syntax_errors = options.show_syntax_errors;
+            }
+        }
+
         Self {
-            fix_all: options.fix_all.unwrap_or(true),
-            unsafe_fixes: options.unsafe_fixes.unwrap_or(false),
-            show_syntax_errors: options.show_syntax_errors.unwrap_or(false),
+            fix_all: fix_all.unwrap_or(true),
+            unsafe_fixes: unsafe_fixes.unwrap_or(false),
+            show_syntax_errors: show_syntax_errors.unwrap_or(false),
         }
     }
 }
@@ -63,9 +83,9 @@ impl ShuckSettings {
     pub(crate) fn resolve(
         file_path: Option<&Path>,
         workspace_roots: &[PathBuf],
-        options: &ClientOptions,
+        option_layers: &[&ClientOptions],
     ) -> Self {
-        let mut config = ShuckConfig::default();
+        let mut project_config = ShuckConfig::default();
 
         let project_root = file_path.map(|file_path| {
             let fallback_root = containing_workspace_root(file_path, workspace_roots)
@@ -74,7 +94,7 @@ impl ShuckSettings {
             let project_root = resolve_project_root_for_file(file_path, &fallback_root, true)
                 .unwrap_or(fallback_root.clone());
 
-            config = load_project_config(&project_root, &ConfigArguments::default())
+            project_config = load_project_config(&project_root, &ConfigArguments::default())
                 .unwrap_or_else(|error| {
                     tracing::warn!(
                         "Failed to load shuck config for {}: {error}",
@@ -84,15 +104,19 @@ impl ShuckSettings {
                 });
             project_root
         });
-        apply_config_overrides(&mut config, options.to_config_overrides());
         let config_root = project_root
             .clone()
             .unwrap_or_else(|| workspace_roots.first().cloned().unwrap_or_else(|| PathBuf::from(".")));
 
         Self {
-            linter: linter_settings_for_config(&config_root, file_path, &config),
-            formatter: formatter_settings_for_config(&config),
-            fixable_rules: fixable_rules_for_config(&config),
+            linter: linter_settings_for_layers(
+                &config_root,
+                file_path,
+                &project_config,
+                option_layers,
+            ),
+            formatter: formatter_settings_for_layers(&project_config, option_layers),
+            fixable_rules: fixable_rules_for_layers(&project_config, option_layers),
             project_root,
         }
     }
@@ -151,32 +175,96 @@ fn containing_workspace_root(path: &Path, workspace_roots: &[PathBuf]) -> Option
         .cloned()
 }
 
-fn linter_settings_for_config(
+#[derive(Debug, Clone, Default)]
+struct RuleSelectionLayer {
+    select: Option<Vec<RuleSelector>>,
+    ignore: Vec<RuleSelector>,
+    extend_select: Vec<RuleSelector>,
+    per_file_ignores: Option<Vec<PerFileIgnoreSpec>>,
+    extend_per_file_ignores: Vec<PerFileIgnoreSpec>,
+    per_file_shell: Option<Vec<PerFileShell>>,
+    extend_per_file_shell: Vec<PerFileShell>,
+    fixable: Option<Vec<RuleSelector>>,
+    unfixable: Vec<RuleSelector>,
+    extend_fixable: Vec<RuleSelector>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PerFileIgnoreSpec {
+    pattern: String,
+    selectors: Vec<RuleSelector>,
+}
+
+impl PerFileIgnoreSpec {
+    fn into_ignore(self) -> PerFileIgnore {
+        PerFileIgnore::new(
+            self.pattern,
+            selectors_to_rule_set_from_parsed(&self.selectors),
+        )
+    }
+}
+
+fn lint_layers<'a>(
+    project_config: &'a ShuckConfig,
+    option_layers: &'a [&'a ClientOptions],
+) -> impl Iterator<Item = RuleSelectionLayer> + 'a {
+    std::iter::once(parse_lint_config_layer(&project_config.lint))
+        .chain(option_layers.iter().map(|options| {
+            options
+                .lint
+                .as_ref()
+                .map(parse_lint_config_layer)
+                .unwrap_or_default()
+        }))
+}
+
+fn linter_settings_for_layers(
     project_root: &Path,
     file_path: Option<&Path>,
-    config: &ShuckConfig,
+    project_config: &ShuckConfig,
+    option_layers: &[&ClientOptions],
 ) -> LinterSettings {
     let mut rules = LinterSettings::default_rules();
-    if let Some(select) = parse_selector_list(config.lint.select.as_deref(), "lint.select") {
-        rules = selectors_to_rule_set_from_parsed(&select);
+    let mut per_file_ignores = Vec::new();
+    let mut per_file_shell = Vec::new();
+    let mut rule_options = LinterRuleOptions::default();
+
+    for layer in lint_layers(project_config, option_layers) {
+        rules = apply_rule_selector_layer(
+            rules,
+            layer.select.as_deref(),
+            &layer.extend_select,
+            &layer.ignore,
+        );
+        per_file_ignores = apply_per_file_ignore_layer(
+            per_file_ignores,
+            layer.per_file_ignores,
+            layer.extend_per_file_ignores,
+        );
+        per_file_shell = apply_per_file_shell_layer(
+            per_file_shell,
+            layer.per_file_shell,
+            layer.extend_per_file_shell,
+        );
     }
-    if let Some(extend_select) = parse_selector_list(
-        config.lint.extend_select.as_deref(),
-        "lint.extend-select",
+    for lint in std::iter::once(&project_config.lint).chain(
+        option_layers
+            .iter()
+            .filter_map(|options| options.lint.as_ref()),
     ) {
-        rules = rules.union(&selectors_to_rule_set_from_parsed(&extend_select));
-    }
-    if let Some(ignore) = parse_selector_list(config.lint.ignore.as_deref(), "lint.ignore") {
-        rules = rules.subtract(&selectors_to_rule_set_from_parsed(&ignore));
+        apply_linter_rule_options_for_lint_config(&mut rule_options, lint);
     }
 
-    let per_file_ignores = per_file_ignores_for_config(config);
     let compiled_per_file_ignores =
         CompiledPerFileIgnoreList::resolve(project_root.to_path_buf(), per_file_ignores)
             .unwrap_or_default();
     let shell = file_path
         .and_then(|file_path| {
-            CompiledPerFileShellList::from_config(project_root.to_path_buf(), config)
+            CompiledPerFileShellList::resolve(project_root.to_path_buf(), per_file_shell)
+                .unwrap_or_else(|error| {
+                    tracing::warn!("Failed to compile per-file shell settings: {error}");
+                    CompiledPerFileShellList::default()
+                })
                 .shell_for_path(file_path)
         })
         .unwrap_or(LinterShellDialect::Unknown);
@@ -185,9 +273,24 @@ fn linter_settings_for_config(
         rules,
         shell,
         per_file_ignores: Arc::new(compiled_per_file_ignores),
-        rule_options: linter_rule_options_for_lint_config(&config.lint),
+        rule_options,
         ..LinterSettings::default()
     }
+}
+
+fn formatter_settings_for_layers(
+    project_config: &ShuckConfig,
+    option_layers: &[&ClientOptions],
+) -> ShellFormatOptions {
+    let mut config = ShuckConfig {
+        format: project_config.format.clone(),
+        ..ShuckConfig::default()
+    };
+    for options in option_layers {
+        apply_config_overrides(&mut config, options.to_config_overrides());
+    }
+
+    formatter_settings_for_config(&config)
 }
 
 fn formatter_settings_for_config(config: &ShuckConfig) -> ShellFormatOptions {
@@ -237,18 +340,19 @@ fn formatter_settings_for_config(config: &ShuckConfig) -> ShellFormatOptions {
     options
 }
 
-fn fixable_rules_for_config(config: &ShuckConfig) -> RuleSet {
-    let fixable = parse_selector_list(config.lint.fixable.as_deref(), "lint.fixable");
-    let extend_fixable =
-        parse_selector_list(config.lint.extend_fixable.as_deref(), "lint.extend-fixable");
-    let unfixable = parse_selector_list(config.lint.unfixable.as_deref(), "lint.unfixable");
+fn fixable_rules_for_layers(project_config: &ShuckConfig, option_layers: &[&ClientOptions]) -> RuleSet {
+    let mut fixable_rules = RuleSet::all();
 
-    apply_rule_selector_layer(
-        RuleSet::all(),
-        fixable.as_deref(),
-        extend_fixable.as_deref().unwrap_or(&[]),
-        unfixable.as_deref().unwrap_or(&[]),
-    )
+    for layer in lint_layers(project_config, option_layers) {
+        fixable_rules = apply_rule_selector_layer(
+            fixable_rules,
+            layer.fixable.as_deref(),
+            &layer.extend_fixable,
+            &layer.unfixable,
+        );
+    }
+
+    fixable_rules
 }
 
 fn selectors_to_rule_set_from_parsed(selectors: &[RuleSelector]) -> RuleSet {
@@ -257,25 +361,60 @@ fn selectors_to_rule_set_from_parsed(selectors: &[RuleSelector]) -> RuleSet {
         .fold(RuleSet::EMPTY, |rules, selector| rules.union(&selector.into_rule_set()))
 }
 
-fn per_file_ignores_for_config(config: &ShuckConfig) -> Vec<PerFileIgnore> {
-    let mut per_file_ignores = Vec::new();
-    if let Some(entries) = config.lint.per_file_ignores.as_ref() {
-        per_file_ignores.extend(parse_per_file_ignore_map(entries));
+fn parse_lint_config_layer(lint: &LintConfig) -> RuleSelectionLayer {
+    RuleSelectionLayer {
+        select: parse_selector_list(lint.select.as_deref(), "lint.select"),
+        ignore: parse_selector_list(lint.ignore.as_deref(), "lint.ignore").unwrap_or_default(),
+        extend_select: parse_selector_list(
+            lint.extend_select.as_deref(),
+            "lint.extend-select",
+        )
+        .unwrap_or_default(),
+        per_file_ignores: lint
+            .per_file_ignores
+            .as_ref()
+            .map(|entries| parse_per_file_ignore_specs(entries, "lint.per-file-ignores")),
+        extend_per_file_ignores: lint
+            .extend_per_file_ignores
+            .as_ref()
+            .map(|entries| parse_per_file_ignore_specs(entries, "lint.extend-per-file-ignores"))
+            .unwrap_or_default(),
+        per_file_shell: lint
+            .per_file_shell
+            .as_ref()
+            .map(|entries| parse_per_file_shell_map(entries, "lint.per-file-shell")),
+        extend_per_file_shell: lint
+            .extend_per_file_shell
+            .as_ref()
+            .map(|entries| parse_per_file_shell_map(entries, "lint.extend-per-file-shell"))
+            .unwrap_or_default(),
+        fixable: parse_selector_list(lint.fixable.as_deref(), "lint.fixable"),
+        unfixable: parse_selector_list(lint.unfixable.as_deref(), "lint.unfixable")
+            .unwrap_or_default(),
+        extend_fixable: parse_selector_list(
+            lint.extend_fixable.as_deref(),
+            "lint.extend-fixable",
+        )
+        .unwrap_or_default(),
     }
-    if let Some(entries) = config.lint.extend_per_file_ignores.as_ref() {
-        per_file_ignores.extend(parse_per_file_ignore_map(entries));
-    }
-    per_file_ignores
 }
 
-fn parse_per_file_ignore_map(
+fn parse_per_file_ignore_specs(
     entries: &BTreeMap<String, Vec<String>>,
-) -> impl Iterator<Item = PerFileIgnore> + '_ {
+    scope: &str,
+) -> Vec<PerFileIgnoreSpec> {
     entries.iter().filter_map(|(pattern, selectors)| {
-        parse_selectors(selectors).ok().map(|parsed| {
-            PerFileIgnore::new(pattern.clone(), selectors_to_rule_set_from_parsed(&parsed))
-        })
-    })
+        match parse_selectors(selectors) {
+            Ok(parsed) => Some(PerFileIgnoreSpec {
+                pattern: pattern.clone(),
+                selectors: parsed,
+            }),
+            Err(error) => {
+                tracing::warn!("Ignoring invalid {scope} entry for {pattern:?}: {error}");
+                None
+            }
+        }
+    }).collect()
 }
 
 fn parse_selectors(selectors: &[String]) -> anyhow::Result<Vec<RuleSelector>> {
@@ -358,8 +497,37 @@ fn selector_specificity(selector: &RuleSelector) -> usize {
     }
 }
 
+fn apply_per_file_ignore_layer(
+    current: Vec<PerFileIgnore>,
+    per_file_ignores: Option<Vec<PerFileIgnoreSpec>>,
+    extend_per_file_ignores: Vec<PerFileIgnoreSpec>,
+) -> Vec<PerFileIgnore> {
+    let mut per_file_ignores = per_file_ignores
+        .map(|per_file_ignores| {
+            per_file_ignores
+                .into_iter()
+                .map(PerFileIgnoreSpec::into_ignore)
+                .collect()
+        })
+        .unwrap_or(current);
+    per_file_ignores.extend(
+        extend_per_file_ignores
+            .into_iter()
+            .map(PerFileIgnoreSpec::into_ignore),
+    );
+    per_file_ignores
+}
+
 fn linter_rule_options_for_lint_config(lint: &LintConfig) -> LinterRuleOptions {
     let mut rule_options = LinterRuleOptions::default();
+    apply_linter_rule_options_for_lint_config(&mut rule_options, lint);
+    rule_options
+}
+
+fn apply_linter_rule_options_for_lint_config(
+    rule_options: &mut LinterRuleOptions,
+    lint: &LintConfig,
+) {
     if let Some(value) = lint
         .rule_options
         .as_ref()
@@ -376,8 +544,6 @@ fn linter_rule_options_for_lint_config(lint: &LintConfig) -> LinterRuleOptions {
     {
         rule_options.c063.report_unreached_nested_definitions = value;
     }
-
-    rule_options
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -402,27 +568,6 @@ struct CompiledPerFileShell {
 }
 
 impl CompiledPerFileShellList {
-    fn from_config(project_root: PathBuf, config: &ShuckConfig) -> Self {
-        let mut per_file_shell = Vec::new();
-        if let Some(entries) = config.lint.per_file_shell.as_ref() {
-            per_file_shell.extend(parse_per_file_shell_map(entries, "lint.per-file-shell"));
-        }
-        if let Some(entries) = config.lint.extend_per_file_shell.as_ref() {
-            per_file_shell.extend(parse_per_file_shell_map(
-                entries,
-                "lint.extend-per-file-shell",
-            ));
-        }
-
-        match Self::resolve(project_root, per_file_shell) {
-            Ok(compiled) => compiled,
-            Err(error) => {
-                tracing::warn!("Failed to compile per-file shell settings: {error}");
-                Self::default()
-            }
-        }
-    }
-
     fn resolve(
         project_root: PathBuf,
         per_file_shell: Vec<PerFileShell>,
@@ -498,6 +643,16 @@ fn parse_per_file_shell_map(
         .collect()
 }
 
+fn apply_per_file_shell_layer(
+    current: Vec<PerFileShell>,
+    per_file_shell: Option<Vec<PerFileShell>>,
+    extend_per_file_shell: Vec<PerFileShell>,
+) -> Vec<PerFileShell> {
+    let mut per_file_shell = per_file_shell.unwrap_or(current);
+    per_file_shell.extend(extend_per_file_shell);
+    per_file_shell
+}
+
 fn matches_absolute_path(matcher: &GlobMatcher, path: &Path) -> bool {
     matcher.is_match(path)
         || matcher.is_match(normalize_path(path))
@@ -536,6 +691,8 @@ fn slash_normalized_match_path(path: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
 
     #[test]
@@ -548,6 +705,7 @@ mod tests {
 
     #[test]
     fn shuck_settings_load_rule_selection_from_config() {
+        let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
             tempdir.path().join(".shuck.toml"),
@@ -561,7 +719,7 @@ mod tests {
         let settings = ShuckSettings::resolve(
             Some(&file_path),
             &[tempdir.path().to_path_buf()],
-            &ClientOptions::default(),
+            &[&options],
         );
 
         assert_eq!(settings.project_root(), Some(tempdir.path()));
@@ -571,6 +729,7 @@ mod tests {
 
     #[test]
     fn shuck_settings_merge_extended_per_file_ignores() {
+        let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
             tempdir.path().join(".shuck.toml"),
@@ -584,7 +743,7 @@ mod tests {
         let settings = ShuckSettings::resolve(
             Some(&file_path),
             &[tempdir.path().to_path_buf()],
-            &ClientOptions::default(),
+            &[&options],
         );
 
         let ignored = settings.linter().per_file_ignores.ignored_rules(&file_path);
@@ -594,6 +753,7 @@ mod tests {
 
     #[test]
     fn shuck_settings_apply_per_file_shell_override() {
+        let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
             tempdir.path().join(".shuck.toml"),
@@ -607,7 +767,7 @@ mod tests {
         let settings = ShuckSettings::resolve(
             Some(&file_path),
             &[tempdir.path().to_path_buf()],
-            &ClientOptions::default(),
+            &[&options],
         );
 
         assert_eq!(settings.linter().shell, LinterShellDialect::Zsh);
@@ -615,6 +775,7 @@ mod tests {
 
     #[test]
     fn shuck_settings_honor_unfixable_rule_config() {
+        let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
             tempdir.path().join(".shuck.toml"),
@@ -628,7 +789,7 @@ mod tests {
         let settings = ShuckSettings::resolve(
             Some(&file_path),
             &[tempdir.path().to_path_buf()],
-            &ClientOptions::default(),
+            &[&options],
         );
 
         assert!(!settings.fixable_rules().contains(shuck_linter::Rule::UnusedAssignment));
@@ -636,21 +797,22 @@ mod tests {
 
     #[test]
     fn shuck_settings_apply_client_overrides_without_a_file_path() {
+        let options = ClientOptions {
+            lint: Some(shuck_config::LintConfig {
+                select: Some(vec!["C001".to_owned()]),
+                ..shuck_config::LintConfig::default()
+            }),
+            format: Some(shuck_config::FormatConfig {
+                indent_style: Some("space".to_owned()),
+                indent_width: Some(2),
+                ..shuck_config::FormatConfig::default()
+            }),
+            ..ClientOptions::default()
+        };
         let settings = ShuckSettings::resolve(
             None,
             &[],
-            &ClientOptions {
-                lint: Some(shuck_config::LintConfig {
-                    select: Some(vec!["C001".to_owned()]),
-                    ..shuck_config::LintConfig::default()
-                }),
-                format: Some(shuck_config::FormatConfig {
-                    indent_style: Some("space".to_owned()),
-                    indent_width: Some(2),
-                    ..shuck_config::FormatConfig::default()
-                }),
-                ..ClientOptions::default()
-            },
+            &[&options],
         );
 
         assert!(settings.linter().rules.contains(shuck_linter::Rule::UnusedAssignment));
@@ -664,6 +826,7 @@ mod tests {
 
     #[test]
     fn invalid_selectors_leave_default_rules_enabled() {
+        let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
             tempdir.path().join(".shuck.toml"),
@@ -677,7 +840,7 @@ mod tests {
         let settings = ShuckSettings::resolve(
             Some(&file_path),
             &[tempdir.path().to_path_buf()],
-            &ClientOptions::default(),
+            &[&options],
         );
 
         assert_eq!(settings.linter().rules, LinterSettings::default_rules());
@@ -685,6 +848,7 @@ mod tests {
 
     #[test]
     fn invalid_ignore_selectors_do_not_clear_valid_rule_selection() {
+        let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
             tempdir.path().join(".shuck.toml"),
@@ -698,7 +862,7 @@ mod tests {
         let settings = ShuckSettings::resolve(
             Some(&file_path),
             &[tempdir.path().to_path_buf()],
-            &ClientOptions::default(),
+            &[&options],
         );
 
         assert!(settings.linter().rules.contains(shuck_linter::Rule::UnusedAssignment));
@@ -707,6 +871,7 @@ mod tests {
 
     #[test]
     fn invalid_fixable_selectors_leave_fixable_rules_enabled() {
+        let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
             tempdir.path().join(".shuck.toml"),
@@ -720,9 +885,156 @@ mod tests {
         let settings = ShuckSettings::resolve(
             Some(&file_path),
             &[tempdir.path().to_path_buf()],
-            &ClientOptions::default(),
+            &[&options],
         );
 
         assert_eq!(settings.fixable_rules(), RuleSet::all());
+    }
+
+    #[test]
+    fn later_select_replaces_earlier_extend_select() {
+        let client_options = ClientOptions {
+            lint: Some(shuck_config::LintConfig {
+                select: Some(vec!["C001".to_owned()]),
+                ..shuck_config::LintConfig::default()
+            }),
+            ..ClientOptions::default()
+        };
+        let tempdir = tempfile::tempdir().expect("tempdir should be created");
+        std::fs::write(
+            tempdir.path().join(".shuck.toml"),
+            "[lint]\nextend-select = ['C006']\n",
+        )
+        .expect("config should be written");
+
+        let file_path = tempdir.path().join("script.sh");
+        std::fs::write(&file_path, "foo=1\n").expect("source should be written");
+
+        let settings = ShuckSettings::resolve(
+            Some(&file_path),
+            &[tempdir.path().to_path_buf()],
+            &[&client_options],
+        );
+
+        assert!(settings.linter().rules.contains(shuck_linter::Rule::UnusedAssignment));
+        assert!(!settings.linter().rules.contains(shuck_linter::Rule::UndefinedVariable));
+        assert_eq!(settings.linter().rules.len(), 1);
+    }
+
+    #[test]
+    fn later_fixable_replaces_earlier_extend_fixable() {
+        let client_options = ClientOptions {
+            lint: Some(shuck_config::LintConfig {
+                fixable: Some(vec!["C001".to_owned()]),
+                ..shuck_config::LintConfig::default()
+            }),
+            ..ClientOptions::default()
+        };
+        let tempdir = tempfile::tempdir().expect("tempdir should be created");
+        std::fs::write(
+            tempdir.path().join(".shuck.toml"),
+            "[lint]\nextend-fixable = ['C006']\n",
+        )
+        .expect("config should be written");
+
+        let file_path = tempdir.path().join("script.sh");
+        std::fs::write(&file_path, "foo=1\n").expect("source should be written");
+
+        let settings = ShuckSettings::resolve(
+            Some(&file_path),
+            &[tempdir.path().to_path_buf()],
+            &[&client_options],
+        );
+
+        assert!(settings.fixable_rules().contains(shuck_linter::Rule::UnusedAssignment));
+        assert!(!settings.fixable_rules().contains(shuck_linter::Rule::UndefinedVariable));
+    }
+
+    #[test]
+    fn later_per_file_shell_replaces_earlier_extend_per_file_shell() {
+        let client_options = ClientOptions {
+            lint: Some(shuck_config::LintConfig {
+                per_file_shell: Some(BTreeMap::from([(
+                    "portable.sh".to_owned(),
+                    "sh".to_owned(),
+                )])),
+                ..shuck_config::LintConfig::default()
+            }),
+            ..ClientOptions::default()
+        };
+        let tempdir = tempfile::tempdir().expect("tempdir should be created");
+        std::fs::write(
+            tempdir.path().join(".shuck.toml"),
+            "[lint]\nextend-per-file-shell = { '*.sh' = 'bash' }\n",
+        )
+        .expect("config should be written");
+
+        let portable_path = tempdir.path().join("portable.sh");
+        let other_path = tempdir.path().join("other.sh");
+        std::fs::write(&portable_path, "source helper.sh\n").expect("source should be written");
+        std::fs::write(&other_path, "source helper.sh\n").expect("source should be written");
+
+        let portable_settings = ShuckSettings::resolve(
+            Some(&portable_path),
+            &[tempdir.path().to_path_buf()],
+            &[&client_options],
+        );
+        let other_settings = ShuckSettings::resolve(
+            Some(&other_path),
+            &[tempdir.path().to_path_buf()],
+            &[&client_options],
+        );
+
+        assert_eq!(portable_settings.linter().shell, LinterShellDialect::Sh);
+        assert_eq!(other_settings.linter().shell, LinterShellDialect::Unknown);
+    }
+
+    #[test]
+    fn later_per_file_ignores_replace_earlier_extend_per_file_ignores() {
+        let client_options = ClientOptions {
+            lint: Some(shuck_config::LintConfig {
+                per_file_ignores: Some(BTreeMap::from([(
+                    "portable.sh".to_owned(),
+                    vec!["C006".to_owned()],
+                )])),
+                ..shuck_config::LintConfig::default()
+            }),
+            ..ClientOptions::default()
+        };
+        let tempdir = tempfile::tempdir().expect("tempdir should be created");
+        std::fs::write(
+            tempdir.path().join(".shuck.toml"),
+            "[lint]\nextend-per-file-ignores = { '*.sh' = ['C001'] }\n",
+        )
+        .expect("config should be written");
+
+        let portable_path = tempdir.path().join("portable.sh");
+        let other_path = tempdir.path().join("other.sh");
+        std::fs::write(&portable_path, "foo=1\n").expect("source should be written");
+        std::fs::write(&other_path, "foo=1\n").expect("source should be written");
+
+        let portable_settings = ShuckSettings::resolve(
+            Some(&portable_path),
+            &[tempdir.path().to_path_buf()],
+            &[&client_options],
+        );
+        let other_settings = ShuckSettings::resolve(
+            Some(&other_path),
+            &[tempdir.path().to_path_buf()],
+            &[&client_options],
+        );
+
+        let portable_ignored = portable_settings
+            .linter()
+            .per_file_ignores
+            .ignored_rules(&portable_path);
+        let other_ignored = other_settings
+            .linter()
+            .per_file_ignores
+            .ignored_rules(&other_path);
+
+        assert!(portable_ignored.contains(shuck_linter::Rule::UndefinedVariable));
+        assert!(!portable_ignored.contains(shuck_linter::Rule::UnusedAssignment));
+        assert!(other_ignored.is_empty());
     }
 }
