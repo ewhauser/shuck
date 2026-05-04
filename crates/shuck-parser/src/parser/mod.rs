@@ -489,6 +489,11 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn brace_ccl_enabled_at(&self, offset: usize) -> bool {
+        self.zsh_options_at_offset(offset)
+            .is_some_and(|options| options.brace_ccl.is_definitely_on())
+    }
+
     #[cfg(test)]
     fn current_span(&self) -> Span {
         self.current_span
@@ -701,8 +706,14 @@ impl<'a> Parser<'a> {
         if !self.brace_syntax_enabled_at(offset) {
             return Vec::new();
         }
+        let brace_ccl_enabled = self.brace_ccl_enabled_at(offset);
         let mut brace_syntax = Vec::new();
-        self.collect_brace_syntax_from_parts(parts, BraceQuoteContext::Unquoted, &mut brace_syntax);
+        self.collect_brace_syntax_from_parts(
+            parts,
+            BraceQuoteContext::Unquoted,
+            brace_ccl_enabled,
+            &mut brace_syntax,
+        );
         brace_syntax.sort_by_key(|brace| (brace.span.start.offset, brace.span.end.offset));
         brace_syntax.dedup_by_key(|brace| {
             (
@@ -719,6 +730,7 @@ impl<'a> Parser<'a> {
         &self,
         parts: &[WordPartNode],
         quote_context: BraceQuoteContext,
+        brace_ccl_enabled: bool,
         out: &mut Vec<BraceSyntax>,
     ) {
         for part in parts {
@@ -727,22 +739,29 @@ impl<'a> Parser<'a> {
                     text.syntax_str(self.input, part.span),
                     part.span.start,
                     quote_context,
+                    brace_ccl_enabled,
                     out,
                 ),
                 WordPart::SingleQuoted { .. } => Self::scan_brace_syntax_text(
                     part.span.slice(self.input),
                     part.span.start,
                     BraceQuoteContext::SingleQuoted,
+                    brace_ccl_enabled,
                     out,
                 ),
                 WordPart::DoubleQuoted { parts, .. } => self.collect_brace_syntax_from_parts(
                     parts,
                     BraceQuoteContext::DoubleQuoted,
+                    brace_ccl_enabled,
                     out,
                 ),
-                WordPart::ZshQualifiedGlob(glob) => {
-                    self.collect_brace_syntax_from_zsh_qualified_glob(glob, quote_context, out)
-                }
+                WordPart::ZshQualifiedGlob(glob) => self
+                    .collect_brace_syntax_from_zsh_qualified_glob(
+                        glob,
+                        quote_context,
+                        brace_ccl_enabled,
+                        out,
+                    ),
                 WordPart::Variable(_)
                 | WordPart::CommandSubstitution { .. }
                 | WordPart::ArithmeticExpansion { .. }
@@ -764,7 +783,7 @@ impl<'a> Parser<'a> {
         if self.needs_cross_part_brace_scan(parts) {
             let mut chars = Vec::new();
             self.collect_brace_scan_chars_from_parts(parts, &mut chars);
-            Self::scan_brace_syntax_chars(&chars, quote_context, out);
+            Self::scan_brace_syntax_chars(&chars, quote_context, brace_ccl_enabled, out);
         }
     }
 
@@ -944,6 +963,7 @@ impl<'a> Parser<'a> {
     fn scan_brace_syntax_chars(
         chars: &[(char, Position)],
         initial_quote_context: BraceQuoteContext,
+        brace_ccl_enabled: bool,
         out: &mut Vec<BraceSyntax>,
     ) {
         #[derive(Clone, Copy, PartialEq, Eq)]
@@ -960,6 +980,7 @@ impl<'a> Parser<'a> {
             has_comma: bool,
             has_dot_dot: bool,
             saw_unquoted_whitespace: bool,
+            has_brace_ccl_content: bool,
             saw_quote_boundary: bool,
             prev_char: Option<char>,
         }
@@ -999,6 +1020,12 @@ impl<'a> Parser<'a> {
             stack
                 .iter()
                 .rposition(|candidate| quote_context_is_active(candidate.quote_context, state))
+        }
+
+        fn mark_brace_ccl_content(stack: &mut [Candidate], state: Option<QuoteState>) {
+            if let Some(candidate_index) = last_active_candidate_index(stack, state) {
+                stack[candidate_index].has_brace_ccl_content = true;
+            }
         }
 
         fn template_placeholder_end(
@@ -1066,6 +1093,9 @@ impl<'a> Parser<'a> {
             ) && ch == '\\'
             {
                 if let Some(candidate_index) = last_active_candidate_index(&stack, quote_state) {
+                    if index + 1 < chars.len() {
+                        stack[candidate_index].has_brace_ccl_content = true;
+                    }
                     stack[candidate_index].prev_char = None;
                 }
                 index += 1;
@@ -1150,12 +1180,14 @@ impl<'a> Parser<'a> {
 
             match ch {
                 '{' => {
+                    mark_brace_ccl_content(&mut stack, quote_state);
                     stack.push(Candidate {
                         start: chars[index].1,
                         quote_context: current_quote_context,
                         has_comma: false,
                         has_dot_dot: false,
                         saw_unquoted_whitespace: false,
+                        has_brace_ccl_content: false,
                         saw_quote_boundary: false,
                         prev_char: Some(ch),
                     });
@@ -1166,29 +1198,39 @@ impl<'a> Parser<'a> {
                     if let Some(candidate_index) = last_active_candidate_index(&stack, quote_state)
                     {
                         let candidate = stack.remove(candidate_index);
-                        let kind = if matches!(candidate.quote_context, BraceQuoteContext::Unquoted)
-                            && candidate.saw_unquoted_whitespace
-                        {
-                            BraceSyntaxKind::Literal
-                        } else if candidate.has_comma {
-                            BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList)
-                        } else if candidate.has_dot_dot {
-                            BraceSyntaxKind::Expansion(BraceExpansionKind::Sequence)
-                        } else {
-                            BraceSyntaxKind::Literal
-                        };
+                        let span = brace_span(candidate.start, chars[index]);
+                        let kind = Self::classify_brace_construct_kind(
+                            candidate.quote_context,
+                            brace_ccl_enabled,
+                            candidate.has_comma,
+                            candidate.has_dot_dot,
+                            candidate.saw_unquoted_whitespace,
+                            candidate.has_brace_ccl_content,
+                        );
                         if !matches!(kind, BraceSyntaxKind::Literal)
                             || !candidate.saw_quote_boundary
                         {
                             out.push(BraceSyntax {
                                 kind,
-                                span: brace_span(candidate.start, chars[index]),
+                                span,
                                 quote_context: candidate.quote_context,
                             });
                         }
                     }
                 }
                 _ => {
+                    let is_quote_syntax = match quote_state {
+                        None => {
+                            matches!(ch, '\'' | '"')
+                                || (ch == '$'
+                                    && chars.get(index + 1).is_some_and(|(next, _)| *next == '\''))
+                        }
+                        Some(QuoteState::Single | QuoteState::AnsiSingle) => ch == '\'',
+                        Some(QuoteState::Double) => ch == '"',
+                    };
+                    if ch != '\0' && !is_quote_syntax {
+                        mark_brace_ccl_content(&mut stack, quote_state);
+                    }
                     if let Some(candidate_index) = last_active_candidate_index(&stack, quote_state)
                     {
                         let candidate = &mut stack[candidate_index];
@@ -1228,6 +1270,7 @@ impl<'a> Parser<'a> {
         &self,
         pattern: &Pattern,
         quote_context: BraceQuoteContext,
+        brace_ccl_enabled: bool,
         out: &mut Vec<BraceSyntax>,
     ) {
         for (part, span) in pattern.parts_with_spans() {
@@ -1236,22 +1279,32 @@ impl<'a> Parser<'a> {
                     text.as_str(self.input, span),
                     span.start,
                     quote_context,
+                    brace_ccl_enabled,
                     out,
                 ),
                 PatternPart::CharClass(text) => Self::scan_brace_syntax_text(
                     text.slice(self.input),
                     text.span().start,
                     quote_context,
+                    brace_ccl_enabled,
                     out,
                 ),
                 PatternPart::Group { patterns, .. } => {
                     for pattern in patterns {
-                        self.collect_brace_syntax_from_pattern(pattern, quote_context, out);
+                        self.collect_brace_syntax_from_pattern(
+                            pattern,
+                            quote_context,
+                            brace_ccl_enabled,
+                            out,
+                        );
                     }
                 }
-                PatternPart::Word(word) => {
-                    self.collect_brace_syntax_from_parts(&word.parts, quote_context, out)
-                }
+                PatternPart::Word(word) => self.collect_brace_syntax_from_parts(
+                    &word.parts,
+                    quote_context,
+                    brace_ccl_enabled,
+                    out,
+                ),
                 PatternPart::AnyString | PatternPart::AnyChar => {}
             }
         }
@@ -1261,11 +1314,17 @@ impl<'a> Parser<'a> {
         &self,
         glob: &ZshQualifiedGlob,
         quote_context: BraceQuoteContext,
+        brace_ccl_enabled: bool,
         out: &mut Vec<BraceSyntax>,
     ) {
         for segment in &glob.segments {
             if let ZshGlobSegment::Pattern(pattern) = segment {
-                self.collect_brace_syntax_from_pattern(pattern, quote_context, out);
+                self.collect_brace_syntax_from_pattern(
+                    pattern,
+                    quote_context,
+                    brace_ccl_enabled,
+                    out,
+                );
             }
         }
     }
@@ -1274,6 +1333,7 @@ impl<'a> Parser<'a> {
         text: &str,
         base: Position,
         quote_context: BraceQuoteContext,
+        brace_ccl_enabled: bool,
         out: &mut Vec<BraceSyntax>,
     ) {
         if memchr(b'{', text.as_bytes()).is_none() {
@@ -1346,9 +1406,12 @@ impl<'a> Parser<'a> {
                     continue;
                 }
 
-                if let Some((len, kind)) =
-                    Self::brace_construct_len(frame.text, frame.index, quote_context)
-                {
+                if let Some((len, kind)) = Self::brace_construct_len(
+                    frame.text,
+                    frame.index,
+                    quote_context,
+                    brace_ccl_enabled,
+                ) {
                     let brace_end =
                         brace_start.advanced_by(&frame.text[frame.index..frame.index + len]);
                     out.push(BraceSyntax {
@@ -1434,6 +1497,7 @@ impl<'a> Parser<'a> {
         text: &str,
         start: usize,
         quote_context: BraceQuoteContext,
+        brace_ccl_enabled: bool,
     ) -> Option<(usize, BraceSyntaxKind)> {
         text.get(start..).filter(|rest| rest.starts_with('{'))?;
 
@@ -1448,6 +1512,7 @@ impl<'a> Parser<'a> {
         let mut has_comma = false;
         let mut has_dot_dot = false;
         let mut saw_unquoted_whitespace = false;
+        let mut has_brace_ccl_content = false;
         let mut prev_char = None;
         let mut quote_state = None;
 
@@ -1458,6 +1523,9 @@ impl<'a> Parser<'a> {
             {
                 index += 1;
                 if let Some(next) = text[index..].chars().next() {
+                    if depth == 1 {
+                        has_brace_ccl_content = true;
+                    }
                     index += next.len_utf8();
                 }
                 prev_char = None;
@@ -1480,63 +1548,73 @@ impl<'a> Parser<'a> {
                             prev_char = None;
                             continue;
                         }
-                        '{' => depth += 1,
+                        '$' if text[index..].starts_with('\'') => {}
+                        '{' => {
+                            has_brace_ccl_content = true;
+                            depth += 1;
+                        }
                         '}' => {
                             depth -= 1;
                             if depth == 0 {
-                                let kind = if saw_unquoted_whitespace {
-                                    BraceSyntaxKind::Literal
-                                } else if has_comma {
-                                    BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList)
-                                } else if has_dot_dot {
-                                    BraceSyntaxKind::Expansion(BraceExpansionKind::Sequence)
-                                } else {
-                                    BraceSyntaxKind::Literal
-                                };
+                                let kind = Self::classify_brace_construct_kind(
+                                    quote_context,
+                                    brace_ccl_enabled,
+                                    has_comma,
+                                    has_dot_dot,
+                                    saw_unquoted_whitespace,
+                                    has_brace_ccl_content,
+                                );
                                 return Some((index - start, kind));
                             }
                         }
                         ',' if depth == 1 => has_comma = true,
                         '.' if depth == 1 && prev_char == Some('.') => has_dot_dot = true,
                         c if c.is_whitespace() => saw_unquoted_whitespace = true,
-                        _ => {}
+                        _ => has_brace_ccl_content = true,
                     },
                     Some(QuoteState::Single) => {
                         if ch == '\'' {
                             quote_state = None;
+                        } else {
+                            has_brace_ccl_content = true;
                         }
                     }
                     Some(QuoteState::Double) => match ch {
                         '\\' => {
                             if let Some(next) = text[index..].chars().next() {
+                                has_brace_ccl_content = true;
                                 index += next.len_utf8();
                             }
                             prev_char = None;
                             continue;
                         }
                         '"' => quote_state = None,
-                        _ => {}
+                        _ => has_brace_ccl_content = true,
                     },
                 }
             } else {
                 match ch {
-                    '{' => depth += 1,
+                    '{' => {
+                        has_brace_ccl_content = true;
+                        depth += 1;
+                    }
                     '}' => {
                         depth -= 1;
                         if depth == 0 {
-                            let kind = if has_comma {
-                                BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList)
-                            } else if has_dot_dot {
-                                BraceSyntaxKind::Expansion(BraceExpansionKind::Sequence)
-                            } else {
-                                BraceSyntaxKind::Literal
-                            };
+                            let kind = Self::classify_brace_construct_kind(
+                                quote_context,
+                                brace_ccl_enabled,
+                                has_comma,
+                                has_dot_dot,
+                                false,
+                                has_brace_ccl_content,
+                            );
                             return Some((index - start, kind));
                         }
                     }
                     ',' if depth == 1 => has_comma = true,
                     '.' if depth == 1 && prev_char == Some('.') => has_dot_dot = true,
-                    _ => {}
+                    _ => has_brace_ccl_content = true,
                 }
             }
 
@@ -1544,6 +1622,27 @@ impl<'a> Parser<'a> {
         }
 
         None
+    }
+
+    fn classify_brace_construct_kind(
+        quote_context: BraceQuoteContext,
+        brace_ccl_enabled: bool,
+        has_comma: bool,
+        has_dot_dot: bool,
+        saw_unquoted_whitespace: bool,
+        has_brace_ccl_content: bool,
+    ) -> BraceSyntaxKind {
+        if matches!(quote_context, BraceQuoteContext::Unquoted) && saw_unquoted_whitespace {
+            BraceSyntaxKind::Literal
+        } else if has_comma {
+            BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList)
+        } else if has_dot_dot {
+            BraceSyntaxKind::Expansion(BraceExpansionKind::Sequence)
+        } else if brace_ccl_enabled && has_brace_ccl_content {
+            BraceSyntaxKind::Expansion(BraceExpansionKind::CharacterClass)
+        } else {
+            BraceSyntaxKind::Literal
+        }
     }
 
     fn maybe_parse_zsh_qualified_glob_word(
