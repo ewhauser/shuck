@@ -2075,6 +2075,47 @@ print $name
 }
 
 #[test]
+fn builds_glob_subst_for_list_fanout_facts_for_zsh_words() {
+    let source = "\
+#!/usr/bin/env zsh
+setopt glob_subst
+for item in $name; do :; done
+setopt no_glob
+for item in $literal; do :; done
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            let glob_subst = facts
+                .expansion_word_facts(ExpansionContext::ForList)
+                .find(|fact| fact.span().slice(source) == "$name")
+                .expect("expected glob_subst for-list fact");
+            let no_glob = facts
+                .expansion_word_facts(ExpansionContext::ForList)
+                .find(|fact| fact.span().slice(source) == "$literal")
+                .expect("expected no_glob for-list fact");
+
+            assert_eq!(
+                glob_subst.analysis().pathname_expansion_behavior,
+                PathnameExpansionBehavior::SubstitutionResultsWhenUnquoted
+            );
+            assert!(glob_subst.analysis().hazards.pathname_matching);
+            assert!(glob_subst.analysis().can_expand_to_multiple_fields);
+            assert_eq!(
+                no_glob.analysis().pathname_expansion_behavior,
+                PathnameExpansionBehavior::Disabled
+            );
+            assert!(!no_glob.analysis().hazards.pathname_matching);
+            assert!(!no_glob.analysis().can_expand_to_multiple_fields);
+        },
+    );
+}
+
+#[test]
 fn builds_flow_merged_literal_only_pathname_behaviors_for_zsh_words() {
     let source = "\
 #!/usr/bin/env zsh

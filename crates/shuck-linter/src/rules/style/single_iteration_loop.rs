@@ -1,6 +1,4 @@
-use crate::{
-    Checker, ExpansionContext, Rule, Violation, WordFactContext, WordLiteralness, WordQuote,
-};
+use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext};
 
 pub struct SingleIterationLoop;
 
@@ -30,29 +28,7 @@ pub fn single_iteration_loop(checker: &mut Checker) {
                 word.span(),
                 WordFactContext::Expansion(ExpansionContext::ForList),
             )?;
-            let analysis = fact.analysis();
-            if analysis.quote == WordQuote::FullyQuoted
-                && analysis.literalness == WordLiteralness::Expanded
-                && fact.double_quoted_scalar_affix_span().is_none()
-            {
-                return None;
-            }
-            if fact.has_direct_all_elements_array_expansion_in_source(locator) {
-                return None;
-            }
-            let runtime_hazards = fact.runtime_literal().hazards;
-            let hazards = analysis.hazards;
-            if runtime_hazards.pathname_matching
-                || runtime_hazards.brace_fanout
-                || hazards.pathname_matching
-                || hazards.brace_fanout
-                || analysis.array_valued
-                || analysis.can_expand_to_multiple_fields
-            {
-                return None;
-            }
-
-            Some(word.span())
+            fact.is_single_for_list_item(locator).then_some(word.span())
         })
         .collect::<Vec<_>>();
 
@@ -62,7 +38,7 @@ pub fn single_iteration_loop(checker: &mut Checker) {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_only_single_literal_for_list_items() {
@@ -127,6 +103,61 @@ done
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["a", "\"${dir}\"/x.patch", "\"$(printf /tmp)\"/x.patch", "~"]
+        );
+    }
+
+    #[test]
+    fn skips_zsh_for_list_scalars_when_glob_subst_can_fan_out() {
+        let source = "\
+setopt glob_subst
+for item in $name; do
+\tprint -r -- \"$item\"
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SingleIterationLoop).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_zsh_for_list_scalars_when_dynamic_glob_subst_is_ambiguous() {
+        let source = "\
+opt=glob_subst
+setopt \"$opt\"
+for item in $name; do
+\tprint -r -- \"$item\"
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SingleIterationLoop).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_zsh_for_list_scalars_when_no_glob_masks_glob_subst() {
+        let source = "\
+setopt glob_subst no_glob
+for item in $name; do
+\tprint -r -- \"$item\"
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SingleIterationLoop).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$name"]
         );
     }
 }

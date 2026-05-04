@@ -259,6 +259,35 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.node().analysis
     }
 
+    pub fn can_expand_to_multiple_fields_at_runtime(self, locator: Locator<'_>) -> bool {
+        let analysis = self.analysis();
+        let runtime_hazards = self.runtime_literal().hazards;
+
+        runtime_hazards.pathname_matching
+            || runtime_hazards.brace_fanout
+            || analysis.hazards.pathname_matching
+            || analysis.hazards.brace_fanout
+            || analysis.array_valued
+            || analysis.can_expand_to_multiple_fields
+            || self.has_direct_all_elements_array_expansion_in_source(locator)
+    }
+
+    pub fn is_single_for_list_item(self, locator: Locator<'_>) -> bool {
+        if self.context() != WordFactContext::Expansion(ExpansionContext::ForList) {
+            return false;
+        }
+
+        let analysis = self.analysis();
+        if analysis.quote == WordQuote::FullyQuoted
+            && analysis.literalness == WordLiteralness::Expanded
+            && self.double_quoted_scalar_affix_span().is_none()
+        {
+            return false;
+        }
+
+        !self.can_expand_to_multiple_fields_at_runtime(locator)
+    }
+
     pub fn runtime_literal(self) -> RuntimeLiteralAnalysis {
         self.occurrence().runtime_literal
     }
