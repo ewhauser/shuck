@@ -62,7 +62,10 @@ pub use function_call_reachability::{
     FunctionCallPersistence,
 };
 /// Option-sensitive globbing and expansion behavior queries.
-pub use glob::{FieldSplittingBehavior, GlobFailureBehavior, PathnameExpansionBehavior};
+pub use glob::{
+    FieldSplittingBehavior, GlobDotBehavior, GlobFailureBehavior, GlobPatternBehavior,
+    PathnameExpansionBehavior, PatternOperatorBehavior,
+};
 /// Nonpersistent assignment effects, such as assignments made in subshells and read later outside.
 pub use nonpersistent::{
     NonpersistentAssignmentAnalysis, NonpersistentAssignmentAnalysisContext,
@@ -88,6 +91,34 @@ pub enum ArrayReferencePolicy {
     /// Native zsh treats an unindexed array reference as a scalar first-element read.
     NativeZshScalar,
     /// Runtime option state may select either policy.
+    Ambiguous,
+}
+
+/// How indexed array subscripts are interpreted at a source offset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubscriptIndexBehavior {
+    /// Subscript `1` names the first array element.
+    OneBased,
+    /// Subscript `0` names the first array element.
+    ZeroBased,
+    /// Subscript `1` names the first element, but `0` is accepted as an alias.
+    OneBasedWithZeroAlias,
+    /// Runtime option state may select more than one indexing policy.
+    Ambiguous,
+}
+
+/// How arithmetic number literals are interpreted at a source offset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArithmeticLiteralBehavior {
+    /// Decimal literals are used unless an explicit shell arithmetic base is present.
+    DecimalUnlessExplicitBase,
+    /// C-style numeric base prefixes such as `0x` are active.
+    CStyleBasePrefixes,
+    /// Leading zeroes denote octal literals.
+    LeadingZeroOctal,
+    /// Both C-style base prefixes and leading-zero octal literals are active.
+    CStyleAndLeadingZeroOctal,
+    /// Runtime option state may select more than one literal policy.
     Ambiguous,
 }
 
@@ -117,6 +148,51 @@ impl ShellBehaviorAt<'_> {
             Some(OptionValue::Off) => ArrayReferencePolicy::NativeZshScalar,
             Some(OptionValue::Unknown) => ArrayReferencePolicy::Ambiguous,
             Some(OptionValue::On) | None => ArrayReferencePolicy::RequiresExplicitSelector,
+        }
+    }
+
+    /// Returns how array subscript indexes are interpreted.
+    pub fn subscript_indexing(&self) -> SubscriptIndexBehavior {
+        if self.shell != ShellDialect::Zsh {
+            return SubscriptIndexBehavior::ZeroBased;
+        }
+
+        let Some(options) = self.effective_zsh_options() else {
+            return SubscriptIndexBehavior::OneBased;
+        };
+
+        match (options.ksh_arrays, options.ksh_zero_subscript) {
+            (OptionValue::Unknown, _) | (_, OptionValue::Unknown) => {
+                SubscriptIndexBehavior::Ambiguous
+            }
+            (OptionValue::On, _) => SubscriptIndexBehavior::ZeroBased,
+            (OptionValue::Off, OptionValue::On) => SubscriptIndexBehavior::OneBasedWithZeroAlias,
+            (OptionValue::Off, OptionValue::Off) => SubscriptIndexBehavior::OneBased,
+        }
+    }
+
+    /// Returns how arithmetic numeric literals are interpreted.
+    pub fn arithmetic_literals(&self) -> ArithmeticLiteralBehavior {
+        if self.shell != ShellDialect::Zsh {
+            return ArithmeticLiteralBehavior::CStyleAndLeadingZeroOctal;
+        }
+
+        let Some(options) = self.effective_zsh_options() else {
+            return ArithmeticLiteralBehavior::DecimalUnlessExplicitBase;
+        };
+
+        match (options.c_bases, options.octal_zeroes) {
+            (OptionValue::Unknown, _) | (_, OptionValue::Unknown) => {
+                ArithmeticLiteralBehavior::Ambiguous
+            }
+            (OptionValue::Off, OptionValue::Off) => {
+                ArithmeticLiteralBehavior::DecimalUnlessExplicitBase
+            }
+            (OptionValue::On, OptionValue::Off) => ArithmeticLiteralBehavior::CStyleBasePrefixes,
+            (OptionValue::Off, OptionValue::On) => ArithmeticLiteralBehavior::LeadingZeroOctal,
+            (OptionValue::On, OptionValue::On) => {
+                ArithmeticLiteralBehavior::CStyleAndLeadingZeroOctal
+            }
         }
     }
 }

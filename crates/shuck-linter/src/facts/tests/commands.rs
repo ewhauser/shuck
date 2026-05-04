@@ -1811,6 +1811,38 @@ echo ${foo:-$((10#1))}
 }
 
 #[test]
+fn base_prefix_arithmetic_literals_record_arithmetic_literal_behavior() {
+    let source = "\
+#!/bin/zsh
+echo $((10#1))
+setopt c_bases octal_zeroes
+echo $((10#2))
+opt=c_bases
+unsetopt \"$opt\"
+echo $((10#3))
+";
+    let output = Parser::with_dialect(source, shuck_parser::parser::ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+
+    assert_eq!(
+        facts
+            .arithmetic_literal_facts()
+            .iter()
+            .map(|literal| (literal.span().slice(source), literal.behavior()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("10#1", ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,),
+            ("10#2", ArithmeticLiteralBehavior::CStyleAndLeadingZeroOctal,),
+            ("10#3", ArithmeticLiteralBehavior::Ambiguous),
+        ]
+    );
+}
+
+#[test]
 fn collects_base_prefix_arithmetic_spans_from_semantic_nested_command_visits() {
     let source = "\
 #!/bin/bash

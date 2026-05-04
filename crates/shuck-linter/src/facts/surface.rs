@@ -139,6 +139,26 @@ impl LegacyArithmeticFragmentFact {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ArithmeticLiteralFact {
+    span: Span,
+    behavior: ArithmeticLiteralBehavior,
+}
+
+impl ArithmeticLiteralFact {
+    pub(super) fn new(span: Span, behavior: ArithmeticLiteralBehavior) -> Self {
+        Self { span, behavior }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn behavior(&self) -> ArithmeticLiteralBehavior {
+        self.behavior
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PositionalParameterFragmentKind {
     AboveNine,
@@ -201,6 +221,7 @@ impl IndirectExpansionFragmentFact {
 pub struct IndexedArrayReferenceFragmentFact {
     span: Span,
     plain: bool,
+    subscript_index_behavior: SubscriptIndexBehavior,
 }
 
 impl IndexedArrayReferenceFragmentFact {
@@ -210,6 +231,18 @@ impl IndexedArrayReferenceFragmentFact {
 
     pub fn is_plain(&self) -> bool {
         self.plain
+    }
+
+    pub fn subscript_index_behavior(&self) -> SubscriptIndexBehavior {
+        self.subscript_index_behavior
+    }
+
+    pub(super) fn with_subscript_index_behavior(
+        mut self,
+        behavior: SubscriptIndexBehavior,
+    ) -> Self {
+        self.subscript_index_behavior = behavior;
+        self
     }
 }
 
@@ -537,7 +570,11 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
         self.facts
             .indexed_array_references
-            .push(IndexedArrayReferenceFragmentFact { span, plain });
+            .push(IndexedArrayReferenceFragmentFact {
+                span,
+                plain,
+                subscript_index_behavior: SubscriptIndexBehavior::Ambiguous,
+            });
     }
 
     fn record_plain_unindexed_reference(&mut self, span: Span) {

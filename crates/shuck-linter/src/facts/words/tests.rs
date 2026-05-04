@@ -221,7 +221,10 @@ mod expansion_analysis_tests {
         ExpansionValueShape, RedirectDevNullStatus, WordLiteralness, WordQuote,
         analyze_literal_runtime, analyze_redirect_target, analyze_word, comparable_path,
     };
-    use crate::{FieldSplittingBehavior, GlobFailureBehavior, PathnameExpansionBehavior};
+    use crate::{
+        FieldSplittingBehavior, GlobDotBehavior, GlobFailureBehavior, PathnameExpansionBehavior,
+        PatternOperatorBehavior,
+    };
 
     fn parse_argument_words(source: &str) -> Vec<shuck_ast::Word> {
         let file = Parser::new(source).parse().unwrap().file;
@@ -626,6 +629,41 @@ mod expansion_analysis_tests {
             GlobFailureBehavior::CshNullGlob
         );
         assert!(csh_null_glob.hazards.pathname_matching);
+    }
+
+    #[test]
+    fn analyze_literal_runtime_records_glob_pattern_behaviors() {
+        let source = "print *.jpg\n";
+        let words = parse_argument_words(source);
+        let analysis = analyze_literal_runtime(
+            &words[0],
+            source,
+            ExpansionContext::CommandArgument,
+            Some(&shuck_semantic::ZshOptionState {
+                glob_dots: shuck_semantic::OptionValue::On,
+                extended_glob: shuck_semantic::OptionValue::On,
+                ksh_glob: shuck_semantic::OptionValue::Unknown,
+                sh_glob: shuck_semantic::OptionValue::On,
+                ..shuck_semantic::ZshOptionState::zsh_default()
+            }),
+        );
+
+        assert_eq!(
+            analysis.glob_dot_behavior,
+            GlobDotBehavior::DotfilesIncluded
+        );
+        assert_eq!(
+            analysis.glob_pattern_behavior.extended_glob(),
+            PatternOperatorBehavior::Enabled
+        );
+        assert_eq!(
+            analysis.glob_pattern_behavior.ksh_glob(),
+            PatternOperatorBehavior::Ambiguous
+        );
+        assert_eq!(
+            analysis.glob_pattern_behavior.sh_glob(),
+            PatternOperatorBehavior::Enabled
+        );
     }
 
     #[test]

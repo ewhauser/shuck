@@ -450,6 +450,20 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         arithmetic_update_operator_spans
             .sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
         arithmetic_update_operator_spans.dedup();
+        base_prefix_arithmetic_spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+        base_prefix_arithmetic_spans.dedup();
+        let arithmetic_literal_facts = base_prefix_arithmetic_spans
+            .iter()
+            .copied()
+            .map(|span| {
+                ArithmeticLiteralFact::new(
+                    span,
+                    self.semantic
+                        .shell_behavior_at(span.start.offset)
+                        .arithmetic_literals(),
+                )
+            })
+            .collect::<Vec<_>>();
 
         let mut fact_store = FactStore::empty();
         fact_store.redirect_facts = redirect_fact_store;
@@ -641,7 +655,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             nested_pattern_charclass_spans,
             nested_parameter_expansions,
             indirect_expansions,
-            indexed_array_references,
+            mut indexed_array_references,
             plain_unindexed_references,
             parameter_pattern_special_targets,
             zsh_parameter_index_flags,
@@ -659,6 +673,13 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 .iter()
                 .copied(),
         );
+        for fragment in &mut indexed_array_references {
+            let behavior = self
+                .semantic
+                .shell_behavior_at(fragment.span().start.offset)
+                .subscript_indexing();
+            *fragment = (*fragment).with_subscript_index_behavior(behavior);
+        }
         let nonpersistent_assignment_spans = build_nonpersistent_assignment_spans(
             self.semantic,
             &commands,
@@ -983,6 +1004,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             double_paren_grouping_spans,
             arithmetic_update_operator_spans,
             base_prefix_arithmetic_spans,
+            arithmetic_literal_facts,
             escape_scan_matches,
             echo_backslash_escape_word_spans,
             echo_to_sed_substitution_spans,

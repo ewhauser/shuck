@@ -63,6 +63,66 @@ pub enum GlobFailureBehavior {
     Ambiguous,
 }
 
+/// Whether glob patterns match dot-prefixed path segments without an explicit dot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GlobDotBehavior {
+    /// Dot-prefixed names require an explicit dot in the pattern.
+    ExplicitDotRequired,
+    /// Dot-prefixed names may be matched by ordinary glob metacharacters.
+    DotfilesIncluded,
+    /// Runtime option state may select either behavior.
+    Ambiguous,
+}
+
+/// Whether a zsh pattern-operator family is active.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PatternOperatorBehavior {
+    /// The operator family is disabled.
+    Disabled,
+    /// The operator family is enabled.
+    Enabled,
+    /// Runtime option state may select either behavior.
+    Ambiguous,
+}
+
+/// Option-sensitive pattern operators available to glob and shell-pattern facts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GlobPatternBehavior {
+    extended_glob: PatternOperatorBehavior,
+    ksh_glob: PatternOperatorBehavior,
+    sh_glob: PatternOperatorBehavior,
+}
+
+impl GlobPatternBehavior {
+    /// Creates a pattern behavior from its operator-family states.
+    pub const fn from_parts(
+        extended_glob: PatternOperatorBehavior,
+        ksh_glob: PatternOperatorBehavior,
+        sh_glob: PatternOperatorBehavior,
+    ) -> Self {
+        Self {
+            extended_glob,
+            ksh_glob,
+            sh_glob,
+        }
+    }
+
+    /// Returns whether zsh extended glob operators such as `#`, `~`, and `^` are active.
+    pub fn extended_glob(self) -> PatternOperatorBehavior {
+        self.extended_glob
+    }
+
+    /// Returns whether ksh-style glob operators such as `@(...)` are active.
+    pub fn ksh_glob(self) -> PatternOperatorBehavior {
+        self.ksh_glob
+    }
+
+    /// Returns whether sh-compatible glob parsing is active.
+    pub fn sh_glob(self) -> PatternOperatorBehavior {
+        self.sh_glob
+    }
+}
+
 impl ShellBehaviorAt<'_> {
     /// Returns the field-splitting behavior implied by the shell and runtime option state.
     pub fn field_splitting(&self) -> FieldSplittingBehavior {
@@ -131,6 +191,55 @@ impl ShellBehaviorAt<'_> {
                 },
             },
         }
+    }
+
+    /// Returns how glob patterns treat dot-prefixed path segments.
+    pub fn glob_dot_matching(&self) -> GlobDotBehavior {
+        if self.shell != ShellDialect::Zsh {
+            return GlobDotBehavior::ExplicitDotRequired;
+        }
+
+        match self
+            .effective_zsh_options()
+            .map(|options| options.glob_dots)
+        {
+            Some(OptionValue::On) => GlobDotBehavior::DotfilesIncluded,
+            Some(OptionValue::Unknown) => GlobDotBehavior::Ambiguous,
+            Some(OptionValue::Off) | None => GlobDotBehavior::ExplicitDotRequired,
+        }
+    }
+
+    /// Returns the option-sensitive glob/pattern operator families available at this offset.
+    pub fn glob_pattern(&self) -> GlobPatternBehavior {
+        if self.shell != ShellDialect::Zsh {
+            return GlobPatternBehavior::from_parts(
+                PatternOperatorBehavior::Disabled,
+                PatternOperatorBehavior::Disabled,
+                PatternOperatorBehavior::Disabled,
+            );
+        }
+
+        let Some(options) = self.effective_zsh_options() else {
+            return GlobPatternBehavior::from_parts(
+                PatternOperatorBehavior::Disabled,
+                PatternOperatorBehavior::Disabled,
+                PatternOperatorBehavior::Disabled,
+            );
+        };
+
+        GlobPatternBehavior::from_parts(
+            pattern_operator_behavior(options.extended_glob),
+            pattern_operator_behavior(options.ksh_glob),
+            pattern_operator_behavior(options.sh_glob),
+        )
+    }
+}
+
+fn pattern_operator_behavior(value: OptionValue) -> PatternOperatorBehavior {
+    match value {
+        OptionValue::Off => PatternOperatorBehavior::Disabled,
+        OptionValue::On => PatternOperatorBehavior::Enabled,
+        OptionValue::Unknown => PatternOperatorBehavior::Ambiguous,
     }
 }
 
@@ -368,5 +477,67 @@ print $name
                 "{source}"
             );
         }
+    }
+
+    #[test]
+    fn tracks_glob_dot_matching_by_offset() {
+        for (source, expected) in [
+            ("print *\n", GlobDotBehavior::ExplicitDotRequired),
+            (
+                "setopt glob_dots\nprint *\n",
+                GlobDotBehavior::DotfilesIncluded,
+            ),
+            (
+                "opt=glob_dots\nsetopt \"$opt\"\nprint *\n",
+                GlobDotBehavior::Ambiguous,
+            ),
+        ] {
+            let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+            let offset = source.find("print").expect("expected print offset");
+
+            assert_eq!(
+                model.shell_behavior_at(offset).glob_dot_matching(),
+                expected,
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn tracks_glob_pattern_operator_families_by_offset() {
+        let source = "\
+print *
+setopt extended_glob ksh_glob sh_glob
+print *
+opt=extended_glob
+unsetopt \"$opt\"
+print *
+";
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let mut print_offsets = source.match_indices("print").map(|(offset, _)| offset);
+
+        let native = model
+            .shell_behavior_at(print_offsets.next().expect("expected native print"))
+            .glob_pattern();
+        assert_eq!(native.extended_glob(), PatternOperatorBehavior::Disabled);
+        assert_eq!(native.ksh_glob(), PatternOperatorBehavior::Disabled);
+        assert_eq!(native.sh_glob(), PatternOperatorBehavior::Disabled);
+
+        let enabled = model
+            .shell_behavior_at(print_offsets.next().expect("expected enabled print"))
+            .glob_pattern();
+        assert_eq!(enabled.extended_glob(), PatternOperatorBehavior::Enabled);
+        assert_eq!(enabled.ksh_glob(), PatternOperatorBehavior::Enabled);
+        assert_eq!(enabled.sh_glob(), PatternOperatorBehavior::Enabled);
+
+        let ambiguous = model
+            .shell_behavior_at(print_offsets.next().expect("expected ambiguous print"))
+            .glob_pattern();
+        assert_eq!(
+            ambiguous.extended_glob(),
+            PatternOperatorBehavior::Ambiguous
+        );
+        assert_eq!(ambiguous.ksh_glob(), PatternOperatorBehavior::Ambiguous);
+        assert_eq!(ambiguous.sh_glob(), PatternOperatorBehavior::Ambiguous);
     }
 }

@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     FieldSplittingBehavior, GlobFailureBehavior, PathnameExpansionBehavior,
-    PlainUnindexedArrayReferenceFact,
+    PlainUnindexedArrayReferenceFact, SubscriptIndexBehavior,
 };
 
 #[test]
@@ -3390,6 +3390,40 @@ printf '%s\\n' \"${items[@]#$prefix/}\" \"${items[i]%$suffix}\"
             vec![
                 ("${items[@]#$prefix/}", false),
                 ("${items[i]%$suffix}", false),
+            ]
+        );
+    });
+}
+
+#[test]
+fn indexed_array_reference_fragments_record_subscript_index_behavior() {
+    let source = "\
+#!/bin/zsh
+printf '%s\\n' ${arr[1]}
+setopt ksh_arrays
+printf '%s\\n' ${arr[1]}
+unsetopt ksh_arrays
+setopt ksh_zero_subscript
+printf '%s\\n' ${arr[0]}
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .indexed_array_reference_fragments()
+                .iter()
+                .filter(|fragment| fragment.is_plain())
+                .map(|fragment| {
+                    (
+                        fragment.span().slice(source),
+                        fragment.subscript_index_behavior(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                ("${arr[1]}", SubscriptIndexBehavior::OneBased),
+                ("${arr[1]}", SubscriptIndexBehavior::ZeroBased),
+                ("${arr[0]}", SubscriptIndexBehavior::OneBasedWithZeroAlias,),
             ]
         );
     });

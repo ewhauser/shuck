@@ -15,7 +15,7 @@ use super::{
 };
 use crate::WrapperKind;
 use crate::facts::surface::PositionalParameterFragmentKind;
-use crate::{LinterFacts, LinterSemanticArtifacts, ShellDialect};
+use crate::{ArithmeticLiteralBehavior, LinterFacts, LinterSemanticArtifacts, ShellDialect};
 
 mod assignments;
 mod braces;

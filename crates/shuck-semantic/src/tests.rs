@@ -9790,6 +9790,69 @@ fn array_reference_policy_at(model: &SemanticModel, offset: usize) -> ArrayRefer
 }
 
 #[test]
+fn semantic_behavior_tracks_subscript_indexing_options() {
+    for (source, expected) in [
+        ("print ${arr[1]}\n", SubscriptIndexBehavior::OneBased),
+        (
+            "setopt ksh_arrays\nprint ${arr[1]}\n",
+            SubscriptIndexBehavior::ZeroBased,
+        ),
+        (
+            "setopt ksh_zero_subscript\nprint ${arr[0]}\n",
+            SubscriptIndexBehavior::OneBasedWithZeroAlias,
+        ),
+        (
+            "opt=ksh_zero_subscript\nsetopt \"$opt\"\nprint ${arr[0]}\n",
+            SubscriptIndexBehavior::Ambiguous,
+        ),
+    ] {
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let offset = source.find("print").unwrap();
+
+        assert_eq!(
+            model.shell_behavior_at(offset).subscript_indexing(),
+            expected,
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn semantic_behavior_tracks_arithmetic_literal_options() {
+    for (source, expected) in [
+        (
+            "print $(( 010 + 0x10 ))\n",
+            ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,
+        ),
+        (
+            "setopt c_bases\nprint $(( 010 + 0x10 ))\n",
+            ArithmeticLiteralBehavior::CStyleBasePrefixes,
+        ),
+        (
+            "setopt octal_zeroes\nprint $(( 010 + 0x10 ))\n",
+            ArithmeticLiteralBehavior::LeadingZeroOctal,
+        ),
+        (
+            "setopt c_bases octal_zeroes\nprint $(( 010 + 0x10 ))\n",
+            ArithmeticLiteralBehavior::CStyleAndLeadingZeroOctal,
+        ),
+        (
+            "opt=c_bases\nsetopt \"$opt\"\nprint $(( 010 + 0x10 ))\n",
+            ArithmeticLiteralBehavior::Ambiguous,
+        ),
+    ] {
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let offset = source.find("print").unwrap();
+
+        assert_eq!(
+            model.shell_behavior_at(offset).arithmetic_literals(),
+            expected,
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn semantic_behavior_detects_real_ksh_array_enables() {
     for source in [
         "setopt ksh_arrays\nprint $name\n",
