@@ -6650,6 +6650,94 @@ fn test_non_zsh_dialects_do_not_special_case_trailing_glob_qualifiers() {
 }
 
 #[test]
+fn test_zsh_additional_upstream_glob_examples_parse_as_single_arguments() {
+    for (command_name, syntax) in [
+        ("print", "*(@)"),
+        ("print", "*(=)"),
+        ("print", "*(/^F)"),
+        ("print", "*(Lk+10)"),
+        ("print", "*(.Lm+5)"),
+        ("print", "*(:h)"),
+        ("print", "*(:e)"),
+        ("print", "*(:u)"),
+        ("print", "*(:l)"),
+        ("print", "*(.)(:t)"),
+        ("ls", "glob.tmp/**(.)"),
+        ("echo", "file(#q.)"),
+        ("ls", "*.c~*foo*"),
+        ("ls", "^*.txt"),
+        ("echo", "(#a2)pattern"),
+        ("echo", "(#iq)*.txt"),
+        ("echo", "**/*(.N)"),
+        ("echo", "**/*(#qN.)~*test*"),
+    ] {
+        let source = format!("{command_name} {syntax}\n");
+        let output = Parser::with_dialect(&source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+        let command = expect_simple(&output.file.body[0]);
+
+        assert_eq!(command.args.len(), 1, "expected one arg for {syntax:?}");
+        assert_eq!(command.args[0].span.slice(&source), syntax);
+    }
+}
+
+#[test]
+fn test_zsh_upstream_alternative_glob_examples_parse() {
+    for source in ["echo file.(txt|doc|pdf)\n", "echo file.{txt,doc,pdf}\n"] {
+        Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+    }
+}
+
+#[test]
+fn test_zsh_numeric_glob_range_example_parses() {
+    Parser::with_dialect("ls <1-100>.txt\n", ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_zsh_upstream_word_surface_examples_parse() {
+    for source in ["echo \\(foo\\)\n", "find . \\( -name \"*.zsh\" \\)\n"] {
+        Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+    }
+
+    let source = "diff =(sort file1) =(sort file2)\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+
+    assert_eq!(command.name.render(source), "diff");
+    assert_eq!(command.args.len(), 2);
+    assert_eq!(command.args[0].span.slice(source), "=(sort file1)");
+    assert_eq!(command.args[1].span.slice(source), "=(sort file2)");
+}
+
+#[test]
+fn test_zsh_glob_qualifier_in_command_substitution_preserves_inner_argument() {
+    let source = "files=$(echo *(.))\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+    let body = first_command_substitution_body(&word.parts)
+        .expect("expected command substitution body");
+    let inner = expect_simple(&body[0]);
+
+    assert_eq!(inner.name.render(source), "echo");
+    assert_eq!(inner.args.len(), 1);
+    assert_eq!(inner.args[0].span.slice(source), "*(.)");
+}
+
+#[test]
 fn test_zsh_repeat_do_done_preserves_structure_and_spans() {
     let source = "repeat 3; do echo hi; done\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)
@@ -6678,6 +6766,33 @@ fn test_zsh_repeat_do_done_preserves_structure_and_spans() {
     let body_command = expect_simple(&command.body[0]);
     assert_eq!(body_command.name.render(source), "echo");
     assert_eq!(body_command.args[0].render(source), "hi");
+}
+
+#[test]
+fn test_zsh_repeat_direct_preserves_structure_and_spans() {
+    let source = "repeat 3 echo test\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::Repeat(command) = compound else {
+        panic!("expected repeat command");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(command.span.slice(source), source);
+    assert_eq!(command.count.span.slice(source), "3");
+    assert_eq!(command.body.len(), 1);
+
+    match command.syntax {
+        RepeatSyntax::Direct => {}
+        RepeatSyntax::Brace { .. } => panic!("expected direct repeat syntax"),
+        RepeatSyntax::DoDone { .. } => panic!("expected direct repeat syntax"),
+    }
+
+    let body_command = expect_simple(&command.body[0]);
+    assert_eq!(body_command.name.render(source), "echo");
+    assert_eq!(body_command.args[0].render(source), "test");
 }
 
 #[test]
@@ -7335,6 +7450,58 @@ fn test_zsh_plain_positional_parameters_preserve_bourne_references() {
         ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { reference })
             if reference.name.as_str() == "10"
     ));
+}
+
+#[test]
+fn test_zsh_additional_upstream_parameter_examples_parse() {
+    for source in [
+        "echo ${${var}:u}\n",
+        "echo ${var:-default}\n",
+        "echo ${var:=default}\n",
+        "echo ${var:-}\necho ${var:=}\n",
+        "echo \"${REPLY%%$'\\n'}\"\n",
+    ] {
+        Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+    }
+
+    let source = "echo ${array[(i)pattern]}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+    assert_eq!(command.args.len(), 1);
+    assert_eq!(command.args[0].render(source), "${array[(i)pattern]}");
+}
+
+#[test]
+fn test_zsh_additional_upstream_pattern_removal_examples_parse() {
+    for source in [
+        "echo \"${arr[@]:#pattern}\"\n",
+        "echo \"${arr[@]:%pattern}\"\n",
+        "filtered=(\"${(@)ingest:#--ingest=*}\")\n",
+        "basenames=(\"${(@)paths:##*/}\")\n",
+        "echo \"${arr[@]:# }\"\n",
+    ] {
+        Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+    }
+}
+
+#[test]
+fn test_zsh_additional_upstream_declaration_examples_parse() {
+    for source in [
+        "integer count=42\n",
+        "float pi=3.14\n",
+        "typeset -A hash\nhash=(key1 value1 key2 value2)\n",
+        "0=${(%):-%N}\n",
+    ] {
+        Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap();
+    }
 }
 
 #[test]
