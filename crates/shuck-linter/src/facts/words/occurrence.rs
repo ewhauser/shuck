@@ -2291,6 +2291,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             self.command_zsh_options.as_ref(),
             self.word_span_scratch,
         );
+        word_spans::normalize_command_substitution_spans(self.word_span_scratch, self.locator);
         let split_sensitive_unquoted_command_substitution_spans =
             self.word_spans.push_many(self.word_span_scratch.drain(..));
         let id = WordOccurrenceId::new(self.word_occurrences.len());
