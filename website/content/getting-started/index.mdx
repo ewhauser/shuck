@@ -45,6 +45,16 @@ echo 'echo $foo' | shuck check -
 shuck check --fix .
 ```
 
+## Editor integration
+
+Shuck also ships with a first-party LSP server over stdio:
+
+```bash
+shuck server
+```
+
+See the dedicated [Editor Integration guide](/docs/editors) for setup examples in Neovim, Vim, Emacs, and Zed.
+
 ## Managed runtime
 
 Shuck can also run scripts with managed shell interpreters instead of whatever version happens to be installed on your machine.
