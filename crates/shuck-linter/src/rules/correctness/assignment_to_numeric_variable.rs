@@ -77,7 +77,9 @@ fn numeric_assignment_target_span(text: &str, start: Position) -> Option<Span> {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
+    use std::path::Path;
+
+    use crate::test::{test_snippet, test_snippet_at_path};
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
@@ -133,6 +135,22 @@ a2=1
             source,
             &LinterSettings::for_rule(Rule::AssignmentToNumericVariable)
                 .with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_plugin_numeric_zero_assignments_despite_bash_compat_shebang() {
+        let source = r#"#!/usr/bin/bash
+# shellcheck disable=SC1090,SC2154
+0="${${ZERO:-${0:#$ZSH_ARGZERO}}:-${(%):-%N}}"
+0="${${(M)0:#/*}:-$PWD/$0}"
+"#;
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/ohmyzsh/plugins/shell-proxy/shell-proxy.plugin.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::AssignmentToNumericVariable),
         );
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");

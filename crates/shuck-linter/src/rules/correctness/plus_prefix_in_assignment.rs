@@ -118,6 +118,22 @@ rvm_info="
     }
 
     #[test]
+    fn ignores_zsh_word_splitting_expansion_in_command_position() {
+        let source = "\
+#!/bin/zsh
+local -a UNPACKCMD
+UNPACKCMD=( dd if=$pkg ibs=$o skip=1 )
+local COMPRESSION=\"$($=UNPACKCMD | file -)\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PlusPrefixInAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn ignores_zsh_declaration_brace_expanded_assignment_targets() {
         let source = "\
 #!/bin/zsh
