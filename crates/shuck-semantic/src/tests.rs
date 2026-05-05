@@ -7148,8 +7148,11 @@ fn zsh_runtime_vars_are_not_marked_uninitialized_in_zsh_scripts() {
         "jobtexts",
         "signals",
         "MATCH",
+        "match",
         "MBEGIN",
+        "mbegin",
         "MEND",
+        "mend",
         "BUFFER",
         "LBUFFER",
         "RBUFFER",
@@ -7179,17 +7182,20 @@ fn zsh_runtime_vars_are_not_marked_uninitialized_in_zsh_scripts() {
 fn zsh_runtime_array_references_are_classified() {
     let source = "\
 #!/bin/zsh
-printf '%s\\n' \"${path[1]}\" \"${options[xtrace]}\" \"${pipestatus[1]}\" \"$ZSH_VERSION\"
+printf '%s\\n' \"${path[1]}\" \"${options[xtrace]}\" \"${pipestatus[1]}\" \"${match[1]}\" \"$ZSH_VERSION\"
 ";
     let model = model(source);
 
-    for name in ["path", "options", "pipestatus"] {
+    for name in ["path", "options", "pipestatus", "match"] {
         let reference = model
             .references()
             .iter()
             .find(|reference| reference.name == name)
             .unwrap();
-        assert!(model.reference_is_predefined_runtime_array(reference.id));
+        assert!(
+            model.reference_is_predefined_runtime_array(reference.id),
+            "{name} should be classified as a zsh runtime array"
+        );
     }
 
     let version = model

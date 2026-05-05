@@ -1,6 +1,8 @@
 use shuck_ast::static_word_text;
 
-use crate::{Checker, Edit, Fix, FixAvailability, Rule, TestOperandClass, Violation, WordQuote};
+use crate::{
+    Checker, Edit, Fix, FixAvailability, Rule, ShellDialect, TestOperandClass, Violation, WordQuote,
+};
 
 pub struct QuotedBashRegex;
 
@@ -21,6 +23,10 @@ impl Violation for QuotedBashRegex {
 }
 
 pub fn quoted_bash_regex(checker: &mut Checker) {
+    if checker.shell() == ShellDialect::Zsh {
+        return;
+    }
+
     let source = checker.source();
     let diagnostics = checker
         .facts()
@@ -94,7 +100,7 @@ mod tests {
     use std::path::Path;
 
     use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
-    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect, assert_diagnostics_diff};
 
     #[test]
     fn ignores_quoted_fixed_literals_without_regex_semantics() {
@@ -138,6 +144,21 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![3, 4]
         );
+    }
+
+    #[test]
+    fn ignores_quoted_regex_operands_in_zsh() {
+        let source = "\
+#!/bin/zsh
+[[ abc =~ \"(b)\" ]]
+[[ $value =~ \"$regex\" ]]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashRegex).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]
