@@ -1952,6 +1952,7 @@ impl SemanticModel {
             && contract.provided_bindings.is_empty()
             && contract.provided_functions.is_empty()
             && !contract.externally_consumed_bindings
+            && contract.externally_consumed_binding_names.is_empty()
             && contract.externally_consumed_binding_prefixes.is_empty()
         {
             return;
@@ -1959,6 +1960,11 @@ impl SemanticModel {
 
         if contract.externally_consumed_bindings {
             self.mark_file_entry_consumed_bindings();
+        }
+        if !contract.externally_consumed_binding_names.is_empty() {
+            self.mark_file_entry_consumed_binding_names(
+                &contract.externally_consumed_binding_names,
+            );
         }
         if !contract.externally_consumed_binding_prefixes.is_empty() {
             self.mark_file_entry_consumed_binding_prefixes(
@@ -2020,6 +2026,19 @@ impl SemanticModel {
     fn mark_file_entry_consumed_bindings(&mut self) {
         for binding in &mut self.bindings {
             if file_entry_contract_can_consume_binding(binding) {
+                binding.attributes |= BindingAttributes::EXTERNALLY_CONSUMED;
+            }
+        }
+        self.heuristic_unused_assignments.retain(|binding_id| {
+            !self.bindings[binding_id.index()]
+                .attributes
+                .contains(BindingAttributes::EXTERNALLY_CONSUMED)
+        });
+    }
+
+    fn mark_file_entry_consumed_binding_names(&mut self, names: &[Name]) {
+        for binding in &mut self.bindings {
+            if file_entry_contract_can_consume_binding(binding) && names.contains(&binding.name) {
                 binding.attributes |= BindingAttributes::EXTERNALLY_CONSUMED;
             }
         }
@@ -2591,6 +2610,10 @@ fn file_entry_contract_can_consume_binding(binding: &Binding) -> bool {
         return false;
     }
 
+    file_entry_contract_can_consume_exact_binding(binding)
+}
+
+fn file_entry_contract_can_consume_exact_binding(binding: &Binding) -> bool {
     matches!(
         binding.kind,
         BindingKind::Assignment

@@ -222,6 +222,7 @@ const ZSH_PREINITIALIZED_ARRAYS: &[&str] = &[
 
 const ZSH_PREINITIALIZED_ASSOCIATIVE_ARRAYS: &[&str] = &[
     "aliases",
+    "compstate",
     "commands",
     "functions",
     "jobdirs",

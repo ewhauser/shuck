@@ -895,6 +895,7 @@ printf '%s\\n' \"$pkgname\"
                 )],
                 provided_functions: Vec::new(),
                 externally_consumed_bindings: false,
+                externally_consumed_binding_names: Vec::new(),
                 externally_consumed_binding_prefixes: Vec::new(),
             }),
             ..SemanticBuildOptions::default()
@@ -3718,6 +3719,7 @@ echo $value
                 )],
                 provided_functions: Vec::new(),
                 externally_consumed_bindings: false,
+                externally_consumed_binding_names: Vec::new(),
                 externally_consumed_binding_prefixes: Vec::new(),
             }),
             ..SemanticBuildOptions::default()
@@ -9465,6 +9467,7 @@ fn file_entry_contracts_seed_multiple_first_command_reads_as_imported_bindings()
                 ],
                 provided_functions: Vec::new(),
                 externally_consumed_bindings: false,
+                externally_consumed_binding_names: Vec::new(),
                 externally_consumed_binding_prefixes: Vec::new(),
             }),
             ..SemanticBuildOptions::default()
@@ -9531,6 +9534,7 @@ build() {
                 ],
                 provided_functions: Vec::new(),
                 externally_consumed_bindings: false,
+                externally_consumed_binding_names: Vec::new(),
                 externally_consumed_binding_prefixes: Vec::new(),
             }),
             ..SemanticBuildOptions::default()
@@ -9608,6 +9612,7 @@ hook() {
                 ],
                 provided_functions: Vec::new(),
                 externally_consumed_bindings: false,
+                externally_consumed_binding_names: Vec::new(),
                 externally_consumed_binding_prefixes: Vec::new(),
             }),
             ..SemanticBuildOptions::default()
@@ -9665,6 +9670,7 @@ fn initialized_file_entry_bindings_suppress_uninitialized_reads() {
                 )],
                 provided_functions: Vec::new(),
                 externally_consumed_bindings: false,
+                externally_consumed_binding_names: Vec::new(),
                 externally_consumed_binding_prefixes: Vec::new(),
             }),
             ..SemanticBuildOptions::default()
@@ -9700,6 +9706,7 @@ fn file_entry_contracts_can_mark_assignments_as_caller_consumed() {
                 provided_bindings: Vec::new(),
                 provided_functions: Vec::new(),
                 externally_consumed_bindings: true,
+                externally_consumed_binding_names: Vec::new(),
                 externally_consumed_binding_prefixes: Vec::new(),
             }),
             ..SemanticBuildOptions::default()
@@ -9713,6 +9720,63 @@ fn file_entry_contracts_can_mark_assignments_as_caller_consumed() {
             .contains(BindingAttributes::EXTERNALLY_CONSUMED)
     );
     assert!(model.analysis().unused_assignments().is_empty());
+}
+
+#[test]
+fn file_entry_contracts_can_mark_exact_nonlocal_assignments_as_caller_consumed() {
+    let source = "\
+published=1
+unpublished=1
+helper() {
+  local published=2
+}
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let model = SemanticModel::build_with_options(
+        &output.file,
+        source,
+        &indexer,
+        SemanticBuildOptions {
+            file_entry_contract: Some(FileContract {
+                required_reads: Vec::new(),
+                provided_bindings: Vec::new(),
+                provided_functions: Vec::new(),
+                externally_consumed_bindings: false,
+                externally_consumed_binding_names: vec![Name::from("published")],
+                externally_consumed_binding_prefixes: Vec::new(),
+            }),
+            ..SemanticBuildOptions::default()
+        },
+    );
+
+    let published_bindings = model
+        .bindings()
+        .iter()
+        .filter(|binding| binding.name == "published")
+        .collect::<Vec<_>>();
+    assert_eq!(published_bindings.len(), 2);
+    assert!(
+        published_bindings[0]
+            .attributes
+            .contains(BindingAttributes::EXTERNALLY_CONSUMED),
+        "{published_bindings:?}"
+    );
+    assert!(
+        !published_bindings[1]
+            .attributes
+            .contains(BindingAttributes::EXTERNALLY_CONSUMED),
+        "{published_bindings:?}"
+    );
+    assert!(
+        !binding_for_name(&model, "unpublished")
+            .attributes
+            .contains(BindingAttributes::EXTERNALLY_CONSUMED)
+    );
+    assert_eq!(
+        binding_names(&model, model.analysis().unused_assignments()),
+        vec!["unpublished", "published"]
+    );
 }
 
 #[test]

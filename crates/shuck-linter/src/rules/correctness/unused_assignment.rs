@@ -1246,6 +1246,97 @@ ordinary=1
     }
 
     #[test]
+    fn zsh_plugin_config_namespaces_are_external_consumers() {
+        let source = "\
+#!/usr/bin/env zsh
+typeset -g ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=8'
+ZSH_AUTOSUGGEST_STRATEGY=(history completion)
+ordinary=1
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/zsh-autosuggestions/src/config.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
+    }
+
+    #[test]
+    fn zsh_test_data_expected_outputs_are_external_consumers() {
+        let source = "\
+#!/usr/bin/env zsh
+expected_region_highlight=('1 4 fg=red')
+ordinary=1
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/zsh-syntax-highlighting/highlighters/main/test-data/example.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
+    }
+
+    #[test]
+    fn zsh_ambient_output_parameters_are_external_consumers() {
+        let source = "\
+#!/usr/bin/env zsh
+reply=(one two)
+REPLY=value
+compstate[insert]=menu
+ordinary=1
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
+    }
+
+    #[test]
+    fn pathless_zsh_output_parameters_still_report_unused() {
+        let source = "\
+#!/usr/bin/env zsh
+reply=(one two)
+ordinary=1
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "reply");
+        assert_eq!(diagnostics[1].span.slice(source), "ordinary");
+    }
+
+    #[test]
+    fn zsh_ambient_output_parameters_do_not_consume_function_locals() {
+        let source = "\
+#!/usr/bin/env zsh
+helper() {
+  local reply=(one two)
+  local REPLY=value
+}
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "reply");
+        assert_eq!(diagnostics[1].span.slice(source), "REPLY");
+    }
+
+    #[test]
     fn zsh_config_namespace_names_still_report_on_ordinary_paths() {
         let source = "\
 #!/usr/bin/env zsh
