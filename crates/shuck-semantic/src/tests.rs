@@ -10432,7 +10432,14 @@ print $name
             .recorded_program
             .command_infos
             .values()
-            .any(|info| info.static_callee.as_deref() == Some("fn")),
+            .any(|info_id| {
+                model
+                    .recorded_program
+                    .command_info(*info_id)
+                    .static_callee
+                    .as_deref()
+                    == Some("fn")
+            }),
         "expected a static callee for the function call"
     );
     let options = model

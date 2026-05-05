@@ -224,7 +224,7 @@ pub(crate) struct RecordedProgram {
     list_items: Vec<RecordedListItem>,
     elif_branches: Vec<RecordedElifBranch>,
     command_info_records: Vec<RecordedCommandInfo>,
-    pub(crate) command_infos: FxHashMap<SpanKey, RecordedCommandInfo>,
+    pub(crate) command_infos: FxHashMap<SpanKey, RecordedCommandInfoId>,
     pub(crate) function_body_scopes: FxHashMap<BindingId, ScopeId>,
     pub(crate) call_command_spans: FxHashMap<SpanKey, Span>,
 }
@@ -644,6 +644,12 @@ impl RecordedProgram {
 
     pub(crate) fn command_info(&self, id: RecordedCommandInfoId) -> &RecordedCommandInfo {
         &self.command_info_records[id.index()]
+    }
+
+    pub(crate) fn command_info_for_span(&self, span: Span) -> Option<&RecordedCommandInfo> {
+        self.command_infos
+            .get(&SpanKey::new(span))
+            .map(|id| self.command_info(*id))
     }
 
     pub(crate) fn commands(&self) -> &[RecordedCommand] {

@@ -306,7 +306,8 @@ pub(crate) fn analyze(
 
 pub(crate) fn runtime_ambiguous_entry_mask(recorded_program: &RecordedProgram) -> ZshOptionMask {
     let mut mask = ZshOptionMask::default();
-    for info in recorded_program.command_infos.values() {
+    for info_id in recorded_program.command_infos.values() {
+        let info = recorded_program.command_info(*info_id);
         for effect in &info.zsh_effects {
             match effect {
                 RecordedZshCommandEffect::Emulate { mode, .. } => {
