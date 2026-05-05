@@ -59,7 +59,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     pub(super) fn visit_stmt_seq_into(
         &mut self,
         commands: &'a StmtSeq,
-        flow: FlowState,
+        mut flow: FlowState,
         recorded: &mut Vec<CommandId>,
     ) {
         recorded.reserve(commands.len());
@@ -70,7 +70,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             self.observer
                 .recorded_statement_sequence_command(commands.span, stmt.span, command);
             recorded.push(command);
+            flow = self.flow_after_statement(stmt, flow);
         }
+    }
+
+    fn flow_after_statement(&self, stmt: &'a Stmt, flow: FlowState) -> FlowState {
+        let info = recorded_command_info(&stmt.command, self.source, self.runtime.bash_enabled());
+        flow_after_zsh_effects(flow, &info.zsh_effects)
     }
 
     pub(super) fn visit_stmt(&mut self, stmt: &'a Stmt, flow: FlowState) -> CommandId {
@@ -1035,4 +1041,19 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             .find(|scope| !matches!(self.scopes[scope.index()].kind, ScopeKind::Function(_)))
             .unwrap_or(ScopeId(0))
     }
+}
+
+fn flow_after_zsh_effects(mut flow: FlowState, effects: &[RecordedZshCommandEffect]) -> FlowState {
+    for effect in effects {
+        match effect {
+            RecordedZshCommandEffect::Emulate { mode, .. } => {
+                flow = flow.with_zsh_emulation(Some(*mode));
+            }
+            RecordedZshCommandEffect::EmulateUnknown { .. } => {
+                flow = flow.with_zsh_emulation(None);
+            }
+            RecordedZshCommandEffect::SetOptions { .. } => {}
+        }
+    }
+    flow
 }

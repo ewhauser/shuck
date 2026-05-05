@@ -161,6 +161,12 @@ impl FlowState {
             ..self
         }
     }
+
+    fn with_zsh_emulation(mut self, mode: Option<ZshEmulationMode>) -> Self {
+        self.pipeline_tail_runs_in_current_shell =
+            !matches!(mode, None | Some(ZshEmulationMode::Sh));
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

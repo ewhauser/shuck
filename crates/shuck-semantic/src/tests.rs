@@ -1199,6 +1199,49 @@ print -r -- \"$value\"
 }
 
 #[test]
+fn zsh_sh_emulation_keeps_pipeline_tail_in_pipeline_scope() {
+    let source = "\
+emulate sh
+value=old
+printf '%s\\n' x | value=new
+print -r -- \"$value\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let pipeline_assignment = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .unwrap();
+    assert!(matches!(
+        model.scope_kind(pipeline_assignment.scope),
+        ScopeKind::Pipeline
+    ));
+}
+
+#[test]
+fn zsh_emulation_restores_native_pipeline_tail_scope() {
+    let source = "\
+emulate sh
+emulate zsh
+value=old
+printf '%s\\n' x | value=new
+print -r -- \"$value\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let pipeline_assignment = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .unwrap();
+    assert!(!matches!(
+        model.scope_kind(pipeline_assignment.scope),
+        ScopeKind::Pipeline
+    ));
+}
+
+#[test]
 fn zsh_nonfinal_pipeline_segments_keep_pipeline_scope() {
     let source = "\
 value=old
