@@ -1021,6 +1021,7 @@ fn apply_zsh_array_fanout(
 ) {
     if semantic.shell_profile().dialect != shuck_parser::parser::ShellDialect::Zsh
         || zsh_unindexed_array_fanout_is_disabled(options)
+        || analysis.array_valued
         || !word_has_unquoted_visible_array_reference(
             word,
             semantic,
