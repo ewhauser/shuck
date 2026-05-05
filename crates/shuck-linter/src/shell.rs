@@ -274,6 +274,9 @@ fn next_heredoc_delimiter(line: &str) -> Option<((String, bool), usize)> {
         rest = &rest[1..];
         consumed += 1;
     }
+    let blanks = rest.len() - rest.trim_start().len();
+    rest = &rest[blanks..];
+    consumed += blanks;
     let delimiter = heredoc_delimiter_token(rest)?;
     consumed += delimiter.len();
     let delimiter = delimiter
@@ -432,6 +435,7 @@ fn contains_unquoted_marker(line: &str, mut matches_at: impl FnMut(&[u8], usize)
     let bytes = line.as_bytes();
     let mut index = 0;
     let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
     let mut escaped = false;
 
     while index < bytes.len() {
@@ -446,8 +450,13 @@ fn contains_unquoted_marker(line: &str, mut matches_at: impl FnMut(&[u8], usize)
             index += 1;
             continue;
         }
-        if byte == b'\'' {
+        if byte == b'\'' && !in_double_quotes {
             in_single_quotes = !in_single_quotes;
+            index += 1;
+            continue;
+        }
+        if byte == b'"' && !in_single_quotes {
+            in_double_quotes = !in_double_quotes;
             index += 1;
             continue;
         }
@@ -659,6 +668,20 @@ BAR
     }
 
     #[test]
+    fn heredoc_delimiters_allow_blanks_after_redirect_operator() {
+        let source = "\
+cat << EOF
+$ZSH_VERSION
+EOF
+cat <<- \tBAR
+\t$ZSH_VERSION
+\tBAR
+";
+        let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
+        assert_eq!(inferred, ShellDialect::Sh);
+    }
+
+    #[test]
     fn escaped_whitespace_before_hash_does_not_start_a_comment() {
         let source = "\
 printf '%s\\n' foo\\ # \"$ZSH_VERSION\"
@@ -674,6 +697,12 @@ printf '%s\\n' foo\\ # \"$ZSH_VERSION\"
             Some(Path::new("/tmp/example.sh")),
         );
         assert_eq!(zsh, ShellDialect::Zsh);
+
+        let zsh_after_apostrophe = ShellDialect::infer(
+            "printf '%s\\n' \"can't\" \"$ZSH_VERSION\"\n",
+            Some(Path::new("/tmp/example.sh")),
+        );
+        assert_eq!(zsh_after_apostrophe, ShellDialect::Zsh);
 
         let bash = ShellDialect::infer(
             "printf '%s\\n' \"${BASH_SOURCE[0]}\"\n",
