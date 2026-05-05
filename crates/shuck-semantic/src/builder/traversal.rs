@@ -91,6 +91,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     ..flow
                 },
             ),
+            Command::Compound(CompoundCommand::If(command)) => {
+                self.flow_after_stmt_seq(&command.condition, flow)
+            }
+            Command::Compound(CompoundCommand::While(command)) => {
+                self.flow_after_stmt_seq(&command.condition, flow)
+            }
+            Command::Compound(CompoundCommand::Until(command)) => {
+                self.flow_after_stmt_seq(&command.condition, flow)
+            }
             Command::Compound(CompoundCommand::Time(command)) => command
                 .command
                 .as_deref()
