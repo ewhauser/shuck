@@ -1,12 +1,13 @@
 use std::cell::RefCell;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpr, ArithmeticExprNode, BourneParameterExpansion, Command, File, Name,
     ParameterExpansion, ParameterExpansionSyntax, Span, StmtSeq, VarRef, Word, WordPart,
-    WordPartNode, static_word_text,
+    WordPartNode, ZshDefaultingOp, ZshExpansionOperation, ZshExpansionTarget,
+    ZshParameterExpansion, static_word_text,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -16,8 +17,8 @@ use crate::function_resolution::{
     call_payloads_by_callee_scope, lexically_visible_function_binding_in_scope,
 };
 use crate::{
-    ContractCertainty, FileContract, FunctionContract, FunctionScopeKind, ProvidedBinding,
-    ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel, SourcePathResolver,
+    Binding, BindingKind, ContractCertainty, FileContract, FunctionContract, FunctionScopeKind,
+    ProvidedBinding, ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel, SourcePathResolver,
     SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution, SpanKey, SyntheticRead,
     build_semantic_model_base, infer_explicit_parse_dialect_from_source,
 };
@@ -156,20 +157,34 @@ pub(crate) fn collect_source_ref_metadata(
 
     for source_ref in model.source_refs() {
         let scope = model.scope_at(source_ref.span.start.offset);
-        let template = facts.source_templates.get(&SpanKey::new(source_ref.span));
+        let template = effective_source_template(
+            model,
+            source_ref,
+            facts.source_templates.get(&SpanKey::new(source_ref.span)),
+        );
         let candidates = source_candidates(
             &source_ref.kind,
-            template,
+            template.as_ref(),
             call_args_by_scope.get(&scope).map(Vec::as_slice),
             source_path,
         );
-        let (resolved, explicit) =
+        let (resolved, mut explicit) =
             source_ref_metadata_for_candidates(source_path, candidates, &context);
+        let has_current_source_anchor = template
+            .as_ref()
+            .is_some_and(template_has_current_source_anchor);
+        if has_current_source_anchor
+            && (resolved || model.shell_profile().dialect == ParseShellDialect::Zsh)
+        {
+            explicit = true;
+        }
 
         source_ref_resolutions.push(classify_source_ref_resolution(&source_ref.kind, resolved));
         source_ref_explicitness.push(explicit);
-        source_ref_diagnostic_classes
-            .push(classify_source_ref_diagnostic_class(source_ref, template));
+        source_ref_diagnostic_classes.push(classify_source_ref_diagnostic_class(
+            source_ref,
+            template.as_ref(),
+        ));
     }
 
     (
@@ -203,22 +218,36 @@ fn collect_source_closure_contracts_with_cache(
 
     for source_ref in model.source_refs() {
         let scope = model.scope_at(source_ref.span.start.offset);
-        let template = facts.source_templates.get(&SpanKey::new(source_ref.span));
+        let template = effective_source_template(
+            model,
+            source_ref,
+            facts.source_templates.get(&SpanKey::new(source_ref.span)),
+        );
         let candidates = source_candidates(
             &source_ref.kind,
-            template,
+            template.as_ref(),
             call_args_by_scope.get(&scope).map(Vec::as_slice),
             source_path,
         );
 
-        let (contract, resolved, explicit) =
+        let (contract, resolved, mut explicit) =
             merge_contracts_for_candidates(source_path, candidates, summaries, active, context);
+        let has_current_source_anchor = template
+            .as_ref()
+            .is_some_and(template_has_current_source_anchor);
+        if has_current_source_anchor
+            && (resolved || model.shell_profile().dialect == ParseShellDialect::Zsh)
+        {
+            explicit = true;
+        }
         let trust_provided_bindings =
-            source_ref_can_import_provided_bindings(&source_ref.kind, template);
+            source_ref_can_import_provided_bindings(&source_ref.kind, template.as_ref());
         source_ref_resolutions.push(classify_source_ref_resolution(&source_ref.kind, resolved));
         source_ref_explicitness.push(explicit);
-        source_ref_diagnostic_classes
-            .push(classify_source_ref_diagnostic_class(source_ref, template));
+        source_ref_diagnostic_classes.push(classify_source_ref_diagnostic_class(
+            source_ref,
+            template.as_ref(),
+        ));
         if trust_provided_bindings {
             for provided in contract.provided_bindings.iter().cloned() {
                 imported_bindings.push(ImportedBindingContractSite {
@@ -345,8 +374,17 @@ fn source_ref_metadata_for_candidates(
 
 fn path_is_explicitly_analyzed(path: &Path, analyzed_paths: Option<&FxHashSet<PathBuf>>) -> bool {
     analyzed_paths.is_some_and(|paths| {
-        paths.contains(path)
-            || paths.contains(&fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
+        if paths.contains(path) {
+            return true;
+        }
+
+        let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        paths.contains(&canonical)
+            || paths.iter().any(|analyzed| {
+                fs::canonicalize(analyzed)
+                    .map(|analyzed| analyzed == canonical)
+                    .unwrap_or(false)
+            })
     })
 }
 
@@ -364,6 +402,26 @@ fn classify_source_ref_resolution(kind: &SourceRefKind, resolved: bool) -> Sourc
             }
         }
     }
+}
+
+fn effective_source_template(
+    model: &SemanticModel,
+    source_ref: &crate::SourceRef,
+    syntax_template: Option<&SourcePathTemplate>,
+) -> Option<SourcePathTemplate> {
+    if let SourceRefKind::SingleVariableStaticTail { variable, tail } = &source_ref.kind
+        && let Some(binding) = model.visible_binding(variable, source_ref.path_span)
+        && binding_is_plain_assignment(binding)
+        && let Some(template) = model.source_path_templates_by_binding.get(&binding.id)
+    {
+        return Some(template_with_literal_tail(template, tail));
+    }
+
+    syntax_template.cloned()
+}
+
+fn binding_is_plain_assignment(binding: &Binding) -> bool {
+    matches!(binding.kind, BindingKind::Assignment)
 }
 
 fn source_ref_can_import_provided_bindings(
@@ -666,19 +724,63 @@ pub(crate) fn source_path_template(
     word: &Word,
     source: &str,
     bash_runtime_vars_enabled: bool,
+    zsh_runtime_vars_enabled: bool,
 ) -> Option<SourcePathTemplate> {
     if static_word_text(word, source).is_some() {
         return None;
     }
 
+    source_path_template_with_resolver(
+        word,
+        source,
+        bash_runtime_vars_enabled,
+        zsh_runtime_vars_enabled,
+        |_, _| None,
+    )
+}
+
+pub(crate) fn assignment_source_path_template(
+    word: &Word,
+    source: &str,
+    bash_runtime_vars_enabled: bool,
+    zsh_runtime_vars_enabled: bool,
+    resolve_variable_template: impl FnMut(&Name, Span) -> Option<SourcePathTemplate>,
+) -> Option<SourcePathTemplate> {
+    source_path_template_with_resolver(
+        word,
+        source,
+        bash_runtime_vars_enabled,
+        zsh_runtime_vars_enabled,
+        resolve_variable_template,
+    )
+}
+
+fn source_path_template_with_resolver(
+    word: &Word,
+    source: &str,
+    bash_runtime_vars_enabled: bool,
+    zsh_runtime_vars_enabled: bool,
+    resolve_variable_template: impl FnMut(&Name, Span) -> Option<SourcePathTemplate>,
+) -> Option<SourcePathTemplate> {
+    if let Some(text) = static_word_text(word, source) {
+        return (!text.is_empty()).then(|| {
+            SourcePathTemplate::Interpolated(vec![TemplatePart::Literal(text.into_owned())])
+        });
+    }
+
+    let mut context = SourceTemplateContext {
+        source,
+        bash_runtime_vars_enabled,
+        zsh_runtime_vars_enabled,
+        resolve_variable_template,
+    };
     let mut parts = Vec::new();
     let mut ignored_root = false;
     let mut saw_dynamic = false;
 
     if !collect_source_template_parts(
         &word.parts,
-        source,
-        bash_runtime_vars_enabled,
+        &mut context,
         &mut parts,
         &mut ignored_root,
         &mut saw_dynamic,
@@ -689,37 +791,40 @@ pub(crate) fn source_path_template(
     (saw_dynamic && !parts.is_empty()).then_some(SourcePathTemplate::Interpolated(parts))
 }
 
-fn collect_source_template_parts(
-    word_parts: &[WordPartNode],
-    source: &str,
+struct SourceTemplateContext<'a, F> {
+    source: &'a str,
     bash_runtime_vars_enabled: bool,
+    zsh_runtime_vars_enabled: bool,
+    resolve_variable_template: F,
+}
+
+fn collect_source_template_parts<F>(
+    word_parts: &[WordPartNode],
+    context: &mut SourceTemplateContext<'_, F>,
     parts: &mut Vec<TemplatePart>,
     ignored_root: &mut bool,
     saw_dynamic: &mut bool,
-) -> bool {
+) -> bool
+where
+    F: FnMut(&Name, Span) -> Option<SourcePathTemplate>,
+{
     for part in word_parts {
         match &part.kind {
             WordPart::Literal(text) => {
-                let text = text.as_str(source, part.span);
+                let text = text.as_str(context.source, part.span);
                 if !text.is_empty() {
                     push_literal(parts, text.to_owned());
                 }
             }
             WordPart::SingleQuoted { value, .. } => {
-                let text = value.slice(source);
+                let text = value.slice(context.source);
                 if !text.is_empty() {
                     push_literal(parts, text.to_owned());
                 }
             }
             WordPart::DoubleQuoted { parts: inner, .. } => {
-                if !collect_source_template_parts(
-                    inner,
-                    source,
-                    bash_runtime_vars_enabled,
-                    parts,
-                    ignored_root,
-                    saw_dynamic,
-                ) {
+                if !collect_source_template_parts(inner, context, parts, ignored_root, saw_dynamic)
+                {
                     return false;
                 }
             }
@@ -727,9 +832,13 @@ fn collect_source_template_parts(
                 if let Some(index) = positional_index(name) {
                     *saw_dynamic = true;
                     parts.push(TemplatePart::Arg(index));
-                } else if bash_runtime_vars_enabled && is_bash_source_var(name) {
+                } else if context.bash_runtime_vars_enabled && is_bash_source_var(name) {
                     *saw_dynamic = true;
                     parts.push(TemplatePart::SourceFile);
+                } else if let Some(template) = (context.resolve_variable_template)(name, part.span)
+                {
+                    *saw_dynamic = true;
+                    append_template_parts(parts, &template);
                 } else if !*ignored_root && parts.is_empty() {
                     *ignored_root = true;
                     *saw_dynamic = true;
@@ -738,21 +847,28 @@ fn collect_source_template_parts(
                 }
             }
             WordPart::Parameter(parameter)
-                if bash_runtime_vars_enabled
-                    && parameter_is_current_source_file(parameter, source) =>
+                if context.bash_runtime_vars_enabled
+                    && parameter_is_current_source_file(parameter, context.source) =>
             {
                 *saw_dynamic = true;
                 parts.push(TemplatePart::SourceFile);
             }
+            WordPart::Parameter(parameter)
+                if context.zsh_runtime_vars_enabled
+                    && append_zsh_parameter_template(parameter, context, parts) =>
+            {
+                *saw_dynamic = true;
+            }
             WordPart::ArrayAccess(reference)
-                if bash_runtime_vars_enabled && is_bash_source_index_ref(reference, source) =>
+                if context.bash_runtime_vars_enabled
+                    && is_bash_source_index_ref(reference, context.source) =>
             {
                 *saw_dynamic = true;
                 parts.push(TemplatePart::SourceFile);
             }
             WordPart::CommandSubstitution { body, .. } => {
-                if bash_runtime_vars_enabled
-                    && let Some(template_part) = dirname_source_template_part(body, source)
+                if context.bash_runtime_vars_enabled
+                    && let Some(template_part) = dirname_source_template_part(body, context.source)
                 {
                     *saw_dynamic = true;
                     parts.push(template_part);
@@ -772,6 +888,154 @@ fn push_literal(parts: &mut Vec<TemplatePart>, text: String) {
         existing.push_str(&text);
     } else {
         parts.push(TemplatePart::Literal(text));
+    }
+}
+
+fn append_template_parts(parts: &mut Vec<TemplatePart>, template: &SourcePathTemplate) {
+    match template {
+        SourcePathTemplate::Interpolated(template_parts) => {
+            for part in template_parts {
+                match part {
+                    TemplatePart::Literal(text) => push_literal(parts, text.clone()),
+                    TemplatePart::Arg(index) => parts.push(TemplatePart::Arg(*index)),
+                    TemplatePart::SourceDir => parts.push(TemplatePart::SourceDir),
+                    TemplatePart::SourceFile => parts.push(TemplatePart::SourceFile),
+                }
+            }
+        }
+    }
+}
+
+fn template_with_literal_tail(template: &SourcePathTemplate, tail: &str) -> SourcePathTemplate {
+    let mut parts = Vec::new();
+    append_template_parts(&mut parts, template);
+    if !tail.is_empty() {
+        push_literal(&mut parts, tail.to_owned());
+    }
+    SourcePathTemplate::Interpolated(parts)
+}
+
+fn append_zsh_parameter_template<F>(
+    parameter: &ParameterExpansion,
+    context: &mut SourceTemplateContext<'_, F>,
+    parts: &mut Vec<TemplatePart>,
+) -> bool
+where
+    F: FnMut(&Name, Span) -> Option<SourcePathTemplate>,
+{
+    let expansion_span = parameter.span;
+    let ParameterExpansionSyntax::Zsh(parameter) = &parameter.syntax else {
+        return false;
+    };
+    let Some(template) = zsh_parameter_source_template(parameter, expansion_span, context) else {
+        return false;
+    };
+    append_template_parts(parts, &template);
+    true
+}
+
+fn zsh_parameter_source_template<F>(
+    parameter: &ZshParameterExpansion,
+    expansion_span: Span,
+    context: &mut SourceTemplateContext<'_, F>,
+) -> Option<SourcePathTemplate>
+where
+    F: FnMut(&Name, Span) -> Option<SourcePathTemplate>,
+{
+    let mut template = match &parameter.target {
+        ZshExpansionTarget::Reference(reference)
+            if reference.subscript.is_none() && reference.name.as_str() == "0" =>
+        {
+            SourcePathTemplate::Interpolated(vec![TemplatePart::SourceFile])
+        }
+        ZshExpansionTarget::Reference(reference) => {
+            let span =
+                if reference.name_span.start.offset == 0 && reference.name_span.end.offset == 0 {
+                    expansion_span
+                } else {
+                    reference.name_span
+                };
+            (context.resolve_variable_template)(&reference.name, span)?
+        }
+        ZshExpansionTarget::Nested(nested_expansion) => {
+            let ParameterExpansionSyntax::Zsh(nested) = &nested_expansion.syntax else {
+                return None;
+            };
+            zsh_parameter_source_template(nested, nested_expansion.span, context)?
+        }
+        ZshExpansionTarget::Empty if zsh_empty_prompt_current_script(parameter, context.source) => {
+            SourcePathTemplate::Interpolated(vec![TemplatePart::SourceFile])
+        }
+        ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => return None,
+    };
+
+    for modifier in zsh_path_modifier_names(parameter, context.source)? {
+        template = match modifier {
+            'a' | 'A' => template,
+            'h' => dirname_source_path_template(&template)?,
+            _ => return None,
+        };
+    }
+
+    Some(template)
+}
+
+fn zsh_path_modifier_names(parameter: &ZshParameterExpansion, source: &str) -> Option<Vec<char>> {
+    let mut names = parameter
+        .modifiers
+        .iter()
+        .filter(|modifier| modifier.name != '%')
+        .map(|modifier| modifier.name)
+        .collect::<Vec<_>>();
+
+    if let Some(ZshExpansionOperation::Unknown { text, .. }) = &parameter.operation {
+        let text = text.slice(source);
+        let suffix = text.strip_prefix(':')?;
+        if suffix.is_empty() {
+            return None;
+        }
+        for modifier in suffix.split(':') {
+            let mut chars = modifier.chars();
+            let name = chars.next()?;
+            if chars.next().is_some() {
+                return None;
+            }
+            names.push(name);
+        }
+    }
+
+    Some(names)
+}
+
+fn zsh_empty_prompt_current_script(parameter: &ZshParameterExpansion, source: &str) -> bool {
+    if !matches!(parameter.target, ZshExpansionTarget::Empty) {
+        return false;
+    }
+    if !parameter
+        .modifiers
+        .iter()
+        .any(|modifier| modifier.name == '%')
+    {
+        return false;
+    }
+    matches!(
+        &parameter.operation,
+        Some(ZshExpansionOperation::Defaulting {
+            kind: ZshDefaultingOp::UseDefault,
+            operand,
+            ..
+        }) if matches!(operand.slice(source), "%x" | "%N")
+    )
+}
+
+fn dirname_source_path_template(template: &SourcePathTemplate) -> Option<SourcePathTemplate> {
+    match template {
+        SourcePathTemplate::Interpolated(parts) => match parts.as_slice() {
+            [TemplatePart::SourceFile] => Some(SourcePathTemplate::Interpolated(vec![
+                TemplatePart::SourceDir,
+            ])),
+            _ => None,
+        },
     }
 }
 
@@ -1115,7 +1379,7 @@ fn resolve_helper_paths_cached(
 
 fn candidate_path_variants(candidate: &str) -> Vec<PathBuf> {
     #[cfg(not(windows))]
-    let variants = vec![PathBuf::from(candidate)];
+    let mut variants = vec![PathBuf::from(candidate)];
     #[cfg(windows)]
     let mut variants = vec![PathBuf::from(candidate)];
     #[cfg(windows)]
@@ -1127,7 +1391,40 @@ fn candidate_path_variants(candidate: &str) -> Vec<PathBuf> {
             variants.push(normalized);
         }
     }
+    let normalized = lexical_normalize_path(Path::new(candidate));
+    if !variants.contains(&normalized) {
+        variants.push(normalized.clone());
+    }
     variants
+}
+
+fn lexical_normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    let mut normal_depth = 0usize;
+    let mut absolute_prefix = false;
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if normal_depth > 0 {
+                    normalized.pop();
+                    normal_depth -= 1;
+                } else if !absolute_prefix {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            Component::Prefix(_) | Component::RootDir => {
+                normalized.push(component.as_os_str());
+                absolute_prefix = true;
+                normal_depth = 0;
+            }
+            Component::Normal(_) => {
+                normalized.push(component.as_os_str());
+                normal_depth += 1;
+            }
+        }
+    }
+    normalized
 }
 
 fn summarize_helper(
@@ -1387,6 +1684,14 @@ mod tests {
         assert!(call_names.iter().any(|name| name == "printf"));
         assert!(call_names.iter().any(|name| name == "dirname"));
         assert!(call_names.iter().any(|name| name == "source"));
+    }
+
+    #[test]
+    fn candidate_path_variants_preserve_leading_parent_segments() {
+        let variants = candidate_path_variants("../../helper.sh");
+
+        assert_eq!(variants[0], PathBuf::from("../../helper.sh"));
+        assert!(variants.iter().all(|path| path != Path::new("helper.sh")));
     }
 
     #[test]

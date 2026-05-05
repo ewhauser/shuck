@@ -10,8 +10,8 @@ use shuck_ast::{
     NormalizedCommand, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
     PatternGroupKind, PatternPart, PatternPartNode, Position, SourceText, Span, Stmt, StmtSeq,
     Subscript, SubscriptInterpretation, VarRef, Word, WordPart, WordPartNode, WrapperKind,
-    ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment, normalize_command_words,
-    static_word_text, try_static_word_parts_text,
+    ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment, ZshParameterExpansion,
+    normalize_command_words, static_word_text, try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::{ShellDialect, ShellProfile, ZshEmulationMode, ZshOptionState, parser::Parser};
@@ -32,7 +32,9 @@ use crate::declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 use crate::reference::{Reference, ReferenceKind};
 use crate::runtime::RuntimePrelude;
 use crate::scope::ancestor_scopes;
-use crate::source_closure::source_path_template;
+use crate::source_closure::{
+    SourcePathTemplate, assignment_source_path_template, source_path_template,
+};
 use crate::source_ref::{
     SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution,
     default_diagnostic_class,
@@ -60,6 +62,7 @@ pub(crate) struct BuildOutput {
     pub(crate) call_sites: FxHashMap<Name, SmallVec<[CallSite; 2]>>,
     pub(crate) call_graph: CallGraph,
     pub(crate) source_refs: Vec<SourceRef>,
+    pub(crate) source_path_templates_by_binding: FxHashMap<BindingId, SourcePathTemplate>,
     pub(crate) runtime: RuntimePrelude,
     pub(crate) declarations: Vec<Declaration>,
     pub(crate) indirect_target_hints: FxHashMap<BindingId, IndirectTargetHint>,
@@ -93,6 +96,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     functions: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     call_sites: FxHashMap<Name, SmallVec<[CallSite; 2]>>,
     source_refs: Vec<SourceRef>,
+    source_path_templates_by_binding: FxHashMap<BindingId, SourcePathTemplate>,
     declarations: Vec<Declaration>,
     indirect_target_hints: FxHashMap<BindingId, IndirectTargetHint>,
     indirect_expansion_refs: FxHashSet<ReferenceId>,
@@ -244,6 +248,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             functions: FxHashMap::default(),
             call_sites: FxHashMap::default(),
             source_refs: Vec::new(),
+            source_path_templates_by_binding: FxHashMap::default(),
             declarations: Vec::new(),
             indirect_target_hints: FxHashMap::default(),
             indirect_expansion_refs: FxHashSet::default(),
@@ -298,6 +303,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             call_sites: builder.call_sites,
             call_graph,
             source_refs: builder.source_refs,
+            source_path_templates_by_binding: builder.source_path_templates_by_binding,
             runtime: builder.runtime,
             declarations: builder.declarations,
             indirect_target_hints: builder.indirect_target_hints,
@@ -1837,20 +1843,9 @@ fn read_option_attached_target_span(span: Span, source: &str, start: usize, end:
 }
 
 fn classify_dynamic_source_word(word: &Word, source: &str) -> SourceRefKind {
-    let mut variable = None;
-    let mut tail = String::new();
-
-    for (part, span) in word.parts_with_spans() {
-        match part {
-            WordPart::Literal(text) => tail.push_str(text.as_str(source, span)),
-            WordPart::Variable(name) if variable.is_none() && tail.is_empty() => {
-                variable = Some(name.clone());
-            }
-            _ => return SourceRefKind::Dynamic,
-        }
-    }
-
-    if let Some(variable) = variable {
+    if let Some((variable, tail)) = single_variable_static_tail_source_parts(&word.parts, source)
+        && !tail.is_empty()
+    {
         return SourceRefKind::SingleVariableStaticTail {
             variable,
             tail: tail.into(),
@@ -1858,6 +1853,50 @@ fn classify_dynamic_source_word(word: &Word, source: &str) -> SourceRefKind {
     }
 
     SourceRefKind::Dynamic
+}
+
+fn single_variable_static_tail_source_parts(
+    parts: &[WordPartNode],
+    source: &str,
+) -> Option<(Name, String)> {
+    let mut variable = None;
+    let mut tail = String::new();
+
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(text) => tail.push_str(text.as_str(source, part.span)),
+            WordPart::DoubleQuoted { parts, .. } => {
+                let (inner_variable, inner_tail) =
+                    single_variable_static_tail_source_parts(parts, source)?;
+                if variable.is_some() || !tail.is_empty() {
+                    return None;
+                }
+                variable = Some(inner_variable);
+                tail.push_str(&inner_tail);
+            }
+            WordPart::Variable(name) if variable.is_none() && tail.is_empty() => {
+                variable = Some(name.clone());
+            }
+            WordPart::Parameter(parameter) if variable.is_none() && tail.is_empty() => {
+                variable = Some(source_parameter_reference_name(parameter)?.clone());
+            }
+            _ => return None,
+        }
+    }
+
+    variable.map(|variable| (variable, tail))
+}
+
+fn source_parameter_reference_name(parameter: &ParameterExpansion) -> Option<&Name> {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+        | ParameterExpansionSyntax::Zsh(ZshParameterExpansion {
+            target: ZshExpansionTarget::Reference(reference),
+            operation: None,
+            ..
+        }) if reference.subscript.is_none() => Some(&reference.name),
+        _ => None,
+    }
 }
 
 fn classify_source_ref_diagnostic_class(

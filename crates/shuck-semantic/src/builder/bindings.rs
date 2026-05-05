@@ -75,6 +75,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             attributes |= BindingAttributes::ARRAY | BindingAttributes::ASSOC;
         }
 
+        let source_path_template = assignment_source_path_template_for_binding(self, assignment);
         let binding = self.add_binding(
             &assignment.target.name,
             kind,
@@ -83,6 +84,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             binding_origin_for_assignment(assignment, self.source),
             attributes,
         );
+        if let Some(template) = source_path_template {
+            self.source_path_templates_by_binding
+                .insert(binding, template);
+        }
         self.record_prompt_assignment_references(assignment);
         if let Some(hint) = indirect_target_hint(assignment, self.source) {
             self.indirect_target_hints.insert(binding, hint);
@@ -280,4 +285,31 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.observer.record_binding(binding);
         id
     }
+}
+
+fn assignment_source_path_template_for_binding(
+    builder: &SemanticModelBuilder<'_, '_>,
+    assignment: &Assignment,
+) -> Option<SourcePathTemplate> {
+    let AssignmentValue::Scalar(word) = &assignment.value else {
+        return None;
+    };
+    let zsh_runtime_vars_enabled = builder.shell_profile.dialect == ShellDialect::Zsh;
+
+    assignment_source_path_template(
+        word,
+        builder.source,
+        builder.runtime.bash_enabled(),
+        zsh_runtime_vars_enabled,
+        |name, span| {
+            builder
+                .resolve_reference(name, builder.current_scope(), span.start.offset)
+                .and_then(|binding_id| {
+                    builder
+                        .source_path_templates_by_binding
+                        .get(&binding_id)
+                        .cloned()
+                })
+        },
+    )
 }

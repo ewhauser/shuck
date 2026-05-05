@@ -43,7 +43,7 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::test::test_snippet_at_path;
-    use crate::{LinterSettings, Rule, lint_file_at_path_with_resolver};
+    use crate::{LinterSettings, Rule, ShellDialect, lint_file_at_path_with_resolver};
 
     struct TestSourceResolver {
         helper: PathBuf,
@@ -496,6 +496,58 @@ fi
             None,
             Some(&main),
             Some(&resolver),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_zsh_current_script_dir_assignment_sources() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.zsh");
+        let helper = temp.path().join("helpers.zsh");
+        fs::write(&helper, "echo helper\n").unwrap();
+        let source = r#"#!/bin/zsh
+script_name="${${(%):-%x}:a}"
+helper_script_dir="${script_name:h}"
+source "${helper_script_dir}/helpers.zsh"
+"#;
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile)
+                .with_shell(ShellDialect::Zsh)
+                .with_analyzed_paths([main.clone(), helper.clone()]),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_zsh_canonicalized_current_script_dir_assignment_sources() {
+        let temp = tempdir().unwrap();
+        let repo_dir = temp.path().join("dotfiler");
+        let main_dir = repo_dir.join("example_install");
+        let helper_dir = repo_dir;
+        fs::create_dir_all(&main_dir).unwrap();
+        fs::create_dir_all(&helper_dir).unwrap();
+        let main = main_dir.join("helpers.zsh");
+        let helper = helper_dir.join("logging.zsh");
+        fs::write(&helper, "echo logging\n").unwrap();
+        let source = r#"#!/bin/zsh
+script_name="${${(%):-%x}:A}"
+script_dir="${script_name:h}/../dotfiler/"
+script_dir=${script_dir:A}
+source "${script_dir}/logging.zsh"
+"#;
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile)
+                .with_shell(ShellDialect::Zsh)
+                .with_analyzed_paths([main.clone(), helper.clone()]),
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
