@@ -124,6 +124,36 @@ printf '%s\\n' \"$MAPFILE\"
     }
 
     #[test]
+    fn zsh_scalar_string_slices_do_not_create_array_reference_history() {
+        let source = "\
+#!/bin/zsh
+opt=ksh_arrays
+setopt \"$opt\"
+ret=abcdef
+ret[-1,-1]=''
+ret=${ret[2,-1]}
+printf '%s\\n' \"$ret\" \"${ret}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn zsh_array_presence_tests_do_not_require_explicit_selectors() {
+        let source = "\
+#!/bin/zsh
+opt=ksh_arrays
+setopt \"$opt\"
+precm=(builtin emulate zsh)
+[[ -n $precm ]] && builtin ${precm[@]} 'source \"$ZERO\"'
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn ignores_follow_up_loop_headers_after_presence_guard() {
         let source = "\
 #!/bin/bash

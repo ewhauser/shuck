@@ -27,11 +27,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         let reference_start = self.references.len();
         self.visit_assignment_reads_into(assignment, flow, nested_regions);
+        let zsh_scalar_subscript_assignment =
+            self.assignment_target_uses_zsh_scalar_subscript(assignment);
         let (kind, scope) = declaration_kind.unwrap_or_else(|| {
             let kind = if assignment.append {
                 BindingKind::AppendAssignment
             } else if matches!(assignment.value, AssignmentValue::Compound(_))
-                || assignment.target.subscript.is_some()
+                || (assignment.target.subscript.is_some() && !zsh_scalar_subscript_assignment)
             {
                 BindingKind::ArrayAssignment
             } else {
@@ -40,6 +42,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             (kind, self.current_scope())
         });
         attributes |= assignment_binding_attributes(assignment);
+        if zsh_scalar_subscript_assignment {
+            attributes.remove(BindingAttributes::ARRAY | BindingAttributes::ASSOC);
+        }
         if assignment_has_empty_initializer(assignment, self.source) {
             attributes |= BindingAttributes::EMPTY_INITIALIZER;
         }
@@ -80,6 +85,26 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         if let Some(hint) = indirect_target_hint(assignment, self.source) {
             self.indirect_target_hints.insert(binding, hint);
         }
+    }
+
+    fn assignment_target_uses_zsh_scalar_subscript(&self, assignment: &Assignment) -> bool {
+        if self.shell_profile.dialect != ShellDialect::Zsh {
+            return false;
+        }
+        let Some(subscript) = assignment.target.subscript.as_deref() else {
+            return false;
+        };
+        if subscript.selector().is_some() {
+            return false;
+        }
+        self.resolve_reference(
+            &assignment.target.name,
+            self.current_scope(),
+            assignment.target.name_span.start.offset,
+        )
+        .is_some_and(|binding_id| {
+            !crate::binding::is_array_like_binding(&self.bindings[binding_id.index()])
+        })
     }
 
     pub(super) fn record_prompt_assignment_references(&mut self, assignment: &'a Assignment) {
