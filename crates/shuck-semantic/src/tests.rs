@@ -9147,6 +9147,25 @@ printf '%s\\n' \"$((box[m_width]))\" \"$((box[$dynamic_key]))\"
 }
 
 #[test]
+fn zsh_associative_key_literals_do_not_register_variable_reads() {
+    let source = "\
+#!/bin/zsh
+typeset -A ZINIT ICE
+ZINIT[ice-list]=x
+ICE[ps-on-update]=x
+functions[iterm2_precmd]=x
+print -r -- ${functions[iterm2_precmd]}
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let unresolved = unresolved_names(&model);
+
+    assert_names_absent(
+        &["ice", "list", "ps", "on", "update", "iterm2_precmd"],
+        &unresolved,
+    );
+}
+
+#[test]
 fn arithmetic_indexed_writes_preserve_associative_attributes() {
     let source = "\
 #!/bin/bash

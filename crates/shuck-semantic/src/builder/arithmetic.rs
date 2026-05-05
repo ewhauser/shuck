@@ -275,7 +275,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         owner_name: &Name,
         offset: usize,
     ) -> bool {
-        self.visible_binding_is_assoc(owner_name, offset)
+        self.name_uses_associative_word_semantics(owner_name, offset)
+    }
+
+    pub(super) fn name_uses_associative_word_semantics(&self, name: &Name, offset: usize) -> bool {
+        self.visible_binding_is_assoc(name, offset)
+            || self.runtime.is_preinitialized_associative_array(name)
     }
 
     pub(super) fn visible_binding_is_assoc(&self, name: &Name, offset: usize) -> bool {

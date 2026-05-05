@@ -214,6 +214,20 @@ const ZSH_PREINITIALIZED_ARRAYS: &[&str] = &[
     "zsh_eval_context",
 ];
 
+const ZSH_PREINITIALIZED_ASSOCIATIVE_ARRAYS: &[&str] = &[
+    "aliases",
+    "commands",
+    "functions",
+    "jobdirs",
+    "jobstates",
+    "jobtexts",
+    "options",
+    "parameters",
+    "termcap",
+    "terminfo",
+    "widgets",
+];
+
 const ALWAYS_USED_BINDINGS: &[&str] = &["IFS", "PATH", "CDPATH", "COMPREPLY", "FLAGS_PARENT"];
 const BASH_ALWAYS_USED_BINDINGS: &[&str] = &["COMPREPLY"];
 const EMPTY_IMPLICIT_READS: &[&str] = &[];
@@ -267,6 +281,11 @@ impl RuntimePrelude {
         (self.bash_enabled && contains_name(BASH_PREINITIALIZED_ARRAYS, name))
             || (self.shell_dialect == ShellDialect::Zsh
                 && contains_name(ZSH_PREINITIALIZED_ARRAYS, name))
+    }
+
+    pub(crate) fn is_preinitialized_associative_array(&self, name: &Name) -> bool {
+        self.shell_dialect == ShellDialect::Zsh
+            && contains_name(ZSH_PREINITIALIZED_ASSOCIATIVE_ARRAYS, name)
     }
 
     pub(crate) fn is_always_used_binding(&self, name: &Name) -> bool {
