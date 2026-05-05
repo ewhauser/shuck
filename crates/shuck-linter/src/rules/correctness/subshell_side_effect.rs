@@ -423,6 +423,636 @@ echo \"$value\"
     }
 
     #[test]
+    fn ignores_zsh_later_reads_after_helper_resets_name_in_parent_scope() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+helper
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_when_helper_reset_is_conditional() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+[[ -n $cond ]] && helper
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_after_conditional_subshell_assignment() {
+        let source = "\
+#!/bin/zsh
+REPLY=old
+if [[ -n $cond ]]; then
+  (
+    REPLY=value
+  )
+fi
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_when_reset_is_in_disjoint_case_branch() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+case $site in
+  github)
+    (
+      for REPLY in a; do :; done
+    )
+    ;;
+  cygwin)
+    helper
+    ;;
+esac
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_after_top_level_helper_call_before_definition() {
+        let source = "\
+#!/bin/zsh
+(
+  for REPLY in a; do :; done
+)
+helper
+print -r -- $REPLY
+helper() {
+  REPLY=value
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_when_helper_only_resets_loop_variable() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  for REPLY in \"$@\"; do :; done
+}
+(
+  for REPLY in a; do :; done
+)
+helper
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_after_branch_only_helper_reset() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+if [[ -n $cond ]]; then
+  helper
+fi
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_after_conditional_helper_body_reset() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  [[ -n $cond ]] && REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+helper
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_after_dead_helper_body_reset() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  return
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+helper
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
+    }
+
+    #[test]
+    fn ignores_zsh_later_reads_after_always_run_binary_left_helper_reset() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+helper || :
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_after_background_helper_reset() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+helper &
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
+    }
+
+    #[test]
+    fn ignores_zsh_later_reads_after_pipeline_tail_helper_reset() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+print -r -- input | helper
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_later_reads_after_pipeline_tail_helper_reset_in_or_list() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+print -r -- input | helper || :
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_later_reads_after_pipe_ampersand_tail_helper_reset() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+print -r -- input |& helper
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_after_middle_pipeline_helper_reset() {
+        let source = "\
+#!/bin/zsh
+(
+  for REPLY in a; do :; done
+)
+print -r -- input | _reply-helper | cat
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_reads_in_helper_call_arguments_before_reset_runs() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+helper \"$REPLY\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_after_conditional_set_a_outparam_helper() {
+        let source = "\
+#!/bin/zsh
+fill() {
+  [[ -n $cond ]] && set -A $1 ${(f)\"$(
+    shift
+    for d; do
+      print -r -- $d
+    done
+  )\"}
+}
+fill d /tmp
+print -r -- $d
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$d"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_after_attached_set_a_helper_argument() {
+        let source = "\
+#!/bin/zsh
+fill() {
+  set -Aresult $1
+}
+(
+  for d in /tmp; do :; done
+)
+fill d
+print -r -- $d
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$d"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_after_subshell_set_a_outparam_helper() {
+        let source = "\
+#!/bin/zsh
+fill() {
+  (
+    set -A $1 value
+  )
+}
+(
+  for d in /tmp; do :; done
+)
+fill d
+print -r -- $d
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$d"]
+        );
+    }
+
+    #[test]
+    fn ignores_zsh_later_reads_in_sibling_nested_scopes() {
+        let source = "\
+#!/bin/zsh
+case $site in
+  github)
+    (
+      for REPLY in a; do :; done
+    )
+    ;;
+  cygwin)
+    (
+      print -r -- $REPLY
+    )
+    ;;
+esac
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_in_parent_nested_subshell_scope() {
+        let source = "\
+#!/bin/zsh
+(
+  (
+    for REPLY in a; do :; done
+  )
+  print -r -- $REPLY
+)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
+    }
+
+    #[test]
+    fn ignores_zsh_later_reads_after_later_defined_helper_resets_name() {
+        let source = "\
+#!/bin/zsh
+demo() {
+  (
+    for REPLY in a; do :; done
+  )
+  helper
+  print -r -- $REPLY
+}
+helper() {
+  REPLY=value
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_after_function_local_helper_call_before_definition() {
+        let source = "\
+#!/bin/zsh
+demo() {
+  (
+    for REPLY in a; do :; done
+  )
+  helper
+  print -r -- $REPLY
+  helper() {
+    REPLY=value
+  }
+}
+demo
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_when_function_runs_before_later_helper_definition() {
+        let source = "\
+#!/bin/zsh
+demo() {
+  (
+    for REPLY in a; do :; done
+  )
+  helper
+  print -r -- $REPLY
+}
+demo
+helper() {
+  REPLY=value
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
+    }
+
+    #[test]
+    fn ignores_zsh_reply_reads_after_unresolved_private_helper_calls() {
+        let source = "\
+#!/bin/zsh
+demo() {
+  (
+    for reply in a; do :; done
+  )
+  .helper-from-sourced-file input
+  print -r -- $reply
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_set_a_outparam_helpers_after_command_substitution_loop_assignments() {
+        let source = "\
+#!/bin/zsh
+fill() {
+  set -A $1 ${(f)\"$(
+    shift
+    for d; do
+      print -r -- $d
+    done
+  )\"}
+}
+fill d /tmp
+print -r -- $d
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_quoted_set_a_outparam_helpers_after_command_substitution_loop_assignments() {
+        let source = "\
+#!/bin/zsh
+fill() {
+  set -A \"$1\" ${(f)\"$(
+    shift
+    for d; do
+      print -r -- $d
+    done
+  )\"}
+}
+fill d /tmp
+print -r -- $d
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_process_substitution_fd_closes_after_parent_fd_assignment() {
+        let source = "\
+#!/bin/zsh
+demo() {
+  local fd
+  sysopen -ro cloexec -u fd <(
+    (
+      local fd
+      sysopen -wo create,excl -u fd -- lock
+      exec {fd}>&-
+    ) &!
+  )
+  IFS= read -ru $fd
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn ignores_ifs_assignments_inside_pipeline_children() {
         let source = "\
 #!/bin/sh
