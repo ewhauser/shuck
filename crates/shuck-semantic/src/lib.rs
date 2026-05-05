@@ -2710,10 +2710,7 @@ fn build_command_contexts(
     condition_contexts: &[CommandConditionContext],
 ) -> Vec<Option<SemanticCommandContext>> {
     let program = model.recorded_program();
-    let mut structural_by_id = vec![false; program.commands().len()];
-    for id in structural_ids.iter().copied() {
-        structural_by_id[id.index()] = true;
-    }
+    let structural_ids = structural_ids.iter().copied().collect::<FxHashSet<_>>();
     let mut contexts = vec![None; program.commands().len()];
     for id in syntax_backed_ids.iter().copied() {
         let command = program.command(id);
@@ -2733,7 +2730,7 @@ fn build_command_contexts(
             kind,
             scope,
             flow,
-            structural: structural_by_id[id.index()],
+            structural: structural_ids.contains(&id),
             nested_word_command: nested_region_command_ids.contains(&id),
             nested_word_command_depth: nested_region_depths[id.index()],
             in_if_condition: condition_contexts
