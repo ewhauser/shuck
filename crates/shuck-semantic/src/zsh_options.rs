@@ -14,8 +14,8 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub(crate) struct ZshOptionAnalysis {
-    scope_entries: FxHashMap<ScopeId, ZshOptionState>,
-    snapshots: FxHashMap<ScopeId, Vec<ZshOptionSnapshot>>,
+    scope_entries: Vec<Option<ZshOptionState>>,
+    snapshots: Vec<Vec<ZshOptionSnapshot>>,
     /// Scopes sorted by `(span.start.offset ASC, span.end.offset DESC)` so a binary search by
     /// start offset followed by a backward walk yields the deepest containing scope under
     /// proper scope nesting. Built once per analysis to keep `options_at` off the
@@ -267,8 +267,8 @@ pub(crate) fn analyze(
         dynamic_calls,
         recorded_program,
         treat_unknown_dispatch_bindings_as_ambiguous_in_functions: false,
-        scope_entries: FxHashMap::with_capacity_and_hasher(scopes.len(), Default::default()),
-        snapshots: FxHashMap::with_capacity_and_hasher(scopes.len(), Default::default()),
+        scope_entries: vec![None; scopes.len()],
+        snapshots: empty_snapshot_slots(scopes.len()),
         active_function_scopes: FxHashSet::with_capacity_and_hasher(
             function_count,
             Default::default(),
@@ -283,7 +283,7 @@ pub(crate) fn analyze(
         LeakBehavior::Always,
     );
 
-    for snapshots in analyzer.snapshots.values_mut() {
+    for snapshots in &mut analyzer.snapshots {
         snapshots.sort_by_key(|snapshot| snapshot.offset);
     }
 
@@ -353,8 +353,8 @@ pub(crate) fn function_runtime_analysis_with_entry(
         dynamic_calls,
         recorded_program,
         treat_unknown_dispatch_bindings_as_ambiguous_in_functions: true,
-        scope_entries: FxHashMap::with_capacity_and_hasher(scopes.len(), Default::default()),
-        snapshots: FxHashMap::with_capacity_and_hasher(scopes.len(), Default::default()),
+        scope_entries: vec![None; scopes.len()],
+        snapshots: empty_snapshot_slots(scopes.len()),
         active_function_scopes: FxHashSet::with_capacity_and_hasher(
             function_count,
             Default::default(),
@@ -366,7 +366,7 @@ pub(crate) fn function_runtime_analysis_with_entry(
         EvalState::new(InternalState::from_public(entry)),
     );
 
-    for snapshots in analyzer.snapshots.values_mut() {
+    for snapshots in &mut analyzer.snapshots {
         snapshots.sort_by_key(|snapshot| snapshot.offset);
     }
 
@@ -389,6 +389,12 @@ pub(crate) fn function_runtime_analysis_with_entry(
         snapshots: analyzer.snapshots,
         scope_index,
     })
+}
+
+fn empty_snapshot_slots(scope_count: usize) -> Vec<Vec<ZshOptionSnapshot>> {
+    let mut snapshots = Vec::with_capacity(scope_count);
+    snapshots.resize_with(scope_count, Vec::new);
+    snapshots
 }
 
 pub(crate) fn set_public_option_field(
@@ -415,14 +421,15 @@ impl ZshOptionAnalysis {
             .map(|entry| entry.scope);
 
         while let Some(scope_id) = scope {
-            if let Some(snapshots) = self.snapshots.get(&scope_id) {
+            let snapshots = &self.snapshots[scope_id.index()];
+            if !snapshots.is_empty() {
                 let upper = snapshots.partition_point(|snapshot| snapshot.offset <= offset);
                 if upper > 0 {
                     return Some(&snapshots[upper - 1].state);
                 }
             }
 
-            if let Some(entry) = self.scope_entries.get(&scope_id) {
+            if let Some(entry) = self.scope_entries[scope_id.index()].as_ref() {
                 return Some(entry);
             }
 
@@ -439,8 +446,8 @@ struct Analyzer<'a> {
     dynamic_calls: DynamicCallAnalysisContext<'a>,
     recorded_program: &'a RecordedProgram,
     treat_unknown_dispatch_bindings_as_ambiguous_in_functions: bool,
-    scope_entries: FxHashMap<ScopeId, ZshOptionState>,
-    snapshots: FxHashMap<ScopeId, Vec<ZshOptionSnapshot>>,
+    scope_entries: Vec<Option<ZshOptionState>>,
+    snapshots: Vec<Vec<ZshOptionSnapshot>>,
     active_function_scopes: FxHashSet<ScopeId>,
     function_summaries: FxHashMap<(ScopeId, InternalState), FunctionSummary>,
 }
@@ -1116,14 +1123,15 @@ impl<'a> Analyzer<'a> {
     }
 
     fn record_scope_entry(&mut self, scope: ScopeId, state: ZshOptionState) {
-        self.scope_entries
-            .entry(scope)
-            .and_modify(|current| *current = current.merge(&state))
-            .or_insert(state);
+        let entry = &mut self.scope_entries[scope.index()];
+        *entry = Some(match entry {
+            Some(current) => current.merge(&state),
+            None => state,
+        });
     }
 
     fn record_snapshot(&mut self, scope: ScopeId, offset: usize, state: ZshOptionState) {
-        let snapshots = self.snapshots.entry(scope).or_default();
+        let snapshots = &mut self.snapshots[scope.index()];
         if let Some(last) = snapshots.last()
             && last.offset <= offset
             && last.state == state
