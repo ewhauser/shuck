@@ -276,8 +276,7 @@ fn build_completion_registered_function_scopes(
             continue;
         };
         if commands.iter().any(|later_command| {
-            later_command.span().start.offset > command.span().end.offset
-                && is_unconditional_completion_registration(semantic, later_command)
+            is_unconditional_completion_registration(semantic, later_command)
                 && later_command.effective_or_literal_name() == Some("compdef")
                 && command_registers_completion_function(later_command, source, &candidate.name)
         }) {
@@ -293,8 +292,7 @@ fn build_completion_registered_function_scopes(
             continue;
         };
         if commands.iter().any(|command| {
-            command.span().start.offset > scope.span.end.offset
-                && is_unconditional_completion_registration(semantic, command)
+            is_unconditional_completion_registration(semantic, command)
                 && command.effective_or_literal_name() == Some("compdef")
                 && names.iter().any(|name| {
                     command_registers_completion_function(command, source, name.as_str())

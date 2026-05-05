@@ -800,6 +800,29 @@ compdef -P 'grunt-*' -N __grunt grunt
 }
 
 #[test]
+fn marks_later_zsh_functions_registered_by_earlier_compdef() {
+    let source = "\
+#!/bin/zsh
+compdef __grunt grunt
+__grunt() {
+  print -r -- $verbose
+}
+";
+
+    with_facts(source, None, |_, facts| {
+        let flagged_lines = facts
+            .commands()
+            .iter()
+            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .map(|command| command.span().start.line)
+            .collect::<Vec<_>>();
+
+        assert!(!flagged_lines.is_empty());
+        assert!(flagged_lines.iter().all(|line| *line == 4));
+    });
+}
+
+#[test]
 fn marks_zsh_widget_and_hook_functions_as_external_entrypoints() {
     let source = "\
 #!/bin/zsh
