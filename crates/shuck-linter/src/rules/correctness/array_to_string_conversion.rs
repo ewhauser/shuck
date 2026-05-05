@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use shuck_ast::Name;
 use shuck_semantic::{
-    Binding, BindingAttributes, BindingKind, Declaration, DeclarationBuiltin, DeclarationOperand,
-    ScopeId,
+    ArrayReferencePolicy, Binding, BindingAttributes, BindingKind, Declaration, DeclarationBuiltin,
+    DeclarationOperand, ScopeId,
 };
 
 use crate::{Checker, ComparableNameUseKind, Rule, ShellDialect, Violation, WrapperKind};
@@ -89,12 +89,11 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
 
             checker.facts().binding_value(binding.id)?.scalar_word()?;
 
-            if checker.shell() == ShellDialect::Zsh
-                && checker
-                    .facts()
-                    .binding_value(binding.id)
-                    .is_some_and(|value| value.zsh_scalar_subscript_value())
-            {
+            if zsh_selectorless_subscript_value_resets_scalar_history(
+                checker,
+                binding,
+                saw_array_history,
+            ) {
                 push_array_history(
                     &mut array_history,
                     name,
@@ -210,6 +209,26 @@ impl ArrayHistoryState {
         !self.local
             || self.function_scope == checker.semantic().enclosing_function_scope(binding.scope)
     }
+}
+
+fn zsh_selectorless_subscript_value_resets_scalar_history(
+    checker: &Checker<'_>,
+    binding: &Binding,
+    saw_array_history: bool,
+) -> bool {
+    checker.shell() == ShellDialect::Zsh
+        && !saw_array_history
+        && matches!(
+            checker
+                .semantic()
+                .shell_behavior_at(binding.span.start.offset)
+                .array_reference_policy(),
+            ArrayReferencePolicy::NativeZshScalar
+        )
+        && checker
+            .facts()
+            .binding_value(binding.id)
+            .is_some_and(|value| value.zsh_selectorless_subscript_value())
 }
 
 fn array_history_events(
@@ -1534,7 +1553,7 @@ exts+=\" ${exts^^}\"
     }
 
     #[test]
-    fn zsh_scalar_string_slices_do_not_create_array_to_string_history() {
+    fn zsh_scalar_string_slices_do_not_hide_array_element_conversions() {
         let source = "\
 #!/bin/zsh
 ret=abcdef
@@ -1542,6 +1561,9 @@ ret[-1,-1]=''
 ret=${ret[2,-1]}
 items=(one two)
 items=$items[1]
+setopt ksh_arrays
+kitems=(one two)
+kitems=$kitems[1]
 echo \"$ret\"
 ";
         let diagnostics = test_snippet(
@@ -1549,7 +1571,14 @@ echo \"$ret\"
             &LinterSettings::for_rule(Rule::ArrayToStringConversion),
         );
 
-        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["items", "kitems"],
+            "{diagnostics:#?}"
+        );
     }
 
     #[test]

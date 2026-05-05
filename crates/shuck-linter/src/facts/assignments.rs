@@ -40,7 +40,7 @@ pub struct BindingValueFact<'a> {
     standalone_status_or_pid_capture: bool,
     conditional_assignment_shortcut: bool,
     one_sided_short_circuit_assignment: bool,
-    zsh_scalar_subscript_value: bool,
+    zsh_selectorless_subscript_value: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -68,7 +68,9 @@ impl<'a> BindingValueFact<'a> {
             standalone_status_or_pid_capture,
             conditional_assignment_shortcut: false,
             one_sided_short_circuit_assignment: false,
-            zsh_scalar_subscript_value: word_is_zsh_scalar_subscript_value(word, source),
+            zsh_selectorless_subscript_value: word_is_zsh_selectorless_subscript_value(
+                word, source,
+            ),
         }
     }
 
@@ -78,7 +80,7 @@ impl<'a> BindingValueFact<'a> {
             standalone_status_or_pid_capture: false,
             conditional_assignment_shortcut: false,
             one_sided_short_circuit_assignment: false,
-            zsh_scalar_subscript_value: false,
+            zsh_selectorless_subscript_value: false,
         }
     }
 
@@ -108,8 +110,8 @@ impl<'a> BindingValueFact<'a> {
         self.standalone_status_or_pid_capture
     }
 
-    pub fn zsh_scalar_subscript_value(&self) -> bool {
-        self.zsh_scalar_subscript_value
+    pub fn zsh_selectorless_subscript_value(&self) -> bool {
+        self.zsh_selectorless_subscript_value
     }
 
     fn mark_conditional_assignment_shortcut(&mut self) {
@@ -1573,16 +1575,19 @@ fn word_has_command_substitution(
         .has_command_substitution()
 }
 
-fn word_is_zsh_scalar_subscript_value(word: &Word, source: &str) -> bool {
-    let mut saw_scalar_subscript = false;
-    word_part_nodes_are_zsh_scalar_subscript_value(&word.parts, source, &mut saw_scalar_subscript)
-        && saw_scalar_subscript
+fn word_is_zsh_selectorless_subscript_value(word: &Word, source: &str) -> bool {
+    let mut saw_selectorless_subscript = false;
+    word_part_nodes_are_zsh_selectorless_subscript_value(
+        &word.parts,
+        source,
+        &mut saw_selectorless_subscript,
+    ) && saw_selectorless_subscript
 }
 
-fn word_part_nodes_are_zsh_scalar_subscript_value(
+fn word_part_nodes_are_zsh_selectorless_subscript_value(
     parts: &[WordPartNode],
     source: &str,
-    saw_scalar_subscript: &mut bool,
+    saw_selectorless_subscript: &mut bool,
 ) -> bool {
     for (index, part) in parts.iter().enumerate() {
         if let WordPart::Variable(_) = &part.kind
@@ -1593,34 +1598,42 @@ fn word_part_nodes_are_zsh_scalar_subscript_value(
                 )
             })
         {
-            *saw_scalar_subscript = true;
+            *saw_selectorless_subscript = true;
             continue;
         }
-        if !word_part_is_zsh_scalar_subscript_value(&part.kind, source, saw_scalar_subscript) {
+        if !word_part_is_zsh_selectorless_subscript_value(
+            &part.kind,
+            source,
+            saw_selectorless_subscript,
+        ) {
             return false;
         }
     }
     true
 }
 
-fn word_part_is_zsh_scalar_subscript_value(
+fn word_part_is_zsh_selectorless_subscript_value(
     part: &WordPart,
     source: &str,
-    saw_scalar_subscript: &mut bool,
+    saw_selectorless_subscript: &mut bool,
 ) -> bool {
     match part {
         WordPart::Literal(_) | WordPart::SingleQuoted { .. } => true,
         WordPart::DoubleQuoted { parts, .. } => {
-            word_part_nodes_are_zsh_scalar_subscript_value(parts, source, saw_scalar_subscript)
+            word_part_nodes_are_zsh_selectorless_subscript_value(
+                parts,
+                source,
+                saw_selectorless_subscript,
+            )
         }
         WordPart::Parameter(parameter) => {
-            parameter_is_zsh_scalar_subscript_value(parameter, saw_scalar_subscript)
+            parameter_is_zsh_selectorless_subscript_value(parameter, saw_selectorless_subscript)
         }
         WordPart::ArrayAccess(reference) | WordPart::ArraySlice { reference, .. } => {
-            if !var_ref_is_zsh_scalar_subscript(reference) {
+            if !var_ref_has_selectorless_subscript(reference) {
                 return false;
             }
-            *saw_scalar_subscript = true;
+            *saw_selectorless_subscript = true;
             true
         }
         WordPart::ZshQualifiedGlob(_)
@@ -1646,16 +1659,16 @@ fn literal_starts_with_zsh_subscript(text: &str) -> bool {
     rest.contains(']')
 }
 
-fn parameter_is_zsh_scalar_subscript_value(
+fn parameter_is_zsh_selectorless_subscript_value(
     parameter: &ParameterExpansion,
-    saw_scalar_subscript: &mut bool,
+    saw_selectorless_subscript: &mut bool,
 ) -> bool {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
-            if !var_ref_is_zsh_scalar_subscript(reference) {
+            if !var_ref_has_selectorless_subscript(reference) {
                 return false;
             }
-            *saw_scalar_subscript = true;
+            *saw_selectorless_subscript = true;
             true
         }
         ParameterExpansionSyntax::Bourne(
@@ -1674,14 +1687,17 @@ fn parameter_is_zsh_scalar_subscript_value(
         {
             match &syntax.target {
                 ZshExpansionTarget::Reference(reference) => {
-                    if !var_ref_is_zsh_scalar_subscript(reference) {
+                    if !var_ref_has_selectorless_subscript(reference) {
                         return false;
                     }
-                    *saw_scalar_subscript = true;
+                    *saw_selectorless_subscript = true;
                     true
                 }
                 ZshExpansionTarget::Nested(parameter) => {
-                    parameter_is_zsh_scalar_subscript_value(parameter, saw_scalar_subscript)
+                    parameter_is_zsh_selectorless_subscript_value(
+                        parameter,
+                        saw_selectorless_subscript,
+                    )
                 }
                 ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => false,
             }
@@ -1690,7 +1706,7 @@ fn parameter_is_zsh_scalar_subscript_value(
     }
 }
 
-fn var_ref_is_zsh_scalar_subscript(reference: &VarRef) -> bool {
+fn var_ref_has_selectorless_subscript(reference: &VarRef) -> bool {
     reference
         .subscript
         .as_deref()
