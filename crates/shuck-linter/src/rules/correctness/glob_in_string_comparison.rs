@@ -159,6 +159,31 @@ if [[ $actual == $unknown ]]; then :; fi
     }
 
     #[test]
+    fn ignores_zsh_presence_test_rhs() {
+        let source = "\
+#!/usr/bin/env zsh
+if [[ 0 = ${+ICE[nocompletions]} ]]; then :; fi
+if [[ ${+left} == ${+right} ]]; then :; fi
+if [[ 1 = ${+1} ]]; then :; fi
+if [[ 1 = ${+?} ]]; then :; fi
+if [[ $actual == $unknown ]]; then :; fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::GlobInStringComparison)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$unknown"]
+        );
+    }
+
+    #[test]
     fn reports_rhs_parameter_operations_even_when_target_bindings_are_static_safe() {
         let source = "\
 #!/usr/bin/env zsh

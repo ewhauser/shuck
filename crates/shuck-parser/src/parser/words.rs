@@ -4926,6 +4926,25 @@ impl<'a> Parser<'a> {
                     var_name.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
                 }
 
+                if var_name.is_empty()
+                    && self.dialect.features().zsh_parameter_modifiers
+                    && chars.peek() == Some(&'+')
+                {
+                    let mut lookahead = chars.clone();
+                    lookahead.next();
+                    if lookahead
+                        .peek()
+                        .is_some_and(|next| Self::zsh_bare_parameter_target_start(*next))
+                    {
+                        let raw_body =
+                            self.read_brace_operand(&mut chars, &mut cursor, source_backed);
+                        let parameter = self.zsh_parameter_word_part(raw_body, part_start, cursor);
+                        Self::push_word_part(parts, parameter, part_start, cursor);
+                        current_start = cursor;
+                        continue;
+                    }
+                }
+
                 if Self::consume_word_char_if(&mut chars, &mut cursor, '[') {
                     let (index, raw_index) =
                         self.read_array_index(&mut chars, &mut cursor, source_backed);

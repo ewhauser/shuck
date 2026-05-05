@@ -1,4 +1,7 @@
-use shuck_ast::{Span, Word, static_word_text, word_span_is_plain_parameter_reference};
+use shuck_ast::{
+    Span, Word, static_word_text, word_span_is_plain_parameter_reference,
+    word_span_is_zsh_presence_test,
+};
 use shuck_semantic::{BindingId, Reference, ReferenceKind};
 
 use crate::{Checker, ShellDialect};
@@ -11,6 +14,7 @@ pub(crate) fn word_expands_only_static_pattern_safe_literals(
         checker,
         word.span,
         word_span_is_plain_parameter_reference(word, word.span),
+        word_span_is_zsh_presence_test(word, word.span),
     )
 }
 
@@ -18,9 +22,13 @@ pub(crate) fn span_expands_only_static_pattern_safe_literals(
     checker: &Checker<'_>,
     span: Span,
     is_plain_parameter_reference: bool,
+    is_zsh_presence_test: bool,
 ) -> bool {
     if checker.shell() != ShellDialect::Zsh {
         return false;
+    }
+    if is_zsh_presence_test {
+        return true;
     }
     if !is_plain_parameter_reference {
         return false;

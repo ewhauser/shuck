@@ -57,6 +57,7 @@ pub fn pattern_with_variable(checker: &mut Checker) {
                         checker,
                         *span,
                         fact.expansion_span_is_plain_parameter_reference(*span),
+                        fact.expansion_span_is_zsh_presence_test(*span),
                     )
                 })
                 .map(|span| {
@@ -195,6 +196,31 @@ unknown_trimmed=${path#$unknown}
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$pattern", "$unknown"]
+        );
+    }
+
+    #[test]
+    fn ignores_zsh_presence_tests_in_pattern_operands() {
+        let source = "\
+#!/usr/bin/env zsh
+trimmed=${value#${+ICE[nocompletions]}}
+also_trimmed=${value#${+enabled}}
+positional_trimmed=${value#${+1}}
+status_trimmed=${value#${+?}}
+unknown_trimmed=${value#$unknown}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PatternWithVariable)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$unknown"]
         );
     }
 
