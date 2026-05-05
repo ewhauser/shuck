@@ -9802,7 +9802,7 @@ fn semantic_behavior_tracks_subscript_indexing_options() {
     );
 
     for (source, expected) in [
-        ("print ${arr[1]}\n", SubscriptIndexBehavior::OneBased),
+        ("print ${arr[0]}\n", SubscriptIndexBehavior::OneBased),
         (
             "setopt ksh_arrays\nprint ${arr[1]}\n",
             SubscriptIndexBehavior::ZeroBased,
@@ -9817,6 +9817,10 @@ fn semantic_behavior_tracks_subscript_indexing_options() {
         ),
         (
             "setopt ksh_arrays\nunsetopt ksh_arrays\nprint ${arr[1]}\n",
+            SubscriptIndexBehavior::OneBased,
+        ),
+        (
+            "setopt ksh_zero_subscript\nunsetopt ksh_zero_subscript\nprint ${arr[0]}\n",
             SubscriptIndexBehavior::OneBased,
         ),
         (
