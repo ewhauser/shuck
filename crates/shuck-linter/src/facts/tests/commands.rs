@@ -1941,6 +1941,8 @@ fn arithmetic_literals_record_leading_zeroes_in_nested_arithmetic_fragments() {
 #!/bin/zsh
 echo ${value:010:1}
 echo ${value:-$((010))}
+echo ${value:010#7:1}
+echo ${value:-$((010#7))}
 ";
     let output = Parser::with_dialect(source, shuck_parser::parser::ShellDialect::Zsh)
         .parse()
@@ -1970,6 +1972,16 @@ echo ${value:-$((010))}
             (
                 "010",
                 ArithmeticLiteralKind::LeadingZeroInteger,
+                ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,
+            ),
+            (
+                "010#7",
+                ArithmeticLiteralKind::ExplicitBasePrefix,
+                ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,
+            ),
+            (
+                "010#7",
+                ArithmeticLiteralKind::ExplicitBasePrefix,
                 ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,
             ),
         ]

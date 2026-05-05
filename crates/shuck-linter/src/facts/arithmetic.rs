@@ -1073,6 +1073,11 @@ fn collect_leading_zero_integer_spans_in_text(
             continue;
         }
 
+        if matches!(bytes.get(match_end), Some(b'#')) {
+            index = match_end + 1;
+            continue;
+        }
+
         let start = span.start.advanced_by(&text[..index]);
         let end = start.advanced_by(&text[index..match_end]);
         spans.push((
@@ -1092,6 +1097,13 @@ fn contains_leading_zero_integer(text: &str) -> bool {
                 let previous = bytes[index - 1];
                 !previous.is_ascii_alphanumeric() && previous != b'_' && previous != b'#'
             })
+            && {
+                let mut match_end = index + 2;
+                while match_end < bytes.len() && bytes[match_end].is_ascii_digit() {
+                    match_end += 1;
+                }
+                !matches!(bytes.get(match_end), Some(b'#'))
+            }
     })
 }
 
