@@ -603,6 +603,31 @@ _describe -t tag -T display description consumed -U
     }
 
     #[test]
+    fn zsh_describe_does_not_treat_trailing_option_operands_as_reads() {
+        let source = "\
+#!/bin/zsh
+cmds=(init:Initialize update:Update)
+group=commands
+message=Commands
+prefix='('
+suffix=')'
+_describe 'command' cmds -V group -X message -P prefix -S suffix -U
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["group", "message", "prefix", "suffix"]
+        );
+    }
+
+    #[test]
     fn zsh_describe_ignores_dynamic_array_names() {
         let source = "\
 #!/bin/zsh

@@ -133,15 +133,19 @@ impl ShellDialect {
 }
 
 fn line_has_bash_marker(line: &str) -> bool {
-    contains_shell_word(line, "BASH_SOURCE")
-        || contains_shell_word(line, "BASH_VERSION")
+    line.contains("$BASH_SOURCE")
+        || line.contains("${BASH_SOURCE")
+        || line.contains("$BASH_VERSION")
+        || line.contains("${BASH_VERSION")
         || contains_shell_word(line, "PROMPT_COMMAND")
         || starts_with_shell_word(line, "shopt")
 }
 
 fn line_has_zsh_marker(line: &str) -> bool {
-    contains_shell_word(line, "ZSH_VERSION")
-        || contains_shell_word(line, "ZSH_EVAL_CONTEXT")
+    line.contains("$ZSH_VERSION")
+        || line.contains("${ZSH_VERSION")
+        || line.contains("$ZSH_EVAL_CONTEXT")
+        || line.contains("${ZSH_EVAL_CONTEXT")
         || starts_with_shell_word(line, "zstyle")
         || starts_with_shell_word(line, "zmodload")
         || line_has_zsh_emulate_marker(line)
@@ -224,6 +228,15 @@ autoload -U compaudit compinit
     fn ignores_free_form_comments_that_mention_zsh_directive_words() {
         let inferred = ShellDialect::infer(
             "# autoload helper cache\n# compdef examples live elsewhere\nprintf '%s\\n' ok\n",
+            Some(Path::new("/tmp/example.sh")),
+        );
+        assert_eq!(inferred, ShellDialect::Sh);
+    }
+
+    #[test]
+    fn ignores_quoted_dialect_marker_names_without_shell_usage() {
+        let inferred = ShellDialect::infer(
+            "printf '%s\\n' \"ZSH_VERSION\" \"BASH_VERSION\"\n",
             Some(Path::new("/tmp/example.sh")),
         );
         assert_eq!(inferred, ShellDialect::Sh);
