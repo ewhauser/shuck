@@ -219,7 +219,7 @@ fn code_before_comment(line: &str) -> &str {
             && !in_double_quotes
             && bytes[..index]
                 .last()
-                .is_none_or(|previous| previous.is_ascii_whitespace())
+                .is_none_or(|previous| previous.is_ascii_whitespace() || shell_separator(*previous))
         {
             return &line[..index];
         }
@@ -236,12 +236,19 @@ fn line_heredoc_delimiter(line: &str) -> Option<(String, bool)> {
     if strip_tabs {
         rest = &rest[1..];
     }
-    let delimiter = rest.split_whitespace().next()?;
+    let delimiter = heredoc_delimiter_token(rest)?;
     let delimiter = delimiter
         .trim_matches('\'')
         .trim_matches('"')
         .trim_matches('\\');
     (!delimiter.is_empty()).then(|| (delimiter.to_owned(), strip_tabs))
+}
+
+fn heredoc_delimiter_token(rest: &str) -> Option<&str> {
+    let end = rest
+        .find(|ch: char| ch.is_whitespace() || shell_separator_char(ch))
+        .unwrap_or(rest.len());
+    (end > 0).then(|| &rest[..end])
 }
 
 fn heredoc_redirect_start(line: &str) -> Option<usize> {
@@ -322,6 +329,14 @@ fn arithmetic_command_start(bytes: &[u8], index: usize) -> bool {
         .rev()
         .find(|byte| !byte.is_ascii_whitespace())
         .is_none_or(|byte| matches!(*byte, b';' | b'&' | b'|' | b'('))
+}
+
+fn shell_separator(byte: u8) -> bool {
+    matches!(byte, b';' | b'&' | b'|' | b'(' | b')')
+}
+
+fn shell_separator_char(ch: char) -> bool {
+    matches!(ch, ';' | '&' | '|' | '(' | ')')
 }
 
 fn starts_with_shell_word(line: &str, needle: &str) -> bool {
@@ -547,6 +562,27 @@ zstyle -s ':omz:update' mode update_mode
     fn hash_expansions_do_not_hide_later_source_markers_on_the_same_line() {
         let source = "\
 prefix=${name#refs/heads/}; printf '%s\\n' \"$ZSH_VERSION\"
+";
+        let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
+        assert_eq!(inferred, ShellDialect::Zsh);
+    }
+
+    #[test]
+    fn comments_after_separators_do_not_count_as_source_markers() {
+        let source = "\
+printf '%s\\n' ok;# \"$ZSH_VERSION\"
+";
+        let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
+        assert_eq!(inferred, ShellDialect::Sh);
+    }
+
+    #[test]
+    fn heredoc_delimiters_stop_before_shell_separators() {
+        let source = "\
+cat <<EOF; printf '%s\\n' done
+$ZSH_VERSION
+EOF
+printf '%s\\n' \"$ZSH_VERSION\"
 ";
         let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
         assert_eq!(inferred, ShellDialect::Zsh);
