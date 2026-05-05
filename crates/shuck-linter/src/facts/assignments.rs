@@ -1305,7 +1305,7 @@ fn build_nonpersistent_assignment_extra_reset_sites(
         if !command_runs_in_persistent_shell_context(semantic, command, source) {
             continue;
         }
-        let flow_span = reset_flow_span_for_command(semantic_analysis, commands, command, source);
+        let flow_span = reset_flow_span_for_command(semantic, semantic_analysis, command, source);
 
         let Some((callee_scope, call_name_span)) =
             resolved_function_scope_for_command(semantic, semantic_analysis, command)
@@ -1378,36 +1378,36 @@ fn build_nonpersistent_assignment_extra_reset_sites(
 }
 
 fn reset_flow_span_for_command(
+    semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
-    commands: &[CommandFact<'_>],
     command: &CommandFact<'_>,
     source: &str,
 ) -> Span {
     let command_span = command.span();
-    let pipeline_span = commands
-        .iter()
-        .filter(|candidate| candidate.id() != command.id())
-        .filter(|candidate| span_contains(candidate.span(), command_span))
-        .filter(|candidate| !semantic_analysis.block_ids_for_span(candidate.span()).is_empty())
-        .filter_map(|candidate| {
-            let Command::Binary(binary) = candidate.command() else {
-                return None;
-            };
-            matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll).then_some(candidate.span())
-        })
-        .filter(|span| {
-            let before_command = &source[span.start.offset..command_span.start.offset];
-            let before_command = before_command.trim_end();
-            text_ends_with_pipeline_operator(before_command)
-        })
-        .min_by_key(|span| span.end.offset - span.start.offset)
-        .unwrap_or(command_span);
-
-    if pipeline_span != command_span {
-        return pipeline_span;
+    let mut current = command.id();
+    let mut pipeline_span = None;
+    while let Some(parent) = semantic.syntax_backed_command_parent_id(current) {
+        if matches!(semantic.command_kind(parent), CommandKind::Binary) {
+            let parent_span = semantic.command_syntax_span(parent);
+            if span_contains(parent_span, command_span)
+                && !semantic_analysis.block_ids_for_span(parent_span).is_empty()
+            {
+                let before_command = &source[parent_span.start.offset..command_span.start.offset];
+                if text_ends_with_pipeline_operator(before_command.trim_end()) {
+                    let previous_len = pipeline_span
+                        .map(|span: Span| span.end.offset - span.start.offset)
+                        .unwrap_or(usize::MAX);
+                    let parent_len = parent_span.end.offset - parent_span.start.offset;
+                    if parent_len < previous_len {
+                        pipeline_span = Some(parent_span);
+                    }
+                }
+            }
+        }
+        current = parent;
     }
 
-    command_span
+    pipeline_span.unwrap_or(command_span)
 }
 
 fn zsh_reply_helper_reset_span(command: &CommandFact<'_>) -> Option<Span> {
