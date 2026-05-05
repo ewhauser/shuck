@@ -1116,7 +1116,7 @@ fn build_nonpersistent_assignment_spans(
             continue;
         }
         if suppress_zsh_nested_subshell_noise
-            && !nonpersistent_assignment_reaches_later_use(semantic, semantic_analysis, &effect)
+            && !nonpersistent_assignment_reaches_later_use(semantic, &effect)
         {
             continue;
         }
@@ -1163,7 +1163,6 @@ fn build_nonpersistent_assignment_spans(
 
 fn nonpersistent_assignment_reaches_later_use(
     semantic: &SemanticModel,
-    semantic_analysis: &SemanticAnalysis<'_>,
     effect: &shuck_semantic::NonpersistentAssignmentEffect,
 ) -> bool {
     let assignment_scope = semantic.binding(effect.assignment_binding).scope;
@@ -1174,25 +1173,7 @@ fn nonpersistent_assignment_reaches_later_use(
         return false;
     }
 
-    let assignment_blocks = semantic_analysis
-        .block_ids_for_span(effect.assignment_span)
-        .iter()
-        .copied()
-        .collect::<FxHashSet<_>>();
-    if assignment_blocks.is_empty() {
-        return true;
-    }
-
-    let later_use_blocks = semantic_analysis.block_ids_for_span(effect.later_use_span);
-    if later_use_blocks.is_empty() {
-        return true;
-    }
-
-    let entry = semantic_analysis
-        .flow_entry_block_for_binding_scopes(&[assignment_scope], effect.later_use_span.start.offset);
-    later_use_blocks.iter().copied().all(|target| {
-        semantic_analysis.blocks_cover_all_paths_to_block(entry, target, &assignment_blocks)
-    })
+    true
 }
 
 fn nonpersistent_reset_site_covers_later_use(
@@ -1431,7 +1412,6 @@ fn helper_binding_can_reset_parent_scope(semantic: &SemanticModel, binding: &Bin
         | BindingKind::ParameterDefaultAssignment
         | BindingKind::AppendAssignment
         | BindingKind::ArrayAssignment
-        | BindingKind::LoopVariable
         | BindingKind::ReadTarget
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
@@ -1443,7 +1423,10 @@ fn helper_binding_can_reset_parent_scope(semantic: &SemanticModel, binding: &Bin
                 .attributes
                 .contains(BindingAttributes::DECLARATION_INITIALIZED)
         }
-        BindingKind::FunctionDefinition | BindingKind::Nameref | BindingKind::Imported => false,
+        BindingKind::LoopVariable
+        | BindingKind::FunctionDefinition
+        | BindingKind::Nameref
+        | BindingKind::Imported => false,
     }
 }
 
