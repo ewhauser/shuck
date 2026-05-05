@@ -1103,6 +1103,7 @@ fn build_nonpersistent_assignment_spans(
         &NonpersistentAssignmentAnalysisContext {
             options: NonpersistentAssignmentAnalysisOptions {
                 suppress_bash_pipefail_pipeline_side_effects,
+                require_return_use_same_execution_context: suppress_zsh_nested_subshell_noise,
                 ignored_names: vec![Name::from("IFS")],
             },
             commands: command_contexts,

@@ -127,6 +127,7 @@ pub struct ShellBehaviorAt<'model> {
     shell: ShellDialect,
     zsh_options: Option<&'model ZshOptionState>,
     runtime_options: Option<ZshOptionState>,
+    zsh_sh_emulation: Option<bool>,
 }
 
 impl ShellBehaviorAt<'_> {
@@ -144,12 +145,18 @@ impl ShellBehaviorAt<'_> {
         self.shell
     }
 
+    /// Returns whether this offset is in zsh's `emulate sh`-style compatibility behavior.
+    pub fn zsh_sh_emulation(&self) -> bool {
+        self.shell == ShellDialect::Zsh && self.zsh_sh_emulation.unwrap_or(false)
+    }
+
     /// Creates behavior for a shell dialect without source-local option state.
     pub fn for_dialect(shell: ShellDialect) -> Self {
         Self {
             shell,
             zsh_options: None,
             runtime_options: None,
+            zsh_sh_emulation: None,
         }
     }
 
@@ -1035,12 +1042,20 @@ impl SemanticModel {
             .and_then(|analysis| analysis.options_at(&self.scopes, offset))
     }
 
+    /// Returns whether `offset` is in a definite zsh `emulate sh` region.
+    pub fn zsh_sh_emulation_at(&self, offset: usize) -> Option<bool> {
+        self.zsh_option_analysis
+            .as_ref()
+            .and_then(|analysis| analysis.sh_emulation_at(&self.scopes, offset))
+    }
+
     /// Returns option-sensitive shell behavior visible at `offset`.
     pub fn shell_behavior_at(&self, offset: usize) -> ShellBehaviorAt<'_> {
         ShellBehaviorAt {
             shell: self.shell_profile.dialect,
             zsh_options: self.zsh_options_at(offset),
             runtime_options: self.zsh_runtime_options_at(offset),
+            zsh_sh_emulation: self.zsh_sh_emulation_at(offset),
         }
     }
 

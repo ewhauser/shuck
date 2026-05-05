@@ -958,6 +958,96 @@ demo() {
     );
 }
 
+#[test]
+fn zsh_status_capture_inside_subshell_is_not_connected_to_parent_return() {
+    let source = "\
+#!/bin/zsh
+demo() {
+  local retval=0
+  (
+    ( return 2 )
+    retval=$?
+    print -r -- $retval
+  ) || return $?
+  return $retval
+}
+";
+
+    assert!(subshell_assignment_slices(source, ShellDialect::Zsh).is_empty());
+    assert!(subshell_later_use_slices(source, ShellDialect::Zsh).is_empty());
+}
+
+#[test]
+fn zsh_subshell_loop_local_assignment_is_not_connected_to_parent_return() {
+    let source = "\
+#!/bin/zsh
+demo() {
+  local retval=0
+  for pair in \"$@\"; do
+    (
+      retval=1
+      continue
+    )
+  done
+  return $retval
+}
+";
+
+    assert!(subshell_assignment_slices(source, ShellDialect::Zsh).is_empty());
+    assert!(subshell_later_use_slices(source, ShellDialect::Zsh).is_empty());
+}
+
+#[test]
+fn zsh_sh_emulation_return_read_still_reports_subshell_assignment() {
+    let source = "\
+#!/bin/zsh
+demo() {
+  emulate sh
+  local retval=0
+  (
+    retval=1
+  )
+  return $retval
+}
+demo
+";
+
+    assert_eq!(
+        subshell_assignment_slices(source, ShellDialect::Zsh),
+        vec!["retval"]
+    );
+    assert_eq!(
+        subshell_later_use_slices(source, ShellDialect::Zsh),
+        vec!["$retval"]
+    );
+}
+
+#[test]
+fn zsh_sh_emulation_return_read_survives_later_option_updates() {
+    let source = "\
+#!/bin/zsh
+demo() {
+  emulate sh
+  setopt ksh_arrays
+  local retval=0
+  (
+    retval=1
+  )
+  return $retval
+}
+demo
+";
+
+    assert_eq!(
+        subshell_assignment_slices(source, ShellDialect::Zsh),
+        vec!["retval"]
+    );
+    assert_eq!(
+        subshell_later_use_slices(source, ShellDialect::Zsh),
+        vec!["$retval"]
+    );
+}
+
 fn subshell_assignment_slices(source: &str, shell: ShellDialect) -> Vec<&str> {
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);

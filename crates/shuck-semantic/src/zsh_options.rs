@@ -15,7 +15,7 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub(crate) struct ZshOptionAnalysis {
-    scope_entries: FxHashMap<ScopeId, ZshOptionState>,
+    scope_entries: FxHashMap<ScopeId, ZshOptionEntry>,
     snapshots: FxHashMap<ScopeId, Vec<ZshOptionSnapshot>>,
     /// Scopes sorted by `(span.start.offset ASC, span.end.offset DESC)` so a binary search by
     /// start offset followed by a backward walk yields the deepest containing scope under
@@ -43,7 +43,7 @@ struct ScopeIndexEntry {
 #[derive(Debug, Clone)]
 struct ZshOptionSnapshot {
     offset: usize,
-    state: ZshOptionState,
+    entry: ZshOptionEntry,
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +99,28 @@ struct InternalState {
     public: ZshOptionState,
     local_options: OptionValue,
     emulation: EmulationState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ZshOptionEntry {
+    public: ZshOptionState,
+    emulation: EmulationState,
+}
+
+impl ZshOptionEntry {
+    fn from_internal(state: &InternalState) -> Self {
+        Self {
+            public: state.public,
+            emulation: state.emulation,
+        }
+    }
+
+    fn merge(&self, other: &Self) -> Self {
+        Self {
+            public: self.public.merge(&other.public),
+            emulation: self.emulation.merge(other.emulation),
+        }
+    }
 }
 
 impl InternalState {
@@ -432,11 +454,7 @@ impl SharedFunctionSummaryCache {
 }
 
 impl ZshOptionAnalysis {
-    pub(crate) fn options_at<'a>(
-        &'a self,
-        scopes: &[Scope],
-        offset: usize,
-    ) -> Option<&'a ZshOptionState> {
+    fn entry_at<'a>(&'a self, scopes: &[Scope], offset: usize) -> Option<&'a ZshOptionEntry> {
         let upper = self
             .scope_index
             .partition_point(|entry| entry.start <= offset);
@@ -450,7 +468,7 @@ impl ZshOptionAnalysis {
             if let Some(snapshots) = self.snapshots.get(&scope_id) {
                 let upper = snapshots.partition_point(|snapshot| snapshot.offset <= offset);
                 if upper > 0 {
-                    return Some(&snapshots[upper - 1].state);
+                    return Some(&snapshots[upper - 1].entry);
                 }
             }
 
@@ -463,6 +481,19 @@ impl ZshOptionAnalysis {
 
         None
     }
+
+    pub(crate) fn options_at<'a>(
+        &'a self,
+        scopes: &[Scope],
+        offset: usize,
+    ) -> Option<&'a ZshOptionState> {
+        self.entry_at(scopes, offset).map(|entry| &entry.public)
+    }
+
+    pub(crate) fn sh_emulation_at(&self, scopes: &[Scope], offset: usize) -> Option<bool> {
+        self.entry_at(scopes, offset)
+            .map(|entry| entry.emulation.is_definitely_sh())
+    }
 }
 
 struct Analyzer<'a> {
@@ -471,7 +502,7 @@ struct Analyzer<'a> {
     dynamic_calls: DynamicCallAnalysisContext<'a>,
     recorded_program: &'a RecordedProgram,
     treat_unknown_dispatch_bindings_as_ambiguous_in_functions: bool,
-    scope_entries: FxHashMap<ScopeId, ZshOptionState>,
+    scope_entries: FxHashMap<ScopeId, ZshOptionEntry>,
     snapshots: FxHashMap<ScopeId, Vec<ZshOptionSnapshot>>,
     active_function_scopes: FxHashSet<ScopeId>,
     function_summaries: FxHashMap<FunctionSummaryKey, FunctionSummary>,
@@ -644,9 +675,9 @@ impl<'a> Analyzer<'a> {
         state: EvalState,
         leak: LeakBehavior,
     ) -> EvalState {
-        self.record_scope_entry(scope, state.current.public);
+        self.record_scope_entry(scope, &state.current);
         let recorded = self.recorded_program.command(command);
-        self.record_snapshot(scope, recorded.span.start.offset, state.current.public);
+        self.record_snapshot(scope, recorded.span.start.offset, &state.current);
         self.analyze_command(scope, command, state, leak)
     }
 
@@ -657,10 +688,10 @@ impl<'a> Analyzer<'a> {
         mut state: EvalState,
         leak: LeakBehavior,
     ) -> EvalState {
-        self.record_scope_entry(scope, state.current.public);
+        self.record_scope_entry(scope, &state.current);
         for &command in self.recorded_program.commands_in(commands) {
             let recorded = self.recorded_program.command(command);
-            self.record_snapshot(scope, recorded.span.start.offset, state.current.public);
+            self.record_snapshot(scope, recorded.span.start.offset, &state.current);
             state = self.analyze_command(scope, command, state, leak);
         }
         state
@@ -1182,18 +1213,20 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn record_scope_entry(&mut self, scope: ScopeId, state: ZshOptionState) {
+    fn record_scope_entry(&mut self, scope: ScopeId, state: &InternalState) {
+        let entry = ZshOptionEntry::from_internal(state);
         self.scope_entries
             .entry(scope)
-            .and_modify(|current| *current = current.merge(&state))
-            .or_insert(state);
+            .and_modify(|current| *current = current.merge(&entry))
+            .or_insert(entry);
     }
 
-    fn record_snapshot(&mut self, scope: ScopeId, offset: usize, state: ZshOptionState) {
+    fn record_snapshot(&mut self, scope: ScopeId, offset: usize, state: &InternalState) {
+        let entry = ZshOptionEntry::from_internal(state);
         let snapshots = self.snapshots.entry(scope).or_default();
         if let Some(last) = snapshots.last()
             && last.offset <= offset
-            && last.state == state
+            && last.entry == entry
         {
             return;
         }
@@ -1201,11 +1234,11 @@ impl<'a> Analyzer<'a> {
             .iter_mut()
             .find(|snapshot| snapshot.offset == offset)
         {
-            existing.state = existing.state.merge(&state);
+            existing.entry = existing.entry.merge(&entry);
             return;
         }
 
-        snapshots.push(ZshOptionSnapshot { offset, state });
+        snapshots.push(ZshOptionSnapshot { offset, entry });
     }
 }
 

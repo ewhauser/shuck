@@ -2,8 +2,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Name, Span};
 
 use crate::{
-    Binding, BindingAttributes, BindingId, BindingKind, DeclarationBuiltin, ReferenceKind, ScopeId,
-    ScopeKind, SemanticModel,
+    Binding, BindingAttributes, BindingId, BindingKind, BuiltinCommandKind, CommandKind,
+    DeclarationBuiltin, ReferenceKind, ScopeId, ScopeKind, SemanticModel,
 };
 
 /// Options for nonpersistent assignment analysis.
@@ -11,6 +11,8 @@ use crate::{
 pub struct NonpersistentAssignmentAnalysisOptions {
     /// Whether Bash pipeline side effects should be treated as persistent.
     pub suppress_bash_pipefail_pipeline_side_effects: bool,
+    /// Whether later `return` operands must run in the same transient shell context.
+    pub require_return_use_same_execution_context: bool,
     /// Names that callers do not want analyzed for this effect.
     pub ignored_names: Vec<Name>,
 }
@@ -86,6 +88,7 @@ struct CandidateNonpersistentAssignment {
     binding_id: BindingId,
     effective_local: bool,
     enclosing_function_scope: Option<ScopeId>,
+    execution_context: Option<ScopeId>,
     assignment_span: Span,
     subshell_start: usize,
     subshell_end: usize,
@@ -168,6 +171,8 @@ impl SemanticModel {
                     binding_id: binding.id,
                     effective_local: binding_effectively_targets_local(self, binding),
                     enclosing_function_scope: self.enclosing_function_scope(binding.scope),
+                    execution_context: self
+                        .innermost_transient_scope_within_function(binding.scope),
                     assignment_span: binding.span,
                     subshell_start: nonpersistent_scope.span.start.offset,
                     subshell_end: nonpersistent_scope.span.end.offset,
@@ -291,6 +296,11 @@ impl SemanticModel {
                         candidate,
                         reference.span.start.offset,
                         reference_function_scope,
+                    )
+                    && self.return_later_use_allows_candidate(
+                        candidate,
+                        reference.span.start.offset,
+                        context.options.require_return_use_same_execution_context,
                     )
             }) {
                 effects.push(effect_for_candidate(
@@ -434,6 +444,35 @@ impl SemanticModel {
         });
 
         NonpersistentAssignmentAnalysis { effects }
+    }
+}
+
+impl SemanticModel {
+    fn return_later_use_allows_candidate(
+        &self,
+        candidate: &CandidateNonpersistentAssignment,
+        later_offset: usize,
+        require_same_execution_context: bool,
+    ) -> bool {
+        if !require_same_execution_context {
+            return true;
+        }
+        let Some(command_id) = self.innermost_command_id_at(later_offset) else {
+            return true;
+        };
+        if !matches!(
+            self.command_kind(command_id),
+            CommandKind::Builtin(BuiltinCommandKind::Return)
+        ) {
+            return true;
+        }
+        if self.shell_behavior_at(later_offset).zsh_sh_emulation() {
+            return true;
+        }
+
+        let later_scope = self.scope_at(later_offset);
+        let later_context = self.innermost_transient_scope_within_function(later_scope);
+        later_context == candidate.execution_context
     }
 }
 
