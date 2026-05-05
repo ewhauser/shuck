@@ -454,12 +454,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             (span.start.offset, span.end.offset, *kind)
         });
         arithmetic_literal_spans.dedup();
-        let base_prefix_arithmetic_spans = arithmetic_literal_spans
-            .iter()
-            .filter_map(|(span, kind)| {
-                (*kind == ArithmeticLiteralKind::ExplicitBasePrefix).then_some(*span)
-            })
-            .collect::<Vec<_>>();
         let arithmetic_literal_facts = arithmetic_literal_spans
             .iter()
             .map(|(span, kind)| {
@@ -1014,7 +1008,6 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             positional_parameter_operator_spans,
             double_paren_grouping_spans,
             arithmetic_update_operator_spans,
-            base_prefix_arithmetic_spans,
             arithmetic_literal_facts,
             escape_scan_matches,
             echo_backslash_escape_word_spans,

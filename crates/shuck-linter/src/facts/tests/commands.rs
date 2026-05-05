@@ -1802,8 +1802,10 @@ echo ${foo:-$((10#1))}
 
     assert_eq!(
         facts
-            .base_prefix_arithmetic_spans()
+            .arithmetic_literal_facts()
             .iter()
+            .filter(|literal| literal.kind() == ArithmeticLiteralKind::ExplicitBasePrefix)
+            .map(|literal| literal.span())
             .map(|span| span.slice(source))
             .collect::<Vec<_>>(),
         vec!["10#123", "10#1", "10#1", "10#1"]
@@ -1990,8 +1992,10 @@ esac
 
     assert_eq!(
         facts
-            .base_prefix_arithmetic_spans()
+            .arithmetic_literal_facts()
             .iter()
+            .filter(|literal| literal.kind() == ArithmeticLiteralKind::ExplicitBasePrefix)
+            .map(|literal| literal.span())
             .map(|span| span.slice(source))
             .collect::<Vec<_>>(),
         vec!["10#1", "10#2"]
@@ -2057,7 +2061,12 @@ echo ${foo:-${1##*/}}
     let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
-    assert!(facts.base_prefix_arithmetic_spans().is_empty());
+    assert!(
+        facts
+            .arithmetic_literal_facts()
+            .iter()
+            .all(|literal| literal.kind() != ArithmeticLiteralKind::ExplicitBasePrefix)
+    );
 }
 
 #[test]
@@ -2073,7 +2082,12 @@ echo $((42949 - ${1#-} / 100000))
     let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
-    assert!(facts.base_prefix_arithmetic_spans().is_empty());
+    assert!(
+        facts
+            .arithmetic_literal_facts()
+            .iter()
+            .all(|literal| literal.kind() != ArithmeticLiteralKind::ExplicitBasePrefix)
+    );
 }
 
 #[test]
@@ -2091,8 +2105,10 @@ echo $(( ${foo:-10#1} ))
 
     assert_eq!(
         facts
-            .base_prefix_arithmetic_spans()
+            .arithmetic_literal_facts()
             .iter()
+            .filter(|literal| literal.kind() == ArithmeticLiteralKind::ExplicitBasePrefix)
+            .map(|literal| literal.span())
             .map(|span| span.slice(source))
             .collect::<Vec<_>>(),
         vec!["10#1"]
