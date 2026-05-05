@@ -3146,6 +3146,7 @@ impl<'a> Parser<'a> {
         chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
         cursor: &mut Position,
         part_start: Position,
+        source_backed: bool,
     ) -> Option<WordPart> {
         if !self.dialect.features().zsh_parameter_modifiers
             || !chars
@@ -3164,32 +3165,47 @@ impl<'a> Parser<'a> {
         {
             lookahead.next();
         }
-        if !lookahead
-            .peek()
-            .copied()
-            .is_some_and(Self::zsh_bare_parameter_target_start)
-        {
+        if !Self::zsh_bare_parameter_target_starts(&lookahead) {
             return None;
         }
 
         let raw_body_start = *cursor;
-        let mut raw_body = String::new();
+        let mut raw_body_text = String::new();
         while chars
             .peek()
             .copied()
             .is_some_and(Self::zsh_bare_parameter_prefix_modifier)
         {
-            raw_body.push(Self::next_word_char_unwrap(chars, cursor));
+            raw_body_text.push(Self::next_word_char_unwrap(chars, cursor));
         }
 
         let first = Self::next_word_char_unwrap(chars, cursor);
-        raw_body.push(first);
-        if first.is_ascii_alphabetic() || first == '_' {
-            raw_body.push_str(&Self::read_word_while(chars, cursor, |ch| {
+        raw_body_text.push(first);
+        if first == '+' {
+            raw_body_text.push_str(&Self::read_word_while(chars, cursor, |ch| {
+                ch.is_ascii_alphanumeric() || ch == '_'
+            }));
+        } else if first.is_ascii_alphabetic() || first == '_' {
+            raw_body_text.push_str(&Self::read_word_while(chars, cursor, |ch| {
                 ch.is_ascii_alphanumeric() || ch == '_'
             }));
         }
+        if Self::consume_word_char_if(chars, cursor, '[') {
+            raw_body_text.push('[');
+            let (index, raw_index) = self.read_array_index(chars, cursor, source_backed);
+            raw_body_text.push_str(raw_index.as_ref().unwrap_or(&index).slice(self.input));
+            raw_body_text.push(']');
+        }
 
+        let span = Span::from_positions(raw_body_start, *cursor);
+        let raw_body = if source_backed
+            && span.end.offset <= self.input.len()
+            && span.slice(self.input) == raw_body_text
+        {
+            span.slice(self.input).to_owned()
+        } else {
+            raw_body_text
+        };
         let raw_body = self.source_text(raw_body, raw_body_start, *cursor);
         Some(self.zsh_parameter_word_part(raw_body, part_start, *cursor))
     }
@@ -3202,6 +3218,17 @@ impl<'a> Parser<'a> {
         matches!(ch, '?' | '#' | '@' | '*' | '!' | '$' | '-')
             || ch.is_ascii_alphanumeric()
             || ch == '_'
+    }
+
+    fn zsh_bare_parameter_target_starts(chars: &std::iter::Peekable<std::str::Chars<'_>>) -> bool {
+        let mut lookahead = chars.clone();
+        match lookahead.next() {
+            Some('+') => lookahead
+                .next()
+                .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_'),
+            Some(ch) => Self::zsh_bare_parameter_target_start(ch),
+            None => false,
+        }
     }
 
     fn zsh_modifier_suffix_candidate_chars(
@@ -5245,9 +5272,12 @@ impl<'a> Parser<'a> {
             }
 
             if let Some(&c) = chars.peek() {
-                if let Some(part) =
-                    self.parse_zsh_bare_prefixed_parameter(&mut chars, &mut cursor, part_start)
-                {
+                if let Some(part) = self.parse_zsh_bare_prefixed_parameter(
+                    &mut chars,
+                    &mut cursor,
+                    part_start,
+                    source_backed,
+                ) {
                     Self::push_word_part(parts, part, part_start, cursor);
                     current_start = cursor;
                     continue;

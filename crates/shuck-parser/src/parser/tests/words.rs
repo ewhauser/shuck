@@ -7519,7 +7519,7 @@ fn test_zsh_parameter_bare_prefix_flags_record_modifier_sequence() {
 
 #[test]
 fn test_zsh_bare_dollar_prefix_flag_parses_as_parameter_word() {
-    let source = "$=UNPACKCMD\n";
+    let source = "$=UNPACKCMD $=arr[1] $=+ice[extract]\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)
         .parse()
         .unwrap();
@@ -7542,6 +7542,28 @@ fn test_zsh_bare_dollar_prefix_flag_parses_as_parameter_word() {
         panic!("expected split target reference");
     };
     assert_eq!(reference.name.as_str(), "UNPACKCMD");
+
+    let subscripted = expect_parameter(&command.args[0]);
+    assert_eq!(subscripted.raw_body.slice(source), "=arr[1]");
+    let ParameterExpansionSyntax::Zsh(subscripted) = &subscripted.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    let ZshExpansionTarget::Reference(reference) = &subscripted.target else {
+        panic!("expected subscripted target reference");
+    };
+    assert_eq!(reference.name.as_str(), "arr");
+    expect_subscript(reference, source, "1");
+
+    let probe = expect_parameter(&command.args[1]);
+    assert_eq!(probe.raw_body.slice(source), "=+ice[extract]");
+    let ParameterExpansionSyntax::Zsh(probe) = &probe.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    let ZshExpansionTarget::Reference(reference) = &probe.target else {
+        panic!("expected probe target reference");
+    };
+    assert_eq!(reference.name.as_str(), "+ice");
+    expect_subscript(reference, source, "extract");
 }
 
 #[test]

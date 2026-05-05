@@ -5007,6 +5007,9 @@ impl<'a> Parser<'a> {
         };
 
         Self::is_valid_identifier(name)
+            || name
+                .strip_prefix('+')
+                .is_some_and(Self::is_valid_identifier)
             || name.bytes().all(|byte| byte.is_ascii_digit())
             || Self::is_plain_special_parameter_name(name)
     }
