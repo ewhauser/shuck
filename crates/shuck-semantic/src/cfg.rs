@@ -223,6 +223,7 @@ pub(crate) struct RecordedProgram {
     pipeline_segments: Vec<RecordedPipelineSegment>,
     list_items: Vec<RecordedListItem>,
     elif_branches: Vec<RecordedElifBranch>,
+    command_info_records: Vec<RecordedCommandInfo>,
     pub(crate) command_infos: FxHashMap<SpanKey, RecordedCommandInfo>,
     pub(crate) function_body_scopes: FxHashMap<BindingId, ScopeId>,
     pub(crate) call_command_spans: FxHashMap<SpanKey, Span>,
@@ -254,6 +255,15 @@ pub struct CommandId(pub(crate) u32);
 impl CommandId {
     /// Returns the zero-based index used by internal command-storage vectors.
     pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct RecordedCommandInfoId(u32);
+
+impl RecordedCommandInfoId {
+    fn index(self) -> usize {
         self.0 as usize
     }
 }
@@ -443,6 +453,7 @@ pub(crate) struct RecordedCommand {
     pub(crate) scope: Option<ScopeId>,
     pub(crate) flow_context: Option<FlowContext>,
     pub(crate) nested_regions: RecordedRegionRange,
+    pub(crate) command_info: Option<RecordedCommandInfoId>,
     pub(crate) kind: RecordedCommandKind,
 }
 
@@ -631,6 +642,10 @@ impl RecordedProgram {
         &mut self.commands[id.index()]
     }
 
+    pub(crate) fn command_info(&self, id: RecordedCommandInfoId) -> &RecordedCommandInfo {
+        &self.command_info_records[id.index()]
+    }
+
     pub(crate) fn commands(&self) -> &[RecordedCommand] {
         &self.commands
     }
@@ -680,6 +695,15 @@ impl RecordedProgram {
             Err(err) => panic!("recorded command count fits in u32: {err}"),
         });
         self.commands.push(command);
+        id
+    }
+
+    pub(crate) fn push_command_info(&mut self, info: RecordedCommandInfo) -> RecordedCommandInfoId {
+        let id = RecordedCommandInfoId(match u32::try_from(self.command_info_records.len()) {
+            Ok(id) => id,
+            Err(err) => panic!("recorded command info count fits in u32: {err}"),
+        });
+        self.command_info_records.push(info);
         id
     }
 

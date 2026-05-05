@@ -816,10 +816,9 @@ impl<'a> Analyzer<'a> {
         mut state: EvalState,
         leak: LeakBehavior,
     ) -> EvalState {
-        let info = self
-            .recorded_program
-            .command_infos
-            .get(&SpanKey::new(command.span));
+        let info = command
+            .command_info
+            .map(|info_id| self.recorded_program.command_info(info_id));
 
         if let Some(function_scope) = info
             .and_then(|info| info.static_callee.as_deref())
