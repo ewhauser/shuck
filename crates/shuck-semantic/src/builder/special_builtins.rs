@@ -479,6 +479,7 @@ fn zstyle_target(args: &[&Word], source: &str) -> Option<(Name, Span, BindingAtt
         };
         match text.as_ref() {
             "--" => return None,
+            "-L" => return None,
             "-a" | "-s" | "-b" => {
                 let attributes = if text == "-a" {
                     BindingAttributes::ARRAY

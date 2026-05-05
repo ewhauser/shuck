@@ -1165,13 +1165,16 @@ print $prompt_theme $verbose_enabled
 }
 
 #[test]
-fn zsh_zstyle_target_parser_skips_leading_options() {
+fn zsh_zstyle_listing_mode_does_not_create_named_target() {
     let source = "#!/bin/zsh\nzstyle -L -a ':prezto:load' pmodule-dirs user_pmodule_dirs\nprint $user_pmodule_dirs\n";
     let model = model_with_dialect(source, ShellDialect::Zsh);
-    let binding = binding_for_name(&model, "user_pmodule_dirs");
 
-    assert!(binding.attributes.contains(BindingAttributes::ARRAY));
-    assert_eq!(binding.references.len(), 1);
+    assert!(
+        model
+            .bindings_for(&Name::from("user_pmodule_dirs"))
+            .is_empty()
+    );
+    assert_eq!(unresolved_names(&model), vec!["user_pmodule_dirs"]);
 }
 
 #[test]
