@@ -133,19 +133,15 @@ impl ShellDialect {
 }
 
 fn line_has_bash_marker(line: &str) -> bool {
-    line.contains("$BASH_SOURCE")
-        || line.contains("${BASH_SOURCE")
-        || line.contains("$BASH_VERSION")
-        || line.contains("${BASH_VERSION")
+    contains_unquoted_parameter(line, "BASH_SOURCE")
+        || contains_unquoted_parameter(line, "BASH_VERSION")
         || contains_shell_word(line, "PROMPT_COMMAND")
         || starts_with_shell_word(line, "shopt")
 }
 
 fn line_has_zsh_marker(line: &str) -> bool {
-    line.contains("$ZSH_VERSION")
-        || line.contains("${ZSH_VERSION")
-        || line.contains("$ZSH_EVAL_CONTEXT")
-        || line.contains("${ZSH_EVAL_CONTEXT")
+    contains_unquoted_parameter(line, "ZSH_VERSION")
+        || contains_unquoted_parameter(line, "ZSH_EVAL_CONTEXT")
         || starts_with_shell_word(line, "zstyle")
         || starts_with_shell_word(line, "zmodload")
         || line_has_zsh_emulate_marker(line)
@@ -174,6 +170,65 @@ fn starts_with_shell_word(line: &str, needle: &str) -> bool {
 
 fn contains_shell_word(line: &str, needle: &str) -> bool {
     shell_words(line).iter().any(|word| *word == needle)
+}
+
+fn contains_unquoted_parameter(line: &str, name: &str) -> bool {
+    let bytes = line.as_bytes();
+    let name_bytes = name.as_bytes();
+    let mut index = 0;
+    let mut in_single_quotes = false;
+    let mut escaped = false;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if escaped {
+            escaped = false;
+            index += 1;
+            continue;
+        }
+        if byte == b'\\' {
+            escaped = true;
+            index += 1;
+            continue;
+        }
+        if byte == b'\'' {
+            in_single_quotes = !in_single_quotes;
+            index += 1;
+            continue;
+        }
+        if !in_single_quotes && byte == b'$' {
+            let braced_start = index + 2;
+            let braced_end = braced_start + name_bytes.len();
+            if bytes.get(index + 1) == Some(&b'{')
+                && bytes
+                    .get(braced_start..braced_end)
+                    .is_some_and(|candidate| candidate == name_bytes)
+                && bytes
+                    .get(braced_end)
+                    .is_none_or(|byte| !is_shell_name_byte(*byte))
+            {
+                return true;
+            }
+            let plain_start = index + 1;
+            let plain_end = plain_start + name_bytes.len();
+            if bytes
+                .get(plain_start..plain_end)
+                .is_some_and(|candidate| candidate == name_bytes)
+                && bytes
+                    .get(plain_end)
+                    .is_none_or(|byte| !is_shell_name_byte(*byte))
+            {
+                return true;
+            }
+        }
+        index += 1;
+    }
+
+    false
+}
+
+fn is_shell_name_byte(byte: u8) -> bool {
+    byte == b'_' || byte.is_ascii_alphanumeric()
 }
 
 fn shell_words(line: &str) -> Vec<&str> {
@@ -240,6 +295,30 @@ autoload -U compaudit compinit
             Some(Path::new("/tmp/example.sh")),
         );
         assert_eq!(inferred, ShellDialect::Sh);
+    }
+
+    #[test]
+    fn ignores_literal_or_escaped_dialect_parameter_markers() {
+        let inferred = ShellDialect::infer(
+            "printf '%s\\n' '${ZSH_VERSION}' \"\\$BASH_VERSION\" \"$ZSH_VERSIONED\"\n",
+            Some(Path::new("/tmp/example.sh")),
+        );
+        assert_eq!(inferred, ShellDialect::Sh);
+    }
+
+    #[test]
+    fn infers_from_executed_dialect_parameter_markers() {
+        let zsh = ShellDialect::infer(
+            "printf '%s\\n' \"$ZSH_VERSION\"\n",
+            Some(Path::new("/tmp/example.sh")),
+        );
+        assert_eq!(zsh, ShellDialect::Zsh);
+
+        let bash = ShellDialect::infer(
+            "printf '%s\\n' \"${BASH_SOURCE[0]}\"\n",
+            Some(Path::new("/tmp/example.sh")),
+        );
+        assert_eq!(bash, ShellDialect::Bash);
     }
 
     #[test]
