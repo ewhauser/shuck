@@ -595,7 +595,8 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         let mut spans = word_spans::word_suspicious_bracket_glob_spans(self.word(), source);
         if self
             .facts
-            .expansion_behavior_at(self.span().start.offset)
+            .semantic
+            .shell_behavior_at(self.span().start.offset)
             .brace_character_classes()
             .can_expand()
         {
@@ -690,7 +691,8 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
             ) => true,
             Some(shuck_ast::BraceExpansionKind::CharacterClass) => self
                 .facts
-                .expansion_behavior_at(brace.span.start.offset)
+                .semantic
+                .shell_behavior_at(brace.span.start.offset)
                 .brace_character_classes()
                 .can_expand(),
             None => false,
