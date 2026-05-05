@@ -51,6 +51,7 @@ impl ShellDialect {
     pub fn infer(source: &str, path: Option<&Path>) -> Self {
         Self::infer_from_shellcheck_header(source)
             .or_else(|| Self::infer_from_shebang(source))
+            .or_else(|| Self::infer_from_source_markers(source))
             .unwrap_or_else(|| {
                 path.map_or(Self::Unknown, |path| {
                     match path
@@ -99,6 +100,82 @@ impl ShellDialect {
 
         None
     }
+
+    fn infer_from_source_markers(source: &str) -> Option<Self> {
+        let mut saw_bash_marker = false;
+        let mut saw_zsh_marker = false;
+
+        for line in source.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('#') {
+                let comment = trimmed.trim_start_matches('#').trim_start();
+                if comment.starts_with("compdef") || comment.starts_with("autoload") {
+                    saw_zsh_marker = true;
+                }
+                continue;
+            }
+
+            let code = trimmed.split('#').next().unwrap_or(trimmed);
+            saw_bash_marker |= line_has_bash_marker(code);
+            saw_zsh_marker |= line_has_zsh_marker(code);
+
+            if saw_bash_marker && saw_zsh_marker {
+                return None;
+            }
+        }
+
+        match (saw_bash_marker, saw_zsh_marker) {
+            (true, false) => Some(Self::Bash),
+            (false, true) => Some(Self::Zsh),
+            _ => None,
+        }
+    }
+}
+
+fn line_has_bash_marker(line: &str) -> bool {
+    contains_shell_word(line, "BASH_SOURCE")
+        || contains_shell_word(line, "BASH_VERSION")
+        || contains_shell_word(line, "PROMPT_COMMAND")
+        || starts_with_shell_word(line, "shopt")
+}
+
+fn line_has_zsh_marker(line: &str) -> bool {
+    contains_shell_word(line, "ZSH_VERSION")
+        || contains_shell_word(line, "ZSH_EVAL_CONTEXT")
+        || starts_with_shell_word(line, "zstyle")
+        || starts_with_shell_word(line, "zmodload")
+        || line_has_zsh_emulate_marker(line)
+        || line_has_zsh_autoload_marker(line)
+        || line.contains("${${")
+        || line.contains("${(%):-%x}")
+        || line.contains("${+commands[")
+}
+
+fn line_has_zsh_emulate_marker(line: &str) -> bool {
+    let words = shell_words(line);
+    words.first().is_some_and(|word| *word == "emulate")
+        && words.iter().skip(1).any(|word| *word == "zsh")
+}
+
+fn line_has_zsh_autoload_marker(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with("autoload ") && trimmed.split_whitespace().any(|word| word.starts_with('-'))
+}
+
+fn starts_with_shell_word(line: &str, needle: &str) -> bool {
+    shell_words(line)
+        .first()
+        .is_some_and(|word| *word == needle)
+}
+
+fn contains_shell_word(line: &str, needle: &str) -> bool {
+    shell_words(line).iter().any(|word| *word == needle)
+}
+
+fn shell_words(line: &str) -> Vec<&str> {
+    line.split(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()))
+        .filter(|word| !word.is_empty())
+        .collect()
 }
 
 #[cfg(test)]
@@ -121,6 +198,56 @@ mod tests {
     fn infers_from_extension_when_shebang_is_missing() {
         let inferred = ShellDialect::infer("local foo=bar\n", Some(Path::new("/tmp/example.bash")));
         assert_eq!(inferred, ShellDialect::Bash);
+    }
+
+    #[test]
+    fn infers_zsh_from_source_markers_before_sh_extension() {
+        let source = r#"
+[[ -n "$ZSH" ]] || export ZSH="${${(%):-%x}:a:h}"
+zstyle -s ':omz:update' mode update_mode
+autoload -U compaudit compinit
+"#;
+        let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/oh-my-zsh.sh")));
+        assert_eq!(inferred, ShellDialect::Zsh);
+    }
+
+    #[test]
+    fn infers_zsh_from_compdef_comment_before_sh_extension() {
+        let inferred = ShellDialect::infer(
+            "#compdef git\n_arguments '*:: :->args'\n",
+            Some(Path::new("/tmp/_git.sh")),
+        );
+        assert_eq!(inferred, ShellDialect::Zsh);
+    }
+
+    #[test]
+    fn infers_bash_from_source_markers_before_sh_extension() {
+        let source = r#"
+if [[ "${BASH_SOURCE[0]}" == */* ]]; then
+  shopt -s promptvars
+  PROMPT_COMMAND=update_prompt
+fi
+"#;
+        let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/gitstatus.plugin.sh")));
+        assert_eq!(inferred, ShellDialect::Bash);
+    }
+
+    #[test]
+    fn keeps_plain_sh_extension_as_sh_without_specific_markers() {
+        let inferred = ShellDialect::infer(
+            "local foo=bar\n[[ -n $foo ]] && echo \"$foo\"\n",
+            Some(Path::new("/tmp/example.sh")),
+        );
+        assert_eq!(inferred, ShellDialect::Sh);
+    }
+
+    #[test]
+    fn ambiguous_bash_and_zsh_markers_fall_back_to_extension() {
+        let inferred = ShellDialect::infer(
+            "echo \"$BASH_VERSION $ZSH_VERSION\"\n",
+            Some(Path::new("/tmp/example.sh")),
+        );
+        assert_eq!(inferred, ShellDialect::Sh);
     }
 
     #[test]

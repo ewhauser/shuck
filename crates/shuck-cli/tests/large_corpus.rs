@@ -60,10 +60,6 @@ const LARGE_CORPUS_STATIC_IGNORE_SUFFIXES: &[&str] = &[
     "moovweb__gvm__examples__native__ltmain.sh",
     "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh",
 ];
-const LARGE_CORPUS_STATIC_ZSH_OVERRIDE_SUFFIXES: &[&str] = &[
-    "ohmyzsh__ohmyzsh__oh-my-zsh.sh",
-    "ohmyzsh__ohmyzsh__tools__check_for_upgrade.sh",
-];
 const LARGE_CORPUS_SHELLCHECK_UNSUPPORTED_REPO_PREFIXES: &[&str] = &["ohmyzsh__ohmyzsh__"];
 const LARGE_CORPUS_SHELLCHECK_PARSE_IGNORE_SUFFIXES: &[&str] = &[
     "SlackBuildsOrg__slackbuilds__network__modemu2k__modemu2k.SlackBuild",
@@ -1960,10 +1956,6 @@ fn effective_large_corpus_shell(fixture: &LargeCorpusFixture) -> &str {
 }
 
 fn fixture_looks_like_zsh(fixture: &LargeCorpusFixture) -> bool {
-    if path_has_large_corpus_static_zsh_override(&fixture.path) {
-        return true;
-    }
-
     let Some(name) = fixture.path.file_name().and_then(|name| name.to_str()) else {
         return false;
     };
@@ -1982,10 +1974,6 @@ fn path_is_statically_ignored_large_corpus_fixture(path: &Path) -> bool {
 
 fn path_is_ignored_large_corpus_shellcheck_parse_fixture(path: &Path) -> bool {
     path_matches_large_corpus_suffix(path, LARGE_CORPUS_SHELLCHECK_PARSE_IGNORE_SUFFIXES)
-}
-
-fn path_has_large_corpus_static_zsh_override(path: &Path) -> bool {
-    path_matches_large_corpus_suffix(path, LARGE_CORPUS_STATIC_ZSH_OVERRIDE_SUFFIXES)
 }
 
 fn path_is_shellcheck_unsupported_large_corpus_fixture(path: &Path) -> bool {
@@ -2355,10 +2343,6 @@ fn resolve_shell(path: &Path, src: &[u8]) -> String {
     if trimmed_first_line.starts_with("#compdef") || trimmed_first_line.starts_with("#autoload") {
         return "zsh".into();
     }
-    if path_has_large_corpus_static_zsh_override(path) {
-        return "zsh".into();
-    }
-
     match shuck_linter::ShellDialect::infer(source, Some(path)) {
         shuck_linter::ShellDialect::Bash => "bash".into(),
         shuck_linter::ShellDialect::Ksh | shuck_linter::ShellDialect::Mksh => "ksh".into(),
@@ -2898,11 +2882,11 @@ mod tests {
     }
 
     #[test]
-    fn resolve_shell_static_zsh_override_is_zsh() {
+    fn resolve_shell_zsh_source_marker_before_sh_extension_is_zsh() {
         assert_eq!(
             resolve_shell(
                 Path::new("ohmyzsh__ohmyzsh__oh-my-zsh.sh"),
-                b"# comment only\n",
+                b"[[ -n \"$ZSH\" ]] || export ZSH=\"${${(%):-%x}:a:h}\"\n",
             ),
             "zsh"
         );
@@ -3341,15 +3325,20 @@ mod tests {
     }
 
     #[test]
-    fn static_zsh_override_paths_are_selected_for_large_corpus_zsh_parse() {
+    fn zsh_source_markers_are_selected_for_large_corpus_zsh_parse() {
+        let path = Path::new("ohmyzsh__ohmyzsh__tools__check_for_upgrade.sh");
+        let shell = resolve_shell(
+            path,
+            b"emulate -L zsh\nzstyle -s ':omz:update' mode update_mode\n",
+        );
         let fixture = LargeCorpusFixture {
-            path: PathBuf::from("ohmyzsh__ohmyzsh__tools__check_for_upgrade.sh"),
-            cache_rel_path: PathBuf::from("ohmyzsh__ohmyzsh__tools__check_for_upgrade.sh"),
-            shell: "sh".into(),
+            path: path.to_path_buf(),
+            cache_rel_path: path.to_path_buf(),
+            shell,
             source_hash: String::new(),
         };
 
-        assert_eq!(effective_large_corpus_shell(&fixture), "zsh");
+        assert_eq!(fixture.shell, "zsh");
         assert!(fixture_selected_for_large_corpus_zsh_parse(&fixture));
         assert!(!fixture_supported_for_large_corpus(&fixture, None));
     }

@@ -543,6 +543,109 @@ functions[iterm2_precmd]=x
     }
 
     #[test]
+    fn zsh_describe_by_name_arrays_count_as_reads() {
+        let source = "\
+#!/bin/zsh
+cmds=(init:Initialize update:Update)
+subcmds=(add:Add remove:Remove)
+refs=(main:Main)
+_describe 'command' cmds
+_describe -t commands command subcmds
+_describe -V -t git-refs 'Git References' refs -U
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn zsh_describe_reads_all_static_array_operands_after_the_description() {
+        let source = "\
+#!/bin/zsh
+primary=(init:Initialize update:Update)
+secondary=(add:Add remove:Remove)
+tertiary=(main:Main)
+_describe -- 'command' primary secondary tertiary
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn zsh_describe_does_not_treat_options_or_description_as_reads() {
+        let source = "\
+#!/bin/zsh
+tag=1
+display=1
+description=1
+consumed=(init:Initialize update:Update)
+_describe -t tag -T display description consumed -U
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["tag", "display", "description"]
+        );
+    }
+
+    #[test]
+    fn zsh_describe_ignores_dynamic_array_names() {
+        let source = "\
+#!/bin/zsh
+target=choices
+choices=(init:Initialize update:Update)
+_describe 'command' $target
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["choices"]
+        );
+    }
+
+    #[test]
+    fn describe_by_name_reads_are_zsh_only() {
+        let source = "\
+#!/bin/bash
+cmds=(init update)
+_describe 'command' cmds
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Bash),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["cmds"]
+        );
+    }
+
+    #[test]
     fn read_rest_names_are_treated_as_intentional_placeholders() {
         let source = "#!/bin/bash\nread -r cron_id rest\nprintf '%s\\n' \"$cron_id\"\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
