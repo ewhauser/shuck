@@ -1,8 +1,37 @@
 use super::*;
 use crate::{
-    FieldSplittingBehavior, GlobDotBehavior, GlobFailureBehavior, PathnameExpansionBehavior,
-    PatternOperatorBehavior, PlainUnindexedArrayReferenceFact, SubscriptIndexBehavior,
+    FieldSplittingBehavior, GlobDotBehavior, GlobFailureBehavior,
+    IndexedArrayReferenceFragmentFact, PathnameExpansionBehavior, PatternOperatorBehavior,
+    PlainUnindexedArrayReferenceFact, SubscriptIndexBehavior,
 };
+
+fn indexed_array_reference_parts<'a>(
+    fragment: &IndexedArrayReferenceFragmentFact,
+    source: &'a str,
+) -> (&'a str, bool, SubscriptIndexBehavior) {
+    match fragment {
+        IndexedArrayReferenceFragmentFact::OneBased(fragment) => (
+            fragment.span().slice(source),
+            fragment.is_plain(),
+            SubscriptIndexBehavior::OneBased,
+        ),
+        IndexedArrayReferenceFragmentFact::ZeroBased(fragment) => (
+            fragment.span().slice(source),
+            fragment.is_plain(),
+            SubscriptIndexBehavior::ZeroBased,
+        ),
+        IndexedArrayReferenceFragmentFact::OneBasedWithZeroAlias(fragment) => (
+            fragment.span().slice(source),
+            fragment.is_plain(),
+            SubscriptIndexBehavior::OneBasedWithZeroAlias,
+        ),
+        IndexedArrayReferenceFragmentFact::Ambiguous(fragment) => (
+            fragment.span().slice(source),
+            fragment.is_plain(),
+            SubscriptIndexBehavior::Ambiguous,
+        ),
+    }
+}
 
 #[test]
 fn builds_surface_fragment_facts_and_static_utility_names() {
@@ -216,7 +245,10 @@ if [[ \"$@\" =~ x ]]; then :; fi
             facts
                 .indexed_array_reference_fragments()
                 .iter()
-                .map(|fragment| (fragment.span().slice(source), fragment.is_plain()))
+                .map(|fragment| {
+                    let (span, plain, _) = indexed_array_reference_parts(fragment, source);
+                    (span, plain)
+                })
                 .collect::<Vec<_>>(),
             vec![
                 ("${!arr[*]}", false),
@@ -3511,7 +3543,10 @@ printf '%s\\n' \"${items[@]#$prefix/}\" \"${items[i]%$suffix}\"
             facts
                 .indexed_array_reference_fragments()
                 .iter()
-                .map(|fragment| (fragment.span().slice(source), fragment.is_plain()))
+                .map(|fragment| {
+                    let (span, plain, _) = indexed_array_reference_parts(fragment, source);
+                    (span, plain)
+                })
                 .collect::<Vec<_>>(),
             vec![
                 ("${items[@]#$prefix/}", false),
@@ -3543,12 +3578,9 @@ printf '%s\\n' ${arr[0]}
             facts
                 .indexed_array_reference_fragments()
                 .iter()
-                .filter(|fragment| fragment.is_plain())
-                .map(|fragment| {
-                    (
-                        fragment.span().slice(source),
-                        fragment.subscript_index_behavior(),
-                    )
+                .filter_map(|fragment| {
+                    let (span, plain, behavior) = indexed_array_reference_parts(fragment, source);
+                    plain.then_some((span, behavior))
                 })
                 .collect::<Vec<_>>(),
             vec![
@@ -3574,12 +3606,9 @@ printf '%s\\n' ${arr[0]}
             facts
                 .indexed_array_reference_fragments()
                 .iter()
-                .filter(|fragment| fragment.is_plain())
-                .map(|fragment| {
-                    (
-                        fragment.span().slice(source),
-                        fragment.subscript_index_behavior(),
-                    )
+                .filter_map(|fragment| {
+                    let (span, plain, behavior) = indexed_array_reference_parts(fragment, source);
+                    plain.then_some((span, behavior))
                 })
                 .collect::<Vec<_>>(),
             vec![("${arr[0]}", SubscriptIndexBehavior::ZeroBased)]

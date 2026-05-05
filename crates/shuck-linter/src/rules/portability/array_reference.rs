@@ -1,4 +1,4 @@
-use crate::{Checker, Rule, ShellDialect, Violation};
+use crate::{Checker, IndexedArrayReferenceFragmentFact, Rule, ShellDialect, Violation};
 
 pub struct ArrayReference;
 
@@ -21,8 +21,14 @@ pub fn array_reference(checker: &mut Checker) {
         .facts()
         .indexed_array_reference_fragments()
         .iter()
-        .filter(|fragment| fragment.is_plain())
-        .map(|fragment| fragment.span())
+        .filter_map(|fragment| match fragment {
+            IndexedArrayReferenceFragmentFact::OneBased(fragment)
+            | IndexedArrayReferenceFragmentFact::ZeroBased(fragment)
+            | IndexedArrayReferenceFragmentFact::OneBasedWithZeroAlias(fragment)
+            | IndexedArrayReferenceFragmentFact::Ambiguous(fragment) => {
+                fragment.is_plain().then(|| fragment.span())
+            }
+        })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ArrayReference);
