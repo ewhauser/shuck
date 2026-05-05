@@ -7171,6 +7171,64 @@ printf '%s\\n' \"${path[1]}\" \"${options[xtrace]}\" \"${pipestatus[1]}\" \"$ZSH
 }
 
 #[test]
+fn zsh_existence_tests_do_not_register_fake_variable_reads() {
+    let source = "\
+#!/bin/zsh
+if (( $+commands[git] )); then
+  :
+fi
+if (( ${+functions[zdot_warn]} )); then
+  :
+fi
+if (( $+ZINIT_CNORM )); then
+  :
+fi
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let unresolved = unresolved_names(&model);
+    let uninitialized = uninitialized_names(&model);
+    let unresolved_details = model
+        .unresolved_references()
+        .iter()
+        .map(|id| {
+            let reference = model.reference(*id);
+            (reference.name.to_string(), reference.span.slice(source))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        unresolved_details.is_empty(),
+        "unexpected unresolved refs: {unresolved_details:?}"
+    );
+    assert_names_absent(
+        &[
+            "+commands",
+            "git",
+            "commands",
+            "+functions",
+            "zdot_warn",
+            "functions",
+            "+ZINIT_CNORM",
+            "ZINIT_CNORM",
+        ],
+        &unresolved,
+    );
+    assert_names_absent(
+        &[
+            "+commands",
+            "git",
+            "commands",
+            "+functions",
+            "zdot_warn",
+            "functions",
+            "+ZINIT_CNORM",
+            "ZINIT_CNORM",
+        ],
+        &uninitialized,
+    );
+}
+
+#[test]
 fn bash_runtime_vars_remain_unresolved_in_non_bash_scripts() {
     let source = bash_runtime_source("#!/bin/sh");
     let model = model(&source);

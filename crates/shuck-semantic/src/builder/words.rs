@@ -326,6 +326,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.visit_word_part_nodes(parts, span, kind, flow, nested_regions);
             }
             WordPart::Variable(name) => {
+                if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh
+                    && is_zsh_parameter_existence_name(name)
+                {
+                    return;
+                }
                 self.add_reference(
                     name,
                     self.word_reference_kind_override
@@ -411,6 +416,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 );
             }
             WordPart::ArrayAccess(reference) => {
+                if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh
+                    && is_zsh_parameter_existence_name(&reference.name)
+                {
+                    return;
+                }
                 self.visit_var_ref_reference(
                     reference,
                     reference_kind_for_word_visit(kind, ReferenceKind::ArrayAccess),
@@ -579,6 +589,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         nested_regions: &mut Vec<IsolatedRegion>,
         span: Span,
     ) {
+        if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh
+            && zsh_parameter_expansion_is_existence_test(parameter, self.source)
+        {
+            return;
+        }
+
         match &parameter.syntax {
             ParameterExpansionSyntax::Bourne(syntax) => match syntax {
                 BourneParameterExpansion::Access { reference } => {
@@ -917,4 +933,38 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             | PatternPart::CharClass(_) => {}
         }
     }
+}
+
+fn is_zsh_parameter_existence_name(name: &Name) -> bool {
+    name.as_str()
+        .strip_prefix('+')
+        .is_some_and(is_shell_identifier)
+}
+
+fn zsh_parameter_expansion_is_existence_test(parameter: &ParameterExpansion, source: &str) -> bool {
+    parameter.raw_body.is_source_backed()
+        && zsh_parameter_body_is_existence_test(parameter.raw_body.slice(source))
+}
+
+fn zsh_parameter_body_is_existence_test(body: &str) -> bool {
+    body.strip_prefix('+').is_some_and(|body| {
+        let name_end = body
+            .char_indices()
+            .find_map(|(index, ch)| (!is_shell_name_char(ch)).then_some(index))
+            .unwrap_or(body.len());
+        name_end > 0 && is_shell_identifier(&body[..name_end])
+    })
+}
+
+fn is_shell_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars.next().is_some_and(is_shell_name_start) && chars.all(is_shell_name_char)
+}
+
+fn is_shell_name_start(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphabetic()
+}
+
+fn is_shell_name_char(ch: char) -> bool {
+    is_shell_name_start(ch) || ch.is_ascii_digit()
 }

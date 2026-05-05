@@ -215,6 +215,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.visit_arithmetic_expr_into(expression, flow, nested_regions);
             }
             ArithmeticExpr::Unary { op, expr: inner } => {
+                if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh
+                    && *op == ArithmeticUnaryOp::Plus
+                    && arithmetic_expr_is_zsh_parameter_existence_test(expr, self.source)
+                {
+                    return;
+                }
                 if matches!(
                     op,
                     ArithmeticUnaryOp::PreIncrement | ArithmeticUnaryOp::PreDecrement
@@ -476,6 +482,42 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
         }
     }
+}
+
+fn arithmetic_expr_is_zsh_parameter_existence_test(
+    expr: &ArithmeticExprNode,
+    source: &str,
+) -> bool {
+    let text = expr.span.slice(source);
+    let tail = text.strip_prefix("$+").or_else(|| {
+        text.strip_prefix('+').filter(|_| {
+            expr.span.start.offset > 0 && source[..expr.span.start.offset].ends_with('$')
+        })
+    });
+    let Some(tail) = tail else {
+        return false;
+    };
+
+    let name_end = tail
+        .char_indices()
+        .find_map(|(index, ch)| (!is_shell_name_char(ch)).then_some(index))
+        .unwrap_or(tail.len());
+    name_end > 0
+        && is_shell_identifier(&tail[..name_end])
+        && tail[name_end..].chars().next().is_none_or(|ch| ch == '[')
+}
+
+fn is_shell_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars.next().is_some_and(is_shell_name_start) && chars.all(is_shell_name_char)
+}
+
+fn is_shell_name_start(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphabetic()
+}
+
+fn is_shell_name_char(ch: char) -> bool {
+    is_shell_name_start(ch) || ch.is_ascii_digit()
 }
 
 fn conditional_expr_is_logical_binary(expression: &ConditionalExpr) -> bool {

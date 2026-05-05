@@ -93,7 +93,7 @@ pub fn undefined_variable(checker: &mut Checker) {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn prior_defaulting_parameter_operands_suppress_later_plain_uses() {
@@ -273,7 +273,32 @@ f() {
   (( quiet ))
 }
 ";
-        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn suppresses_zsh_existence_test_fake_variable_references() {
+        let source = "\
+#!/bin/zsh
+if (( $+commands[git] )); then
+  :
+fi
+if (( ${+functions[zdot_warn]} )); then
+  :
+fi
+if (( $+ZINIT_CNORM )); then
+  :
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
