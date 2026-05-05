@@ -82,7 +82,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     fn flow_after_command(&self, command: &'a Command, flow: FlowState) -> FlowState {
         match command {
             Command::Simple(_) => {
-                let info = recorded_command_info(command, self.source, self.runtime.bash_enabled());
+                let info = recorded_command_info(
+                    command,
+                    self.source,
+                    self.runtime.bash_enabled(),
+                    self.shell_profile.dialect == ShellDialect::Zsh,
+                );
                 flow_after_zsh_effects(flow, &info.zsh_effects)
             }
             Command::Compound(CompoundCommand::BraceGroup(commands)) => {
@@ -156,7 +161,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             Some(CommandKind::from_command(&stmt.command));
         self.recorded_program.command_mut(recorded).scope = Some(scope);
         self.recorded_program.command_mut(recorded).flow_context = Some(context);
-        let info = recorded_command_info(&stmt.command, self.source, self.runtime.bash_enabled());
+        let info = recorded_command_info(
+            &stmt.command,
+            self.source,
+            self.runtime.bash_enabled(),
+            self.shell_profile.dialect == ShellDialect::Zsh,
+        );
         if !info.is_empty() {
             let info_id = self.recorded_program.push_command_info(info);
             self.recorded_program.command_mut(recorded).command_info = Some(info_id);

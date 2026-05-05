@@ -4,11 +4,15 @@ pub(super) fn recorded_command_info(
     command: &Command,
     source: &str,
     bash_runtime_vars_enabled: bool,
+    zsh_runtime_vars_enabled: bool,
 ) -> RecordedCommandInfo {
     match command {
-        Command::Simple(command) => {
-            recorded_simple_command_info(command, source, bash_runtime_vars_enabled)
-        }
+        Command::Simple(command) => recorded_simple_command_info(
+            command,
+            source,
+            bash_runtime_vars_enabled,
+            zsh_runtime_vars_enabled,
+        ),
         Command::Builtin(_)
         | Command::Decl(_)
         | Command::Binary(_)
@@ -22,6 +26,7 @@ pub(super) fn recorded_simple_command_info(
     command: &shuck_ast::SimpleCommand,
     source: &str,
     bash_runtime_vars_enabled: bool,
+    zsh_runtime_vars_enabled: bool,
 ) -> RecordedCommandInfo {
     let words = std::iter::once(&command.name)
         .chain(command.args.iter())
@@ -39,7 +44,14 @@ pub(super) fn recorded_simple_command_info(
         .as_deref()
         .filter(|name| matches!(*name, "source" | "."))
         .and_then(|_| command.args.first())
-        .and_then(|word| source_path_template(word, source, bash_runtime_vars_enabled));
+        .and_then(|word| {
+            source_path_template(
+                word,
+                source,
+                bash_runtime_vars_enabled,
+                zsh_runtime_vars_enabled,
+            )
+        });
 
     let mut info = RecordedCommandInfo {
         static_callee,
