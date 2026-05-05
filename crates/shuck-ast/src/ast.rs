@@ -2334,6 +2334,43 @@ pub fn word_is_standalone_variable_like(word: &Word) -> bool {
     }
 }
 
+/// Returns whether a zsh parameter expansion explicitly enables pattern expansion.
+pub fn parameter_expansion_forces_zsh_globbing(parameter: &ParameterExpansion) -> bool {
+    matches!(
+        &parameter.syntax,
+        ParameterExpansionSyntax::Zsh(syntax)
+            if syntax.modifiers.iter().filter(|modifier| modifier.name == '~').count() % 2 == 1
+    )
+}
+
+/// Returns whether the word is exactly one zsh `${~...}`-style expansion.
+pub fn word_is_standalone_zsh_force_glob_parameter(word: &Word) -> bool {
+    matches!(
+        word.parts.as_slice(),
+        [part]
+            if matches!(
+                &part.kind,
+                WordPart::Parameter(parameter)
+                    if parameter_expansion_forces_zsh_globbing(parameter)
+            )
+    )
+}
+
+/// Returns whether `span` points at a zsh `${~...}`-style expansion inside `word`.
+pub fn word_span_is_zsh_force_glob_parameter(word: &Word, span: Span) -> bool {
+    word_parts_contain_zsh_force_glob_span(&word.parts, span)
+}
+
+fn word_parts_contain_zsh_force_glob_span(parts: &[WordPartNode], span: Span) -> bool {
+    parts.iter().any(|part| match &part.kind {
+        WordPart::Parameter(parameter) => {
+            part.span == span && parameter_expansion_forces_zsh_globbing(parameter)
+        }
+        WordPart::DoubleQuoted { parts, .. } => word_parts_contain_zsh_force_glob_span(parts, span),
+        _ => false,
+    })
+}
+
 /// Returns whether the word captures only the previous command status.
 pub fn word_is_standalone_status_capture(word: &Word) -> bool {
     matches!(word.parts.as_slice(), [part] if is_standalone_status_capture_part(&part.kind))
@@ -3894,6 +3931,29 @@ mod tests {
         }
     }
 
+    fn zsh_parameter_with_modifiers(modifiers: &[char], span: Span) -> ParameterExpansion {
+        ParameterExpansion {
+            syntax: ParameterExpansionSyntax::Zsh(ZshParameterExpansion {
+                target: ZshExpansionTarget::Reference(plain_ref("name")),
+                modifiers: modifiers
+                    .iter()
+                    .copied()
+                    .map(|name| ZshModifier {
+                        name,
+                        argument: None,
+                        argument_word_ast: None,
+                        argument_delimiter: None,
+                        span,
+                    })
+                    .collect(),
+                length_prefix: None,
+                operation: None,
+            }),
+            span,
+            raw_body: "name".into(),
+        }
+    }
+
     fn indexed_ref(name: &str, index: &str) -> VarRef {
         let span = Span::new();
         VarRef {
@@ -4103,6 +4163,106 @@ mod tests {
                 dollar: false,
             }
         ])));
+    }
+
+    #[test]
+    fn zsh_force_glob_helpers_match_odd_tilde_modifiers_only() {
+        let span = Span::new();
+        let single_tilde = zsh_parameter_with_modifiers(&['~'], span);
+        let double_tilde = zsh_parameter_with_modifiers(&['~', '~'], span);
+        let split_then_tilde = zsh_parameter_with_modifiers(&['=', '~'], span);
+        let no_tilde = zsh_parameter_with_modifiers(&['='], span);
+        let bourne = ParameterExpansion {
+            syntax: ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access {
+                reference: plain_ref("name"),
+            }),
+            span,
+            raw_body: "name".into(),
+        };
+
+        assert!(parameter_expansion_forces_zsh_globbing(&single_tilde));
+        assert!(!parameter_expansion_forces_zsh_globbing(&double_tilde));
+        assert!(parameter_expansion_forces_zsh_globbing(&split_then_tilde));
+        assert!(!parameter_expansion_forces_zsh_globbing(&no_tilde));
+        assert!(!parameter_expansion_forces_zsh_globbing(&bourne));
+    }
+
+    #[test]
+    fn standalone_zsh_force_glob_helper_rejects_affixed_and_nested_words() {
+        let span = Span::new();
+        let forced = WordPart::Parameter(zsh_parameter_with_modifiers(&['~'], span));
+
+        assert!(word_is_standalone_zsh_force_glob_parameter(&word(vec![
+            forced.clone()
+        ])));
+        assert!(!word_is_standalone_zsh_force_glob_parameter(&word(vec![
+            WordPart::Literal(LiteralText::owned("prefix")),
+            forced.clone(),
+        ])));
+        assert!(!word_is_standalone_zsh_force_glob_parameter(&word(vec![
+            WordPart::DoubleQuoted {
+                parts: vec![WordPartNode::new(forced, span)],
+                dollar: false,
+            }
+        ])));
+    }
+
+    #[test]
+    fn zsh_force_glob_span_helper_finds_nested_expansion_spans() {
+        let outer_span = Span::from_positions(
+            Position {
+                line: 1,
+                column: 1,
+                offset: 0,
+            },
+            Position {
+                line: 1,
+                column: 22,
+                offset: 21,
+            },
+        );
+        let forced_span = Span::from_positions(
+            Position {
+                line: 1,
+                column: 10,
+                offset: 9,
+            },
+            Position {
+                line: 1,
+                column: 19,
+                offset: 18,
+            },
+        );
+        let other_span = Span::from_positions(
+            Position {
+                line: 1,
+                column: 20,
+                offset: 19,
+            },
+            Position {
+                line: 1,
+                column: 21,
+                offset: 20,
+            },
+        );
+        let word = Word {
+            parts: vec![WordPartNode::new(
+                WordPart::DoubleQuoted {
+                    parts: vec![WordPartNode::new(
+                        WordPart::Parameter(zsh_parameter_with_modifiers(&['~'], forced_span)),
+                        forced_span,
+                    )],
+                    dollar: false,
+                },
+                outer_span,
+            )],
+            span: outer_span,
+            brace_syntax: Vec::new(),
+        };
+
+        assert!(word_span_is_zsh_force_glob_parameter(&word, forced_span));
+        assert!(!word_span_is_zsh_force_glob_parameter(&word, outer_span));
+        assert!(!word_span_is_zsh_force_glob_parameter(&word, other_span));
     }
 
     #[test]

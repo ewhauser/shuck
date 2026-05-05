@@ -1,4 +1,4 @@
-use shuck_ast::word_is_standalone_variable_like;
+use shuck_ast::{word_is_standalone_variable_like, word_is_standalone_zsh_force_glob_parameter};
 
 use crate::{
     Checker, ConditionalNodeFact, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation,
@@ -49,6 +49,10 @@ pub fn glob_in_string_comparison(checker: &mut Checker) {
             }
 
             let word = right.word()?;
+            if word_is_standalone_zsh_force_glob_parameter(word) {
+                return None;
+            }
+
             word_is_standalone_variable_like(word).then_some(word.span)
         })
         .map(|span| {
@@ -97,6 +101,31 @@ if [ \"$a\" = $b ]; then :; fi
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$pkgs", "$1", "${b%%x}", "${arr[0]}"]
+        );
+    }
+
+    #[test]
+    fn skips_zsh_explicit_pattern_expansion_rhs() {
+        let source = "\
+#!/usr/bin/env zsh
+pattern='f*'
+if [[ foo == ${~pattern} ]]; then :; fi
+if [[ foo = ${=~pattern} ]]; then :; fi
+if [[ foo != ${~~~pattern} ]]; then :; fi
+if [[ foo == ${~~literal} ]]; then :; fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::GlobInStringComparison)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${~~literal}"]
         );
     }
 

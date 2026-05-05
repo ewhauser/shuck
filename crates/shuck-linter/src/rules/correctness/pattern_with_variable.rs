@@ -50,6 +50,7 @@ pub fn pattern_with_variable(checker: &mut Checker) {
                 .iter()
                 .copied()
                 .filter(|span| !span_is_within_any(*span, quoted_expansion_spans))
+                .filter(|span| !fact.expansion_span_is_zsh_force_glob_parameter(*span))
                 .map(|span| {
                     crate::Diagnostic::new(PatternWithVariable, span).with_fix(Fix::unsafe_edit(
                         Edit::replacement(format!("\"{}\"", span.slice(source)), span),
@@ -135,6 +136,32 @@ one_trimmed=${items[i]%$item_suffix}
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$trimmed_suffix"]
+        );
+    }
+
+    #[test]
+    fn skips_zsh_explicit_pattern_expansion_operands() {
+        let source = "\
+#!/usr/bin/env zsh
+value=foobar
+prefix='foo*'
+trimmed=${value#${~prefix}}
+long_trimmed=${value##${=~prefix}}
+suffix_trimmed=${value%${~~~suffix}}
+literal_trimmed=${value#${~~literal}}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PatternWithVariable)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${~~literal}"]
         );
     }
 
