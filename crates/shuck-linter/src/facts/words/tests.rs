@@ -522,6 +522,63 @@ mod expansion_analysis_tests {
     }
 
     #[test]
+    fn analyze_literal_runtime_respects_sh_file_expansion_tilde_order() {
+        let source = "print ~$USER ~root/$USER ~/\"$USER\" ~$USER/x\n";
+        let words = parse_argument_words(source);
+        let native_options = shuck_semantic::ZshOptionState::zsh_default();
+        let sh_file_options = shuck_semantic::ZshOptionState {
+            sh_file_expansion: shuck_semantic::OptionValue::On,
+            ..shuck_semantic::ZshOptionState::zsh_default()
+        };
+        let unknown_options = shuck_semantic::ZshOptionState {
+            sh_file_expansion: shuck_semantic::OptionValue::Unknown,
+            ..shuck_semantic::ZshOptionState::zsh_default()
+        };
+
+        let native_dynamic_user = analyze_literal_runtime(
+            &words[0],
+            source,
+            ExpansionContext::CommandArgument,
+            Some(&native_options),
+        );
+        let sh_file_dynamic_user = analyze_literal_runtime(
+            &words[0],
+            source,
+            ExpansionContext::CommandArgument,
+            Some(&sh_file_options),
+        );
+        let sh_file_literal_user = analyze_literal_runtime(
+            &words[1],
+            source,
+            ExpansionContext::CommandArgument,
+            Some(&sh_file_options),
+        );
+        let sh_file_home = analyze_literal_runtime(
+            &words[2],
+            source,
+            ExpansionContext::CommandArgument,
+            Some(&sh_file_options),
+        );
+        let unknown_dynamic_user = analyze_literal_runtime(
+            &words[3],
+            source,
+            ExpansionContext::CommandArgument,
+            Some(&unknown_options),
+        );
+        let default_dynamic_user =
+            analyze_literal_runtime(&words[0], source, ExpansionContext::CommandArgument, None);
+
+        assert!(!default_dynamic_user.hazards.tilde_expansion);
+        assert!(!default_dynamic_user.is_runtime_sensitive());
+        assert!(native_dynamic_user.hazards.tilde_expansion);
+        assert!(!sh_file_dynamic_user.is_runtime_sensitive());
+        assert!(!sh_file_dynamic_user.hazards.tilde_expansion);
+        assert!(sh_file_literal_user.hazards.tilde_expansion);
+        assert!(sh_file_home.hazards.tilde_expansion);
+        assert!(unknown_dynamic_user.hazards.tilde_expansion);
+    }
+
+    #[test]
     fn analyze_literal_runtime_records_glob_failure_behavior() {
         let source = "print *.jpg\n";
         let words = parse_argument_words(source);
