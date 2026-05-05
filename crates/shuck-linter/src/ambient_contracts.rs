@@ -61,10 +61,16 @@ impl FileEntryContractCollector for AmbientContractCollector<'_> {
 }
 
 fn providers() -> &'static [AmbientContractProvider] {
-    &[AmbientContractProvider {
-        matches: matches_sourced_runtime_contract,
-        build: build_sourced_runtime_contract,
-    }]
+    &[
+        AmbientContractProvider {
+            matches: matches_sourced_runtime_contract,
+            build: build_sourced_runtime_contract,
+        },
+        AmbientContractProvider {
+            matches: matches_zsh_config_contract,
+            build: build_zsh_config_contract,
+        },
+    ]
 }
 
 fn merge_contract(merged: &mut FileContract, contract: FileContract) {
@@ -77,6 +83,9 @@ fn merge_contract(merged: &mut FileContract, contract: FileContract) {
     }
     for function in contract.provided_functions {
         merged.add_provided_function(function);
+    }
+    for prefix in contract.externally_consumed_binding_prefixes {
+        merged.add_externally_consumed_binding_prefix(prefix);
     }
 }
 
@@ -112,6 +121,35 @@ fn build_sourced_runtime_contract(
         ));
     }
     contract
+}
+
+fn matches_zsh_config_contract(
+    collector: &AmbientContractCollector<'_>,
+    _path: &Path,
+    shell: ShellDialect,
+) -> bool {
+    shell == ShellDialect::Zsh
+        && zsh_config_consumed_prefixes(collector.source)
+            .next()
+            .is_some()
+}
+
+fn build_zsh_config_contract(
+    collector: &AmbientContractCollector<'_>,
+    _path: &Path,
+    _shell: ShellDialect,
+) -> FileContract {
+    let mut contract = FileContract::default();
+    for prefix in zsh_config_consumed_prefixes(collector.source) {
+        contract.add_externally_consumed_binding_prefix(Name::from(prefix));
+    }
+    contract
+}
+
+fn zsh_config_consumed_prefixes(source: &str) -> impl Iterator<Item = &'static str> + '_ {
+    ["POWERLEVEL9K_", "ZDOT_"]
+        .into_iter()
+        .filter(|prefix| source.contains(prefix))
 }
 
 fn sourced_runtime_path_shape(lower: &str) -> bool {
@@ -368,10 +406,14 @@ mod tests {
     };
 
     fn contract_for(path: &Path, source: &str) -> Option<FileContract> {
+        contract_for_shell(path, source, ShellDialect::Sh)
+    }
+
+    fn contract_for_shell(path: &Path, source: &str, shell: ShellDialect) -> Option<FileContract> {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let mut observer = NoopTraversalObserver;
-        let mut collector = AmbientContractCollector::new(source, Some(path), ShellDialect::Sh);
+        let mut collector = AmbientContractCollector::new(source, Some(path), shell);
         let _semantic = build_with_observer_with_options(
             &output.file,
             source,
@@ -399,6 +441,13 @@ mod tests {
                 && binding.file_entry_initialization
                     == shuck_semantic::FileEntryBindingInitialization::AmbientOnly
         })
+    }
+
+    fn has_consumed_prefix(contract: &FileContract, prefix: &str) -> bool {
+        contract
+            .externally_consumed_binding_prefixes
+            .iter()
+            .any(|consumed_prefix| consumed_prefix.as_str() == prefix)
     }
 
     #[test]
@@ -452,6 +501,29 @@ helper() {
         assert!(!has_initialized_binding(&contract, "green"));
         assert!(!has_initialized_binding(&contract, "reset_color"));
         assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn zsh_config_namespaces_get_consumed_prefix_contracts() {
+        let path = Path::new("/tmp/powerlevel10k/.p10k.zsh");
+        let source = "\
+POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(dir vcs)
+ZDOT_MODULE_NAME=prompt
+";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        assert!(has_consumed_prefix(&contract, "POWERLEVEL9K_"));
+        assert!(has_consumed_prefix(&contract, "ZDOT_"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn zsh_config_prefix_contracts_are_zsh_only() {
+        let path = Path::new("/tmp/project/script.sh");
+        let source = "POWERLEVEL9K_DIR_FOREGROUND=31\n";
+
+        assert!(contract_for_shell(path, source, ShellDialect::Sh).is_none());
     }
 
     #[test]

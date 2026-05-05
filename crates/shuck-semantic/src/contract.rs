@@ -199,6 +199,8 @@ pub struct FileContract {
     pub provided_functions: Vec<FunctionContract>,
     /// Whether the file may consume bindings through external runtime behavior.
     pub externally_consumed_bindings: bool,
+    /// Binding name prefixes consumed through external runtime behavior.
+    pub externally_consumed_binding_prefixes: Vec<Name>,
 }
 
 /// Build-time collector for file-entry contracts discovered during semantic traversal.
@@ -241,6 +243,17 @@ impl FileContract {
         }
     }
 
+    /// Marks a binding name prefix as externally consumed by this file.
+    pub fn add_externally_consumed_binding_prefix(&mut self, prefix: Name) {
+        if !self
+            .externally_consumed_binding_prefixes
+            .iter()
+            .any(|existing| existing == &prefix)
+        {
+            self.externally_consumed_binding_prefixes.push(prefix);
+        }
+    }
+
     /// Adds or merges a provided function into the file contract.
     pub fn add_provided_function(&mut self, function: FunctionContract) {
         let mut merged = false;
@@ -277,6 +290,9 @@ impl FileContract {
 
         for contract in contracts {
             merged.externally_consumed_bindings |= contract.externally_consumed_bindings;
+            for prefix in &contract.externally_consumed_binding_prefixes {
+                merged.add_externally_consumed_binding_prefix(prefix.clone());
+            }
             for name in &contract.required_reads {
                 merged.add_required_read(name.clone());
             }
