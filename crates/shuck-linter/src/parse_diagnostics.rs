@@ -56,6 +56,13 @@ pub(crate) fn collect_parse_rule_diagnostics(
     let parse_diagnostics = parse_result
         .map(|result| result.diagnostics.as_slice())
         .unwrap_or(&[]);
+    if parse_diagnostics.is_empty()
+        && !targets_non_zsh_shell(shell)
+        && !is_x037_shell(shell)
+        && !is_x048_shell(shell)
+    {
+        return diagnostics;
+    }
     let missing_done_loop_kind = (enabled_rules.contains(crate::Rule::LoopWithoutEnd)
         || enabled_rules.contains(crate::Rule::MissingDoneInForLoop))
     .then(|| missing_done_loop_kind(file, source, parse_diagnostics, semantic))
