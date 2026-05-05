@@ -1627,6 +1627,72 @@ fn test_compound_array_process_substitution_stays_typed_for_comma_detection() {
 }
 
 #[test]
+fn test_zsh_array_comma_detection_ignores_subscript_ranges_and_glob_qualifiers() {
+    let input = r#"arr=(
+  $spinner[2,-1]
+  $_p9k__display_v[k,k+1]
+  ${assoc[$key,$fallback]}
+  ${arr[1,${last:-2}]}
+  ${(@)${:-{$#parts..1}}/(#m)*/$parent${(pj./.)parts[1,MATCH]}}
+  **/*(.om[1,3])
+  *.log(#q.om[1,3])
+  ${expanded_path}*(N-*,N-/)
+  "${dir}"/*(.om[1,3])
+  plain(group,with,commas)
+  a,b
+  ${expanded_path}(N-*,N-/)
+)
+"#;
+    let output = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let AstCommand::Simple(command) = &output.file.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Compound(array) = &command.assignments[0].value else {
+        panic!("expected compound array assignment");
+    };
+
+    let expected = [
+        ("$spinner[2,-1]", false),
+        ("$_p9k__display_v[k,k+1]", false),
+        ("${assoc[$key,$fallback]}", false),
+        ("${arr[1,${last:-2}]}", false),
+        (
+            "${(@)${:-{$#parts..1}}/(#m)*/$parent${(pj./.)parts[1,MATCH]}}",
+            false,
+        ),
+        ("**/*(.om[1,3])", false),
+        ("*.log(#q.om[1,3])", false),
+        ("${expanded_path}*(N-*,N-/)", false),
+        ("\"${dir}\"/*(.om[1,3])", false),
+        ("plain(group,with,commas)", true),
+        ("a,b", true),
+        ("${expanded_path}(N-*,N-/)", true),
+    ];
+
+    assert_eq!(
+        array.elements.len(),
+        expected.len(),
+        "{:#?}",
+        array.elements
+    );
+    for (index, (expected_span, expected_comma)) in expected.into_iter().enumerate() {
+        let ArrayElem::Sequential(value) = &array.elements[index] else {
+            panic!("expected sequential element at index {index}");
+        };
+        assert_eq!(value.span.slice(input), expected_span);
+        assert_eq!(
+            value.has_top_level_unquoted_comma(),
+            expected_comma,
+            "unexpected comma flag for {}: {:#?}",
+            value.span.slice(input),
+            value.word
+        );
+    }
+}
+
+#[test]
 fn test_word_part_spans_track_mixed_expansions() {
     let input = "echo pre${name:-fallback}$(printf hi)$((1+2))post\n";
     let script = Parser::new(input).parse().unwrap().file;

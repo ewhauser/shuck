@@ -1452,7 +1452,9 @@ impl<'a> Parser<'a> {
                 }
                 ',' if !in_single && !in_ansi_c_single && !in_double && !in_backtick => {
                     let comma_offset = word.span.start.offset + index;
-                    if !self.comma_is_brace_separator(word, comma_offset, was_escaped) {
+                    if !self.comma_is_brace_separator(word, comma_offset, was_escaped)
+                        && !self.comma_is_zsh_word_syntax(word, comma_offset)
+                    {
                         return true;
                     }
                 }
@@ -1862,6 +1864,71 @@ impl<'a> Parser<'a> {
             .copied()
             .filter(|brace| brace.expands())
             .any(|brace| brace.span.start.offset <= offset && offset < brace.span.end.offset)
+    }
+
+    fn comma_is_zsh_word_syntax(&self, word: &Word, comma_offset: usize) -> bool {
+        self.dialect == ShellDialect::Zsh
+            && (word
+                .parts
+                .iter()
+                .any(|part| word_part_has_zsh_syntax_comma(&part.kind, comma_offset))
+                || self.comma_is_zsh_terminal_glob_group_syntax(word, comma_offset))
+    }
+
+    fn comma_is_zsh_terminal_glob_group_syntax(&self, word: &Word, comma_offset: usize) -> bool {
+        if comma_offset < word.span.start.offset || word.span.end.offset <= comma_offset {
+            return false;
+        }
+
+        let text = word.span.slice(self.input);
+        let relative_comma = comma_offset - word.span.start.offset;
+        let Some(group_start) = Self::enclosing_terminal_group_start(text, relative_comma) else {
+            return false;
+        };
+
+        Self::text_has_zsh_glob_syntax(&text[..group_start])
+    }
+
+    fn enclosing_terminal_group_start(text: &str, target: usize) -> Option<usize> {
+        if !text.ends_with(')') || target >= text.len() {
+            return None;
+        }
+
+        let mut depth = 0usize;
+        let mut group_start = None;
+        for (index, ch) in text.char_indices().rev() {
+            match ch {
+                ')' => depth += 1,
+                '(' => {
+                    depth = depth.checked_sub(1)?;
+                    if depth == 0 {
+                        group_start = Some(index);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let group_start = group_start?;
+        (group_start < target && target < text.len() - ')'.len_utf8()).then_some(group_start)
+    }
+
+    fn text_has_zsh_glob_syntax(text: &str) -> bool {
+        let mut escaped = false;
+        for ch in text.chars() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' => escaped = true,
+                '*' | '?' | '[' => return true,
+                _ => {}
+            }
+        }
+
+        false
     }
 
     fn inside_unquoted_brace_group(&self, word: &Word, target_offset: usize) -> bool {
@@ -6246,6 +6313,179 @@ impl<'a> Parser<'a> {
 
         false
     }
+}
+
+fn word_part_has_zsh_syntax_comma(part: &WordPart, comma_offset: usize) -> bool {
+    match part {
+        WordPart::ZshQualifiedGlob(glob) => glob
+            .qualifiers
+            .as_ref()
+            .is_some_and(|qualifiers| span_contains_offset(qualifiers.span, comma_offset)),
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| word_part_has_zsh_syntax_comma(&part.kind, comma_offset)),
+        WordPart::Parameter(expansion) => {
+            parameter_expansion_has_zsh_syntax_comma(expansion, comma_offset)
+        }
+        WordPart::ParameterExpansion {
+            reference,
+            operand_word_ast,
+            ..
+        }
+        | WordPart::IndirectExpansion {
+            reference,
+            operand_word_ast,
+            ..
+        } => {
+            var_ref_subscript_contains_offset(reference, comma_offset)
+                || operand_word_ast
+                    .as_deref()
+                    .is_some_and(|word| word_has_zsh_syntax_comma(word, comma_offset))
+        }
+        WordPart::Length(reference)
+        | WordPart::ArrayAccess(reference)
+        | WordPart::ArrayLength(reference)
+        | WordPart::ArrayIndices(reference)
+        | WordPart::Transformation { reference, .. } => {
+            var_ref_subscript_contains_offset(reference, comma_offset)
+        }
+        WordPart::Substring {
+            reference,
+            offset_word_ast,
+            length_word_ast,
+            ..
+        }
+        | WordPart::ArraySlice {
+            reference,
+            offset_word_ast,
+            length_word_ast,
+            ..
+        } => {
+            var_ref_subscript_contains_offset(reference, comma_offset)
+                || word_has_zsh_syntax_comma(offset_word_ast, comma_offset)
+                || length_word_ast
+                    .as_deref()
+                    .is_some_and(|word| word_has_zsh_syntax_comma(word, comma_offset))
+        }
+        WordPart::ArithmeticExpansion {
+            expression_word_ast,
+            ..
+        } => word_has_zsh_syntax_comma(expression_word_ast, comma_offset),
+        _ => false,
+    }
+}
+
+fn parameter_expansion_has_zsh_syntax_comma(
+    expansion: &ParameterExpansion,
+    comma_offset: usize,
+) -> bool {
+    match &expansion.syntax {
+        ParameterExpansionSyntax::Bourne(expansion) => {
+            bourne_parameter_expansion_has_zsh_syntax_comma(expansion, comma_offset)
+        }
+        ParameterExpansionSyntax::Zsh(expansion) => {
+            zsh_parameter_expansion_has_zsh_syntax_comma(expansion, comma_offset)
+        }
+    }
+}
+
+fn bourne_parameter_expansion_has_zsh_syntax_comma(
+    expansion: &BourneParameterExpansion,
+    comma_offset: usize,
+) -> bool {
+    match expansion {
+        BourneParameterExpansion::Access { reference }
+        | BourneParameterExpansion::Length { reference }
+        | BourneParameterExpansion::Indices { reference }
+        | BourneParameterExpansion::Transformation { reference, .. } => {
+            var_ref_subscript_contains_offset(reference, comma_offset)
+        }
+        BourneParameterExpansion::Indirect {
+            reference,
+            operand_word_ast,
+            ..
+        }
+        | BourneParameterExpansion::Operation {
+            reference,
+            operand_word_ast,
+            ..
+        } => {
+            var_ref_subscript_contains_offset(reference, comma_offset)
+                || operand_word_ast
+                    .as_deref()
+                    .is_some_and(|word| word_has_zsh_syntax_comma(word, comma_offset))
+        }
+        BourneParameterExpansion::Slice {
+            reference,
+            offset_word_ast,
+            length_word_ast,
+            ..
+        } => {
+            var_ref_subscript_contains_offset(reference, comma_offset)
+                || word_has_zsh_syntax_comma(offset_word_ast, comma_offset)
+                || length_word_ast
+                    .as_deref()
+                    .is_some_and(|word| word_has_zsh_syntax_comma(word, comma_offset))
+        }
+        BourneParameterExpansion::PrefixMatch { .. } => false,
+    }
+}
+
+fn zsh_parameter_expansion_has_zsh_syntax_comma(
+    expansion: &ZshParameterExpansion,
+    comma_offset: usize,
+) -> bool {
+    zsh_expansion_target_has_zsh_syntax_comma(&expansion.target, comma_offset)
+        || expansion.modifiers.iter().any(|modifier| {
+            modifier
+                .argument_word_ast()
+                .is_some_and(|word| word_has_zsh_syntax_comma(word, comma_offset))
+        })
+        || expansion
+            .operation
+            .as_ref()
+            .is_some_and(|operation| zsh_operation_has_zsh_syntax_comma(operation, comma_offset))
+}
+
+fn zsh_expansion_target_has_zsh_syntax_comma(
+    target: &ZshExpansionTarget,
+    comma_offset: usize,
+) -> bool {
+    match target {
+        ZshExpansionTarget::Reference(reference) => {
+            var_ref_subscript_contains_offset(reference, comma_offset)
+        }
+        ZshExpansionTarget::Nested(expansion) => {
+            parameter_expansion_has_zsh_syntax_comma(expansion, comma_offset)
+        }
+        ZshExpansionTarget::Word(word) => word_has_zsh_syntax_comma(word, comma_offset),
+        ZshExpansionTarget::Empty => false,
+    }
+}
+
+fn zsh_operation_has_zsh_syntax_comma(
+    operation: &ZshExpansionOperation,
+    comma_offset: usize,
+) -> bool {
+    operation
+        .operand_word_ast()
+        .is_some_and(|word| word_has_zsh_syntax_comma(word, comma_offset))
+}
+
+fn word_has_zsh_syntax_comma(word: &Word, comma_offset: usize) -> bool {
+    word.parts
+        .iter()
+        .any(|part| word_part_has_zsh_syntax_comma(&part.kind, comma_offset))
+}
+
+fn var_ref_subscript_contains_offset(reference: &VarRef, offset: usize) -> bool {
+    reference.subscript.as_deref().is_some_and(|subscript| {
+        span_contains_offset(subscript.syntax_source_text().span(), offset)
+    })
+}
+
+fn span_contains_offset(span: Span, offset: usize) -> bool {
+    span.start.offset <= offset && offset < span.end.offset
 }
 
 #[inline]
