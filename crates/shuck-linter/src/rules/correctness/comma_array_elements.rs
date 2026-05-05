@@ -85,6 +85,43 @@ opts=(
     }
 
     #[test]
+    fn ignores_zsh_subscript_ranges_and_glob_qualifier_commas() {
+        let source = "\
+#!/bin/zsh
+spinner=(a b c)
+spinner=($spinner[2,-1] $spinner[1])
+reply+=($_p9k__display_v[k,k+1])
+tmp=( ${expanded_path}*(N-*,N-/) )
+files=( **/*(.om[1,3]) *.log(#q.om[1,3]) )
+parents=( ${(@)${:-{$#parts..1}}/(#m)*/$parent${(pj./.)parts[1,MATCH]}} )
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CommaArrayElements).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_non_zsh_commas_that_resemble_zsh_subscripts_and_qualifiers() {
+        let source = "\
+#!/bin/bash
+spinner=($spinner[2,-1])
+files=(**/*(.om[1,3]))
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CommaArrayElements));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["($spinner[2,-1])", "(**/*(.om[1,3]))"]
+        );
+    }
+
+    #[test]
     fn reports_comma_separated_array_literals_in_zsh() {
         let source = "\
 #!/bin/zsh
