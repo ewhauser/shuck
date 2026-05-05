@@ -236,7 +236,6 @@ fn literal_brace_word_span_is_reportable(
     source: &str,
 ) -> bool {
     !span_inside_nested_escaped_parameter_template(word, span, source)
-        && !brace_span_is_plain_parameter_expansion_edge(word, span, source)
         && !word_span_is_inside_command_substitution(nodes, fact, fact_store, span)
 }
 
@@ -252,47 +251,6 @@ fn word_span_is_inside_command_substitution(
         .iter()
         .copied()
         .any(|substitution| contains_span(substitution, span))
-}
-
-fn brace_span_is_plain_parameter_expansion_edge(word: &Word, span: Span, source: &str) -> bool {
-    if span.start.offset < word.span.start.offset || span.start.offset >= word.span.end.offset {
-        return false;
-    }
-
-    let text = word.span.slice(source);
-    let relative_offset = span.start.offset - word.span.start.offset;
-    let mut index = 0usize;
-
-    while index < text.len() {
-        if text[index..].starts_with("${")
-            && !has_odd_backslash_run_before(text, index)
-            && let Some(end_offset) = find_runtime_parameter_closing_brace(text, index)
-        {
-            let open_brace_offset = index + '$'.len_utf8();
-            let close_brace_offset = end_offset.saturating_sub('}'.len_utf8());
-            if relative_offset == open_brace_offset || relative_offset == close_brace_offset {
-                return true;
-            }
-            index = end_offset;
-            continue;
-        }
-
-        let Some(ch) = text[index..].chars().next() else {
-            break;
-        };
-        let ch_len = ch.len_utf8();
-        if ch == '\\' {
-            index += ch_len;
-            if let Some(escaped) = text[index..].chars().next() {
-                index += escaped.len_utf8();
-            }
-            continue;
-        }
-
-        index += ch_len;
-    }
-
-    false
 }
 
 fn is_find_exec_placeholder_word(
