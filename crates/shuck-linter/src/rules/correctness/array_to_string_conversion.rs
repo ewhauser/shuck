@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use shuck_ast::Name;
 use shuck_semantic::{
-    Binding, BindingAttributes, BindingKind, Declaration, DeclarationBuiltin, DeclarationOperand,
-    ScopeId,
+    ArrayReferencePolicy, Binding, BindingAttributes, BindingKind, Declaration, DeclarationBuiltin,
+    DeclarationOperand, ScopeId,
 };
 
 use crate::{Checker, ComparableNameUseKind, Rule, ShellDialect, Violation, WrapperKind};
@@ -88,6 +88,19 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
             }
 
             checker.facts().binding_value(binding.id)?.scalar_word()?;
+
+            if zsh_selectorless_subscript_value_resets_scalar_history(
+                checker,
+                binding,
+                saw_array_history,
+            ) {
+                push_array_history(
+                    &mut array_history,
+                    name,
+                    ArrayHistoryState::from_binding(checker, binding, false, None),
+                );
+                return None;
+            }
 
             if binding_establishes_array_history(binding, &builtin_history) {
                 let prior = latest_array_history(&array_history, &name);
@@ -196,6 +209,26 @@ impl ArrayHistoryState {
         !self.local
             || self.function_scope == checker.semantic().enclosing_function_scope(binding.scope)
     }
+}
+
+fn zsh_selectorless_subscript_value_resets_scalar_history(
+    checker: &Checker<'_>,
+    binding: &Binding,
+    saw_array_history: bool,
+) -> bool {
+    checker.shell() == ShellDialect::Zsh
+        && !saw_array_history
+        && matches!(
+            checker
+                .semantic()
+                .shell_behavior_at(binding.span.start.offset)
+                .array_reference_policy(),
+            ArrayReferencePolicy::NativeZshScalar
+        )
+        && checker
+            .facts()
+            .binding_value(binding.id)
+            .is_some_and(|value| value.zsh_selectorless_subscript_value())
 }
 
 fn array_history_events(
@@ -1515,6 +1548,35 @@ exts+=\" ${exts^^}\"
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["exts"],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn zsh_scalar_string_slices_do_not_hide_array_element_conversions() {
+        let source = "\
+#!/bin/zsh
+ret=abcdef
+ret[-1,-1]=''
+ret=${ret[2,-1]}
+items=(one two)
+items=$items[1]
+setopt ksh_arrays
+kitems=(one two)
+kitems=$kitems[1]
+echo \"$ret\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["items", "kitems"],
             "{diagnostics:#?}"
         );
     }

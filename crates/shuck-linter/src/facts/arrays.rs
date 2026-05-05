@@ -56,6 +56,8 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
         reference: &Reference,
     ) -> Option<PlainUnindexedArrayReferenceFact> {
         if self.semantic.is_guarded_parameter_reference(reference.id)
+            || self.reference_is_zsh_conditional_operand(reference)
+            || self.reference_is_zsh_presence_test(reference)
             || self.reference_has_prior_presence_test(reference)
             || self.reference_reads_into_same_name_array_writer(reference)
             || self.reference_has_prior_zsh_scalar_local_barrier(reference)
@@ -257,6 +259,26 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
                         binding_suppresses_same_command_array_read(binding, assignment_only)
                     })
         })
+    }
+
+    fn reference_is_zsh_conditional_operand(&self, reference: &Reference) -> bool {
+        matches!(
+            self.array_reference_policy(reference),
+            shuck_semantic::ArrayReferencePolicy::NativeZshScalar
+        )
+            && matches!(reference.kind, shuck_semantic::ReferenceKind::ConditionalOperand)
+    }
+
+    fn reference_is_zsh_presence_test(&self, reference: &Reference) -> bool {
+        matches!(
+            self.array_reference_policy(reference),
+            shuck_semantic::ArrayReferencePolicy::NativeZshScalar
+        )
+            && self
+                .facts
+                .presence_test_references(&reference.name)
+                .iter()
+                .any(|test| test.reference_id() == reference.id)
     }
 
     fn reference_has_prior_presence_test(&mut self, reference: &Reference) -> bool {
