@@ -823,9 +823,14 @@ fn has_unclosed_assoc_key_prefix(word: &Word, source: &str) -> bool {
     saw_equals
 }
 
-fn collect_comma_array_assignment_spans(command: &Command, source: &str, spans: &mut Vec<Span>) {
+fn collect_comma_array_assignment_spans(
+    command: &Command,
+    source: &str,
+    shell: ShellDialect,
+    spans: &mut Vec<Span>,
+) {
     for assignment in command_assignments(command) {
-        if let Some(span) = comma_array_assignment_span(assignment, source) {
+        if let Some(span) = comma_array_assignment_span(assignment, source, shell) {
             spans.push(span);
         }
     }
@@ -834,7 +839,7 @@ fn collect_comma_array_assignment_spans(command: &Command, source: &str, spans: 
         let DeclOperand::Assignment(assignment) = operand else {
             continue;
         };
-        if let Some(span) = comma_array_assignment_span(assignment, source) {
+        if let Some(span) = comma_array_assignment_span(assignment, source, shell) {
             spans.push(span);
         }
     }
@@ -881,23 +886,53 @@ fn ifs_literal_backslash_assignment_value_span(
         .then_some(word.span)
 }
 
-fn comma_array_assignment_span(assignment: &Assignment, source: &str) -> Option<Span> {
+fn comma_array_assignment_span(
+    assignment: &Assignment,
+    source: &str,
+    shell: ShellDialect,
+) -> Option<Span> {
     let AssignmentValue::Compound(array) = &assignment.value else {
         return None;
     };
-    if !array_value_has_unquoted_comma(array, source) {
+    if !array_value_has_unquoted_comma(array, source, shell) {
         return None;
     }
 
     compound_assignment_paren_span(assignment, source)
 }
 
-fn array_value_has_unquoted_comma(array: &shuck_ast::ArrayExpr, source: &str) -> bool {
-    let _ = source;
-    array
-        .elements
-        .iter()
-        .any(|element| element.value().has_top_level_unquoted_comma())
+fn array_value_has_unquoted_comma(
+    array: &shuck_ast::ArrayExpr,
+    source: &str,
+    shell: ShellDialect,
+) -> bool {
+    array.elements.iter().any(|element| {
+        let value = element.value();
+        value.has_top_level_unquoted_comma()
+            && !(shell == ShellDialect::Zsh && zsh_option_map_value_allows_comma(value, source))
+    })
+}
+
+fn zsh_option_map_value_allows_comma(value: &shuck_ast::ArrayValueWord, source: &str) -> bool {
+    let Some(text) = static_word_text(value, source) else {
+        return false;
+    };
+    let aliases = text.split(':').next().unwrap_or_default();
+    let Some(rest) = aliases.strip_prefix("opt_") else {
+        return false;
+    };
+
+    let parts = rest.split(',').collect::<Vec<_>>();
+    parts.len() > 1 && parts.iter().copied().all(zsh_option_alias_part)
+}
+
+fn zsh_option_alias_part(part: &str) -> bool {
+    part.starts_with('-')
+        && part.len() > 1
+        && part
+            .bytes()
+            .skip(1)
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
 fn compound_assignment_paren_span(assignment: &Assignment, source: &str) -> Option<Span> {

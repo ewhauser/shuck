@@ -203,6 +203,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 collect_comma_array_assignment_spans(
                     visit.command,
                     self.source,
+                    self.shell,
                     &mut comma_array_assignment_spans,
                 );
                 collect_ifs_literal_backslash_assignment_value_spans(

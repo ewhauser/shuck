@@ -22,7 +22,7 @@ pub fn comma_array_elements(checker: &mut Checker) {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_comma_separated_array_literals() {
@@ -64,5 +64,43 @@ e=({$XDG_CONFIG_HOME,$HOME}/{alacritty,}/{.,}alacritty.ym?)
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CommaArrayElements));
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_option_map_values() {
+        let source = "\
+#!/bin/zsh
+local -A opts
+opts=(
+  -q       opt_-q,--quiet:\"update:[quiet mode] *:[less output]\"
+  --quiet  opt_-q,--quiet
+)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CommaArrayElements).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_comma_separated_array_literals_in_zsh() {
+        let source = "\
+#!/bin/zsh
+parts=(alpha,beta)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CommaArrayElements).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["(alpha,beta)"]
+        );
     }
 }
