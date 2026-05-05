@@ -637,13 +637,15 @@ impl<'a> Analyzer<'a> {
         leak: LeakBehavior,
     ) -> EvalState {
         let command = self.recorded_program.command(command);
-        for region in self.recorded_program.nested_regions(command.nested_regions) {
-            self.analyze_sequence(
-                region.scope,
-                region.commands,
-                EvalState::new(state.current.clone()),
-                LeakBehavior::Never,
-            );
+        if !command.nested_regions.is_empty() {
+            for region in self.recorded_program.nested_regions(command.nested_regions) {
+                self.analyze_sequence(
+                    region.scope,
+                    region.commands,
+                    EvalState::new(state.current.clone()),
+                    LeakBehavior::Never,
+                );
+            }
         }
 
         match &command.kind {
