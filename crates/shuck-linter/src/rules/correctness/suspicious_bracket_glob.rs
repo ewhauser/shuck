@@ -19,9 +19,11 @@ pub fn suspicious_bracket_glob(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
-        .filter_map(|fact| fact.body_name_word())
-        .filter(|word| !bare_bracket_test_name(word.span.slice(source)))
-        .flat_map(|word| word_spans::word_suspicious_bracket_glob_spans(word, source))
+        .filter(|fact| {
+            fact.body_name_word()
+                .is_none_or(|word| !bare_bracket_test_name(word.span.slice(source)))
+        })
+        .flat_map(|fact| fact.suspicious_body_name_bracket_glob_spans(source))
         .chain(checker.facts().case_items().iter().flat_map(|item| {
             word_spans::case_item_suspicious_bracket_glob_spans(item.item(), source)
         }))
@@ -76,7 +78,7 @@ fn bare_bracket_test_name(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_suspicious_bracket_globs_across_shell_contexts() {
@@ -144,5 +146,33 @@ if [ \"$ARCH\" = \"x86_64\" ]; then :; fi
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_zsh_brace_ccl_word_like_character_classes_from_facts() {
+        let source = "\
+setopt brace_ccl
+{appname} arg
+echo {appname}
+opt=brace_ccl
+setopt \"$opt\"
+{dynamicc} arg
+echo {dynamicc}
+unsetopt brace_ccl
+{appname} arg
+echo {appname}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SuspiciousBracketGlob).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["{appname}", "{appname}", "{dynamicc}", "{dynamicc}"]
+        );
     }
 }

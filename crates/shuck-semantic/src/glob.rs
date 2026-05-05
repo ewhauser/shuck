@@ -96,6 +96,24 @@ pub enum PatternOperatorBehavior {
     Ambiguous,
 }
 
+/// Whether zsh brace character-class expansion is active.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BraceCharacterClassBehavior {
+    /// Brace character classes are not expanded.
+    Disabled,
+    /// Brace character classes are expanded.
+    Enabled,
+    /// Runtime option state may select either behavior.
+    Ambiguous,
+}
+
+impl BraceCharacterClassBehavior {
+    /// Returns whether a brace character class may expand at runtime.
+    pub fn can_expand(self) -> bool {
+        matches!(self, Self::Enabled | Self::Ambiguous)
+    }
+}
+
 /// Option-sensitive pattern operators available to glob and shell-pattern facts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GlobPatternBehavior {
@@ -260,6 +278,22 @@ impl ShellBehaviorAt<'_> {
             pattern_operator_behavior(options.sh_glob),
         )
     }
+
+    /// Returns whether zsh brace character classes such as `{abc}` are active.
+    pub fn brace_character_classes(&self) -> BraceCharacterClassBehavior {
+        if self.shell != ShellDialect::Zsh {
+            return BraceCharacterClassBehavior::Disabled;
+        }
+
+        match self
+            .effective_zsh_options()
+            .map(|options| options.brace_ccl)
+        {
+            Some(OptionValue::On) => BraceCharacterClassBehavior::Enabled,
+            Some(OptionValue::Unknown) => BraceCharacterClassBehavior::Ambiguous,
+            Some(OptionValue::Off) | None => BraceCharacterClassBehavior::Disabled,
+        }
+    }
 }
 
 fn pattern_operator_behavior(value: OptionValue) -> PatternOperatorBehavior {
@@ -344,6 +378,38 @@ mod tests {
         assert_eq!(pattern.extended_glob(), PatternOperatorBehavior::Disabled);
         assert_eq!(pattern.ksh_glob(), PatternOperatorBehavior::Disabled);
         assert_eq!(pattern.sh_glob(), PatternOperatorBehavior::Disabled);
+        assert_eq!(
+            behavior.brace_character_classes(),
+            BraceCharacterClassBehavior::Disabled
+        );
+    }
+
+    #[test]
+    fn tracks_brace_character_classes_by_offset() {
+        for (source, expected) in [
+            ("print {app}\n", BraceCharacterClassBehavior::Disabled),
+            (
+                "setopt brace_ccl\nprint {app}\n",
+                BraceCharacterClassBehavior::Enabled,
+            ),
+            (
+                "setopt brace_ccl\nunsetopt brace_ccl\nprint {app}\n",
+                BraceCharacterClassBehavior::Disabled,
+            ),
+            (
+                "opt=brace_ccl\nsetopt \"$opt\"\nprint {app}\n",
+                BraceCharacterClassBehavior::Ambiguous,
+            ),
+        ] {
+            let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+            let offset = source.find("print").expect("expected print offset");
+
+            assert_eq!(
+                model.shell_behavior_at(offset).brace_character_classes(),
+                expected,
+                "{source}"
+            );
+        }
     }
 
     #[test]
