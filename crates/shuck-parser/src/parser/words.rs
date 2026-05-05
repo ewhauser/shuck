@@ -981,7 +981,10 @@ impl<'a> Parser<'a> {
 
         Some(())
     }
-    pub(super) fn is_assignment(word: &str) -> Option<(&str, Option<&str>, &str, bool)> {
+    pub(super) fn is_assignment(
+        word: &str,
+        allow_zsh_numeric_assignments: bool,
+    ) -> Option<(&str, Option<&str>, &str, bool)> {
         if !word.contains('=') {
             return None;
         }
@@ -989,15 +992,29 @@ impl<'a> Parser<'a> {
         let mut ident_end = 0;
         let mut chars = word.char_indices();
         let (_, first) = chars.next()?;
-        if !first.is_ascii_alphabetic() && first != '_' {
-            return None;
-        }
-        ident_end += first.len_utf8();
-        for (index, ch) in chars {
-            if ch.is_ascii_alphanumeric() || ch == '_' {
-                ident_end = index + ch.len_utf8();
-            } else {
-                break;
+        if first.is_ascii_digit() {
+            if !allow_zsh_numeric_assignments {
+                return None;
+            }
+            ident_end += first.len_utf8();
+            for (index, ch) in chars {
+                if ch.is_ascii_digit() {
+                    ident_end = index + ch.len_utf8();
+                } else {
+                    break;
+                }
+            }
+        } else {
+            if !first.is_ascii_alphabetic() && first != '_' {
+                return None;
+            }
+            ident_end += first.len_utf8();
+            for (index, ch) in chars {
+                if ch.is_ascii_alphanumeric() || ch == '_' {
+                    ident_end = index + ch.len_utf8();
+                } else {
+                    break;
+                }
             }
         }
 
@@ -2851,13 +2868,27 @@ impl<'a> Parser<'a> {
         };
         let first_text = first_literal.as_str(self.input, first_part.span);
         let mut name_end = 0;
-        for (offset, ch) in first_text.char_indices() {
-            if (offset == 0 && (ch.is_ascii_alphabetic() || ch == '_'))
-                || (offset > 0 && (ch.is_ascii_alphanumeric() || ch == '_'))
-            {
-                name_end = offset + ch.len_utf8();
+        let mut first_chars = first_text.char_indices();
+        if let Some((_, first)) = first_chars.next() {
+            if first.is_ascii_digit() && self.dialect.features().zsh_parameter_modifiers {
+                name_end = first.len_utf8();
+                for (offset, ch) in first_chars {
+                    if ch.is_ascii_digit() {
+                        name_end = offset + ch.len_utf8();
+                    } else {
+                        break;
+                    }
+                }
             } else {
-                break;
+                for (offset, ch) in first_text.char_indices() {
+                    if (offset == 0 && (ch.is_ascii_alphabetic() || ch == '_'))
+                        || (offset > 0 && (ch.is_ascii_alphanumeric() || ch == '_'))
+                    {
+                        name_end = offset + ch.len_utf8();
+                    } else {
+                        break;
+                    }
+                }
             }
         }
         if name_end == 0 {

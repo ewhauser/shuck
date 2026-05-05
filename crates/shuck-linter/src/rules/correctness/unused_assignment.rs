@@ -381,7 +381,7 @@ mod tests {
     use std::path::Path;
 
     use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
-    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect, assert_diagnostics_diff};
 
     #[test]
     fn anchors_on_variable_name_span_and_attaches_fix_metadata() {
@@ -514,6 +514,29 @@ done
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn zsh_associative_key_literals_do_not_count_as_assignment_reads() {
+        let source = "\
+#!/bin/zsh
+ice=1
+iterm2_precmd=1
+typeset -A ZINIT
+ZINIT[ice-list]=x
+functions[iterm2_precmd]=x
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        let names = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.span.slice(source))
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"ice"), "{diagnostics:#?}");
+        assert!(names.contains(&"iterm2_precmd"), "{diagnostics:#?}");
     }
 
     #[test]

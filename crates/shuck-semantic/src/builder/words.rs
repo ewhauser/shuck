@@ -259,13 +259,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             subscript.interpretation,
             shuck_ast::SubscriptInterpretation::Associative
         ) || owner_name.is_some_and(|name| {
-            self.resolve_reference(name, self.current_scope(), subscript.span().start.offset)
-                .map(|binding_id| {
-                    self.bindings[binding_id.index()]
-                        .attributes
-                        .contains(BindingAttributes::ASSOC)
-                })
-                .unwrap_or(false)
+            self.name_uses_associative_word_semantics(name, subscript.span().start.offset)
         });
         if !uses_associative_word_semantics
             && let Some(expression) = subscript.arithmetic_ast.as_ref()

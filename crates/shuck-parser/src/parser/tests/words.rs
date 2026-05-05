@@ -7682,6 +7682,30 @@ fn test_zsh_additional_upstream_declaration_examples_parse() {
 }
 
 #[test]
+fn test_zsh_numeric_parameter_assignments_parse_as_assignments() {
+    let source = "0=${(%):-%N}\n1=value\n2+=more\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let targets = output
+        .file
+        .body
+        .iter()
+        .map(|stmt| {
+            let command = expect_simple(stmt);
+            assert_eq!(command.name.render(source), "");
+            assert_eq!(command.assignments.len(), 1);
+            command.assignments[0].target.name.as_str()
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(targets, vec!["0", "1", "2"]);
+    assert!(!expect_simple(&output.file.body[0]).assignments[0].append);
+    assert!(expect_simple(&output.file.body[2]).assignments[0].append);
+}
+
+#[test]
 fn test_parse_zsh_array_assignment_with_word_target_and_glob_qualifier() {
     let source = "dirs=( /proc/${^$(pidof zsh):#$$}/cwd(N:A) )\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)

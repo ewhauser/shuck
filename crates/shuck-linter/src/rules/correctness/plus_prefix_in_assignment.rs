@@ -22,7 +22,7 @@ pub fn plus_prefix_in_assignment(checker: &mut Checker) {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn anchors_on_assignment_like_words_with_a_leading_plus() {
@@ -99,5 +99,21 @@ rvm_info="
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_zsh_numeric_parameter_assignments() {
+        let source = "\
+#!/bin/zsh
+0=${(%):-%N}
+1=value
+2+=more
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PlusPrefixInAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 }

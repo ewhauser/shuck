@@ -4440,8 +4440,11 @@ impl<'a> Parser<'a> {
                     let is_literal = kind == TokenKind::LiteralWord;
                     let word_text =
                         self.current_source_like_word_text_or_error("simple command word")?;
-                    let assignment_shape = (!is_literal && words.is_empty())
-                        .then(|| Self::is_assignment(word_text.as_ref()));
+                    let allow_zsh_numeric_assignments =
+                        self.dialect.features().zsh_parameter_modifiers;
+                    let assignment_shape = (!is_literal && words.is_empty()).then(|| {
+                        Self::is_assignment(word_text.as_ref(), allow_zsh_numeric_assignments)
+                    });
                     let assignment_shape = assignment_shape.flatten();
 
                     // Check for assignment (only before the command name, not for literal words)
