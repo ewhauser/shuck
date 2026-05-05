@@ -194,7 +194,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 let normalized = command::normalize_command(visit.command, self.source);
                 let command_start_offset = command_span(visit.command).start.offset;
                 let scope = context.scope();
-                let command_zsh_options = effective_command_zsh_options(
+                let command_shell_behavior = effective_command_shell_behavior(
                     self.semantic,
                     command_start_offset,
                     &normalized,
@@ -214,7 +214,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                         scope,
                     },
                     &normalized,
-                    command_zsh_options.clone(),
+                    command_shell_behavior.clone(),
                     WordFactOutputs {
                         word_nodes: &mut word_nodes,
                         word_spans: &mut word_spans,
@@ -285,7 +285,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     visit.redirects,
                     Some(self.semantic_artifacts),
                     locator,
-                    command_zsh_options.as_ref(),
+                    &command_shell_behavior,
                 );
                 let redirect_fact_range = redirect_fact_store.push_many(redirect_facts);
                 let options = CommandOptionFacts::build(
@@ -293,13 +293,14 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     &normalized,
                     self.semantic_artifacts,
                     self.source,
+                    &command_shell_behavior,
                 );
                 let declaration_assignment_probes = build_declaration_assignment_probes(
                     visit.command,
                     &normalized,
                     self.semantic,
                     self.source,
-                    command_zsh_options.as_ref(),
+                    &command_shell_behavior,
                 );
                 let declaration_assignment_probe_range =
                     declaration_assignment_probe_store.push_many(declaration_assignment_probes);
@@ -320,7 +321,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     nested_word_command,
                     scope,
                     normalized,
-                    zsh_options: command_zsh_options,
+                    shell_behavior: command_shell_behavior,
                     redirect_facts: redirect_fact_range,
                     substitution_facts: IdRange::empty(),
                     options,

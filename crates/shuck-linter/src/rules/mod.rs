@@ -138,11 +138,25 @@ mod architecture_tests {
     }
 
     #[test]
-    fn c012_rule_avoids_raw_zsh_option_state_queries() {
-        let rule_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src/rules/correctness/leading_glob_argument.rs");
-        let source = fs::read_to_string(&rule_path)
-            .unwrap_or_else(|error| panic!("failed to read {}: {error}", rule_path.display()));
+    fn glob_sensitive_rules_avoid_raw_zsh_option_state_queries() {
+        let rule_paths = [
+            ("C012", "correctness/leading_glob_argument.rs"),
+            ("K001", "security/rm_glob_on_variable_path.rs"),
+            ("S001", "style/unquoted_expansion.rs"),
+            ("S001", "style/unquoted_expansion/safe_value.rs"),
+            ("S020", "style/single_iteration_loop.rs"),
+            ("C055", "correctness/pattern_with_variable.rs"),
+            ("C059", "correctness/redirect_to_command_name.rs"),
+            ("C078", "correctness/unquoted_globs_in_find.rs"),
+            ("C083", "correctness/glob_in_find_substitution.rs"),
+            ("C084", "correctness/unquoted_grep_regex.rs"),
+            ("C090", "correctness/glob_in_test_comparison.rs"),
+            ("C094", "correctness/redirect_clobbers_input.rs"),
+            ("C102", "correctness/glob_in_test_directory.rs"),
+            ("C114", "correctness/glob_with_expansion_in_loop.rs"),
+            ("C128", "correctness/case_glob_reachability.rs"),
+            ("C129", "correctness/case_default_before_glob.rs"),
+        ];
         let forbidden_tokens = [
             "zsh_options_at",
             "zsh_options()",
@@ -150,41 +164,26 @@ mod architecture_tests {
             "OptionValue",
             "shell_behavior_at",
         ];
-        let violations = forbidden_tokens
-            .iter()
-            .copied()
-            .filter(|token| source.contains(token))
-            .collect::<Vec<_>>();
+        let mut violations = Vec::new();
+
+        for (rule, relative_path) in rule_paths {
+            let rule_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src/rules")
+                .join(relative_path);
+            let source = fs::read_to_string(&rule_path)
+                .unwrap_or_else(|error| panic!("failed to read {}: {error}", rule_path.display()));
+            violations.extend(
+                forbidden_tokens
+                    .iter()
+                    .copied()
+                    .filter(|token| source.contains(token))
+                    .map(|token| format!("{rule} {} contains `{token}`", rule_path.display())),
+            );
+        }
 
         assert!(
             violations.is_empty(),
-            "C012 should consume behavior-partitioned facts instead of raw zsh option state:\n{}",
-            violations.join("\n"),
-        );
-    }
-
-    #[test]
-    fn k001_rule_avoids_raw_zsh_option_state_queries() {
-        let rule_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src/rules/security/rm_glob_on_variable_path.rs");
-        let source = fs::read_to_string(&rule_path)
-            .unwrap_or_else(|error| panic!("failed to read {}: {error}", rule_path.display()));
-        let forbidden_tokens = [
-            "zsh_options_at",
-            "zsh_options()",
-            "ZshOptionState",
-            "OptionValue",
-            "shell_behavior_at",
-        ];
-        let violations = forbidden_tokens
-            .iter()
-            .copied()
-            .filter(|token| source.contains(token))
-            .collect::<Vec<_>>();
-
-        assert!(
-            violations.is_empty(),
-            "K001 should consume behavior-partitioned facts instead of raw zsh option state:\n{}",
+            "glob-sensitive rules should consume behavior-partitioned facts instead of raw zsh option state:\n{}",
             violations.join("\n"),
         );
     }

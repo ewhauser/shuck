@@ -41,20 +41,16 @@ fn reportable_glob_diagnostic(
     if command_exempts_glob_warning(command.effective_name()) {
         return None;
     }
-    if !fact
-        .runtime_literal()
-        .pathname_expansion_behavior
-        .literal_globs_can_expand()
-    {
+    let active_globs = fact.active_literal_glob_spans(checker.source());
+    let first_glob = active_globs.first().copied()?;
+    if first_glob.start.offset != fact.span().start.offset {
         return None;
     }
-
-    let text = fact.span().slice(checker.source());
-    let prefix = text.chars().next()?;
+    let prefix = first_glob.slice(checker.source()).chars().next()?;
     if !matches!(prefix, '*' | '?') {
         return None;
     }
-    if fact.starts_with_extglob() {
+    if fact.starts_with_active_glob_operator(checker.source()) {
         return None;
     }
 
@@ -320,6 +316,29 @@ printf '%s\\n' *
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn treats_zsh_ksh_glob_groups_as_active_leading_operators() {
+        let source = "\
+setopt ksh_glob
+rm ?(*.txt)
+unsetopt ksh_glob
+rm ?(*.txt)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LeadingGlobArgument)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["?"]
+        );
     }
 
     #[test]

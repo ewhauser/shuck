@@ -146,9 +146,9 @@ pub(crate) fn comparable_path(
     word: &Word,
     source: &str,
     context: ExpansionContext,
-    options: Option<&ZshOptionState>,
+    behavior: Option<&ShellBehaviorAt<'_>>,
 ) -> Option<ComparablePath> {
-    let analysis = analyze_word(word, source, options);
+    let analysis = analyze_word(word, source, behavior);
     if analysis.has_command_substitution()
         || analysis.hazards.command_or_process_substitution
         || analysis.has_array_expansion()
@@ -156,7 +156,7 @@ pub(crate) fn comparable_path(
         return None;
     }
 
-    let runtime_literal = analyze_literal_runtime(word, source, context, options);
+    let runtime_literal = analyze_literal_runtime(word, source, context, behavior);
     if runtime_literal.hazards.pathname_matching
         || runtime_literal.hazards.brace_fanout
         || runtime_literal.hazards.command_or_process_substitution
@@ -614,15 +614,15 @@ impl<'a> RedirectFact<'a> {
 pub(crate) fn analyze_redirect_target(
     redirect: &Redirect,
     source: &str,
-    options: Option<&ZshOptionState>,
+    behavior: Option<&ShellBehaviorAt<'_>>,
 ) -> Option<RedirectTargetAnalysis> {
     let target = redirect.word_target()?;
-    let expansion = analyze_word(target, source, options);
+    let expansion = analyze_word(target, source, behavior);
     let runtime_literal = analyze_literal_runtime(
         target,
         source,
         ExpansionContext::RedirectTarget(redirect.kind),
-        options,
+        behavior,
     );
 
     let (kind, dev_null_status, numeric_descriptor_target) = match redirect.kind {
@@ -667,7 +667,7 @@ fn build_redirect_facts<'a>(
     redirects: &'a [Redirect],
     semantic: Option<&LinterSemanticArtifacts<'a>>,
     locator: Locator<'_>,
-    zsh_options: Option<&ZshOptionState>,
+    behavior: &ShellBehaviorAt<'_>,
 ) -> Vec<RedirectFact<'a>> {
     let source = locator.source();
     redirects
@@ -692,10 +692,10 @@ fn build_redirect_facts<'a>(
                     spans
             })
             .into_boxed_slice(),
-            analysis: analyze_redirect_target(redirect, source, zsh_options),
+            analysis: analyze_redirect_target(redirect, source, Some(behavior)),
             comparable_path: redirect.word_target().and_then(|word| {
                 ExpansionContext::from_redirect_kind(redirect.kind)
-                    .and_then(|context| comparable_path(word, source, context, zsh_options))
+                    .and_then(|context| comparable_path(word, source, context, Some(behavior)))
             }),
             comparable_name_uses: comparable_redirect_name_uses(
                 redirect,

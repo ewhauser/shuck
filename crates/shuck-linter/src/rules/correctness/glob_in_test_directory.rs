@@ -1,8 +1,8 @@
 use shuck_ast::{ConditionalUnaryOp, Span, Word, static_word_text};
 
-use crate::facts::word_spans;
 use crate::{
-    Checker, ConditionalFact, ConditionalNodeFact, Rule, SimpleTestFact, SimpleTestShape, Violation,
+    Checker, ConditionalFact, ConditionalNodeFact, LinterFacts, Rule, SimpleTestFact,
+    SimpleTestShape, Violation,
 };
 
 pub struct GlobInTestDirectory;
@@ -26,10 +26,18 @@ pub fn glob_in_test_directory(checker: &mut Checker) {
         .flat_map(|fact| {
             let mut spans = Vec::new();
             if let Some(simple_test) = fact.simple_test() {
-                spans.extend(simple_test_file_test_spans(simple_test, source));
+                spans.extend(simple_test_file_test_spans(
+                    simple_test,
+                    checker.facts(),
+                    source,
+                ));
             }
             if let Some(conditional) = fact.conditional() {
-                spans.extend(conditional_file_test_spans(conditional, source));
+                spans.extend(conditional_file_test_spans(
+                    conditional,
+                    checker.facts(),
+                    source,
+                ));
             }
             spans
         })
@@ -38,19 +46,28 @@ pub fn glob_in_test_directory(checker: &mut Checker) {
     checker.report_all_dedup(spans, || GlobInTestDirectory);
 }
 
-fn simple_test_file_test_spans(simple_test: &SimpleTestFact<'_>, source: &str) -> Vec<Span> {
+fn simple_test_file_test_spans(
+    simple_test: &SimpleTestFact<'_>,
+    facts: &LinterFacts<'_>,
+    source: &str,
+) -> Vec<Span> {
     let mut spans = Vec::new();
-    if let Some(span) = simple_test_unary_file_test_span(simple_test, source) {
+    if let Some(span) = simple_test_unary_file_test_span(simple_test, facts, source) {
         spans.push(span);
     }
     spans.extend(collect_directory_operand_spans(
         simple_test.operands(),
+        facts,
         source,
     ));
     spans
 }
 
-fn conditional_file_test_spans(conditional: &ConditionalFact<'_>, source: &str) -> Vec<Span> {
+fn conditional_file_test_spans(
+    conditional: &ConditionalFact<'_>,
+    facts: &LinterFacts<'_>,
+    source: &str,
+) -> Vec<Span> {
     conditional
         .nodes()
         .iter()
@@ -58,7 +75,7 @@ fn conditional_file_test_spans(conditional: &ConditionalFact<'_>, source: &str) 
             ConditionalNodeFact::Unary(unary) if is_file_test_unary_op(unary.op()) => unary
                 .operand()
                 .word()
-                .and_then(|word| reportable_glob_span(word, source)),
+                .and_then(|word| reportable_glob_span(word, facts, source)),
             ConditionalNodeFact::BareWord(_)
             | ConditionalNodeFact::Unary(_)
             | ConditionalNodeFact::Binary(_)
@@ -91,7 +108,11 @@ fn is_file_test_unary_op(op: ConditionalUnaryOp) -> bool {
     )
 }
 
-fn collect_directory_operand_spans(operands: &[&Word], source: &str) -> Vec<Span> {
+fn collect_directory_operand_spans(
+    operands: &[&Word],
+    facts: &LinterFacts<'_>,
+    source: &str,
+) -> Vec<Span> {
     let operand_texts = operands
         .iter()
         .map(|word| static_word_text(word, source))
@@ -115,7 +136,7 @@ fn collect_directory_operand_spans(operands: &[&Word], source: &str) -> Vec<Span
 
         if is_file_test_operator(operand_texts[index].as_deref()) {
             if index + 1 < operands.len()
-                && let Some(span) = reportable_glob_span(operands[index + 1], source)
+                && let Some(span) = reportable_glob_span(operands[index + 1], facts, source)
             {
                 spans.push(span);
             }
@@ -131,6 +152,7 @@ fn collect_directory_operand_spans(operands: &[&Word], source: &str) -> Vec<Span
 
 fn simple_test_unary_file_test_span(
     simple_test: &SimpleTestFact<'_>,
+    facts: &LinterFacts<'_>,
     source: &str,
 ) -> Option<Span> {
     if simple_test.effective_shape() != SimpleTestShape::Unary {
@@ -149,11 +171,14 @@ fn simple_test_unary_file_test_span(
     simple_test
         .effective_operands()
         .get(1)
-        .and_then(|word| reportable_glob_span(word, source))
+        .and_then(|word| reportable_glob_span(word, facts, source))
 }
 
-fn reportable_glob_span(word: &Word, source: &str) -> Option<Span> {
-    (!word_spans::word_unquoted_glob_pattern_spans(word, source).is_empty()).then_some(word.span)
+fn reportable_glob_span(word: &Word, facts: &LinterFacts<'_>, source: &str) -> Option<Span> {
+    facts
+        .any_word_fact(word.span)
+        .is_some_and(|fact| !fact.active_literal_glob_spans(source).is_empty())
+        .then_some(word.span)
 }
 
 fn is_simple_test_separator(token: Option<&str>) -> bool {

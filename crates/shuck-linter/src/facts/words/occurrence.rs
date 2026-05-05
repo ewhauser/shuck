@@ -293,6 +293,18 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.occurrence().runtime_literal
     }
 
+    pub fn glob_failure_behavior(self) -> GlobFailureBehavior {
+        self.runtime_literal().glob_failure_behavior
+    }
+
+    pub fn glob_dot_behavior(self) -> GlobDotBehavior {
+        self.runtime_literal().glob_dot_behavior
+    }
+
+    pub fn glob_pattern_behavior(self) -> GlobPatternBehavior {
+        self.runtime_literal().glob_pattern_behavior
+    }
+
     pub fn classification(self) -> WordClassification {
         word_classification_from_analysis(self.analysis())
     }
@@ -525,8 +537,54 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         word_spans::word_unquoted_glob_pattern_spans(self.word(), source)
     }
 
+    pub fn has_literal_glob_syntax(self, source: &str) -> bool {
+        !self.unquoted_glob_pattern_spans(source).is_empty()
+            || self
+                .parts_with_spans()
+                .any(|(part, _)| matches!(part, WordPart::ZshQualifiedGlob(_)))
+    }
+
+    pub fn active_literal_glob_spans(self, source: &str) -> Vec<Span> {
+        let runtime = self.runtime_literal();
+        word_spans::word_active_glob_pattern_spans(
+            self.word(),
+            source,
+            runtime.pathname_expansion_behavior,
+            runtime.glob_pattern_behavior,
+        )
+    }
+
     pub fn unquoted_glob_pattern_spans_outside_brace_expansion(self, source: &str) -> Vec<Span> {
         word_spans::word_unquoted_glob_pattern_spans_outside_brace_expansion(self.word(), source)
+    }
+
+    pub fn active_glob_spans_outside_brace_expansion(self, source: &str) -> Vec<Span> {
+        let runtime = self.runtime_literal();
+        word_spans::word_active_glob_pattern_spans_outside_brace_expansion(
+            self.word(),
+            source,
+            runtime.pathname_expansion_behavior,
+            runtime.glob_pattern_behavior,
+        )
+    }
+
+    pub fn starts_with_active_glob_operator(self, source: &str) -> bool {
+        let runtime = self.runtime_literal();
+        if word_spans::word_starts_with_active_glob_group_operator(
+            self.word(),
+            source,
+            runtime.pathname_expansion_behavior,
+            runtime.glob_pattern_behavior,
+        ) {
+            return true;
+        }
+
+        self.facts
+            .command(self.command_id())
+            .shell_behavior()
+            .shell_dialect()
+            != shuck_semantic::ShellDialect::Zsh
+            && self.starts_with_extglob()
     }
 
     pub fn suspicious_bracket_glob_spans(self, source: &str) -> Vec<Span> {
@@ -1070,7 +1128,7 @@ pub(super) fn build_word_facts_for_command<'a>(
     semantic: &'a SemanticModel,
     context: WordFactCommandContext,
     normalized: &NormalizedCommand<'a>,
-    command_zsh_options: Option<ZshOptionState>,
+    command_shell_behavior: ShellBehaviorAt<'a>,
     outputs: WordFactOutputs<'_, 'a>,
 ) {
     let mut collector = WordFactCollector::new(
@@ -1081,7 +1139,7 @@ pub(super) fn build_word_facts_for_command<'a>(
         context.nested_word_command,
         context.scope,
         normalized,
-        command_zsh_options,
+        command_shell_behavior,
         outputs,
     );
     collector.collect_command(visit.command, visit.redirects);
@@ -1409,7 +1467,7 @@ pub(super) struct WordFactCollector<'out, 'a, 'norm> {
     command_scope: ScopeId,
     surface_command_name: Option<&'norm str>,
     surface_body_arg_start_offset: Option<usize>,
-    command_zsh_options: Option<ZshOptionState>,
+    command_shell_behavior: ShellBehaviorAt<'a>,
     word_nodes: &'out mut Vec<WordNode<'a>>,
     word_spans: &'out mut ListArena<Span>,
     word_span_scratch: &'out mut Vec<Span>,
@@ -1448,8 +1506,9 @@ pub(super) fn simple_command_word_at(command: &SimpleCommand, index: usize) -> &
 
 fn collect_split_sensitive_unquoted_command_substitution_spans(
     parts: &[WordPartNode],
+    source: &str,
     quoted: bool,
-    options: Option<&ZshOptionState>,
+    behavior: &ShellBehaviorAt<'_>,
     spans: &mut Vec<Span>,
 ) {
     for part in parts {
@@ -1457,12 +1516,13 @@ fn collect_split_sensitive_unquoted_command_substitution_spans(
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
                 collect_split_sensitive_unquoted_command_substitution_spans(
-                    parts, true, options, spans,
+                    parts, source, true, behavior, spans,
                 );
             }
             WordPart::CommandSubstitution { .. }
                 if !quoted
-                    && analyze_part(&part.kind, quoted, options).can_expand_to_multiple_fields =>
+                    && analyze_part(&part.kind, source, quoted, behavior)
+                        .can_expand_to_multiple_fields =>
             {
                 spans.push(part.span);
             }
@@ -1481,7 +1541,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         nested_word_command: bool,
         command_scope: ScopeId,
         normalized: &'norm NormalizedCommand<'a>,
-        command_zsh_options: Option<ZshOptionState>,
+        command_shell_behavior: ShellBehaviorAt<'a>,
         outputs: WordFactOutputs<'out, 'a>,
     ) -> Self {
         Self {
@@ -1496,7 +1556,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 .body_args()
                 .first()
                 .map(|word| word.span.start.offset),
-            command_zsh_options,
+            command_shell_behavior,
             word_nodes: outputs.word_nodes,
             word_spans: outputs.word_spans,
             word_span_scratch: outputs.word_span_scratch,
@@ -2185,7 +2245,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             .filter_map(|part| match &part.kind {
                 PatternPart::Word(word) => {
                     let analysis =
-                        analyze_word(word, self.source, self.command_zsh_options.as_ref());
+                        analyze_word(word, self.source, Some(&self.command_shell_behavior));
                     (analysis.literalness == WordLiteralness::Expanded
                         && analysis.quote != WordQuote::FullyQuoted)
                         .then_some(word)
@@ -2399,12 +2459,12 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         }
 
         let id = WordNodeId::new(self.word_nodes.len());
-        let mut analysis = analyze_word(word, self.source, self.command_zsh_options.as_ref());
+        let mut analysis = analyze_word(word, self.source, Some(&self.command_shell_behavior));
         apply_zsh_array_fanout(
             word,
             self.semantic,
             self.command_scope,
-            self.command_zsh_options.as_ref(),
+            self.command_shell_behavior.zsh_options(),
             &mut analysis,
         );
         let derived =
@@ -2444,7 +2504,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 word,
                 self.source,
                 context,
-                self.command_zsh_options.as_ref(),
+                Some(&self.command_shell_behavior),
             ),
             WordFactContext::CaseSubject | WordFactContext::ArithmeticCommand => {
                 RuntimeLiteralAnalysis::default()
@@ -2469,8 +2529,9 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         self.word_span_scratch.clear();
         collect_split_sensitive_unquoted_command_substitution_spans(
             &word.parts,
+            self.source,
             false,
-            self.command_zsh_options.as_ref(),
+            &self.command_shell_behavior,
             self.word_span_scratch,
         );
         word_spans::normalize_command_substitution_spans(self.word_span_scratch, self.locator);

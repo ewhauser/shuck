@@ -60,7 +60,7 @@ fn diagnostics_for_find_exec_argument(
     fact.unquoted_command_substitution_spans()
         .iter()
         .copied()
-        .chain(fact.unquoted_glob_pattern_spans(source))
+        .chain(fact.active_literal_glob_spans(source))
         .map(|span| {
             crate::Diagnostic::new(UnquotedGlobsInFind, span).with_fix(Fix::unsafe_edit(
                 Edit::replacement(replacement.clone(), word_span),
@@ -350,6 +350,33 @@ printf '*.txt'
         assert_eq!(result.fixes_applied, 0);
         assert_eq!(result.fixed_source, source);
         assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn respects_zsh_glob_activation_in_find_exec_arguments() {
+        let source = "\
+#!/usr/bin/env zsh
+setopt no_glob
+find . -exec echo *.txt {} +
+setopt glob ksh_glob
+find . -exec echo ?(*.txt) {} +
+setopt extended_glob
+find . -exec echo foo~bar {} +
+find . -exec echo foo~bar* {} +
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedGlobsInFind)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["?(*.txt)", "~", "*"]
+        );
     }
 
     #[test]

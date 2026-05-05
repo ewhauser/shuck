@@ -25,7 +25,7 @@ pub fn glob_assigned_to_variable(checker: &mut Checker) {
         .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
         .filter(|fact| !checker.facts().is_compound_assignment_value_word(*fact))
         .filter(|fact| fact.classification().quote != WordQuote::FullyQuoted)
-        .filter(|fact| !fact.unquoted_glob_pattern_spans(source).is_empty())
+        .filter(|fact| !fact.active_literal_glob_spans(source).is_empty())
         .map(|fact| fact.span())
         .collect::<Vec<_>>();
 

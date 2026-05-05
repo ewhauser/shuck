@@ -122,7 +122,7 @@ pub enum ArithmeticLiteralBehavior {
 }
 
 /// Option-sensitive shell behavior visible at a source offset.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ShellBehaviorAt<'model> {
     shell: ShellDialect,
     zsh_options: Option<&'model ZshOptionState>,
@@ -132,6 +132,42 @@ pub struct ShellBehaviorAt<'model> {
 impl ShellBehaviorAt<'_> {
     fn effective_zsh_options(&self) -> Option<&ZshOptionState> {
         self.runtime_options.as_ref().or(self.zsh_options)
+    }
+
+    /// Returns the effective zsh option state when this behavior is for zsh.
+    pub fn zsh_options(&self) -> Option<&ZshOptionState> {
+        self.effective_zsh_options()
+    }
+
+    /// Returns the shell dialect this behavior was computed for.
+    pub fn shell_dialect(&self) -> ShellDialect {
+        self.shell
+    }
+
+    /// Creates behavior for a shell dialect without source-local option state.
+    pub fn for_dialect(shell: ShellDialect) -> Self {
+        Self {
+            shell,
+            zsh_options: None,
+            runtime_options: None,
+        }
+    }
+
+    /// Returns this behavior with a caller-provided zsh option overlay applied.
+    ///
+    /// Non-zsh behavior is returned unchanged. For zsh, the overlay starts with the
+    /// effective source-local option state, or the native zsh defaults when no
+    /// source-local state is available.
+    pub fn with_zsh_option_overlay(mut self, overlay: impl FnOnce(&mut ZshOptionState)) -> Self {
+        if self.shell == ShellDialect::Zsh {
+            let mut options = self
+                .effective_zsh_options()
+                .cloned()
+                .unwrap_or_else(ZshOptionState::zsh_default);
+            overlay(&mut options);
+            self.runtime_options = Some(options);
+        }
+        self
     }
 
     /// Returns the array-reference policy implied by the shell and runtime option state.

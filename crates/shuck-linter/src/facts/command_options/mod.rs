@@ -35,12 +35,12 @@ impl<'a> PathWordFact<'a> {
         word: &'a Word,
         context: ExpansionContext,
         source: &str,
-        zsh_options: Option<&ZshOptionState>,
+        behavior: &ShellBehaviorAt<'_>,
     ) -> Self {
         Self {
             word,
             context,
-            comparable_path: comparable_path(word, source, context, zsh_options),
+            comparable_path: comparable_path(word, source, context, Some(behavior)),
         }
     }
 
@@ -728,6 +728,7 @@ impl<'a> CommandOptionFacts<'a> {
         normalized: &NormalizedCommand<'a>,
         semantic: &LinterSemanticArtifacts<'a>,
         source: &str,
+        behavior: &ShellBehaviorAt<'_>,
     ) -> Self {
         Self {
             rm: normalized
@@ -780,7 +781,13 @@ impl<'a> CommandOptionFacts<'a> {
                 .then(|| parse_unset_command(normalized.body_args(), source)),
             find: (normalized.effective_name_is("find")
                 || normalized.literal_name.as_deref() == Some("find"))
-            .then(|| parse_find_command(find_command_args(command, normalized, source), source)),
+            .then(|| {
+                parse_find_command(
+                    find_command_args(command, normalized, source),
+                    source,
+                    behavior,
+                )
+            }),
             find_exec: (normalized.has_wrapper(WrapperKind::FindExec)
                 || normalized.has_wrapper(WrapperKind::FindExecDir))
             .then(|| FindExecCommandFacts {

@@ -188,6 +188,7 @@ where
 pub(super) fn parse_find_command<'a>(
     args: impl IntoIterator<Item = &'a Word>,
     source: &str,
+    behavior: &ShellBehaviorAt<'_>,
 ) -> FindCommandFacts {
     let mut has_print0 = false;
     let mut has_formatted_output_action = false;
@@ -200,7 +201,13 @@ pub(super) fn parse_find_command<'a>(
         let Some(text) = static_word_text(word, source) else {
             if let Some(state) = pending_argument {
                 if state.expects_pattern_operand()
-                    && !word_spans::word_unquoted_glob_pattern_spans(word, source).is_empty()
+                    && !word_spans::word_active_glob_pattern_spans(
+                        word,
+                        source,
+                        behavior.pathname_expansion(),
+                        behavior.glob_pattern(),
+                    )
+                    .is_empty()
                 {
                     glob_pattern_operand_spans.push(word.span);
                 }
@@ -211,7 +218,13 @@ pub(super) fn parse_find_command<'a>(
 
         if let Some(state) = pending_argument {
             if state.expects_pattern_operand()
-                && !word_spans::word_unquoted_glob_pattern_spans(word, source).is_empty()
+                && !word_spans::word_active_glob_pattern_spans(
+                    word,
+                    source,
+                    behavior.pathname_expansion(),
+                    behavior.glob_pattern(),
+                )
+                .is_empty()
             {
                 glob_pattern_operand_spans.push(word.span);
             }
