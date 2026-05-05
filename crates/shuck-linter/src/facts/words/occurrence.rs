@@ -380,6 +380,10 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         shuck_ast::word_span_is_zsh_force_glob_parameter(self.word(), span)
     }
 
+    pub fn expansion_span_is_plain_parameter_reference(self, span: Span) -> bool {
+        shuck_ast::word_span_is_plain_parameter_reference(self.word(), span)
+    }
+
     pub fn scalar_expansion_spans(self) -> &'facts [Span] {
         self.facts.fact_store.word_spans(self.derived().scalar_expansion_spans)
     }

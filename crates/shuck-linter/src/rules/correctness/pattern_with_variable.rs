@@ -1,5 +1,6 @@
 use shuck_ast::Span;
 
+use super::pattern_policy;
 use crate::{Checker, Edit, ExpansionContext, Fix, FixAvailability, Rule, Violation};
 
 pub struct PatternWithVariable;
@@ -51,6 +52,13 @@ pub fn pattern_with_variable(checker: &mut Checker) {
                 .copied()
                 .filter(|span| !span_is_within_any(*span, quoted_expansion_spans))
                 .filter(|span| !fact.expansion_span_is_zsh_force_glob_parameter(*span))
+                .filter(|span| {
+                    !pattern_policy::span_expands_only_static_pattern_safe_literals(
+                        checker,
+                        *span,
+                        fact.expansion_span_is_plain_parameter_reference(*span),
+                    )
+                })
                 .map(|span| {
                     crate::Diagnostic::new(PatternWithVariable, span).with_fix(Fix::unsafe_edit(
                         Edit::replacement(format!("\"{}\"", span.slice(source)), span),
@@ -162,6 +170,75 @@ literal_trimmed=${value#${~~literal}}
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["${~~literal}"]
+        );
+    }
+
+    #[test]
+    fn ignores_pattern_variables_with_static_pattern_safe_values() {
+        let source = "\
+#!/usr/bin/env zsh
+prefix='src/lib/'
+pattern='src/*'
+trimmed=${path#$prefix}
+pattern_trimmed=${path#$pattern}
+unknown_trimmed=${path#$unknown}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PatternWithVariable)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$pattern", "$unknown"]
+        );
+    }
+
+    #[test]
+    fn reports_command_substitutions_even_when_nested_references_are_static_safe() {
+        let source = "\
+#!/usr/bin/env zsh
+prefix='src/lib/'
+trimmed=${path#$(printf '%s' \"$prefix\")}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PatternWithVariable)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(printf '%s' \"$prefix\")"]
+        );
+    }
+
+    #[test]
+    fn reports_parameter_operations_even_when_target_bindings_are_static_safe() {
+        let source = "\
+#!/usr/bin/env zsh
+prefix='src'
+trimmed=${path#${prefix:-*}}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PatternWithVariable)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${prefix:-*}"]
         );
     }
 
