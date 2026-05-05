@@ -337,6 +337,7 @@ struct CommandTopology {
     child_ids: Vec<Vec<CommandId>>,
     syntax_backed_parent_ids: Vec<Option<CommandId>>,
     syntax_backed_child_ids: Vec<Vec<CommandId>>,
+    syntax_containing_offset_entries: Vec<CommandContainingOffsetEntry>,
     containing_offset_entries: Vec<CommandContainingOffsetEntry>,
 }
 
@@ -430,6 +431,12 @@ struct CommandContainingOffsetEntry {
 enum CommandContainingOffsetEventKind {
     End,
     Start,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CommandContainingOffsetSpan {
+    Syntax,
+    Statement,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -2334,19 +2341,20 @@ impl SemanticModel {
 
     /// Returns the innermost syntax-backed command whose syntax span contains `offset`.
     pub fn innermost_command_id_at(&self, offset: usize) -> Option<CommandId> {
-        self.innermost_command_id_containing_offset(offset)
+        let topology = self.command_topology();
+        innermost_command_id_in_containing_offset_entries(
+            &topology.syntax_containing_offset_entries,
+            offset,
+        )
     }
 
     /// Returns the innermost command known to contain `offset` using the topology index.
     pub fn innermost_command_id_containing_offset(&self, offset: usize) -> Option<CommandId> {
         let topology = self.command_topology();
-        let upper_bound = topology
-            .containing_offset_entries
-            .partition_point(|entry| entry.start_offset <= offset);
-        let entry = topology
-            .containing_offset_entries
-            .get(upper_bound.checked_sub(1)?)?;
-        (offset <= entry.end_offset).then_some(entry.id)
+        innermost_command_id_in_containing_offset_entries(
+            &topology.containing_offset_entries,
+            offset,
+        )
     }
 
     /// Returns logical list commands flattened by the semantic traversal.
@@ -2654,8 +2662,16 @@ fn build_command_topology(model: &SemanticModel) -> CommandTopology {
         build_syntax_backed_command_parent_ids(model, &syntax_backed_ids, &parent_ids);
     let syntax_backed_child_ids =
         build_command_child_ids(command_count, &syntax_backed_ids, &syntax_backed_parent_ids);
-    let containing_offset_entries =
-        build_command_containing_offset_entries(model, &syntax_backed_ids);
+    let syntax_containing_offset_entries = build_command_containing_offset_entries(
+        model,
+        &syntax_backed_ids,
+        CommandContainingOffsetSpan::Syntax,
+    );
+    let containing_offset_entries = build_command_containing_offset_entries(
+        model,
+        &syntax_backed_ids,
+        CommandContainingOffsetSpan::Statement,
+    );
     let condition_contexts = build_command_condition_contexts(
         program,
         command_count,
@@ -2680,6 +2696,7 @@ fn build_command_topology(model: &SemanticModel) -> CommandTopology {
         child_ids,
         syntax_backed_parent_ids,
         syntax_backed_child_ids,
+        syntax_containing_offset_entries,
         containing_offset_entries,
     }
 }
@@ -2934,12 +2951,16 @@ fn build_command_child_ids(
 fn build_command_containing_offset_entries(
     model: &SemanticModel,
     syntax_backed_ids: &[CommandId],
+    span_kind: CommandContainingOffsetSpan,
 ) -> Vec<CommandContainingOffsetEntry> {
     let mut events = syntax_backed_ids
         .iter()
         .copied()
         .flat_map(|id| {
-            let span = model.command_span(id);
+            let span = match span_kind {
+                CommandContainingOffsetSpan::Syntax => model.command_syntax_span(id),
+                CommandContainingOffsetSpan::Statement => model.command_span(id),
+            };
             [
                 CommandContainingOffsetEvent {
                     offset: span.start.offset,
@@ -2994,6 +3015,15 @@ fn build_command_containing_offset_entries(
     }
 
     entries
+}
+
+fn innermost_command_id_in_containing_offset_entries(
+    entries: &[CommandContainingOffsetEntry],
+    offset: usize,
+) -> Option<CommandId> {
+    let upper_bound = entries.partition_point(|entry| entry.start_offset <= offset);
+    let entry = entries.get(upper_bound.checked_sub(1)?)?;
+    (offset <= entry.end_offset).then_some(entry.id)
 }
 
 fn push_command_containing_offset_entry(
