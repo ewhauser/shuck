@@ -49,27 +49,31 @@ impl ShellDialect {
     }
 
     pub fn infer(source: &str, path: Option<&Path>) -> Self {
+        let extension_dialect = path.map_or(Self::Unknown, Self::infer_from_extension);
         Self::infer_from_shellcheck_header(source)
             .or_else(|| Self::infer_from_shebang(source))
-            .or_else(|| Self::infer_from_source_markers(source))
-            .unwrap_or_else(|| {
-                path.map_or(Self::Unknown, |path| {
-                    match path
-                        .extension()
-                        .and_then(|ext| ext.to_str())
-                        .map(|ext| ext.to_ascii_lowercase())
-                        .as_deref()
-                    {
-                        Some("sh") => Self::Sh,
-                        Some("bash") => Self::Bash,
-                        Some("dash") => Self::Dash,
-                        Some("ksh") => Self::Ksh,
-                        Some("mksh") => Self::Mksh,
-                        Some("zsh") => Self::Zsh,
-                        _ => Self::Unknown,
-                    }
-                })
+            .or_else(|| match extension_dialect {
+                Self::Unknown | Self::Sh => Self::infer_from_source_markers(source),
+                dialect => Some(dialect),
             })
+            .unwrap_or(extension_dialect)
+    }
+
+    fn infer_from_extension(path: &Path) -> Self {
+        match path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("sh") => Self::Sh,
+            Some("bash") => Self::Bash,
+            Some("dash") => Self::Dash,
+            Some("ksh") => Self::Ksh,
+            Some("mksh") => Self::Mksh,
+            Some("zsh") => Self::Zsh,
+            _ => Self::Unknown,
+        }
     }
 
     fn infer_from_shebang(source: &str) -> Option<Self> {
@@ -485,6 +489,17 @@ mod tests {
     #[test]
     fn infers_from_extension_when_shebang_is_missing() {
         let inferred = ShellDialect::infer("local foo=bar\n", Some(Path::new("/tmp/example.bash")));
+        assert_eq!(inferred, ShellDialect::Bash);
+    }
+
+    #[test]
+    fn explicit_bash_extension_wins_over_embedded_zsh_guards() {
+        let source = "\
+if [[ -n ${ZSH_VERSION-} ]]; then
+  emulate -L zsh
+fi
+";
+        let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/git-completion.bash")));
         assert_eq!(inferred, ShellDialect::Bash);
     }
 

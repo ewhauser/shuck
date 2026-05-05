@@ -2901,6 +2901,17 @@ mod tests {
     }
 
     #[test]
+    fn resolve_shell_bash_extension_ignores_zsh_compatibility_guards() {
+        assert_eq!(
+            resolve_shell(
+                Path::new("git-completion.bash"),
+                b"if [[ -n ${ZSH_VERSION-} ]]; then\n  emulate -L zsh\nfi\n",
+            ),
+            "bash"
+        );
+    }
+
+    #[test]
     fn resolve_shell_bom_prefixed_bash_shebang_without_extension() {
         assert_eq!(
             resolve_shell(
