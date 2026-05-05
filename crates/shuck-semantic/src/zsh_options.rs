@@ -58,7 +58,7 @@ enum LeakBehavior {
     Never,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum EmulationState {
     Zsh,
     Sh,
@@ -86,7 +86,7 @@ impl EmulationState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct InternalState {
     public: ZshOptionState,
     local_options: OptionValue,
@@ -269,6 +269,7 @@ pub(crate) fn analyze(
         scope_entries: FxHashMap::default(),
         snapshots: FxHashMap::default(),
         active_function_scopes: FxHashSet::default(),
+        function_summaries: FxHashMap::default(),
     };
 
     analyzer.analyze_sequence(
@@ -350,6 +351,7 @@ pub(crate) fn function_runtime_analysis_with_entry(
         scope_entries: FxHashMap::default(),
         snapshots: FxHashMap::default(),
         active_function_scopes: FxHashSet::default(),
+        function_summaries: FxHashMap::default(),
     };
     analyzer.analyze_function_scope(
         function_scope,
@@ -432,6 +434,7 @@ struct Analyzer<'a> {
     scope_entries: FxHashMap<ScopeId, ZshOptionState>,
     snapshots: FxHashMap<ScopeId, Vec<ZshOptionSnapshot>>,
     active_function_scopes: FxHashSet<ScopeId>,
+    function_summaries: FxHashMap<(ScopeId, InternalState), FunctionSummary>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -864,6 +867,11 @@ impl<'a> Analyzer<'a> {
     }
 
     fn analyze_function_scope(&mut self, scope: ScopeId, entry: EvalState) -> FunctionSummary {
+        let cache_key = (scope, entry.current.clone());
+        if let Some(summary) = self.function_summaries.get(&cache_key) {
+            return summary.clone();
+        }
+
         if !self.active_function_scopes.insert(scope) {
             return FunctionSummary {
                 final_outward: entry.outward,
@@ -874,10 +882,12 @@ impl<'a> Analyzer<'a> {
         let body = self.recorded_program.function_body(scope);
         let result = self.analyze_sequence(scope, body, entry, LeakBehavior::Function);
         self.active_function_scopes.remove(&scope);
-        FunctionSummary {
+        let summary = FunctionSummary {
             final_outward: result.outward,
             outward_touched: result.outward_touched,
-        }
+        };
+        self.function_summaries.insert(cache_key, summary.clone());
+        summary
     }
 
     fn resolve_visible_function_scope(

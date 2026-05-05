@@ -10174,3 +10174,37 @@ run_dispatcher enable_ksh
         "{source}"
     );
 }
+
+#[test]
+fn semantic_runtime_zsh_option_analysis_reuses_dynamic_function_summaries() {
+    let mut source = String::from("#!/bin/zsh\n");
+    for index in 0..12 {
+        source.push_str(&format!(
+            "\
+f{index}() {{
+  $dispatcher
+}}
+"
+        ));
+    }
+    source.push_str(
+        "\
+enable_ksh() {
+  emulate ksh
+}
+run_dispatcher() {
+  $dispatcher
+  print $name
+}
+run_dispatcher
+",
+    );
+
+    let model = model_with_profile(&source, ShellProfile::native(ShellDialect::Zsh));
+    let offset = source.find("print $name").unwrap();
+
+    assert_eq!(
+        array_reference_policy_at(&model, offset),
+        ArrayReferencePolicy::Ambiguous
+    );
+}
