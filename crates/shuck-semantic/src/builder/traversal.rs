@@ -104,6 +104,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 .command
                 .as_deref()
                 .map_or(flow, |command| self.flow_after_statement(command, flow)),
+            Command::Binary(command) => match command.op {
+                BinaryOp::And | BinaryOp::Or => self.flow_after_statement(&command.left, flow),
+                BinaryOp::Pipe | BinaryOp::PipeAll
+                    if self.shell_profile.dialect == ShellDialect::Zsh
+                        && flow.pipeline_tail_runs_in_current_shell =>
+                {
+                    self.flow_after_statement(&command.right, flow)
+                }
+                BinaryOp::Pipe | BinaryOp::PipeAll => flow,
+            },
             _ => flow,
         }
     }
