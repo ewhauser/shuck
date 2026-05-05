@@ -241,6 +241,8 @@ setopt no_glob
 grep start* out.txt
 setopt glob extended_glob
 grep foo^bar out.txt
+grep foo~bar out.txt
+grep foo~bar* out.txt
 unsetopt extended_glob
 grep foo^bar out.txt
 ";
@@ -254,7 +256,7 @@ grep foo^bar out.txt
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["foo^bar"]
+            vec!["foo^bar", "foo~bar*"]
         );
     }
 

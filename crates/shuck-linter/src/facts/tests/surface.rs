@@ -2307,6 +2307,9 @@ rm *
 noglob rm *
 setopt extended_glob
 rm foo^bar
+rm foo~bar
+rm foo*~bar
+rm foo~bar*
 unsetopt extended_glob
 rm foo^bar
 setopt ksh_glob
@@ -2326,7 +2329,12 @@ rm ?(*.txt)
         |_, facts| {
             let active_spans = facts
                 .expansion_word_facts(ExpansionContext::CommandArgument)
-                .filter(|fact| matches!(fact.span().slice(source), "*" | "foo^bar" | "?(*.txt)"))
+                .filter(|fact| {
+                    matches!(
+                        fact.span().slice(source),
+                        "*" | "foo^bar" | "foo~bar" | "foo*~bar" | "foo~bar*" | "?(*.txt)"
+                    )
+                })
                 .map(|fact| {
                     (
                         fact.span().slice(source).to_owned(),
@@ -2345,10 +2353,50 @@ rm ?(*.txt)
                     ("*".to_owned(), vec!["*".to_owned()], false),
                     ("*".to_owned(), Vec::<String>::new(), false),
                     ("foo^bar".to_owned(), vec!["^".to_owned()], false),
+                    ("foo~bar".to_owned(), Vec::<String>::new(), false),
+                    (
+                        "foo*~bar".to_owned(),
+                        vec!["*".to_owned(), "~".to_owned()],
+                        false
+                    ),
+                    (
+                        "foo~bar*".to_owned(),
+                        vec!["~".to_owned(), "*".to_owned()],
+                        false
+                    ),
                     ("foo^bar".to_owned(), Vec::<String>::new(), false),
                     ("?(*.txt)".to_owned(), vec!["?(*.txt)".to_owned()], true),
-                    ("?(*.txt)".to_owned(), vec!["?(*.txt)".to_owned()], false),
+                    (
+                        "?(*.txt)".to_owned(),
+                        vec!["?".to_owned(), "*".to_owned()],
+                        false
+                    ),
                     ("?(*.txt)".to_owned(), vec!["?(*.txt)".to_owned()], true),
+                ]
+            );
+
+            let pathname_hazards = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .filter(|fact| {
+                    matches!(
+                        fact.span().slice(source),
+                        "foo~bar" | "foo*~bar" | "foo~bar*"
+                    )
+                })
+                .map(|fact| {
+                    (
+                        fact.span().slice(source).to_owned(),
+                        fact.analysis().hazards.pathname_matching,
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                pathname_hazards,
+                vec![
+                    ("foo~bar".to_owned(), false),
+                    ("foo*~bar".to_owned(), true),
+                    ("foo~bar*".to_owned(), true),
                 ]
             );
         },

@@ -1473,6 +1473,7 @@ pub(super) fn simple_command_word_at(command: &SimpleCommand, index: usize) -> &
 
 fn collect_split_sensitive_unquoted_command_substitution_spans(
     parts: &[WordPartNode],
+    source: &str,
     quoted: bool,
     behavior: &ShellBehaviorAt<'_>,
     spans: &mut Vec<Span>,
@@ -1482,12 +1483,13 @@ fn collect_split_sensitive_unquoted_command_substitution_spans(
             WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
                 collect_split_sensitive_unquoted_command_substitution_spans(
-                    parts, true, behavior, spans,
+                    parts, source, true, behavior, spans,
                 );
             }
             WordPart::CommandSubstitution { .. }
                 if !quoted
-                    && analyze_part(&part.kind, quoted, behavior).can_expand_to_multiple_fields =>
+                    && analyze_part(&part.kind, source, quoted, behavior)
+                        .can_expand_to_multiple_fields =>
             {
                 spans.push(part.span);
             }
@@ -2494,6 +2496,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         self.word_span_scratch.clear();
         collect_split_sensitive_unquoted_command_substitution_spans(
             &word.parts,
+            self.source,
             false,
             &self.command_shell_behavior,
             self.word_span_scratch,

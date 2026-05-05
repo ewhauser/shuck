@@ -438,9 +438,13 @@ pub(crate) fn collect_active_glob_pattern_spans(
                 literal_run_start.get_or_insert(index);
                 literal_run_end = Some(index);
             }
-            WordPart::ZshQualifiedGlob(_) if !in_double_quotes => {
+            WordPart::ZshQualifiedGlob(glob) if !in_double_quotes => {
                 flush_literal_run(&mut literal_run_start, &mut literal_run_end, spans);
-                spans.push(part.span);
+                spans.extend(zsh_qualified_glob_active_pattern_spans(
+                    glob,
+                    source,
+                    pattern_behavior,
+                ));
             }
             WordPart::Literal(_)
             | WordPart::ZshQualifiedGlob(_)
@@ -533,7 +537,7 @@ pub(crate) fn active_literal_glob_pattern_spans(
     }
 
     if pattern_operator_may_be_active(pattern_behavior.extended_glob()) {
-        for (start, end) in find_zsh_extended_glob_operator_bounds(bytes) {
+        for (start, end) in find_zsh_extended_glob_operator_bounds(bytes, &covered) {
             if covered
                 .iter()
                 .any(|(covered_start, covered_end)| *covered_start <= start && end <= *covered_end)
@@ -579,7 +583,10 @@ pub(crate) fn find_ksh_glob_group_bounds(bytes: &[u8]) -> Vec<(usize, usize)> {
     spans
 }
 
-pub(crate) fn find_zsh_extended_glob_operator_bounds(bytes: &[u8]) -> Vec<(usize, usize)> {
+pub(crate) fn find_zsh_extended_glob_operator_bounds(
+    bytes: &[u8],
+    active_group_bounds: &[(usize, usize)],
+) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
     let mut index = 0usize;
 
@@ -590,7 +597,15 @@ pub(crate) fn find_zsh_extended_glob_operator_bounds(bytes: &[u8]) -> Vec<(usize
         }
 
         match bytes[index] {
-            b'#' | b'~' | b'^' => spans.push((index, index)),
+            b'#' | b'^' => spans.push((index, index)),
+            b'~' if zsh_exclusion_operator_has_pattern_operand(
+                bytes,
+                index,
+                active_group_bounds,
+            ) =>
+            {
+                spans.push((index, index));
+            }
             _ => {}
         }
 
@@ -598,6 +613,87 @@ pub(crate) fn find_zsh_extended_glob_operator_bounds(bytes: &[u8]) -> Vec<(usize
     }
 
     spans
+}
+
+fn zsh_exclusion_operator_has_pattern_operand(
+    bytes: &[u8],
+    tilde_index: usize,
+    active_group_bounds: &[(usize, usize)],
+) -> bool {
+    literal_range_has_active_glob_syntax(bytes, 0, tilde_index, active_group_bounds)
+        || literal_range_has_active_glob_syntax(
+            bytes,
+            tilde_index + 1,
+            bytes.len(),
+            active_group_bounds,
+        )
+}
+
+pub(crate) fn zsh_qualified_glob_active_pattern_spans(
+    glob: &ZshQualifiedGlob,
+    source: &str,
+    pattern_behavior: GlobPatternBehavior,
+) -> Vec<Span> {
+    if zsh_qualified_glob_has_control_syntax(glob) {
+        vec![glob.span]
+    } else {
+        active_literal_glob_pattern_spans(glob.span, source, pattern_behavior)
+    }
+}
+
+pub(crate) fn zsh_qualified_glob_has_control_syntax(glob: &ZshQualifiedGlob) -> bool {
+    glob.qualifiers.is_some()
+        || glob
+            .segments
+            .iter()
+            .any(|segment| matches!(segment, ZshGlobSegment::InlineControl(_)))
+}
+
+fn literal_range_has_active_glob_syntax(
+    bytes: &[u8],
+    start: usize,
+    end: usize,
+    active_group_bounds: &[(usize, usize)],
+) -> bool {
+    if active_group_bounds
+        .iter()
+        .any(|(group_start, group_end)| start <= *group_start && *group_end < end)
+    {
+        return true;
+    }
+
+    let mut index = start;
+    while index < end {
+        if byte_is_backslash_escaped(bytes, index) {
+            index += 1;
+            continue;
+        }
+
+        match bytes[index] {
+            b'*' | b'?' | b'#' | b'^' => return true,
+            b'[' => {
+                let mut close = index + 1;
+                while close < end {
+                    if let Some(named_end) = bracket_glob_named_class_end(bytes, close, end) {
+                        close = named_end;
+                        continue;
+                    }
+                    if bytes[close] == b'\\' {
+                        close = (close + 2).min(end);
+                        continue;
+                    }
+                    if bytes[close] == b']' {
+                        return true;
+                    }
+                    close += 1;
+                }
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+
+    false
 }
 
 fn pattern_operator_may_be_active(behavior: PatternOperatorBehavior) -> bool {

@@ -360,6 +360,9 @@ setopt no_glob
 find . -exec echo *.txt {} +
 setopt glob ksh_glob
 find . -exec echo ?(*.txt) {} +
+setopt extended_glob
+find . -exec echo foo~bar {} +
+find . -exec echo foo~bar* {} +
 ";
         let diagnostics = test_snippet(
             source,
@@ -372,7 +375,7 @@ find . -exec echo ?(*.txt) {} +
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["?(*.txt)"]
+            vec!["?(*.txt)", "~", "*"]
         );
     }
 

@@ -2,7 +2,7 @@ use shuck_ast::{
     ArithmeticExpr, BourneParameterExpansion, CaseItem, CommandSubstitutionSyntax, ConditionalExpr,
     ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position,
     PrefixMatchKind, Span, SubscriptSelector, VarRef, Word, WordPart, WordPartNode,
-    ZshExpansionTarget,
+    ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 
 use super::BacktickEscapedParameter;

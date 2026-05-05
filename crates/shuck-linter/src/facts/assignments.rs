@@ -240,7 +240,7 @@ fn bare_command_name_assignment_span<'a>(
     }
 
     let text = occurrence_static_text(word_nodes, fact, source)?;
-    if !is_bare_command_name_assignment_value(&text, command.zsh_options()) {
+    if !is_bare_command_name_assignment_value(&text, command.shell_behavior().zsh_options()) {
         return None;
     }
 

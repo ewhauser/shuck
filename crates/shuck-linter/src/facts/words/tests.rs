@@ -522,45 +522,43 @@ mod expansion_analysis_tests {
     fn analyze_literal_runtime_respects_sh_file_expansion_tilde_order() {
         let source = "print ~$USER ~root/$USER ~/\"$USER\" ~$USER/x\n";
         let words = parse_argument_words(source);
-        let native_options = shuck_semantic::ZshOptionState::zsh_default();
-        let sh_file_options = shuck_semantic::ZshOptionState {
-            sh_file_expansion: shuck_semantic::OptionValue::On,
-            ..shuck_semantic::ZshOptionState::zsh_default()
-        };
-        let unknown_options = shuck_semantic::ZshOptionState {
-            sh_file_expansion: shuck_semantic::OptionValue::Unknown,
-            ..shuck_semantic::ZshOptionState::zsh_default()
-        };
+        let native_behavior = zsh_default_behavior();
+        let sh_file_behavior = zsh_behavior(|options| {
+            options.sh_file_expansion = shuck_semantic::OptionValue::On;
+        });
+        let unknown_behavior = zsh_behavior(|options| {
+            options.sh_file_expansion = shuck_semantic::OptionValue::Unknown;
+        });
 
         let native_dynamic_user = analyze_literal_runtime(
             &words[0],
             source,
             ExpansionContext::CommandArgument,
-            Some(&native_options),
+            Some(&native_behavior),
         );
         let sh_file_dynamic_user = analyze_literal_runtime(
             &words[0],
             source,
             ExpansionContext::CommandArgument,
-            Some(&sh_file_options),
+            Some(&sh_file_behavior),
         );
         let sh_file_literal_user = analyze_literal_runtime(
             &words[1],
             source,
             ExpansionContext::CommandArgument,
-            Some(&sh_file_options),
+            Some(&sh_file_behavior),
         );
         let sh_file_home = analyze_literal_runtime(
             &words[2],
             source,
             ExpansionContext::CommandArgument,
-            Some(&sh_file_options),
+            Some(&sh_file_behavior),
         );
         let unknown_dynamic_user = analyze_literal_runtime(
             &words[3],
             source,
             ExpansionContext::CommandArgument,
-            Some(&unknown_options),
+            Some(&unknown_behavior),
         );
         let default_dynamic_user =
             analyze_literal_runtime(&words[0], source, ExpansionContext::CommandArgument, None);

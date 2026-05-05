@@ -208,6 +208,8 @@ setopt no_glob
 find ./ -name *.jar
 setopt glob extended_glob
 find ./ -name foo^bar
+find ./ -name foo~bar
+find ./ -name foo~bar*
 ";
         let diagnostics = test_snippet(
             source,
@@ -220,7 +222,7 @@ find ./ -name foo^bar
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["foo^bar"]
+            vec!["foo^bar", "foo~bar*"]
         );
     }
 

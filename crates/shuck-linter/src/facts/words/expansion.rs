@@ -384,7 +384,7 @@ pub(super) struct AnalysisSummary {
 
 pub(super) fn analyze_word(
     word: &Word,
-    _source: &str,
+    source: &str,
     behavior: Option<&ShellBehaviorAt<'_>>,
 ) -> ExpansionAnalysis {
     let default_behavior;
@@ -395,7 +395,7 @@ pub(super) fn analyze_word(
         &default_behavior
     };
     let mut summary = AnalysisSummary::default();
-    analyze_parts(&word.parts, false, behavior, &mut summary);
+    analyze_parts(&word.parts, source, false, behavior, &mut summary);
     let default_field_splitting_behavior = behavior.field_splitting();
     let default_pathname_expansion_behavior = behavior.pathname_expansion();
 
@@ -657,6 +657,7 @@ pub(super) fn context_allows_brace_fanout(context: ExpansionContext) -> bool {
 
 pub(super) fn analyze_parts(
     parts: &[WordPartNode],
+    source: &str,
     in_double_quotes: bool,
     behavior: &ShellBehaviorAt<'_>,
     summary: &mut AnalysisSummary,
@@ -665,10 +666,10 @@ pub(super) fn analyze_parts(
         match &part.kind {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
-                analyze_parts(parts, true, behavior, summary);
+                analyze_parts(parts, source, true, behavior, summary);
             }
             kind => {
-                let analysis = analyze_part(kind, in_double_quotes, behavior);
+                let analysis = analyze_part(kind, source, in_double_quotes, behavior);
                 summary.has_non_literal = true;
                 summary.has_scalar_value |= analysis.value_shape == PartValueShape::Scalar;
                 summary.has_array_value |= analysis.array_valued;
@@ -699,6 +700,7 @@ pub(super) fn analyze_parts(
 
 pub(super) fn analyze_part(
     part: &WordPart,
+    source: &str,
     in_double_quotes: bool,
     behavior: &ShellBehaviorAt<'_>,
 ) -> PartAnalysis {
@@ -706,21 +708,30 @@ pub(super) fn analyze_part(
     let pathname_expansion_behavior = behavior.pathname_expansion();
 
     match part {
-        WordPart::ZshQualifiedGlob(_) => PartAnalysis {
-            value_shape: PartValueShape::Unknown,
-            array_valued: false,
-            can_expand_to_multiple_fields: !in_double_quotes
-                && pathname_expansion_behavior.literal_globs_can_expand(),
-            field_splitting_behavior,
-            pathname_expansion_behavior,
-            hazards: ExpansionHazards {
-                pathname_matching: !in_double_quotes
-                    && pathname_expansion_behavior.literal_globs_can_expand(),
-                ..ExpansionHazards::default()
-            },
-            command_substitution: false,
-            process_substitution: false,
-        },
+        WordPart::ZshQualifiedGlob(glob) => {
+            let pathname_matching = !in_double_quotes
+                && pathname_expansion_behavior.literal_globs_can_expand()
+                && !word_spans::zsh_qualified_glob_active_pattern_spans(
+                    glob,
+                    source,
+                    behavior.glob_pattern(),
+                )
+                .is_empty();
+
+            PartAnalysis {
+                value_shape: PartValueShape::Unknown,
+                array_valued: false,
+                can_expand_to_multiple_fields: pathname_matching,
+                field_splitting_behavior,
+                pathname_expansion_behavior,
+                hazards: ExpansionHazards {
+                    pathname_matching,
+                    ..ExpansionHazards::default()
+                },
+                command_substitution: false,
+                process_substitution: false,
+            }
+        }
         WordPart::Parameter(parameter) => {
             analyze_parameter_part(parameter, in_double_quotes, behavior)
         }
