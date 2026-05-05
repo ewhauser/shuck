@@ -2724,7 +2724,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     ..
                 } => self.collect_pending_arithmetic_word_occurrences_in_parameter_operator(
                     operator,
-                    operand_word_ast.as_ref(),
+                    operand_word_ast.as_deref(),
                     enclosing_expansion_context,
                     host_kind,
                 ),
@@ -2767,7 +2767,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 },
             ) => self.collect_pending_arithmetic_word_occurrences_in_parameter_operator(
                 operator,
-                operand_word_ast.as_ref(),
+                operand_word_ast.as_deref(),
                 enclosing_expansion_context,
                 host_kind,
             ),

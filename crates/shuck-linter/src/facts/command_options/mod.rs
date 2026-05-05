@@ -1064,7 +1064,9 @@ fn rm_path_parameter_expansion_is_unsafe(parameter: &ParameterExpansion) -> bool
                 operand: _,
                 colon_variant: _,
                 ..
-            } => operator.as_ref().is_none_or(rm_path_parameter_op_is_unsafe),
+            } => operator
+                .as_deref()
+                .is_none_or(rm_path_parameter_op_is_unsafe),
             BourneParameterExpansion::Operation { operator, .. } => {
                 rm_path_parameter_op_is_unsafe(operator)
             }

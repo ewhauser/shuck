@@ -357,7 +357,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             WordPart::ArithmeticExpansion { expression_ast, .. } => {
                 self.visit_optional_arithmetic_expr_into(
-                    expression_ast.as_ref(),
+                    expression_ast.as_deref(),
                     flow,
                     nested_regions,
                 );
@@ -388,13 +388,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 if parameter_operator_guards_unset_reference(operator) {
                     self.record_guarded_parameter_reference(reference_id);
                 }
-                if matches!(operator, ParameterOp::AssignDefault) {
+                if matches!(operator.as_ref(), ParameterOp::AssignDefault) {
                     self.add_parameter_default_binding(reference);
                 }
                 self.visit_parameter_operator_operand(
                     operator,
                     operand.as_ref(),
-                    operand_word_ast.as_ref(),
+                    operand_word_ast.as_deref(),
                     kind,
                     flow,
                     nested_regions,
@@ -466,7 +466,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     self.visit_parameter_operator_operand(
                         operator,
                         operand.as_ref(),
-                        operand_word_ast.as_ref(),
+                        operand_word_ast.as_deref(),
                         kind,
                         flow,
                         nested_regions,
@@ -486,8 +486,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     nested_regions,
                     reference.span,
                 );
-                self.visit_optional_arithmetic_expr_into(offset_ast.as_ref(), flow, nested_regions);
-                self.visit_optional_arithmetic_expr_into(length_ast.as_ref(), flow, nested_regions);
+                self.visit_optional_arithmetic_expr_into(
+                    offset_ast.as_deref(),
+                    flow,
+                    nested_regions,
+                );
+                self.visit_optional_arithmetic_expr_into(
+                    length_ast.as_deref(),
+                    flow,
+                    nested_regions,
+                );
             }
             WordPart::ArraySlice {
                 reference,
@@ -502,8 +510,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     nested_regions,
                     reference.span,
                 );
-                self.visit_optional_arithmetic_expr_into(offset_ast.as_ref(), flow, nested_regions);
-                self.visit_optional_arithmetic_expr_into(length_ast.as_ref(), flow, nested_regions);
+                self.visit_optional_arithmetic_expr_into(
+                    offset_ast.as_deref(),
+                    flow,
+                    nested_regions,
+                );
+                self.visit_optional_arithmetic_expr_into(
+                    length_ast.as_deref(),
+                    flow,
+                    nested_regions,
+                );
             }
             WordPart::Transformation { reference, .. } => {
                 self.visit_var_ref_reference(
@@ -652,7 +668,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         self.visit_parameter_operator_operand(
                             operator,
                             operand.as_ref(),
-                            operand_word_ast.as_ref(),
+                            operand_word_ast.as_deref(),
                             kind,
                             flow,
                             nested_regions,
@@ -674,12 +690,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         span,
                     );
                     self.visit_parameter_slice_arithmetic_expr_into(
-                        offset_ast.as_ref(),
+                        offset_ast.as_deref(),
                         flow,
                         nested_regions,
                     );
                     self.visit_parameter_slice_arithmetic_expr_into(
-                        length_ast.as_ref(),
+                        length_ast.as_deref(),
                         flow,
                         nested_regions,
                     );
@@ -701,13 +717,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     if parameter_operator_guards_unset_reference(operator) {
                         self.record_guarded_parameter_reference(reference_id);
                     }
-                    if matches!(operator, ParameterOp::AssignDefault) {
+                    if matches!(operator.as_ref(), ParameterOp::AssignDefault) {
                         self.add_parameter_default_binding(reference);
                     }
                     self.visit_parameter_operator_operand(
                         operator,
                         operand.as_ref(),
-                        operand_word_ast.as_ref(),
+                        operand_word_ast.as_deref(),
                         kind,
                         flow,
                         nested_regions,

@@ -691,11 +691,11 @@ impl<'a> Parser<'a> {
                 syntax,
             } => HeredocBodyPart::ArithmeticExpansion {
                 expression,
-                expression_ast,
-                expression_word_ast,
+                expression_ast: expression_ast.map(|ast| *ast),
+                expression_word_ast: *expression_word_ast,
                 syntax,
             },
-            WordPart::Parameter(parameter) => HeredocBodyPart::Parameter(Box::new(parameter)),
+            WordPart::Parameter(parameter) => HeredocBodyPart::Parameter(parameter),
             other => panic!("unsupported heredoc body part: {other:?}"),
         };
 
@@ -3925,7 +3925,7 @@ impl<'a> Parser<'a> {
                 ..
             } => {
                 Self::rebase_var_ref(reference, base);
-                match operator {
+                match operator.as_mut() {
                     ParameterOp::RemovePrefixShort { pattern }
                     | ParameterOp::RemovePrefixLong { pattern }
                     | ParameterOp::RemoveSuffixShort { pattern }
@@ -4706,33 +4706,33 @@ impl<'a> Parser<'a> {
         let Some(syntax) = syntax else {
             unreachable!("matched Some above");
         };
-        WordPart::Parameter(ParameterExpansion {
+        WordPart::Parameter(Box::new(ParameterExpansion {
             syntax: ParameterExpansionSyntax::Bourne(syntax),
             span,
             raw_body,
-        })
+        }))
     }
 
-    fn enrich_parameter_operator(&self, operator: ParameterOp) -> ParameterOp {
-        match operator {
+    fn enrich_parameter_operator(&self, operator: Box<ParameterOp>) -> Box<ParameterOp> {
+        match *operator {
             ParameterOp::ReplaceFirst {
                 pattern,
                 replacement,
                 ..
-            } => ParameterOp::ReplaceFirst {
+            } => Box::new(ParameterOp::ReplaceFirst {
                 pattern,
-                replacement_word_ast: self.parse_source_text_as_word(&replacement),
+                replacement_word_ast: Box::new(self.parse_source_text_as_word(&replacement)),
                 replacement,
-            },
+            }),
             ParameterOp::ReplaceAll {
                 pattern,
                 replacement,
                 ..
-            } => ParameterOp::ReplaceAll {
+            } => Box::new(ParameterOp::ReplaceAll {
                 pattern,
-                replacement_word_ast: self.parse_source_text_as_word(&replacement),
+                replacement_word_ast: Box::new(self.parse_source_text_as_word(&replacement)),
                 replacement,
-            },
+            }),
             ParameterOp::UseDefault
             | ParameterOp::AssignDefault
             | ParameterOp::UseReplacement
@@ -4783,11 +4783,11 @@ impl<'a> Parser<'a> {
         part_end: Position,
     ) -> WordPart {
         let syntax = self.parse_zsh_parameter_syntax(&raw_body, raw_body.span().start);
-        WordPart::Parameter(ParameterExpansion {
+        WordPart::Parameter(Box::new(ParameterExpansion {
             syntax: ParameterExpansionSyntax::Zsh(syntax),
             span: Span::from_positions(part_start, part_end),
             raw_body,
-        })
+        }))
     }
 
     fn parse_zsh_modifier_group(
@@ -4843,7 +4843,7 @@ impl<'a> Parser<'a> {
 
             let argument_word_ast = argument
                 .as_ref()
-                .map(|argument| self.parse_source_text_as_word(argument));
+                .map(|argument| Box::new(self.parse_source_text_as_word(argument)));
 
             modifiers.push(ZshModifier {
                 name,
@@ -4978,7 +4978,7 @@ impl<'a> Parser<'a> {
         {
             ZshExpansionTarget::Reference(reference)
         } else {
-            ZshExpansionTarget::Word(word)
+            ZshExpansionTarget::Word(Box::new(word))
         }
     }
 
@@ -5256,7 +5256,7 @@ impl<'a> Parser<'a> {
             );
             return ZshExpansionOperation::PatternOperation {
                 kind: ZshPatternOp::Filter,
-                operand_word_ast: self.parse_source_text_as_word(&operand),
+                operand_word_ast: Box::new(self.parse_source_text_as_word(&operand)),
                 operand,
             };
         }
@@ -5284,7 +5284,7 @@ impl<'a> Parser<'a> {
             );
             return ZshExpansionOperation::Defaulting {
                 kind,
-                operand_word_ast: self.parse_source_text_as_word(&operand),
+                operand_word_ast: Box::new(self.parse_source_text_as_word(&operand)),
                 operand,
                 colon_variant: true,
             };
@@ -5302,7 +5302,7 @@ impl<'a> Parser<'a> {
             let operand = self.zsh_operation_source_text(text, base, prefix_len, text.len());
             return ZshExpansionOperation::TrimOperation {
                 kind,
-                operand_word_ast: self.parse_source_text_as_word(&operand),
+                operand_word_ast: Box::new(self.parse_source_text_as_word(&operand)),
                 operand,
             };
         }
@@ -5326,8 +5326,10 @@ impl<'a> Parser<'a> {
             });
             return ZshExpansionOperation::ReplacementOperation {
                 kind,
-                pattern_word_ast: self.parse_source_text_as_word(&pattern),
-                replacement_word_ast: self.parse_optional_source_text_as_word(replacement.as_ref()),
+                pattern_word_ast: Box::new(self.parse_source_text_as_word(&pattern)),
+                replacement_word_ast: self
+                    .parse_optional_source_text_as_word(replacement.as_ref())
+                    .map(Box::new),
                 pattern,
                 replacement,
             };
@@ -5337,7 +5339,7 @@ impl<'a> Parser<'a> {
             if Self::zsh_modifier_suffix_candidate(rest) {
                 let text = self.source_text(text.to_string(), base, base.advanced_by(text));
                 return ZshExpansionOperation::Unknown {
-                    word_ast: self.parse_source_text_as_word(&text),
+                    word_ast: Box::new(self.parse_source_text_as_word(&text)),
                     text,
                 };
             }
@@ -5350,8 +5352,10 @@ impl<'a> Parser<'a> {
                     self.zsh_operation_source_text(text, base, 1 + separator + 1, text.len())
                 });
                 return ZshExpansionOperation::Slice {
-                    offset_word_ast: self.parse_source_text_as_word(&offset),
-                    length_word_ast: self.parse_optional_source_text_as_word(length.as_ref()),
+                    offset_word_ast: Box::new(self.parse_source_text_as_word(&offset)),
+                    length_word_ast: self
+                        .parse_optional_source_text_as_word(length.as_ref())
+                        .map(Box::new),
                     offset,
                     length,
                 };
@@ -5360,7 +5364,7 @@ impl<'a> Parser<'a> {
 
         let text = self.source_text(text.to_string(), base, base.advanced_by(text));
         ZshExpansionOperation::Unknown {
-            word_ast: self.parse_source_text_as_word(&text),
+            word_ast: Box::new(self.parse_source_text_as_word(&text)),
             text,
         }
     }

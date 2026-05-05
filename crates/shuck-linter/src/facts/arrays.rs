@@ -684,7 +684,7 @@ fn collect_use_replacement_expansion_spans(parts: &[WordPartNode], spans: &mut V
             | WordPart::IndirectExpansion {
                 operator: Some(operator),
                 ..
-            } if matches!(operator, ParameterOp::UseReplacement) => spans.push(part.span),
+            } if matches!(operator.as_ref(), ParameterOp::UseReplacement) => spans.push(part.span),
             WordPart::Parameter(_)
             | WordPart::ParameterExpansion { .. }
             | WordPart::IndirectExpansion { .. } => {}
@@ -703,7 +703,7 @@ fn parameter_uses_replacement_operator(parameter: &ParameterExpansion) -> bool {
             ..
         }
         | BourneParameterExpansion::Operation { operator, .. } => {
-            matches!(operator, ParameterOp::UseReplacement)
+            matches!(operator.as_ref(), ParameterOp::UseReplacement)
         }
         BourneParameterExpansion::Access { .. }
         | BourneParameterExpansion::Length { .. }

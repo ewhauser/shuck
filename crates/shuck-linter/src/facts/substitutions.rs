@@ -385,7 +385,7 @@ fn collect_word_substitution_occurrences<'a>(
                 collect_word_substitution_occurrences(parts, true, occurrences);
             }
             WordPart::ArithmeticExpansion { expression_ast, .. } => {
-                visit_arithmetic_words_in_expression(expression_ast.as_ref(), quoted, occurrences);
+                visit_arithmetic_words_in_expression(expression_ast.as_deref(), quoted, occurrences);
             }
             WordPart::CommandSubstitution { body, syntax } => {
                 occurrences.push(SubstitutionOccurrence {

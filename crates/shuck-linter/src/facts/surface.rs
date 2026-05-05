@@ -919,12 +919,12 @@ impl<'a> SurfaceFragmentSink<'a> {
                         .push(LegacyArithmeticFragmentFact { span: part.span });
                     collect_positional_parameter_operator_spans_in_arithmetic(
                         part.span,
-                        expression_ast.as_ref(),
+                        expression_ast.as_deref(),
                         expression,
                         self.source,
                         &mut self.facts.positional_parameter_operator_spans,
                     );
-                    if let Some(expression_ast) = expression_ast.as_ref() {
+                    if let Some(expression_ast) = expression_ast.as_deref() {
                         visit_arithmetic_words(expression_ast, &mut |word| {
                             self.collect_word(word, context);
                         });
@@ -940,12 +940,12 @@ impl<'a> SurfaceFragmentSink<'a> {
                 } => {
                     collect_positional_parameter_operator_spans_in_arithmetic(
                         part.span,
-                        expression_ast.as_ref(),
+                        expression_ast.as_deref(),
                         expression,
                         self.source,
                         &mut self.facts.positional_parameter_operator_spans,
                     );
-                    if let Some(expression_ast) = expression_ast.as_ref() {
+                    if let Some(expression_ast) = expression_ast.as_deref() {
                         visit_arithmetic_words(expression_ast, &mut |word| {
                             self.collect_word(word, context);
                         });
@@ -1007,7 +1007,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                         }
                     }
                     if matches!(
-                        operator,
+                        operator.as_ref(),
                         ParameterOp::UpperFirst
                             | ParameterOp::UpperAll
                             | ParameterOp::LowerFirst
@@ -1016,7 +1016,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                         self.record_case_modification(part.span);
                     }
                     if matches!(
-                        operator,
+                        operator.as_ref(),
                         ParameterOp::ReplaceFirst { .. } | ParameterOp::ReplaceAll { .. }
                     ) {
                         self.record_replacement_expansion(part.span);
@@ -1031,7 +1031,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                     self.collect_parameter_operator_patterns(
                         operator,
                         operand.as_ref(),
-                        operand_word_ast.as_ref(),
+                        operand_word_ast.as_deref(),
                         context,
                     );
                 }
@@ -1107,7 +1107,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                     self.collect_parameter_operator_patterns(
                         operator,
                         operand.as_ref(),
-                        operand_word_ast.as_ref(),
+                        operand_word_ast.as_deref(),
                         context,
                     );
                 }
@@ -1413,7 +1413,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                     self.collect_parameter_operator_patterns(
                         operator,
                         operand.as_ref(),
-                        operand_word_ast.as_ref(),
+                        operand_word_ast.as_deref(),
                         context,
                     );
                 }
@@ -2036,7 +2036,7 @@ fn classify_parameter_expansion_walk<'a>(
                         classification.has_array_reference = true;
                     }
                     if matches!(
-                        operator,
+                        operator.as_ref(),
                         ParameterOp::UpperFirst
                             | ParameterOp::UpperAll
                             | ParameterOp::LowerFirst
@@ -2045,7 +2045,7 @@ fn classify_parameter_expansion_walk<'a>(
                         classification.has_case_modification = true;
                     }
                     if matches!(
-                        operator,
+                        operator.as_ref(),
                         ParameterOp::ReplaceFirst { .. } | ParameterOp::ReplaceAll { .. }
                     ) {
                         classification.has_replacement_expansion = true;

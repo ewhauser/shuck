@@ -1446,7 +1446,7 @@ pub(super) fn collect_arithmetic_spans_in_parameter_expansion(
                     command_substitution_spans,
                 );
                 collect_arithmetic_spans_in_fragment(
-                    operand_word_ast.as_ref(),
+                    operand_word_ast.as_deref(),
                     operand.as_ref(),
                     source,
                     collect_dollar_spans,
@@ -1469,7 +1469,7 @@ pub(super) fn collect_arithmetic_spans_in_parameter_expansion(
                     command_substitution_spans,
                 );
                 collect_arithmetic_spans_in_fragment(
-                    operand_word_ast.as_ref(),
+                    operand_word_ast.as_deref(),
                     operand.as_ref(),
                     source,
                     collect_dollar_spans,

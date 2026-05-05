@@ -195,9 +195,9 @@ mod tests {
                     subscript: None,
                     span: Span::new(),
                 },
-                operator: ParameterOp::UseDefault,
+                operator: Box::new(ParameterOp::UseDefault),
                 operand: Some(SourceText::from("fallback")),
-                operand_word_ast: Some(Word::literal("fallback")),
+                operand_word_ast: Some(Box::new(Word::literal("fallback"))),
                 colon_variant: true,
             },
         ]))]);

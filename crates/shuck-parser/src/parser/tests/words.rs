@@ -65,13 +65,13 @@ fn collect_bourne_parameter_trim_patterns(
             }
             WordPart::Parameter(parameter) => {
                 if let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
-                    operator:
-                        ParameterOp::RemovePrefixShort { pattern }
-                        | ParameterOp::RemovePrefixLong { pattern }
-                        | ParameterOp::RemoveSuffixShort { pattern }
-                        | ParameterOp::RemoveSuffixLong { pattern },
+                    operator,
                     ..
                 }) = &parameter.syntax
+                    && let ParameterOp::RemovePrefixShort { pattern }
+                    | ParameterOp::RemovePrefixLong { pattern }
+                    | ParameterOp::RemoveSuffixShort { pattern }
+                    | ParameterOp::RemoveSuffixLong { pattern } = operator.as_ref()
                 {
                     patterns.push(pattern.render(source));
                 }
@@ -1233,14 +1233,17 @@ fn test_parse_word_fragment_rebases_indirect_operator_spans() {
     let parameter = expect_parameter(&word);
 
     let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Indirect {
-        operator:
-            Some(ParameterOp::ReplaceAll {
-                replacement,
-                replacement_word_ast,
-                ..
-            }),
+        operator: Some(operator),
         ..
     }) = &parameter.syntax
+    else {
+        panic!("expected indirect replacement operator");
+    };
+    let ParameterOp::ReplaceAll {
+        replacement,
+        replacement_word_ast,
+        ..
+    } = operator.as_ref()
     else {
         panic!("expected indirect replacement operator");
     };
@@ -1289,7 +1292,7 @@ fn test_parse_special_hash_parameter_prefix_removal() {
     };
 
     assert_eq!(reference.name.as_str(), "#");
-    match operator {
+    match operator.as_ref() {
         ParameterOp::RemovePrefixShort { pattern } => assert_eq!(pattern.render(input), "*/"),
         other => panic!("expected short prefix removal, got {other:?}"),
     }
@@ -4326,7 +4329,10 @@ fn test_parse_long_suffix_trim_operator_inside_double_quotes() {
         else {
             panic!("expected parameter operation");
         };
-        assert!(matches!(operator, ParameterOp::RemoveSuffixLong { .. }));
+        assert!(matches!(
+            operator.as_ref(),
+            ParameterOp::RemoveSuffixLong { .. }
+        ));
     }
 }
 
