@@ -1079,6 +1079,43 @@ function __grunt() {
     }
 
     #[test]
+    fn zsh_runtime_hook_arrays_are_initialized_by_the_shell_context() {
+        let source = "\
+#!/bin/zsh
+precmd_functions=(${precmd_functions:#_async_prompt_precmd})
+print -r -- $chpwd_functions $still_missing
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/lib/async_prompt.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$still_missing"]
+        );
+    }
+
+    #[test]
+    fn pathless_zsh_hook_array_references_stay_reportable() {
+        let source = "\
+#!/bin/zsh
+print -r -- $precmd_functions
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "$precmd_functions");
+    }
+
+    #[test]
     fn zsh_arguments_without_state_action_keeps_state_names_reportable() {
         let source = "\
 #!/bin/zsh
