@@ -1,6 +1,6 @@
 use shuck_ast::{DeclOperand, Position, Span};
 
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct AssignmentToNumericVariable;
 
@@ -15,6 +15,10 @@ impl Violation for AssignmentToNumericVariable {
 }
 
 pub fn assignment_to_numeric_variable(checker: &mut Checker) {
+    if checker.shell() == ShellDialect::Zsh {
+        return;
+    }
+
     let source = checker.source();
     let spans = checker
         .facts()
@@ -74,7 +78,7 @@ fn numeric_assignment_target_span(text: &str, start: Position) -> Option<Span> {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn anchors_on_numeric_assignment_targets() {
@@ -115,5 +119,22 @@ a2=1
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_zsh_numeric_parameter_assignments() {
+        let source = "\
+#!/bin/zsh
+0=${(%):-%N}
+1=value
+2+=more
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AssignmentToNumericVariable)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 }
