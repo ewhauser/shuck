@@ -1178,6 +1178,24 @@ fn zsh_zstyle_listing_mode_does_not_create_named_target() {
 }
 
 #[test]
+fn zsh_zstyle_other_modes_do_not_create_named_targets() {
+    for option in ["-g", "-d", "-m", "-t"] {
+        let source = format!(
+            "#!/bin/zsh\nzstyle {option} -a ':prezto:load' pmodule-dirs user_pmodule_dirs\nprint $user_pmodule_dirs\n"
+        );
+        let model = model_with_dialect(&source, ShellDialect::Zsh);
+
+        assert!(
+            model
+                .bindings_for(&Name::from("user_pmodule_dirs"))
+                .is_empty(),
+            "unexpected target binding for {option}"
+        );
+        assert_eq!(unresolved_names(&model), vec!["user_pmodule_dirs"]);
+    }
+}
+
+#[test]
 fn zsh_zstyle_array_query_preserves_existing_associative_target() {
     let source = "\
 #!/bin/zsh
@@ -1207,6 +1225,26 @@ fn zsh_describe_consumes_named_array_operand() {
         model.reference(binding.references[0]).span.slice(source),
         "cmds"
     );
+}
+
+#[test]
+fn zsh_describe_consumes_optional_second_array_operand() {
+    let source = "\
+#!/bin/zsh
+values=(git)
+descriptions=(git:'run git')
+_describe 'external command' values descriptions
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+
+    for name in ["values", "descriptions"] {
+        let binding = binding_for_name(&model, name);
+        assert_eq!(binding.references.len(), 1);
+        assert_eq!(
+            model.reference(binding.references[0]).span.slice(source),
+            name
+        );
+    }
 }
 
 #[test]
