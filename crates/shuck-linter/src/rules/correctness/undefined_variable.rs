@@ -424,6 +424,48 @@ printf '%s\\n' \"$target\"
     }
 
     #[test]
+    fn zparseopts_stacked_looking_specs_initialize_targets() {
+        let source = "\
+#!/bin/zsh
+zparseopts -- -DEK=dest
+printf '%s\\n' \"$dest\" \"$missing\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zparseopts_mapping_does_not_initialize_spec_alias_names() {
+        let source = "\
+#!/bin/zsh
+zparseopts -A bar -M a=foo b+: c:=b
+printf '%s\\n' \"$bar\" \"$foo\" \"$b\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$b"]
+        );
+    }
+
+    #[test]
     fn subscript_suppression_hides_later_same_name_uses() {
         let source = "\
 #!/bin/bash

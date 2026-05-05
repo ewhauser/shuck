@@ -801,6 +801,7 @@ fn getopts_target(args: &[&Word], source: &str) -> Option<(Name, Span)> {
 fn zparseopts_targets(args: &[&Word], source: &str) -> Vec<(Name, Span, BindingAttributes)> {
     let mut targets = Vec::new();
     let mut index = 0;
+    let mut mapping_enabled = false;
 
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
@@ -810,69 +811,69 @@ fn zparseopts_targets(args: &[&Word], source: &str) -> Vec<(Name, Span, BindingA
             index += 1;
             break;
         }
-        let Some(flags) = text.strip_prefix('-') else {
-            break;
-        };
-        if flags.is_empty() {
-            break;
+        match text.as_ref() {
+            "-D" | "-E" | "-F" | "-K" => {
+                index += 1;
+                continue;
+            }
+            "-M" => {
+                mapping_enabled = true;
+                index += 1;
+                continue;
+            }
+            "-a" | "-A" => {
+                let attributes = zparseopts_aggregate_target_attributes(&text);
+                if let Some((name, span)) = args
+                    .get(index + 1)
+                    .and_then(|word| named_target_word(word, source))
+                {
+                    targets.push((name, span, attributes));
+                    index += 2;
+                    continue;
+                }
+                index += 1;
+                continue;
+            }
+            _ => {}
         }
 
-        let mut consumed_option = false;
-        let mut stop_after_target = false;
-        for (offset, flag) in flags.char_indices() {
-            match flag {
-                'D' | 'E' | 'F' | 'K' | 'M' => {
-                    consumed_option = true;
-                }
-                'a' | 'A' => {
-                    consumed_option = true;
-                    let attached_offset = offset + flag.len_utf8();
-                    let attributes = if flag == 'A' {
-                        BindingAttributes::ARRAY | BindingAttributes::ASSOC
-                    } else {
-                        BindingAttributes::ARRAY
-                    };
-                    if attached_offset < flags.len() {
-                        if let Some(target) = zparseopts_attached_array_target(
-                            word,
-                            source,
-                            &flags[attached_offset..],
-                            attributes,
-                        ) {
-                            targets.push(target);
-                        }
-                    } else if let Some((name, span)) = args
-                        .get(index + 1)
-                        .and_then(|word| named_target_word(word, source))
-                    {
-                        targets.push((name, span, attributes));
-                        index += 1;
-                    }
-                    stop_after_target = true;
-                    break;
-                }
-                _ => {
-                    consumed_option = false;
-                    break;
-                }
+        if (text.starts_with("-a") || text.starts_with("-A")) && !text.contains('=') {
+            let attributes = zparseopts_aggregate_target_attributes(&text);
+            if let Some(target_text) = text.get(2..)
+                && let Some(target) =
+                    zparseopts_attached_array_target(word, source, target_text, attributes)
+            {
+                targets.push(target);
+                index += 1;
+                continue;
             }
         }
-        if !consumed_option {
-            break;
-        }
-        index += 1;
-        if stop_after_target {
-            continue;
-        }
+
+        break;
     }
 
+    let spec_names = mapping_enabled.then(|| {
+        args[index..]
+            .iter()
+            .filter_map(|word| zparseopts_spec_name(word, source))
+            .collect::<FxHashSet<_>>()
+    });
+
     for word in &args[index..] {
-        if let Some(target) = zparseopts_spec_target(word, source) {
+        if let Some(target) = zparseopts_spec_target(word, source, spec_names.as_ref()) {
             targets.push(target);
         }
     }
 
     targets
+}
+
+fn zparseopts_aggregate_target_attributes(text: &str) -> BindingAttributes {
+    if text.starts_with("-A") {
+        BindingAttributes::ARRAY | BindingAttributes::ASSOC
+    } else {
+        BindingAttributes::ARRAY
+    }
 }
 
 fn zparseopts_attached_array_target(
@@ -894,11 +895,25 @@ fn zparseopts_attached_array_target(
     ))
 }
 
-fn zparseopts_spec_target(word: &Word, source: &str) -> Option<(Name, Span, BindingAttributes)> {
+fn zparseopts_spec_name(word: &Word, source: &str) -> Option<Box<str>> {
+    let text = static_word_text(word, source)?;
+    let spec = text.split_once('=').map_or(text.as_ref(), |(spec, _)| spec);
+    let spec = spec.trim_end_matches(':').trim_end_matches('+');
+    (!spec.is_empty()).then_some(spec.into())
+}
+
+fn zparseopts_spec_target(
+    word: &Word,
+    source: &str,
+    mapped_spec_names: Option<&FxHashSet<Box<str>>>,
+) -> Option<(Name, Span, BindingAttributes)> {
     let text = static_word_text(word, source)?;
     let target_start = text.find('=')? + 1;
     let target = &text[target_start..];
     if !is_name(target) {
+        return None;
+    }
+    if mapped_spec_names.is_some_and(|spec_names| spec_names.contains(target)) {
         return None;
     }
 

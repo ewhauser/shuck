@@ -4700,6 +4700,46 @@ fn zparseopts_attached_and_separator_targets_are_precise() {
 }
 
 #[test]
+fn zparseopts_control_options_are_not_stacked() {
+    let source = "zparseopts -- -DEK=dest\n";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let binding = model
+        .bindings()
+        .iter()
+        .find(|binding| {
+            binding.name == "dest" && matches!(binding.kind, BindingKind::ZparseoptsTarget)
+        })
+        .expect("expected -DEK spec target");
+
+    assert_eq!(binding.span.slice(source), "dest");
+    assert!(binding.attributes.contains(BindingAttributes::ARRAY));
+}
+
+#[test]
+fn zparseopts_mapping_does_not_bind_targets_that_name_specs() {
+    let source = "zparseopts -A bar -M a=foo b+: c:=b\n";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let targets = model
+        .bindings()
+        .iter()
+        .filter(|binding| matches!(binding.kind, BindingKind::ZparseoptsTarget))
+        .map(|binding| {
+            (
+                binding.name.as_str().to_owned(),
+                binding.attributes.contains(BindingAttributes::ASSOC),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        targets,
+        vec![("bar".to_owned(), true), ("foo".to_owned(), false)]
+    );
+}
+
+#[test]
 fn zparseopts_dynamic_targets_do_not_create_static_bindings() {
     let source = "zparseopts -a$aggregate -- x=$target\n";
     let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
