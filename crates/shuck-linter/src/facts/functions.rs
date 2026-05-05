@@ -256,15 +256,10 @@ fn build_completion_registered_function_scopes(
             };
 
             if list.segments()[index + 1..].iter().any(|later_segment| {
-                command_registers_completion_function(
-                    command_fact(
-                        commands,
-                        command_fact_indices_by_id,
-                        later_segment.command_id(),
-                    ),
-                    source,
-                    &candidate.name,
-                )
+                let later_command =
+                    command_fact(commands, command_fact_indices_by_id, later_segment.command_id());
+                is_top_level_zsh_entrypoint_registration(semantic, later_command)
+                    && command_registers_completion_function(later_command, source, &candidate.name)
             }) {
                 scopes.insert(candidate.scope);
             }
@@ -277,6 +272,7 @@ fn build_completion_registered_function_scopes(
         };
         if commands.iter().any(|later_command| {
             later_command.span().start.offset > command.span().end.offset
+                && is_top_level_zsh_entrypoint_registration(semantic, later_command)
                 && later_command.effective_or_literal_name() == Some("compdef")
                 && command_registers_completion_function(later_command, source, &candidate.name)
         }) {
@@ -290,6 +286,7 @@ fn build_completion_registered_function_scopes(
         };
         if commands.iter().any(|command| {
             command.span().start.offset > scope.span.end.offset
+                && is_top_level_zsh_entrypoint_registration(semantic, command)
                 && command.effective_or_literal_name() == Some("compdef")
                 && names.iter().any(|name| {
                     command_registers_completion_function(command, source, name.as_str())

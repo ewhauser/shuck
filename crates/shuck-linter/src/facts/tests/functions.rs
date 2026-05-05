@@ -640,6 +640,30 @@ compdef __grunt grunt
 }
 
 #[test]
+fn ignores_zsh_compdef_registrations_inside_function_bodies() {
+    let source = "\
+#!/bin/zsh
+__grunt() {
+  print -r -- $verbose
+}
+setup_completion() {
+  compdef __grunt grunt
+}
+";
+
+    with_facts(source, None, |_, facts| {
+        let flagged_lines = facts
+            .commands()
+            .iter()
+            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .map(|command| command.span().start.line)
+            .collect::<Vec<_>>();
+
+        assert_eq!(flagged_lines, Vec::<usize>::new());
+    });
+}
+
+#[test]
 fn marks_zsh_widget_and_hook_functions_as_external_entrypoints() {
     let source = "\
 #!/bin/zsh

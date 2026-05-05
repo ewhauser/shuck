@@ -603,6 +603,31 @@ compdef __example example
     }
 
     #[test]
+    fn zsh_completion_context_names_stay_reportable_without_top_level_compdef() {
+        let source = "\
+#!/bin/zsh
+function __grunt() {
+  print -r -- $verbose $missing
+}
+setup_completion() {
+  compdef __grunt grunt
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$verbose", "$missing"]
+        );
+    }
+
+    #[test]
     fn zsh_zstyle_array_query_defines_named_target() {
         let source = "\
 #!/bin/zsh
