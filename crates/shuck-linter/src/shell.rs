@@ -104,20 +104,28 @@ impl ShellDialect {
     fn infer_from_source_markers(source: &str) -> Option<Self> {
         let mut saw_bash_marker = false;
         let mut saw_zsh_marker = false;
+        let mut at_directive_prefix = true;
 
         for line in source.lines() {
             let trimmed = line.trim_start();
+            if trimmed.is_empty() || trimmed.starts_with("#!") {
+                continue;
+            }
             if trimmed.starts_with('#') {
                 let comment = trimmed.strip_prefix('#').unwrap_or_default();
-                if comment.starts_with("compdef") || comment.starts_with("autoload") {
+                if at_directive_prefix
+                    && (comment.starts_with("compdef") || comment.starts_with("autoload"))
+                {
                     saw_zsh_marker = true;
                 }
+                at_directive_prefix = false;
                 continue;
             }
 
             let code = trimmed.split('#').next().unwrap_or(trimmed);
             saw_bash_marker |= line_has_bash_marker(code);
             saw_zsh_marker |= line_has_zsh_marker(code);
+            at_directive_prefix = false;
 
             if saw_bash_marker && saw_zsh_marker {
                 return None;
@@ -179,6 +187,9 @@ fn starts_with_assignment(line: &str, name: &str) -> bool {
 fn contains_unquoted_parameter(line: &str, name: &str) -> bool {
     let name_bytes = name.as_bytes();
     contains_unquoted_marker(line, |bytes, index| {
+        if bytes.get(index) != Some(&b'$') {
+            return false;
+        }
         let braced_start = index + 2;
         let braced_end = braced_start + name_bytes.len();
         if bytes.get(index + 1) == Some(&b'{')
@@ -295,6 +306,15 @@ autoload -U compaudit compinit
     }
 
     #[test]
+    fn ignores_late_compdef_comment_markers_after_real_content() {
+        let inferred = ShellDialect::infer(
+            "printf '%s\\n' ok\n#compdef git\n",
+            Some(Path::new("/tmp/example.sh")),
+        );
+        assert_eq!(inferred, ShellDialect::Sh);
+    }
+
+    #[test]
     fn ignores_free_form_comments_that_mention_zsh_directive_words() {
         let inferred = ShellDialect::infer(
             "# autoload helper cache\n# compdef examples live elsewhere\nprintf '%s\\n' ok\n",
@@ -309,6 +329,13 @@ autoload -U compaudit compinit
             "printf '%s\\n' \"ZSH_VERSION\" \"BASH_VERSION\" \"PROMPT_COMMAND\"\n",
             Some(Path::new("/tmp/example.sh")),
         );
+        assert_eq!(inferred, ShellDialect::Sh);
+    }
+
+    #[test]
+    fn ignores_single_literal_dialect_marker_names_without_dollar_prefix() {
+        let inferred =
+            ShellDialect::infer("echo ZSH_VERSION\n", Some(Path::new("/tmp/example.sh")));
         assert_eq!(inferred, ShellDialect::Sh);
     }
 
