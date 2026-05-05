@@ -47,6 +47,7 @@ pub struct LinterFacts<'a> {
     array_assignment_split_word_ids: Vec<WordOccurrenceId>,
     brace_variable_before_bracket_spans: Vec<Span>,
     completion_registered_function_command_flags: Vec<bool>,
+    completion_registered_function_scopes: FxHashSet<ScopeId>,
     external_entrypoint_function_scopes: FxHashSet<ScopeId>,
     function_headers: Vec<FunctionHeaderFact<'a>>,
     function_definition_command_ids_by_scope: FxHashMap<ScopeId, CommandId>,
@@ -669,6 +670,10 @@ impl<'a> LinterFacts<'a> {
             .get(id.index())
             .copied()
             .unwrap_or(false)
+    }
+
+    pub fn function_is_completion_registered(&self, scope: ScopeId) -> bool {
+        self.completion_registered_function_scopes.contains(&scope)
     }
 
     pub fn function_is_external_entrypoint(&self, scope: ScopeId) -> bool {

@@ -1,6 +1,6 @@
 use compact_str::CompactString;
 use rustc_hash::FxHashSet;
-use shuck_semantic::UninitializedCertainty;
+use shuck_semantic::{Reference, UninitializedCertainty};
 
 use crate::{Checker, Rule, Violation};
 
@@ -63,6 +63,9 @@ pub fn undefined_variable(checker: &mut Checker) {
         {
             continue;
         }
+        if is_zsh_completion_context_reference(checker, reference) {
+            continue;
+        }
         if !is_reportable_variable_reference(
             checker,
             reference,
@@ -88,6 +91,32 @@ pub fn undefined_variable(checker: &mut Checker) {
             reference.span,
         );
     }
+}
+
+fn is_zsh_completion_context_reference(checker: &Checker<'_>, reference: &Reference) -> bool {
+    checker.shell() == crate::ShellDialect::Zsh
+        && is_zsh_completion_context_name(reference.name.as_str())
+        && checker
+            .semantic_analysis()
+            .enclosing_function_scope_at(reference.span.start.offset)
+            .is_some_and(|scope| checker.facts().function_is_completion_registered(scope))
+}
+
+fn is_zsh_completion_context_name(name: &str) -> bool {
+    matches!(
+        name,
+        "CURRENT"
+            | "IPREFIX"
+            | "ISUFFIX"
+            | "PREFIX"
+            | "QIPREFIX"
+            | "QISUFFIX"
+            | "SUFFIX"
+            | "compstate"
+            | "curcontext"
+            | "verbose"
+            | "words"
+    )
 }
 
 #[cfg(test)]
@@ -483,6 +512,93 @@ printf '%s\\n' \"$bar\" \"$foo\" \"$b\"
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$b"]
+        );
+    }
+
+    #[test]
+    fn zsh_helpers_inherit_caller_scoped_zparseopts_arrays() {
+        let source = "\
+#!/bin/zsh
+safe_rm() {
+  if [[ ${#dry_run[@]} -gt 0 ]]; then
+    print -r -- dry
+  fi
+  print -r -- $missing
+}
+update_main() {
+  local -a dry_run
+  zparseopts -D -- -dry-run=dry_run
+  safe_rm target
+}
+update_main \"$@\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_arguments_initializes_completion_state_in_caller_scope() {
+        let source = "\
+#!/bin/zsh
+function __grunt() {
+  local curcontext=\"$curcontext\" state opts tasks
+  opts=()
+  tasks=()
+  _arguments \"${opts[@]}\" '*: :->tasks' || return
+  case $state in
+    tasks)
+      _describe -t grunt-task \"$verbose grunt task\" tasks || return 1
+    ;;
+  esac
+}
+compdef __grunt grunt
+print -r -- $missing
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_arguments_defines_completion_helper_variables() {
+        let source = "\
+#!/bin/zsh
+function __example() {
+  _arguments '*: :->state'
+  print -r -- $state $context $line $opt_args $state_descr $missing
+}
+compdef __example example
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
         );
     }
 

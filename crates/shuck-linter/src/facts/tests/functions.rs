@@ -617,6 +617,29 @@ complete -F _comp_cmd_later later
 }
 
 #[test]
+fn marks_commands_inside_zsh_compdef_registered_functions() {
+    let source = "\
+#!/bin/zsh
+__grunt() {
+  print -r -- $verbose
+}
+compdef __grunt grunt
+";
+
+    with_facts(source, None, |_, facts| {
+        let flagged_lines = facts
+            .commands()
+            .iter()
+            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .map(|command| command.span().start.line)
+            .collect::<Vec<_>>();
+
+        assert!(!flagged_lines.is_empty());
+        assert!(flagged_lines.iter().all(|line| *line == 3));
+    });
+}
+
+#[test]
 fn marks_zsh_widget_and_hook_functions_as_external_entrypoints() {
     let source = "\
 #!/bin/zsh

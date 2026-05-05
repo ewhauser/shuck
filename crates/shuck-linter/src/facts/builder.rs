@@ -617,14 +617,18 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             &command_child_index,
             self.source,
         );
+        let completion_registered_function_scopes = build_completion_registered_function_scopes(
+            self.semantic,
+            &commands,
+            &command_fact_indices_by_id,
+            &lists,
+            self.source,
+        );
         let completion_registered_function_command_flags =
             build_completion_registered_function_command_flags(
-                self.semantic,
                 semantic_analysis,
                 &commands,
-                &command_fact_indices_by_id,
-                &lists,
-                self.source,
+                &completion_registered_function_scopes,
             );
         let external_entrypoint_function_scopes = build_external_entrypoint_function_scopes(
             self.semantic,
@@ -967,6 +971,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             array_assignment_split_word_ids,
             brace_variable_before_bracket_spans,
             completion_registered_function_command_flags,
+            completion_registered_function_scopes,
             external_entrypoint_function_scopes,
             function_headers,
             function_definition_command_ids_by_scope,

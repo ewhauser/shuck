@@ -157,6 +157,21 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     self.add_reference_if_bound(&argument, ReferenceKind::ImplicitRead, span);
                 }
             }
+            "_arguments" if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh => {
+                for (argument, attributes) in zsh_arguments_targets() {
+                    self.add_binding(
+                        &argument,
+                        BindingKind::ReadTarget,
+                        self.current_scope(),
+                        name_span,
+                        BindingOrigin::BuiltinTarget {
+                            definition_span: name_span,
+                            kind: BuiltinBindingTargetKind::ZshArguments,
+                        },
+                        attributes,
+                    );
+                }
+            }
             "let" => self.record_let_arithmetic_assignment_targets(args),
             "eval" => self.record_eval_argument_references(args),
             "trap" => self.record_trap_action_references(args),
@@ -527,6 +542,19 @@ fn zstyle_target(args: &[&Word], source: &str) -> Option<(Name, Span, BindingAtt
     args.get(index + 2)
         .and_then(|word| named_target_word(word, source))
         .map(|(name, span)| (name, span, attributes))
+}
+
+fn zsh_arguments_targets() -> [(Name, BindingAttributes); 5] {
+    [
+        (Name::from("context"), BindingAttributes::ARRAY),
+        (Name::from("line"), BindingAttributes::ARRAY),
+        (
+            Name::from("opt_args"),
+            BindingAttributes::ARRAY | BindingAttributes::ASSOC,
+        ),
+        (Name::from("state"), BindingAttributes::ARRAY),
+        (Name::from("state_descr"), BindingAttributes::ARRAY),
+    ]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
