@@ -259,9 +259,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             subscript.interpretation,
             shuck_ast::SubscriptInterpretation::Associative
         ) || owner_name.is_some_and(|name| {
-            (self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh
-                && zsh_runtime_array_uses_associative_subscript(name))
-                || self.visible_binding_is_assoc(name, subscript.span().start.offset)
+            self.name_uses_associative_word_semantics(name, subscript.span().start.offset)
         });
         if !uses_associative_word_semantics
             && let Some(expression) = subscript.arithmetic_ast.as_ref()
@@ -987,20 +985,6 @@ fn is_zsh_parameter_existence_name(name: &Name) -> bool {
     name.as_str()
         .strip_prefix('+')
         .is_some_and(is_shell_identifier)
-}
-
-fn zsh_runtime_array_uses_associative_subscript(name: &Name) -> bool {
-    matches!(
-        name.as_str(),
-        "aliases"
-            | "commands"
-            | "functions"
-            | "options"
-            | "parameters"
-            | "termcap"
-            | "terminfo"
-            | "widgets"
-    )
 }
 
 fn zsh_parameter_expansion_is_existence_test(parameter: &ParameterExpansion, source: &str) -> bool {

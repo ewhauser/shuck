@@ -319,6 +319,24 @@ fi
     }
 
     #[test]
+    fn suppresses_zsh_associative_key_fake_variable_references() {
+        let source = "\
+#!/bin/zsh
+typeset -A ZINIT ICE
+ZINIT[ice-list]=x
+ICE[ps-on-update]=x
+functions[iterm2_precmd]=x
+print -r -- ${functions[iterm2_precmd]}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn subscript_suppression_hides_later_same_name_uses() {
         let source = "\
 #!/bin/bash
