@@ -1,6 +1,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_parser::{OptionValue, ShellProfile, ZshEmulationMode, ZshOptionState};
 use smallvec::SmallVec;
+use std::sync::Mutex;
 
 use crate::cfg::{
     CommandId, RecordedCaseArmRange, RecordedCommand, RecordedCommandKind, RecordedCommandRange,
@@ -274,6 +275,7 @@ pub(crate) fn analyze(
             Default::default(),
         ),
         function_summaries: FxHashMap::with_capacity_and_hasher(function_count, Default::default()),
+        shared_function_summaries: None,
     };
 
     analyzer.analyze_sequence(
@@ -342,6 +344,7 @@ pub(crate) fn function_runtime_analysis_with_entry(
     bindings: &[Binding],
     recorded_program: &RecordedProgram,
     dynamic_calls: DynamicCallAnalysisContext<'_>,
+    shared_summaries: Option<&SharedFunctionSummaryCache>,
     function_scope: ScopeId,
     entry: ZshOptionState,
 ) -> Option<ZshOptionAnalysis> {
@@ -371,6 +374,7 @@ pub(crate) fn function_runtime_analysis_with_entry(
         snapshots: FxHashMap::with_capacity_and_hasher(scope_capacity, Default::default()),
         active_function_scopes: FxHashSet::default(),
         function_summaries: FxHashMap::default(),
+        shared_function_summaries: shared_summaries,
     };
     analyzer.analyze_function_scope(
         function_scope,
@@ -394,6 +398,29 @@ pub(crate) fn set_public_option_field(
     value: OptionValue,
 ) {
     set_option_field(state, field, value);
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct SharedFunctionSummaryCache {
+    summaries: Mutex<FxHashMap<(ScopeId, InternalState), FunctionSummary>>,
+}
+
+impl SharedFunctionSummaryCache {
+    fn get(&self, key: &(ScopeId, InternalState)) -> Option<FunctionSummary> {
+        let summaries = match self.summaries.lock() {
+            Ok(summaries) => summaries,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        summaries.get(key).cloned()
+    }
+
+    fn insert(&self, key: (ScopeId, InternalState), summary: FunctionSummary) {
+        let mut summaries = match self.summaries.lock() {
+            Ok(summaries) => summaries,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        summaries.insert(key, summary);
+    }
 }
 
 impl ZshOptionAnalysis {
@@ -440,6 +467,7 @@ struct Analyzer<'a> {
     snapshots: FxHashMap<ScopeId, Vec<ZshOptionSnapshot>>,
     active_function_scopes: FxHashSet<ScopeId>,
     function_summaries: FxHashMap<(ScopeId, InternalState), FunctionSummary>,
+    shared_function_summaries: Option<&'a SharedFunctionSummaryCache>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -881,6 +909,13 @@ impl<'a> Analyzer<'a> {
         if let Some(summary) = self.function_summaries.get(&cache_key) {
             return summary.clone();
         }
+        if let Some(summary) = self
+            .shared_function_summaries
+            .and_then(|summaries| summaries.get(&cache_key))
+        {
+            self.function_summaries.insert(cache_key, summary.clone());
+            return summary;
+        }
 
         if !self.active_function_scopes.insert(scope) {
             return FunctionSummary {
@@ -896,7 +931,11 @@ impl<'a> Analyzer<'a> {
             final_outward: result.outward,
             outward_touched: result.outward_touched,
         };
-        self.function_summaries.insert(cache_key, summary.clone());
+        self.function_summaries
+            .insert(cache_key.clone(), summary.clone());
+        if let Some(shared_summaries) = self.shared_function_summaries {
+            shared_summaries.insert(cache_key, summary.clone());
+        }
         summary
     }
 

@@ -800,6 +800,7 @@ pub struct SemanticModel {
     zsh_option_analysis: Option<ZshOptionAnalysis>,
     zsh_runtime_ambiguous_entry_mask: OnceLock<zsh_options::ZshOptionMask>,
     zsh_runtime_by_function: OnceLock<FxHashMap<ScopeId, OnceLock<Option<ZshOptionAnalysis>>>>,
+    zsh_runtime_function_summaries: OnceLock<zsh_options::SharedFunctionSummaryCache>,
     assoc_lookup_binding_index: OnceLock<AssocLookupBindingIndex>,
     command_topology: OnceLock<CommandTopology>,
     references_sorted_by_start: OnceLock<Vec<ReferenceId>>,
@@ -1002,6 +1003,7 @@ impl SemanticModel {
             zsh_option_analysis,
             zsh_runtime_ambiguous_entry_mask: OnceLock::new(),
             zsh_runtime_by_function: OnceLock::new(),
+            zsh_runtime_function_summaries: OnceLock::new(),
             assoc_lookup_binding_index: OnceLock::new(),
             command_topology: OnceLock::new(),
             references_sorted_by_start: OnceLock::new(),
@@ -1113,6 +1115,10 @@ impl SemanticModel {
                 indirect_targets_by_binding: &self.indirect_targets_by_binding,
                 command_references: &self.command_references,
             },
+            Some(
+                self.zsh_runtime_function_summaries
+                    .get_or_init(Default::default),
+            ),
             function_scope,
             function_entry,
         )
