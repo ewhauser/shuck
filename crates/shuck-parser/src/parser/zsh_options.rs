@@ -282,6 +282,10 @@ impl ZshOptionState {
     /// Each field preserves a definite value only when both inputs agree. This
     /// is useful for conservative joins across control-flow paths.
     pub fn merge(&self, other: &Self) -> Self {
+        if self == other {
+            return *self;
+        }
+
         Self {
             sh_word_split: self.sh_word_split.merge(other.sh_word_split),
             glob_subst: self.glob_subst.merge(other.glob_subst),
