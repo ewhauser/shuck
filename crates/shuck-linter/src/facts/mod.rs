@@ -72,7 +72,8 @@ use shuck_semantic::{
     NonpersistentAssignmentAnalysisOptions, NonpersistentAssignmentCommandContext,
     NonpersistentAssignmentExtraRead, OptionValue, PathnameExpansionBehavior, Reference,
     ReferenceId, ReferenceKind, ScopeId, SemanticAnalysis, SemanticModel,
-    SemanticPipelineOperatorKind, ShellBehaviorAt, SubscriptIndexBehavior, ZshOptionState,
+    SemanticPipelineOperatorKind, SemanticValueFlow, ShellBehaviorAt, SubscriptIndexBehavior,
+    ZshOptionState,
 };
 use smallvec::SmallVec;
 use std::{borrow::Cow, ops::ControlFlow, sync::OnceLock};

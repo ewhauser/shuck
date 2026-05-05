@@ -1014,6 +1014,7 @@ fn apply_zsh_array_fanout(
     word: &Word,
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
+    value_flow: &SemanticValueFlow<'_, '_>,
     scope: ScopeId,
     options: Option<&ZshOptionState>,
     array_like_capable_names: &FxHashSet<Name>,
@@ -1025,6 +1026,7 @@ fn apply_zsh_array_fanout(
             word,
             semantic,
             semantic_analysis,
+            value_flow,
             scope,
             array_like_capable_names,
         )
@@ -1047,6 +1049,7 @@ fn word_has_unquoted_visible_array_reference(
     word: &Word,
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
+    value_flow: &SemanticValueFlow<'_, '_>,
     scope: ScopeId,
     array_like_capable_names: &FxHashSet<Name>,
 ) -> bool {
@@ -1054,6 +1057,7 @@ fn word_has_unquoted_visible_array_reference(
         &word.parts,
         semantic,
         semantic_analysis,
+        value_flow,
         scope,
         false,
         array_like_capable_names,
@@ -1064,6 +1068,7 @@ fn parts_have_unquoted_visible_array_reference(
     parts: &[WordPartNode],
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
+    value_flow: &SemanticValueFlow<'_, '_>,
     scope: ScopeId,
     in_double_quotes: bool,
     array_like_capable_names: &FxHashSet<Name>,
@@ -1075,6 +1080,7 @@ fn parts_have_unquoted_visible_array_reference(
                     parts,
                     semantic,
                     semantic_analysis,
+                    value_flow,
                     scope,
                     true,
                     array_like_capable_names,
@@ -1088,6 +1094,7 @@ fn parts_have_unquoted_visible_array_reference(
                     part.span,
                     semantic,
                     semantic_analysis,
+                    value_flow,
                     scope,
                     array_like_capable_names,
                 ) {
@@ -1099,6 +1106,7 @@ fn parts_have_unquoted_visible_array_reference(
                     parameter,
                     semantic,
                     semantic_analysis,
+                    value_flow,
                     scope,
                     array_like_capable_names,
                 ) {
@@ -1116,6 +1124,7 @@ fn zsh_parameter_targets_visible_array(
     parameter: &ParameterExpansion,
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
+    value_flow: &SemanticValueFlow<'_, '_>,
     scope: ScopeId,
     array_like_capable_names: &FxHashSet<Name>,
 ) -> bool {
@@ -1130,6 +1139,7 @@ fn zsh_parameter_targets_visible_array(
             reference.name_span,
             semantic,
             semantic_analysis,
+            value_flow,
             scope,
             array_like_capable_names,
         ),
@@ -1142,14 +1152,14 @@ fn visible_name_is_array_like(
     span: Span,
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
+    value_flow: &SemanticValueFlow<'_, '_>,
     scope: ScopeId,
     array_like_capable_names: &FxHashSet<Name>,
 ) -> bool {
     if !array_like_capable_names.contains(name) {
         return false;
     }
-    semantic_analysis
-        .value_flow()
+    value_flow
         .reaching_value_bindings_for_name_with_synthetic_use_block(
             name,
             span,
@@ -1530,6 +1540,7 @@ pub(super) struct WordFactCollector<'out, 'a, 'norm> {
     assoc_binding_visibility_memo: &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
     array_like_capable_names: &'out FxHashSet<Name>,
     semantic_analysis: &'out SemanticAnalysis<'a>,
+    value_flow: SemanticValueFlow<'out, 'a>,
     seen: &'out mut FxHashSet<WordOccurrenceSeenKey>,
     seen_pending_arithmetic: &'out mut FxHashSet<PendingArithmeticSeenKey>,
     compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
@@ -1598,6 +1609,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         command_shell_behavior: ShellBehaviorAt<'a>,
         outputs: WordFactOutputs<'out, 'a>,
     ) -> Self {
+        let value_flow = outputs.semantic_analysis.value_flow();
         Self {
             source,
             locator,
@@ -1621,6 +1633,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             assoc_binding_visibility_memo: outputs.assoc_binding_visibility_memo,
             array_like_capable_names: outputs.array_like_capable_names,
             semantic_analysis: outputs.semantic_analysis,
+            value_flow,
             seen: {
                 outputs.seen_word_occurrences.clear();
                 outputs.seen_word_occurrences
@@ -2561,6 +2574,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             word,
             self.semantic,
             self.semantic_analysis,
+            &self.value_flow,
             self.command_scope,
             self.command_shell_behavior.zsh_options(),
             self.array_like_capable_names,
