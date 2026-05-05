@@ -1048,7 +1048,7 @@ impl SemanticModel {
 
     fn zsh_runtime_options_at(&self, offset: usize) -> Option<ZshOptionState> {
         self.shell_profile.zsh_options()?;
-        let ordinary = self.zsh_options_at(offset)?.clone();
+        let ordinary = *self.zsh_options_at(offset)?;
         let ambiguous_entry = self.zsh_runtime_ambiguous_entry_mask();
         if ambiguous_entry.is_empty() {
             return None;
@@ -1060,7 +1060,7 @@ impl SemanticModel {
             .zsh_runtime_analysis_for_function(function_scope)
             .and_then(|analysis| analysis.options_at(&self.scopes, offset));
 
-        Some(ambient.map_or(ordinary.clone(), |options| ordinary.merge(options)))
+        Some(ambient.map_or(ordinary, |options| ordinary.merge(options)))
     }
 
     fn zsh_runtime_by_function(&self) -> &FxHashMap<ScopeId, OnceLock<Option<ZshOptionAnalysis>>> {
@@ -1088,7 +1088,7 @@ impl SemanticModel {
         function_scope: ScopeId,
     ) -> Option<ZshOptionAnalysis> {
         let function_entry_offset = self.scope(function_scope).span.start.offset;
-        let mut function_entry = self.zsh_options_at(function_entry_offset)?.clone();
+        let mut function_entry = *self.zsh_options_at(function_entry_offset)?;
         for field in self.zsh_runtime_ambiguous_entry_mask().iter() {
             crate::zsh_options::set_public_option_field(
                 &mut function_entry,

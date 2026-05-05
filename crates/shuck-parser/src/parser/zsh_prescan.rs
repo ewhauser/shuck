@@ -18,7 +18,7 @@ pub(super) struct ZshOptionTimelineEntry {
 
 impl ZshOptionTimeline {
     pub(super) fn build(input: &str, shell_profile: &ShellProfile) -> Option<Self> {
-        let initial = shell_profile.zsh_options()?.clone();
+        let initial = *shell_profile.zsh_options()?;
         if !might_mutate_zsh_parser_options(input) {
             return Some(Self {
                 initial,
@@ -26,7 +26,7 @@ impl ZshOptionTimeline {
             });
         }
 
-        let entries = ZshOptionPrescanner::new(input, initial.clone()).scan();
+        let entries = ZshOptionPrescanner::new(input, initial).scan();
         Some(Self {
             initial,
             entries: entries.into(),
@@ -186,7 +186,7 @@ impl<'a> ZshOptionPrescanner<'a> {
             match token {
                 PrescanToken::Word { text, end } => {
                     if is_prescan_function_body_start(function_header) {
-                        local_scopes.push(PrescanLocalScope::simple(self.state.clone()));
+                        local_scopes.push(PrescanLocalScope::simple(self.state));
                         function_header = PrescanFunctionHeaderState::None;
                     }
                     command_end = end;
@@ -236,7 +236,7 @@ impl<'a> ZshOptionPrescanner<'a> {
                         }
                         PrescanSeparator::OpenParen => {
                             if is_prescan_function_body_start(function_header) {
-                                local_scopes.push(PrescanLocalScope::subshell(self.state.clone()));
+                                local_scopes.push(PrescanLocalScope::subshell(self.state));
                                 function_header = PrescanFunctionHeaderState::None;
                             } else {
                                 let next_header = match function_header {
@@ -253,8 +253,7 @@ impl<'a> ZshOptionPrescanner<'a> {
                                     PrescanFunctionHeaderState::AfterWordOpenParen
                                         | PrescanFunctionHeaderState::AfterFunctionNameOpenParen
                                 ) {
-                                    local_scopes
-                                        .push(PrescanLocalScope::subshell(self.state.clone()));
+                                    local_scopes.push(PrescanLocalScope::subshell(self.state));
                                 }
                                 function_header = next_header;
                             }
@@ -281,8 +280,7 @@ impl<'a> ZshOptionPrescanner<'a> {
                         }
                         PrescanSeparator::OpenBrace => {
                             if is_prescan_function_body_start(function_header) {
-                                local_scopes
-                                    .push(PrescanLocalScope::brace_group(self.state.clone()));
+                                local_scopes.push(PrescanLocalScope::brace_group(self.state));
                             } else if let Some(scope) = local_scopes.last_mut() {
                                 scope.brace_depth += 1;
                             }
@@ -311,12 +309,12 @@ impl<'a> ZshOptionPrescanner<'a> {
     }
 
     fn finish_command(&mut self, words: &[String], end_offset: usize) {
-        let mut next = self.state.clone();
+        let mut next = self.state;
         if !apply_prescan_command_effects(words, &mut next) || next == self.state {
             return;
         }
 
-        self.state = next.clone();
+        self.state = next;
         self.entries.push(ZshOptionTimelineEntry {
             offset: end_offset,
             state: next,
@@ -496,7 +494,7 @@ impl<'a> ZshOptionPrescanner<'a> {
                 unreachable!("scope just matched");
             };
             if self.state != scope.saved_state {
-                self.state = scope.saved_state.clone();
+                self.state = scope.saved_state;
                 self.entries.push(ZshOptionTimelineEntry {
                     offset,
                     state: scope.saved_state,
