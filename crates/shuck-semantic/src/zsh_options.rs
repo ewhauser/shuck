@@ -260,16 +260,20 @@ pub(crate) fn analyze(
     dynamic_calls: DynamicCallAnalysisContext<'_>,
 ) -> Option<ZshOptionAnalysis> {
     let entry = InternalState::from_profile(shell_profile)?;
+    let function_count = recorded_program.function_body_scopes.len();
     let mut analyzer = Analyzer {
         scopes,
         bindings,
         dynamic_calls,
         recorded_program,
         treat_unknown_dispatch_bindings_as_ambiguous_in_functions: false,
-        scope_entries: FxHashMap::default(),
-        snapshots: FxHashMap::default(),
-        active_function_scopes: FxHashSet::default(),
-        function_summaries: FxHashMap::default(),
+        scope_entries: FxHashMap::with_capacity_and_hasher(scopes.len(), Default::default()),
+        snapshots: FxHashMap::with_capacity_and_hasher(scopes.len(), Default::default()),
+        active_function_scopes: FxHashSet::with_capacity_and_hasher(
+            function_count,
+            Default::default(),
+        ),
+        function_summaries: FxHashMap::with_capacity_and_hasher(function_count, Default::default()),
     };
 
     analyzer.analyze_sequence(
@@ -341,6 +345,7 @@ pub(crate) fn function_runtime_analysis_with_entry(
     entry: ZshOptionState,
 ) -> Option<ZshOptionAnalysis> {
     let function_span = scopes.get(function_scope.index())?.span;
+    let function_count = recorded_program.function_body_scopes.len();
 
     let mut analyzer = Analyzer {
         scopes,
@@ -348,10 +353,13 @@ pub(crate) fn function_runtime_analysis_with_entry(
         dynamic_calls,
         recorded_program,
         treat_unknown_dispatch_bindings_as_ambiguous_in_functions: true,
-        scope_entries: FxHashMap::default(),
-        snapshots: FxHashMap::default(),
-        active_function_scopes: FxHashSet::default(),
-        function_summaries: FxHashMap::default(),
+        scope_entries: FxHashMap::with_capacity_and_hasher(scopes.len(), Default::default()),
+        snapshots: FxHashMap::with_capacity_and_hasher(scopes.len(), Default::default()),
+        active_function_scopes: FxHashSet::with_capacity_and_hasher(
+            function_count,
+            Default::default(),
+        ),
+        function_summaries: FxHashMap::with_capacity_and_hasher(function_count, Default::default()),
     };
     analyzer.analyze_function_scope(
         function_scope,
