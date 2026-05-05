@@ -72,8 +72,7 @@ impl Violation for OverwrittenFunction {
 }
 
 pub fn overwritten_function(checker: &mut Checker) {
-    let supplemental_calls = build_supplemental_function_call_candidates(checker);
-    let mut reach = build_direct_function_call_reachability(checker, &supplemental_calls);
+    let mut reach = build_direct_function_call_reachability(checker);
     let overwritten = checker.semantic_analysis().overwritten_functions().to_vec();
     let unreached = checker
         .semantic_analysis()
@@ -284,9 +283,9 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
     }
 }
 
-fn build_supplemental_function_call_candidates(
-    checker: &Checker<'_>,
-) -> Vec<FunctionCallCandidate> {
+fn supplemental_function_call_candidates<'checker, 'model>(
+    checker: &'checker Checker<'model>,
+) -> impl Iterator<Item = FunctionCallCandidate> + 'checker {
     checker
         .facts()
         .structural_commands()
@@ -300,16 +299,14 @@ fn build_supplemental_function_call_candidates(
                 command_span: fact.body_span(),
             })
         })
-        .collect()
 }
 
 fn build_direct_function_call_reachability<'checker, 'model>(
     checker: &'checker Checker<'model>,
-    supplemental_calls: &[FunctionCallCandidate],
 ) -> DirectFunctionCallReachability<'checker, 'model> {
     checker
         .semantic_analysis()
-        .direct_function_call_reachability(supplemental_calls.iter().cloned())
+        .direct_function_call_reachability(supplemental_function_call_candidates(checker))
 }
 
 fn build_compat_function_bindings_by_scope(checker: &Checker<'_>) -> CompatFunctionBindingsByScope {
