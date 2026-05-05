@@ -67,6 +67,10 @@ fn providers() -> &'static [AmbientContractProvider] {
             build: build_sourced_runtime_contract,
         },
         AmbientContractProvider {
+            matches: matches_zsh_ambient_runtime_contract,
+            build: build_zsh_ambient_runtime_contract,
+        },
+        AmbientContractProvider {
             matches: matches_zsh_config_contract,
             build: build_zsh_config_contract,
         },
@@ -77,6 +81,9 @@ fn merge_contract(merged: &mut FileContract, contract: FileContract) {
     merged.externally_consumed_bindings |= contract.externally_consumed_bindings;
     for name in contract.required_reads {
         merged.add_required_read(name);
+    }
+    for name in contract.externally_consumed_binding_names {
+        merged.add_externally_consumed_binding_name(name);
     }
     for binding in contract.provided_bindings {
         merged.add_provided_binding(binding);
@@ -123,6 +130,44 @@ fn build_sourced_runtime_contract(
     contract
 }
 
+fn matches_zsh_ambient_runtime_contract(
+    collector: &AmbientContractCollector<'_>,
+    path: &Path,
+    shell: ShellDialect,
+) -> bool {
+    let lower = lower_path(path);
+    shell_matches_zsh_runtime_context(shell, &lower)
+        && zsh_ambient_runtime_has_signal(collector.source, &lower)
+}
+
+fn build_zsh_ambient_runtime_contract(
+    collector: &AmbientContractCollector<'_>,
+    path: &Path,
+    _shell: ShellDialect,
+) -> FileContract {
+    let lower = lower_path(path);
+    let source = collector.source;
+    let mut contract = FileContract::default();
+
+    for name in zsh_initialized_runtime_names(source, &lower) {
+        contract.add_provided_binding(ProvidedBinding::new_file_entry_initialized(
+            Name::from(name),
+            ProvidedBindingKind::Variable,
+            ContractCertainty::Definite,
+        ));
+    }
+
+    for name in zsh_externally_consumed_names(source, &lower) {
+        contract.add_externally_consumed_binding_name(Name::from(name));
+    }
+
+    for prefix in zsh_test_fixture_consumed_prefixes(source, &lower) {
+        contract.add_externally_consumed_binding_prefix(Name::from(prefix));
+    }
+
+    contract
+}
+
 fn matches_zsh_config_contract(
     collector: &AmbientContractCollector<'_>,
     path: &Path,
@@ -152,18 +197,148 @@ fn zsh_config_consumed_prefixes<'a>(
     source: &'a str,
     lower_path: &'a str,
 ) -> impl Iterator<Item = &'static str> + 'a {
-    ["POWERLEVEL9K_", "ZDOT_"].into_iter().filter(|prefix| {
-        source.contains(prefix) && zsh_config_prefix_path_shape(prefix, lower_path)
-    })
+    [
+        "HISTORY_SUBSTRING_SEARCH_",
+        "ITERM2_",
+        "P9K_",
+        "POWERLEVEL9K_",
+        "ZDOT_",
+        "ZSH_AUTOSUGGEST_",
+        "ZSH_HIGHLIGHT_",
+    ]
+    .into_iter()
+    .filter(|prefix| source.contains(prefix) && zsh_config_prefix_path_shape(prefix, lower_path))
 }
 
 fn zsh_config_prefix_path_shape(prefix: &str, lower_path: &str) -> bool {
     match prefix {
-        "POWERLEVEL9K_" => p10k_config_path_shape(lower_path) || zsh_dotfile_path_shape(lower_path),
+        "HISTORY_SUBSTRING_SEARCH_" => {
+            lower_path.contains("/history-substring-search/")
+                || lower_path.contains("/modules/history-substring-search/")
+        }
+        "ITERM2_" => p10k_config_path_shape(lower_path) || zsh_dotfile_path_shape(lower_path),
+        "P9K_" | "POWERLEVEL9K_" => {
+            p10k_config_path_shape(lower_path) || zsh_dotfile_path_shape(lower_path)
+        }
         "ZDOT_" => zsh_dotfile_path_shape(lower_path),
+        "ZSH_AUTOSUGGEST_" => lower_path.contains("/zsh-autosuggestions/"),
+        "ZSH_HIGHLIGHT_" => lower_path.contains("/zsh-syntax-highlighting/"),
         _ => false,
     }
 }
+
+fn shell_matches_zsh_runtime_context(shell: ShellDialect, lower_path: &str) -> bool {
+    shell == ShellDialect::Zsh
+        || (shell == ShellDialect::Unknown
+            && (zsh_dotfile_path_shape(lower_path) || zsh_project_path_shape(lower_path)))
+}
+
+fn zsh_ambient_runtime_has_signal(source: &str, lower_path: &str) -> bool {
+    source_mentions_any(source, ZSH_INITIALIZED_SPECIAL_PARAMETERS)
+        || zsh_prompt_color_runtime_shape(source, lower_path)
+        || !zsh_externally_consumed_names(source, lower_path).is_empty()
+        || zsh_test_fixture_consumed_prefixes(source, lower_path)
+            .next()
+            .is_some()
+}
+
+fn zsh_initialized_runtime_names<'a>(
+    source: &'a str,
+    lower_path: &'a str,
+) -> impl Iterator<Item = &'static str> + 'a {
+    ZSH_INITIALIZED_SPECIAL_PARAMETERS
+        .iter()
+        .copied()
+        .filter(move |name| {
+            source_mentions_name(source, name)
+                && zsh_special_parameter_available(name, source, lower_path)
+        })
+        .chain(
+            ZSH_PROMPT_COLOR_PARAMETERS
+                .iter()
+                .copied()
+                .filter(move |name| {
+                    source_mentions_name(source, name)
+                        && zsh_prompt_color_runtime_shape(source, lower_path)
+                }),
+        )
+}
+
+fn zsh_special_parameter_available(name: &str, source: &str, lower_path: &str) -> bool {
+    match name {
+        "sysparams" => {
+            zsh_runtime_path_shape(lower_path) || source_loads_zsh_module(source, "zsh/system")
+        }
+        "langinfo" => {
+            zsh_runtime_path_shape(lower_path) || source_loads_zsh_module(source, "zsh/langinfo")
+        }
+        "compstate" | "words" => zsh_runtime_path_shape(lower_path),
+        "galiases" | "history" | "keymaps" | "reswords" | "saliases" => {
+            zsh_runtime_path_shape(lower_path) || source_loads_zsh_module(source, "zsh/parameter")
+        }
+        _ => true,
+    }
+}
+
+fn source_loads_zsh_module(source: &str, module: &str) -> bool {
+    source.lines().any(|line| {
+        line.split('#')
+            .next()
+            .is_some_and(|code| code.contains("zmodload") && code.contains(module))
+    })
+}
+
+fn zsh_externally_consumed_names(source: &str, lower_path: &str) -> Vec<&'static str> {
+    if !zsh_runtime_path_shape(lower_path) && !zsh_test_data_path_shape(lower_path) {
+        return Vec::new();
+    }
+
+    ZSH_EXTERNALLY_CONSUMED_OUTPUT_PARAMETERS
+        .iter()
+        .copied()
+        .filter(|name| source_assigns_name(source, name))
+        .collect()
+}
+
+fn zsh_test_fixture_consumed_prefixes<'a>(
+    source: &'a str,
+    lower_path: &'a str,
+) -> impl Iterator<Item = &'static str> + 'a {
+    ["expected_"].into_iter().filter(|prefix| {
+        zsh_test_data_path_shape(lower_path)
+            && lower_path.contains("/zsh-syntax-highlighting/")
+            && source.contains(prefix)
+    })
+}
+
+const ZSH_INITIALIZED_SPECIAL_PARAMETERS: &[&str] = &[
+    "compstate",
+    "galiases",
+    "history",
+    "keymaps",
+    "langinfo",
+    "parameters",
+    "reswords",
+    "saliases",
+    "sysparams",
+    "widgets",
+    "words",
+];
+
+const ZSH_PROMPT_COLOR_PARAMETERS: &[&str] = &[
+    "bg",
+    "bg_bold",
+    "bg_no_bold",
+    "color",
+    "colour",
+    "fg",
+    "fg_bold",
+    "fg_no_bold",
+    "reset_color",
+];
+
+const ZSH_EXTERNALLY_CONSUMED_OUTPUT_PARAMETERS: &[&str] =
+    &["REPLY", "compstate", "comppostfuncs", "reply"];
 
 fn shell_matches_zsh_config_context(shell: ShellDialect, lower_path: &str) -> bool {
     shell == ShellDialect::Zsh
@@ -206,6 +381,52 @@ fn zsh_dotfile_path_shape(lower_path: &str) -> bool {
             "zdot",
         ],
     ) || lower_path.contains("/zsh/config/")
+        || lower_path.contains("/zsh/configs/")
+}
+
+fn zsh_runtime_path_shape(lower_path: &str) -> bool {
+    zsh_dotfile_path_shape(lower_path)
+        || path_matches_any(
+            lower_path,
+            &[
+                "/completion/",
+                "/completions/",
+                "/functions/",
+                "/highlighters/",
+                "/lib/",
+                "/modules/",
+                "/plugins/",
+                "/plugin/",
+                "/themes/",
+                ".plugin.zsh",
+                ".theme.zsh",
+                "/zsh-autosuggestions/",
+                "/zsh-syntax-highlighting/",
+            ],
+        )
+}
+
+fn zsh_project_path_shape(lower_path: &str) -> bool {
+    path_matches_any(
+        lower_path,
+        &[
+            "/ohmyzsh/",
+            "/powerlevel10k/",
+            "/prezto/",
+            "/zinit/",
+            "/zsh-autosuggestions/",
+            "/zsh-syntax-highlighting/",
+        ],
+    )
+}
+
+fn zsh_test_data_path_shape(lower_path: &str) -> bool {
+    path_matches_any(lower_path, &["/test-data/", "/testdata/", "/fixtures/"])
+}
+
+fn zsh_prompt_color_runtime_shape(source: &str, lower_path: &str) -> bool {
+    (zsh_runtime_path_shape(lower_path) || source.contains("autoload -Uz colors"))
+        && source_mentions_any(source, ZSH_PROMPT_COLOR_PARAMETERS)
 }
 
 fn path_has_component(lower_path: &str, names: &[&str]) -> bool {
@@ -461,6 +682,20 @@ fn source_mentions_name(source: &str, name: &str) -> bool {
         || source.contains(&format!("${{{name}:"))
 }
 
+fn source_assigns_name(source: &str, name: &str) -> bool {
+    source.match_indices(name).any(|(offset, _)| {
+        let before = source[..offset].chars().next_back();
+        let after = source[offset + name.len()..].chars().next();
+        let starts_token = before.is_none_or(|ch| !is_shell_name_char(ch));
+        let assignment_like = matches!(after, Some('=') | Some('['));
+        starts_token && assignment_like
+    })
+}
+
+fn is_shell_name_char(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphanumeric()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,10 +711,18 @@ mod tests {
     }
 
     fn contract_for_shell(path: &Path, source: &str, shell: ShellDialect) -> Option<FileContract> {
+        contract_for_optional_path(Some(path), source, shell)
+    }
+
+    fn contract_for_optional_path(
+        path: Option<&Path>,
+        source: &str,
+        shell: ShellDialect,
+    ) -> Option<FileContract> {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let mut observer = NoopTraversalObserver;
-        let mut collector = AmbientContractCollector::new(source, Some(path), shell);
+        let mut collector = AmbientContractCollector::new(source, path, shell);
         let _semantic = build_with_observer_with_options(
             &output.file,
             source,
@@ -514,6 +757,13 @@ mod tests {
             .externally_consumed_binding_prefixes
             .iter()
             .any(|consumed_prefix| consumed_prefix.as_str() == prefix)
+    }
+
+    fn has_consumed_name(contract: &FileContract, name: &str) -> bool {
+        contract
+            .externally_consumed_binding_names
+            .iter()
+            .any(|consumed_name| consumed_name.as_str() == name)
     }
 
     #[test]
@@ -582,6 +832,92 @@ ZDOT_MODULE_NAME=prompt
         assert!(has_consumed_prefix(&contract, "POWERLEVEL9K_"));
         assert!(has_consumed_prefix(&contract, "ZDOT_"));
         assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn zsh_runtime_contract_initializes_special_parameters_and_prompt_colors() {
+        let path = Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh");
+        let source = "\
+print -r -- \"$sysparams\" \"$history\" \"$words\" \"$compstate\"
+prompt=\"%{$fg_bold[blue]%}%{$reset_color%}\"
+";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        for name in [
+            "sysparams",
+            "history",
+            "words",
+            "compstate",
+            "fg_bold",
+            "reset_color",
+        ] {
+            assert!(has_initialized_binding(&contract, name), "{contract:?}");
+        }
+    }
+
+    #[test]
+    fn unknown_generic_runtime_paths_do_not_get_zsh_runtime_contracts() {
+        let path = Path::new("/tmp/project/plugins/example");
+        let source = "print -r -- \"$history\" \"$words\"\n";
+
+        assert!(contract_for_shell(path, source, ShellDialect::Unknown).is_none());
+    }
+
+    #[test]
+    fn pathless_zsh_sources_do_not_get_ambient_runtime_contracts() {
+        let source = "print -r -- \"$history\" \"$words\" \"$fg_bold\"\n";
+
+        assert!(contract_for_optional_path(None, source, ShellDialect::Zsh).is_none());
+    }
+
+    #[test]
+    fn zsh_runtime_contract_marks_exact_output_parameters_consumed() {
+        let path = Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh");
+        let source = "\
+reply=(one two)
+REPLY=value
+compstate[insert]=menu
+";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        for name in ["reply", "REPLY", "compstate"] {
+            assert!(has_consumed_name(&contract, name), "{contract:?}");
+        }
+    }
+
+    #[test]
+    fn zsh_runtime_contract_does_not_consume_read_only_output_parameters() {
+        let path = Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh");
+        let source = "print -r -- \"$reply\" \"$REPLY\" \"$compstate\"\n";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        for name in ["reply", "REPLY", "compstate"] {
+            assert!(!has_consumed_name(&contract, name), "{contract:?}");
+        }
+    }
+
+    #[test]
+    fn zsh_syntax_highlighting_test_data_expected_values_are_consumed() {
+        let path =
+            Path::new("/tmp/zsh/zsh-syntax-highlighting/highlighters/main/test-data/example.zsh");
+        let source = "expected_region_highlight=('1 4 fg=red')\n";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        assert!(has_consumed_prefix(&contract, "expected_"));
+    }
+
+    #[test]
+    fn zsh_autosuggestion_config_namespace_is_consumed_on_project_paths() {
+        let path = Path::new("/tmp/zsh/zsh-autosuggestions/src/config.zsh");
+        let source = "ZSH_AUTOSUGGEST_STRATEGY=(history)\n";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        assert!(has_consumed_prefix(&contract, "ZSH_AUTOSUGGEST_"));
     }
 
     #[test]

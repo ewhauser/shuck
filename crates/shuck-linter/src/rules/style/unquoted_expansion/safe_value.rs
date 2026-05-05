@@ -6828,6 +6828,7 @@ printf '%s\\n' $pkgname
                     )],
                     provided_functions: Vec::new(),
                     externally_consumed_bindings: false,
+                    externally_consumed_binding_names: Vec::new(),
                     externally_consumed_binding_prefixes: Vec::new(),
                 }),
                 ..SemanticBuildOptions::default()
