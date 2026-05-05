@@ -31,6 +31,7 @@ impl OptionValue {
     /// This is intended for conservative flow joins: `On + On` remains `On`,
     /// `Off + Off` remains `Off`, and every mixed or unknown combination
     /// becomes [`OptionValue::Unknown`].
+    #[inline]
     pub const fn merge(self, other: Self) -> Self {
         match (self, other) {
             (Self::On, Self::On) => Self::On,
@@ -276,48 +277,40 @@ impl ZshOptionState {
         }
     }
 
-    fn field(&self, field: ZshOptionField) -> OptionValue {
-        match field {
-            ZshOptionField::ShWordSplit => self.sh_word_split,
-            ZshOptionField::GlobSubst => self.glob_subst,
-            ZshOptionField::RcExpandParam => self.rc_expand_param,
-            ZshOptionField::Glob => self.glob,
-            ZshOptionField::Nomatch => self.nomatch,
-            ZshOptionField::NullGlob => self.null_glob,
-            ZshOptionField::CshNullGlob => self.csh_null_glob,
-            ZshOptionField::ExtendedGlob => self.extended_glob,
-            ZshOptionField::KshGlob => self.ksh_glob,
-            ZshOptionField::ShGlob => self.sh_glob,
-            ZshOptionField::BareGlobQual => self.bare_glob_qual,
-            ZshOptionField::GlobDots => self.glob_dots,
-            ZshOptionField::Equals => self.equals,
-            ZshOptionField::MagicEqualSubst => self.magic_equal_subst,
-            ZshOptionField::ShFileExpansion => self.sh_file_expansion,
-            ZshOptionField::GlobAssign => self.glob_assign,
-            ZshOptionField::IgnoreBraces => self.ignore_braces,
-            ZshOptionField::IgnoreCloseBraces => self.ignore_close_braces,
-            ZshOptionField::BraceCcl => self.brace_ccl,
-            ZshOptionField::KshArrays => self.ksh_arrays,
-            ZshOptionField::KshZeroSubscript => self.ksh_zero_subscript,
-            ZshOptionField::ShortLoops => self.short_loops,
-            ZshOptionField::ShortRepeat => self.short_repeat,
-            ZshOptionField::RcQuotes => self.rc_quotes,
-            ZshOptionField::InteractiveComments => self.interactive_comments,
-            ZshOptionField::CBases => self.c_bases,
-            ZshOptionField::OctalZeroes => self.octal_zeroes,
-        }
-    }
-
     /// Merge two option snapshots field by field.
     ///
     /// Each field preserves a definite value only when both inputs agree. This
     /// is useful for conservative joins across control-flow paths.
     pub fn merge(&self, other: &Self) -> Self {
-        let mut merged = Self::zsh_default();
-        for field in ZshOptionField::ALL {
-            merged.set_field(field, self.field(field).merge(other.field(field)));
+        Self {
+            sh_word_split: self.sh_word_split.merge(other.sh_word_split),
+            glob_subst: self.glob_subst.merge(other.glob_subst),
+            rc_expand_param: self.rc_expand_param.merge(other.rc_expand_param),
+            glob: self.glob.merge(other.glob),
+            nomatch: self.nomatch.merge(other.nomatch),
+            null_glob: self.null_glob.merge(other.null_glob),
+            csh_null_glob: self.csh_null_glob.merge(other.csh_null_glob),
+            extended_glob: self.extended_glob.merge(other.extended_glob),
+            ksh_glob: self.ksh_glob.merge(other.ksh_glob),
+            sh_glob: self.sh_glob.merge(other.sh_glob),
+            bare_glob_qual: self.bare_glob_qual.merge(other.bare_glob_qual),
+            glob_dots: self.glob_dots.merge(other.glob_dots),
+            equals: self.equals.merge(other.equals),
+            magic_equal_subst: self.magic_equal_subst.merge(other.magic_equal_subst),
+            sh_file_expansion: self.sh_file_expansion.merge(other.sh_file_expansion),
+            glob_assign: self.glob_assign.merge(other.glob_assign),
+            ignore_braces: self.ignore_braces.merge(other.ignore_braces),
+            ignore_close_braces: self.ignore_close_braces.merge(other.ignore_close_braces),
+            brace_ccl: self.brace_ccl.merge(other.brace_ccl),
+            ksh_arrays: self.ksh_arrays.merge(other.ksh_arrays),
+            ksh_zero_subscript: self.ksh_zero_subscript.merge(other.ksh_zero_subscript),
+            short_loops: self.short_loops.merge(other.short_loops),
+            short_repeat: self.short_repeat.merge(other.short_repeat),
+            rc_quotes: self.rc_quotes.merge(other.rc_quotes),
+            interactive_comments: self.interactive_comments.merge(other.interactive_comments),
+            c_bases: self.c_bases.merge(other.c_bases),
+            octal_zeroes: self.octal_zeroes.merge(other.octal_zeroes),
         }
-        merged
     }
 
     fn apply_named_option(&mut self, name: &str, enable: bool) -> bool {
@@ -334,38 +327,6 @@ impl ZshOptionState {
         );
         true
     }
-}
-
-impl ZshOptionField {
-    const ALL: [Self; 27] = [
-        Self::ShWordSplit,
-        Self::GlobSubst,
-        Self::RcExpandParam,
-        Self::Glob,
-        Self::Nomatch,
-        Self::NullGlob,
-        Self::CshNullGlob,
-        Self::ExtendedGlob,
-        Self::KshGlob,
-        Self::ShGlob,
-        Self::BareGlobQual,
-        Self::GlobDots,
-        Self::Equals,
-        Self::MagicEqualSubst,
-        Self::ShFileExpansion,
-        Self::GlobAssign,
-        Self::IgnoreBraces,
-        Self::IgnoreCloseBraces,
-        Self::BraceCcl,
-        Self::KshArrays,
-        Self::KshZeroSubscript,
-        Self::ShortLoops,
-        Self::ShortRepeat,
-        Self::RcQuotes,
-        Self::InteractiveComments,
-        Self::CBases,
-        Self::OctalZeroes,
-    ];
 }
 
 fn parse_zsh_option_assignment(name: &str, enable: bool) -> Option<(ZshOptionField, bool)> {
