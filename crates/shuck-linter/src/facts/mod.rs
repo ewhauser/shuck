@@ -66,9 +66,10 @@ use shuck_indexer::{Indexer, LineIndex};
 use shuck_parser::parser::Parser;
 use shuck_semantic::{
     ArithmeticLiteralBehavior, Binding, BindingAttributes, BindingId, BindingKind, CaseCliDispatch,
-    Declaration, DeclarationBuiltin, DeclarationOperand as SemanticDeclarationOperand,
-    FieldSplittingBehavior, FileExpansionOrderBehavior, FunctionScopeKind, GlobDotBehavior,
-    GlobFailureBehavior, GlobPatternBehavior, NonpersistentAssignmentAnalysisContext,
+    CommandKind, CompoundCommandKind, Declaration, DeclarationBuiltin,
+    DeclarationOperand as SemanticDeclarationOperand, FieldSplittingBehavior,
+    FileExpansionOrderBehavior, FunctionScopeKind, GlobDotBehavior, GlobFailureBehavior,
+    GlobPatternBehavior, NonpersistentAssignmentAnalysisContext,
     NonpersistentAssignmentAnalysisOptions, NonpersistentAssignmentCommandContext,
     NonpersistentAssignmentExtraRead, OptionValue, PathnameExpansionBehavior, Reference,
     ReferenceId, ReferenceKind, ScopeId, ScopeKind, SemanticAnalysis, SemanticModel,

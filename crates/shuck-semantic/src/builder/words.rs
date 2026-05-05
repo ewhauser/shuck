@@ -112,6 +112,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     }
 
     pub(super) fn add_redirect_fd_var_binding(&mut self, redirect: &shuck_ast::Redirect) {
+        if redirect.word_target().is_some_and(|target| {
+            matches!(
+                redirect.kind,
+                shuck_ast::RedirectKind::DupInput | shuck_ast::RedirectKind::DupOutput
+            ) && shuck_ast::static_word_text(target, self.source).as_deref() == Some("-")
+        }) {
+            return;
+        }
+
         if let (Some(name), Some(span)) = (&redirect.fd_var, redirect.fd_var_span) {
             self.add_binding(
                 name,
