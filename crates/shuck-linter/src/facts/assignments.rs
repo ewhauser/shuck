@@ -1287,15 +1287,16 @@ fn build_nonpersistent_assignment_extra_reset_sites(
     commands: &[CommandFact<'_>],
     source: &str,
 ) -> Vec<NonpersistentAssignmentExtraResetSite> {
-    let helper_output_names_by_scope = helper_output_names_by_scope(semantic);
+    let helper_output_names_by_scope = helper_output_names_by_scope(semantic, semantic_analysis);
     let zsh_set_a_outparam_positions_by_scope =
-        zsh_set_a_outparam_positions_by_scope(semantic, commands, source);
+        zsh_set_a_outparam_positions_by_scope(semantic, semantic_analysis, commands, source);
     let mut resets = Vec::new();
 
     for command in commands {
-        if !command_runs_in_persistent_shell_context(semantic, command.scope()) {
+        if !command_runs_in_persistent_shell_context(semantic, command, source) {
             continue;
         }
+        let flow_span = reset_flow_span_for_command(semantic_analysis, commands, command, source);
 
         let Some((callee_scope, call_name_span)) =
             resolved_function_scope_for_command(semantic, semantic_analysis, command)
@@ -1304,13 +1305,13 @@ fn build_nonpersistent_assignment_extra_reset_sites(
                 resets.push(NonpersistentAssignmentExtraResetSite {
                     name: Name::from("REPLY"),
                     span: reset_span,
-                    flow_span: command.span(),
+                    flow_span,
                     command_id: command.id(),
                 });
                 resets.push(NonpersistentAssignmentExtraResetSite {
                     name: Name::from("reply"),
                     span: reset_span,
-                    flow_span: command.span(),
+                    flow_span,
                     command_id: command.id(),
                 });
             }
@@ -1321,7 +1322,7 @@ fn build_nonpersistent_assignment_extra_reset_sites(
             resets.extend(names.iter().cloned().map(|name| NonpersistentAssignmentExtraResetSite {
                 name,
                 span: call_name_span,
-                flow_span: command.span(),
+                flow_span,
                 command_id: command.id(),
             }));
         }
@@ -1341,7 +1342,7 @@ fn build_nonpersistent_assignment_extra_reset_sites(
                 resets.push(NonpersistentAssignmentExtraResetSite {
                     name: Name::from(name.as_ref()),
                     span: argument.span,
-                    flow_span: command.span(),
+                    flow_span,
                     command_id: command.id(),
                 });
             }
@@ -1367,6 +1368,39 @@ fn build_nonpersistent_assignment_extra_reset_sites(
     resets
 }
 
+fn reset_flow_span_for_command(
+    semantic_analysis: &SemanticAnalysis<'_>,
+    commands: &[CommandFact<'_>],
+    command: &CommandFact<'_>,
+    source: &str,
+) -> Span {
+    let command_span = command.span();
+    let pipeline_span = commands
+        .iter()
+        .filter(|candidate| candidate.id() != command.id())
+        .filter(|candidate| span_contains(candidate.span(), command_span))
+        .filter(|candidate| !semantic_analysis.block_ids_for_span(candidate.span()).is_empty())
+        .filter_map(|candidate| {
+            let Command::Binary(binary) = candidate.command() else {
+                return None;
+            };
+            matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll).then_some(candidate.span())
+        })
+        .filter(|span| {
+            let before_command = &source[span.start.offset..command_span.start.offset];
+            let before_command = before_command.trim_end();
+            before_command.ends_with('|') && !before_command.ends_with("||")
+        })
+        .min_by_key(|span| span.end.offset - span.start.offset)
+        .unwrap_or(command_span);
+
+    if pipeline_span != command_span {
+        return pipeline_span;
+    }
+
+    command_span
+}
+
 fn zsh_reply_helper_reset_span(command: &CommandFact<'_>) -> Option<Span> {
     let name = command.effective_or_literal_name()?;
     if !zsh_helper_name_can_set_reply(name) {
@@ -1380,11 +1414,14 @@ fn zsh_helper_name_can_set_reply(name: &str) -> bool {
     (name.starts_with('.') && name != "." && name != "..") || name.starts_with('_')
 }
 
-fn helper_output_names_by_scope(semantic: &SemanticModel) -> FxHashMap<ScopeId, Vec<Name>> {
+fn helper_output_names_by_scope(
+    semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
+) -> FxHashMap<ScopeId, Vec<Name>> {
     let mut names_by_scope = FxHashMap::<ScopeId, Vec<Name>>::default();
 
     for binding in semantic.bindings() {
-        if !helper_binding_can_reset_parent_scope(semantic, binding) {
+        if !helper_binding_can_reset_parent_scope(semantic, semantic_analysis, binding) {
             continue;
         }
         if !matches!(semantic.scope_kind(binding.scope), ScopeKind::Function(_)) {
@@ -1405,11 +1442,15 @@ fn helper_output_names_by_scope(semantic: &SemanticModel) -> FxHashMap<ScopeId, 
     names_by_scope
 }
 
-fn helper_binding_can_reset_parent_scope(semantic: &SemanticModel, binding: &Binding) -> bool {
+fn helper_binding_can_reset_parent_scope(
+    semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
+    binding: &Binding,
+) -> bool {
     if binding.attributes.contains(BindingAttributes::LOCAL) {
         return false;
     }
-    if !binding_command_is_unconditional_in_function(semantic, binding) {
+    if !binding_command_is_unconditional_in_function(semantic, semantic_analysis, binding) {
         return false;
     }
 
@@ -1438,16 +1479,25 @@ fn helper_binding_can_reset_parent_scope(semantic: &SemanticModel, binding: &Bin
 
 fn binding_command_is_unconditional_in_function(
     semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
     binding: &Binding,
 ) -> bool {
     let Some(current) = semantic.innermost_command_id_at(binding.span.start.offset) else {
         return true;
     };
 
-    command_is_unconditional_in_function(semantic, current)
+    command_is_unconditional_in_function(semantic, semantic_analysis, current)
 }
 
-fn command_is_unconditional_in_function(semantic: &SemanticModel, mut current: CommandId) -> bool {
+fn command_is_unconditional_in_function(
+    semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
+    mut current: CommandId,
+) -> bool {
+    if !command_has_reachable_cfg_block(semantic, semantic_analysis, current) {
+        return false;
+    }
+
     while let Some(parent) = semantic.syntax_backed_command_parent_id(current) {
         if matches!(semantic.command_kind(parent), CommandKind::Function) {
             return true;
@@ -1465,8 +1515,20 @@ fn command_is_unconditional_in_function(semantic: &SemanticModel, mut current: C
     true
 }
 
+fn command_has_reachable_cfg_block(
+    semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
+    command_id: CommandId,
+) -> bool {
+    semantic_analysis
+        .block_ids_for_span(semantic.command_syntax_span(command_id))
+        .iter()
+        .any(|block| !semantic_analysis.block_is_unreachable(*block))
+}
+
 fn zsh_set_a_outparam_positions_by_scope(
     semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
     commands: &[CommandFact<'_>],
     source: &str,
 ) -> FxHashMap<ScopeId, Vec<usize>> {
@@ -1476,7 +1538,7 @@ fn zsh_set_a_outparam_positions_by_scope(
         if !command.effective_name_is("set") {
             continue;
         }
-        if !command_is_unconditional_in_function(semantic, command.id()) {
+        if !command_is_unconditional_in_function(semantic, semantic_analysis, command.id()) {
             continue;
         }
         let Some(function_scope) = semantic.enclosing_function_scope(command.scope()) else {
@@ -1557,12 +1619,82 @@ fn command_is_inside_function_body(semantic: &SemanticModel, scope: ScopeId) -> 
 
 fn command_runs_in_persistent_shell_context(
     semantic: &SemanticModel,
-    command_scope: ScopeId,
+    command: &CommandFact<'_>,
+    source: &str,
 ) -> bool {
-    semantic
-        .transient_ancestor_scopes_within_function(command_scope)
-        .next()
-        .is_none()
+    let transient_scopes = semantic
+        .transient_ancestor_scopes_within_function(command.scope())
+        .collect::<SmallVec<[_; 2]>>();
+    if transient_scopes.is_empty() {
+        return true;
+    }
+
+    transient_scopes
+        .iter()
+        .all(|scope| matches!(semantic.scope_kind(*scope), ScopeKind::Pipeline))
+        && zsh_pipeline_tail_runs_in_current_shell(command, semantic, source)
+}
+
+fn zsh_pipeline_tail_runs_in_current_shell(
+    command: &CommandFact<'_>,
+    semantic: &SemanticModel,
+    source: &str,
+) -> bool {
+    if command.shell_behavior().shell_dialect() != shuck_semantic::ShellDialect::Zsh {
+        return false;
+    }
+    if command
+        .shell_behavior()
+        .zsh_options()
+        .is_some_and(|options| *options == ZshOptionState::for_emulate(shuck_semantic::ZshEmulationMode::Sh))
+    {
+        return false;
+    }
+
+    command_is_pipeline_tail_operand(semantic, command.id(), source)
+        || command_is_preceded_by_pipeline_operator(command.span(), source)
+}
+
+fn command_is_pipeline_tail_operand(
+    semantic: &SemanticModel,
+    mut current: CommandId,
+    source: &str,
+) -> bool {
+    let mut saw_pipeline_parent = false;
+    while let Some(parent) = semantic.syntax_backed_command_parent_id(current) {
+        if !matches!(semantic.command_kind(parent), CommandKind::Binary) {
+            break;
+        }
+        if !binary_child_is_pipe_tail_operand(semantic, parent, current, source) {
+            return false;
+        }
+        saw_pipeline_parent = true;
+        current = parent;
+    }
+    saw_pipeline_parent
+}
+
+fn binary_child_is_pipe_tail_operand(
+    semantic: &SemanticModel,
+    parent: CommandId,
+    child: CommandId,
+    source: &str,
+) -> bool {
+    let parent_span = semantic.command_syntax_span(parent);
+    let child_span = semantic.command_syntax_span(child);
+    if child_span.start == parent_span.start {
+        return false;
+    }
+
+    let before_child = &source[parent_span.start.offset..child_span.start.offset];
+    let before_child = before_child.trim_end();
+    before_child.ends_with('|') && !before_child.ends_with("||")
+}
+
+fn command_is_preceded_by_pipeline_operator(command_span: Span, source: &str) -> bool {
+    let before_command = &source[..command_span.start.offset];
+    let before_command = before_command.trim_end();
+    before_command.ends_with('|') && !before_command.ends_with("||")
 }
 
 fn reset_site_control_ancestors_contain_later_use(
@@ -1573,6 +1705,10 @@ fn reset_site_control_ancestors_contain_later_use(
     let mut current = command_id;
     while let Some(parent) = semantic.syntax_backed_command_parent_id(current) {
         if reset_site_is_always_run_binary_operand(semantic, parent, current) {
+            current = parent;
+            continue;
+        }
+        if matches!(semantic.command_kind(parent), CommandKind::Binary) {
             current = parent;
             continue;
         }

@@ -742,6 +742,34 @@ print -r -- $REPLY
     }
 
     #[test]
+    fn reports_zsh_later_reads_after_dead_helper_body_reset() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  return
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+helper
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["for"]
+        );
+    }
+
+    #[test]
     fn ignores_zsh_later_reads_after_always_run_binary_left_helper_reset() {
         let source = "\
 #!/bin/zsh
@@ -752,6 +780,27 @@ helper() {
   for REPLY in a; do :; done
 )
 helper || :
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_later_reads_after_pipeline_tail_helper_reset() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+print -r -- input | helper
 print -r -- $REPLY
 ";
         let diagnostics = test_snippet(
