@@ -1120,6 +1120,11 @@ fn build_nonpersistent_assignment_spans(
         {
             continue;
         }
+        if suppress_zsh_nested_subshell_noise
+            && zsh_later_use_is_parameter_subscript_flag(source, effect.later_use_span)
+        {
+            continue;
+        }
         if let Some(extra_reset_sites) = &extra_reset_sites
             && extra_reset_sites.iter().any(|reset| {
                 reset.name == effect.name
@@ -1180,6 +1185,37 @@ fn nonpersistent_assignment_reaches_later_use(
         {
             return false;
         }
+    }
+
+    true
+}
+
+fn zsh_later_use_is_parameter_subscript_flag(source: &str, span: Span) -> bool {
+    if span.start.offset + 1 != span.end.offset {
+        return false;
+    }
+
+    let bytes = source.as_bytes();
+    let start = span.start.offset;
+    let end = span.end.offset;
+    if start == 0
+        || end >= bytes.len()
+        || bytes[start - 1] != b'('
+        || bytes[end] != b')'
+        || !bytes[start].is_ascii_alphabetic()
+    {
+        return false;
+    }
+
+    let Some(open_subscript_offset) = source[..start - 1].rfind('[') else {
+        return false;
+    };
+    if open_subscript_offset > 0 && bytes[open_subscript_offset - 1] == b'$' {
+        return false;
+    }
+    let subscript_prefix = &source[open_subscript_offset + 1..start - 1];
+    if !subscript_prefix.is_empty() || subscript_prefix.contains(']') {
+        return false;
     }
 
     true

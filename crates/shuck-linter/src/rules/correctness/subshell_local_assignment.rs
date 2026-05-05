@@ -238,6 +238,103 @@ print -r -- \"$header\"
     }
 
     #[test]
+    fn ignores_zsh_parameter_index_flags_after_subshell_loop_variables() {
+        let source = "\
+#!/bin/zsh
+forget() {
+  local -a opts zsh_loaded_plugins
+  local user plugin
+  (
+    for i in \"${opts[@]}\"; do
+      print -r -- \"$i\"
+    done
+  )
+  zsh_loaded_plugins[${zsh_loaded_plugins[(i)$user${${user:#(%|/)*}:+/}$plugin]}]=()
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_parenthesized_zsh_arithmetic_reads_after_unmatched_brackets() {
+        let source = "\
+#!/bin/zsh
+i=0
+(
+  i=1
+)
+print -r -- \"[\"
+: $((i))
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["i"]
+        );
+    }
+
+    #[test]
+    fn reports_legacy_zsh_arithmetic_reads_after_subshell_assignments() {
+        let source = "\
+#!/bin/zsh
+i=0
+(
+  i=1
+)
+: $[ (i) ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["i"]
+        );
+    }
+
+    #[test]
+    fn reports_spaced_zsh_subscript_reads_after_subshell_assignments() {
+        let source = "\
+#!/bin/zsh
+i=0
+typeset -a values
+(
+  i=1
+)
+print -r -- ${values[ (i) ]}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["i"]
+        );
+    }
+
+    #[test]
     fn reports_zsh_always_body_sh_emulation_final_pipeline_component_assignments() {
         let source = "\
 #!/bin/zsh
