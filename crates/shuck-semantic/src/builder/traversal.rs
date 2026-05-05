@@ -100,6 +100,19 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             Command::Compound(CompoundCommand::Until(command)) => {
                 self.flow_after_stmt_seq(&command.condition, flow)
             }
+            Command::Compound(CompoundCommand::Always(command)) => {
+                let block_flow = FlowState {
+                    in_block: true,
+                    ..flow
+                };
+                let after_body = self.flow_after_stmt_seq(&command.body, block_flow);
+                let after_always = self.flow_after_stmt_seq(&command.always_body, after_body);
+                FlowState {
+                    pipeline_tail_runs_in_current_shell: after_always
+                        .pipeline_tail_runs_in_current_shell,
+                    ..flow
+                }
+            }
             Command::Compound(CompoundCommand::Time(command)) => command
                 .command
                 .as_deref()

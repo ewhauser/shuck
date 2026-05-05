@@ -238,6 +238,52 @@ print -r -- \"$header\"
     }
 
     #[test]
+    fn reports_zsh_always_body_sh_emulation_final_pipeline_component_assignments() {
+        let source = "\
+#!/bin/zsh
+{ emulate sh; } always { :; }
+header=
+printf '%s\\n' x | while read -r _; do header=bad; done
+print -r -- \"$header\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["header"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_always_cleanup_sh_emulation_final_pipeline_component_assignments() {
+        let source = "\
+#!/bin/zsh
+{ :; } always { emulate sh; }
+header=
+printf '%s\\n' x | while read -r _; do header=bad; done
+print -r -- \"$header\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["header"]
+        );
+    }
+
+    #[test]
     fn ignores_zsh_option_map_keys_without_visible_opts_binding() {
         let source = "\
 #!/bin/zsh

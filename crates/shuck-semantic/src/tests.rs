@@ -1330,6 +1330,48 @@ print -r -- \"$value\"
 }
 
 #[test]
+fn zsh_always_body_sh_emulation_keeps_later_pipeline_tail_in_pipeline_scope() {
+    let source = "\
+{ emulate sh; } always { :; }
+value=old
+printf '%s\\n' x | value=new
+print -r -- \"$value\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let pipeline_assignment = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .unwrap();
+    assert!(matches!(
+        model.scope_kind(pipeline_assignment.scope),
+        ScopeKind::Pipeline
+    ));
+}
+
+#[test]
+fn zsh_always_cleanup_sh_emulation_keeps_later_pipeline_tail_in_pipeline_scope() {
+    let source = "\
+{ :; } always { emulate sh; }
+value=old
+printf '%s\\n' x | value=new
+print -r -- \"$value\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let pipeline_assignment = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .unwrap();
+    assert!(matches!(
+        model.scope_kind(pipeline_assignment.scope),
+        ScopeKind::Pipeline
+    ));
+}
+
+#[test]
 fn zsh_emulation_restores_native_pipeline_tail_scope() {
     let source = "\
 emulate sh
