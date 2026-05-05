@@ -3,7 +3,8 @@ use rustc_hash::FxHashSet;
 use shuck_ast::Span;
 use shuck_semantic::BindingId;
 
-use crate::{Checker, Rule, ShellDialect, Violation};
+use super::function_arity::zsh_function_arity_is_externally_defined;
+use crate::{Checker, Rule, Violation};
 
 pub struct FunctionCalledWithoutArgs {
     pub name: CompactString,
@@ -64,21 +65,6 @@ pub fn function_called_without_args(checker: &mut Checker) {
     for (span, name) in violations {
         checker.report(FunctionCalledWithoutArgs { name }, span);
     }
-}
-
-fn zsh_function_arity_is_externally_defined(
-    checker: &Checker<'_>,
-    function_scope: shuck_semantic::ScopeId,
-) -> bool {
-    checker.shell() == ShellDialect::Zsh
-        && (checker
-            .facts()
-            .function_is_external_entrypoint(function_scope)
-            || checker
-                .facts()
-                .function_positional_parameter_facts(function_scope)
-                .required_arg_count()
-                == 0)
 }
 
 #[cfg(test)]
@@ -328,6 +314,59 @@ _zsh_autosuggest_toggle
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_zsh_functions_with_optional_first_positional_parameter() {
+        let source = "\
+#!/bin/zsh
+retlog() {
+  if [[ -z $1 ]]; then
+    print -r -- /var/log/nginx/access.log
+  else
+    print -r -- \"$1\"
+  fi
+}
+phase() {
+  local mode=components
+  [[ \"${1:-}\" == --phase=* ]] && mode=\"${1#--phase=}\"
+  print -r -- \"$mode\"
+}
+retlog
+phase
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_zsh_required_argument_after_first_positional_validation() {
+        let source = "\
+#!/bin/zsh
+requires_name() {
+  if [[ -n \"$1\" ]]; then
+    print -r -- ok
+  fi
+  print -r -- \"$2\"
+}
+requires_name
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "requires_name() {\n  if [[ -n \"$1\" ]]; then\n    print -r -- ok\n  fi\n  print -r -- \"$2\"\n}"
+        );
     }
 
     #[test]

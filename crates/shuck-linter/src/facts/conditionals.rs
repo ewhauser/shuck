@@ -28,6 +28,11 @@ impl<'a> ConditionalOperandFact<'a> {
         self.word
     }
 
+    pub fn is_optional_first_positional_parameter(self) -> bool {
+        self.word
+            .is_some_and(word_is_optional_first_positional_parameter)
+    }
+
     pub fn word_classification(&self) -> Option<WordClassification> {
         self.word_classification
     }
@@ -36,6 +41,95 @@ impl<'a> ConditionalOperandFact<'a> {
         self.word_classification
             .map(|classification| classification.quote)
     }
+}
+
+fn word_is_optional_first_positional_parameter(word: &Word) -> bool {
+    let [part] = word.parts.as_slice() else {
+        return false;
+    };
+
+    word_part_is_optional_first_positional_parameter(&part.kind)
+}
+
+fn word_part_is_optional_first_positional_parameter(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(name) => name.as_str() == "1",
+        WordPart::DoubleQuoted { parts, .. } => {
+            let [part] = parts.as_slice() else {
+                return false;
+            };
+            word_part_is_optional_first_positional_parameter(&part.kind)
+        }
+        WordPart::Parameter(parameter) => parameter_is_optional_first_positional(parameter),
+        WordPart::ParameterExpansion {
+            reference,
+            operator,
+            ..
+        } => reference_is_first_positional_parameter(reference)
+            && matches!(operator.as_ref(), ParameterOp::UseDefault),
+        WordPart::Literal(_)
+        | WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => false,
+    }
+}
+
+fn parameter_is_optional_first_positional(parameter: &ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
+            reference_is_first_positional_parameter(reference)
+        }
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+            reference,
+            operator,
+            ..
+        }) => {
+            reference_is_first_positional_parameter(reference)
+                && matches!(operator.as_ref(), ParameterOp::UseDefault)
+        }
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            matches!(
+                &syntax.target,
+                ZshExpansionTarget::Reference(reference)
+                    if reference_is_first_positional_parameter(reference)
+            ) && match &syntax.operation {
+                None => true,
+                Some(ZshExpansionOperation::Defaulting { kind, .. }) => {
+                    matches!(kind, shuck_ast::ZshDefaultingOp::UseDefault)
+                }
+                Some(
+                    ZshExpansionOperation::PatternOperation { .. }
+                    | ZshExpansionOperation::TrimOperation { .. }
+                    | ZshExpansionOperation::ReplacementOperation { .. }
+                    | ZshExpansionOperation::Slice { .. }
+                    | ZshExpansionOperation::Unknown { .. },
+                ) => false,
+            }
+        }
+        ParameterExpansionSyntax::Bourne(
+            BourneParameterExpansion::Length { .. }
+            | BourneParameterExpansion::Indices { .. }
+            | BourneParameterExpansion::Indirect { .. }
+            | BourneParameterExpansion::PrefixMatch { .. }
+            | BourneParameterExpansion::Slice { .. }
+            | BourneParameterExpansion::Transformation { .. },
+        ) => false,
+    }
+}
+
+fn reference_is_first_positional_parameter(reference: &VarRef) -> bool {
+    reference.subscript.is_none() && reference.name.as_str() == "1"
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -77,6 +171,11 @@ impl<'a> ConditionalUnaryFact<'a> {
 
     pub fn op(&self) -> ConditionalUnaryOp {
         self.op
+    }
+
+    pub fn is_empty_string_test(&self) -> bool {
+        self.operator_family == ConditionalOperatorFamily::StringUnary
+            && self.op == ConditionalUnaryOp::EmptyString
     }
 
     pub fn operator_family(&self) -> ConditionalOperatorFamily {

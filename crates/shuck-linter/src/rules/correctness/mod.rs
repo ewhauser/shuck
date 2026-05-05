@@ -44,6 +44,7 @@ pub mod expr_substr_in_test;
 pub mod find_or_without_grouping;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
+mod function_arity;
 pub mod function_called_without_args;
 pub mod function_references_unset_param;
 pub mod getopts_option_not_in_case;
