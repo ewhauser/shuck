@@ -1116,6 +1116,12 @@ impl<'a> Analyzer<'a> {
 
     fn record_snapshot(&mut self, scope: ScopeId, offset: usize, state: ZshOptionState) {
         let snapshots = self.snapshots.entry(scope).or_default();
+        if let Some(last) = snapshots.last()
+            && last.offset <= offset
+            && last.state == state
+        {
+            return;
+        }
         if let Some(existing) = snapshots
             .iter_mut()
             .find(|snapshot| snapshot.offset == offset)
