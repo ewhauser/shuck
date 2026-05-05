@@ -1887,6 +1887,21 @@ fn command_topology_finds_innermost_command_containing_arbitrary_offsets() {
 }
 
 #[test]
+fn command_topology_keeps_syntax_and_statement_containment_separate() {
+    let source = "if foo; then bar; fi >out\n";
+    let model = model(source);
+
+    let if_id = command_id_starting_with(&model, source, "if foo").unwrap();
+    let redirect_target_offset = source.find("out").unwrap() + 2;
+
+    assert_eq!(model.innermost_command_id_at(redirect_target_offset), None);
+    assert_eq!(
+        model.innermost_command_id_containing_offset(redirect_target_offset),
+        Some(if_id)
+    );
+}
+
+#[test]
 fn arithmetic_plain_assignment_is_write_only() {
     let model = model("(( i = 0 ))\n");
     assert_arithmetic_usage(&model, "i", 0, 1);
@@ -10432,7 +10447,14 @@ print $name
             .recorded_program
             .command_infos
             .values()
-            .any(|info| info.static_callee.as_deref() == Some("fn")),
+            .any(|info_id| {
+                model
+                    .recorded_program
+                    .command_info(*info_id)
+                    .static_callee
+                    .as_deref()
+                    == Some("fn")
+            }),
         "expected a static callee for the function call"
     );
     let options = model

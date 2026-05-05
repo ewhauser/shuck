@@ -42,7 +42,8 @@ pub(super) fn build_statement_facts<'a>(
 }
 
 fn build_command_ids_by_stmt_span(commands: &[CommandFact<'_>]) -> FxHashMap<FactSpan, CommandId> {
-    let mut command_ids_by_stmt_span = FxHashMap::default();
+    let mut command_ids_by_stmt_span =
+        FxHashMap::with_capacity_and_hasher(commands.len(), Default::default());
 
     for command in commands {
         if command.is_nested_word_command() {

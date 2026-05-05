@@ -626,7 +626,7 @@ fn collect_ast_facts(model: &SemanticModel) -> AstFacts {
     commands.sort_by_key(|command| (command.span.start.offset, command.span.end.offset));
 
     for command in commands {
-        let Some(info) = program.command_infos.get(&SpanKey::new(command.span)) else {
+        let Some(info) = program.command_info_for_span(command.span) else {
             continue;
         };
         let Some(name) = info.static_callee.as_deref() else {

@@ -72,6 +72,7 @@ impl Violation for OverwrittenFunction {
 }
 
 pub fn overwritten_function(checker: &mut Checker) {
+    let mut reach = build_direct_function_call_reachability(checker);
     let overwritten = checker.semantic_analysis().overwritten_functions().to_vec();
     let unreached = checker
         .semantic_analysis()
@@ -81,12 +82,13 @@ pub fn overwritten_function(checker: &mut Checker) {
         .rule_options()
         .c063
         .report_unreached_nested_definitions;
+    let mut reports = Vec::new();
 
     for overwritten in overwritten {
         let second = checker.semantic().binding(overwritten.second);
         if compat_mode {
             if has_direct_call_to_binding_before_offset(
-                checker,
+                &mut reach,
                 overwritten.first,
                 second.span.start.offset,
             ) {
@@ -95,20 +97,19 @@ pub fn overwritten_function(checker: &mut Checker) {
         } else if overwritten.first_called {
             continue;
         }
-        if should_suppress_overwrite(checker, &overwritten) {
+        if should_suppress_overwrite(checker, &mut reach, &overwritten) {
             continue;
         }
 
-        report_function_definition(
-            checker,
+        reports.push((
             overwritten.first,
             overwritten.name.as_str().into(),
             FunctionNotReachedReason::Overwritten,
-        );
+        ));
     }
 
     for unreached in unreached {
-        if should_suppress_unreached(checker, &unreached) {
+        if should_suppress_unreached(checker, &mut reach, &unreached) {
             continue;
         }
 
@@ -121,12 +122,7 @@ pub fn overwritten_function(checker: &mut Checker) {
                 FunctionNotReachedReason::EnclosingFunctionUnreached
             }
         };
-        report_function_definition(
-            checker,
-            unreached.binding,
-            unreached.name.as_str().into(),
-            reason,
-        );
+        reports.push((unreached.binding, unreached.name.as_str().into(), reason));
     }
 
     if checker
@@ -134,8 +130,17 @@ pub fn overwritten_function(checker: &mut Checker) {
         .c063
         .report_unreached_nested_definitions
     {
-        report_compat_cutoff_function_definitions(checker);
-        report_transient_shadowed_file_scope_definitions(checker);
+        reports.extend(report_compat_cutoff_function_definitions(
+            checker, &mut reach,
+        ));
+        reports.extend(report_transient_shadowed_file_scope_definitions(
+            checker, &mut reach,
+        ));
+    }
+
+    drop(reach);
+    for (binding, name, reason) in reports {
+        report_function_definition(checker, binding, name, reason);
     }
 }
 
@@ -278,9 +283,9 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
     }
 }
 
-fn build_supplemental_function_call_candidates(
-    checker: &Checker<'_>,
-) -> Vec<FunctionCallCandidate> {
+fn supplemental_function_call_candidates<'checker, 'model>(
+    checker: &'checker Checker<'model>,
+) -> impl Iterator<Item = FunctionCallCandidate> + 'checker {
     checker
         .facts()
         .structural_commands()
@@ -294,7 +299,6 @@ fn build_supplemental_function_call_candidates(
                 command_span: fact.body_span(),
             })
         })
-        .collect()
 }
 
 fn build_direct_function_call_reachability<'checker, 'model>(
@@ -302,7 +306,7 @@ fn build_direct_function_call_reachability<'checker, 'model>(
 ) -> DirectFunctionCallReachability<'checker, 'model> {
     checker
         .semantic_analysis()
-        .direct_function_call_reachability(build_supplemental_function_call_candidates(checker))
+        .direct_function_call_reachability(supplemental_function_call_candidates(checker))
 }
 
 fn build_compat_function_bindings_by_scope(checker: &Checker<'_>) -> CompatFunctionBindingsByScope {
@@ -399,7 +403,10 @@ fn build_compat_unset_facts(
     }
 }
 
-fn report_compat_cutoff_function_definitions(checker: &mut Checker<'_>) {
+fn report_compat_cutoff_function_definitions(
+    checker: &Checker<'_>,
+    reach: &mut DirectFunctionCallReachability<'_, '_>,
+) -> Vec<(BindingId, CompactString, FunctionNotReachedReason)> {
     let structural_facts = build_compat_structural_facts(checker);
     let function_bindings_by_scope = build_compat_function_bindings_by_scope(checker);
     let unset_facts = build_compat_unset_facts(
@@ -408,60 +415,51 @@ fn report_compat_cutoff_function_definitions(checker: &mut Checker<'_>) {
         &structural_facts.unset_commands_by_target,
     );
     let script_terminators = build_compat_script_terminator_facts(checker, &structural_facts);
-    let mut reach = build_direct_function_call_reachability(checker);
     reach.enable_activation_index();
-    let candidates = checker
+
+    checker
         .semantic()
         .function_definition_bindings()
         .filter_map(|binding| {
             let cutoff = first_compat_cutoff_after_binding(
                 checker,
                 binding.id,
-                &mut reach,
+                reach,
                 &unset_facts,
                 &script_terminators,
                 &structural_facts.top_level_control,
             )?;
-            (!binding_has_direct_call_before_offset(&mut reach, binding.id, cutoff.offset))
+            (!binding_has_direct_call_before_offset(reach, binding.id, cutoff.offset))
                 .then(|| (binding.id, binding.name.as_str().into(), cutoff.reason))
         })
-        .collect::<Vec<_>>();
-
-    for (binding_id, name, reason) in candidates {
-        report_function_definition(checker, binding_id, name, reason);
-    }
+        .collect::<Vec<_>>()
 }
 
-fn report_transient_shadowed_file_scope_definitions(checker: &mut Checker<'_>) {
-    let candidates = checker
+fn report_transient_shadowed_file_scope_definitions(
+    checker: &Checker<'_>,
+    reach: &mut DirectFunctionCallReachability<'_, '_>,
+) -> Vec<(BindingId, CompactString, FunctionNotReachedReason)> {
+    let transient_shadow_offsets = transient_function_shadow_offsets_by_name(checker);
+
+    checker
         .semantic()
         .function_definition_bindings()
         .filter(|binding| scope_is_file_scope(checker, binding.scope))
         .filter_map(|binding| {
-            let first_shadow_offset = checker
-                .facts()
-                .function_headers()
+            let offsets = transient_shadow_offsets.get(&binding.name)?;
+            let first_shadow_offset = offsets
                 .iter()
-                .filter(|header| header.binding_id() != Some(binding.id))
-                .filter_map(|header| {
-                    let (name, span) = header.static_name_entry()?;
-                    (name == &binding.name
-                        && span.start.offset > binding.span.start.offset
-                        && header
-                            .function_scope()
-                            .is_some_and(|scope| scope_has_transient_ancestor(checker, scope)))
-                    .then_some(span.start.offset)
-                })
-                .min()?;
+                .copied()
+                .find(|offset| *offset > binding.span.start.offset)?;
             if !checker.semantic_analysis().cfg().script_always_terminates() {
                 return None;
             }
             let terminator_offset =
                 last_script_terminator_offset_after(checker, binding.span.start.offset)?;
 
-            if has_direct_call_to_binding_before_offset(checker, binding.id, first_shadow_offset)
+            if has_direct_call_to_binding_before_offset(reach, binding.id, first_shadow_offset)
                 || has_non_transient_direct_call_to_binding_between_offsets(
-                    checker,
+                    reach,
                     binding.id,
                     first_shadow_offset,
                     terminator_offset,
@@ -470,18 +468,36 @@ fn report_transient_shadowed_file_scope_definitions(checker: &mut Checker<'_>) {
                 return None;
             }
 
-            Some((binding.id, binding.name.as_str().into()))
+            Some((
+                binding.id,
+                binding.name.as_str().into(),
+                FunctionNotReachedReason::ScriptTerminates,
+            ))
         })
-        .collect::<Vec<_>>();
+        .collect()
+}
 
-    for (binding_id, name) in candidates {
-        report_function_definition(
-            checker,
-            binding_id,
-            name,
-            FunctionNotReachedReason::ScriptTerminates,
-        );
+fn transient_function_shadow_offsets_by_name(checker: &Checker<'_>) -> FxHashMap<Name, Vec<usize>> {
+    let mut offsets_by_name = FxHashMap::<Name, Vec<usize>>::default();
+    for header in checker.facts().function_headers() {
+        let Some(scope) = header.function_scope() else {
+            continue;
+        };
+        if !scope_has_transient_ancestor(checker, scope) {
+            continue;
+        }
+        let Some((name, span)) = header.static_name_entry() else {
+            continue;
+        };
+        offsets_by_name
+            .entry(name.clone())
+            .or_default()
+            .push(span.start.offset);
     }
+    for offsets in offsets_by_name.values_mut() {
+        offsets.sort_unstable();
+    }
+    offsets_by_name
 }
 
 fn first_compat_cutoff_after_binding(
@@ -683,12 +699,11 @@ fn scope_has_transient_ancestor(checker: &Checker<'_>, scope: ScopeId) -> bool {
 }
 
 fn has_direct_call_to_binding_before_offset(
-    checker: &Checker<'_>,
+    reach: &mut DirectFunctionCallReachability<'_, '_>,
     binding_id: BindingId,
     before_offset: usize,
 ) -> bool {
-    let mut reach = build_direct_function_call_reachability(checker);
-    binding_has_direct_call_before_offset(&mut reach, binding_id, before_offset)
+    binding_has_direct_call_before_offset(reach, binding_id, before_offset)
 }
 
 fn binding_has_direct_call_before_offset(
@@ -703,12 +718,11 @@ fn binding_has_direct_call_before_offset(
 }
 
 fn has_non_transient_direct_call_to_binding_between_offsets(
-    checker: &Checker<'_>,
+    reach: &mut DirectFunctionCallReachability<'_, '_>,
     binding_id: BindingId,
     after_offset: usize,
     before_offset: usize,
 ) -> bool {
-    let mut reach = build_direct_function_call_reachability(checker);
     reach.binding_has_reachable_direct_call(
         binding_id,
         DirectFunctionCallWindow::between_offsets(after_offset, before_offset)
@@ -758,6 +772,7 @@ fn trim_trailing_function_separator(span: shuck_ast::Span, source: &str) -> shuc
 
 fn should_suppress_overwrite(
     checker: &Checker<'_>,
+    reach: &mut DirectFunctionCallReachability<'_, '_>,
     overwritten: &SemanticOverwrittenFunction,
 ) -> bool {
     let compat_mode = checker
@@ -771,7 +786,7 @@ fn should_suppress_overwrite(
         return true;
     }
 
-    if enclosing_function_has_reportable_c063_diagnostic(checker, first.scope) {
+    if enclosing_function_has_reportable_c063_diagnostic(checker, reach, first.scope) {
         return true;
     }
 
@@ -782,7 +797,11 @@ fn should_suppress_overwrite(
     false
 }
 
-fn should_suppress_unreached(checker: &Checker<'_>, unreached: &SemanticUnreachedFunction) -> bool {
+fn should_suppress_unreached(
+    checker: &Checker<'_>,
+    reach: &mut DirectFunctionCallReachability<'_, '_>,
+    unreached: &SemanticUnreachedFunction,
+) -> bool {
     let binding = checker.semantic().binding(unreached.binding);
     let compat_mode = checker
         .rule_options()
@@ -800,7 +819,7 @@ fn should_suppress_unreached(checker: &Checker<'_>, unreached: &SemanticUnreache
             && last_script_terminator_offset_after(checker, binding.span.start.offset).is_some_and(
                 |terminator_offset| {
                     has_direct_call_to_binding_before_offset(
-                        checker,
+                        reach,
                         unreached.binding,
                         terminator_offset,
                     )
@@ -809,19 +828,19 @@ fn should_suppress_unreached(checker: &Checker<'_>, unreached: &SemanticUnreache
         || (matches!(
             unreached.reason,
             UnreachedFunctionReason::EnclosingFunctionUnreached
-        ) && enclosing_function_has_reportable_c063_diagnostic(checker, binding.scope))
+        ) && enclosing_function_has_reportable_c063_diagnostic(checker, reach, binding.scope))
         || (compat_mode
             && matches!(
                 unreached.reason,
                 UnreachedFunctionReason::EnclosingFunctionUnreached
             )
-            && has_direct_call_inside_enclosing_function(checker, unreached.binding))
+            && has_direct_call_inside_enclosing_function(checker, reach, unreached.binding))
         || (compat_mode
             && matches!(
                 unreached.reason,
                 UnreachedFunctionReason::EnclosingFunctionUnreached
             )
-            && enclosing_function_scope_can_run_persistently(checker, binding.scope))
+            && enclosing_function_scope_can_run_persistently(checker, reach, binding.scope))
 }
 
 fn last_script_terminator_offset_after(
@@ -854,22 +873,28 @@ fn has_top_level_return_after(checker: &Checker<'_>, after_offset: usize) -> boo
     })
 }
 
-fn enclosing_function_scope_can_run_persistently(checker: &Checker<'_>, scope: ScopeId) -> bool {
+fn enclosing_function_scope_can_run_persistently(
+    checker: &Checker<'_>,
+    reach: &mut DirectFunctionCallReachability<'_, '_>,
+    scope: ScopeId,
+) -> bool {
     if checker.semantic().enclosing_function_scope(scope).is_none() {
         return false;
     }
 
-    let mut reach = build_direct_function_call_reachability(checker);
     reach.scope_can_run_before_offset(scope, usize::MAX, FunctionCallPersistence::PersistentOnly)
 }
 
-fn has_direct_call_inside_enclosing_function(checker: &Checker<'_>, binding_id: BindingId) -> bool {
+fn has_direct_call_inside_enclosing_function(
+    checker: &Checker<'_>,
+    reach: &mut DirectFunctionCallReachability<'_, '_>,
+    binding_id: BindingId,
+) -> bool {
     let binding = checker.semantic().binding(binding_id);
     let Some(enclosing_scope) = checker.semantic().enclosing_function_scope(binding.scope) else {
         return false;
     };
 
-    let mut reach = build_direct_function_call_reachability(checker);
     reach.binding_has_reachable_direct_call(
         binding_id,
         DirectFunctionCallWindow::between_offsets(binding.span.start.offset, usize::MAX)
@@ -935,6 +960,7 @@ fn loop_body_contains_break(checker: &Checker<'_>, body_span: shuck_ast::Span) -
 
 fn enclosing_function_has_reportable_c063_diagnostic(
     checker: &Checker<'_>,
+    reach: &mut DirectFunctionCallReachability<'_, '_>,
     scope: ScopeId,
 ) -> bool {
     let Some(enclosing_scope) = checker.semantic().enclosing_function_scope(scope) else {
@@ -960,7 +986,7 @@ fn enclosing_function_has_reportable_c063_diagnostic(
         .any(|candidate| {
             !candidate.first_called
                 && enclosing_bindings.contains(&candidate.first)
-                && !should_suppress_overwrite(checker, candidate)
+                && !should_suppress_overwrite(checker, reach, candidate)
         });
     let has_compat_cutoff_diagnostic = checker
         .rule_options()
@@ -968,12 +994,16 @@ fn enclosing_function_has_reportable_c063_diagnostic(
         .report_unreached_nested_definitions
         && enclosing_bindings
             .iter()
-            .any(|binding| compat_cutoff_would_report_binding(checker, *binding));
+            .any(|binding| compat_cutoff_would_report_binding(checker, reach, *binding));
 
     has_unreached_diagnostic || has_overwrite_diagnostic || has_compat_cutoff_diagnostic
 }
 
-fn compat_cutoff_would_report_binding(checker: &Checker<'_>, binding_id: BindingId) -> bool {
+fn compat_cutoff_would_report_binding(
+    checker: &Checker<'_>,
+    reach: &mut DirectFunctionCallReachability<'_, '_>,
+    binding_id: BindingId,
+) -> bool {
     let structural_facts = build_compat_structural_facts(checker);
     let function_bindings_by_scope = build_compat_function_bindings_by_scope(checker);
     let unset_facts = build_compat_unset_facts(
@@ -982,11 +1012,10 @@ fn compat_cutoff_would_report_binding(checker: &Checker<'_>, binding_id: Binding
         &structural_facts.unset_commands_by_target,
     );
     let script_terminators = build_compat_script_terminator_facts(checker, &structural_facts);
-    let mut reach = build_direct_function_call_reachability(checker);
     let Some(cutoff) = first_compat_cutoff_after_binding(
         checker,
         binding_id,
-        &mut reach,
+        reach,
         &unset_facts,
         &script_terminators,
         &structural_facts.top_level_control,
@@ -994,7 +1023,7 @@ fn compat_cutoff_would_report_binding(checker: &Checker<'_>, binding_id: Binding
         return false;
     };
 
-    !binding_has_direct_call_before_offset(&mut reach, binding_id, cutoff.offset)
+    !binding_has_direct_call_before_offset(reach, binding_id, cutoff.offset)
 }
 
 #[cfg(test)]

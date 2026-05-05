@@ -72,16 +72,17 @@ use shuck_semantic::{
     NonpersistentAssignmentAnalysisOptions, NonpersistentAssignmentCommandContext,
     NonpersistentAssignmentExtraRead, OptionValue, PathnameExpansionBehavior, Reference,
     ReferenceId, ReferenceKind, ScopeId, SemanticAnalysis, SemanticModel,
-    SemanticPipelineOperatorKind, ShellBehaviorAt, SubscriptIndexBehavior, ZshOptionState,
+    SemanticPipelineOperatorKind, SemanticValueFlow, ShellBehaviorAt, SubscriptIndexBehavior,
+    ZshOptionState,
 };
 use smallvec::SmallVec;
 use std::{borrow::Cow, ops::ControlFlow, sync::OnceLock};
 
 #[allow(unused_imports)]
 pub(crate) use self::command_options::{
-    CommandOptionFacts, ExitCommandFacts, ExprCommandFacts, ExprStringHelperKind,
-    FunctionPositionalParameterFacts, GrepPatternSourceKind, MapfileCommandFacts, PathWordFact,
-    WaitCommandFacts,
+    CommandOptionFacts, CommandOptionFactsRef, ExitCommandFacts, ExprCommandFacts,
+    ExprStringHelperKind, FunctionPositionalParameterFacts, GrepPatternSourceKind,
+    MapfileCommandFacts, PathWordFact, WaitCommandFacts,
 };
 #[allow(unused_imports)]
 pub(crate) use self::command_options::{

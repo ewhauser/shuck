@@ -9,7 +9,7 @@ pub struct CommandFact<'a> {
     shell_behavior: ShellBehaviorAt<'a>,
     redirect_facts: IdRange<RedirectFact<'a>>,
     substitution_facts: IdRange<SubstitutionFact>,
-    options: CommandOptionFacts<'a>,
+    options: Option<Box<CommandOptionFacts<'a>>>,
     scope_read_source_words: IdRange<PathWordFact<'a>>,
     scope_name_read_uses: IdRange<ComparableNameUse>,
     scope_heredoc_name_read_uses: IdRange<ComparableNameUse>,
@@ -84,8 +84,8 @@ impl<'a> CommandFact<'a> {
         &self.normalized
     }
 
-    pub fn options(&self) -> &CommandOptionFacts<'a> {
-        &self.options
+    pub fn options(&self) -> CommandOptionFactsRef<'_, 'a> {
+        CommandOptionFactsRef::new(self.options.as_deref())
     }
 
     pub fn glued_closing_bracket_operand_span(&self) -> Option<Span> {
@@ -203,7 +203,7 @@ impl<'a> CommandFact<'a> {
     }
 
     pub fn file_operand_words(&self) -> &[&'a Word] {
-        self.options.file_operand_words()
+        self.options().file_operand_words()
     }
 
 }
@@ -289,8 +289,8 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
         &self.fact.normalized
     }
 
-    pub fn options(self) -> &'facts CommandOptionFacts<'a> {
-        &self.fact.options
+    pub fn options(self) -> CommandOptionFactsRef<'facts, 'a> {
+        self.fact.options()
     }
 
     pub fn glued_closing_bracket_operand_span(self) -> Option<Span> {
@@ -408,7 +408,7 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
     }
 
     pub fn file_operand_words(self) -> &'facts [&'a Word] {
-        self.fact.options.file_operand_words()
+        self.options().file_operand_words()
     }
 
     pub fn shellcheck_command_span(self, source: &str) -> Option<Span> {

@@ -1182,14 +1182,7 @@ fn command_terminals_are_test_commands(command: &Command, source: &str) -> bool 
         ),
         Command::Compound(CompoundCommand::Conditional(_)) => true,
         Command::Binary(command) => {
-            let Some(chain) = BinaryCommandChain::logical_list(command) else {
-                return false;
-            };
-            let mut all_segments_are_tests = true;
-            chain.visit_segments(|stmt| {
-                all_segments_are_tests &= stmt_terminals_are_test_commands(stmt, source);
-            });
-            all_segments_are_tests
+            logical_list_segments_are_test_commands(command, source)
         }
         Command::Builtin(_)
         | Command::Decl(_)
@@ -1197,6 +1190,12 @@ fn command_terminals_are_test_commands(command: &Command, source: &str) -> bool 
         | Command::Function(_)
         | Command::AnonymousFunction(_) => false,
     }
+}
+
+fn logical_list_segments_are_test_commands(command: &BinaryCommand, source: &str) -> bool {
+    matches!(command.op, BinaryOp::And | BinaryOp::Or)
+        && stmt_terminals_are_test_commands(&command.left, source)
+        && stmt_terminals_are_test_commands(&command.right, source)
 }
 
 fn collect_status_parameter_spans_in_stmt(stmt: &Stmt, source: &str, spans: &mut Vec<Span>) {

@@ -26,6 +26,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             scope: None,
             flow_context: None,
             nested_regions,
+            command_info: None,
             kind,
         })
     }
@@ -157,15 +158,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.recorded_program.command_mut(recorded).flow_context = Some(context);
         let info = recorded_command_info(&stmt.command, self.source, self.runtime.bash_enabled());
         if !info.is_empty() {
+            let info_id = self.recorded_program.push_command_info(info);
+            self.recorded_program.command_mut(recorded).command_info = Some(info_id);
             self.recorded_program
                 .command_infos
                 .entry(SpanKey::new(span))
-                .and_modify(|existing| {
-                    if existing.is_empty() {
-                        *existing = info.clone();
-                    }
-                })
-                .or_insert(info);
+                .or_insert(info_id);
         }
 
         self.command_stack.pop();

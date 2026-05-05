@@ -576,7 +576,13 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 
     #[cfg_attr(shuck_profiling, inline(never))]
-    pub(super) fn finish(self) -> SurfaceFragmentFacts {
+    pub(super) fn finish(mut self) -> SurfaceFragmentFacts {
+        self.facts
+            .plain_unindexed_references
+            .sort_by_key(|span| (span.start.offset, span.end.offset));
+        self.facts
+            .plain_unindexed_references
+            .dedup_by_key(|span| (span.start.offset, span.end.offset));
         self.facts
     }
 
@@ -636,9 +642,7 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 
     fn record_plain_unindexed_reference(&mut self, span: Span) {
-        if !self.facts.plain_unindexed_references.contains(&span) {
-            self.facts.plain_unindexed_references.push(span);
-        }
+        self.facts.plain_unindexed_references.push(span);
     }
 
     fn record_parameter_pattern_special_target(&mut self, operand_span: Span) {

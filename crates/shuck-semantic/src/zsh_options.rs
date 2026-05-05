@@ -260,16 +260,20 @@ pub(crate) fn analyze(
     dynamic_calls: DynamicCallAnalysisContext<'_>,
 ) -> Option<ZshOptionAnalysis> {
     let entry = InternalState::from_profile(shell_profile)?;
+    let function_count = recorded_program.function_body_scopes.len();
     let mut analyzer = Analyzer {
         scopes,
         bindings,
         dynamic_calls,
         recorded_program,
         treat_unknown_dispatch_bindings_as_ambiguous_in_functions: false,
-        scope_entries: FxHashMap::default(),
-        snapshots: FxHashMap::default(),
-        active_function_scopes: FxHashSet::default(),
-        function_summaries: FxHashMap::default(),
+        scope_entries: FxHashMap::with_capacity_and_hasher(scopes.len(), Default::default()),
+        snapshots: FxHashMap::with_capacity_and_hasher(scopes.len(), Default::default()),
+        active_function_scopes: FxHashSet::with_capacity_and_hasher(
+            function_count,
+            Default::default(),
+        ),
+        function_summaries: FxHashMap::with_capacity_and_hasher(function_count, Default::default()),
     };
 
     analyzer.analyze_sequence(
@@ -302,7 +306,8 @@ pub(crate) fn analyze(
 
 pub(crate) fn runtime_ambiguous_entry_mask(recorded_program: &RecordedProgram) -> ZshOptionMask {
     let mut mask = ZshOptionMask::default();
-    for info in recorded_program.command_infos.values() {
+    for info_id in recorded_program.command_infos.values() {
+        let info = recorded_program.command_info(*info_id);
         for effect in &info.zsh_effects {
             match effect {
                 RecordedZshCommandEffect::Emulate { mode, .. } => {
@@ -341,27 +346,6 @@ pub(crate) fn function_runtime_analysis_with_entry(
     entry: ZshOptionState,
 ) -> Option<ZshOptionAnalysis> {
     let function_span = scopes.get(function_scope.index())?.span;
-
-    let mut analyzer = Analyzer {
-        scopes,
-        bindings,
-        dynamic_calls,
-        recorded_program,
-        treat_unknown_dispatch_bindings_as_ambiguous_in_functions: true,
-        scope_entries: FxHashMap::default(),
-        snapshots: FxHashMap::default(),
-        active_function_scopes: FxHashSet::default(),
-        function_summaries: FxHashMap::default(),
-    };
-    analyzer.analyze_function_scope(
-        function_scope,
-        EvalState::new(InternalState::from_public(entry)),
-    );
-
-    for snapshots in analyzer.snapshots.values_mut() {
-        snapshots.sort_by_key(|snapshot| snapshot.offset);
-    }
-
     let mut scope_index: Vec<ScopeIndexEntry> = scopes
         .iter()
         .filter(|scope| {
@@ -375,6 +359,27 @@ pub(crate) fn function_runtime_analysis_with_entry(
         })
         .collect();
     scope_index.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| b.end.cmp(&a.end)));
+    let scope_capacity = scope_index.len();
+
+    let mut analyzer = Analyzer {
+        scopes,
+        bindings,
+        dynamic_calls,
+        recorded_program,
+        treat_unknown_dispatch_bindings_as_ambiguous_in_functions: true,
+        scope_entries: FxHashMap::with_capacity_and_hasher(scope_capacity, Default::default()),
+        snapshots: FxHashMap::with_capacity_and_hasher(scope_capacity, Default::default()),
+        active_function_scopes: FxHashSet::default(),
+        function_summaries: FxHashMap::default(),
+    };
+    analyzer.analyze_function_scope(
+        function_scope,
+        EvalState::new(InternalState::from_public(entry)),
+    );
+
+    for snapshots in analyzer.snapshots.values_mut() {
+        snapshots.sort_by_key(|snapshot| snapshot.offset);
+    }
 
     Some(ZshOptionAnalysis {
         scope_entries: analyzer.scope_entries,
@@ -633,13 +638,15 @@ impl<'a> Analyzer<'a> {
         leak: LeakBehavior,
     ) -> EvalState {
         let command = self.recorded_program.command(command);
-        for region in self.recorded_program.nested_regions(command.nested_regions) {
-            self.analyze_sequence(
-                region.scope,
-                region.commands,
-                EvalState::new(state.current.clone()),
-                LeakBehavior::Never,
-            );
+        if !command.nested_regions.is_empty() {
+            for region in self.recorded_program.nested_regions(command.nested_regions) {
+                self.analyze_sequence(
+                    region.scope,
+                    region.commands,
+                    EvalState::new(state.current.clone()),
+                    LeakBehavior::Never,
+                );
+            }
         }
 
         match &command.kind {
@@ -810,10 +817,9 @@ impl<'a> Analyzer<'a> {
         mut state: EvalState,
         leak: LeakBehavior,
     ) -> EvalState {
-        let info = self
-            .recorded_program
-            .command_infos
-            .get(&SpanKey::new(command.span));
+        let info = command
+            .command_info
+            .map(|info_id| self.recorded_program.command_info(info_id));
 
         if let Some(function_scope) = info
             .and_then(|info| info.static_callee.as_deref())
@@ -1116,6 +1122,12 @@ impl<'a> Analyzer<'a> {
 
     fn record_snapshot(&mut self, scope: ScopeId, offset: usize, state: ZshOptionState) {
         let snapshots = self.snapshots.entry(scope).or_default();
+        if let Some(last) = snapshots.last()
+            && last.offset <= offset
+            && last.state == state
+        {
+            return;
+        }
         if let Some(existing) = snapshots
             .iter_mut()
             .find(|snapshot| snapshot.offset == offset)
