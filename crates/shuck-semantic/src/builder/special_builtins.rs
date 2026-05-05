@@ -496,24 +496,37 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 }
 
 fn zstyle_target(args: &[&Word], source: &str) -> Option<(Name, Span, BindingAttributes)> {
-    let index = 0usize;
-    let word = args.get(index)?;
-    let text = static_word_text(word, source)?;
-    match text.as_ref() {
-        "--" => None,
-        "-a" | "-s" | "-b" => {
-            let attributes = if text == "-a" {
-                BindingAttributes::ARRAY
-            } else {
-                BindingAttributes::empty()
-            };
-            args.get(index + 3)
-                .and_then(|word| named_target_word(word, source))
-                .map(|(name, span)| (name, span, attributes))
+    let mut index = 0usize;
+    let mut attributes = None;
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+        if text == "--" {
+            index += 1;
+            break;
         }
-        _ if text.starts_with('-') && text != "-" => None,
-        _ => None,
+        let Some(flags) = text.strip_prefix('-') else {
+            break;
+        };
+        if flags.is_empty() || flags.starts_with('-') {
+            break;
+        }
+        for flag in flags.chars() {
+            match flag {
+                'a' => attributes = Some(BindingAttributes::ARRAY),
+                'b' | 's' => attributes = Some(BindingAttributes::empty()),
+                'q' => {}
+                _ => return None,
+            }
+        }
+        index += 1;
     }
+
+    let attributes = attributes?;
+    args.get(index + 2)
+        .and_then(|word| named_target_word(word, source))
+        .map(|(name, span)| (name, span, attributes))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

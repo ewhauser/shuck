@@ -187,6 +187,9 @@ fn line_has_zsh_autoload_marker(line: &str) -> bool {
 fn line_heredoc_delimiter(line: &str) -> Option<(String, bool)> {
     let redirect_start = line.find("<<")?;
     let mut rest = &line[redirect_start + 2..];
+    if rest.starts_with('<') {
+        return None;
+    }
     let strip_tabs = rest.starts_with('-');
     if strip_tabs {
         rest = &rest[1..];
@@ -395,6 +398,16 @@ EOF
 ";
         let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
         assert_eq!(inferred, ShellDialect::Sh);
+    }
+
+    #[test]
+    fn here_strings_do_not_hide_later_source_markers() {
+        let source = "\
+cat <<< \"$value\"
+zstyle -s ':omz:update' mode update_mode
+";
+        let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
+        assert_eq!(inferred, ShellDialect::Zsh);
     }
 
     #[test]

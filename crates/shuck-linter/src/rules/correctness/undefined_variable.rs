@@ -567,6 +567,66 @@ print -r -- $user_pmodule_dirs
     }
 
     #[test]
+    fn zsh_zstyle_option_parsing_finds_targets_after_flags_and_double_dash() {
+        let source = "\
+#!/bin/zsh
+zstyle -q -a ':prezto:load' pmodule-dirs configured_modules
+print -r -- $configured_modules
+zstyle -q -s -- ':prezto:module:editor' key-bindings key_bindings
+print -r -- $key_bindings
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn zsh_zstyle_dynamic_context_and_style_still_assign_static_targets() {
+        let source = "\
+#!/bin/zsh
+context=':prezto:module:prompt'
+style=theme
+zstyle -s $context $style prompt_theme
+print -r -- $prompt_theme
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn zsh_zstyle_without_by_name_mode_or_static_target_does_not_create_bindings() {
+        let source = "\
+#!/bin/zsh
+target=resolved_target
+zstyle ':prezto:module:prompt' theme ignored_theme
+print -r -- $ignored_theme
+zstyle -s ':prezto:module:prompt' theme $target
+print -r -- $resolved_target
+zstyle -e ':prezto:module:prompt' theme 'reply=(default)'
+print -r -- $reply
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ignored_theme", "$resolved_target", "$reply"]
+        );
+    }
+
+    #[test]
     fn zsh_zstyle_other_modes_do_not_define_named_targets() {
         for option in ["-g", "-d", "-m", "-t"] {
             let source = format!(
