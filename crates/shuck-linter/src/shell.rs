@@ -279,11 +279,32 @@ fn next_heredoc_delimiter(line: &str) -> Option<((String, bool), usize)> {
     consumed += blanks;
     let delimiter = heredoc_delimiter_token(rest)?;
     consumed += delimiter.len();
-    let delimiter = delimiter
-        .trim_matches('\'')
-        .trim_matches('"')
-        .trim_matches('\\');
+    let delimiter = normalize_heredoc_delimiter(delimiter);
     (!delimiter.is_empty()).then(|| ((delimiter.to_owned(), strip_tabs), consumed))
+}
+
+fn normalize_heredoc_delimiter(delimiter: &str) -> String {
+    let mut normalized = String::with_capacity(delimiter.len());
+    let mut chars = delimiter.chars();
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\'' if !in_double_quotes => in_single_quotes = !in_single_quotes,
+            '"' if !in_single_quotes => in_double_quotes = !in_double_quotes,
+            '\\' if !in_single_quotes => {
+                if let Some(escaped) = chars.next() {
+                    normalized.push(escaped);
+                } else {
+                    normalized.push(ch);
+                }
+            }
+            _ => normalized.push(ch),
+        }
+    }
+
+    normalized
 }
 
 fn heredoc_delimiter_token(rest: &str) -> Option<&str> {
@@ -677,6 +698,13 @@ cat <<- \tBAR
 \t$ZSH_VERSION
 \tBAR
 ";
+        let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
+        assert_eq!(inferred, ShellDialect::Sh);
+    }
+
+    #[test]
+    fn heredoc_delimiter_quote_removal_preserves_escaped_backslash() {
+        let source = "cat <<\\\\EOF\n$ZSH_VERSION\n\\EOF\n";
         let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
         assert_eq!(inferred, ShellDialect::Sh);
     }
