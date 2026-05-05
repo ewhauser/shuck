@@ -677,6 +677,27 @@ print -r -- $REPLY
     }
 
     #[test]
+    fn reports_zsh_later_reads_after_middle_pipeline_helper_reset() {
+        let source = "\
+#!/bin/zsh
+(
+  for REPLY in a; do :; done
+)
+print -r -- input | _reply-helper | cat
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
+    }
+
+    #[test]
     fn reports_zsh_reads_in_helper_call_arguments_before_reset_runs() {
         let source = "\
 #!/bin/zsh
@@ -769,6 +790,28 @@ esac
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_in_parent_nested_subshell_scope() {
+        let source = "\
+#!/bin/zsh
+(
+  (
+    for REPLY in a; do :; done
+  )
+  print -r -- $REPLY
+)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
     }
 
     #[test]

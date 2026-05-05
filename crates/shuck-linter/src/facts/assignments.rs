@@ -1169,8 +1169,17 @@ fn nonpersistent_assignment_reaches_later_use(
     let assignment_transient = semantic.innermost_transient_scope_within_function(assignment_scope);
     let later_use_scope = semantic.scope_at(effect.later_use_span.start.offset);
     let later_use_transient = semantic.innermost_transient_scope_within_function(later_use_scope);
-    if later_use_transient.is_some() && later_use_transient != assignment_transient {
-        return false;
+    if let Some(later_use_transient) = later_use_transient {
+        let Some(assignment_transient) = assignment_transient else {
+            return false;
+        };
+        if later_use_transient != assignment_transient
+            && !semantic
+                .ancestor_scopes(assignment_transient)
+                .any(|scope| scope == later_use_transient)
+        {
+            return false;
+        }
     }
 
     true
@@ -1651,7 +1660,7 @@ fn zsh_pipeline_tail_runs_in_current_shell(
     }
 
     command_is_pipeline_tail_operand(semantic, command.id(), source)
-        || command_is_preceded_by_pipeline_operator(command.span(), source)
+        || command_is_textual_pipeline_tail_operand(command.span(), source)
 }
 
 fn command_is_pipeline_tail_operand(
@@ -1690,10 +1699,16 @@ fn binary_child_is_pipe_tail_operand(
     before_child.ends_with('|') && !before_child.ends_with("||")
 }
 
-fn command_is_preceded_by_pipeline_operator(command_span: Span, source: &str) -> bool {
+fn command_is_textual_pipeline_tail_operand(command_span: Span, source: &str) -> bool {
     let before_command = &source[..command_span.start.offset];
     let before_command = before_command.trim_end();
-    before_command.ends_with('|') && !before_command.ends_with("||")
+    if !before_command.ends_with('|') || before_command.ends_with("||") {
+        return false;
+    }
+
+    let after_command = &source[command_span.end.offset..];
+    let after_command = after_command.trim_start();
+    !after_command.starts_with('|')
 }
 
 fn reset_site_control_ancestors_contain_later_use(
