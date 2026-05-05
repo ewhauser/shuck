@@ -1581,13 +1581,21 @@ fn zsh_set_a_outparam_positions(args: &[&Word], source: &str) -> Vec<usize> {
             continue;
         }
 
-        if let Some(position) = positional_outparam_index(text) {
+        if let Some(position) = positional_outparam_index_from_word_text(text) {
             positions.push(position);
         }
         break;
     }
 
     positions
+}
+
+fn positional_outparam_index_from_word_text(text: &str) -> Option<usize> {
+    positional_outparam_index(text).or_else(|| {
+        text.strip_prefix('"')
+            .and_then(|inner| inner.strip_suffix('"'))
+            .and_then(positional_outparam_index)
+    })
 }
 
 fn positional_outparam_index(text: &str) -> Option<usize> {
@@ -1739,30 +1747,34 @@ fn command_is_pipeline_tail_operand(
         if !matches!(semantic.command_kind(parent), CommandKind::Binary) {
             break;
         }
-        if !binary_child_is_pipe_tail_operand(semantic, parent, current, source) {
-            return false;
+        match binary_child_pipe_tail_relation(semantic, parent, current, source) {
+            Some(true) => {
+                saw_pipeline_parent = true;
+                current = parent;
+            }
+            Some(false) => return false,
+            None => break,
         }
-        saw_pipeline_parent = true;
-        current = parent;
     }
     saw_pipeline_parent
 }
 
-fn binary_child_is_pipe_tail_operand(
+fn binary_child_pipe_tail_relation(
     semantic: &SemanticModel,
     parent: CommandId,
     child: CommandId,
     source: &str,
-) -> bool {
+) -> Option<bool> {
     let parent_span = semantic.command_syntax_span(parent);
     let child_span = semantic.command_syntax_span(child);
     if child_span.start == parent_span.start {
-        return false;
+        let after_child = &source[child_span.end.offset..parent_span.end.offset];
+        return text_starts_with_pipeline_operator(after_child.trim_start()).map(|_| false);
     }
 
     let before_child = &source[parent_span.start.offset..child_span.start.offset];
     let before_child = before_child.trim_end();
-    text_ends_with_pipeline_operator(before_child)
+    text_ends_with_pipeline_operator(before_child).then_some(true)
 }
 
 fn command_is_textual_pipeline_tail_operand(command_span: Span, source: &str) -> bool {
@@ -1779,6 +1791,10 @@ fn command_is_textual_pipeline_tail_operand(command_span: Span, source: &str) ->
 
 fn text_ends_with_pipeline_operator(text: &str) -> bool {
     text.ends_with("|&") || (text.ends_with('|') && !text.ends_with("||"))
+}
+
+fn text_starts_with_pipeline_operator(text: &str) -> Option<()> {
+    (text.starts_with("|&") || (text.starts_with('|') && !text.starts_with("||"))).then_some(())
 }
 
 fn reset_site_control_ancestors_contain_later_use(

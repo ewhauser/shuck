@@ -677,6 +677,24 @@ print -r -- $REPLY
     }
 
     #[test]
+    fn ignores_zsh_later_reads_after_pipeline_tail_helper_reset_in_or_list() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+print -r -- input | helper || :
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn ignores_zsh_later_reads_after_pipe_ampersand_tail_helper_reset() {
         let source = "\
 #!/bin/zsh
@@ -929,6 +947,26 @@ demo() {
 #!/bin/zsh
 fill() {
   set -A $1 ${(f)\"$(
+    shift
+    for d; do
+      print -r -- $d
+    done
+  )\"}
+}
+fill d /tmp
+print -r -- $d
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_quoted_set_a_outparam_helpers_after_command_substitution_loop_assignments() {
+        let source = "\
+#!/bin/zsh
+fill() {
+  set -A \"$1\" ${(f)\"$(
     shift
     for d; do
       print -r -- $d
