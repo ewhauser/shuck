@@ -2300,6 +2300,62 @@ rm *
 }
 
 #[test]
+fn builds_active_glob_spans_from_option_sensitive_zsh_behavior() {
+    let source = "\
+#!/usr/bin/env zsh
+rm *
+noglob rm *
+setopt extended_glob
+rm foo^bar
+unsetopt extended_glob
+rm foo^bar
+setopt ksh_glob
+rm ?(*.txt)
+unsetopt ksh_glob
+rm ?(*.txt)
+opt=ksh_glob
+setopt \"$opt\"
+rm ?(*.txt)
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            let active_spans = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .filter(|fact| matches!(fact.span().slice(source), "*" | "foo^bar" | "?(*.txt)"))
+                .map(|fact| {
+                    (
+                        fact.span().slice(source).to_owned(),
+                        fact.active_literal_glob_spans(source)
+                            .into_iter()
+                            .map(|span| span.slice(source).to_owned())
+                            .collect::<Vec<_>>(),
+                        fact.starts_with_active_glob_operator(source),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                active_spans,
+                vec![
+                    ("*".to_owned(), vec!["*".to_owned()], false),
+                    ("*".to_owned(), Vec::<String>::new(), false),
+                    ("foo^bar".to_owned(), vec!["^".to_owned()], false),
+                    ("foo^bar".to_owned(), Vec::<String>::new(), false),
+                    ("?(*.txt)".to_owned(), vec!["?(*.txt)".to_owned()], true),
+                    ("?(*.txt)".to_owned(), vec!["?(*.txt)".to_owned()], false),
+                    ("?(*.txt)".to_owned(), vec!["?(*.txt)".to_owned()], true),
+                ]
+            );
+        },
+    );
+}
+
+#[test]
 fn builds_word_facts_for_special_parameter_arguments() {
     let source = "\
 #!/bin/bash

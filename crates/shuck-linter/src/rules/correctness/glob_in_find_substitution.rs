@@ -201,6 +201,30 @@ command find ./ -name *.jar
     }
 
     #[test]
+    fn respects_zsh_glob_activation_for_find_pattern_operands() {
+        let source = "\
+#!/usr/bin/env zsh
+setopt no_glob
+find ./ -name *.jar
+setopt glob extended_glob
+find ./ -name foo^bar
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::GlobInFindSubstitution)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["foo^bar"]
+        );
+    }
+
+    #[test]
     fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
         let result = test_path_with_fix(
             Path::new("correctness").join("C083.sh").as_path(),

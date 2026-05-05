@@ -6,7 +6,7 @@ pub struct CommandFact<'a> {
     nested_word_command: bool,
     scope: ScopeId,
     normalized: NormalizedCommand<'a>,
-    zsh_options: Option<ZshOptionState>,
+    shell_behavior: ShellBehaviorAt<'a>,
     redirect_facts: IdRange<RedirectFact<'a>>,
     substitution_facts: IdRange<SubstitutionFact>,
     options: CommandOptionFacts<'a>,
@@ -76,8 +76,8 @@ impl<'a> CommandFact<'a> {
         self.visit.redirects
     }
 
-    pub fn zsh_options(&self) -> Option<&ZshOptionState> {
-        self.zsh_options.as_ref()
+    pub(crate) fn shell_behavior(&self) -> &ShellBehaviorAt<'a> {
+        &self.shell_behavior
     }
 
     pub fn normalized(&self) -> &NormalizedCommand<'a> {
@@ -245,8 +245,12 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
         self.fact.redirects()
     }
 
-    pub fn zsh_options(self) -> Option<&'facts ZshOptionState> {
-        self.fact.zsh_options.as_ref()
+    pub(crate) fn shell_behavior(self) -> &'facts ShellBehaviorAt<'a> {
+        &self.fact.shell_behavior
+    }
+
+    pub fn zsh_options(self) -> Option<&'facts shuck_semantic::ZshOptionState> {
+        self.fact.shell_behavior.zsh_options()
     }
 
     pub fn redirect_facts(self) -> &'facts [RedirectFact<'a>] {
@@ -444,18 +448,18 @@ fn command_span_with_redirects_and_shellcheck_tail(
     ))
 }
 
-fn effective_command_zsh_options(
-    semantic: &SemanticModel,
+fn effective_command_shell_behavior<'a>(
+    semantic: &'a SemanticModel,
     offset: usize,
     normalized: &NormalizedCommand<'_>,
-) -> Option<ZshOptionState> {
-    let mut options = semantic.zsh_options_at(offset).cloned();
-    if normalized.has_wrapper(WrapperKind::Noglob)
-        && let Some(options) = options.as_mut()
-    {
-        options.glob = shuck_semantic::OptionValue::Off;
+) -> ShellBehaviorAt<'a> {
+    let behavior = semantic.shell_behavior_at(offset);
+    if normalized.has_wrapper(WrapperKind::Noglob) {
+        return behavior.with_zsh_option_overlay(|options| {
+            options.glob = shuck_semantic::OptionValue::Off;
+        });
     }
-    options
+    behavior
 }
 
 fn contains_template_placeholder_text(text: &str) -> bool {
@@ -1008,7 +1012,7 @@ fn collect_own_scope_read_source_words<'a>(
                 word,
                 ExpansionContext::CommandArgument,
                 source,
-                command.zsh_options(),
+                command.shell_behavior(),
             )
         })
     );
@@ -1203,7 +1207,7 @@ fn collect_command_redirect_read_source_words<'a>(
             word,
             context,
             source,
-            command.zsh_options(),
+            command.shell_behavior(),
         ));
     }
 }
@@ -1225,7 +1229,7 @@ fn collect_command_simple_test_path_words<'a>(
                 word,
                 ExpansionContext::StringTestOperand,
                 source,
-                command.zsh_options(),
+                command.shell_behavior(),
             )
         }));
 }
@@ -1246,7 +1250,7 @@ fn collect_command_conditional_path_words<'a>(
                             word,
                             ExpansionContext::StringTestOperand,
                             source,
-                            command.zsh_options(),
+                            command.shell_behavior(),
                         ));
                     }
                     if let Some(word) = binary.right().word() {
@@ -1254,7 +1258,7 @@ fn collect_command_conditional_path_words<'a>(
                             word,
                             ExpansionContext::StringTestOperand,
                             source,
-                            command.zsh_options(),
+                            command.shell_behavior(),
                         ));
                     }
                 }

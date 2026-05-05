@@ -6,6 +6,23 @@ pub fn word_unquoted_glob_pattern_spans(word: &Word, source: &str) -> Vec<Span> 
     spans
 }
 
+pub fn word_active_glob_pattern_spans(
+    word: &Word,
+    source: &str,
+    pathname_behavior: PathnameExpansionBehavior,
+    pattern_behavior: GlobPatternBehavior,
+) -> Vec<Span> {
+    if !pathname_behavior.literal_globs_can_expand() {
+        return Vec::new();
+    }
+
+    let mut spans = Vec::new();
+    collect_active_glob_pattern_spans(&word.parts, source, false, pattern_behavior, &mut spans);
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.dedup();
+    spans
+}
+
 pub fn word_unquoted_glob_pattern_spans_outside_brace_expansion(
     word: &Word,
     source: &str,
@@ -31,6 +48,54 @@ pub fn word_unquoted_glob_pattern_spans_outside_brace_expansion(
             })
         })
         .collect()
+}
+
+pub fn word_active_glob_pattern_spans_outside_brace_expansion(
+    word: &Word,
+    source: &str,
+    pathname_behavior: PathnameExpansionBehavior,
+    pattern_behavior: GlobPatternBehavior,
+) -> Vec<Span> {
+    let active_brace_spans = word
+        .brace_syntax()
+        .iter()
+        .copied()
+        .filter(|brace| brace.expands())
+        .map(|brace| brace.span)
+        .collect::<Vec<_>>();
+
+    if active_brace_spans.is_empty() {
+        return word_active_glob_pattern_spans(word, source, pathname_behavior, pattern_behavior);
+    }
+
+    word_active_glob_pattern_spans(word, source, pathname_behavior, pattern_behavior)
+        .into_iter()
+        .filter(|glob_span| {
+            !active_brace_spans.iter().any(|brace_span| {
+                brace_span.start.offset <= glob_span.start.offset
+                    && glob_span.end.offset <= brace_span.end.offset
+            })
+        })
+        .collect()
+}
+
+pub fn word_starts_with_active_glob_group_operator(
+    word: &Word,
+    source: &str,
+    pathname_behavior: PathnameExpansionBehavior,
+    pattern_behavior: GlobPatternBehavior,
+) -> bool {
+    if !pathname_behavior.literal_globs_can_expand()
+        || !pattern_operator_may_be_active(pattern_behavior.ksh_glob())
+    {
+        return false;
+    }
+
+    let bytes = word.span.slice(source).as_bytes();
+    matches!(
+        find_ksh_glob_group_bounds(bytes).first().copied(),
+        Some((0, _))
+    )
 }
 
 pub fn word_suspicious_bracket_glob_spans(word: &Word, source: &str) -> Vec<Span> {
@@ -331,6 +396,78 @@ pub(crate) fn collect_unquoted_glob_pattern_spans(
     flush_literal_run(&mut literal_run_start, &mut literal_run_end, spans);
 }
 
+pub(crate) fn collect_active_glob_pattern_spans(
+    parts: &[WordPartNode],
+    source: &str,
+    in_double_quotes: bool,
+    pattern_behavior: GlobPatternBehavior,
+    spans: &mut Vec<Span>,
+) {
+    let mut literal_run_start = None::<usize>;
+    let mut literal_run_end = None::<usize>;
+
+    let flush_literal_run = |literal_run_start: &mut Option<usize>,
+                             literal_run_end: &mut Option<usize>,
+                             spans: &mut Vec<Span>| {
+        let Some(start_index) = literal_run_start.take() else {
+            return;
+        };
+        let Some(end_index) = literal_run_end.take() else {
+            return;
+        };
+        let start = parts[start_index].span.start;
+        let end = parts[end_index].span.end;
+        let combined_span = Span::from_positions(start, end);
+        spans.extend(active_literal_glob_pattern_spans(
+            combined_span,
+            source,
+            pattern_behavior,
+        ));
+    };
+
+    for (index, part) in parts.iter().enumerate() {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                flush_literal_run(&mut literal_run_start, &mut literal_run_end, spans);
+                collect_active_glob_pattern_spans(parts, source, true, pattern_behavior, spans)
+            }
+            WordPart::Literal(_)
+                if !in_double_quotes
+                    && !literal_part_is_parameter_operator_tail(parts, index, source) =>
+            {
+                literal_run_start.get_or_insert(index);
+                literal_run_end = Some(index);
+            }
+            WordPart::ZshQualifiedGlob(_) if !in_double_quotes => {
+                flush_literal_run(&mut literal_run_start, &mut literal_run_end, spans);
+                spans.push(part.span);
+            }
+            WordPart::Literal(_)
+            | WordPart::ZshQualifiedGlob(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::SingleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::Transformation { .. } => {
+                flush_literal_run(&mut literal_run_start, &mut literal_run_end, spans);
+            }
+        }
+    }
+
+    flush_literal_run(&mut literal_run_start, &mut literal_run_end, spans);
+}
+
 pub(crate) fn literal_glob_pattern_spans(span: Span, source: &str) -> Vec<Span> {
     let text = span.slice(source);
     let bytes = text.as_bytes();
@@ -376,6 +513,101 @@ pub(crate) fn literal_glob_pattern_spans(span: Span, source: &str) -> Vec<Span> 
     }
 
     spans
+}
+
+pub(crate) fn active_literal_glob_pattern_spans(
+    span: Span,
+    source: &str,
+    pattern_behavior: GlobPatternBehavior,
+) -> Vec<Span> {
+    let text = span.slice(source);
+    let bytes = text.as_bytes();
+    let mut spans = Vec::new();
+    let mut covered = Vec::<(usize, usize)>::new();
+
+    if pattern_operator_may_be_active(pattern_behavior.ksh_glob()) {
+        for (start, end) in find_ksh_glob_group_bounds(bytes) {
+            spans.push(span_within_literal(span, source, start, end + 1));
+            covered.push((start, end));
+        }
+    }
+
+    if pattern_operator_may_be_active(pattern_behavior.extended_glob()) {
+        for (start, end) in find_zsh_extended_glob_operator_bounds(bytes) {
+            if covered
+                .iter()
+                .any(|(covered_start, covered_end)| *covered_start <= start && end <= *covered_end)
+            {
+                continue;
+            }
+            spans.push(span_within_literal(span, source, start, end + 1));
+            covered.push((start, end));
+        }
+    }
+
+    let basic_spans = literal_glob_pattern_spans(span, source)
+        .into_iter()
+        .filter(|glob_span| !span_is_within_any(*glob_span, &spans))
+        .collect::<Vec<_>>();
+    spans.extend(basic_spans);
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.dedup();
+    spans
+}
+
+pub(crate) fn find_ksh_glob_group_bounds(bytes: &[u8]) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    let mut index = 0usize;
+
+    while index + 1 < bytes.len() {
+        if !is_extglob_operator(bytes[index])
+            || bytes[index + 1] != b'('
+            || byte_is_backslash_escaped(bytes, index)
+        {
+            index += 1;
+            continue;
+        }
+
+        if let Some(close) = matching_group_end(bytes, index + 1) {
+            spans.push((index, close));
+            index = close + 1;
+        } else {
+            index += 1;
+        }
+    }
+
+    spans
+}
+
+pub(crate) fn find_zsh_extended_glob_operator_bounds(bytes: &[u8]) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if byte_is_backslash_escaped(bytes, index) {
+            index += 1;
+            continue;
+        }
+
+        match bytes[index] {
+            b'#' | b'~' | b'^' => spans.push((index, index)),
+            _ => {}
+        }
+
+        index += 1;
+    }
+
+    spans
+}
+
+fn pattern_operator_may_be_active(behavior: PatternOperatorBehavior) -> bool {
+    !matches!(behavior, PatternOperatorBehavior::Disabled)
+}
+
+fn span_is_within_any(span: Span, hosts: &[Span]) -> bool {
+    hosts
+        .iter()
+        .any(|host| host.start.offset <= span.start.offset && span.end.offset <= host.end.offset)
 }
 
 pub(crate) fn suspicious_bracket_glob_text(text: &str) -> bool {

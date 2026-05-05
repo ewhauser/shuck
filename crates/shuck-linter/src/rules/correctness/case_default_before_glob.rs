@@ -78,6 +78,25 @@ esac
     }
 
     #[test]
+    fn ignores_zsh_extended_glob_patterns_when_reachability_is_uncertain() {
+        let source = "\
+#!/usr/bin/env zsh
+setopt extended_glob
+case \"$x\" in
+  foo^bar) : ;;
+  fooz) : ;;
+esac
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaseDefaultBeforeGlob)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn reports_literals_shadowed_by_suffix_globs() {
         let source = "\
 #!/bin/sh

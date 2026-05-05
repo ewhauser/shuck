@@ -304,8 +304,12 @@ struct ReachableCasePattern {
 }
 
 impl StaticCasePatternMatcher {
-    fn from_pattern(pattern: &Pattern, source: &str) -> Option<Self> {
-        ensure_case_pattern_is_statically_analyzable(pattern, source)?;
+    fn from_pattern(
+        pattern: &Pattern,
+        source: &str,
+        behavior: &ShellBehaviorAt<'_>,
+    ) -> Option<Self> {
+        ensure_case_pattern_is_statically_analyzable(pattern, source, behavior)?;
 
         let mut tokens = Vec::new();
         collect_static_case_pattern_tokens(pattern.span.slice(source), &mut tokens)?;
@@ -923,7 +927,11 @@ fn merged_case_pattern_symbols(left: &[char], right: &[char]) -> Vec<CasePattern
     symbols
 }
 
-fn ensure_case_pattern_is_statically_analyzable(pattern: &Pattern, source: &str) -> Option<()> {
+fn ensure_case_pattern_is_statically_analyzable(
+    pattern: &Pattern,
+    source: &str,
+    behavior: &ShellBehaviorAt<'_>,
+) -> Option<()> {
     for (part, _) in pattern.parts_with_spans() {
         match part {
             PatternPart::Literal(_) | PatternPart::AnyString | PatternPart::AnyChar => {}
@@ -934,7 +942,50 @@ fn ensure_case_pattern_is_statically_analyzable(pattern: &Pattern, source: &str)
         }
     }
 
+    if behavior.shell_dialect() == shuck_semantic::ShellDialect::Zsh
+        && pattern_operator_may_be_active(behavior.glob_pattern().extended_glob())
+        && text_has_unquoted_zsh_extended_glob_operator(pattern.span.slice(source))
+    {
+        return None;
+    }
+
     Some(())
+}
+
+fn pattern_operator_may_be_active(behavior: shuck_semantic::PatternOperatorBehavior) -> bool {
+    !matches!(
+        behavior,
+        shuck_semantic::PatternOperatorBehavior::Disabled
+    )
+}
+
+fn text_has_unquoted_zsh_extended_glob_operator(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index = (index + 2).min(bytes.len());
+            continue;
+        }
+
+        match bytes[index] {
+            b'\'' if !in_double_quotes => {
+                in_single_quotes = !in_single_quotes;
+            }
+            b'"' if !in_single_quotes => {
+                in_double_quotes = !in_double_quotes;
+            }
+            b'#' | b'~' | b'^' if !in_single_quotes && !in_double_quotes => return true,
+            _ => {}
+        }
+
+        index += 1;
+    }
+
+    false
 }
 
 fn collect_static_case_pattern_tokens(
@@ -1077,7 +1128,9 @@ fn build_case_pattern_shadow_facts(
             let mut same_item_patterns = Vec::<ReachableCasePattern>::new();
 
             for pattern in &item.patterns {
-                let Some(matcher) = StaticCasePatternMatcher::from_pattern(pattern, source) else {
+                let Some(matcher) =
+                    StaticCasePatternMatcher::from_pattern(pattern, source, fact.shell_behavior())
+                else {
                     continue;
                 };
 
@@ -1140,7 +1193,8 @@ fn build_case_pattern_impossible_spans(commands: &[CommandFact<'_>], source: &st
 
         for item in &command.cases {
             for pattern in &item.patterns {
-                let Some(pattern_matcher) = StaticCasePatternMatcher::from_pattern(pattern, source)
+                let Some(pattern_matcher) =
+                    StaticCasePatternMatcher::from_pattern(pattern, source, fact.shell_behavior())
                 else {
                     continue;
                 };
@@ -1449,7 +1503,8 @@ fn getopts_case_pattern_is_fallback(pattern: &Pattern, source: &str) -> bool {
 }
 
 fn static_case_pattern_text(pattern: &Pattern, source: &str) -> Option<String> {
-    ensure_case_pattern_is_statically_analyzable(pattern, source)?;
+    let behavior = ShellBehaviorAt::for_dialect(shuck_semantic::ShellDialect::Bash);
+    ensure_case_pattern_is_statically_analyzable(pattern, source, &behavior)?;
 
     let mut tokens = Vec::new();
     collect_static_case_pattern_tokens(pattern.span.slice(source), &mut tokens)?;

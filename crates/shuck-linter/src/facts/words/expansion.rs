@@ -303,126 +303,12 @@ pub(super) fn classify_pattern_operand(pattern: &Pattern, source: &str) -> TestO
     TestOperandClass::FixedLiteral
 }
 
-pub(super) fn field_splitting_behavior_for_options(
-    options: Option<&ZshOptionState>,
-) -> FieldSplittingBehavior {
-    match options {
-        Some(options) => match options.sh_word_split {
-            OptionValue::Off => FieldSplittingBehavior::Never,
-            OptionValue::On => FieldSplittingBehavior::UnquotedOnly,
-            OptionValue::Unknown => FieldSplittingBehavior::Ambiguous,
-        },
-        None => FieldSplittingBehavior::UnquotedOnly,
-    }
-}
-
-pub(super) fn pathname_expansion_behavior_for_options(
-    options: Option<&ZshOptionState>,
-) -> PathnameExpansionBehavior {
-    match options {
-        Some(options) => match options.glob {
-            OptionValue::Off => PathnameExpansionBehavior::Disabled,
-            OptionValue::On => match options.glob_subst {
-                OptionValue::Off => PathnameExpansionBehavior::LiteralGlobsOnly,
-                OptionValue::On => PathnameExpansionBehavior::SubstitutionResultsWhenUnquoted,
-                OptionValue::Unknown => PathnameExpansionBehavior::Ambiguous,
-            },
-            OptionValue::Unknown => match options.glob_subst {
-                OptionValue::Off => PathnameExpansionBehavior::LiteralGlobsOnlyOrDisabled,
-                OptionValue::On | OptionValue::Unknown => PathnameExpansionBehavior::Ambiguous,
-            },
-        },
-        None => PathnameExpansionBehavior::SubstitutionResultsWhenUnquoted,
-    }
-}
-
-pub(super) fn file_expansion_order_for_options(
-    options: Option<&ZshOptionState>,
-) -> FileExpansionOrderBehavior {
-    match options {
-        Some(options) => match options.sh_file_expansion {
-            OptionValue::Off => FileExpansionOrderBehavior::AfterParameterExpansion,
-            OptionValue::On => FileExpansionOrderBehavior::BeforeParameterExpansion,
-            OptionValue::Unknown => FileExpansionOrderBehavior::Ambiguous,
-        },
-        None => FileExpansionOrderBehavior::BeforeParameterExpansion,
-    }
-}
-
-pub(super) fn glob_failure_behavior_for_options(
-    options: Option<&ZshOptionState>,
-) -> GlobFailureBehavior {
-    match options {
-        Some(options) => match options.glob {
-            OptionValue::Off => GlobFailureBehavior::KeepLiteralOnNoMatch,
-            OptionValue::On => match options.csh_null_glob {
-                OptionValue::On => GlobFailureBehavior::CshNullGlob,
-                OptionValue::Unknown => GlobFailureBehavior::Ambiguous,
-                OptionValue::Off => match options.null_glob {
-                    OptionValue::On => GlobFailureBehavior::DropUnmatchedPattern,
-                    OptionValue::Unknown => GlobFailureBehavior::Ambiguous,
-                    OptionValue::Off => match options.nomatch {
-                        OptionValue::On => GlobFailureBehavior::ErrorOnNoMatch,
-                        OptionValue::Off => GlobFailureBehavior::KeepLiteralOnNoMatch,
-                        OptionValue::Unknown => GlobFailureBehavior::Ambiguous,
-                    },
-                },
-            },
-            OptionValue::Unknown => GlobFailureBehavior::Ambiguous,
-        },
-        None => GlobFailureBehavior::KeepLiteralOnNoMatch,
-    }
-}
-
-pub(super) fn glob_dot_behavior_for_options(options: Option<&ZshOptionState>) -> GlobDotBehavior {
-    match options {
-        Some(options) => match options.glob_dots {
-            OptionValue::Off => GlobDotBehavior::ExplicitDotRequired,
-            OptionValue::On => GlobDotBehavior::DotfilesIncluded,
-            OptionValue::Unknown => GlobDotBehavior::Ambiguous,
-        },
-        None => GlobDotBehavior::ExplicitDotRequired,
-    }
-}
-
-pub(super) fn glob_pattern_behavior_for_options(
-    options: Option<&ZshOptionState>,
-) -> GlobPatternBehavior {
-    options.map_or_else(default_glob_pattern_behavior, |options| {
-        semantic_glob_pattern_behavior(
-            pattern_operator_behavior_for_options(options.extended_glob),
-            pattern_operator_behavior_for_options(options.ksh_glob),
-            pattern_operator_behavior_for_options(options.sh_glob),
-        )
-    })
-}
-
 fn default_glob_pattern_behavior() -> GlobPatternBehavior {
-    semantic_glob_pattern_behavior(
-        PatternOperatorBehavior::Disabled,
-        PatternOperatorBehavior::Disabled,
-        PatternOperatorBehavior::Disabled,
-    )
+    ShellBehaviorAt::for_dialect(shuck_semantic::ShellDialect::Bash).glob_pattern()
 }
 
-fn semantic_glob_pattern_behavior(
-    extended_glob: PatternOperatorBehavior,
-    ksh_glob: PatternOperatorBehavior,
-    sh_glob: PatternOperatorBehavior,
-) -> GlobPatternBehavior {
-    GlobPatternBehavior::from_parts(
-        extended_glob,
-        ksh_glob,
-        sh_glob,
-    )
-}
-
-fn pattern_operator_behavior_for_options(value: OptionValue) -> PatternOperatorBehavior {
-    match value {
-        OptionValue::Off => PatternOperatorBehavior::Disabled,
-        OptionValue::On => PatternOperatorBehavior::Enabled,
-        OptionValue::Unknown => PatternOperatorBehavior::Ambiguous,
-    }
+fn default_shell_behavior() -> ShellBehaviorAt<'static> {
+    ShellBehaviorAt::for_dialect(shuck_semantic::ShellDialect::Bash)
 }
 
 fn merge_field_splitting_behavior(
@@ -499,12 +385,19 @@ pub(super) struct AnalysisSummary {
 pub(super) fn analyze_word(
     word: &Word,
     _source: &str,
-    options: Option<&ZshOptionState>,
+    behavior: Option<&ShellBehaviorAt<'_>>,
 ) -> ExpansionAnalysis {
+    let default_behavior;
+    let behavior = if let Some(behavior) = behavior {
+        behavior
+    } else {
+        default_behavior = default_shell_behavior();
+        &default_behavior
+    };
     let mut summary = AnalysisSummary::default();
-    analyze_parts(&word.parts, false, options, &mut summary);
-    let default_field_splitting_behavior = field_splitting_behavior_for_options(options);
-    let default_pathname_expansion_behavior = pathname_expansion_behavior_for_options(options);
+    analyze_parts(&word.parts, false, behavior, &mut summary);
+    let default_field_splitting_behavior = behavior.field_splitting();
+    let default_pathname_expansion_behavior = behavior.pathname_expansion();
 
     ExpansionAnalysis {
         quote: if is_fully_quoted(word) {
@@ -553,13 +446,20 @@ pub(crate) fn analyze_literal_runtime(
     word: &Word,
     source: &str,
     context: ExpansionContext,
-    options: Option<&ZshOptionState>,
+    behavior: Option<&ShellBehaviorAt<'_>>,
 ) -> RuntimeLiteralAnalysis {
+    let default_behavior;
+    let behavior = if let Some(behavior) = behavior {
+        behavior
+    } else {
+        default_behavior = default_shell_behavior();
+        &default_behavior
+    };
     let mut analysis = RuntimeLiteralAnalysis {
-        pathname_expansion_behavior: pathname_expansion_behavior_for_options(options),
-        glob_failure_behavior: glob_failure_behavior_for_options(options),
-        glob_dot_behavior: glob_dot_behavior_for_options(options),
-        glob_pattern_behavior: glob_pattern_behavior_for_options(options),
+        pathname_expansion_behavior: behavior.pathname_expansion(),
+        glob_failure_behavior: behavior.glob_failure(),
+        glob_dot_behavior: behavior.glob_dot_matching(),
+        glob_pattern_behavior: behavior.glob_pattern(),
         ..RuntimeLiteralAnalysis::default()
     };
     let mut state = RuntimeLiteralState::default();
@@ -568,7 +468,7 @@ pub(crate) fn analyze_literal_runtime(
         &word.parts,
         source,
         context,
-        options,
+        behavior,
         &mut state,
         &mut analysis,
     );
@@ -587,7 +487,7 @@ pub(super) fn analyze_literal_runtime_parts(
     parts: &[WordPartNode],
     source: &str,
     context: ExpansionContext,
-    options: Option<&ZshOptionState>,
+    behavior: &ShellBehaviorAt<'_>,
     state: &mut RuntimeLiteralState,
     analysis: &mut RuntimeLiteralAnalysis,
 ) {
@@ -597,7 +497,7 @@ pub(super) fn analyze_literal_runtime_parts(
                 scan_literal_runtime_text(
                     part.span.slice(source),
                     context,
-                    options,
+                    behavior,
                     state,
                     analysis,
                 );
@@ -626,13 +526,13 @@ pub(super) fn analyze_literal_runtime_parts(
 pub(super) fn scan_literal_runtime_text(
     text: &str,
     context: ExpansionContext,
-    options: Option<&ZshOptionState>,
+    behavior: &ShellBehaviorAt<'_>,
     state: &mut RuntimeLiteralState,
     analysis: &mut RuntimeLiteralAnalysis,
 ) {
     let mut escaped = false;
     let mut brace_candidate: Option<usize> = None;
-    let file_expansion_order = file_expansion_order_for_options(options);
+    let file_expansion_order = behavior.file_expansion_order();
 
     for (idx, ch) in text.char_indices() {
         if escaped {
@@ -758,17 +658,17 @@ pub(super) fn context_allows_brace_fanout(context: ExpansionContext) -> bool {
 pub(super) fn analyze_parts(
     parts: &[WordPartNode],
     in_double_quotes: bool,
-    options: Option<&ZshOptionState>,
+    behavior: &ShellBehaviorAt<'_>,
     summary: &mut AnalysisSummary,
 ) {
     for part in parts {
         match &part.kind {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
-                analyze_parts(parts, true, options, summary);
+                analyze_parts(parts, true, behavior, summary);
             }
             kind => {
-                let analysis = analyze_part(kind, in_double_quotes, options);
+                let analysis = analyze_part(kind, in_double_quotes, behavior);
                 summary.has_non_literal = true;
                 summary.has_scalar_value |= analysis.value_shape == PartValueShape::Scalar;
                 summary.has_array_value |= analysis.array_valued;
@@ -800,10 +700,10 @@ pub(super) fn analyze_parts(
 pub(super) fn analyze_part(
     part: &WordPart,
     in_double_quotes: bool,
-    options: Option<&ZshOptionState>,
+    behavior: &ShellBehaviorAt<'_>,
 ) -> PartAnalysis {
-    let field_splitting_behavior = field_splitting_behavior_for_options(options);
-    let pathname_expansion_behavior = pathname_expansion_behavior_for_options(options);
+    let field_splitting_behavior = behavior.field_splitting();
+    let pathname_expansion_behavior = behavior.pathname_expansion();
 
     match part {
         WordPart::ZshQualifiedGlob(_) => PartAnalysis {
@@ -822,15 +722,15 @@ pub(super) fn analyze_part(
             process_substitution: false,
         },
         WordPart::Parameter(parameter) => {
-            analyze_parameter_part(parameter, in_double_quotes, options)
+            analyze_parameter_part(parameter, in_double_quotes, behavior)
         }
         WordPart::CommandSubstitution { .. } => scalar_part(
-            substitution_can_expand_to_multiple_fields(in_double_quotes, options),
+            substitution_can_expand_to_multiple_fields(in_double_quotes, behavior),
             field_splitting_behavior,
             pathname_expansion_behavior,
             ExpansionHazards {
-                field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
-                pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
+                field_splitting: substitution_field_splitting_hazard(in_double_quotes, behavior),
+                pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, behavior),
                 command_or_process_substitution: true,
                 ..ExpansionHazards::default()
             },
@@ -873,12 +773,12 @@ pub(super) fn analyze_part(
         | WordPart::Length(_)
         | WordPart::ArrayLength(_)
         | WordPart::Substring { .. } => scalar_part(
-            substitution_can_expand_to_multiple_fields(in_double_quotes, options),
+            substitution_can_expand_to_multiple_fields(in_double_quotes, behavior),
             field_splitting_behavior,
             pathname_expansion_behavior,
             ExpansionHazards {
-                field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
-                pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
+                field_splitting: substitution_field_splitting_hazard(in_double_quotes, behavior),
+                pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, behavior),
                 arithmetic_expansion: matches!(part, WordPart::ArithmeticExpansion { .. }),
                 ..ExpansionHazards::default()
             },
@@ -896,12 +796,12 @@ pub(super) fn analyze_part(
             )
         }
         WordPart::ParameterExpansion { operator, .. } => scalar_part(
-            substitution_can_expand_to_multiple_fields(in_double_quotes, options),
+            substitution_can_expand_to_multiple_fields(in_double_quotes, behavior),
             field_splitting_behavior,
             pathname_expansion_behavior,
             ExpansionHazards {
-                field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
-                pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
+                field_splitting: substitution_field_splitting_hazard(in_double_quotes, behavior),
+                pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, behavior),
                 runtime_pattern: parameter_operator_uses_pattern(operator),
                 ..ExpansionHazards::default()
             },
@@ -932,14 +832,14 @@ pub(super) fn analyze_part(
                 )
             }
             None => scalar_part(
-                substitution_can_expand_to_multiple_fields(in_double_quotes, options),
+                substitution_can_expand_to_multiple_fields(in_double_quotes, behavior),
                 field_splitting_behavior,
                 pathname_expansion_behavior,
                 ExpansionHazards {
-                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, behavior),
                     pathname_matching: substitution_pathname_matching_hazard(
                         in_double_quotes,
-                        options,
+                        behavior,
                     ),
                     ..ExpansionHazards::default()
                 },
@@ -970,10 +870,10 @@ pub(super) fn analyze_part(
                 field_splitting_behavior,
                 pathname_expansion_behavior,
                 hazards: ExpansionHazards {
-                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, behavior),
                     pathname_matching: substitution_pathname_matching_hazard(
                         in_double_quotes,
-                        options,
+                        behavior,
                     ),
                     ..ExpansionHazards::default()
                 },
@@ -986,13 +886,13 @@ pub(super) fn analyze_part(
             array_valued: false,
             can_expand_to_multiple_fields: substitution_can_expand_to_multiple_fields(
                 in_double_quotes,
-                options,
+                behavior,
             ),
             field_splitting_behavior,
             pathname_expansion_behavior,
             hazards: ExpansionHazards {
-                field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
-                pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
+                field_splitting: substitution_field_splitting_hazard(in_double_quotes, behavior),
+                pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, behavior),
                 runtime_pattern: operator
                     .as_ref()
                     .is_some_and(parameter_operator_uses_pattern),
@@ -1010,10 +910,10 @@ pub(super) fn analyze_part(
 pub(super) fn analyze_parameter_part(
     parameter: &ParameterExpansion,
     in_double_quotes: bool,
-    options: Option<&ZshOptionState>,
+    behavior: &ShellBehaviorAt<'_>,
 ) -> PartAnalysis {
-    let field_splitting_behavior = field_splitting_behavior_for_options(options);
-    let pathname_expansion_behavior = pathname_expansion_behavior_for_options(options);
+    let field_splitting_behavior = behavior.field_splitting();
+    let pathname_expansion_behavior = behavior.pathname_expansion();
 
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(syntax) => match syntax {
@@ -1041,17 +941,17 @@ pub(super) fn analyze_parameter_part(
                     )
                 }
                 None => scalar_part(
-                    substitution_can_expand_to_multiple_fields(in_double_quotes, options),
+                    substitution_can_expand_to_multiple_fields(in_double_quotes, behavior),
                     field_splitting_behavior,
                     pathname_expansion_behavior,
                     ExpansionHazards {
                         field_splitting: substitution_field_splitting_hazard(
                             in_double_quotes,
-                            options,
+                            behavior,
                         ),
                         pathname_matching: substitution_pathname_matching_hazard(
                             in_double_quotes,
-                            options,
+                            behavior,
                         ),
                         ..ExpansionHazards::default()
                     },
@@ -1060,15 +960,15 @@ pub(super) fn analyze_parameter_part(
                 ),
             },
             BourneParameterExpansion::Length { .. } => scalar_part(
-                substitution_can_expand_to_multiple_fields(in_double_quotes, options),
+                substitution_can_expand_to_multiple_fields(in_double_quotes, behavior),
                 field_splitting_behavior,
                 pathname_expansion_behavior,
                 ExpansionHazards {
-                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, behavior),
                     pathname_matching: substitution_pathname_matching_hazard(
                         in_double_quotes,
-                        options,
-                    ),
+                            behavior,
+                        ),
                     ..ExpansionHazards::default()
                 },
                 false,
@@ -1087,16 +987,16 @@ pub(super) fn analyze_parameter_part(
                 array_valued: false,
                 can_expand_to_multiple_fields: substitution_can_expand_to_multiple_fields(
                     in_double_quotes,
-                    options,
+                    behavior,
                 ),
                 field_splitting_behavior,
                 pathname_expansion_behavior,
                 hazards: ExpansionHazards {
-                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, behavior),
                     pathname_matching: substitution_pathname_matching_hazard(
                         in_double_quotes,
-                        options,
-                    ),
+                            behavior,
+                        ),
                     runtime_pattern: operator
                         .as_ref()
                         .is_some_and(parameter_operator_uses_pattern),
@@ -1121,11 +1021,11 @@ pub(super) fn analyze_parameter_part(
                 hazards: ExpansionHazards {
                     field_splitting: substitution_field_splitting_hazard(
                         in_double_quotes,
-                            options,
+                            behavior,
                         ),
                         pathname_matching: substitution_pathname_matching_hazard(
                             in_double_quotes,
-                            options,
+                            behavior,
                         ),
                         ..ExpansionHazards::default()
                     },
@@ -1145,18 +1045,18 @@ pub(super) fn analyze_parameter_part(
                     )
                 } else {
                     scalar_part(
-                        substitution_can_expand_to_multiple_fields(in_double_quotes, options),
+                        substitution_can_expand_to_multiple_fields(in_double_quotes, behavior),
                         field_splitting_behavior,
                         pathname_expansion_behavior,
                         ExpansionHazards {
                             field_splitting: substitution_field_splitting_hazard(
                                 in_double_quotes,
-                                options,
-                            ),
+                            behavior,
+                        ),
                             pathname_matching: substitution_pathname_matching_hazard(
                                 in_double_quotes,
-                                options,
-                            ),
+                            behavior,
+                        ),
                             ..ExpansionHazards::default()
                         },
                         false,
@@ -1165,15 +1065,15 @@ pub(super) fn analyze_parameter_part(
                 }
             }
             BourneParameterExpansion::Operation { operator, .. } => scalar_part(
-                substitution_can_expand_to_multiple_fields(in_double_quotes, options),
+                substitution_can_expand_to_multiple_fields(in_double_quotes, behavior),
                 field_splitting_behavior,
                 pathname_expansion_behavior,
                 ExpansionHazards {
-                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, behavior),
                     pathname_matching: substitution_pathname_matching_hazard(
                         in_double_quotes,
-                        options,
-                    ),
+                            behavior,
+                        ),
                     runtime_pattern: parameter_operator_uses_pattern(operator),
                     ..ExpansionHazards::default()
                 },
@@ -1181,15 +1081,15 @@ pub(super) fn analyze_parameter_part(
                 false,
             ),
             BourneParameterExpansion::Transformation { .. } => scalar_part(
-                substitution_can_expand_to_multiple_fields(in_double_quotes, options),
+                substitution_can_expand_to_multiple_fields(in_double_quotes, behavior),
                 field_splitting_behavior,
                 pathname_expansion_behavior,
                 ExpansionHazards {
-                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, behavior),
                     pathname_matching: substitution_pathname_matching_hazard(
                         in_double_quotes,
-                        options,
-                    ),
+                            behavior,
+                        ),
                     ..ExpansionHazards::default()
                 },
                 false,
@@ -1197,28 +1097,26 @@ pub(super) fn analyze_parameter_part(
             ),
         },
         ParameterExpansionSyntax::Zsh(syntax) => {
-            let effective_options = overlay_zsh_modifier_overrides(options, syntax);
-            let field_splitting_behavior =
-                field_splitting_behavior_for_options(effective_options.as_ref());
-            let pathname_expansion_behavior =
-                pathname_expansion_behavior_for_options(effective_options.as_ref());
+            let effective_behavior = zsh_modifier_behavior(behavior, syntax);
+            let field_splitting_behavior = effective_behavior.field_splitting();
+            let pathname_expansion_behavior = effective_behavior.pathname_expansion();
             PartAnalysis {
                 value_shape: PartValueShape::Unknown,
                 array_valued: false,
                 can_expand_to_multiple_fields: substitution_can_expand_to_multiple_fields(
                     in_double_quotes,
-                    effective_options.as_ref(),
+                    &effective_behavior,
                 ),
                 field_splitting_behavior,
                 pathname_expansion_behavior,
                 hazards: ExpansionHazards {
                     field_splitting: substitution_field_splitting_hazard(
                         in_double_quotes,
-                        effective_options.as_ref(),
+                        &effective_behavior,
                     ),
                     pathname_matching: substitution_pathname_matching_hazard(
                         in_double_quotes,
-                        effective_options.as_ref(),
+                        &effective_behavior,
                     ),
                     runtime_pattern: syntax
                         .operation
@@ -1235,60 +1133,57 @@ pub(super) fn analyze_parameter_part(
 
 pub(super) fn substitution_can_expand_to_multiple_fields(
     in_double_quotes: bool,
-    options: Option<&ZshOptionState>,
+    behavior: &ShellBehaviorAt<'_>,
 ) -> bool {
     !in_double_quotes
-        && (field_splitting_behavior_for_options(options).unquoted_results_can_split()
-            || pathname_expansion_behavior_for_options(options)
+        && (behavior.field_splitting().unquoted_results_can_split()
+            || behavior
+                .pathname_expansion()
                 .unquoted_substitution_results_can_glob())
 }
 
 pub(super) fn substitution_field_splitting_hazard(
     in_double_quotes: bool,
-    options: Option<&ZshOptionState>,
+    behavior: &ShellBehaviorAt<'_>,
 ) -> bool {
-    !in_double_quotes && field_splitting_behavior_for_options(options).unquoted_results_can_split()
+    !in_double_quotes && behavior.field_splitting().unquoted_results_can_split()
 }
 
 pub(super) fn substitution_pathname_matching_hazard(
     in_double_quotes: bool,
-    options: Option<&ZshOptionState>,
+    behavior: &ShellBehaviorAt<'_>,
 ) -> bool {
     !in_double_quotes
-        && pathname_expansion_behavior_for_options(options)
+        && behavior
+            .pathname_expansion()
             .unquoted_substitution_results_can_glob()
 }
 
-pub(super) fn overlay_zsh_modifier_overrides(
-    options: Option<&ZshOptionState>,
+pub(super) fn zsh_modifier_behavior<'model>(
+    behavior: &ShellBehaviorAt<'model>,
     syntax: &shuck_ast::ZshParameterExpansion,
-) -> Option<ZshOptionState> {
-    let mut effective = options.cloned()?;
-    apply_toggle_override(
-        &mut effective.sh_word_split,
-        syntax
-            .modifiers
-            .iter()
-            .filter(|modifier| modifier.name == '=')
-            .count(),
-    );
-    apply_toggle_override(
-        &mut effective.glob_subst,
-        syntax
-            .modifiers
-            .iter()
-            .filter(|modifier| modifier.name == '~')
-            .count(),
-    );
-    apply_toggle_override(
-        &mut effective.rc_expand_param,
-        syntax
-            .modifiers
-            .iter()
-            .filter(|modifier| modifier.name == '^')
-            .count(),
-    );
-    Some(effective)
+) -> ShellBehaviorAt<'model> {
+    let field_split_toggles = syntax
+        .modifiers
+        .iter()
+        .filter(|modifier| modifier.name == '=')
+        .count();
+    let glob_subst_toggles = syntax
+        .modifiers
+        .iter()
+        .filter(|modifier| modifier.name == '~')
+        .count();
+    let rc_expand_toggles = syntax
+        .modifiers
+        .iter()
+        .filter(|modifier| modifier.name == '^')
+        .count();
+
+    behavior.clone().with_zsh_option_overlay(|options| {
+        apply_toggle_override(&mut options.sh_word_split, field_split_toggles);
+        apply_toggle_override(&mut options.glob_subst, glob_subst_toggles);
+        apply_toggle_override(&mut options.rc_expand_param, rc_expand_toggles);
+    })
 }
 
 pub(super) fn apply_toggle_override(value: &mut OptionValue, count: usize) {

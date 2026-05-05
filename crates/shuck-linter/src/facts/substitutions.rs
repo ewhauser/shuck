@@ -739,7 +739,8 @@ fn summarize_command_redirects<'a>(
     {
         summarize_redirect_facts(command_fact_ref(commands, id).redirect_facts(), source)
     } else {
-        let redirect_facts = build_redirect_facts(&stmt.redirects, None, locator, None);
+        let behavior = ShellBehaviorAt::for_dialect(shuck_semantic::ShellDialect::Bash);
+        let redirect_facts = build_redirect_facts(&stmt.redirects, None, locator, &behavior);
         summarize_redirect_facts(&redirect_facts, source)
     }
 }

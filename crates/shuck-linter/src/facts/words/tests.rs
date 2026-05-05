@@ -234,6 +234,17 @@ mod expansion_analysis_tests {
         command.args.to_vec()
     }
 
+    fn zsh_behavior(
+        configure: impl FnOnce(&mut shuck_semantic::ZshOptionState),
+    ) -> shuck_semantic::ShellBehaviorAt<'static> {
+        shuck_semantic::ShellBehaviorAt::for_dialect(ShellDialect::Zsh)
+            .with_zsh_option_overlay(configure)
+    }
+
+    fn zsh_default_behavior() -> shuck_semantic::ShellBehaviorAt<'static> {
+        zsh_behavior(|_| {})
+    }
+
     fn analyze_argument_words(source: &str) -> Vec<ExpansionAnalysis> {
         parse_argument_words(source)
             .iter()
@@ -357,11 +368,10 @@ mod expansion_analysis_tests {
         let Command::Simple(command) = &file.body[0].command else {
             panic!("expected simple command");
         };
-        let options = shuck_semantic::ZshOptionState {
-            glob: shuck_semantic::OptionValue::Off,
-            ..shuck_semantic::ZshOptionState::zsh_default()
-        };
-        let analysis = analyze_word(&command.args[0], source, Some(&options));
+        let behavior = zsh_behavior(|options| {
+            options.glob = shuck_semantic::OptionValue::Off;
+        });
+        let analysis = analyze_word(&command.args[0], source, Some(&behavior));
 
         assert!(!analysis.hazards.pathname_matching);
         assert!(!analysis.can_expand_to_multiple_fields);
@@ -377,21 +387,16 @@ mod expansion_analysis_tests {
         let Command::Simple(command) = &file.body[0].command else {
             panic!("expected simple command");
         };
-        let native = analyze_word(
-            &command.args[0],
-            source,
-            Some(&shuck_semantic::ZshOptionState::zsh_default()),
-        );
-        let split_options = shuck_semantic::ZshOptionState {
-            sh_word_split: shuck_semantic::OptionValue::On,
-            ..shuck_semantic::ZshOptionState::zsh_default()
-        };
-        let split = analyze_word(&command.args[0], source, Some(&split_options));
-        let no_glob_options = shuck_semantic::ZshOptionState {
-            glob: shuck_semantic::OptionValue::Off,
-            ..shuck_semantic::ZshOptionState::zsh_default()
-        };
-        let no_glob = analyze_word(&command.args[0], source, Some(&no_glob_options));
+        let native_behavior = zsh_default_behavior();
+        let native = analyze_word(&command.args[0], source, Some(&native_behavior));
+        let split_behavior = zsh_behavior(|options| {
+            options.sh_word_split = shuck_semantic::OptionValue::On;
+        });
+        let split = analyze_word(&command.args[0], source, Some(&split_behavior));
+        let no_glob_behavior = zsh_behavior(|options| {
+            options.glob = shuck_semantic::OptionValue::Off;
+        });
+        let no_glob = analyze_word(&command.args[0], source, Some(&no_glob_behavior));
 
         assert_eq!(
             native.field_splitting_behavior,
@@ -423,16 +428,12 @@ mod expansion_analysis_tests {
         let Command::Simple(command) = &file.body[0].command else {
             panic!("expected simple command");
         };
-        let analysis = analyze_word(
-            &command.args[0],
-            source,
-            Some(&shuck_semantic::ZshOptionState {
-                sh_word_split: shuck_semantic::OptionValue::Unknown,
-                glob: shuck_semantic::OptionValue::Unknown,
-                glob_subst: shuck_semantic::OptionValue::Unknown,
-                ..shuck_semantic::ZshOptionState::zsh_default()
-            }),
-        );
+        let behavior = zsh_behavior(|options| {
+            options.sh_word_split = shuck_semantic::OptionValue::Unknown;
+            options.glob = shuck_semantic::OptionValue::Unknown;
+            options.glob_subst = shuck_semantic::OptionValue::Unknown;
+        });
+        let analysis = analyze_word(&command.args[0], source, Some(&behavior));
 
         assert_eq!(
             analysis.field_splitting_behavior,
@@ -457,15 +458,11 @@ mod expansion_analysis_tests {
         let Command::Simple(command) = &file.body[0].command else {
             panic!("expected simple command");
         };
-        let analysis = analyze_word(
-            &command.args[0],
-            source,
-            Some(&shuck_semantic::ZshOptionState {
-                glob: shuck_semantic::OptionValue::Unknown,
-                glob_subst: shuck_semantic::OptionValue::Off,
-                ..shuck_semantic::ZshOptionState::zsh_default()
-            }),
-        );
+        let behavior = zsh_behavior(|options| {
+            options.glob = shuck_semantic::OptionValue::Unknown;
+            options.glob_subst = shuck_semantic::OptionValue::Off;
+        });
+        let analysis = analyze_word(&command.args[0], source, Some(&behavior));
 
         assert_eq!(
             analysis.pathname_expansion_behavior,
@@ -485,10 +482,10 @@ mod expansion_analysis_tests {
         let Command::Simple(command) = &file.body[0].command else {
             panic!("expected simple command");
         };
-        let options = shuck_semantic::ZshOptionState::zsh_default();
-        let split = analyze_word(&command.args[0], source, Some(&options));
-        let glob = analyze_word(&command.args[1], source, Some(&options));
-        let no_glob_subst = analyze_word(&command.args[2], source, Some(&options));
+        let behavior = zsh_default_behavior();
+        let split = analyze_word(&command.args[0], source, Some(&behavior));
+        let glob = analyze_word(&command.args[1], source, Some(&behavior));
+        let no_glob_subst = analyze_word(&command.args[2], source, Some(&behavior));
 
         assert_eq!(
             split.field_splitting_behavior,
@@ -582,29 +579,30 @@ mod expansion_analysis_tests {
     fn analyze_literal_runtime_records_glob_failure_behavior() {
         let source = "print *.jpg\n";
         let words = parse_argument_words(source);
+        let native_behavior = zsh_default_behavior();
         let native = analyze_literal_runtime(
             &words[0],
             source,
             ExpansionContext::CommandArgument,
-            Some(&shuck_semantic::ZshOptionState::zsh_default()),
+            Some(&native_behavior),
         );
+        let null_glob_behavior = zsh_behavior(|options| {
+            options.null_glob = shuck_semantic::OptionValue::On;
+        });
         let null_glob = analyze_literal_runtime(
             &words[0],
             source,
             ExpansionContext::CommandArgument,
-            Some(&shuck_semantic::ZshOptionState {
-                null_glob: shuck_semantic::OptionValue::On,
-                ..shuck_semantic::ZshOptionState::zsh_default()
-            }),
+            Some(&null_glob_behavior),
         );
+        let no_glob_behavior = zsh_behavior(|options| {
+            options.glob = shuck_semantic::OptionValue::Off;
+        });
         let no_glob = analyze_literal_runtime(
             &words[0],
             source,
             ExpansionContext::CommandArgument,
-            Some(&shuck_semantic::ZshOptionState {
-                glob: shuck_semantic::OptionValue::Off,
-                ..shuck_semantic::ZshOptionState::zsh_default()
-            }),
+            Some(&no_glob_behavior),
         );
 
         assert_eq!(
@@ -629,17 +627,17 @@ mod expansion_analysis_tests {
     fn analyze_literal_runtime_respects_no_glob_precedence_over_failure_modes() {
         let source = "print *.jpg\n";
         let words = parse_argument_words(source);
+        let behavior = zsh_behavior(|options| {
+            options.glob = shuck_semantic::OptionValue::Off;
+            options.null_glob = shuck_semantic::OptionValue::On;
+            options.csh_null_glob = shuck_semantic::OptionValue::On;
+            options.nomatch = shuck_semantic::OptionValue::On;
+        });
         let analysis = analyze_literal_runtime(
             &words[0],
             source,
             ExpansionContext::CommandArgument,
-            Some(&shuck_semantic::ZshOptionState {
-                glob: shuck_semantic::OptionValue::Off,
-                null_glob: shuck_semantic::OptionValue::On,
-                csh_null_glob: shuck_semantic::OptionValue::On,
-                nomatch: shuck_semantic::OptionValue::On,
-                ..shuck_semantic::ZshOptionState::zsh_default()
-            }),
+            Some(&behavior),
         );
 
         assert_eq!(
@@ -658,23 +656,23 @@ mod expansion_analysis_tests {
     fn analyze_literal_runtime_distinguishes_nomatch_and_csh_null_glob() {
         let source = "print *.jpg\n";
         let words = parse_argument_words(source);
+        let keep_literal_behavior = zsh_behavior(|options| {
+            options.nomatch = shuck_semantic::OptionValue::Off;
+        });
         let keep_literal = analyze_literal_runtime(
             &words[0],
             source,
             ExpansionContext::CommandArgument,
-            Some(&shuck_semantic::ZshOptionState {
-                nomatch: shuck_semantic::OptionValue::Off,
-                ..shuck_semantic::ZshOptionState::zsh_default()
-            }),
+            Some(&keep_literal_behavior),
         );
+        let csh_null_glob_behavior = zsh_behavior(|options| {
+            options.csh_null_glob = shuck_semantic::OptionValue::On;
+        });
         let csh_null_glob = analyze_literal_runtime(
             &words[0],
             source,
             ExpansionContext::CommandArgument,
-            Some(&shuck_semantic::ZshOptionState {
-                csh_null_glob: shuck_semantic::OptionValue::On,
-                ..shuck_semantic::ZshOptionState::zsh_default()
-            }),
+            Some(&csh_null_glob_behavior),
         );
 
         assert_eq!(
@@ -692,17 +690,17 @@ mod expansion_analysis_tests {
     fn analyze_literal_runtime_records_glob_pattern_behaviors() {
         let source = "print *.jpg\n";
         let words = parse_argument_words(source);
+        let behavior = zsh_behavior(|options| {
+            options.glob_dots = shuck_semantic::OptionValue::On;
+            options.extended_glob = shuck_semantic::OptionValue::On;
+            options.ksh_glob = shuck_semantic::OptionValue::Unknown;
+            options.sh_glob = shuck_semantic::OptionValue::On;
+        });
         let analysis = analyze_literal_runtime(
             &words[0],
             source,
             ExpansionContext::CommandArgument,
-            Some(&shuck_semantic::ZshOptionState {
-                glob_dots: shuck_semantic::OptionValue::On,
-                extended_glob: shuck_semantic::OptionValue::On,
-                ksh_glob: shuck_semantic::OptionValue::Unknown,
-                sh_glob: shuck_semantic::OptionValue::On,
-                ..shuck_semantic::ZshOptionState::zsh_default()
-            }),
+            Some(&behavior),
         );
 
         assert_eq!(

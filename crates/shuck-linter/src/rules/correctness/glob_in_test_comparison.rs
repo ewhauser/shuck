@@ -1,6 +1,6 @@
 use shuck_ast::static_word_text;
 
-use crate::{Checker, Rule, SimpleTestShape, SimpleTestSyntax, Violation};
+use crate::{Checker, LinterFacts, Rule, SimpleTestShape, SimpleTestSyntax, Violation};
 
 pub struct GlobInTestComparison;
 
@@ -20,13 +20,17 @@ pub fn glob_in_test_comparison(checker: &mut Checker) {
         .commands()
         .iter()
         .filter_map(|command| command.simple_test())
-        .filter_map(|simple_test| report_span(simple_test, checker.source()))
+        .filter_map(|simple_test| report_span(simple_test, checker.facts(), checker.source()))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || GlobInTestComparison);
 }
 
-fn report_span(simple_test: &crate::SimpleTestFact<'_>, source: &str) -> Option<shuck_ast::Span> {
+fn report_span(
+    simple_test: &crate::SimpleTestFact<'_>,
+    facts: &LinterFacts<'_>,
+    source: &str,
+) -> Option<shuck_ast::Span> {
     if simple_test.syntax() != SimpleTestSyntax::Bracket
         || simple_test.effective_shape() != SimpleTestShape::Binary
     {
@@ -40,22 +44,12 @@ fn report_span(simple_test: &crate::SimpleTestFact<'_>, source: &str) -> Option<
 
     let rhs = *simple_test.effective_operands().get(2)?;
     let rhs_class = simple_test.effective_operand_class(2)?;
-    let rhs_text = static_word_text(rhs, source)?;
 
-    (!rhs_class.is_fixed_literal() && looks_like_glob_pattern(&rhs_text)).then_some(rhs.span)
-}
-
-fn looks_like_glob_pattern(text: &str) -> bool {
-    if text.chars().any(|ch| matches!(ch, '*' | '?')) {
-        return true;
-    }
-
-    text.char_indices().any(|(start, ch)| {
-        ch == '['
-            && text[start + ch.len_utf8()..]
-                .chars()
-                .any(|candidate| candidate == ']')
-    })
+    (!rhs_class.is_fixed_literal()
+        && facts
+            .any_word_fact(rhs.span)
+            .is_some_and(|fact| !fact.active_literal_glob_spans(source).is_empty()))
+    .then_some(rhs.span)
 }
 
 #[cfg(test)]
@@ -117,5 +111,29 @@ test \"$ARCH\" == i?86
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn respects_zsh_disabled_globbing_in_bracket_comparisons() {
+        let source = "\
+#!/usr/bin/env zsh
+setopt no_glob
+[ \"$ARCH\" == i?86 ]
+setopt glob
+[ \"$ARCH\" == i?86 ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::GlobInTestComparison)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["i?86"]
+        );
     }
 }

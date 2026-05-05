@@ -326,6 +326,13 @@ impl<'a> LinterFacts<'a> {
             .map(|id| self.command(id))
     }
 
+    pub(crate) fn expansion_behavior_at(&self, offset: usize) -> ShellBehaviorAt<'a> {
+        self.innermost_command_at(offset).map_or_else(
+            || self.semantic.shell_behavior_at(offset),
+            |command| command.shell_behavior().clone(),
+        )
+    }
+
     pub fn innermost_command_id_at(&self, offset: usize) -> Option<CommandId> {
         precomputed_command_id_for_offset(&self.innermost_command_ids_by_offset, offset)
     }

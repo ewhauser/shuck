@@ -601,7 +601,8 @@ impl<'a> SafeValueIndex<'a> {
         word: &Word,
         context: ExpansionContext,
     ) -> bool {
-        let runtime = analyze_literal_runtime(word, self.source, context, None);
+        let behavior = self.facts.expansion_behavior_at(word.span.start.offset);
+        let runtime = analyze_literal_runtime(word, self.source, context, Some(&behavior));
         if !runtime.is_runtime_sensitive() {
             return false;
         }

@@ -7,6 +7,7 @@ use shuck_ast::{
 
 use super::BacktickEscapedParameter;
 use crate::Locator;
+use shuck_semantic::{GlobPatternBehavior, PathnameExpansionBehavior, PatternOperatorBehavior};
 
 mod arrays;
 mod backticks;

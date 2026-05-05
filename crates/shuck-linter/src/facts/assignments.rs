@@ -1364,7 +1364,7 @@ fn build_declaration_assignment_probes<'a>(
     normalized: &NormalizedCommand<'a>,
     semantic: &SemanticModel,
     source: &str,
-    zsh_options: Option<&ZshOptionState>,
+    behavior: &ShellBehaviorAt<'_>,
 ) -> Vec<DeclarationAssignmentProbe> {
     if let Some(declaration) = normalized.declaration.as_ref() {
         return declaration
@@ -1383,7 +1383,7 @@ fn build_declaration_assignment_probes<'a>(
                     has_command_substitution: word_has_command_substitution(
                         word,
                         source,
-                        zsh_options,
+                        behavior,
                     ),
                     status_capture: word_is_standalone_status_capture(word),
                 })
@@ -1530,9 +1530,9 @@ fn part_is_standalone_status_or_pid_capture(part: &WordPart) -> bool {
 fn word_has_command_substitution(
     word: &Word,
     source: &str,
-    zsh_options: Option<&ZshOptionState>,
+    behavior: &ShellBehaviorAt<'_>,
 ) -> bool {
-    word_classification_from_analysis(analyze_word(word, source, zsh_options))
+    word_classification_from_analysis(analyze_word(word, source, Some(behavior)))
         .has_command_substitution()
 }
 

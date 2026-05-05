@@ -1,4 +1,3 @@
-use crate::facts::word_spans;
 use crate::{Checker, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct UnquotedGrepRegex;
@@ -29,7 +28,9 @@ pub fn unquoted_grep_regex(checker: &mut Checker) {
         .filter_map(|fact| fact.options().grep())
         .flat_map(|grep| grep.patterns().iter())
         .filter(|pattern| {
-            !word_spans::word_unquoted_glob_pattern_spans(pattern.word(), source).is_empty()
+            facts
+                .any_word_fact(pattern.word().span)
+                .is_some_and(|fact| !fact.active_literal_glob_spans(source).is_empty())
         })
         .map(|pattern| {
             let span = pattern.span();
@@ -229,6 +230,31 @@ done
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["[/$]"]
+        );
+    }
+
+    #[test]
+    fn respects_zsh_glob_activation_for_grep_patterns() {
+        let source = "\
+#!/usr/bin/env zsh
+setopt no_glob
+grep start* out.txt
+setopt glob extended_glob
+grep foo^bar out.txt
+unsetopt extended_glob
+grep foo^bar out.txt
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedGrepRegex).with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["foo^bar"]
         );
     }
 

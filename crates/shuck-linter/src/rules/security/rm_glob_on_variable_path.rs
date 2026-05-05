@@ -21,11 +21,8 @@ pub fn rm_glob_on_variable_path(checker: &mut Checker) {
         .expansion_word_facts(ExpansionContext::CommandArgument)
         .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
         .filter(|fact| {
-            fact.unquoted_glob_pattern_spans(source).is_empty()
-                || fact
-                    .runtime_literal()
-                    .pathname_expansion_behavior
-                    .literal_globs_can_expand()
+            !fact.has_literal_glob_syntax(source)
+                || !fact.active_literal_glob_spans(source).is_empty()
         })
         .map(|fact| (fact.command_id(), FactSpan::new(fact.span())))
         .collect::<FxHashSet<_>>();

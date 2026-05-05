@@ -70,9 +70,9 @@ use shuck_semantic::{
     FieldSplittingBehavior, FileExpansionOrderBehavior, GlobDotBehavior, GlobFailureBehavior,
     GlobPatternBehavior, NonpersistentAssignmentAnalysisContext,
     NonpersistentAssignmentAnalysisOptions, NonpersistentAssignmentCommandContext,
-    NonpersistentAssignmentExtraRead, OptionValue, PathnameExpansionBehavior,
-    PatternOperatorBehavior, Reference, ReferenceId, ReferenceKind, ScopeId, SemanticAnalysis,
-    SemanticModel, SemanticPipelineOperatorKind, SubscriptIndexBehavior, ZshOptionState,
+    NonpersistentAssignmentExtraRead, OptionValue, PathnameExpansionBehavior, Reference,
+    ReferenceId, ReferenceKind, ScopeId, SemanticAnalysis, SemanticModel,
+    SemanticPipelineOperatorKind, ShellBehaviorAt, SubscriptIndexBehavior, ZshOptionState,
 };
 use smallvec::SmallVec;
 use std::{borrow::Cow, ops::ControlFlow, sync::OnceLock};
