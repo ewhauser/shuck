@@ -80,7 +80,7 @@ fn should_report_s010_declaration(
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn anchors_on_declaration_assignment_names() {
@@ -162,6 +162,28 @@ typeset -r n_version=\"$(./bin/n --version)\"
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["archive_dir_create", "n_version"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_integer_declarations_with_command_substitution() {
+        let source = "\
+#!/bin/zsh
+integer generated=$(date)
+integer -r readonly_generated=$(date)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["generated", "readonly_generated"]
         );
     }
 

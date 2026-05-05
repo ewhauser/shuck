@@ -128,6 +128,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 }
             }
             "unset" => self.record_unset_variable_targets(args, flow),
+            "integer" if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh => {
+                self.visit_simple_declaration_command(name.as_str(), args, command_span, flow);
+            }
             "export" | "local" | "declare" | "typeset" | "readonly" => {
                 self.visit_simple_declaration_command(name.as_str(), args, command_span, flow);
             }
@@ -182,6 +185,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         };
 
         let mut flags = FxHashSet::default();
+        apply_implicit_declaration_flags(command_name, &mut flags);
         let mut global_flag_enabled = false;
         let mut name_operands_are_function_names = false;
         let mut parsing_options = true;

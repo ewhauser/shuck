@@ -325,7 +325,7 @@ fn declaration_builtin(name: &Name) -> DeclarationBuiltin {
         "local" => DeclarationBuiltin::Local,
         "export" => DeclarationBuiltin::Export,
         "readonly" => DeclarationBuiltin::Readonly,
-        "typeset" => DeclarationBuiltin::Typeset,
+        "typeset" | "integer" => DeclarationBuiltin::Typeset,
         _ => DeclarationBuiltin::Declare,
     }
 }
@@ -336,19 +336,35 @@ fn declaration_builtin_name(name: &str) -> Option<DeclarationBuiltin> {
         "local" => Some(DeclarationBuiltin::Local),
         "export" => Some(DeclarationBuiltin::Export),
         "readonly" => Some(DeclarationBuiltin::Readonly),
-        "typeset" => Some(DeclarationBuiltin::Typeset),
+        "typeset" | "integer" => Some(DeclarationBuiltin::Typeset),
         _ => None,
     }
 }
 
-fn declaration_flags(operands: &[DeclOperand], source: &str) -> FxHashSet<char> {
+fn apply_implicit_declaration_flags(command_name: &str, flags: &mut FxHashSet<char>) {
+    if command_name == "integer" {
+        flags.insert('i');
+    }
+}
+
+fn declaration_flags(
+    command_name: &str,
+    operands: &[DeclOperand],
+    source: &str,
+) -> FxHashSet<char> {
     let mut flags = FxHashSet::default();
+    apply_implicit_declaration_flags(command_name, &mut flags);
     for operand in operands {
         if let DeclOperand::Flag(word) = operand
             && let Some(text) = static_word_text(word, source)
         {
+            let enabled_for_operand = text.starts_with('-');
             for flag in text.chars().skip(1) {
-                flags.insert(flag);
+                if enabled_for_operand {
+                    flags.insert(flag);
+                } else {
+                    flags.remove(&flag);
+                }
             }
         }
     }

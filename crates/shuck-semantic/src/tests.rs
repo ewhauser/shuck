@@ -949,6 +949,129 @@ fn escaped_declarations_create_name_bindings() {
 }
 
 #[test]
+fn zsh_declaration_builtins_with_options_create_initialized_bindings() {
+    let source = "\
+#!/bin/zsh
+typeset -g global_count=1
+typeset -gr readonly_global=2
+typeset -gi integer_global=3
+print $global_count $readonly_global $integer_global
+f() {
+  local -i local_count=4
+  typeset implicit_local=5
+  typeset -i implicit_local_integer=6
+  typeset -g promoted=7
+  integer integer_local=8
+  integer +i string_local=9
+  print $local_count $implicit_local $implicit_local_integer
+  print $promoted $integer_local $string_local
+}
+f
+print $promoted
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let cases = [
+        (
+            "global_count",
+            BindingAttributes::DECLARATION_INITIALIZED,
+            BindingAttributes::LOCAL | BindingAttributes::INTEGER | BindingAttributes::READONLY,
+        ),
+        (
+            "readonly_global",
+            BindingAttributes::DECLARATION_INITIALIZED | BindingAttributes::READONLY,
+            BindingAttributes::LOCAL | BindingAttributes::INTEGER,
+        ),
+        (
+            "integer_global",
+            BindingAttributes::DECLARATION_INITIALIZED | BindingAttributes::INTEGER,
+            BindingAttributes::LOCAL | BindingAttributes::READONLY,
+        ),
+        (
+            "local_count",
+            BindingAttributes::DECLARATION_INITIALIZED
+                | BindingAttributes::LOCAL
+                | BindingAttributes::INTEGER,
+            BindingAttributes::READONLY,
+        ),
+        (
+            "implicit_local",
+            BindingAttributes::DECLARATION_INITIALIZED | BindingAttributes::LOCAL,
+            BindingAttributes::INTEGER | BindingAttributes::READONLY,
+        ),
+        (
+            "implicit_local_integer",
+            BindingAttributes::DECLARATION_INITIALIZED
+                | BindingAttributes::LOCAL
+                | BindingAttributes::INTEGER,
+            BindingAttributes::READONLY,
+        ),
+        (
+            "promoted",
+            BindingAttributes::DECLARATION_INITIALIZED,
+            BindingAttributes::LOCAL | BindingAttributes::INTEGER | BindingAttributes::READONLY,
+        ),
+        (
+            "integer_local",
+            BindingAttributes::DECLARATION_INITIALIZED
+                | BindingAttributes::LOCAL
+                | BindingAttributes::INTEGER,
+            BindingAttributes::READONLY,
+        ),
+        (
+            "string_local",
+            BindingAttributes::DECLARATION_INITIALIZED | BindingAttributes::LOCAL,
+            BindingAttributes::INTEGER | BindingAttributes::READONLY,
+        ),
+    ];
+
+    let declaration_names = cases.map(|(name, _, _)| name);
+
+    for (name, required, forbidden) in cases {
+        let binding = binding_for_name(&model, name);
+        assert!(
+            matches!(
+                binding.kind,
+                BindingKind::Declaration(DeclarationBuiltin::Typeset)
+                    | BindingKind::Declaration(DeclarationBuiltin::Local)
+            ),
+            "expected declaration binding for {name}, got {:?}",
+            binding.kind
+        );
+        assert!(
+            binding.attributes.contains(required),
+            "expected {name} to contain {required:?}, got {:?}",
+            binding.attributes
+        );
+        assert!(
+            !binding.attributes.intersects(forbidden),
+            "expected {name} not to contain {forbidden:?}, got {:?}",
+            binding.attributes
+        );
+        assert!(!binding.references.is_empty(), "expected {name} to be read");
+    }
+
+    let uninitialized = uninitialized_names(&model);
+    assert!(
+        declaration_names
+            .iter()
+            .filter(|name| **name != "promoted")
+            .all(|name| !uninitialized
+                .iter()
+                .any(|uninitialized| uninitialized == name)),
+        "zsh declaration reads should resolve, got {uninitialized:?}"
+    );
+
+    let unused = binding_names(&model, model.analysis().unused_assignments());
+    assert!(
+        declaration_names
+            .iter()
+            .all(|name| !unused.iter().any(|unused| unused == name)),
+        "zsh declaration assignments should be live, got {unused:?}"
+    );
+}
+
+#[test]
 fn escaped_exported_declarations_keep_exported_attributes() {
     let source = "\\typeset -x rvm_hook\nrvm_hook=after_update\n";
     let model = model(source);

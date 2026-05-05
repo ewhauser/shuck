@@ -230,21 +230,23 @@ fn declaration_kind(raw_kind: &str) -> DeclarationKind {
         "export" => DeclarationKind::Export,
         "local" => DeclarationKind::Local,
         "declare" => DeclarationKind::Declare,
-        "typeset" => DeclarationKind::Typeset,
+        "typeset" | "integer" => DeclarationKind::Typeset,
         _ => DeclarationKind::Other(raw_kind.to_owned()),
     }
 }
 
 fn declaration_has_readonly_flag(command: &DeclClause, source: &str) -> bool {
-    matches!(command.variant.as_ref(), "local" | "declare" | "typeset")
-        && command.operands.iter().any(|operand| {
-            let DeclOperand::Flag(word) = operand else {
-                return false;
-            };
+    matches!(
+        command.variant.as_ref(),
+        "local" | "declare" | "typeset" | "integer"
+    ) && command.operands.iter().any(|operand| {
+        let DeclOperand::Flag(word) = operand else {
+            return false;
+        };
 
-            static_word_text(word, source)
-                .is_some_and(|text| text.starts_with('-') && text.contains('r'))
-        })
+        static_word_text(word, source)
+            .is_some_and(|text| text.starts_with('-') && text.contains('r'))
+    })
 }
 
 fn declaration_head_span(command: &DeclClause) -> Span {

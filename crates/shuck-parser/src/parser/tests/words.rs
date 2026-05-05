@@ -5281,6 +5281,44 @@ fn test_parse_typeset_clause_classifies_flags_and_assignments() {
 }
 
 #[test]
+fn test_parse_zsh_integer_clause_classifies_assignment() {
+    let input = "integer -g count=0 other\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let AstCommand::Decl(command) = &script.body[0].command else {
+        panic!("expected declaration clause");
+    };
+
+    assert_eq!(command.variant, "integer");
+    assert_eq!(command.operands.len(), 3);
+    assert!(matches!(command.operands[0], DeclOperand::Flag(_)));
+
+    let DeclOperand::Assignment(assignment) = &command.operands[1] else {
+        panic!("expected assignment operand");
+    };
+    assert_eq!(assignment.target.name, "count");
+
+    let DeclOperand::Name(name) = &command.operands[2] else {
+        panic!("expected bare name operand");
+    };
+    assert_eq!(name.name, "other");
+}
+
+#[test]
+fn test_parse_integer_stays_simple_command_outside_zsh() {
+    let input = "integer count=0\n";
+    let script = Parser::with_dialect(input, ShellDialect::Bash)
+        .parse()
+        .unwrap()
+        .file;
+
+    assert!(matches!(script.body[0].command, AstCommand::Simple(_)));
+}
+
+#[test]
 fn test_parse_assignment_word_handles_process_substitution_subscript() {
     let input = "\\declare -A arr[<(printf \"]\")]=$(date)\n";
     let script = Parser::new(input).parse().unwrap().file;
