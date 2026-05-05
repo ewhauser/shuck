@@ -980,16 +980,11 @@ pub(super) fn single_quoted_literal_exempt_argument(
     arg_index: usize,
     body_arg_start: usize,
     word: &Word,
-    trap_action: Option<&Word>,
     source: &str,
 ) -> bool {
     let Some(command_name) = command_name else {
         return false;
     };
-
-    if trap_action.is_some_and(|action| std::ptr::eq(action, word)) {
-        return true;
-    }
 
     let Some(body_args) = args.get(body_arg_start..) else {
         return false;

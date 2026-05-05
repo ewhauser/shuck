@@ -1904,16 +1904,17 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                         .is_some_and(|operand| std::ptr::eq(word, operand))
                     {
                         surface_context.variable_set_operand()
-                    } else if single_quoted_literal_exempt_argument(
-                        surface_command_name,
-                        self.semantic.shell_profile().dialect,
-                        &command.args,
-                        arg_index,
-                        body_arg_start,
-                        word,
-                        trap_action,
-                        self.source,
-                    ) {
+                    } else if trap_action.is_some_and(|action| std::ptr::eq(action, word))
+                        || single_quoted_literal_exempt_argument(
+                            surface_command_name,
+                            self.semantic.shell_profile().dialect,
+                            &command.args,
+                            arg_index,
+                            body_arg_start,
+                            word,
+                            self.source,
+                        )
+                    {
                         surface_context.literal_expansion_exempt()
                     } else {
                         surface_context
