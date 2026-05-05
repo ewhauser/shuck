@@ -104,6 +104,21 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     );
                 }
             }
+            "zparseopts" if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh => {
+                for (argument, span, attributes) in zparseopts_targets(args, self.source) {
+                    self.add_binding(
+                        &argument,
+                        BindingKind::ZparseoptsTarget,
+                        self.current_scope(),
+                        span,
+                        BindingOrigin::BuiltinTarget {
+                            definition_span: span,
+                            kind: BuiltinBindingTargetKind::Zparseopts,
+                        },
+                        attributes,
+                    );
+                }
+            }
             "let" => self.record_let_arithmetic_assignment_targets(args),
             "eval" => self.record_eval_argument_references(args),
             "trap" => self.record_trap_action_references(args),

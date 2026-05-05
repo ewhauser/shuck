@@ -149,6 +149,7 @@ fn binding_assignment_context(kind: BindingKind) -> Option<WordFactContext> {
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
+        | BindingKind::ZparseoptsTarget
         | BindingKind::ArithmeticAssignment
         | BindingKind::Nameref
         | BindingKind::Imported => None,
@@ -386,6 +387,7 @@ fn is_test_v_variable_binding(binding: &Binding) -> bool {
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
+        | BindingKind::ZparseoptsTarget
         | BindingKind::ArithmeticAssignment
         | BindingKind::Nameref => true,
     }

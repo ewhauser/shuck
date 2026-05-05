@@ -463,6 +463,7 @@ fn is_nonpersistent_assignment_candidate(kind: BindingKind, attributes: BindingA
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
+        | BindingKind::ZparseoptsTarget
         | BindingKind::ArithmeticAssignment => !attributes.contains(BindingAttributes::LOCAL),
         BindingKind::Declaration(_) => {
             attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
@@ -487,6 +488,7 @@ fn is_nonpersistent_later_use_binding(kind: BindingKind, attributes: BindingAttr
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
+        | BindingKind::ZparseoptsTarget
         | BindingKind::ParameterDefaultAssignment
         | BindingKind::FunctionDefinition
         | BindingKind::Imported
@@ -505,6 +507,7 @@ fn is_persistent_subshell_reset_binding(kind: BindingKind, attributes: BindingAt
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
+        | BindingKind::ZparseoptsTarget
         | BindingKind::ArithmeticAssignment => !attributes.contains(BindingAttributes::LOCAL),
         BindingKind::Declaration(_) => {
             attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)

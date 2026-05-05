@@ -814,6 +814,148 @@ fn getopts_target(args: &[&Word], source: &str) -> Option<(Name, Span)> {
     args.get(1).and_then(|word| named_target_word(word, source))
 }
 
+fn zparseopts_targets(args: &[&Word], source: &str) -> Vec<(Name, Span, BindingAttributes)> {
+    let mut targets = Vec::new();
+    let mut index = 0;
+    let mut mapping_enabled = false;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+        if text == "--" {
+            index += 1;
+            break;
+        }
+        match text.as_ref() {
+            "-D" | "-E" | "-F" | "-K" => {
+                index += 1;
+                continue;
+            }
+            "-M" => {
+                mapping_enabled = true;
+                index += 1;
+                continue;
+            }
+            "-a" | "-A" => {
+                let attributes = zparseopts_aggregate_target_attributes(&text);
+                if let Some((name, span)) = args
+                    .get(index + 1)
+                    .and_then(|word| named_target_word(word, source))
+                {
+                    targets.push((name, span, attributes));
+                    index += 2;
+                    continue;
+                }
+                index += 1;
+                continue;
+            }
+            _ => {}
+        }
+
+        if (text.starts_with("-a") || text.starts_with("-A")) && !text.contains('=') {
+            let attributes = zparseopts_aggregate_target_attributes(&text);
+            if let Some(target_text) = text.get(2..)
+                && let Some(target) =
+                    zparseopts_attached_array_target(word, source, target_text, attributes)
+            {
+                targets.push(target);
+                index += 1;
+                continue;
+            }
+        }
+
+        break;
+    }
+
+    let spec_names = mapping_enabled.then(|| {
+        args[index..]
+            .iter()
+            .filter_map(|word| zparseopts_spec_name(word, source))
+            .collect::<FxHashSet<_>>()
+    });
+
+    for word in &args[index..] {
+        if let Some(target) = zparseopts_spec_target(word, source, spec_names.as_ref()) {
+            targets.push(target);
+        }
+    }
+
+    targets
+}
+
+fn zparseopts_aggregate_target_attributes(text: &str) -> BindingAttributes {
+    if text.starts_with("-A") {
+        BindingAttributes::ARRAY | BindingAttributes::ASSOC
+    } else {
+        BindingAttributes::ARRAY
+    }
+}
+
+fn zparseopts_attached_array_target(
+    word: &Word,
+    source: &str,
+    target_text: &str,
+    attributes: BindingAttributes,
+) -> Option<(Name, Span, BindingAttributes)> {
+    if !is_name(target_text) {
+        return None;
+    }
+
+    let text = static_word_text(word, source)?;
+    let start = text.len().saturating_sub(target_text.len());
+    Some((
+        Name::from(target_text),
+        word_text_offset_span(word.span, source, start, text.len()),
+        attributes,
+    ))
+}
+
+fn zparseopts_spec_name(word: &Word, source: &str) -> Option<Box<str>> {
+    let text = word.span.slice(source);
+    let spec = zparseopts_spec_separator_offset(text).map_or(text, |offset| &text[..offset]);
+    let spec = spec.trim_end_matches(':').trim_end_matches('+');
+    (!spec.is_empty()).then_some(spec.into())
+}
+
+fn zparseopts_spec_target(
+    word: &Word,
+    source: &str,
+    mapped_spec_names: Option<&FxHashSet<Box<str>>>,
+) -> Option<(Name, Span, BindingAttributes)> {
+    let text = word.span.slice(source);
+    let target_start = zparseopts_spec_separator_offset(text)? + 1;
+    let target = &text[target_start..];
+    if !is_name(target) {
+        return None;
+    }
+    if mapped_spec_names.is_some_and(|spec_names| spec_names.contains(target)) {
+        return None;
+    }
+
+    Some((
+        Name::from(target),
+        word_text_offset_span(word.span, source, target_start, text.len()),
+        BindingAttributes::ARRAY,
+    ))
+}
+
+fn zparseopts_spec_separator_offset(text: &str) -> Option<usize> {
+    let mut escaped = false;
+    for (index, ch) in text.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' => escaped = true,
+            '=' => return Some(index),
+            _ => {}
+        }
+    }
+    None
+}
+
 fn variable_set_test_operand_name(
     expression: &ConditionalExpr,
     source: &str,

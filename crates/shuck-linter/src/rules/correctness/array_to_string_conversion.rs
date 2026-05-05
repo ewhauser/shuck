@@ -503,6 +503,7 @@ fn binding_establishes_array_history(
         | BindingKind::LoopVariable
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
+        | BindingKind::ZparseoptsTarget
         | BindingKind::ArithmeticAssignment
         | BindingKind::Nameref => binding_is_array_like(binding),
     }
@@ -534,6 +535,7 @@ fn binding_resets_array_history(binding: &Binding, builtin_history: &BuiltinArra
         | BindingKind::Declaration(_)
         | BindingKind::FunctionDefinition
         | BindingKind::Nameref
+        | BindingKind::ZparseoptsTarget
         | BindingKind::Imported => false,
     }
 }
@@ -559,6 +561,7 @@ fn declaration_resets_array_history(binding: &Binding) -> bool {
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
+        | BindingKind::ZparseoptsTarget
         | BindingKind::ArithmeticAssignment
         | BindingKind::Nameref
         | BindingKind::Imported
