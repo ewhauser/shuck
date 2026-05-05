@@ -135,7 +135,8 @@ impl ShellDialect {
 fn line_has_bash_marker(line: &str) -> bool {
     contains_unquoted_parameter(line, "BASH_SOURCE")
         || contains_unquoted_parameter(line, "BASH_VERSION")
-        || contains_shell_word(line, "PROMPT_COMMAND")
+        || contains_unquoted_parameter(line, "PROMPT_COMMAND")
+        || starts_with_assignment(line, "PROMPT_COMMAND")
         || starts_with_shell_word(line, "shopt")
 }
 
@@ -168,8 +169,11 @@ fn starts_with_shell_word(line: &str, needle: &str) -> bool {
         .is_some_and(|word| *word == needle)
 }
 
-fn contains_shell_word(line: &str, needle: &str) -> bool {
-    shell_words(line).iter().any(|word| *word == needle)
+fn starts_with_assignment(line: &str, name: &str) -> bool {
+    let Some(suffix) = line.trim_start().strip_prefix(name) else {
+        return false;
+    };
+    suffix.starts_with('=') || suffix.starts_with("+=")
 }
 
 fn contains_unquoted_parameter(line: &str, name: &str) -> bool {
@@ -302,7 +306,7 @@ autoload -U compaudit compinit
     #[test]
     fn ignores_quoted_dialect_marker_names_without_shell_usage() {
         let inferred = ShellDialect::infer(
-            "printf '%s\\n' \"ZSH_VERSION\" \"BASH_VERSION\"\n",
+            "printf '%s\\n' \"ZSH_VERSION\" \"BASH_VERSION\" \"PROMPT_COMMAND\"\n",
             Some(Path::new("/tmp/example.sh")),
         );
         assert_eq!(inferred, ShellDialect::Sh);
