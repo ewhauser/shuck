@@ -494,8 +494,10 @@ fn zstyle_target(args: &[&Word], source: &str) -> Option<(Name, Span, BindingAtt
 
 fn describe_array_names(args: &[&Word], source: &str) -> Vec<(Name, Span)> {
     let mut index = 0usize;
+    let mut first_segment_starts_with_dynamic_option = false;
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
+            first_segment_starts_with_dynamic_option = true;
             break;
         };
         if text == "--" {
@@ -538,12 +540,19 @@ fn describe_array_names(args: &[&Word], source: &str) -> Vec<(Name, Span)> {
         }
 
         let segment_len = segment_end.saturating_sub(segment_start);
-        let target_start = if first_group || segment_len > 1 {
-            segment_start + 1
-        } else {
-            segment_start
-        };
-        for target_index in target_start..(target_start + 2).min(segment_end) {
+        let (target_start, target_count) =
+            if first_group && first_segment_starts_with_dynamic_option {
+                match segment_len {
+                    0 | 1 => (segment_end, 0),
+                    2 => (segment_start + 1, 1),
+                    _ => (segment_start + 2, 2),
+                }
+            } else if first_group || segment_len > 1 {
+                (segment_start + 1, 2)
+            } else {
+                (segment_start, 2)
+            };
+        for target_index in target_start..(target_start + target_count).min(segment_end) {
             if let Some(target) = args
                 .get(target_index)
                 .and_then(|word| named_target_word(word, source))

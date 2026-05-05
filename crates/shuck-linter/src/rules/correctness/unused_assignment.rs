@@ -695,6 +695,24 @@ unused=(other:'unused')
     }
 
     #[test]
+    fn zsh_describe_does_not_consume_descriptor_after_dynamic_options() {
+        let source = "\
+#!/bin/zsh
+opts='-o'
+desc=(not:target)
+values=(git)
+_describe \"$opts\" desc values
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "desc");
+    }
+
+    #[test]
     fn zsh_describe_consumes_array_operand_after_group_separator() {
         let source = "\
 #!/bin/zsh

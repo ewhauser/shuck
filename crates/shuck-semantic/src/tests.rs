@@ -1266,6 +1266,27 @@ _describe \"$desc\" values
 }
 
 #[test]
+fn zsh_describe_skips_descriptor_after_dynamic_options() {
+    let source = "\
+#!/bin/zsh
+opts='-o'
+desc=(not:target)
+values=(git)
+_describe \"$opts\" desc values
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+
+    assert_eq!(binding_for_name(&model, "desc").references.len(), 0);
+
+    let binding = binding_for_name(&model, "values");
+    assert_eq!(binding.references.len(), 1);
+    assert_eq!(
+        model.reference(binding.references[0]).span.slice(source),
+        "values"
+    );
+}
+
+#[test]
 fn zsh_describe_consumes_array_operands_after_group_separator() {
     let source = "\
 #!/bin/zsh
