@@ -880,6 +880,33 @@ demo
     }
 
     #[test]
+    fn reports_zsh_later_reads_when_function_runs_before_later_helper_definition() {
+        let source = "\
+#!/bin/zsh
+demo() {
+  (
+    for REPLY in a; do :; done
+  )
+  helper
+  print -r -- $REPLY
+}
+demo
+helper() {
+  REPLY=value
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
+    }
+
+    #[test]
     fn ignores_zsh_reply_reads_after_unresolved_private_helper_calls() {
         let source = "\
 #!/bin/zsh

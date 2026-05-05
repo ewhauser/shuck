@@ -1615,7 +1615,11 @@ fn resolved_function_scope_for_command(
                     .find_map(|(site, binding)| {
                         (site.name_span == name_span
                             && fallback_function_binding_is_callable_from_function_body(
-                                semantic, command, name_span, binding,
+                                semantic,
+                                semantic_analysis,
+                                command,
+                                name_span,
+                                binding,
                             ))
                         .then_some(binding)
                     })
@@ -1627,6 +1631,7 @@ fn resolved_function_scope_for_command(
 
 fn fallback_function_binding_is_callable_from_function_body(
     semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
     command: &CommandFact<'_>,
     call_name_span: Span,
     binding: BindingId,
@@ -1636,7 +1641,40 @@ fn fallback_function_binding_is_callable_from_function_body(
         return true;
     }
 
-    enclosing_function_scope(semantic, command.scope()) != enclosing_function_scope(semantic, binding.scope)
+    let Some(command_function_scope) = enclosing_function_scope(semantic, command.scope()) else {
+        return false;
+    };
+    if Some(command_function_scope) == enclosing_function_scope(semantic, binding.scope) {
+        return false;
+    }
+
+    !function_scope_may_run_before_offset(
+        semantic,
+        semantic_analysis,
+        command_function_scope,
+        binding.span.start.offset,
+    )
+}
+
+fn function_scope_may_run_before_offset(
+    semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
+    function_scope: ScopeId,
+    offset: usize,
+) -> bool {
+    semantic_analysis
+        .function_bindings_by_scope()
+        .find(|(scope, _)| *scope == function_scope)
+        .is_some_and(|(_, bindings)| {
+            bindings.iter().copied().any(|function_binding| {
+                let name = &semantic.binding(function_binding).name;
+                semantic_analysis
+                    .resolved_function_call_sites(name)
+                    .any(|(site, resolved_binding)| {
+                        resolved_binding == function_binding && site.name_span.start.offset < offset
+                    })
+            })
+        })
 }
 
 fn command_is_inside_function_body(semantic: &SemanticModel, scope: ScopeId) -> bool {
