@@ -50,8 +50,16 @@ impl ShellDialect {
 
     pub fn infer(source: &str, path: Option<&Path>) -> Self {
         let extension_dialect = path.map_or(Self::Unknown, Self::infer_from_extension);
+        let shebang_dialect = Self::infer_from_shebang(source);
         Self::infer_from_shellcheck_header(source)
-            .or_else(|| Self::infer_from_shebang(source))
+            .or_else(|| {
+                Self::zsh_extension_compat_shebang_override(
+                    source,
+                    extension_dialect,
+                    shebang_dialect,
+                )
+            })
+            .or(shebang_dialect)
             .or_else(|| match extension_dialect {
                 Self::Unknown | Self::Sh => Self::infer_from_source_markers(source),
                 dialect => Some(dialect),
@@ -79,6 +87,18 @@ impl ShellDialect {
     fn infer_from_shebang(source: &str) -> Option<Self> {
         let interpreter = shuck_parser::shebang::interpreter_name(source.lines().next()?)?;
         Some(Self::from_name(interpreter))
+    }
+
+    fn zsh_extension_compat_shebang_override(
+        source: &str,
+        extension_dialect: Self,
+        shebang_dialect: Option<Self>,
+    ) -> Option<Self> {
+        if extension_dialect != Self::Zsh || shebang_dialect != Some(Self::Bash) {
+            return None;
+        }
+
+        (Self::infer_from_source_markers(source) == Some(Self::Zsh)).then_some(Self::Zsh)
     }
 
     fn infer_from_shellcheck_header(source: &str) -> Option<Self> {
@@ -569,6 +589,18 @@ zstyle -s ':omz:update' mode update_mode
 autoload -U compaudit compinit
 "#;
         let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/oh-my-zsh.sh")));
+        assert_eq!(inferred, ShellDialect::Zsh);
+    }
+
+    #[test]
+    fn zsh_extension_and_markers_win_over_bash_compat_shebang() {
+        let source = r#"#!/usr/bin/bash
+0="${${ZERO:-${0:#$ZSH_ARGZERO}}:-${(%):-%N}}"
+"#;
+        let inferred = ShellDialect::infer(
+            source,
+            Some(Path::new("/tmp/plugin/shell-proxy.plugin.zsh")),
+        );
         assert_eq!(inferred, ShellDialect::Zsh);
     }
 

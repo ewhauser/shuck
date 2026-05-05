@@ -7518,6 +7518,33 @@ fn test_zsh_parameter_bare_prefix_flags_record_modifier_sequence() {
 }
 
 #[test]
+fn test_zsh_bare_dollar_prefix_flag_parses_as_parameter_word() {
+    let source = "$=UNPACKCMD\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+
+    let parameter = expect_parameter(&command.name);
+    assert_eq!(parameter.raw_body.slice(source), "=UNPACKCMD");
+    let ParameterExpansionSyntax::Zsh(parameter) = &parameter.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    assert_eq!(
+        parameter
+            .modifiers
+            .iter()
+            .map(|modifier| modifier.name)
+            .collect::<Vec<_>>(),
+        vec!['=']
+    );
+    let ZshExpansionTarget::Reference(reference) = &parameter.target else {
+        panic!("expected split target reference");
+    };
+    assert_eq!(reference.name.as_str(), "UNPACKCMD");
+}
+
+#[test]
 fn test_zsh_parameter_word_target_accepts_quoted_command_substitution_text() {
     let source = "print ${\"$(xcode-select -p)\"%%/Contents/Developer*}\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)
