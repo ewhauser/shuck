@@ -645,7 +645,7 @@ unused=(other:'unused')
 #!/bin/zsh
 cmds=(git:'run git')
 other_cmds=(hg:'run hg')
-_describe -O expl 'external command' cmds
+_describe -O 'external command' cmds
 _describe -- 'other command' other_cmds
 unused=(other:'unused')
 ";

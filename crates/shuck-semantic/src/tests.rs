@@ -1194,7 +1194,7 @@ fn zsh_describe_consumes_named_array_operand_after_options_and_separator() {
 #!/bin/zsh
 cmds=(git:'run git')
 other_cmds=(hg:'run hg')
-_describe -O expl 'external command' cmds
+_describe -O 'external command' cmds
 _describe -- 'other command' other_cmds
 ";
     let model = model_with_dialect(source, ShellDialect::Zsh);
