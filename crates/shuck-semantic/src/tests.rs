@@ -11243,3 +11243,74 @@ run_dispatcher
         ArrayReferencePolicy::Ambiguous
     );
 }
+
+#[test]
+fn semantic_runtime_zsh_option_analysis_records_cached_root_function_snapshots() {
+    let source = "\
+setopt ksh_arrays
+unsetopt ksh_arrays
+callee() {
+  print $name
+}
+caller() {
+  callee
+}
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+    let caller_call_offset = source.rfind("callee").unwrap();
+    let callee_print_offset = source.find("print $name").unwrap();
+
+    assert_eq!(
+        array_reference_policy_at(&model, caller_call_offset),
+        ArrayReferencePolicy::Ambiguous
+    );
+    assert!(
+        model
+            .shell_behavior_at(callee_print_offset)
+            .zsh_options()
+            .is_some_and(|options| options.ksh_arrays == OptionValue::Unknown),
+        "{source}"
+    );
+    assert_eq!(
+        array_reference_policy_at(&model, callee_print_offset),
+        ArrayReferencePolicy::Ambiguous
+    );
+}
+
+#[test]
+fn semantic_runtime_zsh_option_analysis_keys_summaries_by_recursion_context() {
+    let source = "\
+setopt ksh_arrays
+unsetopt ksh_arrays
+f() {
+  g
+}
+g() {
+  h
+}
+h() {
+  g
+  print $name
+  unsetopt ksh_arrays
+}
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+    let f_call_offset = source.find("  g\n").unwrap() + 2;
+    let h_print_offset = source.find("print $name").unwrap();
+
+    assert_eq!(
+        array_reference_policy_at(&model, f_call_offset),
+        ArrayReferencePolicy::Ambiguous
+    );
+    assert!(
+        model
+            .shell_behavior_at(h_print_offset)
+            .zsh_options()
+            .is_some_and(|options| options.ksh_arrays == OptionValue::Unknown),
+        "{source}"
+    );
+    assert_eq!(
+        array_reference_policy_at(&model, h_print_offset),
+        ArrayReferencePolicy::Ambiguous
+    );
+}
