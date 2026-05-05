@@ -250,6 +250,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                             &mut seen_pending_arithmetic_word_occurrences,
                         assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
                         array_like_capable_names: &array_like_capable_names,
+                        semantic_analysis: self.semantic_analysis,
                         case_pattern_expansions: &mut case_pattern_expansions,
                         pattern_literal_spans: &mut pattern_literal_spans,
                         arithmetic: &mut arithmetic_summary,
