@@ -76,7 +76,7 @@ impl ShellProfileKey {
     fn from_profile(profile: &ShellProfile) -> Self {
         Self {
             dialect: profile.dialect,
-            options: profile.options.clone(),
+            options: profile.options,
         }
     }
 }

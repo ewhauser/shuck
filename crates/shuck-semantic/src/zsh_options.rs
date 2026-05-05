@@ -95,7 +95,7 @@ struct InternalState {
 
 impl InternalState {
     fn from_profile(profile: &ShellProfile) -> Option<Self> {
-        Some(Self::from_public(profile.zsh_options()?.clone()))
+        Some(Self::from_public(*profile.zsh_options()?))
     }
 
     fn from_public(public: ZshOptionState) -> Self {
@@ -603,9 +603,9 @@ impl<'a> Analyzer<'a> {
         state: EvalState,
         leak: LeakBehavior,
     ) -> EvalState {
-        self.record_scope_entry(scope, &state.current.public);
+        self.record_scope_entry(scope, state.current.public);
         let recorded = self.recorded_program.command(command);
-        self.record_snapshot(scope, recorded.span.start.offset, &state.current.public);
+        self.record_snapshot(scope, recorded.span.start.offset, state.current.public);
         self.analyze_command(scope, command, state, leak)
     }
 
@@ -616,10 +616,10 @@ impl<'a> Analyzer<'a> {
         mut state: EvalState,
         leak: LeakBehavior,
     ) -> EvalState {
-        self.record_scope_entry(scope, &state.current.public);
+        self.record_scope_entry(scope, state.current.public);
         for &command in self.recorded_program.commands_in(commands) {
             let recorded = self.recorded_program.command(command);
-            self.record_snapshot(scope, recorded.span.start.offset, &state.current.public);
+            self.record_snapshot(scope, recorded.span.start.offset, state.current.public);
             state = self.analyze_command(scope, command, state, leak);
         }
         state
@@ -948,7 +948,7 @@ impl<'a> Analyzer<'a> {
         let localize = local && in_function;
         let fields = ZshOptionField::ALL;
         let next_public = ZshOptionState::for_emulate(mode);
-        state.current.public = next_public.clone();
+        state.current.public = next_public;
         state.current.emulation = EmulationState::from_mode(mode);
         if localize {
             state.current.local_options = OptionValue::On;
@@ -1037,13 +1037,13 @@ impl<'a> Analyzer<'a> {
         match leak {
             LeakBehavior::Never => {}
             LeakBehavior::Always => {
-                state.outward.public = next.clone();
+                state.outward.public = *next;
                 state.outward_touched.insert_all(fields.iter().copied());
             }
             LeakBehavior::Function => match state.current.local_options {
                 OptionValue::On => {}
                 OptionValue::Off => {
-                    state.outward.public = next.clone();
+                    state.outward.public = *next;
                     state.outward_touched.insert_all(fields.iter().copied());
                 }
                 OptionValue::Unknown => {
@@ -1107,27 +1107,24 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn record_scope_entry(&mut self, scope: ScopeId, state: &ZshOptionState) {
+    fn record_scope_entry(&mut self, scope: ScopeId, state: ZshOptionState) {
         self.scope_entries
             .entry(scope)
-            .and_modify(|current| *current = current.merge(state))
-            .or_insert_with(|| state.clone());
+            .and_modify(|current| *current = current.merge(&state))
+            .or_insert(state);
     }
 
-    fn record_snapshot(&mut self, scope: ScopeId, offset: usize, state: &ZshOptionState) {
+    fn record_snapshot(&mut self, scope: ScopeId, offset: usize, state: ZshOptionState) {
         let snapshots = self.snapshots.entry(scope).or_default();
         if let Some(existing) = snapshots
             .iter_mut()
             .find(|snapshot| snapshot.offset == offset)
         {
-            existing.state = existing.state.merge(state);
+            existing.state = existing.state.merge(&state);
             return;
         }
 
-        snapshots.push(ZshOptionSnapshot {
-            offset,
-            state: state.clone(),
-        });
+        snapshots.push(ZshOptionSnapshot { offset, state });
     }
 }
 

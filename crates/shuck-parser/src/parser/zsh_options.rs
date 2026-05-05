@@ -63,7 +63,7 @@ pub enum ZshEmulationMode {
 /// table. Use [`ZshOptionState::zsh_default`] for native zsh parsing, then
 /// apply `setopt`, `unsetopt`, or `emulate` effects when a caller has already
 /// discovered them.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ZshOptionState {
     /// Whether unquoted parameter expansion is treated as eligible for
     /// shell-style word splitting.
