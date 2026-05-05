@@ -9976,6 +9976,56 @@ print -r -- ${functions[iterm2_precmd]}
 }
 
 #[test]
+fn zsh_subscript_declarations_preserve_explicit_array_flags() {
+    let source = "\
+#!/bin/zsh
+indexed=scalar
+assoc=scalar
+plain=scalar
+typeset -a indexed[1]=x
+typeset -A assoc[key]=x
+typeset plain[1]=x
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+
+    let indexed = model
+        .bindings()
+        .iter()
+        .rev()
+        .find(|binding| {
+            binding.name == "indexed"
+                && binding.kind == BindingKind::Declaration(DeclarationBuiltin::Typeset)
+        })
+        .expect("expected typed indexed declaration");
+    assert!(indexed.attributes.contains(BindingAttributes::ARRAY));
+    assert!(!indexed.attributes.contains(BindingAttributes::ASSOC));
+
+    let assoc = model
+        .bindings()
+        .iter()
+        .rev()
+        .find(|binding| {
+            binding.name == "assoc"
+                && binding.kind == BindingKind::Declaration(DeclarationBuiltin::Typeset)
+        })
+        .expect("expected typed associative declaration");
+    assert!(assoc.attributes.contains(BindingAttributes::ARRAY));
+    assert!(assoc.attributes.contains(BindingAttributes::ASSOC));
+
+    let plain = model
+        .bindings()
+        .iter()
+        .rev()
+        .find(|binding| {
+            binding.name == "plain"
+                && binding.kind == BindingKind::Declaration(DeclarationBuiltin::Typeset)
+        })
+        .expect("expected plain declaration");
+    assert!(!plain.attributes.contains(BindingAttributes::ARRAY));
+    assert!(!plain.attributes.contains(BindingAttributes::ASSOC));
+}
+
+#[test]
 fn arithmetic_indexed_writes_preserve_associative_attributes() {
     let source = "\
 #!/bin/bash

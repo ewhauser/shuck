@@ -29,6 +29,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.visit_assignment_reads_into(assignment, flow, nested_regions);
         let zsh_scalar_subscript_assignment =
             self.assignment_target_uses_zsh_scalar_subscript(assignment);
+        let explicit_array_declaration = declaration_kind.is_some()
+            && attributes.intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC);
         let (kind, scope) = declaration_kind.unwrap_or_else(|| {
             let kind = if assignment.append {
                 BindingKind::AppendAssignment
@@ -42,7 +44,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             (kind, self.current_scope())
         });
         attributes |= assignment_binding_attributes(assignment);
-        if zsh_scalar_subscript_assignment {
+        if zsh_scalar_subscript_assignment && !explicit_array_declaration {
             attributes.remove(BindingAttributes::ARRAY | BindingAttributes::ASSOC);
         }
         if assignment_has_empty_initializer(assignment, self.source) {
