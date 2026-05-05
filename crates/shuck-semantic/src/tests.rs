@@ -1178,6 +1178,24 @@ fn zsh_zstyle_listing_mode_does_not_create_named_target() {
 }
 
 #[test]
+fn zsh_zstyle_array_query_preserves_existing_associative_target() {
+    let source = "\
+#!/bin/zsh
+typeset -A style_map
+zstyle -a ':prezto:load' pmodule-dirs style_map
+print -r -- ${style_map[key]}
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let bindings = model.bindings_for(&Name::from("style_map"));
+    assert_eq!(bindings.len(), 2);
+    let binding = model.binding(*bindings.last().expect("zstyle target binding"));
+
+    assert!(binding.attributes.contains(BindingAttributes::ARRAY));
+    assert!(binding.attributes.contains(BindingAttributes::ASSOC));
+    assert_names_absent(&["key"], &unresolved_names(&model));
+}
+
+#[test]
 fn zsh_describe_consumes_named_array_operand() {
     let source =
         "#!/bin/zsh\ncmds=(git:'run git')\n_describe -t commands 'external command' cmds\n";
