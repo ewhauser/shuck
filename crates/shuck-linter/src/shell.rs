@@ -105,18 +105,18 @@ impl ShellDialect {
         let mut saw_bash_marker = false;
         let mut saw_zsh_marker = false;
         let mut at_directive_prefix = true;
-        let mut heredoc_delimiter: Option<(String, bool)> = None;
+        let mut heredoc_delimiters: Vec<(String, bool)> = Vec::new();
 
         for line in source.lines() {
             let trimmed = line.trim_start();
-            if let Some((delimiter, strip_tabs)) = heredoc_delimiter.as_ref() {
+            if let Some((delimiter, strip_tabs)) = heredoc_delimiters.first() {
                 let candidate = if *strip_tabs {
                     line.trim_start_matches('\t')
                 } else {
                     line
                 };
                 if candidate.trim_end() == delimiter {
-                    heredoc_delimiter = None;
+                    heredoc_delimiters.remove(0);
                 }
                 continue;
             }
@@ -137,7 +137,7 @@ impl ShellDialect {
             let code = code_before_comment(trimmed);
             saw_bash_marker |= line_has_bash_marker(code);
             saw_zsh_marker |= line_has_zsh_marker(code);
-            heredoc_delimiter = line_heredoc_delimiter(code);
+            heredoc_delimiters.extend(line_heredoc_delimiters(code));
             at_directive_prefix = false;
 
             if saw_bash_marker && saw_zsh_marker {
@@ -217,9 +217,7 @@ fn code_before_comment(line: &str) -> &str {
         if byte == b'#'
             && !in_single_quotes
             && !in_double_quotes
-            && bytes[..index]
-                .last()
-                .is_none_or(|previous| previous.is_ascii_whitespace() || shell_separator(*previous))
+            && hash_starts_comment(bytes, index)
         {
             return &line[..index];
         }
@@ -229,19 +227,56 @@ fn code_before_comment(line: &str) -> &str {
     line
 }
 
-fn line_heredoc_delimiter(line: &str) -> Option<(String, bool)> {
+fn hash_starts_comment(bytes: &[u8], index: usize) -> bool {
+    if index == 0 {
+        return true;
+    }
+    let previous_index = index - 1;
+    let previous = bytes[previous_index];
+    (previous.is_ascii_whitespace() || shell_separator(previous))
+        && !is_escaped_byte(bytes, previous_index)
+}
+
+fn is_escaped_byte(bytes: &[u8], index: usize) -> bool {
+    let mut backslashes = 0usize;
+    for byte in bytes[..index].iter().rev() {
+        if *byte == b'\\' {
+            backslashes += 1;
+        } else {
+            break;
+        }
+    }
+    backslashes % 2 == 1
+}
+
+fn line_heredoc_delimiters(line: &str) -> Vec<(String, bool)> {
+    let mut delimiters = Vec::new();
+    let mut rest = line;
+
+    while let Some((delimiter, consumed)) = next_heredoc_delimiter(rest) {
+        delimiters.push(delimiter);
+        rest = &rest[consumed.min(rest.len())..];
+    }
+
+    delimiters
+}
+
+fn next_heredoc_delimiter(line: &str) -> Option<((String, bool), usize)> {
     let redirect_start = heredoc_redirect_start(line)?;
     let mut rest = &line[redirect_start + 2..];
     let strip_tabs = rest.starts_with('-');
+    let mut consumed = redirect_start + 2;
     if strip_tabs {
         rest = &rest[1..];
+        consumed += 1;
     }
     let delimiter = heredoc_delimiter_token(rest)?;
+    consumed += delimiter.len();
     let delimiter = delimiter
         .trim_matches('\'')
         .trim_matches('"')
         .trim_matches('\\');
-    (!delimiter.is_empty()).then(|| (delimiter.to_owned(), strip_tabs))
+    (!delimiter.is_empty()).then(|| ((delimiter.to_owned(), strip_tabs), consumed))
 }
 
 fn heredoc_delimiter_token(rest: &str) -> Option<&str> {
@@ -583,6 +618,28 @@ cat <<EOF; printf '%s\\n' done
 $ZSH_VERSION
 EOF
 printf '%s\\n' \"$ZSH_VERSION\"
+";
+        let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
+        assert_eq!(inferred, ShellDialect::Zsh);
+    }
+
+    #[test]
+    fn multiple_heredoc_bodies_stay_inert_during_source_marker_inference() {
+        let source = "\
+cat <<EOF <<BAR
+plain text
+EOF
+$ZSH_VERSION
+BAR
+";
+        let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
+        assert_eq!(inferred, ShellDialect::Sh);
+    }
+
+    #[test]
+    fn escaped_whitespace_before_hash_does_not_start_a_comment() {
+        let source = "\
+printf '%s\\n' foo\\ # \"$ZSH_VERSION\"
 ";
         let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
         assert_eq!(inferred, ShellDialect::Zsh);
