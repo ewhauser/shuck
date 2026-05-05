@@ -1159,11 +1159,16 @@ fn visible_name_is_array_like(
     if !array_like_capable_names.contains(name) {
         return false;
     }
+    let synthetic_use_block = if semantic_analysis.reference_id_for_name_at(name, span).is_none() {
+        Some(semantic_analysis.flow_entry_block_for_binding_scopes(&[scope], span.start.offset))
+    } else {
+        None
+    };
     value_flow
         .reaching_value_bindings_for_name_with_synthetic_use_block(
             name,
             span,
-            Some(semantic_analysis.flow_entry_block_for_binding_scopes(&[scope], span.start.offset)),
+            synthetic_use_block,
         )
         .into_iter()
         .any(|binding_id| binding_is_array_like(semantic.binding(binding_id)))
