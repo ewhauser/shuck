@@ -718,7 +718,8 @@ _describe \"$opts\" desc values
 #!/bin/zsh
 values=(git)
 more_values=(hg)
-_describe 'external command' values -- more_values
+more_descriptions=(hg:'run hg')
+_describe 'external command' values -- more_values more_descriptions
 unused=(other:'unused')
 ";
         let diagnostics = test_snippet(

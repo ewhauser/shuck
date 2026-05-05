@@ -547,7 +547,7 @@ fn describe_array_names(args: &[&Word], source: &str) -> Vec<(Name, Span)> {
                     2 => (segment_start + 1, 1),
                     _ => (segment_start + 2, 2),
                 }
-            } else if first_group || segment_len > 1 {
+            } else if first_group {
                 (segment_start + 1, 2)
             } else {
                 (segment_start, 2)

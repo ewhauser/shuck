@@ -1292,11 +1292,12 @@ fn zsh_describe_consumes_array_operands_after_group_separator() {
 #!/bin/zsh
 values=(git)
 more_values=(hg)
-_describe 'external command' values -- more_values
+more_descriptions=(hg:'run hg')
+_describe 'external command' values -- more_values more_descriptions
 ";
     let model = model_with_dialect(source, ShellDialect::Zsh);
 
-    for name in ["values", "more_values"] {
+    for name in ["values", "more_values", "more_descriptions"] {
         let binding = binding_for_name(&model, name);
         assert_eq!(binding.references.len(), 1);
         assert_eq!(
