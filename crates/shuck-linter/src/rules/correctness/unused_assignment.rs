@@ -562,7 +562,7 @@ _describe -V -t git-refs 'Git References' refs -U
     }
 
     #[test]
-    fn zsh_describe_reads_all_static_array_operands_after_the_description() {
+    fn zsh_describe_reads_up_to_two_static_array_operands_after_the_description() {
         let source = "\
 #!/bin/zsh
 primary=(init:Initialize update:Update)
@@ -575,11 +575,17 @@ _describe -- 'command' primary secondary tertiary
             &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
         );
 
-        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["tertiary"]
+        );
     }
 
     #[test]
-    fn zsh_describe_does_not_treat_options_or_description_as_reads() {
+    fn zsh_describe_does_not_treat_options_as_reads() {
         let source = "\
 #!/bin/zsh
 tag=1
@@ -598,7 +604,7 @@ _describe -t tag -T display description consumed -U
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["tag", "display", "description"]
+            vec!["tag", "display"]
         );
     }
 
