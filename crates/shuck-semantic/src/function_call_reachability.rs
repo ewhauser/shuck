@@ -743,7 +743,7 @@ impl<'analysis, 'model> DirectFunctionCallReachability<'analysis, 'model> {
     }
 
     fn enclosing_function_scope(&self, scope: ScopeId) -> Option<ScopeId> {
-        self.model().enclosing_function_scope(scope)
+        self.analysis.enclosing_function_scope(scope)
     }
 
     fn call_is_inside_scope(&self, scope: ScopeId, ancestor_scope: ScopeId) -> bool {
