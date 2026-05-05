@@ -157,6 +157,23 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     self.add_reference_if_bound(&argument, ReferenceKind::ImplicitRead, span);
                 }
             }
+            "_arguments" if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh => {
+                for (argument, attributes) in
+                    zsh_arguments_targets(zsh_arguments_has_state_action(args, self.source))
+                {
+                    self.add_binding(
+                        &argument,
+                        BindingKind::ReadTarget,
+                        self.current_scope(),
+                        name_span,
+                        BindingOrigin::BuiltinTarget {
+                            definition_span: name_span,
+                            kind: BuiltinBindingTargetKind::ZshArguments,
+                        },
+                        attributes,
+                    );
+                }
+            }
             "let" => self.record_let_arithmetic_assignment_targets(args),
             "eval" => self.record_eval_argument_references(args),
             "trap" => self.record_trap_action_references(args),
@@ -527,6 +544,52 @@ fn zstyle_target(args: &[&Word], source: &str) -> Option<(Name, Span, BindingAtt
     args.get(index + 2)
         .and_then(|word| named_target_word(word, source))
         .map(|(name, span)| (name, span, attributes))
+}
+
+fn zsh_arguments_targets(include_state_targets: bool) -> Vec<(Name, BindingAttributes)> {
+    let mut targets = vec![
+        (Name::from("context"), BindingAttributes::ARRAY),
+        (Name::from("line"), BindingAttributes::ARRAY),
+        (
+            Name::from("opt_args"),
+            BindingAttributes::ARRAY | BindingAttributes::ASSOC,
+        ),
+    ];
+    if include_state_targets {
+        targets.push((Name::from("state"), BindingAttributes::ARRAY));
+        targets.push((Name::from("state_descr"), BindingAttributes::ARRAY));
+    }
+    targets
+}
+
+fn zsh_arguments_has_state_action(args: &[&Word], source: &str) -> bool {
+    args.iter()
+        .filter_map(|word| static_word_text(word, source))
+        .any(|text| zsh_argument_spec_has_state_action(&text))
+}
+
+fn zsh_argument_spec_has_state_action(text: &str) -> bool {
+    let mut bracket_depth = 0usize;
+    let mut previous_non_whitespace = None;
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '[' {
+            bracket_depth += 1;
+        } else if ch == ']' {
+            bracket_depth = bracket_depth.saturating_sub(1);
+        } else if ch == '-'
+            && chars.peek() == Some(&'>')
+            && bracket_depth == 0
+            && previous_non_whitespace == Some(':')
+        {
+            return true;
+        }
+
+        if !ch.is_whitespace() {
+            previous_non_whitespace = Some(ch);
+        }
+    }
+    false
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

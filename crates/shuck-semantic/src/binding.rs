@@ -141,6 +141,8 @@ pub enum BuiltinBindingTargetKind {
     Zparseopts,
     /// `zstyle -a`, `zstyle -s`, or `zstyle -b`
     Zstyle,
+    /// zsh `_arguments`
+    ZshArguments,
 }
 
 /// High-level category for a semantic binding.

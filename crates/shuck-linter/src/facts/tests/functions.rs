@@ -617,6 +617,212 @@ complete -F _comp_cmd_later later
 }
 
 #[test]
+fn marks_commands_inside_zsh_compdef_registered_functions() {
+    let source = "\
+#!/bin/zsh
+__grunt() {
+  print -r -- $verbose
+}
+compdef __grunt grunt
+";
+
+    with_facts(source, None, |_, facts| {
+        let flagged_lines = facts
+            .commands()
+            .iter()
+            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .map(|command| command.span().start.line)
+            .collect::<Vec<_>>();
+
+        assert!(!flagged_lines.is_empty());
+        assert!(flagged_lines.iter().all(|line| *line == 3));
+    });
+}
+
+#[test]
+fn ignores_zsh_compdef_registrations_inside_function_bodies() {
+    let source = "\
+#!/bin/zsh
+__grunt() {
+  print -r -- $verbose
+}
+setup_completion() {
+  compdef __grunt grunt
+}
+";
+
+    with_facts(source, None, |_, facts| {
+        let flagged_lines = facts
+            .commands()
+            .iter()
+            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .map(|command| command.span().start.line)
+            .collect::<Vec<_>>();
+
+        assert_eq!(flagged_lines, Vec::<usize>::new());
+    });
+}
+
+#[test]
+fn ignores_zsh_compdef_for_conditionally_defined_functions() {
+    let source = "\
+#!/bin/zsh
+if [[ -n $commands[grunt] ]]; then
+  __grunt() {
+    print -r -- $verbose
+  }
+fi
+compdef __grunt grunt
+";
+
+    with_facts(source, None, |_, facts| {
+        let flagged_lines = facts
+            .commands()
+            .iter()
+            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .map(|command| command.span().start.line)
+            .collect::<Vec<_>>();
+
+        assert_eq!(flagged_lines, Vec::<usize>::new());
+    });
+}
+
+#[test]
+fn ignores_zsh_compdef_service_aliases_for_function_matching() {
+    let source = "\
+#!/bin/zsh
+grunt() {
+  print -r -- $verbose
+}
+compdef __grunt=grunt
+";
+
+    with_facts(source, None, |_, facts| {
+        let flagged_lines = facts
+            .commands()
+            .iter()
+            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .map(|command| command.span().start.line)
+            .collect::<Vec<_>>();
+
+        assert_eq!(flagged_lines, Vec::<usize>::new());
+    });
+}
+
+#[test]
+fn ignores_zsh_compdef_deletion_modes_for_function_matching() {
+    let source = "\
+#!/bin/zsh
+grunt() {
+  print -r -- $verbose
+}
+compdef -d grunt
+";
+
+    with_facts(source, None, |_, facts| {
+        let flagged_lines = facts
+            .commands()
+            .iter()
+            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .map(|command| command.span().start.line)
+            .collect::<Vec<_>>();
+
+        assert_eq!(flagged_lines, Vec::<usize>::new());
+    });
+}
+
+#[test]
+fn ignores_conditionally_executed_zsh_compdef_registrations() {
+    let source = "\
+#!/bin/zsh
+__grunt() {
+  print -r -- $verbose
+}
+[[ -n $commands[grunt] ]] && compdef __grunt grunt
+";
+
+    with_facts(source, None, |_, facts| {
+        let flagged_lines = facts
+            .commands()
+            .iter()
+            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .map(|command| command.span().start.line)
+            .collect::<Vec<_>>();
+
+        assert_eq!(flagged_lines, Vec::<usize>::new());
+    });
+}
+
+#[test]
+fn marks_zsh_compdef_functions_after_option_operands() {
+    let source = "\
+#!/bin/zsh
+__grunt() {
+  print -r -- $verbose
+}
+compdef -P 'grunt-*' __grunt grunt
+";
+
+    with_facts(source, None, |_, facts| {
+        let flagged_lines = facts
+            .commands()
+            .iter()
+            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .map(|command| command.span().start.line)
+            .collect::<Vec<_>>();
+
+        assert!(!flagged_lines.is_empty());
+        assert!(flagged_lines.iter().all(|line| *line == 3));
+    });
+}
+
+#[test]
+fn marks_zsh_compdef_functions_after_pattern_and_name_mode_options() {
+    let source = "\
+#!/bin/zsh
+__grunt() {
+  print -r -- $verbose
+}
+compdef -P 'grunt-*' -N __grunt grunt
+";
+
+    with_facts(source, None, |_, facts| {
+        let flagged_lines = facts
+            .commands()
+            .iter()
+            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .map(|command| command.span().start.line)
+            .collect::<Vec<_>>();
+
+        assert!(!flagged_lines.is_empty());
+        assert!(flagged_lines.iter().all(|line| *line == 3));
+    });
+}
+
+#[test]
+fn marks_later_zsh_functions_registered_by_earlier_compdef() {
+    let source = "\
+#!/bin/zsh
+compdef __grunt grunt
+__grunt() {
+  print -r -- $verbose
+}
+";
+
+    with_facts(source, None, |_, facts| {
+        let flagged_lines = facts
+            .commands()
+            .iter()
+            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .map(|command| command.span().start.line)
+            .collect::<Vec<_>>();
+
+        assert!(!flagged_lines.is_empty());
+        assert!(flagged_lines.iter().all(|line| *line == 4));
+    });
+}
+
+#[test]
 fn marks_zsh_widget_and_hook_functions_as_external_entrypoints() {
     let source = "\
 #!/bin/zsh

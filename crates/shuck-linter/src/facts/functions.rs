@@ -221,21 +221,10 @@ fn build_function_parameter_fallback_spans(
 }
 
 fn build_completion_registered_function_command_flags(
-    semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     commands: &[CommandFact<'_>],
-    command_fact_indices_by_id: &[Option<usize>],
-    lists: &[ListFact<'_>],
-    source: &str,
+    registered_scopes: &FxHashSet<ScopeId>,
 ) -> Vec<bool> {
-    let registered_scopes = build_completion_registered_function_scopes(
-        semantic,
-        commands,
-        command_fact_indices_by_id,
-        lists,
-        source,
-    );
-
     let mut flags = vec![false; function_command_slot_count(commands)];
     for command in commands {
         flags[command.id().index()] = semantic_analysis
@@ -258,6 +247,11 @@ fn build_completion_registered_function_scopes(
         function_candidates[command.id().index()] =
             completion_registered_function_candidate(semantic, command);
     }
+    let top_level_candidate_scopes = function_candidates
+        .iter()
+        .flatten()
+        .map(|candidate| candidate.scope)
+        .collect::<FxHashSet<_>>();
     let mut scopes = FxHashSet::default();
 
     for list in lists {
@@ -267,18 +261,44 @@ fn build_completion_registered_function_scopes(
             };
 
             if list.segments()[index + 1..].iter().any(|later_segment| {
-                command_registers_completion_function(
-                    command_fact(
-                        commands,
-                        command_fact_indices_by_id,
-                        later_segment.command_id(),
-                    ),
-                    source,
-                    &candidate.name,
-                )
+                let later_command =
+                    command_fact(commands, command_fact_indices_by_id, later_segment.command_id());
+                is_unconditional_completion_registration(semantic, later_command)
+                    && command_registers_completion_function(later_command, source, &candidate.name)
             }) {
                 scopes.insert(candidate.scope);
             }
+        }
+    }
+
+    for command in commands {
+        let Some(candidate) = function_candidates[command.id().index()].as_ref() else {
+            continue;
+        };
+        if commands.iter().any(|later_command| {
+            is_unconditional_completion_registration(semantic, later_command)
+                && later_command.effective_or_literal_name() == Some("compdef")
+                && command_registers_completion_function(later_command, source, &candidate.name)
+        }) {
+            scopes.insert(candidate.scope);
+        }
+    }
+
+    for scope in semantic.scopes() {
+        if !top_level_candidate_scopes.contains(&scope.id) {
+            continue;
+        }
+        let ScopeKind::Function(FunctionScopeKind::Named(names)) = &scope.kind else {
+            continue;
+        };
+        if commands.iter().any(|command| {
+            is_unconditional_completion_registration(semantic, command)
+                && command.effective_or_literal_name() == Some("compdef")
+                && names.iter().any(|name| {
+                    command_registers_completion_function(command, source, name.as_str())
+                })
+        }) {
+            scopes.insert(scope.id);
         }
     }
 
@@ -391,7 +411,47 @@ fn is_top_level_zsh_entrypoint_registration(
     semantic: &SemanticModel,
     command: &CommandFact<'_>,
 ) -> bool {
-    semantic.scope(command.scope()).parent.is_none() && !command.is_nested_word_command()
+    semantic.scope(command.scope()).parent.is_none()
+        && !command.is_nested_word_command()
+        && !has_structural_parent_command(semantic, command.id())
+}
+
+fn has_structural_parent_command(semantic: &SemanticModel, id: CommandId) -> bool {
+    let mut current = semantic.syntax_backed_command_parent_id(id);
+    while let Some(parent) = current {
+        if matches!(
+            semantic.command_kind(parent),
+            shuck_semantic::CommandKind::Compound(_)
+                | shuck_semantic::CommandKind::Function
+                | shuck_semantic::CommandKind::AnonymousFunction
+        ) {
+            return true;
+        }
+        current = semantic.syntax_backed_command_parent_id(parent);
+    }
+    false
+}
+
+fn is_unconditional_completion_registration(
+    semantic: &SemanticModel,
+    command: &CommandFact<'_>,
+) -> bool {
+    if !is_top_level_zsh_entrypoint_registration(semantic, command) {
+        return false;
+    }
+    command.effective_or_literal_name() != Some("compdef")
+        || !has_binary_parent_command(semantic, command.id())
+}
+
+fn has_binary_parent_command(semantic: &SemanticModel, id: CommandId) -> bool {
+    let mut current = semantic.syntax_backed_command_parent_id(id);
+    while let Some(parent) = current {
+        if matches!(semantic.command_kind(parent), shuck_semantic::CommandKind::Binary) {
+            return true;
+        }
+        current = semantic.syntax_backed_command_parent_id(parent);
+    }
+    false
 }
 
 fn function_command_slot_count(commands: &[CommandFact<'_>]) -> usize {
@@ -406,6 +466,9 @@ fn completion_registered_function_candidate(
     semantic: &SemanticModel,
     command: &CommandFact<'_>,
 ) -> Option<CompletionRegisteredFunctionCandidate> {
+    if !is_top_level_zsh_entrypoint_registration(semantic, command) {
+        return None;
+    }
     let Command::Function(function) = command.command() else {
         return None;
     };
@@ -440,35 +503,81 @@ fn command_registers_completion_function(
     source: &str,
     expected_name: &str,
 ) -> bool {
-    if command.effective_or_literal_name() != Some("complete") {
+    let command_name = command.effective_or_literal_name();
+
+    if command_name == Some("compdef") {
+        let mut index = 0usize;
+        let args = command.body_args();
+        while let Some(word) = args.get(index) {
+            let Some(text) = static_word_text(word, source) else {
+                return false;
+            };
+            if text == "--" {
+                index += 1;
+                break;
+            }
+            let Some(flags) = text.strip_prefix('-') else {
+                break;
+            };
+            if flags.is_empty() || flags.starts_with('-') {
+                break;
+            }
+            if flags.contains('d') || flags.contains('D') {
+                return false;
+            }
+            index += 1;
+            for flag in flags.chars() {
+                if matches!(flag, 'p' | 'P') {
+                    if index >= args.len() {
+                        return false;
+                    }
+                    index += 1;
+                }
+            }
+        }
+
+        if let Some(word) = args.get(index) {
+            let Some(text) = static_word_text(word, source) else {
+                return false;
+            };
+            if text.contains('=') {
+                return false;
+            }
+            if text == expected_name {
+                return true;
+            }
+            return false;
+        }
         return false;
     }
 
-    let mut expects_function_name = false;
-    for word in command.body_args() {
-        let Some(text) = static_word_text(word, source) else {
-            expects_function_name = false;
-            continue;
-        };
+    if command_name == Some("complete") {
+        let mut expects_function_name = false;
+        for word in command.body_args() {
+            let Some(text) = static_word_text(word, source) else {
+                expects_function_name = false;
+                continue;
+            };
 
-        if expects_function_name {
-            return text == expected_name;
-        }
+            if expects_function_name {
+                return text == expected_name;
+            }
 
-        if text == "--" {
-            return false;
-        }
-        if text == "-F" || text == "--function" {
-            expects_function_name = true;
-            continue;
-        }
-        if let Some(name) = text.strip_prefix("-F")
-            && !name.is_empty()
-        {
-            return name == expected_name;
-        }
-        if let Some(name) = text.strip_prefix("--function=") {
-            return name == expected_name;
+            if text == "--" {
+                return false;
+            }
+            if text == "-F" || text == "--function" {
+                expects_function_name = true;
+                continue;
+            }
+            if let Some(name) = text.strip_prefix("-F")
+                && !name.is_empty()
+            {
+                return name == expected_name;
+            }
+            if let Some(name) = text.strip_prefix("--function=") {
+                return name == expected_name;
+            }
         }
     }
 

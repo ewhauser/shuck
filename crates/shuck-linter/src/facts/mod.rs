@@ -67,11 +67,11 @@ use shuck_parser::parser::Parser;
 use shuck_semantic::{
     ArithmeticLiteralBehavior, Binding, BindingAttributes, BindingId, BindingKind, CaseCliDispatch,
     Declaration, DeclarationBuiltin, DeclarationOperand as SemanticDeclarationOperand,
-    FieldSplittingBehavior, FileExpansionOrderBehavior, GlobDotBehavior, GlobFailureBehavior,
-    GlobPatternBehavior, NonpersistentAssignmentAnalysisContext,
+    FieldSplittingBehavior, FileExpansionOrderBehavior, FunctionScopeKind, GlobDotBehavior,
+    GlobFailureBehavior, GlobPatternBehavior, NonpersistentAssignmentAnalysisContext,
     NonpersistentAssignmentAnalysisOptions, NonpersistentAssignmentCommandContext,
     NonpersistentAssignmentExtraRead, OptionValue, PathnameExpansionBehavior, Reference,
-    ReferenceId, ReferenceKind, ScopeId, SemanticAnalysis, SemanticModel,
+    ReferenceId, ReferenceKind, ScopeId, ScopeKind, SemanticAnalysis, SemanticModel,
     SemanticPipelineOperatorKind, SemanticValueFlow, ShellBehaviorAt, SubscriptIndexBehavior,
     ZshOptionState,
 };
