@@ -48,6 +48,17 @@ impl PathnameExpansionBehavior {
     }
 }
 
+/// Whether zsh filename expansion runs before or after parameter expansion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileExpansionOrderBehavior {
+    /// Filename expansion runs before parameter expansion.
+    BeforeParameterExpansion,
+    /// Filename expansion runs after parameter expansion.
+    AfterParameterExpansion,
+    /// Runtime option state may select either order.
+    Ambiguous,
+}
+
 /// How unmatched glob patterns behave.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GlobFailureBehavior {
@@ -161,6 +172,22 @@ impl ShellBehaviorAt<'_> {
                 OptionValue::On => PathnameExpansionBehavior::SubstitutionResultsWhenUnquoted,
                 OptionValue::Unknown => PathnameExpansionBehavior::Ambiguous,
             },
+        }
+    }
+
+    /// Returns the filename-expansion order implied by the shell and runtime option state.
+    pub fn file_expansion_order(&self) -> FileExpansionOrderBehavior {
+        if self.shell != ShellDialect::Zsh {
+            return FileExpansionOrderBehavior::BeforeParameterExpansion;
+        }
+
+        match self
+            .effective_zsh_options()
+            .map(|options| options.sh_file_expansion)
+        {
+            Some(OptionValue::On) => FileExpansionOrderBehavior::BeforeParameterExpansion,
+            Some(OptionValue::Unknown) => FileExpansionOrderBehavior::Ambiguous,
+            Some(OptionValue::Off) | None => FileExpansionOrderBehavior::AfterParameterExpansion,
         }
     }
 
@@ -376,6 +403,43 @@ mod tests {
                 "{source}"
             );
         }
+    }
+
+    #[test]
+    fn file_expansion_order_tracks_sh_file_expansion_by_offset() {
+        let source = "\
+print ~$USER
+setopt sh_file_expansion
+print ~$USER
+unsetopt sh_file_expansion
+print ~$USER
+opt=sh_file_expansion
+setopt \"$opt\"
+print ~$USER
+";
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+        let first = source.find("print ~$USER").unwrap();
+        let enabled = source.find("print ~$USER\nunsetopt").unwrap();
+        let disabled = source.find("print ~$USER\nopt=").unwrap();
+        let ambiguous = source.rfind("print ~$USER").unwrap();
+
+        assert_eq!(
+            model.shell_behavior_at(first).file_expansion_order(),
+            FileExpansionOrderBehavior::AfterParameterExpansion,
+        );
+        assert_eq!(
+            model.shell_behavior_at(enabled).file_expansion_order(),
+            FileExpansionOrderBehavior::BeforeParameterExpansion,
+        );
+        assert_eq!(
+            model.shell_behavior_at(disabled).file_expansion_order(),
+            FileExpansionOrderBehavior::AfterParameterExpansion,
+        );
+        assert_eq!(
+            model.shell_behavior_at(ambiguous).file_expansion_order(),
+            FileExpansionOrderBehavior::Ambiguous,
+        );
     }
 
     #[test]

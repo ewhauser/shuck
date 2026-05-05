@@ -67,12 +67,12 @@ use shuck_parser::parser::Parser;
 use shuck_semantic::{
     ArithmeticLiteralBehavior, Binding, BindingAttributes, BindingId, BindingKind, CaseCliDispatch,
     Declaration, DeclarationBuiltin, DeclarationOperand as SemanticDeclarationOperand,
-    FieldSplittingBehavior, GlobDotBehavior, GlobFailureBehavior, GlobPatternBehavior,
-    NonpersistentAssignmentAnalysisContext, NonpersistentAssignmentAnalysisOptions,
-    NonpersistentAssignmentCommandContext, NonpersistentAssignmentExtraRead, OptionValue,
-    PathnameExpansionBehavior, PatternOperatorBehavior, Reference, ReferenceId, ReferenceKind,
-    ScopeId, SemanticAnalysis, SemanticModel, SemanticPipelineOperatorKind, SubscriptIndexBehavior,
-    ZshOptionState,
+    FieldSplittingBehavior, FileExpansionOrderBehavior, GlobDotBehavior, GlobFailureBehavior,
+    GlobPatternBehavior, NonpersistentAssignmentAnalysisContext,
+    NonpersistentAssignmentAnalysisOptions, NonpersistentAssignmentCommandContext,
+    NonpersistentAssignmentExtraRead, OptionValue, PathnameExpansionBehavior,
+    PatternOperatorBehavior, Reference, ReferenceId, ReferenceKind, ScopeId, SemanticAnalysis,
+    SemanticModel, SemanticPipelineOperatorKind, SubscriptIndexBehavior, ZshOptionState,
 };
 use smallvec::SmallVec;
 use std::{borrow::Cow, ops::ControlFlow, sync::OnceLock};

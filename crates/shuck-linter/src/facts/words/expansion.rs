@@ -336,6 +336,19 @@ pub(super) fn pathname_expansion_behavior_for_options(
     }
 }
 
+pub(super) fn file_expansion_order_for_options(
+    options: Option<&ZshOptionState>,
+) -> FileExpansionOrderBehavior {
+    match options {
+        Some(options) => match options.sh_file_expansion {
+            OptionValue::Off => FileExpansionOrderBehavior::AfterParameterExpansion,
+            OptionValue::On => FileExpansionOrderBehavior::BeforeParameterExpansion,
+            OptionValue::Unknown => FileExpansionOrderBehavior::Ambiguous,
+        },
+        None => FileExpansionOrderBehavior::BeforeParameterExpansion,
+    }
+}
+
 pub(super) fn glob_failure_behavior_for_options(
     options: Option<&ZshOptionState>,
 ) -> GlobFailureBehavior {
@@ -567,6 +580,7 @@ pub(crate) fn analyze_literal_runtime(
 pub(super) struct RuntimeLiteralState {
     seen_text: bool,
     last_unquoted_char: Option<char>,
+    deferred_tilde: bool,
 }
 
 pub(super) fn analyze_literal_runtime_parts(
@@ -589,34 +603,40 @@ pub(super) fn analyze_literal_runtime_parts(
                 );
             }
             WordPart::SingleQuoted { value, .. } => {
+                cancel_deferred_tilde(state);
                 if !value.slice(source).is_empty() {
                     state.seen_text = true;
                     state.last_unquoted_char = None;
                 }
             }
             WordPart::DoubleQuoted { parts, .. } => {
+                cancel_deferred_tilde(state);
                 if !parts.is_empty() {
                     state.seen_text = true;
                     state.last_unquoted_char = None;
                 }
             }
-            _ => {}
+            _ => cancel_deferred_tilde(state),
         }
     }
+
+    flush_deferred_tilde(state, analysis);
 }
 
 pub(super) fn scan_literal_runtime_text(
     text: &str,
     context: ExpansionContext,
-    _options: Option<&ZshOptionState>,
+    options: Option<&ZshOptionState>,
     state: &mut RuntimeLiteralState,
     analysis: &mut RuntimeLiteralAnalysis,
 ) {
     let mut escaped = false;
     let mut brace_candidate: Option<usize> = None;
+    let file_expansion_order = file_expansion_order_for_options(options);
 
     for (idx, ch) in text.char_indices() {
         if escaped {
+            cancel_deferred_tilde(state);
             escaped = false;
             state.seen_text = true;
             state.last_unquoted_char = Some(ch);
@@ -624,14 +644,25 @@ pub(super) fn scan_literal_runtime_text(
         }
 
         if ch == '\\' {
+            cancel_deferred_tilde(state);
             escaped = true;
             state.seen_text = true;
             continue;
         }
 
         if context_allows_tilde(context) && ch == '~' && tilde_is_runtime_sensitive(state) {
-            analysis.runtime_sensitive = true;
-            analysis.hazards.tilde_expansion = true;
+            match file_expansion_order {
+                FileExpansionOrderBehavior::BeforeParameterExpansion => {
+                    state.deferred_tilde = true;
+                }
+                FileExpansionOrderBehavior::AfterParameterExpansion
+                | FileExpansionOrderBehavior::Ambiguous => {
+                    analysis.runtime_sensitive = true;
+                    analysis.hazards.tilde_expansion = true;
+                }
+            }
+        } else if state.deferred_tilde && ch == '/' {
+            flush_deferred_tilde(state, analysis);
         }
 
         if context_allows_pathname_matching(context)
@@ -659,6 +690,21 @@ pub(super) fn scan_literal_runtime_text(
         state.seen_text = true;
         state.last_unquoted_char = Some(ch);
     }
+}
+
+fn flush_deferred_tilde(
+    state: &mut RuntimeLiteralState,
+    analysis: &mut RuntimeLiteralAnalysis,
+) {
+    if state.deferred_tilde {
+        analysis.runtime_sensitive = true;
+        analysis.hazards.tilde_expansion = true;
+        state.deferred_tilde = false;
+    }
+}
+
+fn cancel_deferred_tilde(state: &mut RuntimeLiteralState) {
+    state.deferred_tilde = false;
 }
 
 pub(super) fn tilde_is_runtime_sensitive(state: &RuntimeLiteralState) -> bool {
