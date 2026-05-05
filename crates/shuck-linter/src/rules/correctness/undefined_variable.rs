@@ -121,7 +121,9 @@ fn is_zsh_completion_context_name(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
+    use std::path::Path;
+
+    use crate::test::{test_snippet, test_snippet_at_path};
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
@@ -533,6 +535,60 @@ update_main() {
 update_main \"$@\"
 ";
         let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_sourced_runtime_helpers_accept_caller_scoped_option_arrays() {
+        let source = "\
+#!/bin/zsh
+_update_core_safe_rm() {
+  if [[ ${#dry_run[@]} -gt 0 ]]; then
+    print -r -- dry
+  fi
+  print -r -- $missing
+}
+";
+        let path = Path::new("/tmp/project/core/update_core.zsh");
+        let diagnostics = test_snippet_at_path(
+            path,
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_sourced_hook_helpers_accept_caller_scoped_option_arrays() {
+        let source = "\
+#!/bin/zsh
+_zdot_update_hook_unpack() {
+  if [[ ${#force[@]} -eq 0 ]]; then
+    print -r -- skip
+  fi
+  print -r -- $missing
+}
+";
+        let path = Path::new("/tmp/project/zdot/core/update-impl.zsh");
+        let diagnostics = test_snippet_at_path(
+            path,
             source,
             &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
         );
