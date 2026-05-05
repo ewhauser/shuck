@@ -1270,10 +1270,10 @@ _describe \"$desc\" values descriptions
 }
 
 #[test]
-fn zsh_describe_skips_descriptor_after_dynamic_options() {
+fn zsh_describe_skips_descriptor_after_dynamic_no_value_options() {
     let source = "\
 #!/bin/zsh
-opts='-o'
+opts='-O'
 desc=(not:target)
 values=(git)
 _describe \"$opts\" desc values
