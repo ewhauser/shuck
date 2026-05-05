@@ -1010,8 +1010,12 @@ pub(super) fn single_quoted_literal_exempt_argument(
 
     match command_name {
         "alias" => static_word_text(word, source).is_some_and(|text| text.contains('=')),
+        "builtin" if shell_dialect == shuck_parser::ShellDialect::Zsh => {
+            zsh_builtin_dynamic_wrapper_argument(body_args, relative_arg_index, word, source)
+        }
         "eval" => true,
         "git filter-branch" | "mumps -run %XCMD" | "mumps -run LOOP%XCMD" => true,
+        "gh" => gh_graphql_query_argument(body_args, relative_arg_index, word, source),
         "docker" | "podman" | "oc" => {
             container_shell_command_argument_index(body_args, source) == Some(relative_arg_index)
                 || format_option_argument_index(body_args, source) == Some(relative_arg_index)
@@ -1023,9 +1027,17 @@ pub(super) fn single_quoted_literal_exempt_argument(
         }
         "jq" => jq_literal_argument_index(body_args, source).contains(&relative_arg_index),
         "rename" => rename_program_argument_index(body_args, source) == Some(relative_arg_index),
+        "regexp-replace" if shell_dialect == shuck_parser::ShellDialect::Zsh => {
+            relative_arg_index >= 2
+        }
         "rg" => rg_pattern_argument_index(body_args, source) == Some(relative_arg_index),
         "sched" if shell_dialect == shuck_parser::ShellDialect::Zsh => {
             sched_command_argument_index(body_args, source) == Some(relative_arg_index)
+        }
+        "local" | "typeset" | "declare" | "readonly"
+            if shell_dialect == shuck_parser::ShellDialect::Zsh =>
+        {
+            zsh_declaration_delayed_eval_literal_argument(word, source)
         }
         "sh" | "bash" | "dash" | "ksh" | "zsh" => {
             shell_command_argument_index(body_args, source) == Some(relative_arg_index)
@@ -1056,6 +1068,58 @@ pub(super) fn single_quoted_literal_exempt_argument(
         }
         _ => false,
     }
+}
+
+fn gh_graphql_query_argument(args: &[Word], relative_arg_index: usize, word: &Word, source: &str) -> bool {
+    if !matches!(
+        (args.first(), args.get(1)),
+        (Some(first), Some(second))
+            if static_word_text(first, source).is_some_and(|text| text.as_ref() == "api")
+                && static_word_text(second, source)
+                    .is_some_and(|text| text.as_ref() == "graphql")
+    ) {
+        return false;
+    }
+
+    if !args[..relative_arg_index]
+        .iter()
+        .filter_map(|arg| static_word_text(arg, source))
+        .any(|text| matches!(text.as_ref(), "-f" | "--field" | "-F" | "--raw-field"))
+    {
+        return false;
+    }
+
+    let raw = word.span.slice(source);
+    raw.starts_with("query=") || raw.starts_with("query:")
+}
+
+fn zsh_builtin_dynamic_wrapper_argument(
+    args: &[Word],
+    relative_arg_index: usize,
+    word: &Word,
+    source: &str,
+) -> bool {
+    if relative_arg_index == 0
+        || args[..relative_arg_index]
+            .iter()
+            .all(|arg| static_word_text(arg, source).is_some())
+    {
+        return false;
+    }
+
+    static_word_text(word, source).is_some_and(|text| {
+        let text = text.as_ref();
+        text.contains(char::is_whitespace)
+            && text
+                .chars()
+                .next()
+                .is_some_and(|char| char == '_' || char.is_ascii_alphabetic())
+    })
+}
+
+fn zsh_declaration_delayed_eval_literal_argument(word: &Word, source: &str) -> bool {
+    let raw = word.span.slice(source);
+    raw.contains("_p9k__segment_cond_") && raw.contains('=')
 }
 
 fn sched_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
