@@ -620,6 +620,13 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 &lists,
                 self.source,
             );
+        let external_entrypoint_function_scopes = build_external_entrypoint_function_scopes(
+            self.semantic,
+            &commands,
+            &command_fact_indices_by_id,
+            &lists,
+            self.source,
+        );
         annotate_conditional_assignment_value_paths(self.semantic, &lists, &mut binding_values);
         let statement_facts = build_statement_facts(&commands, self.semantic);
         let background_semicolon_spans =
@@ -954,6 +961,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             array_assignment_split_word_ids,
             brace_variable_before_bracket_spans,
             completion_registered_function_command_flags,
+            external_entrypoint_function_scopes,
             function_headers,
             function_definition_command_ids_by_scope,
             case_cli_reachable_function_scopes,

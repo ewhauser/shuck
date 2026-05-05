@@ -285,6 +285,63 @@ fn build_completion_registered_function_scopes(
     scopes
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
+fn build_external_entrypoint_function_scopes(
+    semantic: &SemanticModel,
+    commands: &[CommandFact<'_>],
+    command_fact_indices_by_id: &[Option<usize>],
+    lists: &[ListFact<'_>],
+    source: &str,
+) -> FxHashSet<ScopeId> {
+    let mut function_candidates = Vec::new();
+    function_candidates.resize_with(function_command_slot_count(commands), || None);
+    for command in commands {
+        function_candidates[command.id().index()] =
+            external_entrypoint_function_candidate(semantic, command);
+    }
+
+    let mut scopes = FxHashSet::default();
+    for candidate in function_candidates.iter().flatten() {
+        if is_zsh_special_hook_name(&candidate.name) {
+            scopes.insert(candidate.scope);
+        }
+    }
+
+    for command in commands {
+        if let Some(name) = command_registers_zsh_external_entrypoint(command, source) {
+            for candidate in function_candidates.iter().flatten() {
+                if candidate.name.as_ref() == name.as_ref() {
+                    scopes.insert(candidate.scope);
+                }
+            }
+        }
+    }
+
+    for list in lists {
+        for (index, segment) in list.segments().iter().enumerate() {
+            let Some(candidate) = function_candidates[segment.command_id().index()].as_ref() else {
+                continue;
+            };
+
+            if list.segments()[index + 1..].iter().any(|later_segment| {
+                command_registers_completion_function(
+                    command_fact(
+                        commands,
+                        command_fact_indices_by_id,
+                        later_segment.command_id(),
+                    ),
+                    source,
+                    &candidate.name,
+                )
+            }) {
+                scopes.insert(candidate.scope);
+            }
+        }
+    }
+
+    scopes
+}
+
 fn function_command_slot_count(commands: &[CommandFact<'_>]) -> usize {
     commands
         .iter()
@@ -306,6 +363,23 @@ fn completion_registered_function_candidate(
     Some(CompletionRegisteredFunctionCandidate {
         scope,
         name: name.as_str().to_owned().into_boxed_str(),
+    })
+}
+
+fn external_entrypoint_function_candidate(
+    semantic: &SemanticModel,
+    command: &CommandFact<'_>,
+) -> Option<CompletionRegisteredFunctionCandidate> {
+    let Command::Function(function) = command.command() else {
+        return None;
+    };
+    let (name, _) = function.static_name_entries().next()?;
+    let scope = semantic.scope_at(function.body.span.start.offset);
+    let name_text = name.as_str();
+
+    Some(CompletionRegisteredFunctionCandidate {
+        scope,
+        name: name_text.to_owned().into_boxed_str(),
     })
 }
 
@@ -347,6 +421,58 @@ fn command_registers_completion_function(
     }
 
     false
+}
+
+fn command_registers_zsh_external_entrypoint(
+    command: &CommandFact<'_>,
+    source: &str,
+) -> Option<Box<str>> {
+    match command.effective_or_literal_name()? {
+        "zle" => zle_registered_function(command, source),
+        "add-zsh-hook" => add_zsh_hook_registered_function(command, source),
+        _ => None,
+    }
+}
+
+fn zle_registered_function(command: &CommandFact<'_>, source: &str) -> Option<Box<str>> {
+    let args = static_command_args(command, source)?;
+    let registration_index = args.iter().position(|arg| arg == "-N")?;
+    let operands = args[registration_index + 1..]
+        .iter()
+        .filter(|arg| !arg.starts_with('-'))
+        .collect::<Vec<_>>();
+    match operands.as_slice() {
+        [widget] => Some(widget.as_str().into()),
+        [_, function, ..] => Some(function.as_str().into()),
+        _ => None,
+    }
+}
+
+fn add_zsh_hook_registered_function(command: &CommandFact<'_>, source: &str) -> Option<Box<str>> {
+    let args = static_command_args(command, source)?;
+    let operands = args
+        .iter()
+        .filter(|arg| !arg.starts_with('-'))
+        .collect::<Vec<_>>();
+    match operands.as_slice() {
+        [_, function, ..] => Some(function.as_str().into()),
+        _ => None,
+    }
+}
+
+fn static_command_args(command: &CommandFact<'_>, source: &str) -> Option<Vec<String>> {
+    command
+        .body_args()
+        .iter()
+        .map(|word| static_word_text(word, source).map(|text| text.into_owned()))
+        .collect()
+}
+
+fn is_zsh_special_hook_name(name: &str) -> bool {
+    matches!(
+        name,
+        "precmd" | "preexec" | "chpwd" | "periodic" | "zshaddhistory" | "zshexit"
+    )
 }
 
 #[derive(Debug, Clone)]

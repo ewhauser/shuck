@@ -615,3 +615,50 @@ complete -F _comp_cmd_later later
         assert!(flagged_lines.iter().all(|line| *line == 3));
     });
 }
+
+#[test]
+fn marks_zsh_widget_and_hook_functions_as_external_entrypoints() {
+    let source = "\
+#!/bin/zsh
+single_operand_widget() { print -r -- \"$1\"; }
+widget_impl() { print -r -- \"$1\"; }
+precmd_refresh() { (( $# )) && print -r -- \"$1\"; }
+precmd() { print -r -- \"$1\"; }
+not_external() { print -r -- \"$1\"; }
+dynamic_widget() { print -r -- \"$1\"; }
+zle -N single_operand_widget
+zle -N widget-name widget_impl
+add-zsh-hook -Uz precmd precmd_refresh
+zle -N \"$widget_name\" dynamic_widget
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            let external_names = facts
+                .function_headers()
+                .iter()
+                .filter_map(|header| {
+                    let scope = header.function_scope()?;
+                    facts
+                        .function_is_external_entrypoint(scope)
+                        .then(|| header.static_name_entry().map(|(name, _)| name.as_str()))
+                        .flatten()
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                external_names,
+                vec![
+                    "single_operand_widget",
+                    "widget_impl",
+                    "precmd_refresh",
+                    "precmd"
+                ]
+            );
+        },
+    );
+}

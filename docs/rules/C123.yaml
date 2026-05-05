@@ -10,6 +10,7 @@ shells:
   - bash
   - dash
   - ksh
+  - zsh
 description: A function references a positional parameter that is never passed by callers.
 rationale: Pass the expected arguments at every call site.
 safe_fix: false
