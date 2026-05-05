@@ -2334,6 +2334,99 @@ pub fn word_is_standalone_variable_like(word: &Word) -> bool {
     }
 }
 
+/// Returns whether `span` identifies a plain scalar parameter reference in `word`.
+pub fn word_span_is_plain_parameter_reference(word: &Word, span: Span) -> bool {
+    word_parts_contain_plain_parameter_reference_span(&word.parts, span)
+}
+
+fn word_parts_contain_plain_parameter_reference_span(parts: &[WordPartNode], span: Span) -> bool {
+    parts
+        .iter()
+        .any(|part| word_part_is_plain_parameter_reference_span(part, span))
+}
+
+fn word_part_is_plain_parameter_reference_span(part: &WordPartNode, span: Span) -> bool {
+    if part.span == span {
+        return word_part_is_plain_parameter_reference(&part.kind);
+    }
+
+    match &part.kind {
+        WordPart::DoubleQuoted { parts, .. } => {
+            word_parts_contain_plain_parameter_reference_span(parts, span)
+        }
+        WordPart::Literal(_)
+        | WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::Variable(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::Parameter(_)
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => false,
+    }
+}
+
+fn word_part_is_plain_parameter_reference(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(_) => true,
+        WordPart::Parameter(parameter) => {
+            parameter_expansion_is_plain_parameter_reference(parameter)
+        }
+        WordPart::Literal(_)
+        | WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::DoubleQuoted { .. }
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => false,
+    }
+}
+
+fn parameter_expansion_is_plain_parameter_reference(parameter: &ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
+            reference.subscript.is_none()
+        }
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            syntax.length_prefix.is_none()
+                && syntax.modifiers.is_empty()
+                && syntax.operation.is_none()
+                && matches!(
+                    &syntax.target,
+                    ZshExpansionTarget::Reference(reference) if reference.subscript.is_none()
+                )
+        }
+        ParameterExpansionSyntax::Bourne(
+            BourneParameterExpansion::Length { .. }
+            | BourneParameterExpansion::Indices { .. }
+            | BourneParameterExpansion::Indirect { .. }
+            | BourneParameterExpansion::PrefixMatch { .. }
+            | BourneParameterExpansion::Slice { .. }
+            | BourneParameterExpansion::Operation { .. }
+            | BourneParameterExpansion::Transformation { .. },
+        ) => false,
+    }
+}
+
 /// Returns whether a zsh parameter expansion explicitly enables pattern expansion.
 pub fn parameter_expansion_forces_zsh_globbing(parameter: &ParameterExpansion) -> bool {
     matches!(

@@ -83,6 +83,7 @@ pub mod non_absolute_shebang;
 pub mod non_shell_syntax_in_script;
 pub mod open_double_quote;
 pub mod overwritten_function;
+mod pattern_policy;
 pub mod pattern_with_variable;
 pub mod pipe_to_kill;
 pub mod plus_prefix_in_assignment;
