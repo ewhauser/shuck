@@ -345,31 +345,6 @@ pub(crate) fn function_runtime_analysis_with_entry(
     entry: ZshOptionState,
 ) -> Option<ZshOptionAnalysis> {
     let function_span = scopes.get(function_scope.index())?.span;
-    let function_count = recorded_program.function_body_scopes.len();
-
-    let mut analyzer = Analyzer {
-        scopes,
-        bindings,
-        dynamic_calls,
-        recorded_program,
-        treat_unknown_dispatch_bindings_as_ambiguous_in_functions: true,
-        scope_entries: FxHashMap::with_capacity_and_hasher(scopes.len(), Default::default()),
-        snapshots: FxHashMap::with_capacity_and_hasher(scopes.len(), Default::default()),
-        active_function_scopes: FxHashSet::with_capacity_and_hasher(
-            function_count,
-            Default::default(),
-        ),
-        function_summaries: FxHashMap::with_capacity_and_hasher(function_count, Default::default()),
-    };
-    analyzer.analyze_function_scope(
-        function_scope,
-        EvalState::new(InternalState::from_public(entry)),
-    );
-
-    for snapshots in analyzer.snapshots.values_mut() {
-        snapshots.sort_by_key(|snapshot| snapshot.offset);
-    }
-
     let mut scope_index: Vec<ScopeIndexEntry> = scopes
         .iter()
         .filter(|scope| {
@@ -383,6 +358,27 @@ pub(crate) fn function_runtime_analysis_with_entry(
         })
         .collect();
     scope_index.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| b.end.cmp(&a.end)));
+    let scope_capacity = scope_index.len();
+
+    let mut analyzer = Analyzer {
+        scopes,
+        bindings,
+        dynamic_calls,
+        recorded_program,
+        treat_unknown_dispatch_bindings_as_ambiguous_in_functions: true,
+        scope_entries: FxHashMap::with_capacity_and_hasher(scope_capacity, Default::default()),
+        snapshots: FxHashMap::with_capacity_and_hasher(scope_capacity, Default::default()),
+        active_function_scopes: FxHashSet::default(),
+        function_summaries: FxHashMap::default(),
+    };
+    analyzer.analyze_function_scope(
+        function_scope,
+        EvalState::new(InternalState::from_public(entry)),
+    );
+
+    for snapshots in analyzer.snapshots.values_mut() {
+        snapshots.sort_by_key(|snapshot| snapshot.offset);
+    }
 
     Some(ZshOptionAnalysis {
         scope_entries: analyzer.scope_entries,
