@@ -11314,3 +11314,35 @@ h() {
         ArrayReferencePolicy::Ambiguous
     );
 }
+
+#[test]
+fn semantic_runtime_zsh_option_summary_cache_keeps_recursive_context_local() {
+    let source = "\
+unsetopt ksh_arrays
+f() {
+  g
+  setopt ksh_arrays
+}
+g() {
+  f
+}
+f
+unsetopt ksh_arrays
+g
+print $name
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+    let offset = source.find("print $name").unwrap();
+
+    assert!(
+        model
+            .shell_behavior_at(offset)
+            .zsh_options()
+            .is_some_and(|options| options.ksh_arrays == OptionValue::On),
+        "{source}"
+    );
+    assert_eq!(
+        array_reference_policy_at(&model, offset),
+        ArrayReferencePolicy::RequiresExplicitSelector
+    );
+}

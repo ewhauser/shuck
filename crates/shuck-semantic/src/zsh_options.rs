@@ -56,6 +56,7 @@ struct FunctionSummary {
 struct FunctionSummaryKey {
     scope: ScopeId,
     entry: InternalState,
+    active_function_scopes: SmallVec<[ScopeId; 4]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -931,6 +932,7 @@ impl<'a> Analyzer<'a> {
         let cache_key = FunctionSummaryKey {
             scope,
             entry: entry.current.clone(),
+            active_function_scopes: self.active_function_summary_context(),
         };
         let recursive_context = !self.active_function_scopes.is_empty();
         if let Some(summary) = self.function_summaries.get(&cache_key) {
@@ -962,6 +964,13 @@ impl<'a> Analyzer<'a> {
             shared_summaries.insert(cache_key, summary.clone());
         }
         summary
+    }
+
+    fn active_function_summary_context(&self) -> SmallVec<[ScopeId; 4]> {
+        let mut active: SmallVec<[ScopeId; 4]> =
+            self.active_function_scopes.iter().copied().collect();
+        active.sort_by_key(|scope| scope.0);
+        active
     }
 
     fn resolve_visible_function_scope(
