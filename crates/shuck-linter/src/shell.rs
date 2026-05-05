@@ -134,7 +134,7 @@ impl ShellDialect {
                 continue;
             }
 
-            let code = trimmed.split('#').next().unwrap_or(trimmed);
+            let code = code_before_comment(trimmed);
             saw_bash_marker |= line_has_bash_marker(code);
             saw_zsh_marker |= line_has_zsh_marker(code);
             heredoc_delimiter = line_heredoc_delimiter(code);
@@ -182,6 +182,51 @@ fn line_has_zsh_emulate_marker(line: &str) -> bool {
 fn line_has_zsh_autoload_marker(line: &str) -> bool {
     let trimmed = line.trim_start();
     trimmed.starts_with("autoload ") && trimmed.split_whitespace().any(|word| word.starts_with('-'))
+}
+
+fn code_before_comment(line: &str) -> &str {
+    let bytes = line.as_bytes();
+    let mut index = 0usize;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut escaped = false;
+
+    while index < bytes.len() {
+        if escaped {
+            escaped = false;
+            index += 1;
+            continue;
+        }
+
+        let byte = bytes[index];
+        if byte == b'\\' {
+            escaped = true;
+            index += 1;
+            continue;
+        }
+        if byte == b'\'' && !in_double_quotes {
+            in_single_quotes = !in_single_quotes;
+            index += 1;
+            continue;
+        }
+        if byte == b'"' && !in_single_quotes {
+            in_double_quotes = !in_double_quotes;
+            index += 1;
+            continue;
+        }
+        if byte == b'#'
+            && !in_single_quotes
+            && !in_double_quotes
+            && bytes[..index]
+                .last()
+                .is_none_or(|previous| previous.is_ascii_whitespace())
+        {
+            return &line[..index];
+        }
+        index += 1;
+    }
+
+    line
 }
 
 fn line_heredoc_delimiter(line: &str) -> Option<(String, bool)> {
@@ -493,6 +538,15 @@ zstyle -s ':omz:update' mode update_mode
 ((x<<1))
 value=$((1<<2))
 zstyle -s ':omz:update' mode update_mode
+";
+        let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
+        assert_eq!(inferred, ShellDialect::Zsh);
+    }
+
+    #[test]
+    fn hash_expansions_do_not_hide_later_source_markers_on_the_same_line() {
+        let source = "\
+prefix=${name#refs/heads/}; printf '%s\\n' \"$ZSH_VERSION\"
 ";
         let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
         assert_eq!(inferred, ShellDialect::Zsh);

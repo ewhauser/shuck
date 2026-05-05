@@ -487,8 +487,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         };
 
         match value.as_str() {
-            "-o" | "-t" => DescribeDynamicStart::OptionWithValue,
-            "-O" => DescribeDynamicStart::OptionWithoutValue,
+            "-t" => DescribeDynamicStart::OptionWithValue,
+            "-o" | "-O" => DescribeDynamicStart::OptionWithoutValue,
             _ if value.starts_with('-') && value != "-" => DescribeDynamicStart::Unknown,
             _ => DescribeDynamicStart::Descriptor,
         }
@@ -557,7 +557,7 @@ fn describe_array_names(
             break;
         }
         index += 1;
-        if text == "-o" || text == "-t" {
+        if text == "-t" {
             index += 1;
         }
     }
