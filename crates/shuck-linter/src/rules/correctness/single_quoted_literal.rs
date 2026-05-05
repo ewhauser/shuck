@@ -99,10 +99,10 @@ fn should_report_single_quoted_literal(text: &str, context: ScanContext<'_>) -> 
         return !sed_text_is_exempt(text);
     }
 
-    if context
-        .assignment_target
-        .is_some_and(|target| assignment_target_is_exempt(target, context.shell_dialect))
-    {
+    if context.assignment_target.is_some_and(|target| {
+        assignment_target_is_exempt(target, context.shell_dialect)
+            || assignment_target_program_text_is_exempt(target, text)
+    }) {
         return false;
     }
 
@@ -172,14 +172,93 @@ fn powerlevel10k_prompt_expansion_target(target: &str) -> bool {
     target.starts_with("POWERLEVEL9K_") && target.ends_with("_EXPANSION")
 }
 
+fn assignment_target_program_text_is_exempt(target: &str, text: &str) -> bool {
+    assignment_target_looks_like_awk_program(target) && text_looks_like_awk_program(text)
+}
+
+fn assignment_target_looks_like_awk_program(target: &str) -> bool {
+    let tokens = target
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    tokens
+        .windows(2)
+        .any(|window| window[0] == "awk" && matches!(window[1], "script" | "program"))
+}
+
+fn text_looks_like_awk_program(text: &str) -> bool {
+    contains_awk_field_reference(text) && contains_awk_program_action(text)
+}
+
+fn contains_awk_program_action(text: &str) -> bool {
+    contains_awk_word(text, "print")
+        || contains_awk_word(text, "BEGIN")
+        || contains_awk_word(text, "END")
+        || contains_awk_function_call(text, "sub")
+        || contains_awk_function_call(text, "gsub")
+}
+
+fn contains_awk_word(text: &str, word: &str) -> bool {
+    text.match_indices(word).any(|(index, _)| {
+        let preceding = text[..index].chars().next_back();
+        let following = text[index + word.len()..].chars().next();
+        preceding.is_none_or(|character| !is_identifier_character(character))
+            && following.is_none_or(|character| !is_identifier_character(character))
+    })
+}
+
+fn contains_awk_function_call(text: &str, name: &str) -> bool {
+    text.match_indices(name).any(|(index, _)| {
+        let preceding = text[..index].chars().next_back();
+        let after_name = &text[index + name.len()..];
+        preceding.is_none_or(|character| !is_identifier_character(character))
+            && after_name.trim_start().starts_with('(')
+    })
+}
+
+fn is_identifier_character(character: char) -> bool {
+    character.is_ascii_alphanumeric() || character == '_'
+}
+
+fn contains_awk_field_reference(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+    while index + 1 < bytes.len() {
+        if bytes[index] == b'$' && bytes[index + 1].is_ascii_digit() {
+            return true;
+        }
+        if bytes[index] == b'$' && awk_field_reference_tail(&text[index + 1..]) {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
+
+fn awk_field_reference_tail(text: &str) -> bool {
+    if text.starts_with("NF") {
+        return true;
+    }
+
+    let Some(inner) = text.strip_prefix('(') else {
+        return false;
+    };
+    let inner = inner.trim_start();
+    inner.starts_with("NF")
+        || inner
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_ascii_digit())
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
     use super::{
-        assignment_target_is_exempt, contains_sc2016_trigger,
-        powerlevel10k_prompt_expansion_target, quoted_fragment_to_double_quotes,
-        sed_text_is_exempt,
+        assignment_target_is_exempt, assignment_target_program_text_is_exempt,
+        contains_sc2016_trigger, powerlevel10k_prompt_expansion_target,
+        quoted_fragment_to_double_quotes, sed_text_is_exempt, text_looks_like_awk_program,
     };
     use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
     use crate::{
@@ -271,6 +350,75 @@ mod tests {
             "POWERLEVEL9K_VCS_CONTENT_EXPANSION"
         ));
         assert!(!powerlevel10k_prompt_expansion_target("POWERLEVEL9K_MODE"));
+    }
+
+    #[test]
+    fn recognizes_awk_program_assignment_exemptions() {
+        assert!(assignment_target_program_text_is_exempt(
+            "awk_script",
+            "'{print $1}'"
+        ));
+        assert!(assignment_target_program_text_is_exempt(
+            "my_awk_program",
+            "'BEGIN { sub(/x/, \"y\"); print $0 }'"
+        ));
+        assert!(assignment_target_program_text_is_exempt(
+            "awk__script",
+            "'{print $1}'"
+        ));
+        assert!(assignment_target_program_text_is_exempt(
+            "my_awk__program",
+            "'{print $1}'"
+        ));
+        assert!(assignment_target_program_text_is_exempt(
+            "awk_program",
+            "'{print $NF}'"
+        ));
+        assert!(assignment_target_program_text_is_exempt(
+            "awk_program",
+            "'{print $(NF - 1)}'"
+        ));
+        assert!(assignment_target_program_text_is_exempt(
+            "awk_program",
+            "'{print $( 2 )}'"
+        ));
+        assert!(!assignment_target_program_text_is_exempt(
+            "awk_script",
+            "'echo $HOME'"
+        ));
+        assert!(!assignment_target_program_text_is_exempt(
+            "awk_program",
+            "'echo $(printenv HOME)'"
+        ));
+        assert!(!assignment_target_program_text_is_exempt(
+            "awk_program",
+            "'echo $1 printenv HOME'"
+        ));
+        assert!(!assignment_target_program_text_is_exempt(
+            "shell_script",
+            "'{print $1}'"
+        ));
+        assert!(!assignment_target_program_text_is_exempt(
+            "hawk_program",
+            "'{print $1}'"
+        ));
+        assert!(!assignment_target_program_text_is_exempt(
+            "awkward_script",
+            "'{print $1}'"
+        ));
+        assert!(!assignment_target_program_text_is_exempt(
+            "script_awk",
+            "'{print $1}'"
+        ));
+        assert!(!assignment_target_program_text_is_exempt(
+            "program_awk",
+            "'{print $1}'"
+        ));
+        assert!(!assignment_target_program_text_is_exempt(
+            "AWK_SCRIPT",
+            "'{print $1}'"
+        ));
+        assert!(!text_looks_like_awk_program("'$HOME'"));
     }
 
     #[test]
@@ -445,6 +593,28 @@ mod tests {
             ),
             0
         );
+    }
+
+    #[test]
+    fn awk_program_assignments_with_field_references_are_exempt() {
+        assert_eq!(
+            c005_zsh(
+                "local awk_script='\n\
+!set { sub(/^[ \\t]*ZSH_THEME=.*/, \"ZSH_THEME=\\\"'$1'\\\"\"); print $0 }\n\
+END { if (!set) exit 1 }\n\
+'\n"
+            ),
+            0
+        );
+        assert_eq!(c005_zsh("awk_program='{print $1}'\n"), 0);
+        assert_eq!(c005_zsh("awk__script='{print $1}'\n"), 0);
+        assert_eq!(c005_zsh("awk_program='echo $1 printenv HOME'\n"), 1);
+        assert_eq!(c005_zsh("local awk_script='echo $HOME'\n"), 1);
+        assert_eq!(c005_zsh("hawk_program='{print $1}'\n"), 1);
+        assert_eq!(c005_zsh("awkward_script='{print $1}'\n"), 1);
+        assert_eq!(c005_zsh("script_awk='{print $1}'\n"), 1);
+        assert_eq!(c005_zsh("program_awk='{print $1}'\n"), 1);
+        assert_eq!(c005("AWK_SCRIPT='{print $0}'\n"), 1);
     }
 
     #[test]
