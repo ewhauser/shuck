@@ -31,11 +31,6 @@ const LARGE_CORPUS_STATIC_IGNORE_SUFFIXES: &[&str] = &[
     "moovweb__gvm__examples__native__ltmain.sh",
     "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh",
 ];
-const LARGE_CORPUS_STATIC_ZSH_OVERRIDE_SUFFIXES: &[&str] = &[
-    "ohmyzsh__ohmyzsh__oh-my-zsh.sh",
-    "ohmyzsh__ohmyzsh__tools__check_for_upgrade.sh",
-];
-
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 #[derive(Debug)]
@@ -517,10 +512,6 @@ fn resolve_shell(path: &Path, src: &[u8]) -> String {
     if trimmed_first_line.starts_with("#compdef") || trimmed_first_line.starts_with("#autoload") {
         return "zsh".into();
     }
-    if path_has_large_corpus_static_zsh_override(path) {
-        return "zsh".into();
-    }
-
     match ShellDialect::infer(source, Some(path)) {
         ShellDialect::Bash => "bash".into(),
         ShellDialect::Ksh | ShellDialect::Mksh => "ksh".into(),
@@ -611,10 +602,6 @@ fn normalize_cache_rel_path(path: &Path) -> String {
 
 fn path_is_statically_ignored_large_corpus_fixture(path: &Path) -> bool {
     path_matches_large_corpus_suffix(path, LARGE_CORPUS_STATIC_IGNORE_SUFFIXES)
-}
-
-fn path_has_large_corpus_static_zsh_override(path: &Path) -> bool {
-    path_matches_large_corpus_suffix(path, LARGE_CORPUS_STATIC_ZSH_OVERRIDE_SUFFIXES)
 }
 
 fn path_matches_large_corpus_suffix(path: &Path, suffixes: &[&str]) -> bool {
