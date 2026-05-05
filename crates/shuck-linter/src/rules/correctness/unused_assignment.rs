@@ -1413,6 +1413,24 @@ ordinary=1
     }
 
     #[test]
+    fn zsh_hook_arrays_are_external_consumers_in_runtime_paths() {
+        let source = "\
+#!/usr/bin/env zsh
+precmd_functions=(_async_prompt_precmd)
+chpwd_functions=(_async_prompt_chpwd)
+ordinary=1
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/lib/async_prompt.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
+    }
+
+    #[test]
     fn pathless_zsh_output_parameters_still_report_unused() {
         let source = "\
 #!/usr/bin/env zsh
@@ -1426,6 +1444,23 @@ ordinary=1
 
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "reply");
+        assert_eq!(diagnostics[1].span.slice(source), "ordinary");
+    }
+
+    #[test]
+    fn pathless_zsh_hook_arrays_still_report_unused() {
+        let source = "\
+#!/usr/bin/env zsh
+precmd_functions=(_async_prompt_precmd)
+ordinary=1
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "precmd_functions");
         assert_eq!(diagnostics[1].span.slice(source), "ordinary");
     }
 

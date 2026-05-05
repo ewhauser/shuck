@@ -338,6 +338,7 @@ fn shell_matches_zsh_runtime_context(shell: ShellDialect, lower_path: &str) -> b
 
 fn zsh_ambient_runtime_has_signal(source: &str, lower_path: &str) -> bool {
     source_mentions_any(source, ZSH_INITIALIZED_SPECIAL_PARAMETERS)
+        || source_mentions_any(source, ZSH_HOOK_ARRAY_PARAMETERS)
         || zsh_prompt_color_runtime_shape(source, lower_path)
         || !zsh_externally_consumed_names(source, lower_path).is_empty()
         || zsh_test_fixture_consumed_prefixes(source, lower_path)
@@ -363,6 +364,14 @@ fn zsh_initialized_runtime_names<'a>(
                 .filter(move |name| {
                     source_mentions_name(source, name)
                         && zsh_prompt_color_runtime_shape(source, lower_path)
+                }),
+        )
+        .chain(
+            ZSH_HOOK_ARRAY_PARAMETERS
+                .iter()
+                .copied()
+                .filter(move |name| {
+                    source_mentions_name(source, name) && zsh_runtime_path_shape(lower_path)
                 }),
         )
 }
@@ -392,16 +401,36 @@ fn source_loads_zsh_module(source: &str, module: &str) -> bool {
 }
 
 fn zsh_externally_consumed_names(source: &str, lower_path: &str) -> Vec<&'static str> {
-    if !zsh_runtime_path_shape(lower_path) && !zsh_test_data_path_shape(lower_path) {
+    let runtime_path = zsh_runtime_path_shape(lower_path);
+    if !runtime_path && !zsh_test_data_path_shape(lower_path) {
         return Vec::new();
     }
 
-    ZSH_EXTERNALLY_CONSUMED_OUTPUT_PARAMETERS
+    let mut consumed = ZSH_EXTERNALLY_CONSUMED_OUTPUT_PARAMETERS
         .iter()
         .copied()
         .filter(|name| source_assigns_name(source, name))
-        .collect()
+        .collect::<Vec<_>>();
+    if runtime_path {
+        consumed.extend(
+            ZSH_HOOK_ARRAY_PARAMETERS
+                .iter()
+                .copied()
+                .filter(|name| source_assigns_name(source, name)),
+        );
+    }
+    consumed
 }
+
+const ZSH_HOOK_ARRAY_PARAMETERS: &[&str] = &[
+    "chpwd_functions",
+    "periodic_functions",
+    "precmd_functions",
+    "preexec_functions",
+    "zsh_directory_name_functions",
+    "zshaddhistory_functions",
+    "zshexit_functions",
+];
 
 fn zsh_test_fixture_consumed_prefixes<'a>(
     source: &'a str,
@@ -1010,7 +1039,8 @@ fn source_assigns_name(source: &str, name: &str) -> bool {
         let before = source[..offset].chars().next_back();
         let after = source[offset + name.len()..].chars().next();
         let starts_token = before.is_none_or(|ch| !is_shell_name_char(ch));
-        let assignment_like = matches!(after, Some('=') | Some('['));
+        let assignment_like = matches!(after, Some('=') | Some('['))
+            || (after == Some('+') && source[offset + name.len()..].chars().nth(1) == Some('='));
         starts_token && assignment_like
     })
 }
@@ -1284,6 +1314,23 @@ prompt=\"%{$fg_bold[blue]%}%{$reset_color%}\"
     }
 
     #[test]
+    fn zsh_runtime_contract_initializes_hook_arrays() {
+        let path = Path::new("/tmp/zsh/ohmyzsh/lib/async_prompt.zsh");
+        let source = "\
+precmd_functions=(${precmd_functions:#_async_prompt_precmd})
+print -r -- $chpwd_functions
+chpwd_functions+=(_async_prompt_chpwd)
+";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        for name in ["precmd_functions", "chpwd_functions"] {
+            assert!(has_initialized_binding(&contract, name), "{contract:?}");
+            assert!(has_consumed_name(&contract, name), "{contract:?}");
+        }
+    }
+
+    #[test]
     fn zsh_runtime_contract_initializes_braced_prompt_color_arrays() {
         let path = Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh");
         let source = "\
@@ -1486,6 +1533,13 @@ compstate[insert]=menu
         for name in ["reply", "REPLY", "compstate"] {
             assert!(has_consumed_name(&contract, name), "{contract:?}");
         }
+    }
+
+    #[test]
+    fn pathless_zsh_hook_arrays_do_not_get_ambient_contracts() {
+        let source = "precmd_functions=(${precmd_functions:#_example_precmd})\n";
+
+        assert!(contract_for_optional_path(None, source, ShellDialect::Zsh).is_none());
     }
 
     #[test]
