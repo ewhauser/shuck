@@ -1802,8 +1802,10 @@ echo ${foo:-$((10#1))}
 
     assert_eq!(
         facts
-            .base_prefix_arithmetic_spans()
+            .arithmetic_literal_facts()
             .iter()
+            .filter(|literal| literal.kind() == ArithmeticLiteralKind::ExplicitBasePrefix)
+            .map(|literal| literal.span())
             .map(|span| span.slice(source))
             .collect::<Vec<_>>(),
         vec!["10#123", "10#1", "10#1", "10#1"]
@@ -1815,11 +1817,13 @@ fn base_prefix_arithmetic_literals_record_arithmetic_literal_behavior() {
     let source = "\
 #!/bin/zsh
 echo $((10#1))
+echo $((010))
 setopt c_bases
 echo $((10#2))
 unsetopt c_bases
 setopt octal_zeroes
 echo $((10#3))
+echo $((010))
 setopt c_bases
 echo $((10#4))
 unsetopt c_bases
@@ -1839,15 +1843,55 @@ echo $((10#6))
         facts
             .arithmetic_literal_facts()
             .iter()
-            .map(|literal| (literal.span().slice(source), literal.behavior()))
+            .map(|literal| {
+                (
+                    literal.span().slice(source),
+                    literal.kind(),
+                    literal.behavior(),
+                )
+            })
             .collect::<Vec<_>>(),
         vec![
-            ("10#1", ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,),
-            ("10#2", ArithmeticLiteralBehavior::DecimalUnlessExplicitBase),
-            ("10#3", ArithmeticLiteralBehavior::LeadingZeroOctal),
-            ("10#4", ArithmeticLiteralBehavior::LeadingZeroOctal),
-            ("10#5", ArithmeticLiteralBehavior::LeadingZeroOctal),
-            ("10#6", ArithmeticLiteralBehavior::Ambiguous),
+            (
+                "10#1",
+                ArithmeticLiteralKind::ExplicitBasePrefix,
+                ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,
+            ),
+            (
+                "010",
+                ArithmeticLiteralKind::LeadingZeroInteger,
+                ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,
+            ),
+            (
+                "10#2",
+                ArithmeticLiteralKind::ExplicitBasePrefix,
+                ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,
+            ),
+            (
+                "10#3",
+                ArithmeticLiteralKind::ExplicitBasePrefix,
+                ArithmeticLiteralBehavior::LeadingZeroOctal,
+            ),
+            (
+                "010",
+                ArithmeticLiteralKind::LeadingZeroInteger,
+                ArithmeticLiteralBehavior::LeadingZeroOctal,
+            ),
+            (
+                "10#4",
+                ArithmeticLiteralKind::ExplicitBasePrefix,
+                ArithmeticLiteralBehavior::LeadingZeroOctal,
+            ),
+            (
+                "10#5",
+                ArithmeticLiteralKind::ExplicitBasePrefix,
+                ArithmeticLiteralBehavior::LeadingZeroOctal,
+            ),
+            (
+                "10#6",
+                ArithmeticLiteralKind::ExplicitBasePrefix,
+                ArithmeticLiteralBehavior::Ambiguous,
+            ),
         ]
     );
 }
@@ -1857,6 +1901,7 @@ fn base_prefix_arithmetic_literals_record_bash_arithmetic_literal_behavior() {
     let source = "\
 #!/bin/bash
 echo $((10#1))
+echo $((010))
 ";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
@@ -1867,9 +1912,79 @@ echo $((10#1))
         facts
             .arithmetic_literal_facts()
             .iter()
-            .map(|literal| (literal.span().slice(source), literal.behavior()))
+            .map(|literal| {
+                (
+                    literal.span().slice(source),
+                    literal.kind(),
+                    literal.behavior(),
+                )
+            })
             .collect::<Vec<_>>(),
-        vec![("10#1", ArithmeticLiteralBehavior::CStyleAndLeadingZeroOctal,)]
+        vec![
+            (
+                "10#1",
+                ArithmeticLiteralKind::ExplicitBasePrefix,
+                ArithmeticLiteralBehavior::CStyleAndLeadingZeroOctal,
+            ),
+            (
+                "010",
+                ArithmeticLiteralKind::LeadingZeroInteger,
+                ArithmeticLiteralBehavior::CStyleAndLeadingZeroOctal,
+            )
+        ]
+    );
+}
+
+#[test]
+fn arithmetic_literals_record_leading_zeroes_in_nested_arithmetic_fragments() {
+    let source = "\
+#!/bin/zsh
+echo ${value:010:1}
+echo ${value:-$((010))}
+echo ${value:010#7:1}
+echo ${value:-$((010#7))}
+";
+    let output = Parser::with_dialect(source, shuck_parser::parser::ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
+
+    assert_eq!(
+        facts
+            .arithmetic_literal_facts()
+            .iter()
+            .map(|literal| {
+                (
+                    literal.span().slice(source),
+                    literal.kind(),
+                    literal.behavior(),
+                )
+            })
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "010",
+                ArithmeticLiteralKind::LeadingZeroInteger,
+                ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,
+            ),
+            (
+                "010",
+                ArithmeticLiteralKind::LeadingZeroInteger,
+                ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,
+            ),
+            (
+                "010#7",
+                ArithmeticLiteralKind::ExplicitBasePrefix,
+                ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,
+            ),
+            (
+                "010#7",
+                ArithmeticLiteralKind::ExplicitBasePrefix,
+                ArithmeticLiteralBehavior::DecimalUnlessExplicitBase,
+            ),
+        ]
     );
 }
 
@@ -1889,8 +2004,10 @@ esac
 
     assert_eq!(
         facts
-            .base_prefix_arithmetic_spans()
+            .arithmetic_literal_facts()
             .iter()
+            .filter(|literal| literal.kind() == ArithmeticLiteralKind::ExplicitBasePrefix)
+            .map(|literal| literal.span())
             .map(|span| span.slice(source))
             .collect::<Vec<_>>(),
         vec!["10#1", "10#2"]
@@ -1956,7 +2073,12 @@ echo ${foo:-${1##*/}}
     let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
-    assert!(facts.base_prefix_arithmetic_spans().is_empty());
+    assert!(
+        facts
+            .arithmetic_literal_facts()
+            .iter()
+            .all(|literal| literal.kind() != ArithmeticLiteralKind::ExplicitBasePrefix)
+    );
 }
 
 #[test]
@@ -1972,7 +2094,12 @@ echo $((42949 - ${1#-} / 100000))
     let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer);
 
-    assert!(facts.base_prefix_arithmetic_spans().is_empty());
+    assert!(
+        facts
+            .arithmetic_literal_facts()
+            .iter()
+            .all(|literal| literal.kind() != ArithmeticLiteralKind::ExplicitBasePrefix)
+    );
 }
 
 #[test]
@@ -1990,8 +2117,10 @@ echo $(( ${foo:-10#1} ))
 
     assert_eq!(
         facts
-            .base_prefix_arithmetic_spans()
+            .arithmetic_literal_facts()
             .iter()
+            .filter(|literal| literal.kind() == ArithmeticLiteralKind::ExplicitBasePrefix)
+            .map(|literal| literal.span())
             .map(|span| span.slice(source))
             .collect::<Vec<_>>(),
         vec!["10#1"]

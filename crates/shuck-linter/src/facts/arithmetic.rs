@@ -325,7 +325,7 @@ fn zsh_option_map_subscript_key(owner_name: &str, text: &str) -> bool {
 fn collect_base_prefix_spans_in_command_parts(
     command: &Command,
     source: &str,
-    spans: &mut Vec<Span>,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
 ) {
     match command {
         Command::Simple(command) => {
@@ -469,7 +469,7 @@ fn collect_base_prefix_spans_in_command_parts(
 fn collect_base_prefix_spans_in_assignment(
     assignment: &Assignment,
     source: &str,
-    spans: &mut Vec<Span>,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
 ) {
     collect_base_prefix_spans_in_var_ref(&assignment.target, source, spans);
 
@@ -491,7 +491,7 @@ fn collect_base_prefix_spans_in_assignment(
     }
 }
 
-fn collect_base_prefix_spans_in_word(word: &Word, source: &str, spans: &mut Vec<Span>) {
+fn collect_base_prefix_spans_in_word(word: &Word, source: &str, spans: &mut Vec<(Span, ArithmeticLiteralKind)>) {
     for part in &word.parts {
         collect_base_prefix_spans_in_word_part(part, source, spans);
     }
@@ -500,7 +500,7 @@ fn collect_base_prefix_spans_in_word(word: &Word, source: &str, spans: &mut Vec<
 fn collect_base_prefix_spans_in_word_part(
     part: &WordPartNode,
     source: &str,
-    spans: &mut Vec<Span>,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
 ) {
     match &part.kind {
         WordPart::DoubleQuoted { parts, .. } => {
@@ -572,7 +572,7 @@ fn collect_base_prefix_spans_in_word_part(
 fn collect_base_prefix_spans_in_parameter_expansion(
     parameter: &shuck_ast::ParameterExpansion,
     source: &str,
-    spans: &mut Vec<Span>,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
 ) {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(syntax) => match syntax {
@@ -643,7 +643,7 @@ fn collect_base_prefix_spans_in_parameter_expansion(
 fn collect_base_prefix_spans_in_arithmetic_parameter_expansion(
     parameter: &shuck_ast::ParameterExpansion,
     source: &str,
-    spans: &mut Vec<Span>,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
 ) {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(syntax) => match syntax {
@@ -714,7 +714,7 @@ fn collect_base_prefix_spans_in_arithmetic_parameter_expansion(
 fn collect_base_prefix_spans_in_zsh_target(
     target: &shuck_ast::ZshExpansionTarget,
     source: &str,
-    spans: &mut Vec<Span>,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
 ) {
     match target {
         shuck_ast::ZshExpansionTarget::Reference(reference) => {
@@ -733,7 +733,7 @@ fn collect_base_prefix_spans_in_zsh_target(
 fn collect_base_prefix_spans_in_arithmetic_zsh_target(
     target: &shuck_ast::ZshExpansionTarget,
     source: &str,
-    spans: &mut Vec<Span>,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
 ) {
     match target {
         shuck_ast::ZshExpansionTarget::Reference(reference) => {
@@ -749,7 +749,7 @@ fn collect_base_prefix_spans_in_arithmetic_zsh_target(
     }
 }
 
-fn collect_base_prefix_spans_in_pattern(pattern: &Pattern, source: &str, spans: &mut Vec<Span>) {
+fn collect_base_prefix_spans_in_pattern(pattern: &Pattern, source: &str, spans: &mut Vec<(Span, ArithmeticLiteralKind)>) {
     for (part, _) in pattern.parts_with_spans() {
         match part {
             PatternPart::Group { patterns, .. } => {
@@ -766,14 +766,14 @@ fn collect_base_prefix_spans_in_pattern(pattern: &Pattern, source: &str, spans: 
     }
 }
 
-fn collect_base_prefix_spans_in_var_ref(reference: &VarRef, source: &str, spans: &mut Vec<Span>) {
+fn collect_base_prefix_spans_in_var_ref(reference: &VarRef, source: &str, spans: &mut Vec<(Span, ArithmeticLiteralKind)>) {
     collect_base_prefix_spans_in_subscript(reference.subscript.as_deref(), source, spans);
 }
 
 fn collect_base_prefix_spans_in_subscript(
     subscript: Option<&Subscript>,
     source: &str,
-    spans: &mut Vec<Span>,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
 ) {
     if let Some(expression) = subscript.and_then(|subscript| subscript.arithmetic_ast.as_ref()) {
         collect_base_prefix_spans_in_arithmetic(expression, source, spans);
@@ -783,11 +783,12 @@ fn collect_base_prefix_spans_in_subscript(
 fn collect_base_prefix_spans_in_arithmetic(
     expression: &ArithmeticExprNode,
     source: &str,
-    spans: &mut Vec<Span>,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
 ) {
     match &expression.kind {
         ArithmeticExpr::Number(number) => {
             collect_base_prefix_spans_in_text(number.span(), source, spans);
+            collect_leading_zero_integer_spans_in_text(number.span(), source, spans);
         }
         ArithmeticExpr::Variable(_) => {}
         ArithmeticExpr::Indexed { index, .. } => {
@@ -825,7 +826,7 @@ fn collect_base_prefix_spans_in_arithmetic(
 fn collect_base_prefix_spans_in_arithmetic_lvalue(
     target: &ArithmeticLvalue,
     source: &str,
-    spans: &mut Vec<Span>,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
 ) {
     match target {
         ArithmeticLvalue::Variable(_) => {}
@@ -835,7 +836,7 @@ fn collect_base_prefix_spans_in_arithmetic_lvalue(
     }
 }
 
-fn collect_base_prefix_spans_in_arithmetic_word(word: &Word, source: &str, spans: &mut Vec<Span>) {
+fn collect_base_prefix_spans_in_arithmetic_word(word: &Word, source: &str, spans: &mut Vec<(Span, ArithmeticLiteralKind)>) {
     for part in &word.parts {
         collect_base_prefix_spans_in_arithmetic_word_part(part, source, spans);
     }
@@ -844,11 +845,12 @@ fn collect_base_prefix_spans_in_arithmetic_word(word: &Word, source: &str, spans
 fn collect_base_prefix_spans_in_arithmetic_word_part(
     part: &WordPartNode,
     source: &str,
-    spans: &mut Vec<Span>,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
 ) {
     match &part.kind {
         WordPart::Literal(_) => {
             collect_base_prefix_spans_in_text(part.span, source, spans);
+            collect_leading_zero_integer_spans_in_text(part.span, source, spans);
         }
         WordPart::DoubleQuoted { parts, .. } => {
             for part in parts {
@@ -937,13 +939,13 @@ fn collect_base_prefix_spans_in_fragment(
     word: Option<&Word>,
     text: Option<&SourceText>,
     source: &str,
-    spans: &mut Vec<Span>,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
 ) {
     let Some(text) = text else {
         return;
     };
     let snippet = text.slice(source);
-    if !snippet.contains('#') {
+    if !snippet.contains('#') && !contains_leading_zero_integer(snippet) {
         return;
     }
 
@@ -952,6 +954,7 @@ fn collect_base_prefix_spans_in_fragment(
         "parser-backed fragment text should always carry a word AST"
     );
     let Some(word) = word else {
+        collect_leading_zero_integer_spans_in_text(text.span(), source, spans);
         return;
     };
     collect_base_prefix_spans_in_word(word, source, spans);
@@ -961,24 +964,29 @@ fn collect_base_prefix_spans_in_arithmetic_fragment(
     word: Option<&Word>,
     text: Option<&SourceText>,
     source: &str,
-    spans: &mut Vec<Span>,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
 ) {
     let Some(text) = text else {
         return;
     };
     let snippet = text.slice(source);
-    if !snippet.contains('#') {
+    if !snippet.contains('#') && !contains_leading_zero_integer(snippet) {
         return;
     }
 
     let Some(word) = word else {
         collect_base_prefix_spans_in_text(text.span(), source, spans);
+        collect_leading_zero_integer_spans_in_text(text.span(), source, spans);
         return;
     };
     collect_base_prefix_spans_in_arithmetic_word(word, source, spans);
 }
 
-fn collect_base_prefix_spans_in_text(span: Span, source: &str, spans: &mut Vec<Span>) {
+fn collect_base_prefix_spans_in_text(
+    span: Span,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
     let text = span.slice(source);
     let bytes = text.as_bytes();
     let mut index = 0usize;
@@ -1019,9 +1027,84 @@ fn collect_base_prefix_spans_in_text(span: Span, source: &str, spans: &mut Vec<S
 
         let start = span.start.advanced_by(&text[..index]);
         let end = start.advanced_by(&text[index..match_end]);
-        spans.push(Span::from_positions(start, end));
+        spans.push((
+            Span::from_positions(start, end),
+            ArithmeticLiteralKind::ExplicitBasePrefix,
+        ));
         index = match_end;
     }
+}
+
+fn collect_leading_zero_integer_spans_in_text(
+    span: Span,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    let text = span.slice(source);
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] != b'0' {
+            index += 1;
+            continue;
+        }
+
+        if index > 0 {
+            let previous = bytes[index - 1];
+            if previous.is_ascii_alphanumeric() || previous == b'_' || previous == b'#' {
+                index += 1;
+                continue;
+            }
+        }
+
+        if matches!(bytes.get(index + 1), Some(b'x' | b'X')) {
+            index += 2;
+            continue;
+        }
+
+        let mut match_end = index + 1;
+        while match_end < bytes.len() && bytes[match_end].is_ascii_digit() {
+            match_end += 1;
+        }
+
+        if match_end == index + 1 {
+            index = match_end;
+            continue;
+        }
+
+        if matches!(bytes.get(match_end), Some(b'#')) {
+            index = match_end + 1;
+            continue;
+        }
+
+        let start = span.start.advanced_by(&text[..index]);
+        let end = start.advanced_by(&text[index..match_end]);
+        spans.push((
+            Span::from_positions(start, end),
+            ArithmeticLiteralKind::LeadingZeroInteger,
+        ));
+        index = match_end;
+    }
+}
+
+fn contains_leading_zero_integer(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.windows(2).enumerate().any(|(index, window)| {
+        window[0] == b'0'
+            && window[1].is_ascii_digit()
+            && (index == 0 || {
+                let previous = bytes[index - 1];
+                !previous.is_ascii_alphanumeric() && previous != b'_' && previous != b'#'
+            })
+            && {
+                let mut match_end = index + 2;
+                while match_end < bytes.len() && bytes[match_end].is_ascii_digit() {
+                    match_end += 1;
+                }
+                !matches!(bytes.get(match_end), Some(b'#'))
+            }
+    })
 }
 
 fn build_double_paren_grouping_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
