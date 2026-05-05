@@ -738,6 +738,11 @@ impl<'a> SurfaceFragmentSink<'a> {
 
     pub(super) fn collect_word(&mut self, word: &Word, context: SurfaceScanContext<'_>) -> bool {
         let open_double_quote_count = self.facts.open_double_quotes.len();
+        let context = if zsh_delayed_eval_word_is_exempt(word, self.source, context) {
+            context.literal_expansion_exempt()
+        } else {
+            context
+        };
         self.zsh_parameter_index_flag_scratch.clear();
         collect_zsh_parameter_index_flag_spans_in_word(
             word.span.slice(self.source),
@@ -883,6 +888,12 @@ impl<'a> SurfaceFragmentSink<'a> {
 
             match &part.kind {
                 WordPart::SingleQuoted { dollar, .. } => {
+                    let literal_expansion_exempt = context.literal_expansion_exempt
+                        || single_quoted_fragment_is_zsh_delayed_eval_exempt(
+                            part.span,
+                            context,
+                            self.source,
+                        );
                     self.facts.single_quoted.push(SingleQuotedFragmentFact {
                         span: part.span,
                         diagnostic_span: self.single_quoted_fragment_diagnostic_span(part.span),
@@ -897,7 +908,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                             .map(String::into_boxed_str),
                         shell_dialect: context.shell_dialect,
                         variable_set_operand: context.variable_set_operand,
-                        literal_expansion_exempt: context.literal_expansion_exempt,
+                        literal_expansion_exempt,
                         literal_backslash_in_single_quotes_span:
                             single_quoted_backslash_continuation_span(parts, index, self.source),
                     });
@@ -1576,6 +1587,120 @@ impl<'a> SurfaceFragmentSink<'a> {
 
         Span::from_positions(start, end)
     }
+}
+
+fn zsh_delayed_eval_word_is_exempt(
+    word: &Word,
+    source: &str,
+    context: SurfaceScanContext<'_>,
+) -> bool {
+    if context.shell_dialect != shuck_parser::ShellDialect::Zsh {
+        return false;
+    }
+
+    let assignment_context = context.assignment_target.is_some()
+        || matches!(
+            context.command_name,
+            Some("local" | "typeset" | "declare" | "readonly")
+        );
+    if !assignment_context {
+        return false;
+    }
+
+    let text = word.span.slice(source);
+    text.contains('=')
+        && (text.contains("_p9k__segment_cond_")
+            || text.contains("__p9k_instant_prompt_")
+            || text.contains("PATCH='for "))
+}
+
+fn single_quoted_fragment_is_zsh_delayed_eval_exempt(
+    span: Span,
+    context: SurfaceScanContext<'_>,
+    source: &str,
+) -> bool {
+    if context.shell_dialect != shuck_parser::ShellDialect::Zsh {
+        return false;
+    }
+
+    let Some(body) = single_quoted_body(span.slice(source)) else {
+        return false;
+    };
+
+    if context
+        .assignment_target
+        .is_some_and(|target| zsh_delayed_eval_assignment_target(target, body))
+    {
+        return true;
+    }
+
+    if context
+        .assignment_target
+        .is_some_and(|target| zsh_vcs_info_patch_loop_literal(target, body))
+    {
+        return true;
+    }
+
+    context
+        .assignment_target
+        .is_some_and(|target| zsh_literal_map_key_target(target, body))
+}
+
+fn single_quoted_body(text: &str) -> Option<&str> {
+    text.strip_prefix('\'')?.strip_suffix('\'')
+}
+
+fn zsh_delayed_eval_assignment_target(target: &str, body: &str) -> bool {
+    if target.contains("_p9k__segment_cond_") && single_parameter_marker_literal(body) {
+        return true;
+    }
+
+    zsh_delayed_prompt_assignment_target(target) && zsh_delayed_eval_literal_body(body)
+}
+
+fn zsh_delayed_prompt_assignment_target(target: &str) -> bool {
+    matches!(target, "PROMPT" | "RPROMPT" | "RPS1" | "RPS2" | "SPROMPT")
+        || target == "_p9k__prompt"
+        || target.starts_with("_p9k__prompt_")
+}
+
+fn zsh_delayed_eval_literal_body(body: &str) -> bool {
+    body.contains("${(")
+        || body.contains("::=")
+        || body.contains("${_p9k")
+        || body.contains("$_p9k")
+        || body.contains("$+")
+        || body.contains("${+")
+}
+
+fn zsh_literal_map_key_target(target: &str, body: &str) -> bool {
+    target == "___subst_map" && single_parameter_marker_literal(body)
+}
+
+fn zsh_vcs_info_patch_loop_literal(target: &str, body: &str) -> bool {
+    target == "PATCH"
+        && body.starts_with("for ")
+        && body.contains(" hook_com[")
+        && single_quoted_body_contains_expansion(body)
+}
+
+fn single_parameter_marker_literal(body: &str) -> bool {
+    let Some(name) = body
+        .strip_prefix("${")
+        .and_then(|inner| inner.strip_suffix('}'))
+        .or_else(|| body.strip_prefix('$'))
+    else {
+        return false;
+    };
+
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn single_quoted_body_contains_expansion(body: &str) -> bool {
+    body.contains('$') || (body.contains('`') && body.matches('`').count() >= 2)
 }
 
 fn continued_line_chain_start(target: Position, source: &str) -> Option<Position> {

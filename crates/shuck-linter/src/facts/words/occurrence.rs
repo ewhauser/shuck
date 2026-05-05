@@ -1897,6 +1897,9 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             Command::Simple(command) => {
                 let surface_context = self.surface_context();
                 let surface_command_name = surface_context.command_name();
+                let static_command_name = static_word_text(&command.name, self.source);
+                let literal_exempt_command_name =
+                    surface_command_name.or(static_command_name.as_deref());
                 let wrapper_target_arg_index =
                     simple_command_wrapper_target_index(command, self.source)
                         .and_then(|index| index.checked_sub(1));
@@ -1935,8 +1938,17 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     {
                         surface_context.variable_set_operand()
                     } else if trap_action.is_some_and(|action| std::ptr::eq(action, word))
+                        || zsh_dynamic_builtin_wrapper_literal_argument(
+                            static_command_name.as_deref(),
+                            self.semantic.shell_profile().dialect,
+                            &command.args,
+                            arg_index,
+                            wrapper_target_arg_index,
+                            word,
+                            self.source,
+                        )
                         || single_quoted_literal_exempt_argument(
-                            surface_command_name,
+                            literal_exempt_command_name,
                             self.semantic.shell_profile().dialect,
                             &command.args,
                             arg_index,
@@ -2077,7 +2089,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             },
             Command::Decl(command) => {
                 let surface_context = SurfaceScanContext::new(
-                    None,
+                    Some(command.variant.as_str()),
                     self.nested_word_command,
                     self.semantic.shell_profile().dialect,
                 );
@@ -3072,4 +3084,38 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             &mut self.arithmetic.dollar_in_arithmetic_spans,
         );
     }
+}
+
+fn zsh_dynamic_builtin_wrapper_literal_argument(
+    command_name: Option<&str>,
+    shell_dialect: shuck_parser::ShellDialect,
+    args: &[Word],
+    arg_index: usize,
+    wrapper_target_arg_index: Option<usize>,
+    word: &Word,
+    source: &str,
+) -> bool {
+    if shell_dialect != shuck_parser::ShellDialect::Zsh || command_name != Some("builtin") {
+        return false;
+    }
+
+    let Some(wrapper_target_arg_index) = wrapper_target_arg_index else {
+        return false;
+    };
+    if wrapper_target_arg_index >= arg_index
+        || args
+            .get(wrapper_target_arg_index)
+            .is_none_or(|arg| static_word_text(arg, source).is_some())
+    {
+        return false;
+    }
+
+    static_word_text(word, source).is_some_and(|text| {
+        let text = text.as_ref();
+        text.contains(char::is_whitespace)
+            && text
+                .chars()
+                .next()
+                .is_some_and(|char| char == '_' || char.is_ascii_alphabetic())
+    })
 }

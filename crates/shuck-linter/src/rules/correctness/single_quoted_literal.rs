@@ -45,7 +45,6 @@ pub fn single_quoted_literal(checker: &mut Checker) {
                 variable_set_operand: fragment.variable_set_operand(),
                 literal_expansion_exempt: fragment.literal_expansion_exempt(),
             };
-
             should_report_single_quoted_literal(fragment.span().slice(source), context).then(|| {
                 let diagnostic =
                     crate::Diagnostic::new(SingleQuotedLiteral, fragment.diagnostic_span());
@@ -406,6 +405,60 @@ mod tests {
             c005_bash("_p9k_param $1 CONTENT_EXPANSION '${P9K_CONTENT}'\n"),
             1
         );
+    }
+
+    #[test]
+    fn zsh_delayed_eval_literal_contexts_are_exempt() {
+        assert_eq!(
+            c005_zsh(
+                "typeset -g \"_p9k__segment_cond_${_p9k__prompt_side}[_p9k__segment_index]\"='$VIRTUAL_ENV'\n"
+            ),
+            0
+        );
+        assert_eq!(c005_zsh("_p9k__prompt+='${(e)_p9k__vcs}'\n"), 0);
+        assert_eq!(
+            c005_zsh(
+                "local stash='${${__p9k_instant_prompt_time::=${(%)${__p9k_instant_prompt_time_format::='$_p9k__ret'}}}+}'\n"
+            ),
+            0
+        );
+        assert_eq!(
+            c005_zsh("___subst_map=( '$ZPFX' \"$ZPFX\" '${ZPFX}' \"$ZPFX\" )\n"),
+            0
+        );
+        assert_eq!(c005_zsh("builtin ${precm[@]} 'source \"$ZERO\"'\n"), 0);
+        assert_eq!(
+            c005_zsh(
+                "gh api graphql -f query='query($org: String!) { organization(login: $org) { id } }'\n"
+            ),
+            0
+        );
+        assert_eq!(
+            c005_zsh(
+                "typeset PATCH='for tmp (base branch) hook_com[$tmp]=\"${hook_com[$tmp]//\\%/%%}\"'\n"
+            ),
+            0
+        );
+        assert_eq!(
+            c005_zsh(
+                "regexp-replace 'functions[VCS_INFO_formats]' \"VCS_INFO_hook 'post-backend'\" ': ${PATCH_ID}; ${PATCH}; ${MATCH}'\n"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn plain_literal_path_assignments_still_report() {
+        assert_eq!(
+            c005_zsh("completion='$(brew --prefix)/share/zsh/site-functions/_git'\n"),
+            1
+        );
+        assert_eq!(c005_zsh("echo 'for f in $HOME; do :; done'\n"), 1);
+        assert_eq!(c005_zsh("echo 'for x in $HOME; hook_com[$x]=1'\n"), 1);
+        assert_eq!(c005_zsh("echo PATCH='for x in $HOME'\n"), 1);
+        assert_eq!(c005_zsh("echo 'source \"$HOME\"'\n"), 1);
+        assert_eq!(c005_zsh("backup_map='$HOME'\n"), 1);
+        assert_eq!(c005_zsh("prompt_count='${+commands[git]}'\n"), 1);
     }
 
     #[test]
