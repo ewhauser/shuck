@@ -2687,7 +2687,8 @@
       "sh",
       "bash",
       "dash",
-      "ksh"
+      "ksh",
+      "zsh"
     ],
     "shellcheckCode": "SC2120",
     "implemented": true,
@@ -3359,7 +3360,8 @@
       "sh",
       "bash",
       "dash",
-      "ksh"
+      "ksh",
+      "zsh"
     ],
     "shellcheckCode": "SC2119",
     "implemented": true,
