@@ -109,7 +109,10 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
             DenseCommandIdSet::with_capacity(self.semantic.command_count());
         let mut elif_condition_command_ids =
             DenseCommandIdSet::with_capacity(self.semantic.command_count());
-        let mut binding_values = FxHashMap::default();
+        let mut binding_values = FxHashMap::with_capacity_and_hasher(
+            self.semantic.bindings().len(),
+            Default::default(),
+        );
         let mut broken_assoc_key_spans = Vec::new();
         let mut comma_array_assignment_spans = Vec::new();
         let mut ifs_literal_backslash_assignment_value_spans = Vec::new();
