@@ -478,6 +478,7 @@ fn command_zsh_external_entrypoint_action(
     match command.effective_or_literal_name()? {
         "zle" => zle_external_entrypoint_action(command, source),
         "add-zsh-hook" => add_zsh_hook_external_entrypoint_action(command, source),
+        "add-zle-hook-widget" => add_zsh_hook_external_entrypoint_action(command, source),
         _ => None,
     }
 }
@@ -571,6 +572,9 @@ fn add_zsh_hook_option_contains(arg: &str, flag: char) -> bool {
 }
 
 fn zsh_hook_function_pattern_matches(pattern: &str, function: &str) -> bool {
+    if pattern_contains_unsupported_zsh_metachar(pattern) {
+        return true;
+    }
     zsh_simple_glob_pattern_matches(pattern.as_bytes(), function.as_bytes())
 }
 
@@ -585,11 +589,71 @@ fn zsh_simple_glob_pattern_matches(pattern: &[u8], text: &[u8]) -> bool {
                 || (!text.is_empty() && zsh_simple_glob_pattern_matches(pattern, &text[1..]))
         }
         b'?' => !text.is_empty() && zsh_simple_glob_pattern_matches(&pattern[1..], &text[1..]),
+        b'[' => zsh_bracket_pattern_matches(pattern, text),
+        b'<' if pattern.starts_with(b"<->") => zsh_numeric_pattern_matches(&pattern[3..], text),
         literal => {
             text.first().is_some_and(|byte| *byte == literal)
                 && zsh_simple_glob_pattern_matches(&pattern[1..], &text[1..])
         }
     }
+}
+
+fn pattern_contains_unsupported_zsh_metachar(pattern: &str) -> bool {
+    pattern
+        .bytes()
+        .any(|byte| matches!(byte, b'(' | b')' | b'|' | b'~' | b'^' | b'#'))
+}
+
+fn zsh_numeric_pattern_matches(pattern_after_numeric: &[u8], text: &[u8]) -> bool {
+    let digit_count = text
+        .iter()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    (1..=digit_count).any(|consumed| {
+        zsh_simple_glob_pattern_matches(pattern_after_numeric, &text[consumed..])
+    })
+}
+
+fn zsh_bracket_pattern_matches(pattern: &[u8], text: &[u8]) -> bool {
+    let Some(&candidate) = text.first() else {
+        return false;
+    };
+    let Some(close_index) = pattern.iter().position(|byte| *byte == b']') else {
+        return candidate == b'[' && zsh_simple_glob_pattern_matches(&pattern[1..], &text[1..]);
+    };
+    if close_index == 1 {
+        return candidate == b'[' && zsh_simple_glob_pattern_matches(&pattern[1..], &text[1..]);
+    }
+
+    let class = &pattern[1..close_index];
+    let (negated, class) = match class {
+        [b'!' | b'^', rest @ ..] => (true, rest),
+        _ => (false, class),
+    };
+    let matched = zsh_bracket_class_contains(class, candidate);
+    if matched != negated {
+        zsh_simple_glob_pattern_matches(&pattern[close_index + 1..], &text[1..])
+    } else {
+        false
+    }
+}
+
+fn zsh_bracket_class_contains(class: &[u8], candidate: u8) -> bool {
+    let mut index = 0;
+    while index < class.len() {
+        if index + 2 < class.len() && class[index + 1] == b'-' {
+            if class[index] <= candidate && candidate <= class[index + 2] {
+                return true;
+            }
+            index += 3;
+        } else {
+            if class[index] == candidate {
+                return true;
+            }
+            index += 1;
+        }
+    }
+    false
 }
 
 fn static_command_args(command: &CommandFact<'_>, source: &str) -> Option<Vec<String>> {

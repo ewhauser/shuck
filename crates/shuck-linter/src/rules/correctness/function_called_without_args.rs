@@ -498,6 +498,23 @@ shared_widget
     }
 
     #[test]
+    fn ignores_zsh_functions_registered_as_zle_hook_widgets() {
+        let source = "\
+#!/bin/zsh
+line_init_widget() { print -r -- \"$1\"; }
+add-zle-hook-widget line-init line_init_widget
+line_init_widget
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn reports_zsh_functions_registered_by_unexecuted_setup_functions() {
         let source = "\
 #!/bin/zsh
@@ -522,6 +539,46 @@ latent_hook
         assert_eq!(
             diagnostics[1].span.slice(source),
             "latent_hook() { print -r -- \"$1\"; }"
+        );
+    }
+
+    #[test]
+    fn reports_zsh_functions_removed_from_hooks_by_richer_patterns() {
+        let source = "\
+#!/bin/zsh
+cb_1() { print -r -- \"$1\"; }
+cb_2() { print -r -- \"$1\"; }
+cb_10() { print -r -- \"$1\"; }
+cb_keep() { print -r -- \"$1\"; }
+add-zsh-hook precmd cb_1
+add-zsh-hook precmd cb_2
+add-zsh-hook precmd cb_10
+add-zsh-hook precmd cb_keep
+add-zsh-hook -D precmd 'cb_[12]'
+add-zsh-hook -D precmd 'cb_<->'
+cb_1
+cb_2
+cb_10
+cb_keep
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 3);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "cb_1() { print -r -- \"$1\"; }"
+        );
+        assert_eq!(
+            diagnostics[1].span.slice(source),
+            "cb_2() { print -r -- \"$1\"; }"
+        );
+        assert_eq!(
+            diagnostics[2].span.slice(source),
+            "cb_10() { print -r -- \"$1\"; }"
         );
     }
 
