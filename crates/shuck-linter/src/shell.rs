@@ -105,9 +105,21 @@ impl ShellDialect {
         let mut saw_bash_marker = false;
         let mut saw_zsh_marker = false;
         let mut at_directive_prefix = true;
+        let mut heredoc_delimiter: Option<(String, bool)> = None;
 
         for line in source.lines() {
             let trimmed = line.trim_start();
+            if let Some((delimiter, strip_tabs)) = heredoc_delimiter.as_ref() {
+                let candidate = if *strip_tabs {
+                    line.trim_start_matches('\t')
+                } else {
+                    line
+                };
+                if candidate.trim_end() == delimiter {
+                    heredoc_delimiter = None;
+                }
+                continue;
+            }
             if trimmed.is_empty() || trimmed.starts_with("#!") {
                 continue;
             }
@@ -125,6 +137,7 @@ impl ShellDialect {
             let code = trimmed.split('#').next().unwrap_or(trimmed);
             saw_bash_marker |= line_has_bash_marker(code);
             saw_zsh_marker |= line_has_zsh_marker(code);
+            heredoc_delimiter = line_heredoc_delimiter(code);
             at_directive_prefix = false;
 
             if saw_bash_marker && saw_zsh_marker {
@@ -169,6 +182,21 @@ fn line_has_zsh_emulate_marker(line: &str) -> bool {
 fn line_has_zsh_autoload_marker(line: &str) -> bool {
     let trimmed = line.trim_start();
     trimmed.starts_with("autoload ") && trimmed.split_whitespace().any(|word| word.starts_with('-'))
+}
+
+fn line_heredoc_delimiter(line: &str) -> Option<(String, bool)> {
+    let redirect_start = line.find("<<")?;
+    let mut rest = &line[redirect_start + 2..];
+    let strip_tabs = rest.starts_with('-');
+    if strip_tabs {
+        rest = &rest[1..];
+    }
+    let delimiter = rest.split_whitespace().next()?;
+    let delimiter = delimiter
+        .trim_matches('\'')
+        .trim_matches('"')
+        .trim_matches('\\');
+    (!delimiter.is_empty()).then(|| (delimiter.to_owned(), strip_tabs))
 }
 
 fn starts_with_shell_word(line: &str, needle: &str) -> bool {
@@ -354,6 +382,18 @@ autoload -U compaudit compinit
             "printf '%s\\n' '${${(%):-%x}:a:h}' \"\\${+commands[git]}\"\n",
             Some(Path::new("/tmp/example.sh")),
         );
+        assert_eq!(inferred, ShellDialect::Sh);
+    }
+
+    #[test]
+    fn ignores_dialect_markers_inside_heredoc_bodies() {
+        let source = "\
+cat <<'EOF'
+$ZSH_VERSION
+${BASH_SOURCE[0]}
+EOF
+";
+        let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
         assert_eq!(inferred, ShellDialect::Sh);
     }
 
