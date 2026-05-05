@@ -676,6 +676,53 @@ compdef __grunt=grunt
     }
 
     #[test]
+    fn zsh_compdef_deletion_modes_do_not_initialize_completion_context_names() {
+        let source = "\
+#!/bin/zsh
+function grunt() {
+  print -r -- $verbose $missing
+}
+compdef -d grunt
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$verbose", "$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_arguments_without_state_action_keeps_state_names_reportable() {
+        let source = "\
+#!/bin/zsh
+function __example() {
+  _arguments '--help[show help]'
+  print -r -- $context $line $opt_args $state $state_descr $missing
+}
+compdef __example example
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$state", "$state_descr", "$missing"]
+        );
+    }
+
+    #[test]
     fn zsh_zstyle_array_query_defines_named_target() {
         let source = "\
 #!/bin/zsh

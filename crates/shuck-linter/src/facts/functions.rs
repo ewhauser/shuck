@@ -494,6 +494,9 @@ fn command_registers_completion_function(
                 continue;
             }
             if text.starts_with('-') {
+                if text.contains('d') || text.contains('D') {
+                    return false;
+                }
                 continue;
             }
             if text == expected_name {

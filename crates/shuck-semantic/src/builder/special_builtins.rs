@@ -158,7 +158,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 }
             }
             "_arguments" if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh => {
-                for (argument, attributes) in zsh_arguments_targets() {
+                for (argument, attributes) in
+                    zsh_arguments_targets(zsh_arguments_has_state_action(args, self.source))
+                {
                     self.add_binding(
                         &argument,
                         BindingKind::ReadTarget,
@@ -544,17 +546,26 @@ fn zstyle_target(args: &[&Word], source: &str) -> Option<(Name, Span, BindingAtt
         .map(|(name, span)| (name, span, attributes))
 }
 
-fn zsh_arguments_targets() -> [(Name, BindingAttributes); 5] {
-    [
+fn zsh_arguments_targets(include_state_targets: bool) -> Vec<(Name, BindingAttributes)> {
+    let mut targets = vec![
         (Name::from("context"), BindingAttributes::ARRAY),
         (Name::from("line"), BindingAttributes::ARRAY),
         (
             Name::from("opt_args"),
             BindingAttributes::ARRAY | BindingAttributes::ASSOC,
         ),
-        (Name::from("state"), BindingAttributes::ARRAY),
-        (Name::from("state_descr"), BindingAttributes::ARRAY),
-    ]
+    ];
+    if include_state_targets {
+        targets.push((Name::from("state"), BindingAttributes::ARRAY));
+        targets.push((Name::from("state_descr"), BindingAttributes::ARRAY));
+    }
+    targets
+}
+
+fn zsh_arguments_has_state_action(args: &[&Word], source: &str) -> bool {
+    args.iter()
+        .filter_map(|word| static_word_text(word, source))
+        .any(|text| text.contains("->"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
