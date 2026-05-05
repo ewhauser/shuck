@@ -1121,6 +1121,95 @@ fn command_wrapped_printf_v_creates_target_binding() {
 }
 
 #[test]
+fn zsh_zstyle_query_creates_named_target_binding() {
+    let source = "#!/bin/zsh\nzstyle -a ':prezto:load' pmodule-dirs user_pmodule_dirs\nprint $user_pmodule_dirs\n";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let binding = binding_for_name(&model, "user_pmodule_dirs");
+
+    assert_eq!(binding.span.slice(source), "user_pmodule_dirs");
+    assert!(matches!(binding.kind, BindingKind::ReadTarget));
+    assert!(matches!(
+        binding.origin,
+        BindingOrigin::BuiltinTarget {
+            kind: BuiltinBindingTargetKind::Zstyle,
+            ..
+        }
+    ));
+    assert!(binding.attributes.contains(BindingAttributes::ARRAY));
+    assert_eq!(binding.references.len(), 1);
+}
+
+#[test]
+fn zsh_zstyle_scalar_and_boolean_queries_create_named_targets() {
+    let source = "\
+#!/bin/zsh
+zstyle -s ':prezto:load' prompt prompt_theme
+zstyle -b ':prezto:load' verbose verbose_enabled
+print $prompt_theme $verbose_enabled
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+
+    for name in ["prompt_theme", "verbose_enabled"] {
+        let binding = binding_for_name(&model, name);
+        assert!(matches!(binding.kind, BindingKind::ReadTarget));
+        assert!(matches!(
+            binding.origin,
+            BindingOrigin::BuiltinTarget {
+                kind: BuiltinBindingTargetKind::Zstyle,
+                ..
+            }
+        ));
+        assert!(!binding.attributes.contains(BindingAttributes::ARRAY));
+        assert_eq!(binding.references.len(), 1);
+    }
+}
+
+#[test]
+fn zsh_zstyle_target_parser_skips_leading_options() {
+    let source = "#!/bin/zsh\nzstyle -L -a ':prezto:load' pmodule-dirs user_pmodule_dirs\nprint $user_pmodule_dirs\n";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let binding = binding_for_name(&model, "user_pmodule_dirs");
+
+    assert!(binding.attributes.contains(BindingAttributes::ARRAY));
+    assert_eq!(binding.references.len(), 1);
+}
+
+#[test]
+fn zsh_describe_consumes_named_array_operand() {
+    let source =
+        "#!/bin/zsh\ncmds=(git:'run git')\n_describe -t commands 'external command' cmds\n";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let binding = binding_for_name(&model, "cmds");
+
+    assert_eq!(binding.references.len(), 1);
+    assert_eq!(
+        model.reference(binding.references[0]).span.slice(source),
+        "cmds"
+    );
+}
+
+#[test]
+fn zsh_describe_consumes_named_array_operand_after_options_and_separator() {
+    let source = "\
+#!/bin/zsh
+cmds=(git:'run git')
+other_cmds=(hg:'run hg')
+_describe -O expl 'external command' cmds
+_describe -- 'other command' other_cmds
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+
+    for name in ["cmds", "other_cmds"] {
+        let binding = binding_for_name(&model, name);
+        assert_eq!(binding.references.len(), 1);
+        assert_eq!(
+            model.reference(binding.references[0]).span.slice(source),
+            name
+        );
+    }
+}
+
+#[test]
 fn shflags_define_commands_create_flag_bindings() {
     let source = "DEFINE_boolean show_commands false 'show commands' s\n";
     let model = model(source);

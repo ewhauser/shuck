@@ -487,6 +487,108 @@ printf '%s\\n' \"$bar\" \"$foo\" \"$b\"
     }
 
     #[test]
+    fn zsh_zstyle_array_query_defines_named_target() {
+        let source = "\
+#!/bin/zsh
+zstyle -a ':prezto:load' pmodule-dirs user_pmodule_dirs
+print -r -- $user_pmodule_dirs $still_missing
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$still_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_zstyle_array_query_preserves_associative_target_metadata() {
+        let source = "\
+#!/bin/zsh
+typeset -A style_map
+zstyle -a ':prezto:load' pmodule-dirs style_map
+print -r -- ${style_map[key]}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn zsh_zstyle_scalar_and_boolean_queries_define_named_targets() {
+        let source = "\
+#!/bin/zsh
+zstyle -s ':prezto:load' prompt prompt_theme
+zstyle -b ':prezto:load' verbose verbose_enabled
+print -r -- $prompt_theme $verbose_enabled $still_missing
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$still_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_zstyle_listing_mode_does_not_define_named_target() {
+        let source = "\
+#!/bin/zsh
+zstyle -L -a ':prezto:load' pmodule-dirs user_pmodule_dirs
+print -r -- $user_pmodule_dirs
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$user_pmodule_dirs"]
+        );
+    }
+
+    #[test]
+    fn zsh_zstyle_other_modes_do_not_define_named_targets() {
+        for option in ["-g", "-d", "-m", "-t"] {
+            let source = format!(
+                "#!/bin/zsh\nzstyle {option} -a ':prezto:load' pmodule-dirs user_pmodule_dirs\nprint -r -- $user_pmodule_dirs\n"
+            );
+            let diagnostics = test_snippet(
+                &source,
+                &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+            );
+
+            assert_eq!(
+                diagnostics
+                    .iter()
+                    .map(|diagnostic| diagnostic.span.slice(&source))
+                    .collect::<Vec<_>>(),
+                vec!["$user_pmodule_dirs"],
+                "unexpected diagnostics for {option}"
+            );
+        }
+    }
+
+    #[test]
     fn subscript_suppression_hides_later_same_name_uses() {
         let source = "\
 #!/bin/bash

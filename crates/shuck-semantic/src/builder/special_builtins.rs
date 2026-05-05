@@ -119,6 +119,42 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     );
                 }
             }
+            "zstyle" if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh => {
+                if let Some((argument, span, mut attributes)) = zstyle_target(args, self.source) {
+                    if attributes.contains(BindingAttributes::ARRAY)
+                        && self
+                            .resolve_reference(&argument, self.current_scope(), span.start.offset)
+                            .map(|binding_id| {
+                                let binding = &self.bindings[binding_id.index()];
+                                binding.attributes.contains(BindingAttributes::ASSOC)
+                                    && !self.binding_was_cleared_before_lookup(
+                                        binding,
+                                        self.current_scope(),
+                                        span.start.offset,
+                                    )
+                            })
+                            .unwrap_or(false)
+                    {
+                        attributes |= BindingAttributes::ASSOC;
+                    }
+                    self.add_binding(
+                        &argument,
+                        BindingKind::ReadTarget,
+                        self.current_scope(),
+                        span,
+                        BindingOrigin::BuiltinTarget {
+                            definition_span: span,
+                            kind: BuiltinBindingTargetKind::Zstyle,
+                        },
+                        attributes,
+                    );
+                }
+            }
+            "_describe" if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh => {
+                for (argument, span) in describe_array_names(args, self.source) {
+                    self.add_reference_if_bound(&argument, ReferenceKind::ImplicitRead, span);
+                }
+            }
             "let" => self.record_let_arithmetic_assignment_targets(args),
             "eval" => self.record_eval_argument_references(args),
             "trap" => self.record_trap_action_references(args),
@@ -433,4 +469,62 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 .push(argument.span.start.offset);
         }
     }
+}
+
+fn zstyle_target(args: &[&Word], source: &str) -> Option<(Name, Span, BindingAttributes)> {
+    let index = 0usize;
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            return None;
+        };
+        match text.as_ref() {
+            "--" => return None,
+            "-a" | "-s" | "-b" => {
+                let attributes = if text == "-a" {
+                    BindingAttributes::ARRAY
+                } else {
+                    BindingAttributes::empty()
+                };
+                return args
+                    .get(index + 3)
+                    .and_then(|word| named_target_word(word, source))
+                    .map(|(name, span)| (name, span, attributes));
+            }
+            _ if text.starts_with('-') && text != "-" => return None,
+            _ => return None,
+        }
+    }
+
+    None
+}
+
+fn describe_array_names(args: &[&Word], source: &str) -> Vec<(Name, Span)> {
+    let mut index = 0usize;
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            return Vec::new();
+        };
+        if text == "--" {
+            index += 1;
+            break;
+        }
+        if !text.starts_with('-') || text == "-" {
+            break;
+        }
+        index += 1;
+        if text == "-t" {
+            index += 1;
+        }
+    }
+
+    let mut targets = Vec::new();
+    for offset in [1, 2] {
+        if let Some(target) = args
+            .get(index + offset)
+            .and_then(|word| named_target_word(word, source))
+        {
+            targets.push(target);
+        }
+    }
+    targets
 }
