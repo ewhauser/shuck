@@ -10,6 +10,7 @@ shells:
   - bash
   - dash
   - ksh
+  - zsh
 description: A function that reads positional parameters is called with no arguments.
 rationale: Pass the expected arguments or guard against missing parameters.
 safe_fix: false

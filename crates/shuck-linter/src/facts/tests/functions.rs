@@ -615,3 +615,94 @@ complete -F _comp_cmd_later later
         assert!(flagged_lines.iter().all(|line| *line == 3));
     });
 }
+
+#[test]
+fn marks_zsh_widget_and_hook_functions_as_external_entrypoints() {
+    let source = "\
+#!/bin/zsh
+single_operand_widget() { print -r -- \"$1\"; }
+widget_impl() { print -r -- \"$1\"; }
+precmd_refresh() { (( $# )) && print -r -- \"$1\"; }
+precmd() { print -r -- \"$1\"; }
+zsh_directory_name() { print -r -- \"$1\"; }
+not_external() { print -r -- \"$1\"; }
+dynamic_widget() { print -r -- \"$1\"; }
+removed_precmd() { print -r -- \"$1\"; }
+removed_chpwd() { print -r -- \"$1\"; }
+deleted_widget_impl() { print -r -- \"$1\"; }
+shared_widget_impl() { print -r -- \"$1\"; }
+latent_widget_impl() { print -r -- \"$1\"; }
+latent_hook_impl() { print -r -- \"$1\"; }
+pattern_removed_hook() { print -r -- \"$1\"; }
+pattern_kept_hook() { print -r -- \"$1\"; }
+zle_hook_widget_impl() { print -r -- \"$1\"; }
+zle_hook_backing_impl() { print -r -- \"$1\"; }
+bracket_removed_hook() { print -r -- \"$1\"; }
+number_removed_hook_12() { print -r -- \"$1\"; }
+negated_class_removed_hook() { print -r -- \"$1\"; }
+negated_class_kept_hook() { print -r -- \"$1\"; }
+zle -N single_operand_widget
+zle -N widget-name widget_impl
+zle -N deleted-widget deleted_widget_impl
+zle -D deleted-widget
+zle -N first-widget shared_widget_impl
+zle -N second-widget shared_widget_impl
+zle -D first-widget
+add-zsh-hook -Uz precmd precmd_refresh
+add-zsh-hook chpwd removed_chpwd
+add-zsh-hook -d precmd removed_precmd
+add-zsh-hook -UD chpwd removed_chpwd
+add-zsh-hook precmd pattern_removed_hook
+add-zsh-hook precmd pattern_kept_hook
+add-zsh-hook -D precmd 'pattern_removed_*'
+add-zle-hook-widget line-init zle_hook_widget_impl
+zle -N zle-hook-widget-alias zle_hook_backing_impl
+add-zle-hook-widget line-init zle-hook-widget-alias
+add-zsh-hook precmd bracket_removed_hook
+add-zsh-hook precmd number_removed_hook_12
+add-zsh-hook precmd negated_class_removed_hook
+add-zsh-hook precmd negated_class_kept_hook
+add-zsh-hook -D precmd 'bracket_removed_[hr]ook'
+add-zsh-hook -D precmd 'number_removed_hook_<->'
+add-zsh-hook -D precmd 'negated_class_[^k]*'
+zle -N \"$widget_name\" dynamic_widget
+setup_widget() { zle -N latent-widget latent_widget_impl; }
+setup_hook() { add-zsh-hook precmd latent_hook_impl; }
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            let external_names = facts
+                .function_headers()
+                .iter()
+                .filter_map(|header| {
+                    let scope = header.function_scope()?;
+                    facts
+                        .function_is_external_entrypoint(scope)
+                        .then(|| header.static_name_entry().map(|(name, _)| name.as_str()))
+                        .flatten()
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                external_names,
+                vec![
+                    "single_operand_widget",
+                    "widget_impl",
+                    "precmd_refresh",
+                    "precmd",
+                    "zsh_directory_name",
+                    "shared_widget_impl",
+                    "pattern_kept_hook",
+                    "zle_hook_widget_impl",
+                    "zle_hook_backing_impl",
+                    "negated_class_kept_hook"
+                ]
+            );
+        },
+    );
+}

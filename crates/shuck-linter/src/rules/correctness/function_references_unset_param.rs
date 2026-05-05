@@ -3,7 +3,7 @@ use rustc_hash::FxHashSet;
 use shuck_ast::Span;
 use shuck_semantic::BindingId;
 
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct FunctionReferencesUnsetParam {
     pub name: CompactString,
@@ -50,6 +50,9 @@ pub fn function_references_unset_param(checker: &mut Checker) {
         if !positional.uses_positional_parameters() || positional.resets_positional_parameters() {
             continue;
         }
+        if zsh_function_arity_is_externally_defined(checker, function_scope) {
+            continue;
+        }
         let call_arity = header.call_arity();
         if !call_arity.called_only_without_args() {
             continue;
@@ -69,6 +72,21 @@ pub fn function_references_unset_param(checker: &mut Checker) {
     }
 }
 
+fn zsh_function_arity_is_externally_defined(
+    checker: &Checker<'_>,
+    function_scope: shuck_semantic::ScopeId,
+) -> bool {
+    checker.shell() == ShellDialect::Zsh
+        && (checker
+            .facts()
+            .function_is_external_entrypoint(function_scope)
+            || checker
+                .facts()
+                .function_positional_parameter_facts(function_scope)
+                .required_arg_count()
+                == 0)
+}
+
 #[cfg(test)]
 mod tests {
     use shuck_indexer::Indexer;
@@ -76,7 +94,8 @@ mod tests {
 
     use crate::test::test_snippet;
     use crate::{
-        LinterSettings, Rule, ShellCheckCodeMap, lint_file_with_directives, parse_directives,
+        LinterSettings, Rule, ShellCheckCodeMap, ShellDialect, lint_file_with_directives,
+        parse_directives,
     };
 
     #[test]
@@ -162,6 +181,316 @@ usage
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "usage");
         assert_eq!(diagnostics[0].span.start.line, 3);
+    }
+
+    #[test]
+    fn ignores_zsh_widget_and_hook_callbacks_with_optional_arguments() {
+        let source = "\
+#!/bin/zsh
+single_operand_widget() {
+  print -r -- \"$1\"
+}
+_zsh_autosuggest_widget_accept() {
+  local original_widget=\"$1\"
+  shift || true
+  \"$original_widget\" \"$@\"
+}
+precmd_refresh() {
+  (( $# )) && print -r -- \"$1\"
+}
+zle -N autosuggest-accept _zsh_autosuggest_widget_accept
+zle -N single_operand_widget
+add-zsh-hook precmd precmd_refresh
+_zsh_autosuggest_widget_accept
+single_operand_widget
+precmd_refresh
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_zsh_standard_hook_call_sites() {
+        let source = "\
+#!/bin/zsh
+preexec() { print -r -- \"$1\"; }
+preexec
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_zsh_directory_name_call_sites() {
+        let source = "\
+#!/bin/zsh
+zsh_directory_name() { print -r -- \"$1\"; }
+zsh_directory_name
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_zsh_call_sites_missing_required_arguments() {
+        let source = "\
+#!/bin/zsh
+greet() { print -r -- \"$1 $2\"; }
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "greet");
+        assert_eq!(diagnostics[0].span.start.line, 3);
+    }
+
+    #[test]
+    fn reports_zsh_call_sites_removed_from_hooks() {
+        let source = "\
+#!/bin/zsh
+removed_precmd() { print -r -- \"$1\"; }
+removed_chpwd() { print -r -- \"$1\"; }
+add-zsh-hook chpwd removed_chpwd
+add-zsh-hook -d precmd removed_precmd
+add-zsh-hook -UD chpwd removed_chpwd
+removed_precmd
+removed_chpwd
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "removed_precmd");
+        assert_eq!(diagnostics[0].span.start.line, 7);
+        assert_eq!(diagnostics[1].span.slice(source), "removed_chpwd");
+        assert_eq!(diagnostics[1].span.start.line, 8);
+    }
+
+    #[test]
+    fn reports_zsh_call_sites_removed_from_hooks_by_pattern() {
+        let source = "\
+#!/bin/zsh
+cb_one() { print -r -- \"$1\"; }
+cb_two() { print -r -- \"$1\"; }
+cb_keep() { print -r -- \"$1\"; }
+add-zsh-hook precmd cb_one
+add-zsh-hook precmd cb_two
+add-zsh-hook precmd cb_keep
+add-zsh-hook -D precmd 'cb_t*'
+cb_one
+cb_two
+cb_keep
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "cb_two");
+        assert_eq!(diagnostics[0].span.start.line, 10);
+    }
+
+    #[test]
+    fn reports_zsh_call_sites_removed_from_hooks_by_richer_patterns() {
+        let source = "\
+#!/bin/zsh
+cb_1() { print -r -- \"$1\"; }
+cb_2() { print -r -- \"$1\"; }
+cb_10() { print -r -- \"$1\"; }
+cb_a() { print -r -- \"$1\"; }
+cb_x() { print -r -- \"$1\"; }
+cb_keep() { print -r -- \"$1\"; }
+add-zsh-hook precmd cb_1
+add-zsh-hook precmd cb_2
+add-zsh-hook precmd cb_10
+add-zsh-hook precmd cb_a
+add-zsh-hook precmd cb_x
+add-zsh-hook precmd cb_keep
+add-zsh-hook -D precmd 'cb_[12]'
+add-zsh-hook -D precmd 'cb_<->'
+add-zsh-hook -D precmd 'cb_[^x]'
+cb_1
+cb_2
+cb_10
+cb_a
+cb_x
+cb_keep
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 4);
+        assert_eq!(diagnostics[0].span.slice(source), "cb_1");
+        assert_eq!(diagnostics[0].span.start.line, 17);
+        assert_eq!(diagnostics[1].span.slice(source), "cb_2");
+        assert_eq!(diagnostics[1].span.start.line, 18);
+        assert_eq!(diagnostics[2].span.slice(source), "cb_10");
+        assert_eq!(diagnostics[2].span.start.line, 19);
+        assert_eq!(diagnostics[3].span.slice(source), "cb_a");
+        assert_eq!(diagnostics[3].span.start.line, 20);
+    }
+
+    #[test]
+    fn reports_zsh_call_sites_removed_from_widgets() {
+        let source = "\
+#!/bin/zsh
+removed_widget() { print -r -- \"$1\"; }
+zle -N removed-widget removed_widget
+zle -D removed-widget
+removed_widget
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "removed_widget");
+        assert_eq!(diagnostics[0].span.start.line, 5);
+    }
+
+    #[test]
+    fn ignores_zsh_call_sites_still_registered_as_widgets() {
+        let source = "\
+#!/bin/zsh
+shared_widget() { print -r -- \"$1\"; }
+zle -N first-widget shared_widget
+zle -N second-widget shared_widget
+zle -D first-widget
+shared_widget
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_zsh_call_sites_registered_as_zle_hook_widgets() {
+        let source = "\
+#!/bin/zsh
+line_init_widget() { print -r -- \"$1\"; }
+line_init_impl() { print -r -- \"$1\"; }
+zle -N line-init-alias line_init_impl
+add-zle-hook-widget line-init line_init_widget
+add-zle-hook-widget line-init line-init-alias
+line_init_widget
+line_init_impl
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_zsh_call_sites_registered_by_unexecuted_setup_functions() {
+        let source = "\
+#!/bin/zsh
+latent_widget() { print -r -- \"$1\"; }
+latent_hook() { print -r -- \"$1\"; }
+setup_widget() { zle -N latent-widget latent_widget; }
+setup_hook() { add-zsh-hook precmd latent_hook; }
+latent_widget
+latent_hook
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "latent_widget");
+        assert_eq!(diagnostics[0].span.start.line, 6);
+        assert_eq!(diagnostics[1].span.slice(source), "latent_hook");
+        assert_eq!(diagnostics[1].span.start.line, 7);
+    }
+
+    #[test]
+    fn reports_zsh_call_sites_with_dynamic_widget_registration() {
+        let source = "\
+#!/bin/zsh
+dynamic_widget() { print -r -- \"$1 $2\"; }
+zle -N \"$widget_name\" dynamic_widget
+dynamic_widget
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "dynamic_widget");
+        assert_eq!(diagnostics[0].span.start.line, 4);
+    }
+
+    #[test]
+    fn ignores_zsh_call_sites_for_special_positional_forwarders() {
+        let source = "\
+#!/bin/zsh
+forward() { print -r -- \"$@\"; }
+forward
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_zsh_call_sites_for_argument_count_checks() {
+        let source = "\
+#!/bin/zsh
+has_args() { (( $# )) && print -r -- ok; }
+has_args
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
