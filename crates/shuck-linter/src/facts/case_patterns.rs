@@ -179,6 +179,7 @@ struct StaticCasePatternMatcher {
     literal_suffix: Box<str>,
     literal_symbols: Box<[char]>,
     start_states: Box<[usize]>,
+    simple_glob_form: Option<bool>,
     bit_nfa: Option<StaticCasePatternBitNfa>,
 }
 
@@ -280,6 +281,7 @@ struct StaticCasePatternSummary {
     literal_suffix: Box<str>,
     literal_symbols: Box<[char]>,
     start_states: Box<[usize]>,
+    simple_glob_form: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -320,6 +322,7 @@ impl StaticCasePatternMatcher {
             literal_suffix,
             literal_symbols,
             start_states,
+            simple_glob_form,
         } = summarize_static_case_pattern_tokens(&tokens);
         let bit_nfa = StaticCasePatternBitNfa::new(&tokens);
         Some(Self {
@@ -330,6 +333,7 @@ impl StaticCasePatternMatcher {
             literal_suffix,
             literal_symbols,
             start_states,
+            simple_glob_form,
             bit_nfa,
         })
     }
@@ -349,6 +353,7 @@ impl StaticCasePatternMatcher {
             literal_suffix,
             literal_symbols,
             start_states,
+            simple_glob_form,
         } = summarize_static_case_pattern_tokens(&tokens);
         let bit_nfa = StaticCasePatternBitNfa::new(&tokens);
         Some(Self {
@@ -359,6 +364,7 @@ impl StaticCasePatternMatcher {
             literal_suffix,
             literal_symbols,
             start_states,
+            simple_glob_form,
             bit_nfa,
         })
     }
@@ -659,6 +665,7 @@ pub mod benchmark {
                 literal_suffix,
                 literal_symbols,
                 start_states,
+                simple_glob_form,
             } = summarize_static_case_pattern_tokens(&tokens);
             let bit_nfa = StaticCasePatternBitNfa::new(&tokens);
             Some(Self(StaticCasePatternMatcher {
@@ -669,6 +676,7 @@ pub mod benchmark {
                 literal_suffix,
                 literal_symbols,
                 start_states,
+                simple_glob_form,
                 bit_nfa,
             }))
         }
@@ -708,36 +716,19 @@ fn subsumes_fixed_length_fast_path(
     Some(result)
 }
 
-fn glob_simple_form(matcher: &StaticCasePatternMatcher) -> Option<bool> {
-    let mut star_count = 0u32;
-    for token in &matcher.tokens {
-        match token {
-            CasePatternToken::Literal(_) => {}
-            CasePatternToken::AnyChar => return None,
-            CasePatternToken::AnyString => {
-                star_count += 1;
-                if star_count > 1 {
-                    return None;
-                }
-            }
-        }
-    }
-    Some(star_count == 1)
-}
-
 fn both_have_simple_glob_form(
     left: &StaticCasePatternMatcher,
     right: &StaticCasePatternMatcher,
 ) -> bool {
-    glob_simple_form(left).is_some() && glob_simple_form(right).is_some()
+    left.simple_glob_form.is_some() && right.simple_glob_form.is_some()
 }
 
 fn intersects_simple_glob_fast_path(
     left: &StaticCasePatternMatcher,
     right: &StaticCasePatternMatcher,
 ) -> Option<bool> {
-    let lh = glob_simple_form(left)?;
-    let rh = glob_simple_form(right)?;
+    let lh = left.simple_glob_form?;
+    let rh = right.simple_glob_form?;
     let lp: &str = left.literal_prefix.as_ref();
     let ls: &str = left.literal_suffix.as_ref();
     let rp: &str = right.literal_prefix.as_ref();
@@ -794,6 +785,8 @@ fn summarize_static_case_pattern_tokens(tokens: &[CasePatternToken]) -> StaticCa
     let mut literal_suffix_reversed = String::new();
     let mut saw_suffix_wildcard = false;
     let mut literal_symbols: SmallVec<[char; 8]> = SmallVec::new();
+    let mut simple_star_count = 0u8;
+    let mut simple_glob_form = Some(false);
 
     for token in tokens {
         match token {
@@ -813,10 +806,19 @@ fn summarize_static_case_pattern_tokens(tokens: &[CasePatternToken]) -> StaticCa
                     *max_len += 1;
                 }
                 saw_wildcard = true;
+                simple_glob_form = None;
             }
             CasePatternToken::AnyString => {
                 max_len = None;
                 saw_wildcard = true;
+                if simple_glob_form.is_some() {
+                    simple_star_count += 1;
+                    simple_glob_form = match simple_star_count {
+                        0 => Some(false),
+                        1 => Some(true),
+                        _ => None,
+                    };
+                }
             }
         }
     }
@@ -848,6 +850,7 @@ fn summarize_static_case_pattern_tokens(tokens: &[CasePatternToken]) -> StaticCa
             .into_boxed_str(),
         literal_symbols: literal_symbols.into_vec().into_boxed_slice(),
         start_states: case_pattern_epsilon_closure(tokens, [0]).into_boxed_slice(),
+        simple_glob_form,
     }
 }
 
