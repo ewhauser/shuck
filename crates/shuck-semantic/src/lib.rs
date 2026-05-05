@@ -2840,6 +2840,7 @@ fn record_command_condition_starts(
         | RecordedCommandKind::ArithmeticFor { .. }
         | RecordedCommandKind::Case { .. }
         | RecordedCommandKind::BraceGroup { .. }
+        | RecordedCommandKind::Always { .. }
         | RecordedCommandKind::Subshell { .. }
         | RecordedCommandKind::Pipeline { .. } => {}
     }
@@ -3098,6 +3099,10 @@ fn record_command_children(
         | RecordedCommandKind::Subshell { body } => {
             assign_range_parent(program, parent, body, parent_ids, child_ids);
         }
+        RecordedCommandKind::Always { body, always_body } => {
+            assign_range_parent(program, parent, body, parent_ids, child_ids);
+            assign_range_parent(program, parent, always_body, parent_ids, child_ids);
+        }
         RecordedCommandKind::Case { arms } => {
             for arm in program.case_arms(arms) {
                 assign_range_parent(program, parent, arm.commands, parent_ids, child_ids);
@@ -3238,6 +3243,10 @@ fn command_descendants(program: &RecordedProgram, command: CommandId) -> Vec<Com
         | RecordedCommandKind::BraceGroup { body }
         | RecordedCommandKind::Subshell { body } => {
             descendants.extend(commands_in_range_recursive(program, body));
+        }
+        RecordedCommandKind::Always { body, always_body } => {
+            descendants.extend(commands_in_range_recursive(program, body));
+            descendants.extend(commands_in_range_recursive(program, always_body));
         }
         RecordedCommandKind::Case { arms } => {
             for arm in program.case_arms(arms) {

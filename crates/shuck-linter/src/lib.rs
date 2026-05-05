@@ -5605,6 +5605,26 @@ printf '%s\\n' two
     }
 
     #[test]
+    fn unreachable_after_exit_treats_zsh_always_cleanup_as_reachable() {
+        let source = "\
+#!/bin/zsh
+{
+  return
+} always {
+  printf '%s\\n' cleanup
+}
+printf '%s\\n' after
+";
+        let diagnostics = crate::test::test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnreachableAfterExit).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+        assert_eq!(diagnostics[0].span.slice(source), "printf '%s\\n' after");
+    }
+
+    #[test]
     fn unreachable_after_exit_reports_after_script_terminating_function_calls() {
         let source = "\
 #!/bin/bash

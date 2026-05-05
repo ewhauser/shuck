@@ -686,6 +686,10 @@ impl<'a> Analyzer<'a> {
             RecordedCommandKind::BraceGroup { body } => {
                 self.analyze_sequence(scope, *body, state, leak)
             }
+            RecordedCommandKind::Always { body, always_body } => {
+                let after_body = self.analyze_sequence(scope, *body, state, leak);
+                self.analyze_sequence(scope, *always_body, after_body, leak)
+            }
             RecordedCommandKind::Case { arms } => self.analyze_case(scope, &state, *arms, leak),
             RecordedCommandKind::Subshell { body } => {
                 self.analyze_sequence(

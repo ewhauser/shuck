@@ -193,6 +193,22 @@ fn collect_command_function_bindings(
             bindings,
             unconditional,
         ),
+        RecordedCommandKind::Always { body, always_body } => {
+            collect_sequence_function_bindings(
+                program,
+                body,
+                command_bindings,
+                bindings,
+                unconditional,
+            );
+            collect_sequence_function_bindings(
+                program,
+                always_body,
+                command_bindings,
+                bindings,
+                unconditional,
+            );
+        }
         RecordedCommandKind::Linear
         | RecordedCommandKind::Break { .. }
         | RecordedCommandKind::Continue { .. }

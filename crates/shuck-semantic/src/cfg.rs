@@ -496,6 +496,10 @@ pub(crate) enum RecordedCommandKind {
     BraceGroup {
         body: RecordedCommandRange,
     },
+    Always {
+        body: RecordedCommandRange,
+        always_body: RecordedCommandRange,
+    },
     Subshell {
         body: RecordedCommandRange,
     },
@@ -860,6 +864,10 @@ fn command_can_return_before(
         | RecordedCommandKind::ArithmeticFor { body } => {
             command_range_can_return_before(program, body, before_offset)
         }
+        RecordedCommandKind::Always { body, always_body } => {
+            command_range_can_return_before(program, body, before_offset)
+                || command_range_can_return_before(program, always_body, before_offset)
+        }
         RecordedCommandKind::While { condition, body }
         | RecordedCommandKind::Until { condition, body } => {
             command_range_can_return_before(program, condition, before_offset)
@@ -1026,6 +1034,9 @@ fn command_exit_effect(
         RecordedCommandKind::BraceGroup { body } => {
             sequence_exit_effect(program, body, terminating_call_spans)
         }
+        RecordedCommandKind::Always { body, always_body } => {
+            always_exit_effect(program, body, always_body, terminating_call_spans)
+        }
         RecordedCommandKind::While { condition, body }
         | RecordedCommandKind::Until { condition, body } => {
             loop_exit_effect(program, condition, body, terminating_call_spans)
@@ -1183,6 +1194,29 @@ fn case_exit_effect(
             arm.commands,
             terminating_call_spans,
         ));
+    }
+
+    effect
+}
+
+fn always_exit_effect(
+    program: &RecordedProgram,
+    body: RecordedCommandRange,
+    always_body: RecordedCommandRange,
+    terminating_call_spans: &FxHashSet<SpanKey>,
+) -> ExitEffect {
+    let body_effect = sequence_exit_effect(program, body, terminating_call_spans);
+    let always_effect = sequence_exit_effect(program, always_body, terminating_call_spans);
+    let mut effect = ExitEffect::default();
+
+    if body_effect.may_continue {
+        effect.combine_alternative(always_effect);
+    }
+    if body_effect.may_return {
+        effect.may_return = true;
+    }
+    if body_effect.may_exit {
+        effect.may_exit = true;
     }
 
     effect
@@ -1499,6 +1533,9 @@ impl<'a> GraphBuilder<'a> {
                     force_command_header,
                 )
             }
+            RecordedCommandKind::Always { body, always_body } => {
+                self.build_always(command_id, *body, *always_body, loops, force_command_header)
+            }
             RecordedCommandKind::Subshell { body, .. } => {
                 let block = self.command_block(command.span);
                 self.attach_nested_regions(block, command.nested_regions, loops);
@@ -1531,6 +1568,67 @@ impl<'a> GraphBuilder<'a> {
                 }
             }
         }
+    }
+
+    fn build_always(
+        &mut self,
+        command_id: CommandId,
+        body: RecordedCommandRange,
+        always_body: RecordedCommandRange,
+        loops: &[LoopTarget],
+        force_command_header: bool,
+    ) -> SequenceResult {
+        let body_start = self.blocks.len();
+        let body_sequence = self.build_sequence(body, loops);
+        let body_end = self.blocks.len();
+        let always_sequence = self.build_sequence(always_body, loops);
+
+        if let Some(always_entry) = always_sequence.entry {
+            if body_sequence.exits.is_empty() {
+                let terminal_blocks = self.terminal_leaf_blocks(body_start, body_end);
+                for block in terminal_blocks {
+                    self.add_edge(block, always_entry, EdgeKind::Sequential);
+                }
+            } else {
+                for block in &body_sequence.exits {
+                    self.add_edge(*block, always_entry, EdgeKind::Sequential);
+                }
+            }
+        }
+
+        let exits = if body_sequence.exits.is_empty() {
+            SmallVec::new()
+        } else {
+            always_sequence.exits
+        };
+        let terminal_cause = if exits.is_empty() {
+            if body_sequence.exits.is_empty() {
+                body_sequence.terminal_cause
+            } else {
+                always_sequence.terminal_cause
+            }
+        } else {
+            None
+        };
+        let entry = body_sequence.entry.or(always_sequence.entry);
+        self.wrap_sequence_with_command_header(
+            command_id,
+            SequenceResult {
+                entry,
+                exits,
+                terminal_cause,
+            },
+            loops,
+            force_command_header,
+        )
+    }
+
+    fn terminal_leaf_blocks(&self, start: usize, end: usize) -> SmallVec<[BlockId; 2]> {
+        self.blocks[start..end]
+            .iter()
+            .filter(|block| self.successors[block.id.index()].is_empty())
+            .map(|block| block.id)
+            .collect()
     }
 
     fn wrap_sequence_with_command_header(

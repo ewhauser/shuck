@@ -6413,6 +6413,36 @@ fn detects_dead_code_after_exit() {
 }
 
 #[test]
+fn zsh_always_cleanup_after_return_is_reachable() {
+    let source = "\
+#!/bin/zsh
+{
+  return
+} always {
+  printf '%s\\n' cleanup
+}
+printf '%s\\n' after
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let unreachable = model
+        .analysis()
+        .dead_code()
+        .iter()
+        .flat_map(|entry| entry.unreachable.iter())
+        .map(|span| span.slice(source).trim_end().to_owned())
+        .collect::<Vec<_>>();
+
+    assert!(
+        !unreachable.contains(&"printf '%s\\n' cleanup".to_owned()),
+        "unreachable spans: {unreachable:?}"
+    );
+    assert!(
+        unreachable.contains(&"printf '%s\\n' after".to_owned()),
+        "unreachable spans: {unreachable:?}"
+    );
+}
+
+#[test]
 fn loop_control_condition_keeps_unreachable_if_tree_causes() {
     let source = "\
 while true; do

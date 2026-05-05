@@ -748,14 +748,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     in_block: true,
                     ..flow
                 };
-                let mut body = Vec::with_capacity(command.body.len() + command.always_body.len());
-                self.visit_stmt_seq_into(&command.body, block_flow, &mut body);
-                self.visit_stmt_seq_into(&command.always_body, block_flow, &mut body);
-                let body = self.recorded_program.push_command_ids(body);
+                let body = self.visit_stmt_seq(&command.body, block_flow);
+                let always_body = self.visit_stmt_seq(&command.always_body, block_flow);
                 self.record_command(
                     command.span,
                     Vec::new(),
-                    RecordedCommandKind::BraceGroup { body },
+                    RecordedCommandKind::Always { body, always_body },
                 )
             }
             CompoundCommand::Arithmetic(command) => {
@@ -973,6 +971,14 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             | RecordedCommandKind::BraceGroup { body }
             | RecordedCommandKind::Subshell { body } => {
                 for &command in self.recorded_program.commands_in(body) {
+                    regions.extend(self.flatten_recorded_regions(command));
+                }
+            }
+            RecordedCommandKind::Always { body, always_body } => {
+                for &command in self.recorded_program.commands_in(body) {
+                    regions.extend(self.flatten_recorded_regions(command));
+                }
+                for &command in self.recorded_program.commands_in(always_body) {
                     regions.extend(self.flatten_recorded_regions(command));
                 }
             }
