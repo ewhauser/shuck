@@ -1281,6 +1281,119 @@ ordinary=1
     }
 
     #[test]
+    fn zsh_test_harness_expected_outputs_are_external_consumers() {
+        let source = "\
+#!/usr/bin/env zsh
+run_test_internal() {
+  expected_region_highlight=()
+  ordinary=1
+  true && _zsh_highlight
+}
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/zsh-syntax-highlighting/tests/test-zprof.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
+    }
+
+    #[test]
+    fn zsh_history_state_assignments_are_external_consumers() {
+        let source = "\
+#!/usr/bin/env zsh
+HISTFILE=~/.zsh_history
+HISTSIZE=10000
+SAVEHIST=10000
+ordinary=1
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/holman-dotfiles/zsh/config.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
+    }
+
+    #[test]
+    fn zsh_module_metadata_triplets_are_external_consumers() {
+        let source = "\
+#!/usr/bin/env zsh
+module_name=\"package-manager\"
+module_description=\"Install package manager\"
+module_main_function=\"run_package_manager_module\"
+ordinary=1
+
+run_package_manager_module() {
+  :
+}
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/install/01-package-manager.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
+    }
+
+    #[test]
+    fn zsh_module_metadata_accepts_next_line_function_body_brace() {
+        let source = "\
+#!/usr/bin/env zsh
+module_name=\"package-manager\"
+module_description=\"Install package manager\"
+module_main_function=\"run_package_manager_module\"
+ordinary=1
+
+function run_package_manager_module
+{
+  :
+}
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/install/01-package-manager.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
+    }
+
+    #[test]
+    fn zsh_module_metadata_requires_exact_main_function_name() {
+        let source = "\
+#!/usr/bin/env zsh
+module_name=\"package-manager\"
+module_description=\"Install package manager\"
+module_main_function=\"run\"
+
+runner() {
+  :
+}
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/install/01-package-manager.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["module_name", "module_description", "module_main_function"]
+        );
+    }
+
+    #[test]
     fn zsh_ambient_output_parameters_are_external_consumers() {
         let source = "\
 #!/usr/bin/env zsh

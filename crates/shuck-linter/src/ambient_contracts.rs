@@ -94,6 +94,10 @@ fn providers() -> &'static [AmbientContractProvider] {
             build: build_zsh_config_contract,
         },
         AmbientContractProvider {
+            matches: matches_zsh_module_metadata_contract,
+            build: build_zsh_module_metadata_contract,
+        },
+        AmbientContractProvider {
             matches: matches_zsh_caller_scoped_array_contract,
             build: build_zsh_caller_scoped_array_contract,
         },
@@ -198,9 +202,10 @@ fn matches_zsh_config_contract(
 ) -> bool {
     let lower = lower_path(path);
     shell_matches_zsh_config_context(shell, &lower)
-        && zsh_config_consumed_prefixes(collector.source, &lower)
+        && (zsh_config_consumed_prefixes(collector.source, &lower)
             .next()
             .is_some()
+            || !zsh_config_consumed_names(collector.source, &lower).is_empty())
 }
 
 fn build_zsh_config_contract(
@@ -212,6 +217,29 @@ fn build_zsh_config_contract(
     let mut contract = FileContract::default();
     for prefix in zsh_config_consumed_prefixes(collector.source, &lower) {
         contract.add_externally_consumed_binding_prefix(Name::from(prefix));
+    }
+    for name in zsh_config_consumed_names(collector.source, &lower) {
+        contract.add_externally_consumed_binding_name(Name::from(name));
+    }
+    contract
+}
+
+fn matches_zsh_module_metadata_contract(
+    collector: &AmbientContractCollector<'_>,
+    _path: &Path,
+    shell: ShellDialect,
+) -> bool {
+    shell == ShellDialect::Zsh && zsh_module_metadata_source_shape(collector.source)
+}
+
+fn build_zsh_module_metadata_contract(
+    _collector: &AmbientContractCollector<'_>,
+    _path: &Path,
+    _shell: ShellDialect,
+) -> FileContract {
+    let mut contract = FileContract::default();
+    for name in ZSH_MODULE_METADATA_NAMES {
+        contract.add_externally_consumed_binding_name(Name::from(*name));
     }
     contract
 }
@@ -274,6 +302,32 @@ fn zsh_config_prefix_path_shape(prefix: &str, lower_path: &str) -> bool {
         "ZSH_HIGHLIGHT_" => lower_path.contains("/zsh-syntax-highlighting/"),
         _ => false,
     }
+}
+
+fn zsh_config_consumed_names(source: &str, lower_path: &str) -> Vec<&'static str> {
+    ZSH_CONFIG_EXTERNALLY_CONSUMED_NAMES
+        .iter()
+        .copied()
+        .filter(|name| {
+            source_assigns_name(source, name)
+                && zsh_config_consumed_name_path_shape(name, lower_path)
+        })
+        .collect()
+}
+
+fn zsh_config_consumed_name_path_shape(name: &str, lower_path: &str) -> bool {
+    match name {
+        "HISTFILE" | "HISTSIZE" | "SAVEHIST" => zsh_history_config_path_shape(lower_path),
+        _ => false,
+    }
+}
+
+fn zsh_history_config_path_shape(lower_path: &str) -> bool {
+    let file_name = path_file_name(lower_path);
+    zsh_dotfile_path_shape(lower_path)
+        || lower_path.contains("/zsh/")
+        || lower_path.contains("/modules/history/")
+        || matches!(file_name, "config.zsh" | "history.zsh" | "init.zsh")
 }
 
 fn shell_matches_zsh_runtime_context(shell: ShellDialect, lower_path: &str) -> bool {
@@ -354,10 +408,13 @@ fn zsh_test_fixture_consumed_prefixes<'a>(
     lower_path: &'a str,
 ) -> impl Iterator<Item = &'static str> + 'a {
     ["expected_"].into_iter().filter(|prefix| {
-        zsh_test_data_path_shape(lower_path)
-            && lower_path.contains("/zsh-syntax-highlighting/")
-            && source.contains(prefix)
+        zsh_syntax_highlighting_test_path_shape(lower_path) && source.contains(prefix)
     })
+}
+
+fn zsh_syntax_highlighting_test_path_shape(lower_path: &str) -> bool {
+    lower_path.contains("/zsh-syntax-highlighting/")
+        && (zsh_test_data_path_shape(lower_path) || lower_path.contains("/tests/"))
 }
 
 const ZSH_INITIALIZED_SPECIAL_PARAMETERS: &[&str] = &[
@@ -388,6 +445,11 @@ const ZSH_PROMPT_COLOR_PARAMETERS: &[&str] = &[
 
 const ZSH_EXTERNALLY_CONSUMED_OUTPUT_PARAMETERS: &[&str] =
     &["REPLY", "compstate", "comppostfuncs", "reply"];
+
+const ZSH_CONFIG_EXTERNALLY_CONSUMED_NAMES: &[&str] = &["HISTFILE", "HISTSIZE", "SAVEHIST"];
+
+const ZSH_MODULE_METADATA_NAMES: &[&str] =
+    &["module_name", "module_description", "module_main_function"];
 
 fn shell_matches_zsh_config_context(shell: ShellDialect, lower_path: &str) -> bool {
     shell == ShellDialect::Zsh
@@ -474,8 +536,39 @@ fn zsh_test_data_path_shape(lower_path: &str) -> bool {
 }
 
 fn zsh_prompt_color_runtime_shape(source: &str, lower_path: &str) -> bool {
-    (zsh_runtime_path_shape(lower_path) || source.contains("autoload -Uz colors"))
+    (zsh_runtime_path_shape(lower_path) || source_loads_zsh_colors(source))
         && source_mentions_any(source, ZSH_PROMPT_COLOR_PARAMETERS)
+}
+
+fn source_loads_zsh_colors(source: &str) -> bool {
+    source.lines().any(|line| {
+        line.split('#')
+            .next()
+            .map(str::trim_start)
+            .is_some_and(line_autoloads_zsh_colors)
+    })
+}
+
+fn line_autoloads_zsh_colors(code: &str) -> bool {
+    let code = first_shell_command_segment(code);
+    let mut words = code.split_whitespace();
+    let mut command = words.next();
+    while matches!(command, Some("builtin" | "command")) {
+        command = words.next();
+    }
+    if command != Some("autoload") {
+        return false;
+    }
+
+    words.any(|word| word == "colors")
+}
+
+fn first_shell_command_segment(code: &str) -> &str {
+    ["&&", "||", ";", "|"]
+        .iter()
+        .filter_map(|separator| code.find(separator))
+        .min()
+        .map_or(code, |index| &code[..index])
 }
 
 fn path_has_component(lower_path: &str, names: &[&str]) -> bool {
@@ -908,6 +1001,7 @@ fn source_mentions_any(source: &str, names: &[&str]) -> bool {
 fn source_mentions_name(source: &str, name: &str) -> bool {
     source.contains(&format!("${name}"))
         || source.contains(&format!("${{{name}}}"))
+        || source.contains(&format!("${{{name}["))
         || source.contains(&format!("${{{name}:"))
 }
 
@@ -923,6 +1017,110 @@ fn source_assigns_name(source: &str, name: &str) -> bool {
 
 fn is_shell_name_char(ch: char) -> bool {
     ch == '_' || ch.is_ascii_alphanumeric()
+}
+
+fn zsh_module_metadata_source_shape(source: &str) -> bool {
+    ZSH_MODULE_METADATA_NAMES
+        .iter()
+        .all(|name| source_assigns_name(source, name))
+        && source_static_assignment_value(source, "module_main_function")
+            .is_some_and(|function_name| source_defines_function(source, &function_name))
+}
+
+fn source_static_assignment_value(source: &str, name: &str) -> Option<String> {
+    for line in source.lines() {
+        let code = code_before_shell_comment(line).trim_start();
+        let Some(rest) = code.strip_prefix(name) else {
+            continue;
+        };
+        let rest = rest.trim_start();
+        let Some(value) = rest.strip_prefix('=') else {
+            continue;
+        };
+        let value = value.trim_start();
+        if value.is_empty() {
+            continue;
+        }
+
+        let (raw_value, quoted) = if let Some(rest) = value.strip_prefix('"') {
+            (rest.split('"').next()?, true)
+        } else if let Some(rest) = value.strip_prefix('\'') {
+            (rest.split('\'').next()?, true)
+        } else {
+            (
+                value
+                    .split(|ch: char| ch.is_whitespace() || ch == ';')
+                    .next()?,
+                false,
+            )
+        };
+
+        if raw_value.is_empty() || raw_value.contains('$') {
+            continue;
+        }
+        if quoted || is_shell_variable_name(raw_value) {
+            return Some(raw_value.to_owned());
+        }
+    }
+
+    None
+}
+
+fn source_defines_function(source: &str, name: &str) -> bool {
+    let lines: Vec<_> = source
+        .lines()
+        .map(|line| code_before_shell_comment(line).trim())
+        .collect();
+    lines.iter().enumerate().any(|(index, line)| {
+        let Some(candidate) = source_function_definition_candidate(line, name) else {
+            return false;
+        };
+
+        function_definition_rest_opens_body(candidate.rest)
+            || (candidate.allows_next_line_body
+                && lines
+                    .iter()
+                    .skip(index + 1)
+                    .find(|next| !next.is_empty())
+                    .is_some_and(|next| next.starts_with('{')))
+    })
+}
+
+struct FunctionDefinitionCandidate<'a> {
+    rest: &'a str,
+    allows_next_line_body: bool,
+}
+
+fn source_function_definition_candidate<'a>(
+    source: &'a str,
+    name: &str,
+) -> Option<FunctionDefinitionCandidate<'a>> {
+    let (source, has_function_keyword) = source
+        .strip_prefix("function ")
+        .map_or((source, false), |rest| (rest, true));
+    let (candidate, after_name) = parse_shell_name_at(source, 0)?;
+    if candidate != name {
+        return None;
+    }
+
+    let rest = source[after_name..].trim();
+    Some(FunctionDefinitionCandidate {
+        rest,
+        allows_next_line_body: (has_function_keyword && rest.is_empty()) || rest == "()",
+    })
+}
+
+fn function_definition_rest_opens_body(rest: &str) -> bool {
+    rest.starts_with('{') || (rest.starts_with("()") && rest.contains('{'))
+}
+
+fn is_shell_variable_name(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
 #[cfg(test)]
@@ -1086,6 +1284,180 @@ prompt=\"%{$fg_bold[blue]%}%{$reset_color%}\"
     }
 
     #[test]
+    fn zsh_runtime_contract_initializes_braced_prompt_color_arrays() {
+        let path = Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh");
+        let source = "\
+typeset -AHg less_termcap
+less_termcap[mb]=\"${fg_bold[red]}\"
+less_termcap[so]=\"${fg_bold[yellow]}${bg[blue]}\"
+less_termcap[me]=\"${reset_color}\"
+";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        for name in ["fg_bold", "bg", "reset_color"] {
+            assert!(has_initialized_binding(&contract, name), "{contract:?}");
+        }
+    }
+
+    #[test]
+    fn zsh_runtime_contract_initializes_prompt_colors_after_colors_autoload() {
+        let path = Path::new("/tmp/zsh/holman-dotfiles/zsh/prompt.zsh");
+        let source = "\
+autoload colors && colors
+echo \"on %{$fg_bold[green]%}%{$reset_color%}\"
+";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        for name in ["fg_bold", "reset_color"] {
+            assert!(has_initialized_binding(&contract, name), "{contract:?}");
+        }
+    }
+
+    #[test]
+    fn zsh_runtime_contract_accepts_compact_colors_autoload_separators() {
+        let path = Path::new("/tmp/zsh/holman-dotfiles/zsh/prompt.zsh");
+        let source = "\
+autoload colors&&colors
+echo \"on %{$fg_bold[green]%}%{$reset_color%}\"
+";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        for name in ["fg_bold", "reset_color"] {
+            assert!(has_initialized_binding(&contract, name), "{contract:?}");
+        }
+    }
+
+    #[test]
+    fn zsh_runtime_contract_requires_colors_autoload_command() {
+        let path = Path::new("/tmp/zsh/holman-dotfiles/zsh/prompt.zsh");
+        let source = "\
+echo autoload colors
+echo \"on %{$fg_bold[green]%}%{$reset_color%}\"
+";
+
+        assert!(contract_for_shell(path, source, ShellDialect::Zsh).is_none());
+    }
+
+    #[test]
+    fn zsh_history_state_assignments_are_consumed_in_config_contexts() {
+        let path = Path::new("/tmp/home/zsh/config.zsh");
+        let source = "\
+HISTFILE=~/.zsh_history
+HISTSIZE=10000
+SAVEHIST=10000
+";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        for name in ["HISTFILE", "HISTSIZE", "SAVEHIST"] {
+            assert!(has_consumed_name(&contract, name), "{contract:?}");
+        }
+    }
+
+    #[test]
+    fn zsh_module_metadata_triplets_are_consumed_by_external_loaders() {
+        let path = Path::new("/tmp/project/install/01-package-manager.zsh");
+        let source = "\
+#!/bin/zsh
+module_name=\"package-manager\"
+module_description=\"Install package manager\"
+module_main_function=\"run_package_manager_module\"
+
+run_package_manager_module() {
+  :
+}
+";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        for name in ["module_name", "module_description", "module_main_function"] {
+            assert!(has_consumed_name(&contract, name), "{contract:?}");
+        }
+    }
+
+    #[test]
+    fn zsh_module_metadata_accepts_next_line_function_body_brace() {
+        let path = Path::new("/tmp/project/install/01-package-manager.zsh");
+        let source = "\
+#!/bin/zsh
+module_name=\"package-manager\"
+module_description=\"Install package manager\"
+module_main_function=\"run_package_manager_module\"
+
+function run_package_manager_module
+{
+  :
+}
+";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        for name in ["module_name", "module_description", "module_main_function"] {
+            assert!(has_consumed_name(&contract, name), "{contract:?}");
+        }
+    }
+
+    #[test]
+    fn zsh_module_metadata_accepts_name_paren_next_line_function_body_brace() {
+        let path = Path::new("/tmp/project/install/01-package-manager.zsh");
+        let source = "\
+#!/bin/zsh
+module_name=\"package-manager\"
+module_description=\"Install package manager\"
+module_main_function=\"run_package_manager_module\"
+
+run_package_manager_module()
+{
+  :
+}
+";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        for name in ["module_name", "module_description", "module_main_function"] {
+            assert!(has_consumed_name(&contract, name), "{contract:?}");
+        }
+    }
+
+    #[test]
+    fn zsh_module_metadata_requires_exact_main_function_name() {
+        let path = Path::new("/tmp/project/install/01-package-manager.zsh");
+        let source = "\
+#!/bin/zsh
+module_name=\"package-manager\"
+module_description=\"Install package manager\"
+module_main_function=\"run\"
+
+runner() {
+  :
+}
+";
+
+        assert!(contract_for_shell(path, source, ShellDialect::Zsh).is_none());
+    }
+
+    #[test]
+    fn zsh_module_metadata_rejects_command_before_brace_group() {
+        let path = Path::new("/tmp/project/install/01-package-manager.zsh");
+        let source = "\
+#!/bin/zsh
+module_name=\"package-manager\"
+module_description=\"Install package manager\"
+module_main_function=\"run\"
+
+run
+{
+  print -r -- not-a-function
+}
+";
+
+        assert!(contract_for_shell(path, source, ShellDialect::Zsh).is_none());
+    }
+
+    #[test]
     fn unknown_generic_runtime_paths_do_not_get_zsh_runtime_contracts() {
         let path = Path::new("/tmp/project/plugins/example");
         let source = "print -r -- \"$history\" \"$words\"\n";
@@ -1133,6 +1505,21 @@ compstate[insert]=menu
         let path =
             Path::new("/tmp/zsh/zsh-syntax-highlighting/highlighters/main/test-data/example.zsh");
         let source = "expected_region_highlight=('1 4 fg=red')\n";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        assert!(has_consumed_prefix(&contract, "expected_"));
+    }
+
+    #[test]
+    fn zsh_syntax_highlighting_test_harness_expected_values_are_consumed() {
+        let path = Path::new("/tmp/zsh/zsh-syntax-highlighting/tests/test-zprof.zsh");
+        let source = "\
+run_test_internal() {
+  expected_region_highlight=()
+  true && _zsh_highlight
+}
+";
 
         let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
 

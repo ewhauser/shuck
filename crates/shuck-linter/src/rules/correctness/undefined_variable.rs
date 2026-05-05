@@ -350,6 +350,99 @@ print -r -- \"$ordinary_missing\"
     }
 
     #[test]
+    fn zsh_braced_prompt_color_arrays_do_not_report_undefined_on_runtime_paths() {
+        let source = "\
+#!/usr/bin/env zsh
+typeset -AHg less_termcap
+less_termcap[mb]=\"${fg_bold[red]}\"
+less_termcap[so]=\"${fg_bold[yellow]}${bg[blue]}\"
+less_termcap[me]=\"${reset_color}\"
+print -r -- \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_prompt_colors_do_not_report_undefined_after_colors_autoload() {
+        let source = "\
+#!/usr/bin/env zsh
+autoload colors && colors
+echo \"on %{$fg_bold[green]%}%{$reset_color%}\"
+print -r -- \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/holman-dotfiles/zsh/prompt.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_prompt_colors_do_not_report_undefined_after_compact_colors_autoload() {
+        let source = "\
+#!/usr/bin/env zsh
+autoload colors&&colors
+echo \"on %{$fg_bold[green]%}%{$reset_color%}\"
+print -r -- \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/holman-dotfiles/zsh/prompt.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_prompt_color_words_do_not_initialize_colors_without_autoload_command() {
+        let source = "\
+#!/usr/bin/env zsh
+echo autoload colors
+echo \"on %{$fg_bold[green]%}%{$reset_color%}\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/holman-dotfiles/zsh/prompt.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$fg_bold", "$reset_color"]
+        );
+    }
+
+    #[test]
     fn unknown_generic_runtime_paths_do_not_get_zsh_special_parameters() {
         let source = "\
 print -r -- \"$history\" \"$words\" \"$ordinary_missing\"
