@@ -699,6 +699,52 @@ compdef -d grunt
     }
 
     #[test]
+    fn zsh_conditional_compdef_does_not_initialize_completion_context_names() {
+        let source = "\
+#!/bin/zsh
+function __grunt() {
+  print -r -- $verbose $missing
+}
+[[ -n $commands[grunt] ]] && compdef __grunt grunt
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$verbose", "$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_compdef_name_mode_keeps_completion_context_names_initialized() {
+        let source = "\
+#!/bin/zsh
+function __grunt() {
+  print -r -- $verbose $missing
+}
+compdef -P 'grunt-*' -N __grunt grunt
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
     fn zsh_arguments_without_state_action_keeps_state_names_reportable() {
         let source = "\
 #!/bin/zsh
