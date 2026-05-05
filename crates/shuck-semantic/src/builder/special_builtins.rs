@@ -473,29 +473,23 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
 fn zstyle_target(args: &[&Word], source: &str) -> Option<(Name, Span, BindingAttributes)> {
     let index = 0usize;
-    while let Some(word) = args.get(index) {
-        let Some(text) = static_word_text(word, source) else {
-            return None;
-        };
-        match text.as_ref() {
-            "--" => return None,
-            "-a" | "-s" | "-b" => {
-                let attributes = if text == "-a" {
-                    BindingAttributes::ARRAY
-                } else {
-                    BindingAttributes::empty()
-                };
-                return args
-                    .get(index + 3)
-                    .and_then(|word| named_target_word(word, source))
-                    .map(|(name, span)| (name, span, attributes));
-            }
-            _ if text.starts_with('-') && text != "-" => return None,
-            _ => return None,
+    let word = args.get(index)?;
+    let text = static_word_text(word, source)?;
+    match text.as_ref() {
+        "--" => None,
+        "-a" | "-s" | "-b" => {
+            let attributes = if text == "-a" {
+                BindingAttributes::ARRAY
+            } else {
+                BindingAttributes::empty()
+            };
+            args.get(index + 3)
+                .and_then(|word| named_target_word(word, source))
+                .map(|(name, span)| (name, span, attributes))
         }
+        _ if text.starts_with('-') && text != "-" => None,
+        _ => None,
     }
-
-    None
 }
 
 fn describe_array_names(args: &[&Word], source: &str) -> Vec<(Name, Span)> {
