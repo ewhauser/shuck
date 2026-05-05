@@ -1124,7 +1124,7 @@ fn build_nonpersistent_assignment_spans(
             && extra_reset_sites.iter().any(|reset| {
                 reset.name == effect.name
                     && reset.span.start.offset > effect.assignment_span.end.offset
-                    && reset.span.start.offset < effect.later_use_span.start.offset
+                    && reset.flow_span.end.offset <= effect.later_use_span.start.offset
                     && nonpersistent_reset_site_covers_later_use(
                         semantic,
                         semantic_analysis,
@@ -1451,10 +1451,14 @@ fn binding_command_is_unconditional_in_function(
     semantic: &SemanticModel,
     binding: &Binding,
 ) -> bool {
-    let Some(mut current) = semantic.innermost_command_id_at(binding.span.start.offset) else {
+    let Some(current) = semantic.innermost_command_id_at(binding.span.start.offset) else {
         return true;
     };
 
+    command_is_unconditional_in_function(semantic, current)
+}
+
+fn command_is_unconditional_in_function(semantic: &SemanticModel, mut current: CommandId) -> bool {
     while let Some(parent) = semantic.syntax_backed_command_parent_id(current) {
         if matches!(semantic.command_kind(parent), CommandKind::Function) {
             return true;
@@ -1481,6 +1485,9 @@ fn zsh_set_a_outparam_positions_by_scope(
 
     for command in commands {
         if !command.effective_name_is("set") {
+            continue;
+        }
+        if !command_is_unconditional_in_function(semantic, command.id()) {
             continue;
         }
         let Some(function_scope) = semantic.enclosing_function_scope(command.scope()) else {
