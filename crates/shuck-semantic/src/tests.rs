@@ -1248,6 +1248,24 @@ _describe 'external command' values descriptions
 }
 
 #[test]
+fn zsh_describe_consumes_array_operands_after_dynamic_description() {
+    let source = "\
+#!/bin/zsh
+desc='external command'
+values=(git)
+_describe \"$desc\" values
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let binding = binding_for_name(&model, "values");
+
+    assert_eq!(binding.references.len(), 1);
+    assert_eq!(
+        model.reference(binding.references[0]).span.slice(source),
+        "values"
+    );
+}
+
+#[test]
 fn zsh_describe_consumes_named_array_operand_after_options_and_separator() {
     let source = "\
 #!/bin/zsh

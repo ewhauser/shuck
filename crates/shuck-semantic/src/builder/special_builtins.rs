@@ -502,7 +502,7 @@ fn describe_array_names(args: &[&Word], source: &str) -> Vec<(Name, Span)> {
     let mut index = 0usize;
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
-            return Vec::new();
+            break;
         };
         if text == "--" {
             index += 1;

@@ -677,6 +677,24 @@ unused=(other:'unused')
     }
 
     #[test]
+    fn zsh_describe_consumes_array_operand_after_dynamic_description() {
+        let source = "\
+#!/bin/zsh
+desc='external command'
+values=(git)
+_describe \"$desc\" values
+unused=(other:'unused')
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "unused");
+    }
+
+    #[test]
     fn zsh_zstyle_named_target_counts_as_assignment() {
         let source = "\
 #!/bin/zsh
