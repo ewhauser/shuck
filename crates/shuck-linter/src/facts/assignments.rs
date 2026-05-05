@@ -139,17 +139,18 @@ fn build_assignment_like_command_name_spans<'a>(
     let mut spans = Vec::new();
 
     for fact in commands {
-        collect_assignment_like_command_name_spans_in_command(fact.command(), source, &mut spans);
+        collect_assignment_like_command_name_spans_in_command(fact, source, &mut spans);
     }
 
     spans
 }
 
 fn collect_assignment_like_command_name_spans_in_command(
-    command: &Command,
+    fact: &CommandFact<'_>,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
+    let command = fact.command();
     match command {
         Command::Simple(command) => {
             collect_assignment_like_command_name_span(&command.name, source, spans);
@@ -157,6 +158,10 @@ fn collect_assignment_like_command_name_spans_in_command(
         Command::Decl(command) => {
             for operand in &command.operands {
                 if let DeclOperand::Dynamic(word) = operand {
+                    if zsh_declaration_brace_assignment_target(word, source, fact.shell_behavior())
+                    {
+                        continue;
+                    }
                     collect_assignment_like_command_name_span(word, source, spans);
                 }
             }
@@ -188,6 +193,26 @@ fn assignment_like_command_name_span(word: &Word, source: &str) -> Option<Span> 
     } else {
         (!is_shell_variable_name(target)).then_some(word.span)
     }
+}
+
+fn zsh_declaration_brace_assignment_target(
+    word: &Word,
+    source: &str,
+    behavior: &ShellBehaviorAt<'_>,
+) -> bool {
+    if behavior.zsh_options().is_none() {
+        return false;
+    }
+
+    let prefix = leading_literal_word_prefix(word, source);
+    let Some(target_end) = prefix.find("+=").or_else(|| prefix.find('=')) else {
+        return false;
+    };
+    let target_end_offset = word.span.start.offset + target_end;
+
+    word.brace_syntax()
+        .iter()
+        .any(|brace| brace.expands() && brace.span.end.offset <= target_end_offset)
 }
 
 fn bare_command_name_assignment_span<'a>(
