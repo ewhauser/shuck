@@ -2921,6 +2921,33 @@ done
 }
 
 #[test]
+fn brace_group_effect_scan_preserves_sibling_flow_context() {
+    let source = "\
+{ emulate sh; }
+echo ok
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let model = SemanticModel::build(&output.file, source, &indexer);
+
+    let Command::Compound(CompoundCommand::BraceGroup(commands)) = &output.file.body[0].command
+    else {
+        panic!("expected brace group");
+    };
+    let Command::Simple(inner_command) = &commands[0].command else {
+        panic!("expected inner simple command");
+    };
+    let inner_context = model.flow_context_at(&inner_command.span).unwrap();
+    assert!(inner_context.in_block);
+
+    let Command::Simple(sibling_command) = &output.file.body[1].command else {
+        panic!("expected sibling simple command");
+    };
+    let sibling_context = model.flow_context_at(&sibling_command.span).unwrap();
+    assert!(!sibling_context.in_block);
+}
+
+#[test]
 fn command_contexts_track_nested_words_and_condition_roles() {
     let source = "\
 echo $(if probe; then inner; fi)

@@ -84,13 +84,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 let info = recorded_command_info(command, self.source, self.runtime.bash_enabled());
                 flow_after_zsh_effects(flow, &info.zsh_effects)
             }
-            Command::Compound(CompoundCommand::BraceGroup(commands)) => self.flow_after_stmt_seq(
-                commands,
-                FlowState {
-                    in_block: true,
-                    ..flow
-                },
-            ),
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => {
+                let after_block = self.flow_after_stmt_seq(
+                    commands,
+                    FlowState {
+                        in_block: true,
+                        ..flow
+                    },
+                );
+                flow_after_nested_current_shell_effects(flow, after_block)
+            }
             Command::Compound(CompoundCommand::If(command)) => {
                 self.flow_after_stmt_seq(&command.condition, flow)
             }
@@ -107,11 +110,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 };
                 let after_body = self.flow_after_stmt_seq(&command.body, block_flow);
                 let after_always = self.flow_after_stmt_seq(&command.always_body, after_body);
-                FlowState {
-                    pipeline_tail_runs_in_current_shell: after_always
-                        .pipeline_tail_runs_in_current_shell,
-                    ..flow
-                }
+                flow_after_nested_current_shell_effects(flow, after_always)
             }
             Command::Compound(CompoundCommand::Time(command)) => command
                 .command
@@ -1115,4 +1114,11 @@ fn flow_after_zsh_effects(mut flow: FlowState, effects: &[RecordedZshCommandEffe
         }
     }
     flow
+}
+
+fn flow_after_nested_current_shell_effects(flow: FlowState, after_nested: FlowState) -> FlowState {
+    FlowState {
+        pipeline_tail_runs_in_current_shell: after_nested.pipeline_tail_runs_in_current_shell,
+        ..flow
+    }
 }
