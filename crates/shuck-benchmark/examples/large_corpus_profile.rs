@@ -309,11 +309,12 @@ fn run_large_corpus_fixture(
 ) -> Result<usize> {
     let source = fs::read_to_string(&fixture.path)
         .map_err(|err| format!("failed to read {}: {err}", fixture.path.display()))?;
+    let shell = ShellDialect::from_name(&fixture.shell);
     let settings = base_settings
         .clone()
-        .with_shell(ShellDialect::from_name(&fixture.shell))
+        .with_shell(shell)
         .with_analyzed_paths([fixture.path.clone()]);
-    let parsed = Parser::with_dialect(&source, shuck_parser::ShellDialect::Bash).parse();
+    let parsed = Parser::with_dialect(&source, shell.parser_dialect()).parse();
     let indexer = Indexer::new(&source, &parsed);
     let shellcheck_map = ShellCheckCodeMap::default();
     let diagnostics = lint_file_at_path_with_resolver_and_parse_result(
