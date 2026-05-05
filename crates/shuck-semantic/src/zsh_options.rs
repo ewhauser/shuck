@@ -1,6 +1,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_parser::{OptionValue, ShellProfile, ZshEmulationMode, ZshOptionState};
 use smallvec::SmallVec;
+use std::sync::Mutex;
 
 use crate::cfg::{
     CommandId, RecordedCaseArmRange, RecordedCommand, RecordedCommandKind, RecordedCommandRange,
@@ -49,6 +50,13 @@ struct ZshOptionSnapshot {
 struct FunctionSummary {
     final_outward: InternalState,
     outward_touched: ZshOptionMask,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct FunctionSummaryKey {
+    scope: ScopeId,
+    entry: InternalState,
+    active_scopes: SmallVec<[ScopeId; 4]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -274,6 +282,7 @@ pub(crate) fn analyze(
             Default::default(),
         ),
         function_summaries: FxHashMap::with_capacity_and_hasher(function_count, Default::default()),
+        shared_function_summaries: None,
     };
 
     analyzer.analyze_sequence(
@@ -342,6 +351,7 @@ pub(crate) fn function_runtime_analysis_with_entry(
     bindings: &[Binding],
     recorded_program: &RecordedProgram,
     dynamic_calls: DynamicCallAnalysisContext<'_>,
+    shared_summaries: Option<&SharedFunctionSummaryCache>,
     function_scope: ScopeId,
     entry: ZshOptionState,
 ) -> Option<ZshOptionAnalysis> {
@@ -371,10 +381,12 @@ pub(crate) fn function_runtime_analysis_with_entry(
         snapshots: FxHashMap::with_capacity_and_hasher(scope_capacity, Default::default()),
         active_function_scopes: FxHashSet::default(),
         function_summaries: FxHashMap::default(),
+        shared_function_summaries: shared_summaries,
     };
-    analyzer.analyze_function_scope(
+    analyzer.analyze_function_scope_with_shared_summary_reuse(
         function_scope,
         EvalState::new(InternalState::from_public(entry)),
+        false,
     );
 
     for snapshots in analyzer.snapshots.values_mut() {
@@ -394,6 +406,29 @@ pub(crate) fn set_public_option_field(
     value: OptionValue,
 ) {
     set_option_field(state, field, value);
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct SharedFunctionSummaryCache {
+    summaries: Mutex<FxHashMap<FunctionSummaryKey, FunctionSummary>>,
+}
+
+impl SharedFunctionSummaryCache {
+    fn get(&self, key: &FunctionSummaryKey) -> Option<FunctionSummary> {
+        let summaries = match self.summaries.lock() {
+            Ok(summaries) => summaries,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        summaries.get(key).cloned()
+    }
+
+    fn insert(&self, key: FunctionSummaryKey, summary: FunctionSummary) {
+        let mut summaries = match self.summaries.lock() {
+            Ok(summaries) => summaries,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        summaries.insert(key, summary);
+    }
 }
 
 impl ZshOptionAnalysis {
@@ -439,7 +474,8 @@ struct Analyzer<'a> {
     scope_entries: FxHashMap<ScopeId, ZshOptionState>,
     snapshots: FxHashMap<ScopeId, Vec<ZshOptionSnapshot>>,
     active_function_scopes: FxHashSet<ScopeId>,
-    function_summaries: FxHashMap<(ScopeId, InternalState), FunctionSummary>,
+    function_summaries: FxHashMap<FunctionSummaryKey, FunctionSummary>,
+    shared_function_summaries: Option<&'a SharedFunctionSummaryCache>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -877,18 +913,36 @@ impl<'a> Analyzer<'a> {
     }
 
     fn analyze_function_scope(&mut self, scope: ScopeId, entry: EvalState) -> FunctionSummary {
-        let cache_key = (scope, entry.current.clone());
-        if let Some(summary) = self.function_summaries.get(&cache_key) {
-            return summary.clone();
-        }
+        self.analyze_function_scope_with_shared_summary_reuse(scope, entry, true)
+    }
 
-        if !self.active_function_scopes.insert(scope) {
+    fn analyze_function_scope_with_shared_summary_reuse(
+        &mut self,
+        scope: ScopeId,
+        entry: EvalState,
+        allow_shared_reuse: bool,
+    ) -> FunctionSummary {
+        if self.active_function_scopes.contains(&scope) {
             return FunctionSummary {
                 final_outward: entry.outward,
                 outward_touched: ZshOptionMask::default(),
             };
         }
 
+        let cache_key = self.function_summary_key(scope, &entry.current);
+        if let Some(summary) = self.function_summaries.get(&cache_key) {
+            return summary.clone();
+        }
+        if allow_shared_reuse
+            && let Some(summary) = self
+                .shared_function_summaries
+                .and_then(|summaries| summaries.get(&cache_key))
+        {
+            self.function_summaries.insert(cache_key, summary.clone());
+            return summary;
+        }
+
+        self.active_function_scopes.insert(scope);
         let body = self.recorded_program.function_body(scope);
         let result = self.analyze_sequence(scope, body, entry, LeakBehavior::Function);
         self.active_function_scopes.remove(&scope);
@@ -896,8 +950,23 @@ impl<'a> Analyzer<'a> {
             final_outward: result.outward,
             outward_touched: result.outward_touched,
         };
-        self.function_summaries.insert(cache_key, summary.clone());
+        self.function_summaries
+            .insert(cache_key.clone(), summary.clone());
+        if let Some(shared_summaries) = self.shared_function_summaries {
+            shared_summaries.insert(cache_key, summary.clone());
+        }
         summary
+    }
+
+    fn function_summary_key(&self, scope: ScopeId, entry: &InternalState) -> FunctionSummaryKey {
+        let mut active_scopes: SmallVec<[ScopeId; 4]> =
+            self.active_function_scopes.iter().copied().collect();
+        active_scopes.sort_by_key(|scope| scope.index());
+        FunctionSummaryKey {
+            scope,
+            entry: entry.clone(),
+            active_scopes,
+        }
     }
 
     fn resolve_visible_function_scope(
