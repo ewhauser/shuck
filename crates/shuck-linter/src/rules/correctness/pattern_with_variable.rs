@@ -1,7 +1,7 @@
 use shuck_ast::Span;
 
 use super::pattern_policy;
-use crate::{Checker, Edit, ExpansionContext, Fix, FixAvailability, Rule, Violation};
+use crate::{Checker, Edit, ExpansionContext, Fix, FixAvailability, Rule, ShellDialect, Violation};
 
 pub struct PatternWithVariable;
 
@@ -23,6 +23,7 @@ impl Violation for PatternWithVariable {
 
 pub fn pattern_with_variable(checker: &mut Checker) {
     let source = checker.source();
+    let shell = checker.shell();
     let replacement_expansion_spans = checker
         .facts()
         .replacement_expansion_fragments()
@@ -50,6 +51,10 @@ pub fn pattern_with_variable(checker: &mut Checker) {
             fact.active_expansion_spans()
                 .iter()
                 .copied()
+                .filter(|span| {
+                    shell != ShellDialect::Zsh
+                        || !span_is_zsh_numeric_glob_tail_group(*span, source)
+                })
                 .filter(|span| !span_is_within_any(*span, quoted_expansion_spans))
                 .filter(|span| !fact.expansion_span_is_zsh_force_glob_parameter(*span))
                 .filter(|span| {
@@ -78,6 +83,30 @@ fn span_is_within_any(span: Span, hosts: &[Span]) -> bool {
     hosts
         .iter()
         .any(|host| host.start.offset <= span.start.offset && span.end.offset <= host.end.offset)
+}
+
+fn span_is_zsh_numeric_glob_tail_group(span: Span, source: &str) -> bool {
+    if !span.slice(source).starts_with(">(") {
+        return false;
+    }
+
+    let Some(prefix) = source.get(..span.start.offset) else {
+        return false;
+    };
+
+    let mut saw_numeric_glob_body = false;
+    for ch in prefix.chars().rev() {
+        if ch == '<' {
+            return saw_numeric_glob_body;
+        }
+        if ch == '-' || ch.is_ascii_digit() {
+            saw_numeric_glob_body = true;
+            continue;
+        }
+        break;
+    }
+
+    false
 }
 
 #[cfg(test)]
@@ -221,6 +250,52 @@ unknown_trimmed=${value#$unknown}
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$unknown"]
+        );
+    }
+
+    #[test]
+    fn ignores_zsh_numeric_glob_patterns_without_expansions() {
+        let source = "\
+#!/usr/bin/env zsh
+if [[ $OPTARG != (|+|-)<->(|.<->)(|[eE](|-|+)<->) ]]; then
+  return 1
+fi
+if [[ $value == ${~pattern} ]]; then
+  return 0
+fi
+process_sub_trimmed=${value#<(printf '%s' foo)}
+trimmed=${value#$pattern}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PatternWithVariable)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["<(printf '%s' foo)", "$pattern"]
+        );
+    }
+
+    #[test]
+    fn reports_process_substitutions_after_numeric_glob_like_prefixes_outside_zsh() {
+        let source = "\
+#!/bin/bash
+trimmed=${value#<->(printf '%s' foo)}
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::PatternWithVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![">(printf '%s' foo)"]
         );
     }
 
