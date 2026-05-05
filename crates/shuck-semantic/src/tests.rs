@@ -962,8 +962,9 @@ f() {
   typeset -i implicit_local_integer=6
   typeset -g promoted=7
   integer integer_local=8
+  integer +i string_local=9
   print $local_count $implicit_local $implicit_local_integer
-  print $promoted $integer_local
+  print $promoted $integer_local $string_local
 }
 f
 print $promoted
@@ -1016,6 +1017,11 @@ print $promoted
                 | BindingAttributes::LOCAL
                 | BindingAttributes::INTEGER,
             BindingAttributes::READONLY,
+        ),
+        (
+            "string_local",
+            BindingAttributes::DECLARATION_INITIALIZED | BindingAttributes::LOCAL,
+            BindingAttributes::INTEGER | BindingAttributes::READONLY,
         ),
     ];
 
