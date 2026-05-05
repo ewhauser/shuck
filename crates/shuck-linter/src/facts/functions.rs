@@ -236,6 +236,7 @@ fn build_completion_registered_function_command_flags(
 
 fn build_completion_registered_function_scopes(
     semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
     commands: &[CommandFact<'_>],
     command_fact_indices_by_id: &[Option<usize>],
     lists: &[ListFact<'_>],
@@ -247,7 +248,18 @@ fn build_completion_registered_function_scopes(
         function_candidates[command.id().index()] =
             completion_registered_function_candidate(semantic, command);
     }
+    let mut file_level_function_candidates = Vec::new();
+    file_level_function_candidates.resize_with(function_command_slot_count(commands), || None);
+    for command in commands {
+        file_level_function_candidates[command.id().index()] =
+            file_level_completion_function_candidate(semantic, command);
+    }
     let top_level_candidate_scopes = function_candidates
+        .iter()
+        .flatten()
+        .map(|candidate| candidate.scope)
+        .collect::<FxHashSet<_>>();
+    let file_level_candidate_scopes = file_level_function_candidates
         .iter()
         .flatten()
         .map(|candidate| candidate.scope)
@@ -268,6 +280,47 @@ fn build_completion_registered_function_scopes(
             }) {
                 scopes.insert(candidate.scope);
             }
+        }
+    }
+
+    for list in lists {
+        for (index, segment) in list.segments().iter().enumerate() {
+            let Some(candidate) =
+                file_level_function_candidates[segment.command_id().index()].as_ref()
+            else {
+                continue;
+            };
+
+            if list.segments()[index + 1..].iter().any(|later_segment| {
+                let later_command =
+                    command_fact(commands, command_fact_indices_by_id, later_segment.command_id());
+                is_same_branch_completion_registration(semantic, later_command)
+                    && command_registers_completion_function(later_command, source, &candidate.name)
+            }) {
+                scopes.insert(candidate.scope);
+            }
+        }
+    }
+
+    for command in commands {
+        let Some(candidate) = file_level_function_candidates[command.id().index()].as_ref() else {
+            continue;
+        };
+        let Some(parent) = nearest_structural_parent_command(semantic, command.id()) else {
+            continue;
+        };
+        if commands.iter().any(|later_command| {
+            later_command.span().start.offset > command.span().start.offset
+                && nearest_structural_parent_command(semantic, later_command.id()) == Some(parent)
+                && same_structural_branch_between(
+                    source,
+                    command.span().end.offset,
+                    later_command.span().start.offset,
+                )
+                && is_same_branch_completion_registration(semantic, later_command)
+                && command_registers_completion_function(later_command, source, &candidate.name)
+        }) {
+            scopes.insert(candidate.scope);
         }
     }
 
@@ -302,7 +355,66 @@ fn build_completion_registered_function_scopes(
         }
     }
 
+    extend_completion_registered_function_scopes_through_helpers(
+        semantic,
+        semantic_analysis,
+        commands,
+        &file_level_candidate_scopes,
+        source,
+        &mut scopes,
+    );
+
     scopes
+}
+
+fn extend_completion_registered_function_scopes_through_helpers(
+    semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
+    commands: &[CommandFact<'_>],
+    candidate_scopes: &FxHashSet<ScopeId>,
+    source: &str,
+    scopes: &mut FxHashSet<ScopeId>,
+) {
+    let candidate_bindings = semantic_analysis
+        .function_bindings_by_scope()
+        .filter(|(scope, _)| candidate_scopes.contains(scope))
+        .flat_map(|(scope, bindings)| bindings.iter().map(move |binding| (scope, *binding)))
+        .collect::<Vec<_>>();
+
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for (target_scope, binding_id) in &candidate_bindings {
+            if scopes.contains(target_scope) {
+                continue;
+            }
+            let name = semantic.binding(*binding_id).name.clone();
+            let called_from_completion_scope =
+                semantic_analysis
+                    .function_call_arity_sites(&name)
+                    .any(|(site, resolved_binding)| {
+                        resolved_binding == *binding_id
+                            && semantic_analysis
+                                .enclosing_function_scope_at(site.name_span.start.offset)
+                                .is_some_and(|caller_scope| scopes.contains(&caller_scope))
+                    });
+            let referenced_by_completion_arguments = commands.iter().any(|command| {
+                command.normalized().effective_or_literal_name() == Some("_arguments")
+                    && semantic_analysis
+                        .enclosing_function_scope_at(command.span().start.offset)
+                        .is_some_and(|caller_scope| scopes.contains(&caller_scope))
+                    && command.body_args().iter().any(|word| {
+                        static_word_text(word, source).is_some_and(|text| {
+                            zsh_arguments_spec_invokes_function(&text, &semantic.binding(*binding_id).name)
+                        })
+                    })
+            });
+            if called_from_completion_scope || referenced_by_completion_arguments {
+                scopes.insert(*target_scope);
+                changed = true;
+            }
+        }
+    }
 }
 
 #[cfg_attr(shuck_profiling, inline(never))]
@@ -417,6 +529,10 @@ fn is_top_level_zsh_entrypoint_registration(
 }
 
 fn has_structural_parent_command(semantic: &SemanticModel, id: CommandId) -> bool {
+    nearest_structural_parent_command(semantic, id).is_some()
+}
+
+fn nearest_structural_parent_command(semantic: &SemanticModel, id: CommandId) -> Option<CommandId> {
     let mut current = semantic.syntax_backed_command_parent_id(id);
     while let Some(parent) = current {
         if matches!(
@@ -425,11 +541,136 @@ fn has_structural_parent_command(semantic: &SemanticModel, id: CommandId) -> boo
                 | shuck_semantic::CommandKind::Function
                 | shuck_semantic::CommandKind::AnonymousFunction
         ) {
-            return true;
+            return Some(parent);
         }
         current = semantic.syntax_backed_command_parent_id(parent);
     }
-    false
+    None
+}
+
+fn same_structural_branch_between(source: &str, start: usize, end: usize) -> bool {
+    let Some(between) = source.get(start..end) else {
+        return false;
+    };
+    !contains_zsh_structural_branch_boundary(between)
+}
+
+fn contains_zsh_structural_branch_boundary(text: &str) -> bool {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Quote {
+        None,
+        Single,
+        Double,
+    }
+
+    let mut chars = text.chars().peekable();
+    let mut quote = Quote::None;
+    let mut in_comment = false;
+    let mut escaped = false;
+    let mut word = String::new();
+    let mut at_word_start = true;
+
+    while let Some(ch) = chars.next() {
+        if in_comment {
+            if ch == '\n' {
+                in_comment = false;
+                at_word_start = true;
+            }
+            continue;
+        }
+
+        match quote {
+            Quote::Single => {
+                if ch == '\'' {
+                    quote = Quote::None;
+                }
+                continue;
+            }
+            Quote::Double => {
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                if ch == '\\' {
+                    escaped = true;
+                    continue;
+                }
+                if ch == '"' {
+                    quote = Quote::None;
+                }
+                continue;
+            }
+            Quote::None => {}
+        }
+
+        match ch {
+            '#' => {
+                if structural_boundary_word(&word) {
+                    return true;
+                }
+                word.clear();
+                if at_word_start {
+                    in_comment = true;
+                } else {
+                    at_word_start = false;
+                }
+            }
+            '\'' => {
+                if structural_boundary_word(&word) {
+                    return true;
+                }
+                word.clear();
+                at_word_start = false;
+                quote = Quote::Single;
+            }
+            '"' => {
+                if structural_boundary_word(&word) {
+                    return true;
+                }
+                word.clear();
+                at_word_start = false;
+                quote = Quote::Double;
+            }
+            ';' => {
+                if structural_boundary_word(&word) {
+                    return true;
+                }
+                word.clear();
+                if matches!(chars.peek(), Some(';' | '&' | '|')) {
+                    return true;
+                }
+                at_word_start = true;
+            }
+            _ if ch.is_whitespace() => {
+                if structural_boundary_word(&word) {
+                    return true;
+                }
+                word.clear();
+                at_word_start = true;
+            }
+            _ if is_shell_identifier_char(ch) => {
+                word.push(ch);
+                at_word_start = false;
+            }
+            _ => {
+                if structural_boundary_word(&word) {
+                    return true;
+                }
+                word.clear();
+                at_word_start = false;
+            }
+        }
+    }
+
+    structural_boundary_word(&word)
+}
+
+fn structural_boundary_word(word: &str) -> bool {
+    matches!(word, "else" | "elif")
+}
+
+fn is_shell_identifier_char(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphanumeric()
 }
 
 fn is_unconditional_completion_registration(
@@ -441,6 +682,16 @@ fn is_unconditional_completion_registration(
     }
     command.effective_or_literal_name() != Some("compdef")
         || !has_binary_parent_command(semantic, command.id())
+}
+
+fn is_same_branch_completion_registration(
+    semantic: &SemanticModel,
+    command: &CommandFact<'_>,
+) -> bool {
+    matches!(
+        command.effective_or_literal_name(),
+        Some("compdef" | "complete")
+    ) && !has_binary_parent_command(semantic, command.id())
 }
 
 fn has_binary_parent_command(semantic: &SemanticModel, id: CommandId) -> bool {
@@ -467,6 +718,26 @@ fn completion_registered_function_candidate(
     command: &CommandFact<'_>,
 ) -> Option<CompletionRegisteredFunctionCandidate> {
     if !is_top_level_zsh_entrypoint_registration(semantic, command) {
+        return None;
+    }
+    let Command::Function(function) = command.command() else {
+        return None;
+    };
+    let (name, _) = function.static_name_entries().next()?;
+    let scope = semantic.scope_at(function.body.span.start.offset);
+
+    Some(CompletionRegisteredFunctionCandidate {
+        scope,
+        name: name.as_str().to_owned().into_boxed_str(),
+    })
+}
+
+fn file_level_completion_function_candidate(
+    semantic: &SemanticModel,
+    command: &CommandFact<'_>,
+) -> Option<CompletionRegisteredFunctionCandidate> {
+    if command.is_nested_word_command() || semantic.enclosing_function_scope(command.scope()).is_some()
+    {
         return None;
     }
     let Command::Function(function) = command.command() else {
@@ -582,6 +853,13 @@ fn command_registers_completion_function(
     }
 
     false
+}
+
+fn zsh_arguments_spec_invokes_function(spec: &str, expected_name: &Name) -> bool {
+    spec.split(':')
+        .skip(1)
+        .map(str::trim)
+        .any(|segment| segment == expected_name.as_str())
 }
 
 enum ZshExternalEntrypointAction {
