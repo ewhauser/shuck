@@ -549,16 +549,23 @@ latent_hook
 cb_1() { print -r -- \"$1\"; }
 cb_2() { print -r -- \"$1\"; }
 cb_10() { print -r -- \"$1\"; }
+cb_a() { print -r -- \"$1\"; }
+cb_x() { print -r -- \"$1\"; }
 cb_keep() { print -r -- \"$1\"; }
 add-zsh-hook precmd cb_1
 add-zsh-hook precmd cb_2
 add-zsh-hook precmd cb_10
+add-zsh-hook precmd cb_a
+add-zsh-hook precmd cb_x
 add-zsh-hook precmd cb_keep
 add-zsh-hook -D precmd 'cb_[12]'
 add-zsh-hook -D precmd 'cb_<->'
+add-zsh-hook -D precmd 'cb_[^x]'
 cb_1
 cb_2
 cb_10
+cb_a
+cb_x
 cb_keep
 ";
         let diagnostics = test_snippet(
@@ -567,7 +574,7 @@ cb_keep
                 .with_shell(ShellDialect::Zsh),
         );
 
-        assert_eq!(diagnostics.len(), 3);
+        assert_eq!(diagnostics.len(), 4);
         assert_eq!(
             diagnostics[0].span.slice(source),
             "cb_1() { print -r -- \"$1\"; }"
@@ -579,6 +586,10 @@ cb_keep
         assert_eq!(
             diagnostics[2].span.slice(source),
             "cb_10() { print -r -- \"$1\"; }"
+        );
+        assert_eq!(
+            diagnostics[3].span.slice(source),
+            "cb_a() { print -r -- \"$1\"; }"
         );
     }
 

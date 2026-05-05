@@ -599,9 +599,16 @@ fn zsh_simple_glob_pattern_matches(pattern: &[u8], text: &[u8]) -> bool {
 }
 
 fn pattern_contains_unsupported_zsh_metachar(pattern: &str) -> bool {
-    pattern
-        .bytes()
-        .any(|byte| matches!(byte, b'(' | b')' | b'|' | b'~' | b'^' | b'#'))
+    let mut in_bracket_class = false;
+    for byte in pattern.bytes() {
+        match byte {
+            b'[' if !in_bracket_class => in_bracket_class = true,
+            b']' if in_bracket_class => in_bracket_class = false,
+            b'(' | b')' | b'|' | b'~' | b'#' if !in_bracket_class => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 fn zsh_numeric_pattern_matches(pattern_after_numeric: &[u8], text: &[u8]) -> bool {
