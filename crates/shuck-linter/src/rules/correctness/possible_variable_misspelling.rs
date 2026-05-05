@@ -44,7 +44,7 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
         })
         .fold(FxHashMap::default(), |mut spans, reference| {
             spans
-                .entry(reference.name.to_string())
+                .entry(reference.name.clone())
                 .or_insert_with(Vec::new)
                 .push(reference.span);
             spans
@@ -60,7 +60,7 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
         })
         .fold(FxHashMap::default(), |mut offsets, reference| {
             offsets
-                .entry(reference.name.to_string())
+                .entry(reference.name.clone())
                 .or_insert_with(Vec::new)
                 .push(reference.span.start.offset);
             offsets
@@ -175,8 +175,8 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
 
 fn heredoc_findings(
     checker: &Checker<'_>,
-    guarded_name_offsets: &FxHashMap<String, Vec<usize>>,
-    suppressed_reference_spans: &FxHashMap<String, Vec<Span>>,
+    guarded_name_offsets: &FxHashMap<Name, Vec<usize>>,
+    suppressed_reference_spans: &FxHashMap<Name, Vec<Span>>,
     candidate_cache: &mut FxHashMap<String, Option<String>>,
 ) -> Vec<(Span, String, String)> {
     let mut findings = Vec::new();
@@ -255,8 +255,8 @@ fn heredoc_findings(
 
 fn scope_compat_findings(
     checker: &Checker<'_>,
-    guarded_name_offsets: &FxHashMap<String, Vec<usize>>,
-    suppressed_reference_spans: &FxHashMap<String, Vec<Span>>,
+    guarded_name_offsets: &FxHashMap<Name, Vec<usize>>,
+    suppressed_reference_spans: &FxHashMap<Name, Vec<Span>>,
 ) -> Vec<(Span, String, String)> {
     let mut findings = Vec::new();
     let mut seen = FxHashSet::default();
@@ -504,7 +504,7 @@ fn is_braced_parameter_use(source: &str, span: Span) -> bool {
 }
 
 fn has_prior_guarded_reference(
-    guarded_name_offsets: &FxHashMap<String, Vec<usize>>,
+    guarded_name_offsets: &FxHashMap<Name, Vec<usize>>,
     name: &str,
     span: Span,
 ) -> bool {
@@ -514,7 +514,7 @@ fn has_prior_guarded_reference(
 }
 
 fn has_suppressed_reference_span(
-    suppressed_reference_spans: &FxHashMap<String, Vec<Span>>,
+    suppressed_reference_spans: &FxHashMap<Name, Vec<Span>>,
     name: &str,
     span: Span,
 ) -> bool {
