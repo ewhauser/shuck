@@ -150,7 +150,13 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
 
         self.facts.word_facts().any(|word| {
             self.facts.is_compound_assignment_value_word(word)
-                && span_is_within(word.span(), reference.span)
+                && self
+                    .semantic
+                    .references_in_command_span(
+                        self.facts.command(word.command_id()).span(),
+                        word.span(),
+                    )
+                    .any(|direct_reference| direct_reference.id == reference.id)
         })
     }
 

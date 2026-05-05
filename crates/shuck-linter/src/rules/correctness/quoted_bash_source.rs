@@ -551,6 +551,31 @@ out=($arr) copy=$arr
     }
 
     #[test]
+    fn zsh_array_assignment_suppression_does_not_hide_nested_reads() {
+        let source = "\
+#!/bin/zsh
+maybe_ksh_arrays() {
+  [[ -n $flag ]] && setopt ksharrays
+}
+maybe_ksh_arrays
+arr=(one two)
+out=($(print -r -- $arr))
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
+        );
+    }
+
+    #[test]
     fn read_option_values_do_not_become_array_targets() {
         let source = "\
 #!/bin/bash

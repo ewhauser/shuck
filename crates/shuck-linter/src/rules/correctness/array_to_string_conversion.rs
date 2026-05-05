@@ -44,7 +44,10 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
             }
 
             let name = binding.name.clone();
-            let saw_array_history = visible_array_history(&array_history, &name, checker, binding)
+            let visible_array_state =
+                visible_array_history(&array_history, &name, checker, binding);
+            let saw_array_history = visible_array_state
+                .map(|state| state.array_like)
                 .unwrap_or_else(|| binding_uses_builtin_array_history(checker, binding));
 
             if declaration_resets_array_history(binding) {
@@ -89,7 +92,12 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
 
             checker.facts().binding_value(binding.id)?.scalar_word()?;
 
-            if zsh_selectorless_subscript_value_resets_scalar_history(checker, binding) {
+            if zsh_selectorless_subscript_value_resets_scalar_history(
+                checker,
+                binding,
+                saw_array_history,
+                visible_array_state,
+            ) {
                 push_array_history(
                     &mut array_history,
                     name,
@@ -145,13 +153,13 @@ fn visible_array_history(
     name: &Name,
     checker: &Checker<'_>,
     binding: &Binding,
-) -> Option<bool> {
+) -> Option<ArrayHistoryState> {
     array_history.get(name).and_then(|history| {
         history
             .iter()
             .rev()
             .find(|state| state.visible_to_binding(checker, binding))
-            .map(|state| state.array_like)
+            .copied()
     })
 }
 
@@ -210,6 +218,8 @@ impl ArrayHistoryState {
 fn zsh_selectorless_subscript_value_resets_scalar_history(
     checker: &Checker<'_>,
     binding: &Binding,
+    saw_array_history: bool,
+    visible_array_state: Option<ArrayHistoryState>,
 ) -> bool {
     checker.shell() == ShellDialect::Zsh
         && !matches!(
@@ -222,7 +232,14 @@ fn zsh_selectorless_subscript_value_resets_scalar_history(
         && checker
             .facts()
             .binding_value(binding.id)
-            .is_some_and(|value| value.zsh_selectorless_subscript_value())
+            .is_some_and(|value| {
+                value.zsh_selectorless_subscript_value()
+                    && (!saw_array_history
+                        || (binding_establishes_local_scalar_history(binding)
+                            && !visible_array_state.is_some_and(|state| state.local))
+                        || value
+                            .zsh_selectorless_subscript_value_references_base_name(&binding.name))
+            })
 }
 
 fn array_history_events(
@@ -1120,6 +1137,74 @@ done
         );
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn zsh_cross_variable_selected_element_assignment_preserves_array_history() {
+        let source = "\
+#!/bin/zsh
+src=(one two)
+dst=(old new)
+dst=$src[1]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["dst"]
+        );
+    }
+
+    #[test]
+    fn zsh_cross_variable_subscript_index_reads_do_not_clear_array_history() {
+        let source = "\
+#!/bin/zsh
+src=(one two)
+dst=(old new)
+dst=${src[$dst]}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["dst"]
+        );
+    }
+
+    #[test]
+    fn zsh_local_cross_variable_selected_element_assignment_preserves_array_history() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local src=(one two)
+  local dst=(old new)
+  local dst=$src[1]
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["dst"]
+        );
     }
 
     #[test]
