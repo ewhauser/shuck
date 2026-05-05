@@ -723,6 +723,30 @@ compdef __example example
     }
 
     #[test]
+    fn zsh_arguments_ignores_arrow_text_inside_option_descriptions() {
+        let source = "\
+#!/bin/zsh
+function __example() {
+  _arguments '--range[show start -> end]'
+  print -r -- $state $state_descr $missing
+}
+compdef __example example
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$state", "$state_descr", "$missing"]
+        );
+    }
+
+    #[test]
     fn zsh_zstyle_array_query_defines_named_target() {
         let source = "\
 #!/bin/zsh

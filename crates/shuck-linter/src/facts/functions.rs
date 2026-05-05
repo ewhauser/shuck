@@ -486,18 +486,42 @@ fn command_registers_completion_function(
     let command_name = command.effective_or_literal_name();
 
     if command_name == Some("compdef") {
-        for word in command.body_args() {
+        let mut index = 0usize;
+        let args = command.body_args();
+        while let Some(word) = args.get(index) {
             let Some(text) = static_word_text(word, source) else {
-                continue;
+                return false;
             };
             if text == "--" {
-                continue;
+                index += 1;
+                break;
             }
-            if text.starts_with('-') {
-                if text.contains('d') || text.contains('D') {
-                    return false;
+            let Some(flags) = text.strip_prefix('-') else {
+                break;
+            };
+            if flags.is_empty() || flags.starts_with('-') {
+                break;
+            }
+            if flags.contains('d') || flags.contains('D') {
+                return false;
+            }
+            index += 1;
+            for flag in flags.chars() {
+                if matches!(flag, 'p' | 'P' | 'N') {
+                    if index >= args.len() {
+                        return false;
+                    }
+                    index += 1;
                 }
-                continue;
+            }
+        }
+
+        if let Some(word) = args.get(index) {
+            let Some(text) = static_word_text(word, source) else {
+                return false;
+            };
+            if text.contains('=') {
+                return false;
             }
             if text == expected_name {
                 return true;
