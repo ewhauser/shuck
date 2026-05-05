@@ -3516,12 +3516,14 @@ printf '%s\\n' \"${items[@]#$prefix/}\" \"${items[i]%$suffix}\"
 fn indexed_array_reference_fragments_record_subscript_index_behavior() {
     let source = "\
 #!/bin/zsh
-printf '%s\\n' ${arr[1]}
+printf '%s\\n' ${arr[0]}
 setopt ksh_arrays
 printf '%s\\n' ${arr[1]}
 if cond; then setopt ksh_zero_subscript; fi
 printf '%s\\n' ${arr[1]}
 unsetopt ksh_arrays
+unsetopt ksh_zero_subscript
+printf '%s\\n' ${arr[0]}
 setopt ksh_zero_subscript
 printf '%s\\n' ${arr[0]}
 opt=ksh_zero_subscript
@@ -3543,9 +3545,10 @@ printf '%s\\n' ${arr[0]}
                 })
                 .collect::<Vec<_>>(),
             vec![
-                ("${arr[1]}", SubscriptIndexBehavior::OneBased),
+                ("${arr[0]}", SubscriptIndexBehavior::OneBased),
                 ("${arr[1]}", SubscriptIndexBehavior::ZeroBased),
                 ("${arr[1]}", SubscriptIndexBehavior::ZeroBased),
+                ("${arr[0]}", SubscriptIndexBehavior::OneBased),
                 ("${arr[0]}", SubscriptIndexBehavior::OneBasedWithZeroAlias,),
                 ("${arr[0]}", SubscriptIndexBehavior::Ambiguous),
             ]
