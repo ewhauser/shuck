@@ -57,16 +57,20 @@ fn build_literal_brace_spans(
     let plain_parameter_expansion_edges = build_plain_parameter_expansion_edge_offsets(source);
     let active_brace_expansion_edges = build_active_brace_expansion_edge_offsets(source);
     spans.retain(|span| {
-        !plain_parameter_expansion_edges.contains(&span.start.offset)
-            && !active_brace_expansion_edges.contains(&span.start.offset)
+        plain_parameter_expansion_edges
+            .binary_search(&span.start.offset)
+            .is_err()
+            && active_brace_expansion_edges
+                .binary_search(&span.start.offset)
+                .is_err()
     });
     spans.sort_by_key(|span| (span.start.offset, span.end.offset));
     spans.dedup_by_key(|span| (span.start.offset, span.end.offset));
     spans
 }
 
-fn build_plain_parameter_expansion_edge_offsets(source: &str) -> FxHashSet<usize> {
-    let mut offsets = FxHashSet::default();
+fn build_plain_parameter_expansion_edge_offsets(source: &str) -> Vec<usize> {
+    let mut offsets = Vec::new();
     let mut index = 0usize;
 
     while index < source.len() {
@@ -76,8 +80,8 @@ fn build_plain_parameter_expansion_edge_offsets(source: &str) -> FxHashSet<usize
         {
             let open_brace_offset = index + '$'.len_utf8();
             let close_brace_offset = end_offset.saturating_sub('}'.len_utf8());
-            offsets.insert(open_brace_offset);
-            offsets.insert(close_brace_offset);
+            offsets.push(open_brace_offset);
+            offsets.push(close_brace_offset);
             index = end_offset;
             continue;
         }
@@ -100,7 +104,7 @@ fn build_plain_parameter_expansion_edge_offsets(source: &str) -> FxHashSet<usize
     offsets
 }
 
-fn build_active_brace_expansion_edge_offsets(source: &str) -> FxHashSet<usize> {
+fn build_active_brace_expansion_edge_offsets(source: &str) -> Vec<usize> {
     let bytes = source.as_bytes();
     let mut opens = Vec::new();
     let mut closes = Vec::new();
@@ -112,15 +116,15 @@ fn build_active_brace_expansion_edge_offsets(source: &str) -> FxHashSet<usize> {
         }
     }
 
-    let mut offsets = FxHashSet::default();
+    let mut offsets = Vec::new();
     for &open_offset in &opens {
         let close_index = closes.partition_point(|&close| close <= open_offset);
         let Some(&close_offset) = closes.get(close_index) else {
             continue;
         };
         if active_brace_pair_qualifies(source, open_offset, close_offset) {
-            offsets.insert(open_offset);
-            offsets.insert(close_offset);
+            offsets.push(open_offset);
+            offsets.push(close_offset);
         }
     }
     for &close_offset in &closes {
@@ -130,10 +134,12 @@ fn build_active_brace_expansion_edge_offsets(source: &str) -> FxHashSet<usize> {
         }
         let open_offset = opens[open_index - 1];
         if active_brace_pair_qualifies(source, open_offset, close_offset) {
-            offsets.insert(open_offset);
-            offsets.insert(close_offset);
+            offsets.push(open_offset);
+            offsets.push(close_offset);
         }
     }
+    offsets.sort_unstable();
+    offsets.dedup();
 
     offsets
 }
