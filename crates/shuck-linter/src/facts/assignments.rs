@@ -1547,6 +1547,9 @@ fn zsh_set_a_outparam_positions_by_scope(
         if !command.effective_name_is("set") {
             continue;
         }
+        if !command_runs_in_persistent_shell_context(semantic, command, source) {
+            continue;
+        }
         if !command_is_unconditional_in_function(semantic, semantic_analysis, command.id()) {
             continue;
         }

@@ -1037,6 +1037,35 @@ esac
     }
 
     #[test]
+    fn reports_zsh_later_reads_after_subshell_set_a_outparam_helper() {
+        let source = "\
+#!/bin/zsh
+fill() {
+  (
+    set -A $1 value
+  )
+}
+(
+  for d in /tmp; do :; done
+)
+fill d
+print -r -- $d
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["for"]
+        );
+    }
+
+    #[test]
     fn ignores_zsh_later_reads_after_later_defined_helper_resets_name() {
         let source = "\
 #!/bin/zsh
