@@ -121,7 +121,9 @@ fn is_zsh_completion_context_name(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
+    use std::path::Path;
+
+    use crate::test::{test_snippet, test_snippet_at_path};
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
@@ -224,6 +226,168 @@ printf '%s\\n' \"$plain_test\" \"$file_test\" \"$still_missing\"
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$plain_test", "$file_test", "$still_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_runtime_special_parameters_do_not_report_undefined() {
+        let source = "\
+#!/bin/zsh
+print -r -- \"$sysparams\" \"$history\" \"$words\" \"$compstate\"
+print -r -- \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_special_associative_parameter_keys_do_not_report_undefined() {
+        let source = "\
+#!/bin/zsh
+compstate[insert]=menu
+print -r -- \"$sysparams[pid]\" \"$history[1]\"
+print -r -- \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn ordinary_zsh_scripts_do_not_get_context_backed_special_parameters() {
+        let source = "\
+#!/bin/zsh
+print -r -- \"$compstate\" \"$sysparams\" \"$history\" \"$words\" \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/script.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "$compstate",
+                "$sysparams",
+                "$history",
+                "$words",
+                "$ordinary_missing",
+            ]
+        );
+    }
+
+    #[test]
+    fn pathless_zsh_snippets_do_not_get_context_backed_special_parameters() {
+        let source = "\
+#!/bin/zsh
+print -r -- \"$compstate\" \"$sysparams\" \"$history\" \"$words\" \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "$compstate",
+                "$sysparams",
+                "$history",
+                "$words",
+                "$ordinary_missing",
+            ]
+        );
+    }
+
+    #[test]
+    fn zsh_prompt_color_runtime_bindings_do_not_report_undefined_on_runtime_paths() {
+        let source = "\
+#!/usr/bin/env zsh
+prompt_fragment=\"%{$fg_bold[blue]%}branch%{$reset_color%}\"
+print -r -- \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn unknown_generic_runtime_paths_do_not_get_zsh_special_parameters() {
+        let source = "\
+print -r -- \"$history\" \"$words\" \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/plugins/example"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Unknown),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$history", "$words", "$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_prompt_color_runtime_bindings_do_not_report_undefined_on_config_paths() {
+        let source = "\
+#!/usr/bin/env zsh
+PS1='%{$fg_bold[blue]%}%n%{$reset_color%}'
+print -r -- \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/thoughtbot-dotfiles/zsh/configs/prompt.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
         );
     }
 
