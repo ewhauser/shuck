@@ -625,6 +625,131 @@ read -d '' -ra COMPREPLY < <(compgen -W \"one two\" -- \"$cur\")
     }
 
     #[test]
+    fn zsh_describe_named_array_operand_counts_as_use() {
+        let source = "\
+#!/bin/zsh
+cmds=(git:'run git')
+_describe -t commands 'external command' cmds
+unused=(other:'unused')
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "unused");
+    }
+
+    #[test]
+    fn zsh_describe_consumes_names_after_options_and_separator() {
+        let source = "\
+#!/bin/zsh
+cmds=(git:'run git')
+other_cmds=(hg:'run hg')
+_describe -O 'external command' cmds
+_describe -- 'other command' other_cmds
+unused=(other:'unused')
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "unused");
+    }
+
+    #[test]
+    fn zsh_describe_consumes_optional_second_array_operand() {
+        let source = "\
+#!/bin/zsh
+values=(git)
+descriptions=(git:'run git')
+_describe 'external command' values descriptions
+unused=(other:'unused')
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "unused");
+    }
+
+    #[test]
+    fn zsh_describe_consumes_array_operand_after_dynamic_description() {
+        let source = "\
+#!/bin/zsh
+desc='external command'
+values=(git)
+descriptions=(git:'run git')
+_describe \"$desc\" values descriptions
+unused=(other:'unused')
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "unused");
+    }
+
+    #[test]
+    fn zsh_describe_does_not_consume_descriptor_after_dynamic_options() {
+        let source = "\
+#!/bin/zsh
+opts='-o'
+desc=(not:target)
+values=(git)
+_describe \"$opts\" desc values
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "desc");
+    }
+
+    #[test]
+    fn zsh_describe_consumes_array_operand_after_group_separator() {
+        let source = "\
+#!/bin/zsh
+values=(git)
+more_values=(hg)
+more_descriptions=(hg:'run hg')
+_describe 'external command' values -- more_values more_descriptions
+unused=(other:'unused')
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "unused");
+    }
+
+    #[test]
+    fn zsh_zstyle_named_target_counts_as_assignment() {
+        let source = "\
+#!/bin/zsh
+zstyle -a ':prezto:load' pmodule-dirs user_pmodule_dirs
+print -r -- $user_pmodule_dirs
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn unreachable_assignments_are_still_checked() {
         let source = "\
 #!/bin/bash

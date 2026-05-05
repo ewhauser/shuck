@@ -119,6 +119,44 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     );
                 }
             }
+            "zstyle" if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh => {
+                if let Some((argument, span, mut attributes)) = zstyle_target(args, self.source) {
+                    if attributes.contains(BindingAttributes::ARRAY)
+                        && self
+                            .resolve_reference(&argument, self.current_scope(), span.start.offset)
+                            .map(|binding_id| {
+                                let binding = &self.bindings[binding_id.index()];
+                                binding.attributes.contains(BindingAttributes::ASSOC)
+                                    && !self.binding_was_cleared_before_lookup(
+                                        binding,
+                                        self.current_scope(),
+                                        span.start.offset,
+                                    )
+                            })
+                            .unwrap_or(false)
+                    {
+                        attributes |= BindingAttributes::ASSOC;
+                    }
+                    self.add_binding(
+                        &argument,
+                        BindingKind::ReadTarget,
+                        self.current_scope(),
+                        span,
+                        BindingOrigin::BuiltinTarget {
+                            definition_span: span,
+                            kind: BuiltinBindingTargetKind::Zstyle,
+                        },
+                        attributes,
+                    );
+                }
+            }
+            "_describe" if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh => {
+                for (argument, span) in describe_array_names(args, self.source, |word| {
+                    self.describe_dynamic_start(word)
+                }) {
+                    self.add_reference_if_bound(&argument, ReferenceKind::ImplicitRead, span);
+                }
+            }
             "let" => self.record_let_arithmetic_assignment_targets(args),
             "eval" => self.record_eval_argument_references(args),
             "trap" => self.record_trap_action_references(args),
@@ -432,5 +470,209 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 .or_default()
                 .push(argument.span.start.offset);
         }
+    }
+
+    fn describe_dynamic_start(&self, word: &Word) -> DescribeDynamicStart {
+        let Some(name) = standalone_parameter_name(word) else {
+            return DescribeDynamicStart::Unknown;
+        };
+        let Some(binding_id) =
+            self.resolve_reference(&name, self.current_scope(), word.span.start.offset)
+        else {
+            return DescribeDynamicStart::Unknown;
+        };
+        let binding = &self.bindings[binding_id.index()];
+        let Some(value) = static_scalar_assignment_value(binding, self.source) else {
+            return DescribeDynamicStart::Unknown;
+        };
+
+        match value.as_str() {
+            "-t" => DescribeDynamicStart::OptionWithValue,
+            "-o" | "-O" => DescribeDynamicStart::OptionWithoutValue,
+            _ if value.starts_with('-') && value != "-" => DescribeDynamicStart::Unknown,
+            _ => DescribeDynamicStart::Descriptor,
+        }
+    }
+}
+
+fn zstyle_target(args: &[&Word], source: &str) -> Option<(Name, Span, BindingAttributes)> {
+    let index = 0usize;
+    let word = args.get(index)?;
+    let text = static_word_text(word, source)?;
+    match text.as_ref() {
+        "--" => None,
+        "-a" | "-s" | "-b" => {
+            let attributes = if text == "-a" {
+                BindingAttributes::ARRAY
+            } else {
+                BindingAttributes::empty()
+            };
+            args.get(index + 3)
+                .and_then(|word| named_target_word(word, source))
+                .map(|(name, span)| (name, span, attributes))
+        }
+        _ if text.starts_with('-') && text != "-" => None,
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DescribeDynamicStart {
+    Descriptor,
+    OptionWithoutValue,
+    OptionWithValue,
+    Unknown,
+}
+
+fn describe_array_names(
+    args: &[&Word],
+    source: &str,
+    dynamic_start: impl Fn(&Word) -> DescribeDynamicStart,
+) -> Vec<(Name, Span)> {
+    let mut index = 0usize;
+    let mut first_segment_dynamic_start = None;
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            first_segment_dynamic_start = Some(dynamic_start(word));
+            break;
+        };
+        if text == "--" {
+            index += 1;
+            break;
+        }
+        if !text.starts_with('-') || text == "-" {
+            break;
+        }
+        index += 1;
+        if text == "-t" {
+            index += 1;
+        }
+    }
+
+    let mut targets = Vec::new();
+    let mut first_group = true;
+    while index < args.len() {
+        if args
+            .get(index)
+            .and_then(|word| static_word_text(word, source))
+            .as_deref()
+            == Some("--")
+        {
+            index += 1;
+            first_group = false;
+            continue;
+        }
+
+        let segment_start = index;
+        let mut segment_end = index;
+        while segment_end < args.len()
+            && args
+                .get(segment_end)
+                .and_then(|word| static_word_text(word, source))
+                .as_deref()
+                != Some("--")
+        {
+            segment_end += 1;
+        }
+
+        let segment_len = segment_end.saturating_sub(segment_start);
+        let (target_start, target_count) =
+            if first_group && let Some(dynamic_start) = first_segment_dynamic_start {
+                match dynamic_start {
+                    DescribeDynamicStart::Descriptor => (segment_start + 1, 2),
+                    DescribeDynamicStart::OptionWithoutValue => match segment_len {
+                        0..=2 => (segment_end, 0),
+                        _ => (segment_start + 2, 2),
+                    },
+                    DescribeDynamicStart::OptionWithValue => match segment_len {
+                        0..=3 => (segment_end, 0),
+                        _ => (segment_start + 3, 2),
+                    },
+                    DescribeDynamicStart::Unknown => match segment_len {
+                        0 | 1 => (segment_end, 0),
+                        2 => (segment_start + 1, 1),
+                        _ => (segment_start + 2, 2),
+                    },
+                }
+            } else if first_group {
+                (segment_start + 1, 2)
+            } else {
+                (segment_start, 2)
+            };
+        for target_index in target_start..(target_start + target_count).min(segment_end) {
+            if let Some(target) = args
+                .get(target_index)
+                .and_then(|word| named_target_word(word, source))
+            {
+                targets.push(target);
+            }
+        }
+        index = segment_end;
+        first_group = false;
+    }
+    targets
+}
+
+fn standalone_parameter_name(word: &Word) -> Option<Name> {
+    standalone_parameter_name_from_parts(&word.parts)
+}
+
+fn standalone_parameter_name_from_parts(parts: &[WordPartNode]) -> Option<Name> {
+    let [part] = parts else {
+        return None;
+    };
+
+    match &part.kind {
+        WordPart::Variable(name) => Some(name.clone()),
+        WordPart::Parameter(parameter) => match parameter.bourne() {
+            Some(BourneParameterExpansion::Access { reference })
+                if reference.subscript.is_none() =>
+            {
+                Some(reference.name.clone())
+            }
+            _ => None,
+        },
+        WordPart::DoubleQuoted { parts, .. } => standalone_parameter_name_from_parts(parts),
+        _ => None,
+    }
+}
+
+fn static_scalar_assignment_value(binding: &Binding, source: &str) -> Option<String> {
+    if !matches!(
+        binding.origin,
+        BindingOrigin::Assignment {
+            value: AssignmentValueOrigin::StaticLiteral,
+            ..
+        }
+    ) {
+        return None;
+    }
+
+    let rest = source.get(binding.span.end.offset..)?;
+    let rest = rest.strip_prefix('=')?;
+    parse_static_assignment_literal(rest)
+}
+
+fn parse_static_assignment_literal(rest: &str) -> Option<String> {
+    let rest = rest.trim_start();
+    if let Some(rest) = rest.strip_prefix('\'') {
+        return rest.split_once('\'').map(|(value, _)| value.to_owned());
+    }
+    if let Some(rest) = rest.strip_prefix('"') {
+        let (value, _) = rest.split_once('"')?;
+        if value.contains(['$', '`', '\\']) {
+            return None;
+        }
+        return Some(value.to_owned());
+    }
+
+    let value = rest
+        .split(|ch: char| ch.is_whitespace() || ch == ';' || ch == '#')
+        .next()
+        .unwrap_or_default();
+    if value.is_empty() || value.starts_with('(') {
+        None
+    } else {
+        Some(value.to_owned())
     }
 }

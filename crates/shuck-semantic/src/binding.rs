@@ -139,6 +139,8 @@ pub enum BuiltinBindingTargetKind {
     Getopts,
     /// `zparseopts`
     Zparseopts,
+    /// `zstyle -a`, `zstyle -s`, or `zstyle -b`
+    Zstyle,
 }
 
 /// High-level category for a semantic binding.
