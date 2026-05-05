@@ -129,7 +129,7 @@ fn matches_zsh_config_contract(
     shell: ShellDialect,
 ) -> bool {
     let lower = lower_path(path);
-    shell == ShellDialect::Zsh
+    shell_matches_zsh_config_context(shell, &lower)
         && zsh_config_consumed_prefixes(collector.source, &lower)
             .next()
             .is_some()
@@ -165,13 +165,24 @@ fn zsh_config_prefix_path_shape(prefix: &str, lower_path: &str) -> bool {
     }
 }
 
+fn shell_matches_zsh_config_context(shell: ShellDialect, lower_path: &str) -> bool {
+    shell == ShellDialect::Zsh
+        || (shell == ShellDialect::Unknown
+            && (p10k_config_path_shape(lower_path) || zsh_dotfile_path_shape(lower_path)))
+}
+
 fn p10k_config_path_shape(lower_path: &str) -> bool {
+    let file_name = path_file_name(lower_path);
+    if file_name == ".p10k.zsh"
+        || file_name == "p10k.zsh"
+        || (file_name.starts_with("p10k-") && file_name.ends_with(".zsh"))
+    {
+        return true;
+    }
+
     path_matches_any(
         lower_path,
         &[
-            "/.p10k.zsh",
-            "/p10k.zsh",
-            "/p10k-",
             "/powerlevel10k/config/",
             "/powerlevel10k/internal/configure.zsh",
         ],
@@ -179,23 +190,32 @@ fn p10k_config_path_shape(lower_path: &str) -> bool {
 }
 
 fn zsh_dotfile_path_shape(lower_path: &str) -> bool {
-    path_matches_any(
+    path_has_component(
         lower_path,
         &[
-            "/.zshrc",
-            "/zshrc",
-            "/.zshenv",
-            "/zshenv",
-            "/.zprofile",
-            "/zprofile",
-            "/.zlogin",
-            "/zlogin",
-            "/.zlogout",
-            "/zlogout",
-            "/zdot/",
-            "/zsh/config/",
+            ".zshrc",
+            "zshrc",
+            ".zshenv",
+            "zshenv",
+            ".zprofile",
+            "zprofile",
+            ".zlogin",
+            "zlogin",
+            ".zlogout",
+            "zlogout",
+            "zdot",
         ],
-    )
+    ) || lower_path.contains("/zsh/config/")
+}
+
+fn path_has_component(lower_path: &str, names: &[&str]) -> bool {
+    lower_path
+        .split('/')
+        .any(|component| names.contains(&component))
+}
+
+fn path_file_name(lower_path: &str) -> &str {
+    lower_path.rsplit('/').next().unwrap_or(lower_path)
 }
 
 fn sourced_runtime_path_shape(lower: &str) -> bool {
@@ -575,6 +595,31 @@ ZDOT_MODULE_NAME=prompt
     #[test]
     fn ordinary_zsh_paths_do_not_get_config_prefix_contracts() {
         let path = Path::new("/tmp/project/plugins/example.zsh");
+        let source = "\
+POWERLEVEL9K_DIR_FOREGROUND=31
+ZDOT_MODULE_NAME=prompt
+";
+
+        assert!(contract_for_shell(path, source, ShellDialect::Zsh).is_none());
+    }
+
+    #[test]
+    fn shebangless_zsh_dotfiles_get_config_prefix_contracts() {
+        let path = Path::new("/tmp/home/.zshrc");
+        let source = "\
+POWERLEVEL9K_DIR_FOREGROUND=31
+ZDOT_MODULE_NAME=prompt
+";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Unknown).unwrap();
+
+        assert!(has_consumed_prefix(&contract, "POWERLEVEL9K_"));
+        assert!(has_consumed_prefix(&contract, "ZDOT_"));
+    }
+
+    #[test]
+    fn zshrc_named_directories_do_not_count_as_dotfiles() {
+        let path = Path::new("/tmp/project/zshrc-theme/prompt.zsh");
         let source = "\
 POWERLEVEL9K_DIR_FOREGROUND=31
 ZDOT_MODULE_NAME=prompt

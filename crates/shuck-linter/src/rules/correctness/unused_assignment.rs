@@ -945,7 +945,6 @@ foo=1
     #[test]
     fn zsh_config_namespaces_are_external_consumers() {
         let source = "\
-#!/usr/bin/env zsh
 POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(dir vcs)
 POWERLEVEL9K_DIR_FOREGROUND=31
 ZDOT_MODULE_NAME=prompt
@@ -970,6 +969,27 @@ ordinary=1
 ";
         let diagnostics = test_snippet_at_path(
             Path::new("/tmp/project/plugins/prompt.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "POWERLEVEL9K_DIR_FOREGROUND"
+        );
+        assert_eq!(diagnostics[1].span.slice(source), "ordinary");
+    }
+
+    #[test]
+    fn zsh_config_namespace_names_still_report_in_zshrc_named_directories() {
+        let source = "\
+#!/usr/bin/env zsh
+POWERLEVEL9K_DIR_FOREGROUND=31
+ordinary=1
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/zshrc-theme/prompt.zsh"),
             source,
             &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
