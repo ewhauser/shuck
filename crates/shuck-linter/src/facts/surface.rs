@@ -1320,8 +1320,10 @@ impl<'a> SurfaceFragmentSink<'a> {
         span: Span,
         context: SurfaceScanContext<'_>,
     ) {
-        let guarded_reference = context.guarded_parameter_operand
-            || parameter_expansion_guards_unset_reference(parameter);
+        let (classification, deepest_subscript_ref) =
+            classify_parameter_expansion(parameter, self.source);
+        let guarded_reference =
+            context.guarded_parameter_operand || classification.guards_unset_reference;
 
         self.record_special_positional_parameter(parameter, guarded_reference);
         if span.slice(self.source).starts_with("${##") {
@@ -1333,27 +1335,29 @@ impl<'a> SurfaceFragmentSink<'a> {
                     guarded: guarded_reference,
                 });
         }
-        if is_nested_parameter_expansion(parameter, self.source) {
+        if classification.is_nested_bourne {
             self.facts
                 .nested_parameter_expansions
                 .push(NestedParameterExpansionFragmentFact { span });
         }
-        if parameter_has_array_reference(parameter) {
-            self.record_array_reference(span, parameter_is_plain_array_reference(parameter));
+        if classification.has_array_reference {
+            self.record_array_reference(span, classification.is_plain_array_reference);
         }
-        if parameter_has_substring_expansion(parameter) {
+        if classification.has_substring_expansion {
             self.record_substring_expansion(span);
         }
-        if parameter_has_case_modification(parameter) {
+        if classification.has_case_modification {
             self.record_case_modification(span);
         }
-        if parameter_has_replacement_expansion(parameter) {
+        if classification.has_replacement_expansion {
             self.record_replacement_expansion(span);
         }
-        if parameter_has_positional_parameter_trim(parameter) {
+        if classification.has_positional_parameter_trim {
             self.record_positional_parameter_trim(span);
         }
-        self.record_parameter_subscripts(parameter);
+        if let Some(deepest_subscript_ref) = deepest_subscript_ref {
+            self.record_var_ref_subscript(deepest_subscript_ref, true);
+        }
         if let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax {
             if matches!(
                 syntax,
@@ -1492,32 +1496,6 @@ impl<'a> SurfaceFragmentSink<'a> {
             | ParameterOp::UpperAll
             | ParameterOp::LowerFirst
             | ParameterOp::LowerAll => {}
-        }
-    }
-
-    fn record_parameter_subscripts(&mut self, parameter: &shuck_ast::ParameterExpansion) {
-        match &parameter.syntax {
-            ParameterExpansionSyntax::Bourne(syntax) => match syntax {
-                BourneParameterExpansion::Access { reference }
-                | BourneParameterExpansion::Length { reference }
-                | BourneParameterExpansion::Indices { reference }
-                | BourneParameterExpansion::Indirect { reference, .. }
-                | BourneParameterExpansion::Slice { reference, .. }
-                | BourneParameterExpansion::Operation { reference, .. }
-                | BourneParameterExpansion::Transformation { reference, .. } => {
-                    self.record_var_ref_subscript(reference, true);
-                }
-                BourneParameterExpansion::PrefixMatch { .. } => {}
-            },
-            ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
-                ZshExpansionTarget::Reference(reference) => {
-                    self.record_var_ref_subscript(reference, true)
-                }
-                ZshExpansionTarget::Nested(parameter) => {
-                    self.record_parameter_subscripts(parameter)
-                }
-                ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => {}
-            },
         }
     }
 
@@ -1967,25 +1945,131 @@ fn backtick_substitution_len(text: &str) -> Option<usize> {
     None
 }
 
-fn parameter_expansion_guards_unset_reference(parameter: &shuck_ast::ParameterExpansion) -> bool {
+#[derive(Default, Clone, Copy)]
+struct ParameterClassification {
+    has_array_reference: bool,
+    is_plain_array_reference: bool,
+    has_substring_expansion: bool,
+    has_case_modification: bool,
+    has_replacement_expansion: bool,
+    has_positional_parameter_trim: bool,
+    guards_unset_reference: bool,
+    is_nested_bourne: bool,
+}
+
+fn classify_parameter_expansion<'a>(
+    parameter: &'a shuck_ast::ParameterExpansion,
+    source: &str,
+) -> (ParameterClassification, Option<&'a VarRef>) {
+    let mut classification = ParameterClassification::default();
+    if matches!(&parameter.syntax, ParameterExpansionSyntax::Bourne(_)) {
+        classification.is_nested_bourne =
+            contains_nested_parameter_marker(parameter.raw_body.slice(source).trim_start());
+    }
+    let deepest = classify_parameter_expansion_walk(parameter, &mut classification, true, true);
+    (classification, deepest)
+}
+
+fn classify_parameter_expansion_walk<'a>(
+    parameter: &'a shuck_ast::ParameterExpansion,
+    classification: &mut ParameterClassification,
+    is_outermost: bool,
+    plain_chain: bool,
+) -> Option<&'a VarRef> {
     match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(
-            BourneParameterExpansion::Operation { operator, .. }
-            | BourneParameterExpansion::Indirect {
-                operator: Some(operator),
-                ..
-            },
-        ) => parameter_operator_guards_unset_reference(operator),
-        ParameterExpansionSyntax::Bourne(
-            BourneParameterExpansion::Access { .. }
-            | BourneParameterExpansion::Length { .. }
-            | BourneParameterExpansion::Indices { .. }
-            | BourneParameterExpansion::Indirect { operator: None, .. }
-            | BourneParameterExpansion::PrefixMatch { .. }
-            | BourneParameterExpansion::Slice { .. }
-            | BourneParameterExpansion::Transformation { .. },
-        )
-        | ParameterExpansionSyntax::Zsh(_) => false,
+        ParameterExpansionSyntax::Bourne(syntax) => {
+            if is_outermost
+                && let BourneParameterExpansion::Operation { operator, .. }
+                | BourneParameterExpansion::Indirect {
+                    operator: Some(operator),
+                    ..
+                } = syntax
+            {
+                classification.guards_unset_reference =
+                    parameter_operator_guards_unset_reference(operator);
+            }
+            match syntax {
+                BourneParameterExpansion::Access { reference } => {
+                    if reference.subscript.is_some() {
+                        classification.has_array_reference = true;
+                        if plain_chain {
+                            classification.is_plain_array_reference = true;
+                        }
+                    }
+                    Some(reference)
+                }
+                BourneParameterExpansion::Length { reference }
+                | BourneParameterExpansion::Indices { reference }
+                | BourneParameterExpansion::Indirect { reference, .. }
+                | BourneParameterExpansion::Transformation { reference, .. } => {
+                    if reference.subscript.is_some() {
+                        classification.has_array_reference = true;
+                    }
+                    Some(reference)
+                }
+                BourneParameterExpansion::Slice { reference, .. } => {
+                    if reference.subscript.is_some() {
+                        classification.has_array_reference = true;
+                    } else {
+                        classification.has_substring_expansion = true;
+                    }
+                    Some(reference)
+                }
+                BourneParameterExpansion::Operation {
+                    reference,
+                    operator,
+                    ..
+                } => {
+                    if reference.subscript.is_some() {
+                        classification.has_array_reference = true;
+                    }
+                    if matches!(
+                        operator,
+                        ParameterOp::UpperFirst
+                            | ParameterOp::UpperAll
+                            | ParameterOp::LowerFirst
+                            | ParameterOp::LowerAll
+                    ) {
+                        classification.has_case_modification = true;
+                    }
+                    if matches!(
+                        operator,
+                        ParameterOp::ReplaceFirst { .. } | ParameterOp::ReplaceAll { .. }
+                    ) {
+                        classification.has_replacement_expansion = true;
+                    }
+                    if is_outermost && reference_is_positional_parameter_trim(reference, operator) {
+                        classification.has_positional_parameter_trim = true;
+                    }
+                    Some(reference)
+                }
+                BourneParameterExpansion::PrefixMatch { .. } => None,
+            }
+        }
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            let zsh_plain = syntax.length_prefix.is_none()
+                && syntax.operation.is_none()
+                && syntax.modifiers.is_empty();
+            let inner_plain_chain = plain_chain && zsh_plain;
+            match &syntax.target {
+                ZshExpansionTarget::Reference(reference) => {
+                    if reference.subscript.is_some() {
+                        classification.has_array_reference = true;
+                        if inner_plain_chain {
+                            classification.is_plain_array_reference = true;
+                        }
+                    }
+                    Some(reference)
+                }
+                ZshExpansionTarget::Nested(inner) => classify_parameter_expansion_walk(
+                    inner,
+                    classification,
+                    false,
+                    inner_plain_chain,
+                ),
+                ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => None,
+            }
+        }
     }
 }
 
@@ -1997,52 +2081,6 @@ fn parameter_operator_guards_unset_reference(operator: &ParameterOp) -> bool {
             | ParameterOp::UseReplacement
             | ParameterOp::Error
     )
-}
-
-fn parameter_has_array_reference(parameter: &shuck_ast::ParameterExpansion) -> bool {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
-            BourneParameterExpansion::Access { reference }
-            | BourneParameterExpansion::Length { reference }
-            | BourneParameterExpansion::Indices { reference }
-            | BourneParameterExpansion::Indirect { reference, .. }
-            | BourneParameterExpansion::Slice { reference, .. }
-            | BourneParameterExpansion::Operation { reference, .. }
-            | BourneParameterExpansion::Transformation { reference, .. } => {
-                reference_has_array_subscript(reference)
-            }
-            BourneParameterExpansion::PrefixMatch { .. } => false,
-        },
-        ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
-            ZshExpansionTarget::Reference(reference) => reference_has_array_subscript(reference),
-            ZshExpansionTarget::Nested(parameter) => parameter_has_array_reference(parameter),
-            ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => false,
-        },
-    }
-}
-
-fn parameter_is_plain_array_reference(parameter: &shuck_ast::ParameterExpansion) -> bool {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
-            reference_has_array_subscript(reference)
-        }
-        ParameterExpansionSyntax::Zsh(syntax)
-            if syntax.length_prefix.is_none()
-                && syntax.operation.is_none()
-                && syntax.modifiers.is_empty() =>
-        {
-            match &syntax.target {
-                ZshExpansionTarget::Reference(reference) => {
-                    reference_has_array_subscript(reference)
-                }
-                ZshExpansionTarget::Nested(parameter) => {
-                    parameter_is_plain_array_reference(parameter)
-                }
-                ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => false,
-            }
-        }
-        _ => false,
-    }
 }
 
 fn parameter_is_plain_unindexed_reference(parameter: &shuck_ast::ParameterExpansion) -> bool {
@@ -2144,99 +2182,6 @@ fn parameter_pattern_target_is_special(reference: &VarRef, operator: &ParameterO
 
 fn reference_is_positional_parameter_trim(reference: &VarRef, operator: &ParameterOp) -> bool {
     parameter_operator_is_trim(operator) && matches!(reference.name.as_str(), "*" | "@")
-}
-
-fn parameter_has_substring_expansion(parameter: &shuck_ast::ParameterExpansion) -> bool {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Slice { reference, .. }) => {
-            reference.subscript.is_none()
-        }
-        ParameterExpansionSyntax::Bourne(
-            BourneParameterExpansion::Access { .. }
-            | BourneParameterExpansion::Length { .. }
-            | BourneParameterExpansion::Indices { .. }
-            | BourneParameterExpansion::Indirect { .. }
-            | BourneParameterExpansion::Operation { .. }
-            | BourneParameterExpansion::Transformation { .. }
-            | BourneParameterExpansion::PrefixMatch { .. },
-        ) => false,
-        ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
-            ZshExpansionTarget::Nested(parameter) => parameter_has_substring_expansion(parameter),
-            ZshExpansionTarget::Reference(_)
-            | ZshExpansionTarget::Word(_)
-            | ZshExpansionTarget::Empty => false,
-        },
-    }
-}
-
-fn parameter_has_case_modification(parameter: &shuck_ast::ParameterExpansion) -> bool {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
-            operator, ..
-        }) => {
-            matches!(
-                operator,
-                ParameterOp::UpperFirst
-                    | ParameterOp::UpperAll
-                    | ParameterOp::LowerFirst
-                    | ParameterOp::LowerAll
-            )
-        }
-        ParameterExpansionSyntax::Bourne(
-            BourneParameterExpansion::Access { .. }
-            | BourneParameterExpansion::Length { .. }
-            | BourneParameterExpansion::Indices { .. }
-            | BourneParameterExpansion::Indirect { .. }
-            | BourneParameterExpansion::Slice { .. }
-            | BourneParameterExpansion::Transformation { .. }
-            | BourneParameterExpansion::PrefixMatch { .. },
-        ) => false,
-        ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
-            ZshExpansionTarget::Nested(parameter) => parameter_has_case_modification(parameter),
-            ZshExpansionTarget::Reference(_)
-            | ZshExpansionTarget::Word(_)
-            | ZshExpansionTarget::Empty => false,
-        },
-    }
-}
-
-fn parameter_has_replacement_expansion(parameter: &shuck_ast::ParameterExpansion) -> bool {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
-            operator, ..
-        }) => {
-            matches!(
-                operator,
-                ParameterOp::ReplaceFirst { .. } | ParameterOp::ReplaceAll { .. }
-            )
-        }
-        ParameterExpansionSyntax::Bourne(
-            BourneParameterExpansion::Access { .. }
-            | BourneParameterExpansion::Length { .. }
-            | BourneParameterExpansion::Indices { .. }
-            | BourneParameterExpansion::Indirect { .. }
-            | BourneParameterExpansion::Slice { .. }
-            | BourneParameterExpansion::Transformation { .. }
-            | BourneParameterExpansion::PrefixMatch { .. },
-        ) => false,
-        ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
-            ZshExpansionTarget::Nested(parameter) => parameter_has_replacement_expansion(parameter),
-            ZshExpansionTarget::Reference(_)
-            | ZshExpansionTarget::Word(_)
-            | ZshExpansionTarget::Empty => false,
-        },
-    }
-}
-
-fn parameter_has_positional_parameter_trim(parameter: &shuck_ast::ParameterExpansion) -> bool {
-    matches!(
-        &parameter.syntax,
-        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
-            reference,
-            operator,
-            ..
-        }) if reference_is_positional_parameter_trim(reference, operator)
-    )
 }
 
 fn reference_has_array_subscript(reference: &VarRef) -> bool {
@@ -2993,11 +2938,6 @@ fn escaped_dollar_literal_gap(text: &str) -> bool {
     }
 
     saw_escaped_dollar
-}
-
-fn is_nested_parameter_expansion(parameter: &shuck_ast::ParameterExpansion, source: &str) -> bool {
-    matches!(&parameter.syntax, ParameterExpansionSyntax::Bourne(_))
-        && contains_nested_parameter_marker(parameter.raw_body.slice(source).trim_start())
 }
 
 fn contains_nested_parameter_marker(text: &str) -> bool {
