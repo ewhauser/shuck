@@ -628,6 +628,54 @@ setup_completion() {
     }
 
     #[test]
+    fn zsh_completion_context_names_stay_reportable_for_conditional_compdef_target() {
+        let source = "\
+#!/bin/zsh
+if [[ -n $commands[grunt] ]]; then
+  function __grunt() {
+    print -r -- $verbose $missing
+  }
+fi
+compdef __grunt grunt
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$verbose", "$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_compdef_service_aliases_do_not_initialize_completion_context_names() {
+        let source = "\
+#!/bin/zsh
+function grunt() {
+  print -r -- $verbose $missing
+}
+compdef __grunt=grunt
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$verbose", "$missing"]
+        );
+    }
+
+    #[test]
     fn zsh_zstyle_array_query_defines_named_target() {
         let source = "\
 #!/bin/zsh

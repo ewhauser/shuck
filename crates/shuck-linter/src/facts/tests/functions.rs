@@ -664,6 +664,52 @@ setup_completion() {
 }
 
 #[test]
+fn ignores_zsh_compdef_for_conditionally_defined_functions() {
+    let source = "\
+#!/bin/zsh
+if [[ -n $commands[grunt] ]]; then
+  __grunt() {
+    print -r -- $verbose
+  }
+fi
+compdef __grunt grunt
+";
+
+    with_facts(source, None, |_, facts| {
+        let flagged_lines = facts
+            .commands()
+            .iter()
+            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .map(|command| command.span().start.line)
+            .collect::<Vec<_>>();
+
+        assert_eq!(flagged_lines, Vec::<usize>::new());
+    });
+}
+
+#[test]
+fn ignores_zsh_compdef_service_aliases_for_function_matching() {
+    let source = "\
+#!/bin/zsh
+grunt() {
+  print -r -- $verbose
+}
+compdef __grunt=grunt
+";
+
+    with_facts(source, None, |_, facts| {
+        let flagged_lines = facts
+            .commands()
+            .iter()
+            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .map(|command| command.span().start.line)
+            .collect::<Vec<_>>();
+
+        assert_eq!(flagged_lines, Vec::<usize>::new());
+    });
+}
+
+#[test]
 fn marks_zsh_widget_and_hook_functions_as_external_entrypoints() {
     let source = "\
 #!/bin/zsh

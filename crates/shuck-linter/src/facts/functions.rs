@@ -247,6 +247,11 @@ fn build_completion_registered_function_scopes(
         function_candidates[command.id().index()] =
             completion_registered_function_candidate(semantic, command);
     }
+    let top_level_candidate_scopes = function_candidates
+        .iter()
+        .flatten()
+        .map(|candidate| candidate.scope)
+        .collect::<FxHashSet<_>>();
     let mut scopes = FxHashSet::default();
 
     for list in lists {
@@ -281,6 +286,9 @@ fn build_completion_registered_function_scopes(
     }
 
     for scope in semantic.scopes() {
+        if !top_level_candidate_scopes.contains(&scope.id) {
+            continue;
+        }
         let ScopeKind::Function(FunctionScopeKind::Named(names)) = &scope.kind else {
             continue;
         };
@@ -405,7 +413,25 @@ fn is_top_level_zsh_entrypoint_registration(
     semantic: &SemanticModel,
     command: &CommandFact<'_>,
 ) -> bool {
-    semantic.scope(command.scope()).parent.is_none() && !command.is_nested_word_command()
+    semantic.scope(command.scope()).parent.is_none()
+        && !command.is_nested_word_command()
+        && !has_structural_parent_command(semantic, command.id())
+}
+
+fn has_structural_parent_command(semantic: &SemanticModel, id: CommandId) -> bool {
+    let mut current = semantic.syntax_backed_command_parent_id(id);
+    while let Some(parent) = current {
+        if matches!(
+            semantic.command_kind(parent),
+            shuck_semantic::CommandKind::Compound(_)
+                | shuck_semantic::CommandKind::Function
+                | shuck_semantic::CommandKind::AnonymousFunction
+        ) {
+            return true;
+        }
+        current = semantic.syntax_backed_command_parent_id(parent);
+    }
+    false
 }
 
 fn function_command_slot_count(commands: &[CommandFact<'_>]) -> usize {
@@ -420,6 +446,9 @@ fn completion_registered_function_candidate(
     semantic: &SemanticModel,
     command: &CommandFact<'_>,
 ) -> Option<CompletionRegisteredFunctionCandidate> {
+    if !is_top_level_zsh_entrypoint_registration(semantic, command) {
+        return None;
+    }
     let Command::Function(function) = command.command() else {
         return None;
     };
@@ -468,11 +497,6 @@ fn command_registers_completion_function(
                 continue;
             }
             if text == expected_name {
-                return true;
-            }
-            if let Some((_, function)) = text.split_once('=')
-                && function == expected_name
-            {
                 return true;
             }
             return false;
