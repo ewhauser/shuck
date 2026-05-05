@@ -1397,7 +1397,7 @@ fn helper_output_names_by_scope(semantic: &SemanticModel) -> FxHashMap<ScopeId, 
     let mut names_by_scope = FxHashMap::<ScopeId, Vec<Name>>::default();
 
     for binding in semantic.bindings() {
-        if !helper_binding_can_reset_parent_scope(binding) {
+        if !helper_binding_can_reset_parent_scope(semantic, binding) {
             continue;
         }
         if !matches!(semantic.scope_kind(binding.scope), ScopeKind::Function(_)) {
@@ -1418,8 +1418,11 @@ fn helper_output_names_by_scope(semantic: &SemanticModel) -> FxHashMap<ScopeId, 
     names_by_scope
 }
 
-fn helper_binding_can_reset_parent_scope(binding: &Binding) -> bool {
+fn helper_binding_can_reset_parent_scope(semantic: &SemanticModel, binding: &Binding) -> bool {
     if binding.attributes.contains(BindingAttributes::LOCAL) {
+        return false;
+    }
+    if !binding_command_is_unconditional_in_function(semantic, binding) {
         return false;
     }
 
@@ -1442,6 +1445,31 @@ fn helper_binding_can_reset_parent_scope(binding: &Binding) -> bool {
         }
         BindingKind::FunctionDefinition | BindingKind::Nameref | BindingKind::Imported => false,
     }
+}
+
+fn binding_command_is_unconditional_in_function(
+    semantic: &SemanticModel,
+    binding: &Binding,
+) -> bool {
+    let Some(mut current) = semantic.innermost_command_id_at(binding.span.start.offset) else {
+        return true;
+    };
+
+    while let Some(parent) = semantic.syntax_backed_command_parent_id(current) {
+        if matches!(semantic.command_kind(parent), CommandKind::Function) {
+            return true;
+        }
+        if reset_site_is_always_run_binary_operand(semantic, parent, current) {
+            current = parent;
+            continue;
+        }
+        if command_kind_may_skip_child(semantic.command_kind(parent)) {
+            return false;
+        }
+        current = parent;
+    }
+
+    true
 }
 
 fn zsh_set_a_outparam_positions_by_scope(
@@ -1539,6 +1567,10 @@ fn reset_site_control_ancestors_contain_later_use(
 ) -> bool {
     let mut current = command_id;
     while let Some(parent) = semantic.syntax_backed_command_parent_id(current) {
+        if reset_site_is_always_run_binary_operand(semantic, parent, current) {
+            current = parent;
+            continue;
+        }
         if command_kind_may_skip_child(semantic.command_kind(parent))
             && !span_contains(semantic.command_syntax_span(parent), later_use_span)
         {
@@ -1547,6 +1579,18 @@ fn reset_site_control_ancestors_contain_later_use(
         current = parent;
     }
     true
+}
+
+fn reset_site_is_always_run_binary_operand(
+    semantic: &SemanticModel,
+    parent: CommandId,
+    child: CommandId,
+) -> bool {
+    if !matches!(semantic.command_kind(parent), CommandKind::Binary) {
+        return false;
+    }
+
+    semantic.command_syntax_span(parent).start == semantic.command_syntax_span(child).start
 }
 
 fn command_kind_may_skip_child(kind: CommandKind) -> bool {
