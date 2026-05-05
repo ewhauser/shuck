@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.0.34](https://github.com/ewhauser/shuck/compare/v0.0.33...v0.0.34) (2026-05-05)
+
+
+### Features
+
+* **parser:** support zsh brace_ccl expansions ([#834](https://github.com/ewhauser/shuck/issues/834)) ([96aa400](https://github.com/ewhauser/shuck/commit/96aa40001e2dec2a3be8361cff55dbb104870885))
+
+
+### Bug Fixes
+
+* **linter:** account for zsh array fanout in word facts ([#837](https://github.com/ewhauser/shuck/issues/837)) ([e14d30c](https://github.com/ewhauser/shuck/commit/e14d30c9308331705c343bb3d0a44a3adf541103))
+* **linter:** account for zsh file expansion order ([#839](https://github.com/ewhauser/shuck/issues/839)) ([9361305](https://github.com/ewhauser/shuck/commit/936130556dbce3e1fca9066c46b1813d8e91ffca))
+* **linter:** account for zsh glob_subst in loop facts ([#836](https://github.com/ewhauser/shuck/issues/836)) ([5689e88](https://github.com/ewhauser/shuck/commit/5689e889e8f5050c22ba17472ebf165a7498d79d))
+* **linter:** allow zsh brace-expanded declaration assignments ([#861](https://github.com/ewhauser/shuck/issues/861)) ([dbd3770](https://github.com/ewhauser/shuck/commit/dbd377053c4f00472139e8aca8c2f51c0247b123))
+* **linter:** centralize active glob behavior in facts ([#844](https://github.com/ewhauser/shuck/issues/844)) ([e971618](https://github.com/ewhauser/shuck/commit/e9716181e7475c175f48e6d9b2ae62c578973f4a))
+* **linter:** handle zsh brace_ccl in facts ([#842](https://github.com/ewhauser/shuck/issues/842)) ([f42db98](https://github.com/ewhauser/shuck/commit/f42db985c17225a1cd8e648c4b9bfc3a9b1bcceb))
+* **linter:** handle zsh option-map commas ([#864](https://github.com/ewhauser/shuck/issues/864)) ([3334e31](https://github.com/ewhauser/shuck/commit/3334e31f210f682f63dec97429ca11b0df7511d0))
+* **linter:** honor zsh split state in split facts ([#835](https://github.com/ewhauser/shuck/issues/835)) ([54580f5](https://github.com/ewhauser/shuck/commit/54580f5b6d0a8a0578e8eb9fdef9ac0c6f86663d))
+* **linter:** model zsh function arity entrypoints ([#860](https://github.com/ewhauser/shuck/issues/860)) ([a998398](https://github.com/ewhauser/shuck/commit/a9983980d44dc348ae2ca4f66ecca7fb635c4d27))
+* **linter:** model zsh octal arithmetic literals ([#845](https://github.com/ewhauser/shuck/issues/845)) ([60c0d84](https://github.com/ewhauser/shuck/commit/60c0d8453439b1acc25a2a8788b0c388c303ae88))
+* **linter:** partition indexed array facts by behavior ([#841](https://github.com/ewhauser/shuck/issues/841)) ([aa73d23](https://github.com/ewhauser/shuck/commit/aa73d23aad513e69fe440798d4bb30a811c98bcb))
+* **linter:** respect zsh equals in assignment facts ([#838](https://github.com/ewhauser/shuck/issues/838)) ([fb1673e](https://github.com/ewhauser/shuck/commit/fb1673eb0cd9b868b8467084423c6238ee539dd4))
+* **linter:** suppress zsh delayed expansion C005 ([#863](https://github.com/ewhauser/shuck/issues/863)) ([b75fd7b](https://github.com/ewhauser/shuck/commit/b75fd7bc80f53957631405feb13b124adfba65b7))
+* **linter:** treat zsh config namespaces as consumed ([#862](https://github.com/ewhauser/shuck/issues/862)) ([f91429c](https://github.com/ewhauser/shuck/commit/f91429cd80ac0b1105f0c83f2a20632555adf816))
+* **parser:** handle zsh numeric assignments ([#851](https://github.com/ewhauser/shuck/issues/851)) ([7c23270](https://github.com/ewhauser/shuck/commit/7c23270c4ace68d7bf57068b8b9023fc8dc0fa9e))
+* **parser:** support upstream zsh function and glob forms ([#831](https://github.com/ewhauser/shuck/issues/831)) ([0be09e7](https://github.com/ewhauser/shuck/commit/0be09e710dacd43afabe42bdc5f8073d47451864))
+* **semantic:** cache zsh function option summaries ([#840](https://github.com/ewhauser/shuck/issues/840)) ([cf6cb80](https://github.com/ewhauser/shuck/commit/cf6cb80653f8ae578a7dc79927e0708da5374792))
+* **semantic:** handle zsh associative runtime keys ([#849](https://github.com/ewhauser/shuck/issues/849)) ([1394489](https://github.com/ewhauser/shuck/commit/13944898e0a96e71cbf4b140dcb33bc2d87167cc))
+* **semantic:** handle zsh regex match state ([#853](https://github.com/ewhauser/shuck/issues/853)) ([cd484e4](https://github.com/ewhauser/shuck/commit/cd484e4196f563874efd1652dd2d82def8d71b09))
+* **semantic:** ignore zsh existence probe reads ([#846](https://github.com/ewhauser/shuck/issues/846)) ([7ba3ce8](https://github.com/ewhauser/shuck/commit/7ba3ce87be53cc1fc2eb5f58a1b7db05870d9d63))
+* **semantic:** model zparseopts targets ([#859](https://github.com/ewhauser/shuck/issues/859)) ([0be9c62](https://github.com/ewhauser/shuck/commit/0be9c622d49ca6cbfc434f50c8a9ce7068af09d0))
+* **semantic:** model zsh always cleanup reachability ([#852](https://github.com/ewhauser/shuck/issues/852)) ([4c57526](https://github.com/ewhauser/shuck/commit/4c5752637744587b8a197d54726d887fdf0a9332))
+* **semantic:** model zsh by-name helper operands ([#858](https://github.com/ewhauser/shuck/issues/858)) ([c5b896e](https://github.com/ewhauser/shuck/commit/c5b896e2ffbaf6d41d86ab3d8b855a18ef2ce2fa))
+* **semantic:** model zsh pipeline tail scope ([#868](https://github.com/ewhauser/shuck/issues/868)) ([61cca0f](https://github.com/ewhauser/shuck/commit/61cca0f7050f0371373f45e18b80fedd074d23c6))
+* **zsh:** honor explicit pattern expansion ([#867](https://github.com/ewhauser/shuck/issues/867)) ([c953f34](https://github.com/ewhauser/shuck/commit/c953f34546e4dc06d29e9103cf517450b589de98))
+* **zsh:** recognize integer declarations ([#857](https://github.com/ewhauser/shuck/issues/857)) ([28957e6](https://github.com/ewhauser/shuck/commit/28957e685b5c33a9fd92a7e3d76ce30c35a54bf9))
+
+
+### Performance
+
+* **linter:** collapse parameter expansion classification into one walk ([#854](https://github.com/ewhauser/shuck/issues/854)) ([ff17a59](https://github.com/ewhauser/shuck/commit/ff17a593044ee72b8f20f71ef9f0ba8ca4d8d898))
+* **linter:** hoist array-like name lookup out of word fact loop ([#847](https://github.com/ewhauser/shuck/issues/847)) ([4955e78](https://github.com/ewhauser/shuck/commit/4955e781ebc29e76983bd0b50a388aea3aade2ef))
+* **linter:** reuse cached SemanticAnalysis in word fact array fanout ([#848](https://github.com/ewhauser/shuck/issues/848)) ([15b1932](https://github.com/ewhauser/shuck/commit/15b19323575b0e69b856769d2a9b96b2c2176a5e))
+* **parser:** box fat WordPart variant payloads ([#869](https://github.com/ewhauser/shuck/issues/869)) ([c865d5a](https://github.com/ewhauser/shuck/commit/c865d5a19f68a81d793b989b369cd1a484e97a4e))
+* **parser:** inline ZshOptionState::merge field assignments ([#856](https://github.com/ewhauser/shuck/issues/856)) ([de32d34](https://github.com/ewhauser/shuck/commit/de32d3424978687deed21a02781947c19e825ef8))
+
+
+### Refactor
+
+* **parser:** make ZshOptionState Copy ([#865](https://github.com/ewhauser/shuck/issues/865)) ([dc5cfce](https://github.com/ewhauser/shuck/commit/dc5cfce9be487db4ef82e9fe90773333c5f3ca44))
+
 ## [0.0.33](https://github.com/ewhauser/shuck/compare/v0.0.32...v0.0.33) (2026-05-04)
 
 
