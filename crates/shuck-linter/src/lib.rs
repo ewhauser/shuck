@@ -66,14 +66,14 @@ pub use facts::{
     CommandFactRef, CommandFacts, ConditionalBareWordFact, ConditionalBinaryFact, ConditionalFact,
     ConditionalMixedLogicalOperatorFact, ConditionalNodeFact, ConditionalOperandFact,
     ConditionalOperatorFamily, ConditionalPortabilityFacts, ConditionalUnaryFact, ForHeaderFact,
-    FunctionCallArityFacts, FunctionHeaderFact, LegacyArithmeticFragmentFact, ListFact,
-    ListOperatorFact, LoopHeaderWordFact, NativeZshScalarArrayReference, PipelineFact,
-    PipelineOperatorFact, PipelineSegmentFact, PlainUnindexedArrayReferenceFact,
-    PositionalParameterFragmentFact, RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis,
-    RedirectTargetKind, SelectHeaderFact, SelectorRequiredArrayReference, SimpleTestFact,
-    SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact,
-    StatementFact, SubstitutionFact, SubstitutionHostKind, SubstitutionOutputIntent,
-    SudoFamilyInvoker,
+    FunctionCallArityFacts, FunctionHeaderFact, IndexedArrayReferenceFragment,
+    IndexedArrayReferenceFragmentFact, LegacyArithmeticFragmentFact, ListFact, ListOperatorFact,
+    LoopHeaderWordFact, NativeZshScalarArrayReference, PipelineFact, PipelineOperatorFact,
+    PipelineSegmentFact, PlainUnindexedArrayReferenceFact, PositionalParameterFragmentFact,
+    RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis, RedirectTargetKind,
+    SelectHeaderFact, SelectorRequiredArrayReference, SimpleTestFact, SimpleTestOperatorFamily,
+    SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact, StatementFact, SubstitutionFact,
+    SubstitutionHostKind, SubstitutionOutputIntent, SudoFamilyInvoker,
 };
 /// Fact collection types and stable identifiers into those collections.
 pub use facts::{

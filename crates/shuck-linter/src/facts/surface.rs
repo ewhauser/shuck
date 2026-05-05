@@ -218,31 +218,58 @@ impl IndirectExpansionFragmentFact {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct IndexedArrayReferenceFragmentFact {
-    span: Span,
-    plain: bool,
-    subscript_index_behavior: SubscriptIndexBehavior,
+pub enum IndexedArrayReferenceFragmentFact {
+    OneBased(IndexedArrayReferenceFragment),
+    ZeroBased(IndexedArrayReferenceFragment),
+    OneBasedWithZeroAlias(IndexedArrayReferenceFragment),
+    Ambiguous(IndexedArrayReferenceFragment),
 }
 
 impl IndexedArrayReferenceFragmentFact {
+    pub(super) fn new(span: Span, plain: bool) -> Self {
+        Self::Ambiguous(IndexedArrayReferenceFragment { span, plain })
+    }
+
+    pub(super) fn with_plain(mut self, plain: bool) -> Self {
+        match &mut self {
+            Self::OneBased(fragment)
+            | Self::ZeroBased(fragment)
+            | Self::OneBasedWithZeroAlias(fragment)
+            | Self::Ambiguous(fragment) => fragment.plain |= plain,
+        }
+        self
+    }
+
+    pub(super) fn with_subscript_index_behavior(self, behavior: SubscriptIndexBehavior) -> Self {
+        let fragment = match self {
+            Self::OneBased(fragment)
+            | Self::ZeroBased(fragment)
+            | Self::OneBasedWithZeroAlias(fragment)
+            | Self::Ambiguous(fragment) => fragment,
+        };
+
+        match behavior {
+            SubscriptIndexBehavior::OneBased => Self::OneBased(fragment),
+            SubscriptIndexBehavior::ZeroBased => Self::ZeroBased(fragment),
+            SubscriptIndexBehavior::OneBasedWithZeroAlias => Self::OneBasedWithZeroAlias(fragment),
+            SubscriptIndexBehavior::Ambiguous => Self::Ambiguous(fragment),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct IndexedArrayReferenceFragment {
+    span: Span,
+    plain: bool,
+}
+
+impl IndexedArrayReferenceFragment {
     pub fn span(&self) -> Span {
         self.span
     }
 
     pub fn is_plain(&self) -> bool {
         self.plain
-    }
-
-    pub fn subscript_index_behavior(&self) -> SubscriptIndexBehavior {
-        self.subscript_index_behavior
-    }
-
-    pub(super) fn with_subscript_index_behavior(
-        mut self,
-        behavior: SubscriptIndexBehavior,
-    ) -> Self {
-        self.subscript_index_behavior = behavior;
-        self
     }
 }
 
@@ -563,18 +590,19 @@ impl<'a> SurfaceFragmentSink<'a> {
             .facts
             .indexed_array_references
             .iter_mut()
-            .find(|fragment| fragment.span() == span)
+            .find(|fragment| match fragment {
+                IndexedArrayReferenceFragmentFact::OneBased(fragment)
+                | IndexedArrayReferenceFragmentFact::ZeroBased(fragment)
+                | IndexedArrayReferenceFragmentFact::OneBasedWithZeroAlias(fragment)
+                | IndexedArrayReferenceFragmentFact::Ambiguous(fragment) => fragment.span() == span,
+            })
         {
-            fragment.plain |= plain;
+            *fragment = fragment.with_plain(plain);
             return;
         }
         self.facts
             .indexed_array_references
-            .push(IndexedArrayReferenceFragmentFact {
-                span,
-                plain,
-                subscript_index_behavior: SubscriptIndexBehavior::Ambiguous,
-            });
+            .push(IndexedArrayReferenceFragmentFact::new(span, plain));
     }
 
     fn record_plain_unindexed_reference(&mut self, span: Span) {

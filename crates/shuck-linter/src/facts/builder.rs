@@ -674,10 +674,13 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 .copied(),
         );
         for fragment in &mut indexed_array_references {
-            let behavior = self
-                .semantic
-                .shell_behavior_at(fragment.span().start.offset)
-                .subscript_indexing();
+            let span = match fragment {
+                IndexedArrayReferenceFragmentFact::OneBased(fragment)
+                | IndexedArrayReferenceFragmentFact::ZeroBased(fragment)
+                | IndexedArrayReferenceFragmentFact::OneBasedWithZeroAlias(fragment)
+                | IndexedArrayReferenceFragmentFact::Ambiguous(fragment) => fragment.span(),
+            };
+            let behavior = self.semantic.shell_behavior_at(span.start.offset).subscript_indexing();
             *fragment = (*fragment).with_subscript_index_behavior(behavior);
         }
         let nonpersistent_assignment_spans = build_nonpersistent_assignment_spans(
