@@ -2464,6 +2464,48 @@ fn word_parts_contain_zsh_force_glob_span(parts: &[WordPartNode], span: Span) ->
     })
 }
 
+/// Returns whether `span` points at a zsh `${+name}` presence-test expansion.
+pub fn word_span_is_zsh_presence_test(word: &Word, span: Span) -> bool {
+    word_parts_contain_zsh_presence_test_span(&word.parts, span)
+}
+
+fn word_parts_contain_zsh_presence_test_span(parts: &[WordPartNode], span: Span) -> bool {
+    parts.iter().any(|part| match &part.kind {
+        WordPart::Parameter(parameter) => {
+            part.span == span && parameter_expansion_is_zsh_presence_test(parameter)
+        }
+        WordPart::DoubleQuoted { parts, .. } => {
+            word_parts_contain_zsh_presence_test_span(parts, span)
+        }
+        _ => false,
+    })
+}
+
+fn parameter_expansion_is_zsh_presence_test(parameter: &ParameterExpansion) -> bool {
+    matches!(
+        &parameter.syntax,
+        ParameterExpansionSyntax::Zsh(syntax)
+            if syntax.length_prefix.is_none()
+                && syntax.modifiers.is_empty()
+                && syntax.operation.is_none()
+                && matches!(
+                    &syntax.target,
+                    ZshExpansionTarget::Reference(reference)
+                        if reference
+                            .name
+                            .as_str()
+                            .strip_prefix('+')
+                            .is_some_and(is_zsh_presence_target_name)
+                )
+    )
+}
+
+fn is_zsh_presence_target_name(name: &str) -> bool {
+    is_shell_variable_name(name)
+        || name.bytes().all(|byte| byte.is_ascii_digit())
+        || matches!(name, "#" | "$" | "!" | "*" | "@" | "?" | "-")
+}
+
 /// Returns whether the word captures only the previous command status.
 pub fn word_is_standalone_status_capture(word: &Word) -> bool {
     matches!(word.parts.as_slice(), [part] if is_standalone_status_capture_part(&part.kind))

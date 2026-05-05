@@ -4991,6 +4991,12 @@ impl<'a> Parser<'a> {
         matches!(name, "#" | "$" | "!" | "*" | "@" | "?" | "-") || name == "0"
     }
 
+    fn is_plain_parameter_access_name(name: &str) -> bool {
+        Self::is_valid_identifier(name)
+            || name.bytes().all(|byte| byte.is_ascii_digit())
+            || Self::is_plain_special_parameter_name(name)
+    }
+
     fn looks_like_plain_parameter_access(text: &str) -> bool {
         let trimmed = text.trim();
         if trimmed.is_empty() {
@@ -5006,12 +5012,10 @@ impl<'a> Parser<'a> {
             trimmed
         };
 
-        Self::is_valid_identifier(name)
+        Self::is_plain_parameter_access_name(name)
             || name
                 .strip_prefix('+')
-                .is_some_and(Self::is_valid_identifier)
-            || name.bytes().all(|byte| byte.is_ascii_digit())
-            || Self::is_plain_special_parameter_name(name)
+                .is_some_and(Self::is_plain_parameter_access_name)
     }
 
     fn parse_nested_parameter_target(&mut self, text: &str, base: Position) -> ZshExpansionTarget {
