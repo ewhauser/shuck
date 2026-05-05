@@ -450,6 +450,12 @@ fn zle_registered_function(command: &CommandFact<'_>, source: &str) -> Option<Bo
 
 fn add_zsh_hook_registered_function(command: &CommandFact<'_>, source: &str) -> Option<Box<str>> {
     let args = static_command_args(command, source)?;
+    if args
+        .iter()
+        .any(|arg| is_add_zsh_hook_removal_option(arg.as_str()))
+    {
+        return None;
+    }
     let operands = args
         .iter()
         .filter(|arg| !arg.starts_with('-'))
@@ -458,6 +464,10 @@ fn add_zsh_hook_registered_function(command: &CommandFact<'_>, source: &str) -> 
         [_, function, ..] => Some(function.as_str().into()),
         _ => None,
     }
+}
+
+fn is_add_zsh_hook_removal_option(arg: &str) -> bool {
+    arg.starts_with('-') && arg != "--" && arg.chars().skip(1).any(|c| matches!(c, 'd' | 'D'))
 }
 
 fn static_command_args(command: &CommandFact<'_>, source: &str) -> Option<Vec<String>> {
@@ -471,7 +481,13 @@ fn static_command_args(command: &CommandFact<'_>, source: &str) -> Option<Vec<St
 fn is_zsh_special_hook_name(name: &str) -> bool {
     matches!(
         name,
-        "precmd" | "preexec" | "chpwd" | "periodic" | "zshaddhistory" | "zshexit"
+        "precmd"
+            | "preexec"
+            | "chpwd"
+            | "periodic"
+            | "zshaddhistory"
+            | "zsh_directory_name"
+            | "zshexit"
     )
 }
 

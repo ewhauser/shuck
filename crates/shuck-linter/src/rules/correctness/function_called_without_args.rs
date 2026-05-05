@@ -364,6 +364,22 @@ precmd
     }
 
     #[test]
+    fn ignores_zsh_directory_name_hook_function() {
+        let source = "\
+#!/bin/zsh
+zsh_directory_name() { print -r -- \"$1\"; }
+zsh_directory_name
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn reports_zsh_functions_called_without_required_arguments() {
         let source = "\
 #!/bin/zsh
@@ -380,6 +396,34 @@ greet
         assert_eq!(
             diagnostics[0].span.slice(source),
             "greet() { print -r -- \"$1\"; }"
+        );
+    }
+
+    #[test]
+    fn reports_zsh_functions_removed_from_hooks() {
+        let source = "\
+#!/bin/zsh
+removed_precmd() { print -r -- \"$1\"; }
+removed_chpwd() { print -r -- \"$1\"; }
+add-zsh-hook -d precmd removed_precmd
+add-zsh-hook -UD chpwd removed_chpwd
+removed_precmd
+removed_chpwd
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "removed_precmd() { print -r -- \"$1\"; }"
+        );
+        assert_eq!(
+            diagnostics[1].span.slice(source),
+            "removed_chpwd() { print -r -- \"$1\"; }"
         );
     }
 

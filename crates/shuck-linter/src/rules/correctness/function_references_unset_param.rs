@@ -231,6 +231,22 @@ preexec
     }
 
     #[test]
+    fn ignores_zsh_directory_name_call_sites() {
+        let source = "\
+#!/bin/zsh
+zsh_directory_name() { print -r -- \"$1\"; }
+zsh_directory_name
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn reports_zsh_call_sites_missing_required_arguments() {
         let source = "\
 #!/bin/zsh
@@ -246,6 +262,30 @@ greet
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "greet");
         assert_eq!(diagnostics[0].span.start.line, 3);
+    }
+
+    #[test]
+    fn reports_zsh_call_sites_removed_from_hooks() {
+        let source = "\
+#!/bin/zsh
+removed_precmd() { print -r -- \"$1\"; }
+removed_chpwd() { print -r -- \"$1\"; }
+add-zsh-hook -d precmd removed_precmd
+add-zsh-hook -UD chpwd removed_chpwd
+removed_precmd
+removed_chpwd
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "removed_precmd");
+        assert_eq!(diagnostics[0].span.start.line, 6);
+        assert_eq!(diagnostics[1].span.slice(source), "removed_chpwd");
+        assert_eq!(diagnostics[1].span.start.line, 7);
     }
 
     #[test]
