@@ -90,6 +90,9 @@ opts=(
 #!/bin/zsh
 parts=(alpha,beta)
 values=(opt_-q,--quiet)
+typeset -A opts
+unset opts
+opts=(opt_-r,--reset)
 ";
         let diagnostics = test_snippet(
             source,
@@ -101,7 +104,7 @@ values=(opt_-q,--quiet)
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["(alpha,beta)", "(opt_-q,--quiet)"]
+            vec!["(alpha,beta)", "(opt_-q,--quiet)", "(opt_-r,--reset)"]
         );
     }
 }
