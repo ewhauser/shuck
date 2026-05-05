@@ -188,4 +188,39 @@ mod architecture_tests {
             violations.join("\n"),
         );
     }
+
+    #[test]
+    fn brace_and_bracket_rules_avoid_raw_zsh_option_state_queries() {
+        let rule_paths = [
+            "src/rules/correctness/suspicious_bracket_glob.rs",
+            "src/rules/portability/brace_expansion.rs",
+        ];
+        let forbidden_tokens = [
+            "zsh_options_at",
+            "zsh_options()",
+            "ZshOptionState",
+            "OptionValue",
+            "shell_behavior_at",
+            "BraceCharacterClassBehavior",
+        ];
+        let mut violations = Vec::new();
+        for path in rule_paths {
+            let rule_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
+            let source = fs::read_to_string(&rule_path)
+                .unwrap_or_else(|error| panic!("failed to read {}: {error}", rule_path.display()));
+            violations.extend(
+                forbidden_tokens
+                    .iter()
+                    .copied()
+                    .filter(|token| source.contains(token))
+                    .map(|token| format!("{path}: {token}")),
+            );
+        }
+
+        assert!(
+            violations.is_empty(),
+            "brace/glob rules should consume option-aware facts instead of raw zsh option state:\n{}",
+            violations.join("\n"),
+        );
+    }
 }

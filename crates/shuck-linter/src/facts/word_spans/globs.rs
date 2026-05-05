@@ -40,6 +40,28 @@ pub fn word_suspicious_bracket_glob_spans(word: &Word, source: &str) -> Vec<Span
         .collect()
 }
 
+pub fn word_suspicious_brace_character_class_spans(word: &Word, source: &str) -> Vec<Span> {
+    let mut spans = word
+        .brace_syntax()
+        .iter()
+        .copied()
+        .filter(|brace| {
+            matches!(
+                brace.kind,
+                shuck_ast::BraceSyntaxKind::Expansion(
+                    shuck_ast::BraceExpansionKind::CharacterClass
+                ) | shuck_ast::BraceSyntaxKind::Literal
+            ) && matches!(brace.quote_context, shuck_ast::BraceQuoteContext::Unquoted)
+                && suspicious_brace_character_class_text(brace.span.slice(source))
+        })
+        .map(|brace| brace.span)
+        .collect::<Vec<_>>();
+    collect_literal_suspicious_brace_character_class_spans(word, source, &mut spans);
+    spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+    spans.dedup();
+    spans
+}
+
 pub fn word_unbraced_variable_before_bracket_spans(word: &Word, source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_unbraced_variable_before_bracket_spans(&word.parts, source, &mut spans);
@@ -426,6 +448,58 @@ pub(crate) fn suspicious_bracket_glob_text(text: &str) -> bool {
     }
 
     false
+}
+
+fn suspicious_brace_character_class_text(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    if bytes.len() < 3 || bytes[0] != b'{' || *bytes.last().unwrap_or(&b'\0') != b'}' {
+        return false;
+    }
+
+    let mut bracket_text = String::with_capacity(text.len());
+    bracket_text.push('[');
+    bracket_text.push_str(&text[1..text.len() - 1]);
+    bracket_text.push(']');
+    suspicious_bracket_glob_text(&bracket_text)
+}
+
+fn collect_literal_suspicious_brace_character_class_spans(
+    word: &Word,
+    source: &str,
+    out: &mut Vec<Span>,
+) {
+    for part in &word.parts {
+        if !matches!(part.kind, WordPart::Literal(_)) {
+            continue;
+        }
+
+        let text = part.span.slice(source);
+        let bytes = text.as_bytes();
+        let mut index = 0usize;
+        while index < bytes.len() {
+            if bytes[index] != b'{' || byte_is_backslash_escaped(bytes, index) {
+                index += 1;
+                continue;
+            }
+
+            let mut close = index + 1;
+            while close < bytes.len() {
+                if bytes[close] == b'}' && !byte_is_backslash_escaped(bytes, close) {
+                    let span = span_within_literal(part.span, source, index, close + 1);
+                    if suspicious_brace_character_class_text(span.slice(source)) {
+                        out.push(span);
+                    }
+                    index = close + 1;
+                    break;
+                }
+                close += 1;
+            }
+
+            if close >= bytes.len() {
+                index += 1;
+            }
+        }
+    }
 }
 
 pub(crate) fn bracket_glob_is_named_class_without_outer_brackets(bytes: &[u8]) -> bool {

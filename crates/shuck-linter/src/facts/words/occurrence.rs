@@ -530,7 +530,20 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 
     pub fn suspicious_bracket_glob_spans(self, source: &str) -> Vec<Span> {
-        word_spans::word_suspicious_bracket_glob_spans(self.word(), source)
+        let mut spans = word_spans::word_suspicious_bracket_glob_spans(self.word(), source);
+        if self
+            .facts
+            .semantic
+            .shell_behavior_at(self.span().start.offset)
+            .brace_character_classes()
+            .can_expand()
+        {
+            spans.extend(word_spans::word_suspicious_brace_character_class_spans(
+                self.word(),
+                source,
+            ));
+        }
+        spans
     }
 
     pub fn standalone_literal_backslash_span(self, source: &str) -> Option<Span> {
@@ -599,9 +612,29 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
             .brace_syntax()
             .iter()
             .copied()
-            .filter(|brace| brace.expands())
+            .filter(|brace| self.brace_syntax_expands(*brace))
             .map(|brace| brace.span)
             .collect()
+    }
+
+    fn brace_syntax_expands(self, brace: shuck_ast::BraceSyntax) -> bool {
+        if !matches!(brace.quote_context, BraceQuoteContext::Unquoted) {
+            return false;
+        }
+
+        match brace.expansion_kind() {
+            Some(
+                shuck_ast::BraceExpansionKind::CommaList
+                | shuck_ast::BraceExpansionKind::Sequence,
+            ) => true,
+            Some(shuck_ast::BraceExpansionKind::CharacterClass) => self
+                .facts
+                .semantic
+                .shell_behavior_at(brace.span.start.offset)
+                .brace_character_classes()
+                .can_expand(),
+            None => false,
+        }
     }
 }
 

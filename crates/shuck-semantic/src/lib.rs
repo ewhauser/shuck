@@ -63,8 +63,9 @@ pub use function_call_reachability::{
 };
 /// Option-sensitive globbing and expansion behavior queries.
 pub use glob::{
-    FieldSplittingBehavior, FileExpansionOrderBehavior, GlobDotBehavior, GlobFailureBehavior,
-    GlobPatternBehavior, PathnameExpansionBehavior, PatternOperatorBehavior,
+    BraceCharacterClassBehavior, FieldSplittingBehavior, FileExpansionOrderBehavior,
+    GlobDotBehavior, GlobFailureBehavior, GlobPatternBehavior, PathnameExpansionBehavior,
+    PatternOperatorBehavior,
 };
 /// Nonpersistent assignment effects, such as assignments made in subshells and read later outside.
 pub use nonpersistent::{

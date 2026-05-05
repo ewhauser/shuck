@@ -357,6 +357,23 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
         self.fact.body_name_word()
     }
 
+    pub fn suspicious_body_name_bracket_glob_spans(self, source: &str) -> Vec<Span> {
+        let Some(word) = self.body_name_word() else {
+            return Vec::new();
+        };
+
+        let mut spans = word_spans::word_suspicious_bracket_glob_spans(word, source);
+        if self
+            .zsh_options()
+            .is_some_and(|options| !options.brace_ccl.is_definitely_off())
+        {
+            spans.extend(word_spans::word_suspicious_brace_character_class_spans(
+                word, source,
+            ));
+        }
+        spans
+    }
+
     pub fn body_word_span(self) -> Option<Span> {
         self.fact.body_word_span()
     }
