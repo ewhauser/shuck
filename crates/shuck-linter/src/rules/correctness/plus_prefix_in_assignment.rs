@@ -116,4 +116,39 @@ rvm_info="
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
+
+    #[test]
+    fn ignores_zsh_declaration_brace_expanded_assignment_targets() {
+        let source = "\
+#!/bin/zsh
+typeset -g POWERLEVEL9K_{LEFT,RIGHT}_{LEFT,RIGHT}_WHITESPACE=
+typeset -g POWERLEVEL9K_PROMPT_CHAR_{OK,ERROR}_VIINS_CONTENT_EXPANSION='>'
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PlusPrefixInAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn still_reports_non_zsh_declaration_brace_assignment_targets() {
+        let source = "\
+#!/bin/bash
+declare POWERLEVEL9K_{LEFT,RIGHT}_WHITESPACE=
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PlusPrefixInAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["POWERLEVEL9K_{LEFT,RIGHT}_WHITESPACE="]
+        );
+    }
 }
