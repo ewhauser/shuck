@@ -240,7 +240,7 @@ fn bare_command_name_assignment_span<'a>(
     }
 
     let text = occurrence_static_text(word_nodes, fact, source)?;
-    if !is_bare_command_name_assignment_value(&text) {
+    if !is_bare_command_name_assignment_value(&text, command.zsh_options()) {
         return None;
     }
 
@@ -295,7 +295,8 @@ fn assignment_target_span(assignment: &Assignment) -> Span {
     )
 }
 
-fn is_bare_command_name_assignment_value(text: &str) -> bool {
+fn is_bare_command_name_assignment_value(text: &str, zsh_options: Option<&ZshOptionState>) -> bool {
+    let text = zsh_literal_assignment_value_for_command_name_check(text, zsh_options);
     matches!(
         text,
         "admin"
@@ -402,6 +403,22 @@ fn is_bare_command_name_assignment_value(text: &str) -> bool {
             | "xargs"
             | "zcat"
     )
+}
+
+fn zsh_literal_assignment_value_for_command_name_check<'a>(
+    text: &'a str,
+    zsh_options: Option<&ZshOptionState>,
+) -> &'a str {
+    let Some(candidate) = text.strip_prefix('=') else {
+        return text;
+    };
+    let Some(options) = zsh_options else {
+        return text;
+    };
+    if !options.equals.is_definitely_off() {
+        return text;
+    }
+    candidate
 }
 
 #[derive(Debug, Default)]

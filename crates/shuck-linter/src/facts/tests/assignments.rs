@@ -302,6 +302,40 @@ name+=still_ok
 }
 
 #[test]
+fn bare_command_name_assignments_respect_zsh_equals_option() {
+    let source = "\
+#!/bin/zsh
+unsetopt equals
+tool==grep run
+setopt magic_equal_subst
+magic_literal==grep run
+setopt equals
+path==grep run
+if cond; then
+  unsetopt equals
+fi
+maybe==grep run
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            assert_eq!(
+                facts
+                    .bare_command_name_assignment_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["tool==grep run", "magic_literal==grep run"]
+            );
+        },
+    );
+}
+
+#[test]
 fn ignores_assignment_like_text_after_literal_arrow_prefix() {
     let source = r#"#!/bin/bash
 rvm_info="
