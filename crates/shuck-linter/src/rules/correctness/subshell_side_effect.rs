@@ -677,6 +677,24 @@ print -r -- $REPLY
     }
 
     #[test]
+    fn ignores_zsh_later_reads_after_pipe_ampersand_tail_helper_reset() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+print -r -- input |& helper
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_zsh_later_reads_after_middle_pipeline_helper_reset() {
         let source = "\
 #!/bin/zsh
@@ -832,6 +850,33 @@ helper() {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_after_function_local_helper_call_before_definition() {
+        let source = "\
+#!/bin/zsh
+demo() {
+  (
+    for REPLY in a; do :; done
+  )
+  helper
+  print -r -- $REPLY
+  helper() {
+    REPLY=value
+  }
+}
+demo
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$REPLY"]
+        );
     }
 
     #[test]

@@ -1398,7 +1398,7 @@ fn reset_flow_span_for_command(
         .filter(|span| {
             let before_command = &source[span.start.offset..command_span.start.offset];
             let before_command = before_command.trim_end();
-            before_command.ends_with('|') && !before_command.ends_with("||")
+            text_ends_with_pipeline_operator(before_command)
         })
         .min_by_key(|span| span.end.offset - span.start.offset)
         .unwrap_or(command_span);
@@ -1612,17 +1612,45 @@ fn resolved_function_scope_for_command(
             command_is_inside_function_body(semantic, command.scope()).then(|| {
                 semantic_analysis
                     .function_call_arity_sites(&name)
-                    .find_map(|(site, binding)| (site.name_span == name_span).then_some(binding))
+                    .find_map(|(site, binding)| {
+                        (site.name_span == name_span
+                            && fallback_function_binding_is_callable_from_function_body(
+                                semantic, command, name_span, binding,
+                            ))
+                        .then_some(binding)
+                    })
             })?
         })?;
     let scope = semantic_analysis.function_scope_for_binding(binding)?;
     Some((scope, name_span))
 }
 
+fn fallback_function_binding_is_callable_from_function_body(
+    semantic: &SemanticModel,
+    command: &CommandFact<'_>,
+    call_name_span: Span,
+    binding: BindingId,
+) -> bool {
+    let binding = semantic.binding(binding);
+    if binding.span.start.offset <= call_name_span.start.offset {
+        return true;
+    }
+
+    enclosing_function_scope(semantic, command.scope()) != enclosing_function_scope(semantic, binding.scope)
+}
+
 fn command_is_inside_function_body(semantic: &SemanticModel, scope: ScopeId) -> bool {
+    enclosing_function_scope(semantic, scope).is_some()
+}
+
+fn enclosing_function_scope(semantic: &SemanticModel, scope: ScopeId) -> Option<ScopeId> {
+    if matches!(semantic.scope_kind(scope), ScopeKind::Function(_)) {
+        return Some(scope);
+    }
+
     semantic
         .ancestor_scopes(scope)
-        .any(|scope| matches!(semantic.scope_kind(scope), ScopeKind::Function(_)))
+        .find(|scope| matches!(semantic.scope_kind(*scope), ScopeKind::Function(_)))
 }
 
 fn command_runs_in_persistent_shell_context(
@@ -1696,19 +1724,23 @@ fn binary_child_is_pipe_tail_operand(
 
     let before_child = &source[parent_span.start.offset..child_span.start.offset];
     let before_child = before_child.trim_end();
-    before_child.ends_with('|') && !before_child.ends_with("||")
+    text_ends_with_pipeline_operator(before_child)
 }
 
 fn command_is_textual_pipeline_tail_operand(command_span: Span, source: &str) -> bool {
     let before_command = &source[..command_span.start.offset];
     let before_command = before_command.trim_end();
-    if !before_command.ends_with('|') || before_command.ends_with("||") {
+    if !text_ends_with_pipeline_operator(before_command) {
         return false;
     }
 
     let after_command = &source[command_span.end.offset..];
     let after_command = after_command.trim_start();
     !after_command.starts_with('|')
+}
+
+fn text_ends_with_pipeline_operator(text: &str) -> bool {
+    text.ends_with("|&") || (text.ends_with('|') && !text.ends_with("||"))
 }
 
 fn reset_site_control_ancestors_contain_later_use(
