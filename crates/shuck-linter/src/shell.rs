@@ -308,9 +308,37 @@ fn normalize_heredoc_delimiter(delimiter: &str) -> String {
 }
 
 fn heredoc_delimiter_token(rest: &str) -> Option<&str> {
-    let end = rest
-        .find(|ch: char| ch.is_whitespace() || shell_separator_char(ch))
-        .unwrap_or(rest.len());
+    let mut end = rest.len();
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut escaped = false;
+
+    for (index, ch) in rest.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' && !in_single_quotes {
+            escaped = true;
+            continue;
+        }
+        if ch == '\'' && !in_double_quotes {
+            in_single_quotes = !in_single_quotes;
+            continue;
+        }
+        if ch == '"' && !in_single_quotes {
+            in_double_quotes = !in_double_quotes;
+            continue;
+        }
+        if !in_single_quotes
+            && !in_double_quotes
+            && (ch.is_whitespace() || shell_separator_char(ch))
+        {
+            end = index;
+            break;
+        }
+    }
+
     (end > 0).then(|| &rest[..end])
 }
 
@@ -707,6 +735,18 @@ cat <<- \tBAR
         let source = "cat <<\\\\EOF\n$ZSH_VERSION\n\\EOF\n";
         let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
         assert_eq!(inferred, ShellDialect::Sh);
+    }
+
+    #[test]
+    fn quoted_heredoc_delimiter_separators_do_not_stick_scanner() {
+        let source = "\
+cat <<'EOF)'
+$ZSH_VERSION
+EOF)
+printf '%s\\n' \"$ZSH_VERSION\"
+";
+        let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
+        assert_eq!(inferred, ShellDialect::Zsh);
     }
 
     #[test]
