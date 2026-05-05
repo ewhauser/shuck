@@ -1,4 +1,4 @@
-use crate::{Checker, Rule, ShellDialect, Violation};
+use crate::{ArithmeticLiteralKind, Checker, Rule, ShellDialect, Violation};
 
 pub struct BasePrefixInArithmetic;
 
@@ -17,10 +17,15 @@ pub fn base_prefix_in_arithmetic(checker: &mut Checker) {
         return;
     }
 
-    checker.report_fact_slice_dedup(
-        |facts| facts.base_prefix_arithmetic_spans(),
-        || BasePrefixInArithmetic,
-    );
+    let spans = checker
+        .facts()
+        .arithmetic_literal_facts()
+        .iter()
+        .filter_map(|fact| {
+            (fact.kind() == ArithmeticLiteralKind::ExplicitBasePrefix).then_some(fact.span())
+        })
+        .collect::<Vec<_>>();
+    checker.report_all_dedup(spans, || BasePrefixInArithmetic);
 }
 
 #[cfg(test)]

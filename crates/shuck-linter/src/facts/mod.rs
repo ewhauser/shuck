@@ -97,7 +97,7 @@ pub use self::normalized_commands::{
     DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind,
 };
 pub use self::surface::{
-    AmbiguousArrayReference, ArithmeticLiteralFact, BacktickFragmentFact,
+    AmbiguousArrayReference, ArithmeticLiteralFact, ArithmeticLiteralKind, BacktickFragmentFact,
     IndexedArrayReferenceFragment, IndexedArrayReferenceFragmentFact, LegacyArithmeticFragmentFact,
     NativeZshScalarArrayReference, PlainUnindexedArrayReferenceFact,
     PositionalParameterFragmentFact, SelectorRequiredArrayReference, SingleQuotedFragmentFact,

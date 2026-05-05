@@ -139,19 +139,38 @@ impl LegacyArithmeticFragmentFact {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ArithmeticLiteralKind {
+    ExplicitBasePrefix,
+    LeadingZeroInteger,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ArithmeticLiteralFact {
     span: Span,
+    kind: ArithmeticLiteralKind,
     behavior: ArithmeticLiteralBehavior,
 }
 
 impl ArithmeticLiteralFact {
-    pub(super) fn new(span: Span, behavior: ArithmeticLiteralBehavior) -> Self {
-        Self { span, behavior }
+    pub(super) fn new(
+        span: Span,
+        kind: ArithmeticLiteralKind,
+        behavior: ArithmeticLiteralBehavior,
+    ) -> Self {
+        Self {
+            span,
+            kind,
+            behavior,
+        }
     }
 
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    pub fn kind(&self) -> ArithmeticLiteralKind {
+        self.kind
     }
 
     pub fn behavior(&self) -> ArithmeticLiteralBehavior {

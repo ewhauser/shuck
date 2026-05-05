@@ -122,7 +122,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let mut precise_function_guard_suppressions = Vec::new();
         let mut command_substitution_command_spans = Vec::new();
         let mut arithmetic_update_operator_spans = Vec::new();
-        let mut base_prefix_arithmetic_spans = Vec::new();
+        let mut arithmetic_literal_spans = Vec::new();
 
         let mut command_contexts = self.semantic.command_contexts().collect::<Vec<_>>();
         command_contexts.sort_unstable_by(|left, right| {
@@ -246,7 +246,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 collect_base_prefix_spans_in_command_parts(
                     visit.command,
                     self.source,
-                    &mut base_prefix_arithmetic_spans,
+                    &mut arithmetic_literal_spans,
                 );
                 collect_arithmetic_update_operator_spans_in_command(
                     visit.command,
@@ -261,7 +261,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                         collect_base_prefix_spans_in_word(
                             word,
                             self.source,
-                            &mut base_prefix_arithmetic_spans,
+                            &mut arithmetic_literal_spans,
                         );
                         collect_arithmetic_update_operator_spans_in_word(
                             word,
@@ -450,14 +450,22 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         arithmetic_update_operator_spans
             .sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
         arithmetic_update_operator_spans.dedup();
-        base_prefix_arithmetic_spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
-        base_prefix_arithmetic_spans.dedup();
-        let arithmetic_literal_facts = base_prefix_arithmetic_spans
+        arithmetic_literal_spans.sort_unstable_by_key(|(span, kind)| {
+            (span.start.offset, span.end.offset, *kind)
+        });
+        arithmetic_literal_spans.dedup();
+        let base_prefix_arithmetic_spans = arithmetic_literal_spans
             .iter()
-            .copied()
-            .map(|span| {
+            .filter_map(|(span, kind)| {
+                (*kind == ArithmeticLiteralKind::ExplicitBasePrefix).then_some(*span)
+            })
+            .collect::<Vec<_>>();
+        let arithmetic_literal_facts = arithmetic_literal_spans
+            .iter()
+            .map(|(span, kind)| {
                 ArithmeticLiteralFact::new(
-                    span,
+                    *span,
+                    *kind,
                     self.semantic
                         .shell_behavior_at(span.start.offset)
                         .arithmetic_literals(),

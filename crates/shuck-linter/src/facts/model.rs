@@ -933,7 +933,8 @@ impl<'a> LinterFacts<'a> {
         &self.arithmetic_update_operator_spans
     }
 
-    pub fn base_prefix_arithmetic_spans(&self) -> &[Span] {
+    #[cfg(test)]
+    pub(crate) fn base_prefix_arithmetic_spans(&self) -> &[Span] {
         &self.base_prefix_arithmetic_spans
     }
 
