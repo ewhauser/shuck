@@ -337,7 +337,6 @@ struct CommandTopology {
     child_ids: Vec<Vec<CommandId>>,
     syntax_backed_parent_ids: Vec<Option<CommandId>>,
     syntax_backed_child_ids: Vec<Vec<CommandId>>,
-    offset_order: Vec<CommandId>,
     containing_offset_entries: Vec<CommandContainingOffsetEntry>,
 }
 
@@ -2335,18 +2334,7 @@ impl SemanticModel {
 
     /// Returns the innermost syntax-backed command whose syntax span contains `offset`.
     pub fn innermost_command_id_at(&self, offset: usize) -> Option<CommandId> {
-        let topology = self.command_topology();
-        let mut innermost = None;
-        for id in topology.offset_order.iter().copied() {
-            let span = self.command_syntax_span(id);
-            if span.start.offset > offset {
-                break;
-            }
-            if offset <= span.end.offset && self.command_syntax_kind(id).is_some() {
-                innermost = Some(id);
-            }
-        }
-        innermost
+        self.innermost_command_id_containing_offset(offset)
     }
 
     /// Returns the innermost command known to contain `offset` using the topology index.
@@ -2658,10 +2646,6 @@ fn build_command_topology(model: &SemanticModel) -> CommandTopology {
     structural_ids
         .sort_unstable_by(|left, right| compare_command_ids_by_syntax_span(model, *left, *right));
 
-    let mut offset_order = ids.clone();
-    offset_order
-        .sort_unstable_by(|left, right| compare_command_ids_by_syntax_span(model, *left, *right));
-
     let syntax_backed_ids = ids
         .into_iter()
         .filter(|id| program.command(*id).syntax_kind.is_some())
@@ -2696,7 +2680,6 @@ fn build_command_topology(model: &SemanticModel) -> CommandTopology {
         child_ids,
         syntax_backed_parent_ids,
         syntax_backed_child_ids,
-        offset_order,
         containing_offset_entries,
     }
 }
