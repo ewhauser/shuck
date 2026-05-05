@@ -262,12 +262,18 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
     }
 
     fn reference_is_zsh_conditional_operand(&self, reference: &Reference) -> bool {
-        self.facts.shell == ShellDialect::Zsh
+        matches!(
+            self.array_reference_policy(reference),
+            shuck_semantic::ArrayReferencePolicy::NativeZshScalar
+        )
             && matches!(reference.kind, shuck_semantic::ReferenceKind::ConditionalOperand)
     }
 
     fn reference_is_zsh_presence_test(&self, reference: &Reference) -> bool {
-        self.facts.shell == ShellDialect::Zsh
+        matches!(
+            self.array_reference_policy(reference),
+            shuck_semantic::ArrayReferencePolicy::NativeZshScalar
+        )
             && self
                 .facts
                 .presence_test_references(&reference.name)

@@ -143,14 +143,31 @@ printf '%s\\n' \"$ret\" \"${ret}\"
     fn zsh_array_presence_tests_do_not_require_explicit_selectors() {
         let source = "\
 #!/bin/zsh
-opt=ksh_arrays
-setopt \"$opt\"
 precm=(builtin emulate zsh)
 [[ -n $precm ]] && builtin ${precm[@]} 'source \"$ZERO\"'
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn zsh_ksh_array_presence_tests_require_explicit_selectors() {
+        let source = "\
+#!/bin/zsh
+setopt ksh_arrays
+precm=(builtin emulate zsh)
+[[ -n $precm ]] && builtin ${precm[@]} 'source \"$ZERO\"'
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$precm"]
+        );
     }
 
     #[test]

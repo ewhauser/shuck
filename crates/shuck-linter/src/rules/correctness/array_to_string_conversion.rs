@@ -1,9 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use shuck_ast::{
-    BourneParameterExpansion, Name, ParameterExpansion, ParameterExpansionSyntax, VarRef, Word,
-    WordPart, WordPartNode, ZshExpansionTarget,
-};
+use shuck_ast::Name;
 use shuck_semantic::{
     Binding, BindingAttributes, BindingKind, Declaration, DeclarationBuiltin, DeclarationOperand,
     ScopeId,
@@ -92,7 +89,12 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
 
             checker.facts().binding_value(binding.id)?.scalar_word()?;
 
-            if zsh_scalar_subscript_value_assignment(checker, binding) {
+            if checker.shell() == ShellDialect::Zsh
+                && checker
+                    .facts()
+                    .binding_value(binding.id)
+                    .is_some_and(|value| value.zsh_scalar_subscript_value())
+            {
                 push_array_history(
                     &mut array_history,
                     name,
@@ -208,127 +210,6 @@ impl ArrayHistoryState {
         !self.local
             || self.function_scope == checker.semantic().enclosing_function_scope(binding.scope)
     }
-}
-
-fn zsh_scalar_subscript_value_assignment(checker: &Checker<'_>, binding: &Binding) -> bool {
-    if checker.shell() != ShellDialect::Zsh {
-        return false;
-    }
-    let Some(word) = checker
-        .facts()
-        .binding_value(binding.id)
-        .and_then(|value| value.scalar_word())
-    else {
-        return false;
-    };
-    let mut saw_scalar_subscript = false;
-    word_is_zsh_scalar_subscript_value(word, checker.source(), &mut saw_scalar_subscript)
-        && saw_scalar_subscript
-}
-
-fn word_is_zsh_scalar_subscript_value(
-    word: &Word,
-    source: &str,
-    saw_scalar_subscript: &mut bool,
-) -> bool {
-    word_part_nodes_are_zsh_scalar_subscript_value(&word.parts, source, saw_scalar_subscript)
-}
-
-fn word_part_nodes_are_zsh_scalar_subscript_value(
-    parts: &[WordPartNode],
-    source: &str,
-    saw_scalar_subscript: &mut bool,
-) -> bool {
-    for (index, part) in parts.iter().enumerate() {
-        if let WordPart::Variable(_) = &part.kind
-            && parts.get(index + 1).is_some_and(|next| {
-                matches!(
-                    &next.kind,
-                    WordPart::Literal(text) if literal_starts_with_zsh_subscript(text.as_str(source, next.span))
-                )
-            })
-        {
-            *saw_scalar_subscript = true;
-            continue;
-        }
-        if !word_part_is_zsh_scalar_subscript_value(&part.kind, source, saw_scalar_subscript) {
-            return false;
-        }
-    }
-    true
-}
-
-fn word_part_is_zsh_scalar_subscript_value(
-    part: &WordPart,
-    source: &str,
-    saw_scalar_subscript: &mut bool,
-) -> bool {
-    match part {
-        WordPart::Literal(_) | WordPart::SingleQuoted { .. } => true,
-        WordPart::DoubleQuoted { parts, .. } => {
-            word_part_nodes_are_zsh_scalar_subscript_value(parts, source, saw_scalar_subscript)
-        }
-        WordPart::Parameter(parameter) => {
-            parameter_is_zsh_scalar_subscript_value(parameter, saw_scalar_subscript)
-        }
-        WordPart::ArrayAccess(reference) | WordPart::ArraySlice { reference, .. } => {
-            if !var_ref_is_zsh_scalar_subscript(reference) {
-                return false;
-            }
-            *saw_scalar_subscript = true;
-            true
-        }
-        _ => false,
-    }
-}
-
-fn literal_starts_with_zsh_subscript(text: &str) -> bool {
-    let Some(rest) = text.strip_prefix('[') else {
-        return false;
-    };
-    rest.contains(']')
-}
-
-fn parameter_is_zsh_scalar_subscript_value(
-    parameter: &ParameterExpansion,
-    saw_scalar_subscript: &mut bool,
-) -> bool {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
-            if !var_ref_is_zsh_scalar_subscript(reference) {
-                return false;
-            }
-            *saw_scalar_subscript = true;
-            true
-        }
-        ParameterExpansionSyntax::Zsh(syntax)
-            if syntax.length_prefix.is_none()
-                && syntax.operation.is_none()
-                && syntax.modifiers.is_empty() =>
-        {
-            match &syntax.target {
-                ZshExpansionTarget::Reference(reference) => {
-                    if !var_ref_is_zsh_scalar_subscript(reference) {
-                        return false;
-                    }
-                    *saw_scalar_subscript = true;
-                    true
-                }
-                ZshExpansionTarget::Nested(parameter) => {
-                    parameter_is_zsh_scalar_subscript_value(parameter, saw_scalar_subscript)
-                }
-                ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => false,
-            }
-        }
-        _ => false,
-    }
-}
-
-fn var_ref_is_zsh_scalar_subscript(reference: &VarRef) -> bool {
-    reference
-        .subscript
-        .as_deref()
-        .is_some_and(|subscript| subscript.selector().is_none())
 }
 
 fn array_history_events(

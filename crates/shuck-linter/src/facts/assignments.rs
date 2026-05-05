@@ -40,6 +40,7 @@ pub struct BindingValueFact<'a> {
     standalone_status_or_pid_capture: bool,
     conditional_assignment_shortcut: bool,
     one_sided_short_circuit_assignment: bool,
+    zsh_scalar_subscript_value: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -49,19 +50,25 @@ enum BindingValueKind<'a> {
 }
 
 impl<'a> BindingValueFact<'a> {
-    fn scalar(word: &'a Word) -> Self {
-        Self::scalar_with_status_or_pid_capture(word, word_is_standalone_status_or_pid_capture(word))
+    fn scalar(word: &'a Word, source: &str) -> Self {
+        Self::scalar_with_status_or_pid_capture(
+            word,
+            word_is_standalone_status_or_pid_capture(word),
+            source,
+        )
     }
 
     fn scalar_with_status_or_pid_capture(
         word: &'a Word,
         standalone_status_or_pid_capture: bool,
+        source: &str,
     ) -> Self {
         Self {
             kind: BindingValueKind::Scalar(word),
             standalone_status_or_pid_capture,
             conditional_assignment_shortcut: false,
             one_sided_short_circuit_assignment: false,
+            zsh_scalar_subscript_value: word_is_zsh_scalar_subscript_value(word, source),
         }
     }
 
@@ -71,6 +78,7 @@ impl<'a> BindingValueFact<'a> {
             standalone_status_or_pid_capture: false,
             conditional_assignment_shortcut: false,
             one_sided_short_circuit_assignment: false,
+            zsh_scalar_subscript_value: false,
         }
     }
 
@@ -98,6 +106,10 @@ impl<'a> BindingValueFact<'a> {
 
     pub fn standalone_status_or_pid_capture(&self) -> bool {
         self.standalone_status_or_pid_capture
+    }
+
+    pub fn zsh_scalar_subscript_value(&self) -> bool {
+        self.zsh_scalar_subscript_value
     }
 
     fn mark_conditional_assignment_shortcut(&mut self) {
@@ -1561,6 +1573,130 @@ fn word_has_command_substitution(
         .has_command_substitution()
 }
 
+fn word_is_zsh_scalar_subscript_value(word: &Word, source: &str) -> bool {
+    let mut saw_scalar_subscript = false;
+    word_part_nodes_are_zsh_scalar_subscript_value(&word.parts, source, &mut saw_scalar_subscript)
+        && saw_scalar_subscript
+}
+
+fn word_part_nodes_are_zsh_scalar_subscript_value(
+    parts: &[WordPartNode],
+    source: &str,
+    saw_scalar_subscript: &mut bool,
+) -> bool {
+    for (index, part) in parts.iter().enumerate() {
+        if let WordPart::Variable(_) = &part.kind
+            && parts.get(index + 1).is_some_and(|next| {
+                matches!(
+                    &next.kind,
+                    WordPart::Literal(text) if literal_starts_with_zsh_subscript(text.as_str(source, next.span))
+                )
+            })
+        {
+            *saw_scalar_subscript = true;
+            continue;
+        }
+        if !word_part_is_zsh_scalar_subscript_value(&part.kind, source, saw_scalar_subscript) {
+            return false;
+        }
+    }
+    true
+}
+
+fn word_part_is_zsh_scalar_subscript_value(
+    part: &WordPart,
+    source: &str,
+    saw_scalar_subscript: &mut bool,
+) -> bool {
+    match part {
+        WordPart::Literal(_) | WordPart::SingleQuoted { .. } => true,
+        WordPart::DoubleQuoted { parts, .. } => {
+            word_part_nodes_are_zsh_scalar_subscript_value(parts, source, saw_scalar_subscript)
+        }
+        WordPart::Parameter(parameter) => {
+            parameter_is_zsh_scalar_subscript_value(parameter, saw_scalar_subscript)
+        }
+        WordPart::ArrayAccess(reference) | WordPart::ArraySlice { reference, .. } => {
+            if !var_ref_is_zsh_scalar_subscript(reference) {
+                return false;
+            }
+            *saw_scalar_subscript = true;
+            true
+        }
+        WordPart::ZshQualifiedGlob(_)
+        | WordPart::Variable(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => false,
+    }
+}
+
+fn literal_starts_with_zsh_subscript(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix('[') else {
+        return false;
+    };
+    rest.contains(']')
+}
+
+fn parameter_is_zsh_scalar_subscript_value(
+    parameter: &ParameterExpansion,
+    saw_scalar_subscript: &mut bool,
+) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
+            if !var_ref_is_zsh_scalar_subscript(reference) {
+                return false;
+            }
+            *saw_scalar_subscript = true;
+            true
+        }
+        ParameterExpansionSyntax::Bourne(
+            BourneParameterExpansion::Operation { .. }
+            | BourneParameterExpansion::Length { .. }
+            | BourneParameterExpansion::Indices { .. }
+            | BourneParameterExpansion::Indirect { .. }
+            | BourneParameterExpansion::PrefixMatch { .. }
+            | BourneParameterExpansion::Slice { .. }
+            | BourneParameterExpansion::Transformation { .. },
+        ) => false,
+        ParameterExpansionSyntax::Zsh(syntax)
+            if syntax.length_prefix.is_none()
+                && syntax.operation.is_none()
+                && syntax.modifiers.is_empty() =>
+        {
+            match &syntax.target {
+                ZshExpansionTarget::Reference(reference) => {
+                    if !var_ref_is_zsh_scalar_subscript(reference) {
+                        return false;
+                    }
+                    *saw_scalar_subscript = true;
+                    true
+                }
+                ZshExpansionTarget::Nested(parameter) => {
+                    parameter_is_zsh_scalar_subscript_value(parameter, saw_scalar_subscript)
+                }
+                ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => false,
+            }
+        }
+        ParameterExpansionSyntax::Zsh(_) => false,
+    }
+}
+
+fn var_ref_is_zsh_scalar_subscript(reference: &VarRef) -> bool {
+    reference
+        .subscript
+        .as_deref()
+        .is_some_and(|subscript| subscript.selector().is_none())
+}
+
 fn advance_escaped_char_boundary(text: &str, start: usize) -> usize {
     let next = start + '\\'.len_utf8();
     if next >= text.len() {
@@ -1593,7 +1729,7 @@ fn collect_binding_values<'a>(
         if let Some(binding_id) =
             binding_value_definition_id_for_span(semantic, assignment.target.name_span)
         {
-            binding_values.insert(binding_id, BindingValueFact::scalar(word));
+            binding_values.insert(binding_id, BindingValueFact::scalar(word, source));
         }
     }
 
@@ -1607,7 +1743,7 @@ fn collect_binding_values<'a>(
         if let Some(binding_id) =
             binding_value_definition_id_for_span(semantic, assignment.target.name_span)
         {
-            binding_values.insert(binding_id, BindingValueFact::scalar(word));
+            binding_values.insert(binding_id, BindingValueFact::scalar(word, source));
         }
     }
 
@@ -1635,6 +1771,7 @@ fn collect_binding_values<'a>(
                     BindingValueFact::scalar_with_status_or_pid_capture(
                         word,
                         standalone_status_or_pid_capture,
+                        source,
                     ),
                 );
             }
