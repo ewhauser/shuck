@@ -609,6 +609,31 @@ _describe -t tag -T display description consumed -U
     }
 
     #[test]
+    fn zsh_describe_o_option_value_is_not_an_array_read() {
+        let source = "\
+#!/bin/zsh
+opt=-o
+nosort=1
+description=1
+consumed=(init:Initialize update:Update)
+_describe -o nosort description consumed
+_describe $opt nosort description consumed
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["nosort", "description"]
+        );
+    }
+
+    #[test]
     fn zsh_describe_does_not_treat_trailing_option_operands_as_reads() {
         let source = "\
 #!/bin/zsh
@@ -832,10 +857,10 @@ unused=(other:'unused')
     }
 
     #[test]
-    fn zsh_describe_does_not_consume_descriptor_after_dynamic_options() {
+    fn zsh_describe_does_not_consume_descriptor_after_dynamic_no_value_options() {
         let source = "\
 #!/bin/zsh
-opts='-o'
+opts='-O'
 desc=(not:target)
 values=(git)
 _describe \"$opts\" desc values

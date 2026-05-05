@@ -185,11 +185,8 @@ fn line_has_zsh_autoload_marker(line: &str) -> bool {
 }
 
 fn line_heredoc_delimiter(line: &str) -> Option<(String, bool)> {
-    let redirect_start = line.find("<<")?;
+    let redirect_start = heredoc_redirect_start(line)?;
     let mut rest = &line[redirect_start + 2..];
-    if rest.starts_with('<') {
-        return None;
-    }
     let strip_tabs = rest.starts_with('-');
     if strip_tabs {
         rest = &rest[1..];
@@ -200,6 +197,86 @@ fn line_heredoc_delimiter(line: &str) -> Option<(String, bool)> {
         .trim_matches('"')
         .trim_matches('\\');
     (!delimiter.is_empty()).then(|| (delimiter.to_owned(), strip_tabs))
+}
+
+fn heredoc_redirect_start(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut index = 0usize;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut escaped = false;
+    let mut arithmetic_depth = 0usize;
+
+    while index + 1 < bytes.len() {
+        if escaped {
+            escaped = false;
+            index += 1;
+            continue;
+        }
+
+        let byte = bytes[index];
+        if byte == b'\\' {
+            escaped = true;
+            index += 1;
+            continue;
+        }
+
+        if arithmetic_depth > 0 {
+            if bytes.get(index..index + 2) == Some(b"))") {
+                arithmetic_depth -= 1;
+                index += 2;
+            } else {
+                index += 1;
+            }
+            continue;
+        }
+
+        if byte == b'\'' && !in_double_quotes {
+            in_single_quotes = !in_single_quotes;
+            index += 1;
+            continue;
+        }
+        if byte == b'"' && !in_single_quotes {
+            in_double_quotes = !in_double_quotes;
+            index += 1;
+            continue;
+        }
+        if in_single_quotes || in_double_quotes {
+            index += 1;
+            continue;
+        }
+
+        if bytes.get(index..index + 3) == Some(b"$((") {
+            arithmetic_depth += 1;
+            index += 3;
+            continue;
+        }
+        if bytes.get(index..index + 2) == Some(b"((") && arithmetic_command_start(bytes, index) {
+            arithmetic_depth += 1;
+            index += 2;
+            continue;
+        }
+
+        if bytes.get(index..index + 2) == Some(b"<<") {
+            if bytes.get(index + 2) != Some(&b'<') {
+                return Some(index);
+            }
+            index += 3;
+            continue;
+        }
+
+        index += 1;
+    }
+
+    None
+}
+
+fn arithmetic_command_start(bytes: &[u8], index: usize) -> bool {
+    bytes[..index]
+        .iter()
+        .rev()
+        .find(|byte| !byte.is_ascii_whitespace())
+        .is_none_or(|byte| matches!(*byte, b';' | b'&' | b'|' | b'('))
 }
 
 fn starts_with_shell_word(line: &str, needle: &str) -> bool {
@@ -404,6 +481,17 @@ EOF
     fn here_strings_do_not_hide_later_source_markers() {
         let source = "\
 cat <<< \"$value\"
+zstyle -s ':omz:update' mode update_mode
+";
+        let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
+        assert_eq!(inferred, ShellDialect::Zsh);
+    }
+
+    #[test]
+    fn arithmetic_shifts_do_not_hide_later_source_markers() {
+        let source = "\
+((x<<1))
+value=$((1<<2))
 zstyle -s ':omz:update' mode update_mode
 ";
         let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
