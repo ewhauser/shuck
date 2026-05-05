@@ -12,6 +12,7 @@ Shuck parses and analyzes shell scripts to catch common bugs, style issues, and 
 - Multi-dialect support: bash, sh/POSIX, mksh, zsh
 - Automatic file discovery via extensions and shebang detection
 - Embedded shell extraction for GitHub Actions workflows and composite actions
+- First-party Language Server Protocol server for editor diagnostics and code actions
 - ShellCheck suppression compatibility (`# shellcheck disable=SC2086`)
 
 ## Installation
@@ -71,6 +72,18 @@ shuck --cache-dir .tmp/shuck-cache check .
 # Remove cache entries for the current project
 shuck clean
 ```
+
+### Editor integration
+
+Shuck ships with a first-party Language Server Protocol (LSP) server in the main CLI. Editors and LSP clients should launch it over stdio:
+
+```sh
+shuck server
+```
+
+The server analyzes the editor's in-memory buffer, publishes diagnostics as you edit, and reuses the same parser, lint rules, configuration, and fix machinery as `shuck check`. It currently supports incremental document sync, real-time diagnostics, quick fixes, `source.fixAll.shuck`, disable-this-line actions, and hover help for rule codes in `# shuck:` and `# shellcheck` directives.
+
+Any editor that can launch a stdio LSP server can use Shuck by pointing shell buffers at `shuck server`. See the [editor integration guide](https://ewhauser.github.io/shuck/docs/editors/) for setup examples.
 
 ## Output
 
