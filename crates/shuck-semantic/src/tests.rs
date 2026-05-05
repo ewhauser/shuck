@@ -1179,6 +1179,48 @@ fn records_pipeline_segment_scopes() {
 }
 
 #[test]
+fn zsh_final_pipeline_segment_uses_enclosing_scope() {
+    let source = "\
+value=old
+printf '%s\\n' x | value=new
+print -r -- \"$value\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let pipeline_assignment = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .unwrap();
+    assert!(!matches!(
+        model.scope_kind(pipeline_assignment.scope),
+        ScopeKind::Pipeline
+    ));
+}
+
+#[test]
+fn zsh_nonfinal_pipeline_segments_keep_pipeline_scope() {
+    let source = "\
+value=old
+{ value=left; print x; } | { value=middle; print y; } | cat
+print -r -- \"$value\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    for assignment in ["value=left", "value=middle"] {
+        let binding = model
+            .bindings()
+            .iter()
+            .find(|binding| binding.span.start.offset == source.find(assignment).unwrap())
+            .unwrap();
+        assert!(matches!(
+            model.scope_kind(binding.scope),
+            ScopeKind::Pipeline
+        ));
+    }
+}
+
+#[test]
 fn indexed_scope_lookup_matches_linear_scan_for_all_offsets() {
     let source = "\
 outer() {

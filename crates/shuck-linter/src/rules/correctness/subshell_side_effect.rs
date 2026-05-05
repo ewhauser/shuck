@@ -99,6 +99,38 @@ echo \"$count\"
     }
 
     #[test]
+    fn ignores_zsh_final_pipeline_component_assignments() {
+        let source = "\
+#!/bin/zsh
+header=
+printf '%s\\n' x |& grep x | while read -r _; do header=ok; done
+print -r -- \"$header\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_zsh_nonfinal_pipeline_component_assignments() {
+        let source = "\
+#!/bin/zsh
+header=
+print x | { header=bad; print y; } | cat
+print -r -- \"$header\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$header"]
+        );
+    }
+
+    #[test]
     fn ignores_zsh_option_map_keys_without_visible_opts_binding() {
         let source = "\
 #!/bin/zsh

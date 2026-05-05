@@ -14,7 +14,7 @@ use shuck_ast::{
     static_word_text, try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;
-use shuck_parser::{ShellProfile, ZshEmulationMode, parser::Parser};
+use shuck_parser::{ShellDialect, ShellProfile, ZshEmulationMode, parser::Parser};
 use smallvec::SmallVec;
 
 use crate::binding::{
@@ -129,7 +129,7 @@ fn semantic_statement_span(stmt: &Stmt) -> Span {
     Span::from_positions(stmt.span.start, end)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FlowState {
     in_function: bool,
     loop_depth: u32,
@@ -137,6 +137,21 @@ struct FlowState {
     in_block: bool,
     exit_status_checked: bool,
     conditionally_executed: bool,
+    pipeline_tail_runs_in_current_shell: bool,
+}
+
+impl Default for FlowState {
+    fn default() -> Self {
+        Self {
+            in_function: false,
+            loop_depth: 0,
+            in_subshell: false,
+            in_block: false,
+            exit_status_checked: false,
+            conditionally_executed: false,
+            pipeline_tail_runs_in_current_shell: true,
+        }
+    }
 }
 
 impl FlowState {

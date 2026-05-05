@@ -374,9 +374,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     pub(super) fn visit_pipeline_binary(
         &mut self,
         command: &'a BinaryCommand,
-        mut flow: FlowState,
+        flow: FlowState,
     ) -> CommandId {
-        flow.in_subshell = true;
+        let tail_runs_in_current_shell = self.shell_profile.dialect == ShellDialect::Zsh
+            && flow.pipeline_tail_runs_in_current_shell;
+        let pipeline_child_flow = FlowState {
+            in_subshell: true,
+            pipeline_tail_runs_in_current_shell: false,
+            ..flow
+        };
         let mut segments = Vec::with_capacity(2);
         for (stmt, operator_before) in [
             (&command.left, None),
@@ -388,17 +394,27 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 }),
             ),
         ] {
+            let is_tail_segment = operator_before.is_some();
+            let segment_runs_in_current_shell = tail_runs_in_current_shell && is_tail_segment;
             let segment_is_nested_pipeline = matches!(
                 &stmt.command,
                 Command::Binary(binary) if matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll)
             );
-            let scope = if segment_is_nested_pipeline {
+            let scope = if segment_is_nested_pipeline || segment_runs_in_current_shell {
                 self.current_scope()
             } else {
                 self.push_scope(ScopeKind::Pipeline, self.current_scope(), stmt.span)
             };
-            let recorded = self.visit_stmt(stmt, flow);
-            if !segment_is_nested_pipeline {
+            let segment_flow = if segment_runs_in_current_shell {
+                FlowState {
+                    pipeline_tail_runs_in_current_shell: true,
+                    ..flow
+                }
+            } else {
+                pipeline_child_flow
+            };
+            let recorded = self.visit_stmt(stmt, segment_flow);
+            if !segment_is_nested_pipeline && !segment_runs_in_current_shell {
                 self.pop_scope(scope);
                 self.mark_scope_completed(scope);
             }
