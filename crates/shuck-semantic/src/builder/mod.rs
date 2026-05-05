@@ -14,7 +14,7 @@ use shuck_ast::{
     static_word_text, try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;
-use shuck_parser::{ShellDialect, ShellProfile, ZshEmulationMode, parser::Parser};
+use shuck_parser::{ShellDialect, ShellProfile, ZshEmulationMode, ZshOptionState, parser::Parser};
 use smallvec::SmallVec;
 
 use crate::binding::{
@@ -155,6 +155,17 @@ impl Default for FlowState {
 }
 
 impl FlowState {
+    fn for_shell_profile(profile: &ShellProfile) -> Self {
+        let mut flow = Self::default();
+        if profile.dialect == ShellDialect::Zsh {
+            flow.pipeline_tail_runs_in_current_shell =
+                profile.zsh_options().is_some_and(|options| {
+                    *options != ZshOptionState::for_emulate(ZshEmulationMode::Sh)
+                });
+        }
+        flow
+    }
+
     fn conditional(self) -> Self {
         Self {
             conditionally_executed: true,
@@ -253,7 +264,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             arithmetic_reference_kind: ReferenceKind::ArithmeticRead,
             word_reference_kind_override: None,
         };
-        let file_commands = builder.visit_stmt_seq(&file.body, FlowState::default());
+        let file_commands = builder.visit_stmt_seq(
+            &file.body,
+            FlowState::for_shell_profile(&builder.shell_profile),
+        );
         builder.recorded_program.set_file_commands(file_commands);
         builder.mark_scope_completed(ScopeId(0));
         builder.drain_deferred_functions();

@@ -75,8 +75,35 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     }
 
     fn flow_after_statement(&self, stmt: &'a Stmt, flow: FlowState) -> FlowState {
-        let info = recorded_command_info(&stmt.command, self.source, self.runtime.bash_enabled());
-        flow_after_zsh_effects(flow, &info.zsh_effects)
+        self.flow_after_command(&stmt.command, flow)
+    }
+
+    fn flow_after_command(&self, command: &'a Command, flow: FlowState) -> FlowState {
+        match command {
+            Command::Simple(_) => {
+                let info = recorded_command_info(command, self.source, self.runtime.bash_enabled());
+                flow_after_zsh_effects(flow, &info.zsh_effects)
+            }
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => self.flow_after_stmt_seq(
+                commands,
+                FlowState {
+                    in_block: true,
+                    ..flow
+                },
+            ),
+            Command::Compound(CompoundCommand::Time(command)) => command
+                .command
+                .as_deref()
+                .map_or(flow, |command| self.flow_after_statement(command, flow)),
+            _ => flow,
+        }
+    }
+
+    fn flow_after_stmt_seq(&self, commands: &'a StmtSeq, mut flow: FlowState) -> FlowState {
+        for stmt in commands.iter() {
+            flow = self.flow_after_statement(stmt, flow);
+        }
+        flow
     }
 
     pub(super) fn visit_stmt(&mut self, stmt: &'a Stmt, flow: FlowState) -> CommandId {
