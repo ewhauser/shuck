@@ -469,6 +469,9 @@ mod tests {
     #[test]
     fn corpus_regression_alias_wrapper_is_exempt() {
         assert_eq!(c005("alias hosts='sudo $EDITOR /etc/hosts'\n"), 0);
+        assert_eq!(c005_zsh("alias -s $ft='$BROWSER'\n"), 0);
+        assert_eq!(c005_zsh("alias -s $ft '$BROWSER'\n"), 1);
+        assert_eq!(c005_zsh("alias ${name:=foo}'$HOME'\n"), 1);
     }
 
     #[test]

@@ -1009,7 +1009,7 @@ pub(super) fn single_quoted_literal_exempt_argument(
     };
 
     match command_name {
-        "alias" => static_word_text(word, source).is_some_and(|text| text.contains('=')),
+        "alias" => alias_definition_argument(word, source),
         "builtin" if shell_dialect == shuck_parser::ShellDialect::Zsh => {
             zsh_builtin_dynamic_wrapper_argument(body_args, relative_arg_index, word, source)
         }
@@ -1068,6 +1068,11 @@ pub(super) fn single_quoted_literal_exempt_argument(
         }
         _ => false,
     }
+}
+
+fn alias_definition_argument(word: &Word, source: &str) -> bool {
+    static_word_text(word, source).is_some_and(|text| text.contains('='))
+        || word_contains_literal_equals(word, source)
 }
 
 fn gh_graphql_query_argument(args: &[Word], relative_arg_index: usize, word: &Word, source: &str) -> bool {
