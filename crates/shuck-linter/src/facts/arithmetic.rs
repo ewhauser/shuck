@@ -596,7 +596,7 @@ fn collect_base_prefix_spans_in_parameter_expansion(
             } => {
                 collect_base_prefix_spans_in_var_ref(reference, source, spans);
                 collect_base_prefix_spans_in_fragment(
-                    operand_word_ast.as_ref(),
+                    operand_word_ast.as_deref(),
                     operand.as_ref(),
                     source,
                     spans,
@@ -667,7 +667,7 @@ fn collect_base_prefix_spans_in_arithmetic_parameter_expansion(
             } => {
                 collect_base_prefix_spans_in_var_ref(reference, source, spans);
                 collect_base_prefix_spans_in_arithmetic_fragment(
-                    operand_word_ast.as_ref(),
+                    operand_word_ast.as_deref(),
                     operand.as_ref(),
                     source,
                     spans,
@@ -886,7 +886,7 @@ fn collect_base_prefix_spans_in_arithmetic_word_part(
         } => {
             collect_base_prefix_spans_in_var_ref(reference, source, spans);
             collect_base_prefix_spans_in_arithmetic_fragment(
-                operand_word_ast.as_ref(),
+                operand_word_ast.as_deref(),
                 operand.as_ref(),
                 source,
                 spans,

@@ -168,11 +168,11 @@ impl<'a> SafeValueIndex<'a> {
                 ..
             } => {
                 self.indirect_name_is_safe(reference, span, query)
-                    && operator.as_ref().is_none_or(|operator| {
+                    && operator.as_deref().is_none_or(|operator| {
                         self.parameter_operator_is_safe(
                             &reference.name,
                             operator,
-                            operand_word_ast.as_ref(),
+                            operand_word_ast.as_deref(),
                             span,
                             query,
                         )
@@ -191,7 +191,7 @@ impl<'a> SafeValueIndex<'a> {
             } => self.parameter_expansion_is_safe(
                 reference,
                 operator,
-                operand_word_ast.as_ref(),
+                operand_word_ast.as_deref(),
                 span,
                 query,
             ),
@@ -3685,11 +3685,11 @@ impl<'a> SafeValueIndex<'a> {
                     ..
                 } => {
                     self.indirect_name_is_safe(reference, at, query)
-                        && operator.as_ref().is_none_or(|operator| {
+                        && operator.as_deref().is_none_or(|operator| {
                             self.parameter_operator_is_safe(
                                 &reference.name,
                                 operator,
-                                operand_word_ast.as_ref(),
+                                operand_word_ast.as_deref(),
                                 at,
                                 query,
                             )
@@ -3713,7 +3713,7 @@ impl<'a> SafeValueIndex<'a> {
                 } => self.parameter_expansion_is_safe(
                     reference,
                     operator,
-                    operand_word_ast.as_ref(),
+                    operand_word_ast.as_deref(),
                     at,
                     query,
                 ),

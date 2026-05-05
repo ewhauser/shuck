@@ -362,8 +362,8 @@ fn expect_substring_part(
     part: &WordPart,
 ) -> (
     &VarRef,
-    &Option<ArithmeticExprNode>,
-    &Option<ArithmeticExprNode>,
+    Option<&ArithmeticExprNode>,
+    Option<&ArithmeticExprNode>,
 ) {
     match part {
         WordPart::Substring {
@@ -371,14 +371,16 @@ fn expect_substring_part(
             offset_ast,
             length_ast,
             ..
-        } => (reference, offset_ast, length_ast),
+        } => (reference, offset_ast.as_deref(), length_ast.as_deref()),
         WordPart::Parameter(parameter) => match &parameter.syntax {
             ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Slice {
                 reference,
                 offset_ast,
                 length_ast,
                 ..
-            }) if !reference.has_array_selector() => (reference, offset_ast, length_ast),
+            }) if !reference.has_array_selector() => {
+                (reference, offset_ast.as_deref(), length_ast.as_deref())
+            }
             _ => panic!("expected substring part, got {:?}", part),
         },
         _ => panic!("expected substring part, got {:?}", part),
@@ -389,8 +391,8 @@ fn expect_array_slice_part(
     part: &WordPart,
 ) -> (
     &VarRef,
-    &Option<ArithmeticExprNode>,
-    &Option<ArithmeticExprNode>,
+    Option<&ArithmeticExprNode>,
+    Option<&ArithmeticExprNode>,
 ) {
     match part {
         WordPart::ArraySlice {
@@ -398,14 +400,16 @@ fn expect_array_slice_part(
             offset_ast,
             length_ast,
             ..
-        } => (reference, offset_ast, length_ast),
+        } => (reference, offset_ast.as_deref(), length_ast.as_deref()),
         WordPart::Parameter(parameter) => match &parameter.syntax {
             ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Slice {
                 reference,
                 offset_ast,
                 length_ast,
                 ..
-            }) if reference.has_array_selector() => (reference, offset_ast, length_ast),
+            }) if reference.has_array_selector() => {
+                (reference, offset_ast.as_deref(), length_ast.as_deref())
+            }
             _ => panic!("expected array slice part, got {:?}", part),
         },
         _ => panic!("expected array slice part, got {:?}", part),
@@ -421,14 +425,14 @@ fn expect_parameter_operation_part(
             operator,
             operand,
             ..
-        } => (reference, operator, operand.as_ref()),
+        } => (reference, operator.as_ref(), operand.as_ref()),
         WordPart::Parameter(parameter) => match &parameter.syntax {
             ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
                 reference,
                 operator,
                 operand,
                 ..
-            }) => (reference, operator, operand.as_ref()),
+            }) => (reference, operator.as_ref(), operand.as_ref()),
             _ => panic!("expected parameter operation part, got {:?}", part),
         },
         _ => panic!("expected parameter operation part, got {:?}", part),
@@ -461,7 +465,7 @@ fn expect_indirect_expansion_part(
             ..
         } => (
             reference,
-            operator.as_ref(),
+            operator.as_deref(),
             operand.as_ref(),
             *colon_variant,
         ),
@@ -474,7 +478,7 @@ fn expect_indirect_expansion_part(
                 ..
             }) => (
                 reference,
-                operator.as_ref(),
+                operator.as_deref(),
                 operand.as_ref(),
                 *colon_variant,
             ),

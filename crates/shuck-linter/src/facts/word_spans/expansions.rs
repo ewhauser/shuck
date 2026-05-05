@@ -190,7 +190,7 @@ pub(crate) fn collect_use_replacement_spans(parts: &[WordPartNode], spans: &mut 
             | WordPart::IndirectExpansion {
                 operator: Some(operator),
                 ..
-            } if matches!(operator, ParameterOp::UseReplacement) => spans.push(part.span),
+            } if matches!(operator.as_ref(), ParameterOp::UseReplacement) => spans.push(part.span),
             WordPart::Literal(_)
             | WordPart::SingleQuoted { .. }
             | WordPart::Variable(_)

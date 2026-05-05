@@ -905,7 +905,7 @@ pub(super) fn analyze_part(
                 field_splitting: substitution_field_splitting_hazard(in_double_quotes, behavior),
                 pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, behavior),
                 runtime_pattern: operator
-                    .as_ref()
+                    .as_deref()
                     .is_some_and(parameter_operator_uses_pattern),
                 ..ExpansionHazards::default()
             },
@@ -1009,7 +1009,7 @@ pub(super) fn analyze_parameter_part(
                             behavior,
                         ),
                     runtime_pattern: operator
-                        .as_ref()
+                        .as_deref()
                         .is_some_and(parameter_operator_uses_pattern),
                     ..ExpansionHazards::default()
                 },

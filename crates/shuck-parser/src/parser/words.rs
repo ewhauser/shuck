@@ -4679,15 +4679,17 @@ impl<'a> Parser<'a> {
                                 let operator = if replace_all {
                                     ParameterOp::ReplaceAll {
                                         pattern,
-                                        replacement_word_ast: self
-                                            .parse_source_text_as_word(&replacement),
+                                        replacement_word_ast: Box::new(
+                                            self.parse_source_text_as_word(&replacement),
+                                        ),
                                         replacement,
                                     }
                                 } else {
                                     ParameterOp::ReplaceFirst {
                                         pattern,
-                                        replacement_word_ast: self
-                                            .parse_source_text_as_word(&replacement),
+                                        replacement_word_ast: Box::new(
+                                            self.parse_source_text_as_word(&replacement),
+                                        ),
                                         replacement,
                                     }
                                 };
@@ -4947,15 +4949,17 @@ impl<'a> Parser<'a> {
                             let operator = if replace_all {
                                 ParameterOp::ReplaceAll {
                                     pattern,
-                                    replacement_word_ast: self
-                                        .parse_source_text_as_word(&replacement),
+                                    replacement_word_ast: Box::new(
+                                        self.parse_source_text_as_word(&replacement),
+                                    ),
                                     replacement,
                                 }
                             } else {
                                 ParameterOp::ReplaceFirst {
                                     pattern,
-                                    replacement_word_ast: self
-                                        .parse_source_text_as_word(&replacement),
+                                    replacement_word_ast: Box::new(
+                                        self.parse_source_text_as_word(&replacement),
+                                    ),
                                     replacement,
                                 }
                             };
@@ -5584,8 +5588,11 @@ impl<'a> Parser<'a> {
         syntax: ArithmeticExpansionSyntax,
     ) -> WordPart {
         WordPart::ArithmeticExpansion {
-            expression_ast: self.parse_source_text_as_arithmetic(&expression).ok(),
-            expression_word_ast: self.parse_source_text_as_word(&expression),
+            expression_ast: self
+                .parse_source_text_as_arithmetic(&expression)
+                .ok()
+                .map(Box::new),
+            expression_word_ast: Box::new(self.parse_source_text_as_word(&expression)),
             expression,
             syntax,
         }
@@ -5598,10 +5605,12 @@ impl<'a> Parser<'a> {
         operand: Option<SourceText>,
         colon_variant: bool,
     ) -> WordPart {
-        let operand_word_ast = self.parse_optional_source_text_as_word(operand.as_ref());
+        let operand_word_ast = self
+            .parse_optional_source_text_as_word(operand.as_ref())
+            .map(Box::new);
         WordPart::ParameterExpansion {
             reference,
-            operator,
+            operator: Box::new(operator),
             operand,
             operand_word_ast,
             colon_variant,
@@ -5615,10 +5624,12 @@ impl<'a> Parser<'a> {
         operand: Option<SourceText>,
         colon_variant: bool,
     ) -> WordPart {
-        let operand_word_ast = self.parse_optional_source_text_as_word(operand.as_ref());
+        let operand_word_ast = self
+            .parse_optional_source_text_as_word(operand.as_ref())
+            .map(Box::new);
         WordPart::IndirectExpansion {
             reference,
-            operator,
+            operator: operator.map(Box::new),
             operand,
             operand_word_ast,
             colon_variant,
@@ -5631,12 +5642,17 @@ impl<'a> Parser<'a> {
         offset: SourceText,
         length: Option<SourceText>,
     ) -> WordPart {
-        let offset_ast = self.maybe_parse_source_text_as_arithmetic(&offset);
-        let offset_word_ast = self.parse_source_text_as_word(&offset);
+        let offset_ast = self
+            .maybe_parse_source_text_as_arithmetic(&offset)
+            .map(Box::new);
+        let offset_word_ast = Box::new(self.parse_source_text_as_word(&offset));
         let length_ast = length
             .as_ref()
-            .and_then(|length| self.maybe_parse_source_text_as_arithmetic(length));
-        let length_word_ast = self.parse_optional_source_text_as_word(length.as_ref());
+            .and_then(|length| self.maybe_parse_source_text_as_arithmetic(length))
+            .map(Box::new);
+        let length_word_ast = self
+            .parse_optional_source_text_as_word(length.as_ref())
+            .map(Box::new);
         WordPart::Substring {
             reference,
             offset,
@@ -5780,13 +5796,17 @@ impl<'a> Parser<'a> {
                     let operator = if replace_all {
                         ParameterOp::ReplaceAll {
                             pattern,
-                            replacement_word_ast: self.parse_source_text_as_word(&replacement),
+                            replacement_word_ast: Box::new(
+                                self.parse_source_text_as_word(&replacement),
+                            ),
                             replacement,
                         }
                     } else {
                         ParameterOp::ReplaceFirst {
                             pattern,
-                            replacement_word_ast: self.parse_source_text_as_word(&replacement),
+                            replacement_word_ast: Box::new(
+                                self.parse_source_text_as_word(&replacement),
+                            ),
                             replacement,
                         }
                     };
@@ -5875,12 +5895,17 @@ impl<'a> Parser<'a> {
         offset: SourceText,
         length: Option<SourceText>,
     ) -> WordPart {
-        let offset_ast = self.maybe_parse_source_text_as_arithmetic(&offset);
-        let offset_word_ast = self.parse_source_text_as_word(&offset);
+        let offset_ast = self
+            .maybe_parse_source_text_as_arithmetic(&offset)
+            .map(Box::new);
+        let offset_word_ast = Box::new(self.parse_source_text_as_word(&offset));
         let length_ast = length
             .as_ref()
-            .and_then(|length| self.maybe_parse_source_text_as_arithmetic(length));
-        let length_word_ast = self.parse_optional_source_text_as_word(length.as_ref());
+            .and_then(|length| self.maybe_parse_source_text_as_arithmetic(length))
+            .map(Box::new);
+        let length_word_ast = self
+            .parse_optional_source_text_as_word(length.as_ref())
+            .map(Box::new);
         WordPart::ArraySlice {
             reference,
             offset,

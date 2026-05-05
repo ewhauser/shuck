@@ -228,7 +228,7 @@ pub(crate) fn collect_array_expansion_spans(
                 reference,
                 operator,
                 ..
-            } if !matches!(operator, ParameterOp::UseReplacement)
+            } if !matches!(operator.as_ref(), ParameterOp::UseReplacement)
                 && reference.has_array_selector()
                 && (!quoted || !only_unquoted) =>
             {
@@ -238,7 +238,7 @@ pub(crate) fn collect_array_expansion_spans(
                 reference,
                 operator,
                 ..
-            } if !matches!(operator, Some(ParameterOp::UseReplacement))
+            } if !matches!(operator.as_deref(), Some(ParameterOp::UseReplacement))
                 && reference.has_array_selector()
                 && (!quoted || !only_unquoted) =>
             {
@@ -947,7 +947,10 @@ pub(crate) fn parameter_is_array_like(parameter: &ParameterExpansion) -> bool {
                 reference,
                 operator,
                 ..
-            } => !matches!(operator, ParameterOp::UseReplacement) && reference.has_array_selector(),
+            } => {
+                !matches!(operator.as_ref(), ParameterOp::UseReplacement)
+                    && reference.has_array_selector()
+            }
             BourneParameterExpansion::Transformation { reference, .. } => {
                 reference.has_array_selector()
             }
@@ -1009,7 +1012,7 @@ pub(crate) fn parameter_uses_replacement_operator(parameter: &ParameterExpansion
             ..
         }
         | BourneParameterExpansion::Operation { operator, .. } => {
-            matches!(operator, ParameterOp::UseReplacement)
+            matches!(operator.as_ref(), ParameterOp::UseReplacement)
         }
         BourneParameterExpansion::Access { .. }
         | BourneParameterExpansion::Length { .. }
@@ -1094,7 +1097,7 @@ pub(crate) fn part_uses_assign_default_operator(part: &WordPart) -> bool {
         | WordPart::IndirectExpansion {
             operator: Some(operator),
             ..
-        } => matches!(operator, ParameterOp::AssignDefault),
+        } => matches!(operator.as_ref(), ParameterOp::AssignDefault),
         _ => false,
     }
 }
@@ -1151,7 +1154,7 @@ pub(crate) fn parameter_uses_unquoted_all_elements_array_expansion(
             operator,
             ..
         } => {
-            !matches!(operator, ParameterOp::UseReplacement)
+            !matches!(operator.as_ref(), ParameterOp::UseReplacement)
                 && var_ref_uses_all_elements_at_splat(reference)
         }
         BourneParameterExpansion::Transformation { reference, .. } => {
@@ -1179,7 +1182,7 @@ pub(crate) fn parameter_uses_direct_all_elements_array_expansion(
             operator,
             ..
         } => {
-            !matches!(operator, ParameterOp::UseReplacement)
+            !matches!(operator.as_ref(), ParameterOp::UseReplacement)
                 && var_ref_uses_all_elements_at_splat(reference)
         }
         BourneParameterExpansion::Transformation { reference, .. } => {
@@ -1200,9 +1203,10 @@ pub(crate) fn parameter_uses_replacement_all_elements_array_expansion(
         syntax,
         BourneParameterExpansion::Operation {
             reference,
-            operator: ParameterOp::UseReplacement,
+            operator,
             ..
-        } if var_ref_uses_all_elements_at_splat(reference)
+        } if matches!(operator.as_ref(), ParameterOp::UseReplacement)
+            && var_ref_uses_all_elements_at_splat(reference)
     )
 }
 
@@ -1274,12 +1278,12 @@ pub(crate) fn parameter_uses_assign_default_operator(parameter: &ParameterExpans
 
     match syntax {
         BourneParameterExpansion::Operation { operator, .. } => {
-            matches!(operator, ParameterOp::AssignDefault)
+            matches!(operator.as_ref(), ParameterOp::AssignDefault)
         }
         BourneParameterExpansion::Indirect {
             operator: Some(operator),
             ..
-        } => matches!(operator, ParameterOp::AssignDefault),
+        } => matches!(operator.as_ref(), ParameterOp::AssignDefault),
         _ => false,
     }
 }
