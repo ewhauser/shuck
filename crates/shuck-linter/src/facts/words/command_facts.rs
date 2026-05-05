@@ -1036,8 +1036,17 @@ pub(super) fn single_quoted_literal_exempt_argument(
         }),
         "unset" => true,
         "xprop" => xprop_value_argument_index(body_args, source) == Some(relative_arg_index),
+        "zpty" if shell_dialect == shuck_parser::ShellDialect::Zsh => {
+            zpty_command_argument_index(body_args, source) == Some(relative_arg_index)
+        }
         "zstyle" if shell_dialect == shuck_parser::ShellDialect::Zsh => {
-            zstyle_eval_argument_index(body_args, source) == Some(relative_arg_index)
+            zstyle_delayed_eval_argument_indices(body_args, source).contains(&relative_arg_index)
+        }
+        "_p9k_param" if shell_dialect == shuck_parser::ShellDialect::Zsh => {
+            p10k_param_default_argument_index(body_args, source) == Some(relative_arg_index)
+        }
+        "_p9k_prompt_segment" if shell_dialect == shuck_parser::ShellDialect::Zsh => {
+            p10k_prompt_segment_expansion_argument(relative_arg_index)
         }
         _ if command_name.ends_with("awk") => {
             awk_literal_argument_index(body_args, source).contains(&relative_arg_index)
@@ -1065,11 +1074,68 @@ fn sched_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
     })
 }
 
-fn zstyle_eval_argument_index(args: &[Word], source: &str) -> Option<usize> {
-    args.windows(4).enumerate().find_map(|(index, window)| {
+fn zpty_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
+    let mut index = 0usize;
+    while index < args.len() {
+        let Some(text) = static_word_text(&args[index], source) else {
+            break;
+        };
+        if !text.as_ref().starts_with('-') || text.as_ref() == "-" {
+            break;
+        }
+        if zpty_non_command_mode_option(text.as_ref()) {
+            return None;
+        }
+        index += 1;
+    }
+    args.get(index + 1).map(|_| index + 1)
+}
+
+fn zpty_non_command_mode_option(option: &str) -> bool {
+    option
+        .strip_prefix('-')
+        .is_some_and(|flags| flags.chars().any(|flag| matches!(flag, 'd' | 'w' | 'r' | 't' | 'L')))
+}
+
+fn zstyle_delayed_eval_argument_indices(args: &[Word], source: &str) -> Vec<usize> {
+    let mut result = args
+        .windows(4)
+        .enumerate()
+        .filter_map(|(index, window)| {
         let flag = static_word_text(&window[0], source)?;
         (flag.as_ref() == "-e").then_some(index + 3)
+        })
+        .collect::<Vec<_>>();
+
+    result.extend(zstyle_command_style_argument_indices(args, source));
+    result
+}
+
+fn zstyle_command_style_argument_indices(args: &[Word], source: &str) -> Vec<usize> {
+    let start = match args.first().and_then(|arg| static_word_text(arg, source)) {
+        Some(flag) if flag.as_ref() == "-" || flag.as_ref() == "--" => 1,
+        Some(flag) if flag.as_ref().starts_with('-') => return Vec::new(),
+        _ => 0,
+    };
+
+    args.get(start + 1)
+        .and_then(|arg| static_word_text(arg, source))
+        .filter(|style| style.as_ref() == "command")
+        .map(|_| (start + 2..args.len()).collect())
+        .unwrap_or_default()
+}
+
+fn p10k_param_default_argument_index(args: &[Word], source: &str) -> Option<usize> {
+    args.windows(2).enumerate().find_map(|(index, window)| {
+        let name = static_word_text(&window[0], source)?;
+        name.as_ref()
+            .ends_with("_EXPANSION")
+            .then_some(index + 1)
     })
+}
+
+fn p10k_prompt_segment_expansion_argument(relative_arg_index: usize) -> bool {
+    matches!(relative_arg_index, 5 | 6)
 }
 
 pub(super) fn single_quoted_literal_exempt_here_string(command_name: Option<&str>) -> bool {
