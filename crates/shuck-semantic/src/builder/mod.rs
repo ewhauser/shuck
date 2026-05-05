@@ -325,7 +325,7 @@ fn declaration_builtin(name: &Name) -> DeclarationBuiltin {
         "local" => DeclarationBuiltin::Local,
         "export" => DeclarationBuiltin::Export,
         "readonly" => DeclarationBuiltin::Readonly,
-        "typeset" => DeclarationBuiltin::Typeset,
+        "typeset" | "integer" => DeclarationBuiltin::Typeset,
         _ => DeclarationBuiltin::Declare,
     }
 }
@@ -336,8 +336,14 @@ fn declaration_builtin_name(name: &str) -> Option<DeclarationBuiltin> {
         "local" => Some(DeclarationBuiltin::Local),
         "export" => Some(DeclarationBuiltin::Export),
         "readonly" => Some(DeclarationBuiltin::Readonly),
-        "typeset" => Some(DeclarationBuiltin::Typeset),
+        "typeset" | "integer" => Some(DeclarationBuiltin::Typeset),
         _ => None,
+    }
+}
+
+fn apply_implicit_declaration_flags(command_name: &str, flags: &mut FxHashSet<char>) {
+    if command_name == "integer" {
+        flags.insert('i');
     }
 }
 

@@ -293,7 +293,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
 
         let builtin = declaration_builtin(&command.variant);
-        let flags = declaration_flags(&command.operands, self.source);
+        let mut flags = declaration_flags(&command.operands, self.source);
+        apply_implicit_declaration_flags(command.variant.as_str(), &mut flags);
         let global_flag_enabled =
             declaration_flag_is_enabled(&command.operands, self.source, 'g').unwrap_or(false);
         self.declarations.push(Declaration {

@@ -498,6 +498,7 @@ impl<'a> Parser<'a> {
         let name = self.single_literal_word_text(word)?;
         match name {
             "declare" | "local" | "export" | "readonly" | "typeset" => Some(Name::from(name)),
+            "integer" if self.dialect == ShellDialect::Zsh => Some(Name::from(name)),
             _ => None,
         }
     }
