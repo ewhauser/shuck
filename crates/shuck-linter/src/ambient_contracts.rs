@@ -125,31 +125,77 @@ fn build_sourced_runtime_contract(
 
 fn matches_zsh_config_contract(
     collector: &AmbientContractCollector<'_>,
-    _path: &Path,
+    path: &Path,
     shell: ShellDialect,
 ) -> bool {
+    let lower = lower_path(path);
     shell == ShellDialect::Zsh
-        && zsh_config_consumed_prefixes(collector.source)
+        && zsh_config_consumed_prefixes(collector.source, &lower)
             .next()
             .is_some()
 }
 
 fn build_zsh_config_contract(
     collector: &AmbientContractCollector<'_>,
-    _path: &Path,
+    path: &Path,
     _shell: ShellDialect,
 ) -> FileContract {
+    let lower = lower_path(path);
     let mut contract = FileContract::default();
-    for prefix in zsh_config_consumed_prefixes(collector.source) {
+    for prefix in zsh_config_consumed_prefixes(collector.source, &lower) {
         contract.add_externally_consumed_binding_prefix(Name::from(prefix));
     }
     contract
 }
 
-fn zsh_config_consumed_prefixes(source: &str) -> impl Iterator<Item = &'static str> + '_ {
-    ["POWERLEVEL9K_", "ZDOT_"]
-        .into_iter()
-        .filter(|prefix| source.contains(prefix))
+fn zsh_config_consumed_prefixes<'a>(
+    source: &'a str,
+    lower_path: &'a str,
+) -> impl Iterator<Item = &'static str> + 'a {
+    ["POWERLEVEL9K_", "ZDOT_"].into_iter().filter(|prefix| {
+        source.contains(prefix) && zsh_config_prefix_path_shape(prefix, lower_path)
+    })
+}
+
+fn zsh_config_prefix_path_shape(prefix: &str, lower_path: &str) -> bool {
+    match prefix {
+        "POWERLEVEL9K_" => p10k_config_path_shape(lower_path) || zsh_dotfile_path_shape(lower_path),
+        "ZDOT_" => zsh_dotfile_path_shape(lower_path),
+        _ => false,
+    }
+}
+
+fn p10k_config_path_shape(lower_path: &str) -> bool {
+    path_matches_any(
+        lower_path,
+        &[
+            "/.p10k.zsh",
+            "/p10k.zsh",
+            "/p10k-",
+            "/powerlevel10k/config/",
+            "/powerlevel10k/internal/configure.zsh",
+        ],
+    )
+}
+
+fn zsh_dotfile_path_shape(lower_path: &str) -> bool {
+    path_matches_any(
+        lower_path,
+        &[
+            "/.zshrc",
+            "/zshrc",
+            "/.zshenv",
+            "/zshenv",
+            "/.zprofile",
+            "/zprofile",
+            "/.zlogin",
+            "/zlogin",
+            "/.zlogout",
+            "/zlogout",
+            "/zdot/",
+            "/zsh/config/",
+        ],
+    )
 }
 
 fn sourced_runtime_path_shape(lower: &str) -> bool {
@@ -505,7 +551,7 @@ helper() {
 
     #[test]
     fn zsh_config_namespaces_get_consumed_prefix_contracts() {
-        let path = Path::new("/tmp/powerlevel10k/.p10k.zsh");
+        let path = Path::new("/tmp/zdot/.zshrc");
         let source = "\
 POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(dir vcs)
 ZDOT_MODULE_NAME=prompt
@@ -524,6 +570,17 @@ ZDOT_MODULE_NAME=prompt
         let source = "POWERLEVEL9K_DIR_FOREGROUND=31\n";
 
         assert!(contract_for_shell(path, source, ShellDialect::Sh).is_none());
+    }
+
+    #[test]
+    fn ordinary_zsh_paths_do_not_get_config_prefix_contracts() {
+        let path = Path::new("/tmp/project/plugins/example.zsh");
+        let source = "\
+POWERLEVEL9K_DIR_FOREGROUND=31
+ZDOT_MODULE_NAME=prompt
+";
+
+        assert!(contract_for_shell(path, source, ShellDialect::Zsh).is_none());
     }
 
     #[test]

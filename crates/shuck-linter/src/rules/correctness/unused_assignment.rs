@@ -952,13 +952,34 @@ ZDOT_MODULE_NAME=prompt
 ordinary=1
 ";
         let diagnostics = test_snippet_at_path(
-            Path::new("/tmp/powerlevel10k/.p10k.zsh"),
+            Path::new("/tmp/zdot/.zshrc"),
             source,
             &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "ordinary");
+    }
+
+    #[test]
+    fn zsh_config_namespace_names_still_report_on_ordinary_paths() {
+        let source = "\
+#!/usr/bin/env zsh
+POWERLEVEL9K_DIR_FOREGROUND=31
+ordinary=1
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/plugins/prompt.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "POWERLEVEL9K_DIR_FOREGROUND"
+        );
+        assert_eq!(diagnostics[1].span.slice(source), "ordinary");
     }
 
     #[test]
