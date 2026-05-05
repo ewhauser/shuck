@@ -682,7 +682,8 @@ unused=(other:'unused')
 #!/bin/zsh
 desc='external command'
 values=(git)
-_describe \"$desc\" values
+descriptions=(git:'run git')
+_describe \"$desc\" values descriptions
 unused=(other:'unused')
 ";
         let diagnostics = test_snippet(
