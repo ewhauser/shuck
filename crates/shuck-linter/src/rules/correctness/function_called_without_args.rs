@@ -429,6 +429,34 @@ removed_chpwd
     }
 
     #[test]
+    fn reports_zsh_functions_removed_from_hooks_by_pattern() {
+        let source = "\
+#!/bin/zsh
+cb_one() { print -r -- \"$1\"; }
+cb_two() { print -r -- \"$1\"; }
+cb_keep() { print -r -- \"$1\"; }
+add-zsh-hook precmd cb_one
+add-zsh-hook precmd cb_two
+add-zsh-hook precmd cb_keep
+add-zsh-hook -D precmd 'cb_t*'
+cb_one
+cb_two
+cb_keep
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "cb_two() { print -r -- \"$1\"; }"
+        );
+    }
+
+    #[test]
     fn reports_zsh_functions_removed_from_widgets() {
         let source = "\
 #!/bin/zsh

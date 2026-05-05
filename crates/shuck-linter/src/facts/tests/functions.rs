@@ -633,6 +633,8 @@ deleted_widget_impl() { print -r -- \"$1\"; }
 shared_widget_impl() { print -r -- \"$1\"; }
 latent_widget_impl() { print -r -- \"$1\"; }
 latent_hook_impl() { print -r -- \"$1\"; }
+pattern_removed_hook() { print -r -- \"$1\"; }
+pattern_kept_hook() { print -r -- \"$1\"; }
 zle -N single_operand_widget
 zle -N widget-name widget_impl
 zle -N deleted-widget deleted_widget_impl
@@ -644,6 +646,9 @@ add-zsh-hook -Uz precmd precmd_refresh
 add-zsh-hook chpwd removed_chpwd
 add-zsh-hook -d precmd removed_precmd
 add-zsh-hook -UD chpwd removed_chpwd
+add-zsh-hook precmd pattern_removed_hook
+add-zsh-hook precmd pattern_kept_hook
+add-zsh-hook -D precmd 'pattern_removed_*'
 zle -N \"$widget_name\" dynamic_widget
 setup_widget() { zle -N latent-widget latent_widget_impl; }
 setup_hook() { add-zsh-hook precmd latent_hook_impl; }
@@ -675,7 +680,8 @@ setup_hook() { add-zsh-hook precmd latent_hook_impl; }
                     "precmd_refresh",
                     "precmd",
                     "zsh_directory_name",
-                    "shared_widget_impl"
+                    "shared_widget_impl",
+                    "pattern_kept_hook"
                 ]
             );
         },

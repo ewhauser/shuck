@@ -328,6 +328,12 @@ fn build_external_entrypoint_function_scopes(
             Some(ZshExternalEntrypointAction::UnregisterHook { hook, function }) => {
                 zsh_hook_functions.remove(&(hook, function));
             }
+            Some(ZshExternalEntrypointAction::UnregisterHookPattern { hook, pattern }) => {
+                zsh_hook_functions.retain(|(registered_hook, registered_function)| {
+                    registered_hook.as_ref() != hook.as_ref()
+                        || !zsh_hook_function_pattern_matches(&pattern, registered_function)
+                });
+            }
             None => {}
         }
     }
@@ -462,6 +468,7 @@ enum ZshExternalEntrypointAction {
     UnregisterWidgets { widgets: Vec<Box<str>> },
     RegisterHook { hook: Box<str>, function: Box<str> },
     UnregisterHook { hook: Box<str>, function: Box<str> },
+    UnregisterHookPattern { hook: Box<str>, pattern: Box<str> },
 }
 
 fn command_zsh_external_entrypoint_action(
@@ -518,19 +525,25 @@ fn add_zsh_hook_external_entrypoint_action(
     source: &str,
 ) -> Option<ZshExternalEntrypointAction> {
     let args = static_command_args(command, source)?;
-    let removes_hook = args
-        .iter()
-        .any(|arg| is_add_zsh_hook_removal_option(arg.as_str()));
+    let removal_mode = add_zsh_hook_removal_mode(&args);
     let operands = args
         .iter()
         .filter(|arg| !arg.starts_with('-'))
         .collect::<Vec<_>>();
     match operands.as_slice() {
-        [hook, function, ..] if removes_hook => Some(ZshExternalEntrypointAction::UnregisterHook {
-            hook: hook.as_str().into(),
-            function: function.as_str().into(),
-        }),
-        [hook, function, ..] => Some(ZshExternalEntrypointAction::RegisterHook {
+        [hook, function, ..] if removal_mode == Some(AddZshHookRemovalMode::Exact) => {
+            Some(ZshExternalEntrypointAction::UnregisterHook {
+                hook: hook.as_str().into(),
+                function: function.as_str().into(),
+            })
+        }
+        [hook, pattern, ..] if removal_mode == Some(AddZshHookRemovalMode::Pattern) => {
+            Some(ZshExternalEntrypointAction::UnregisterHookPattern {
+                hook: hook.as_str().into(),
+                pattern: pattern.as_str().into(),
+            })
+        }
+        [hook, function, ..] if removal_mode.is_none() => Some(ZshExternalEntrypointAction::RegisterHook {
             hook: hook.as_str().into(),
             function: function.as_str().into(),
         }),
@@ -538,8 +551,45 @@ fn add_zsh_hook_external_entrypoint_action(
     }
 }
 
-fn is_add_zsh_hook_removal_option(arg: &str) -> bool {
-    arg.starts_with('-') && arg != "--" && arg.chars().skip(1).any(|c| matches!(c, 'd' | 'D'))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AddZshHookRemovalMode {
+    Exact,
+    Pattern,
+}
+
+fn add_zsh_hook_removal_mode(args: &[String]) -> Option<AddZshHookRemovalMode> {
+    if args.iter().any(|arg| add_zsh_hook_option_contains(arg, 'D')) {
+        return Some(AddZshHookRemovalMode::Pattern);
+    }
+    args.iter()
+        .any(|arg| add_zsh_hook_option_contains(arg, 'd'))
+        .then_some(AddZshHookRemovalMode::Exact)
+}
+
+fn add_zsh_hook_option_contains(arg: &str, flag: char) -> bool {
+    arg.starts_with('-') && arg != "--" && arg.chars().skip(1).any(|c| c == flag)
+}
+
+fn zsh_hook_function_pattern_matches(pattern: &str, function: &str) -> bool {
+    zsh_simple_glob_pattern_matches(pattern.as_bytes(), function.as_bytes())
+}
+
+fn zsh_simple_glob_pattern_matches(pattern: &[u8], text: &[u8]) -> bool {
+    if pattern.is_empty() {
+        return text.is_empty();
+    }
+
+    match pattern[0] {
+        b'*' => {
+            zsh_simple_glob_pattern_matches(&pattern[1..], text)
+                || (!text.is_empty() && zsh_simple_glob_pattern_matches(pattern, &text[1..]))
+        }
+        b'?' => !text.is_empty() && zsh_simple_glob_pattern_matches(&pattern[1..], &text[1..]),
+        literal => {
+            text.first().is_some_and(|byte| *byte == literal)
+                && zsh_simple_glob_pattern_matches(&pattern[1..], &text[1..])
+        }
+    }
 }
 
 fn static_command_args(command: &CommandFact<'_>, source: &str) -> Option<Vec<String>> {
