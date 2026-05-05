@@ -1125,6 +1125,12 @@ fn build_nonpersistent_assignment_spans(
                 reset.name == effect.name
                     && reset.span.start.offset > effect.assignment_span.end.offset
                     && reset.span.start.offset < effect.later_use_span.start.offset
+                    && nonpersistent_reset_site_covers_later_use(
+                        semantic,
+                        semantic_analysis,
+                        &effect,
+                        reset,
+                    )
             })
         {
             continue;
@@ -1189,6 +1195,42 @@ fn nonpersistent_assignment_reaches_later_use(
     })
 }
 
+fn nonpersistent_reset_site_covers_later_use(
+    semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
+    effect: &shuck_semantic::NonpersistentAssignmentEffect,
+    reset: &NonpersistentAssignmentExtraResetSite,
+) -> bool {
+    let reset_blocks = semantic_analysis
+        .block_ids_for_span(reset.flow_span)
+        .iter()
+        .copied()
+        .collect::<FxHashSet<_>>();
+    if reset_blocks.is_empty() {
+        return false;
+    }
+    if !reset_site_control_ancestors_contain_later_use(
+        semantic,
+        reset.command_id,
+        effect.later_use_span,
+    ) {
+        return false;
+    }
+
+    let later_use_blocks = semantic_analysis.block_ids_for_span(effect.later_use_span);
+    if later_use_blocks.is_empty() {
+        return true;
+    }
+
+    let assignment_scope = semantic.binding(effect.assignment_binding).scope;
+    let entry = semantic_analysis
+        .flow_entry_block_for_binding_scopes(&[assignment_scope], effect.later_use_span.start.offset);
+    later_use_blocks
+        .iter()
+        .copied()
+        .all(|target| semantic_analysis.blocks_cover_all_paths_to_block(entry, target, &reset_blocks))
+}
+
 fn span_contains(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
 }
@@ -1248,6 +1290,8 @@ struct NonpersistentAssignmentSpans {
 struct NonpersistentAssignmentExtraResetSite {
     name: Name,
     span: Span,
+    flow_span: Span,
+    command_id: CommandId,
 }
 
 fn build_nonpersistent_assignment_extra_reset_sites(
@@ -1273,10 +1317,14 @@ fn build_nonpersistent_assignment_extra_reset_sites(
                 resets.push(NonpersistentAssignmentExtraResetSite {
                     name: Name::from("REPLY"),
                     span: reset_span,
+                    flow_span: command.span(),
+                    command_id: command.id(),
                 });
                 resets.push(NonpersistentAssignmentExtraResetSite {
                     name: Name::from("reply"),
                     span: reset_span,
+                    flow_span: command.span(),
+                    command_id: command.id(),
                 });
             }
             continue;
@@ -1286,6 +1334,8 @@ fn build_nonpersistent_assignment_extra_reset_sites(
             resets.extend(names.iter().cloned().map(|name| NonpersistentAssignmentExtraResetSite {
                 name,
                 span: call_name_span,
+                flow_span: command.span(),
+                command_id: command.id(),
             }));
         }
 
@@ -1304,6 +1354,8 @@ fn build_nonpersistent_assignment_extra_reset_sites(
                 resets.push(NonpersistentAssignmentExtraResetSite {
                     name: Name::from(name.as_ref()),
                     span: argument.span,
+                    flow_span: command.span(),
+                    command_id: command.id(),
                 });
             }
         }
@@ -1315,8 +1367,16 @@ fn build_nonpersistent_assignment_extra_reset_sites(
             .cmp(right.name.as_str())
             .then_with(|| left.span.start.offset.cmp(&right.span.start.offset))
             .then_with(|| left.span.end.offset.cmp(&right.span.end.offset))
+            .then_with(|| left.flow_span.start.offset.cmp(&right.flow_span.start.offset))
+            .then_with(|| left.flow_span.end.offset.cmp(&right.flow_span.end.offset))
+            .then_with(|| left.command_id.index().cmp(&right.command_id.index()))
     });
-    resets.dedup_by(|left, right| left.name == right.name && left.span == right.span);
+    resets.dedup_by(|left, right| {
+        left.name == right.name
+            && left.span == right.span
+            && left.flow_span == right.flow_span
+            && left.command_id == right.command_id
+    });
     resets
 }
 
@@ -1470,6 +1530,54 @@ fn command_runs_in_persistent_shell_context(
         .transient_ancestor_scopes_within_function(command_scope)
         .next()
         .is_none()
+}
+
+fn reset_site_control_ancestors_contain_later_use(
+    semantic: &SemanticModel,
+    command_id: CommandId,
+    later_use_span: Span,
+) -> bool {
+    let mut current = command_id;
+    while let Some(parent) = semantic.syntax_backed_command_parent_id(current) {
+        if command_kind_may_skip_child(semantic.command_kind(parent))
+            && !span_contains(semantic.command_syntax_span(parent), later_use_span)
+        {
+            return false;
+        }
+        current = parent;
+    }
+    true
+}
+
+fn command_kind_may_skip_child(kind: CommandKind) -> bool {
+    match kind {
+        CommandKind::Binary => true,
+        CommandKind::Compound(
+            CompoundCommandKind::If
+            | CompoundCommandKind::For
+            | CompoundCommandKind::Repeat
+            | CompoundCommandKind::Foreach
+            | CompoundCommandKind::ArithmeticFor
+            | CompoundCommandKind::While
+            | CompoundCommandKind::Until
+            | CompoundCommandKind::Case
+            | CompoundCommandKind::Select,
+        ) => true,
+        CommandKind::Simple
+        | CommandKind::Builtin(_)
+        | CommandKind::Decl
+        | CommandKind::Compound(
+            CompoundCommandKind::Subshell
+            | CompoundCommandKind::BraceGroup
+            | CompoundCommandKind::Arithmetic
+            | CompoundCommandKind::Time
+            | CompoundCommandKind::Conditional
+            | CompoundCommandKind::Coproc
+            | CompoundCommandKind::Always,
+        )
+        | CommandKind::Function
+        | CommandKind::AnonymousFunction => false,
+    }
 }
 
 fn build_nonpersistent_assignment_command_contexts(

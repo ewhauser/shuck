@@ -546,6 +546,62 @@ print -r -- $REPLY
     }
 
     #[test]
+    fn reports_zsh_later_reads_when_helper_reset_is_conditional() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+[[ -n $cond ]] && helper
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["for"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_after_branch_only_helper_reset() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+if [[ -n $cond ]]; then
+  helper
+fi
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["for"]
+        );
+    }
+
+    #[test]
     fn ignores_zsh_later_reads_in_sibling_nested_scopes() {
         let source = "\
 #!/bin/zsh
