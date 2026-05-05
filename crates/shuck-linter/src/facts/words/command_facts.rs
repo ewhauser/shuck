@@ -412,10 +412,12 @@ pub(super) fn build_echo_to_sed_substitution_spans<'a>(
     lookup: WordFactLookup<'_, 'a>,
 ) -> Vec<Span> {
     let mut spans = Vec::new();
+    let backtick_commands = BacktickCommandIndex::new(commands, backticks);
     let mut pipeline_sed_command_ids = FxHashSet::default();
 
     for pipeline in pipelines {
-        if let Some(span) = sc2001_like_pipeline_span(commands, pipeline, backticks, lookup) {
+        if let Some(span) = sc2001_like_pipeline_span(commands, pipeline, &backtick_commands, lookup)
+        {
             spans.push(span);
             if let Some(last_segment) = pipeline.last_segment() {
                 pipeline_sed_command_ids.insert(last_segment.command_id());
@@ -426,7 +428,12 @@ pub(super) fn build_echo_to_sed_substitution_spans<'a>(
     spans.extend(commands.iter().filter_map(|command| {
         (!pipeline_sed_command_ids.contains(&command.id()))
             .then(|| {
-                sc2001_like_here_string_span(command, backticks, lookup.source, lookup.line_index)
+                sc2001_like_here_string_span(
+                    command,
+                    &backtick_commands,
+                    lookup.source,
+                    lookup.line_index,
+                )
             })
             .flatten()
     }));
@@ -438,7 +445,7 @@ pub(super) fn build_echo_to_sed_substitution_spans<'a>(
 pub(super) fn sc2001_like_pipeline_span<'a>(
     commands: CommandFacts<'_, 'a>,
     pipeline: &PipelineFact<'a>,
-    backticks: &[BacktickFragmentFact],
+    backtick_commands: &BacktickCommandIndex,
     lookup: WordFactLookup<'_, 'a>,
 ) -> Option<Span> {
     let [left_segment, right_segment] = pipeline.segments() else {
@@ -461,7 +468,7 @@ pub(super) fn sc2001_like_pipeline_span<'a>(
         return None;
     }
 
-    if !command_has_sc2001_like_sed_script(right, backticks, lookup.source) {
+    if !command_has_sc2001_like_sed_script(right, backtick_commands, lookup.source) {
         return None;
     }
 
@@ -500,7 +507,7 @@ pub(super) fn sc2001_like_pipeline_span<'a>(
         return None;
     }
 
-    if command_is_inside_backtick_fragment(right, backticks)
+    if backtick_commands.contains(right)
         && word_occurrence_is_escaped_double_quoted_dynamic(
             lookup.nodes,
             word_fact,
@@ -535,7 +542,7 @@ pub(super) fn sc2001_like_pipeline_span<'a>(
 
 pub(super) fn sc2001_like_here_string_span(
     command: CommandFactRef<'_, '_>,
-    backticks: &[BacktickFragmentFact],
+    backtick_commands: &BacktickCommandIndex,
     source: &str,
     line_index: &LineIndex,
 ) -> Option<Span> {
@@ -543,7 +550,7 @@ pub(super) fn sc2001_like_here_string_span(
         return None;
     }
 
-    if !command_has_sc2001_like_sed_script(command, backticks, source) {
+    if !command_has_sc2001_like_sed_script(command, backtick_commands, source) {
         return None;
     }
 
@@ -556,7 +563,7 @@ pub(super) fn sc2001_like_here_string_span(
         return None;
     }
 
-    if command_is_inside_backtick_fragment(command, backticks) {
+    if backtick_commands.contains(command) {
         return sc2001_like_backtick_command_span(command, source, line_index);
     }
 
@@ -710,14 +717,14 @@ pub(super) fn rewind_offset_by_chars(source: &str, mut offset: usize, count: usi
 
 pub(super) fn command_has_sc2001_like_sed_script(
     command: CommandFactRef<'_, '_>,
-    backticks: &[BacktickFragmentFact],
+    backtick_commands: &BacktickCommandIndex,
     source: &str,
 ) -> bool {
     command
         .options()
         .sed()
         .is_some_and(|sed| sed.has_single_substitution_script())
-        || (command_is_inside_backtick_fragment(command, backticks)
+        || (backtick_commands.contains(command)
             && sed_has_single_substitution_script(
                 command.body_args(),
                 source,
@@ -725,16 +732,24 @@ pub(super) fn command_has_sc2001_like_sed_script(
             ))
 }
 
-pub(super) fn command_is_inside_backtick_fragment(
-    command: CommandFactRef<'_, '_>,
-    backticks: &[BacktickFragmentFact],
-) -> bool {
-    let span = command.span();
-    backticks.iter().any(|fragment| {
-        let fragment_span = fragment.span();
-        fragment_span.start.offset <= span.start.offset
-            && fragment_span.end.offset >= span.end.offset
-    })
+pub(super) struct BacktickCommandIndex {
+    command_ids: DenseCommandIdSet,
+}
+
+impl BacktickCommandIndex {
+    fn new(commands: CommandFacts<'_, '_>, backticks: &[BacktickFragmentFact]) -> Self {
+        let mut command_ids = DenseCommandIdSet::with_capacity(commands.len());
+        for fragment in backticks {
+            for command in commands.contained_in(fragment.span()) {
+                command_ids.insert(command.id());
+            }
+        }
+        Self { command_ids }
+    }
+
+    fn contains(&self, command: CommandFactRef<'_, '_>) -> bool {
+        self.command_ids.contains(command.id())
+    }
 }
 
 
