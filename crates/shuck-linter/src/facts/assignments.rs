@@ -1120,14 +1120,14 @@ fn build_nonpersistent_assignment_spans(
         {
             continue;
         }
-        if let Some(extra_reset_sites) = &extra_reset_sites {
-            if extra_reset_sites.iter().any(|reset| {
+        if let Some(extra_reset_sites) = &extra_reset_sites
+            && extra_reset_sites.iter().any(|reset| {
                 reset.name == effect.name
                     && reset.span.start.offset > effect.assignment_span.end.offset
                     && reset.span.start.offset < effect.later_use_span.start.offset
-            }) {
-                continue;
-            }
+            })
+        {
+            continue;
         }
 
         let assignment_binding = semantic.binding(effect.assignment_binding);
