@@ -1704,6 +1704,10 @@ fn command_runs_in_persistent_shell_context(
     command: &CommandFact<'_>,
     source: &str,
 ) -> bool {
+    if matches!(command.stmt().terminator, Some(StmtTerminator::Background(_))) {
+        return false;
+    }
+
     let transient_scopes = semantic
         .transient_ancestor_scopes_within_function(command.scope())
         .collect::<SmallVec<[_; 2]>>();
