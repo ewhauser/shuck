@@ -183,10 +183,28 @@ mod tests {
         sed_text_is_exempt,
     };
     use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
-    use crate::{Applicability, Diagnostic, LinterSettings, Rule, assert_diagnostics_diff};
+    use crate::{
+        Applicability, Diagnostic, LinterSettings, Rule, ShellDialect, assert_diagnostics_diff,
+    };
 
     fn c005(source: &str) -> usize {
         c005_diagnostics(source).len()
+    }
+
+    fn c005_zsh(source: &str) -> usize {
+        test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SingleQuotedLiteral).with_shell(ShellDialect::Zsh),
+        )
+        .len()
+    }
+
+    fn c005_bash(source: &str) -> usize {
+        test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SingleQuotedLiteral).with_shell(ShellDialect::Bash),
+        )
+        .len()
     }
 
     fn c005_diagnostics(source: &str) -> Vec<Diagnostic> {
@@ -337,6 +355,56 @@ mod tests {
                 "PERLIO=:utf8 perl -pe '$_=lc'\nperl -MConfig -le 'print $Config{installvendorlib}'\n"
             ),
             0
+        );
+    }
+
+    #[test]
+    fn zsh_delayed_eval_command_arguments_are_exempt() {
+        assert_eq!(
+            c005_zsh(
+                "zstyle ':completion:*:*:*:*:processes' command 'ps -u $LOGNAME -o pid,user,command -w'\n"
+            ),
+            0
+        );
+        assert_eq!(
+            c005_bash(
+                "zstyle ':completion:*:*:*:*:processes' command 'ps -u $LOGNAME -o pid,user,command -w'\n"
+            ),
+            1
+        );
+        assert_eq!(c005_zsh("zstyle -s ':completion:*' command '$HOME'\n"), 1);
+        assert_eq!(
+            c005_zsh(
+                "zpty -b \"${id//\\//:} / ${ICE[service]}\" '.zinit-service \"$mode\" \"$id\"'\n"
+            ),
+            0
+        );
+        assert_eq!(
+            c005_bash(
+                "zpty -b \"${id//\\//:} / ${ICE[service]}\" '.zinit-service \"$mode\" \"$id\"'\n"
+            ),
+            1
+        );
+        assert_eq!(c005_zsh("zpty -w name '$HOME'\n"), 1);
+        assert_eq!(c005_zsh("zpty -d name '$HOME'\n"), 1);
+    }
+
+    #[test]
+    fn p10k_prompt_helper_arguments_are_exempt() {
+        assert_eq!(
+            c005_zsh("_p9k_param $1 CONTENT_EXPANSION '${P9K_CONTENT}'\n"),
+            0
+        );
+        assert_eq!(
+            c005_zsh(
+                "_p9k_prompt_segment $0 blue white PYTHON_ICON 0 '${CONDA_PREFIX:-$CONDA_ENV_PATH}' '$msg'\n"
+            ),
+            0
+        );
+        assert_eq!(c005_zsh("_p9k_param $1 MODE '${mode}'\n"), 1);
+        assert_eq!(
+            c005_bash("_p9k_param $1 CONTENT_EXPANSION '${P9K_CONTENT}'\n"),
+            1
         );
     }
 
