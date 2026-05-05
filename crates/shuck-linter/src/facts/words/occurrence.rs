@@ -1011,11 +1011,17 @@ fn apply_zsh_array_fanout(
     semantic: &SemanticModel,
     scope: ScopeId,
     options: Option<&ZshOptionState>,
+    array_like_capable_names: &FxHashSet<Name>,
     analysis: &mut ExpansionAnalysis,
 ) {
     if semantic.shell_profile().dialect != shuck_parser::parser::ShellDialect::Zsh
         || zsh_unindexed_array_fanout_is_disabled(options)
-        || !word_has_unquoted_visible_array_reference(word, semantic, scope)
+        || !word_has_unquoted_visible_array_reference(
+            word,
+            semantic,
+            scope,
+            array_like_capable_names,
+        )
     {
         return;
     }
@@ -1035,8 +1041,15 @@ fn word_has_unquoted_visible_array_reference(
     word: &Word,
     semantic: &SemanticModel,
     scope: ScopeId,
+    array_like_capable_names: &FxHashSet<Name>,
 ) -> bool {
-    parts_have_unquoted_visible_array_reference(&word.parts, semantic, scope, false)
+    parts_have_unquoted_visible_array_reference(
+        &word.parts,
+        semantic,
+        scope,
+        false,
+        array_like_capable_names,
+    )
 }
 
 fn parts_have_unquoted_visible_array_reference(
@@ -1044,21 +1057,39 @@ fn parts_have_unquoted_visible_array_reference(
     semantic: &SemanticModel,
     scope: ScopeId,
     in_double_quotes: bool,
+    array_like_capable_names: &FxHashSet<Name>,
 ) -> bool {
     for part in parts {
         match &part.kind {
             WordPart::DoubleQuoted { parts, .. } => {
-                if parts_have_unquoted_visible_array_reference(parts, semantic, scope, true) {
+                if parts_have_unquoted_visible_array_reference(
+                    parts,
+                    semantic,
+                    scope,
+                    true,
+                    array_like_capable_names,
+                ) {
                     return true;
                 }
             }
             WordPart::Variable(name) if !in_double_quotes => {
-                if visible_name_is_array_like(name, part.span, semantic, scope) {
+                if visible_name_is_array_like(
+                    name,
+                    part.span,
+                    semantic,
+                    scope,
+                    array_like_capable_names,
+                ) {
                     return true;
                 }
             }
             WordPart::Parameter(parameter) if !in_double_quotes => {
-                if zsh_parameter_targets_visible_array(parameter, semantic, scope) {
+                if zsh_parameter_targets_visible_array(
+                    parameter,
+                    semantic,
+                    scope,
+                    array_like_capable_names,
+                ) {
                     return true;
                 }
             }
@@ -1073,6 +1104,7 @@ fn zsh_parameter_targets_visible_array(
     parameter: &ParameterExpansion,
     semantic: &SemanticModel,
     scope: ScopeId,
+    array_like_capable_names: &FxHashSet<Name>,
 ) -> bool {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
@@ -1080,9 +1112,13 @@ fn zsh_parameter_targets_visible_array(
             target: ZshExpansionTarget::Reference(reference),
             length_prefix: None,
             ..
-        }) if reference.subscript.is_none() => {
-            visible_name_is_array_like(&reference.name, reference.name_span, semantic, scope)
-        }
+        }) if reference.subscript.is_none() => visible_name_is_array_like(
+            &reference.name,
+            reference.name_span,
+            semantic,
+            scope,
+            array_like_capable_names,
+        ),
         _ => false,
     }
 }
@@ -1092,7 +1128,11 @@ fn visible_name_is_array_like(
     span: Span,
     semantic: &SemanticModel,
     scope: ScopeId,
+    array_like_capable_names: &FxHashSet<Name>,
 ) -> bool {
+    if !array_like_capable_names.contains(name) {
+        return false;
+    }
     semantic
         .analysis()
         .value_flow()
@@ -1167,6 +1207,7 @@ pub(super) struct WordFactOutputs<'out, 'a> {
         &'out mut FxHashSet<PendingArithmeticSeenKey>,
     pub(super) assoc_binding_visibility_memo:
         &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
+    pub(super) array_like_capable_names: &'out FxHashSet<Name>,
     pub(super) case_pattern_expansions: &'out mut Vec<CasePatternExpansionFact>,
     pub(super) pattern_literal_spans: &'out mut Vec<Span>,
     pub(super) arithmetic: &'out mut ArithmeticFactSummary,
@@ -1476,6 +1517,7 @@ pub(super) struct WordFactCollector<'out, 'a, 'norm> {
     pending_arithmetic_word_occurrences: &'out mut Vec<PendingArithmeticWordOccurrence>,
     array_assignment_split_word_ids: &'out mut Vec<WordOccurrenceId>,
     assoc_binding_visibility_memo: &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
+    array_like_capable_names: &'out FxHashSet<Name>,
     seen: &'out mut FxHashSet<WordOccurrenceSeenKey>,
     seen_pending_arithmetic: &'out mut FxHashSet<PendingArithmeticSeenKey>,
     compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
@@ -1565,6 +1607,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             pending_arithmetic_word_occurrences: outputs.pending_arithmetic_word_occurrences,
             array_assignment_split_word_ids: outputs.array_assignment_split_word_ids,
             assoc_binding_visibility_memo: outputs.assoc_binding_visibility_memo,
+            array_like_capable_names: outputs.array_like_capable_names,
             seen: {
                 outputs.seen_word_occurrences.clear();
                 outputs.seen_word_occurrences
@@ -2465,6 +2508,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             self.semantic,
             self.command_scope,
             self.command_shell_behavior.zsh_options(),
+            self.array_like_capable_names,
             &mut analysis,
         );
         let derived =

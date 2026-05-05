@@ -45,6 +45,24 @@ fn estimate_fact_build_capacity(semantic: &SemanticModel) -> FactBuildCapacity {
     }
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
+fn compute_array_like_capable_names(semantic: &SemanticModel) -> FxHashSet<Name> {
+    let mut names = FxHashSet::default();
+    for binding in semantic.bindings() {
+        if binding
+            .attributes
+            .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC)
+            || matches!(
+                binding.kind,
+                BindingKind::ArrayAssignment | BindingKind::MapfileTarget
+            )
+        {
+            names.insert(binding.name.clone());
+        }
+    }
+    names
+}
+
 impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
     fn new(
         file: &'a File,
@@ -108,6 +126,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let mut seen_word_occurrences = FxHashSet::default();
         let mut seen_pending_arithmetic_word_occurrences = FxHashSet::default();
         let mut assoc_binding_visibility_memo = FxHashMap::default();
+        let array_like_capable_names = compute_array_like_capable_names(self.semantic);
         let mut pattern_exactly_one_extglob_spans = Vec::new();
         let mut case_pattern_expansions = Vec::new();
         let mut pattern_literal_spans = Vec::new();
@@ -230,6 +249,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                         seen_pending_arithmetic_word_occurrences:
                             &mut seen_pending_arithmetic_word_occurrences,
                         assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
+                        array_like_capable_names: &array_like_capable_names,
                         case_pattern_expansions: &mut case_pattern_expansions,
                         pattern_literal_spans: &mut pattern_literal_spans,
                         arithmetic: &mut arithmetic_summary,
