@@ -512,13 +512,47 @@ fn describe_array_names(args: &[&Word], source: &str) -> Vec<(Name, Span)> {
     }
 
     let mut targets = Vec::new();
-    for offset in [1, 2] {
-        if let Some(target) = args
-            .get(index + offset)
-            .and_then(|word| named_target_word(word, source))
+    let mut first_group = true;
+    while index < args.len() {
+        if args
+            .get(index)
+            .and_then(|word| static_word_text(word, source))
+            .as_deref()
+            == Some("--")
         {
-            targets.push(target);
+            index += 1;
+            first_group = false;
+            continue;
         }
+
+        let segment_start = index;
+        let mut segment_end = index;
+        while segment_end < args.len()
+            && args
+                .get(segment_end)
+                .and_then(|word| static_word_text(word, source))
+                .as_deref()
+                != Some("--")
+        {
+            segment_end += 1;
+        }
+
+        let segment_len = segment_end.saturating_sub(segment_start);
+        let target_start = if first_group || segment_len > 1 {
+            segment_start + 1
+        } else {
+            segment_start
+        };
+        for target_index in target_start..(target_start + 2).min(segment_end) {
+            if let Some(target) = args
+                .get(target_index)
+                .and_then(|word| named_target_word(word, source))
+            {
+                targets.push(target);
+            }
+        }
+        index = segment_end;
+        first_group = false;
     }
     targets
 }

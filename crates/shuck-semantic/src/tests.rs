@@ -1266,6 +1266,26 @@ _describe \"$desc\" values
 }
 
 #[test]
+fn zsh_describe_consumes_array_operands_after_group_separator() {
+    let source = "\
+#!/bin/zsh
+values=(git)
+more_values=(hg)
+_describe 'external command' values -- more_values
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+
+    for name in ["values", "more_values"] {
+        let binding = binding_for_name(&model, name);
+        assert_eq!(binding.references.len(), 1);
+        assert_eq!(
+            model.reference(binding.references[0]).span.slice(source),
+            name
+        );
+    }
+}
+
+#[test]
 fn zsh_describe_consumes_named_array_operand_after_options_and_separator() {
     let source = "\
 #!/bin/zsh
