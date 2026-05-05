@@ -308,7 +308,7 @@ fn build_external_entrypoint_function_scopes(
     }
 
     let mut zsh_widget_functions = FxHashMap::<Box<str>, Box<str>>::default();
-    let mut zsh_hook_functions = FxHashSet::<(Box<str>, Box<str>)>::default();
+    let mut zsh_hook_targets = FxHashSet::<(Box<str>, ZshHookTarget)>::default();
     for command in commands {
         if !is_top_level_zsh_entrypoint_registration(semantic, command) {
             continue;
@@ -322,16 +322,28 @@ fn build_external_entrypoint_function_scopes(
                     zsh_widget_functions.remove(&widget);
                 }
             }
-            Some(ZshExternalEntrypointAction::RegisterHook { hook, function }) => {
-                zsh_hook_functions.insert((hook, function));
+            Some(ZshExternalEntrypointAction::RegisterHookFunction { hook, function }) => {
+                zsh_hook_targets.insert((hook, ZshHookTarget::Function(function)));
             }
-            Some(ZshExternalEntrypointAction::UnregisterHook { hook, function }) => {
-                zsh_hook_functions.remove(&(hook, function));
+            Some(ZshExternalEntrypointAction::RegisterHookWidget { hook, widget }) => {
+                zsh_hook_targets.insert((hook, ZshHookTarget::Widget(widget)));
             }
-            Some(ZshExternalEntrypointAction::UnregisterHookPattern { hook, pattern }) => {
-                zsh_hook_functions.retain(|(registered_hook, registered_function)| {
+            Some(ZshExternalEntrypointAction::UnregisterHookFunction { hook, function }) => {
+                zsh_hook_targets.remove(&(hook, ZshHookTarget::Function(function)));
+            }
+            Some(ZshExternalEntrypointAction::UnregisterHookWidget { hook, widget }) => {
+                zsh_hook_targets.remove(&(hook, ZshHookTarget::Widget(widget)));
+            }
+            Some(ZshExternalEntrypointAction::UnregisterHookFunctionPattern { hook, pattern }) => {
+                zsh_hook_targets.retain(|(registered_hook, registered_target)| {
                     registered_hook.as_ref() != hook.as_ref()
-                        || !zsh_hook_function_pattern_matches(&pattern, registered_function)
+                        || !registered_target.is_function_matching_pattern(&pattern)
+                });
+            }
+            Some(ZshExternalEntrypointAction::UnregisterHookWidgetPattern { hook, pattern }) => {
+                zsh_hook_targets.retain(|(registered_hook, registered_target)| {
+                    registered_hook.as_ref() != hook.as_ref()
+                        || !registered_target.is_widget_matching_pattern(&pattern)
                 });
             }
             None => {}
@@ -342,9 +354,9 @@ fn build_external_entrypoint_function_scopes(
         if zsh_widget_functions
             .values()
             .any(|name| name.as_ref() == candidate.name.as_ref())
-            || zsh_hook_functions
+            || zsh_hook_targets
                 .iter()
-                .any(|(_, name)| name.as_ref() == candidate.name.as_ref())
+                .any(|(_, target)| target.matches_function(&candidate.name, &zsh_widget_functions))
         {
             scopes.insert(candidate.scope);
         }
@@ -466,9 +478,50 @@ fn command_registers_completion_function(
 enum ZshExternalEntrypointAction {
     RegisterWidget { widget: Box<str>, function: Box<str> },
     UnregisterWidgets { widgets: Vec<Box<str>> },
-    RegisterHook { hook: Box<str>, function: Box<str> },
-    UnregisterHook { hook: Box<str>, function: Box<str> },
-    UnregisterHookPattern { hook: Box<str>, pattern: Box<str> },
+    RegisterHookFunction { hook: Box<str>, function: Box<str> },
+    RegisterHookWidget { hook: Box<str>, widget: Box<str> },
+    UnregisterHookFunction { hook: Box<str>, function: Box<str> },
+    UnregisterHookWidget { hook: Box<str>, widget: Box<str> },
+    UnregisterHookFunctionPattern { hook: Box<str>, pattern: Box<str> },
+    UnregisterHookWidgetPattern { hook: Box<str>, pattern: Box<str> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum ZshHookTarget {
+    Function(Box<str>),
+    Widget(Box<str>),
+}
+
+impl ZshHookTarget {
+    fn matches_function(
+        &self,
+        function: &str,
+        widget_functions: &FxHashMap<Box<str>, Box<str>>,
+    ) -> bool {
+        match self {
+            Self::Function(name) => name.as_ref() == function,
+            Self::Widget(widget) => {
+                widget.as_ref() == function
+                    || widget_functions
+                        .get(widget)
+                        .is_some_and(|name| name.as_ref() == function)
+            }
+        }
+    }
+
+    fn is_function_matching_pattern(&self, pattern: &str) -> bool {
+        match self {
+            Self::Function(name) => zsh_hook_function_pattern_matches(pattern, name),
+            Self::Widget(_) => false,
+        }
+    }
+
+    fn is_widget_matching_pattern(&self, pattern: &str) -> bool {
+        match self {
+            Self::Function(_) => false,
+            Self::Widget(name) => zsh_hook_function_pattern_matches(pattern, name),
+        }
+    }
 }
 
 fn command_zsh_external_entrypoint_action(
@@ -477,8 +530,16 @@ fn command_zsh_external_entrypoint_action(
 ) -> Option<ZshExternalEntrypointAction> {
     match command.effective_or_literal_name()? {
         "zle" => zle_external_entrypoint_action(command, source),
-        "add-zsh-hook" => add_zsh_hook_external_entrypoint_action(command, source),
-        "add-zle-hook-widget" => add_zsh_hook_external_entrypoint_action(command, source),
+        "add-zsh-hook" => add_zsh_hook_external_entrypoint_action(
+            command,
+            source,
+            AddZshHookTargetKind::Function,
+        ),
+        "add-zle-hook-widget" => add_zsh_hook_external_entrypoint_action(
+            command,
+            source,
+            AddZshHookTargetKind::Widget,
+        ),
         _ => None,
     }
 }
@@ -524,6 +585,7 @@ fn zle_external_entrypoint_action(
 fn add_zsh_hook_external_entrypoint_action(
     command: &CommandFact<'_>,
     source: &str,
+    target_kind: AddZshHookTargetKind,
 ) -> Option<ZshExternalEntrypointAction> {
     let args = static_command_args(command, source)?;
     let removal_mode = add_zsh_hook_removal_mode(&args);
@@ -532,24 +594,51 @@ fn add_zsh_hook_external_entrypoint_action(
         .filter(|arg| !arg.starts_with('-'))
         .collect::<Vec<_>>();
     match operands.as_slice() {
-        [hook, function, ..] if removal_mode == Some(AddZshHookRemovalMode::Exact) => {
-            Some(ZshExternalEntrypointAction::UnregisterHook {
+        [hook, function, ..] if removal_mode == Some(AddZshHookRemovalMode::Exact) => match target_kind
+        {
+            AddZshHookTargetKind::Function => Some(ZshExternalEntrypointAction::UnregisterHookFunction {
                 hook: hook.as_str().into(),
                 function: function.as_str().into(),
-            })
-        }
-        [hook, pattern, ..] if removal_mode == Some(AddZshHookRemovalMode::Pattern) => {
-            Some(ZshExternalEntrypointAction::UnregisterHookPattern {
+            }),
+            AddZshHookTargetKind::Widget => Some(ZshExternalEntrypointAction::UnregisterHookWidget {
                 hook: hook.as_str().into(),
-                pattern: pattern.as_str().into(),
-            })
+                widget: function.as_str().into(),
+            }),
+        },
+        [hook, pattern, ..] if removal_mode == Some(AddZshHookRemovalMode::Pattern) => {
+            match target_kind {
+                AddZshHookTargetKind::Function => Some(
+                    ZshExternalEntrypointAction::UnregisterHookFunctionPattern {
+                        hook: hook.as_str().into(),
+                        pattern: pattern.as_str().into(),
+                    },
+                ),
+                AddZshHookTargetKind::Widget => Some(
+                    ZshExternalEntrypointAction::UnregisterHookWidgetPattern {
+                        hook: hook.as_str().into(),
+                        pattern: pattern.as_str().into(),
+                    },
+                ),
+            }
         }
-        [hook, function, ..] if removal_mode.is_none() => Some(ZshExternalEntrypointAction::RegisterHook {
-            hook: hook.as_str().into(),
-            function: function.as_str().into(),
-        }),
+        [hook, function, ..] if removal_mode.is_none() => match target_kind {
+            AddZshHookTargetKind::Function => Some(ZshExternalEntrypointAction::RegisterHookFunction {
+                hook: hook.as_str().into(),
+                function: function.as_str().into(),
+            }),
+            AddZshHookTargetKind::Widget => Some(ZshExternalEntrypointAction::RegisterHookWidget {
+                hook: hook.as_str().into(),
+                widget: function.as_str().into(),
+            }),
+        },
         _ => None,
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum AddZshHookTargetKind {
+    Function,
+    Widget,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

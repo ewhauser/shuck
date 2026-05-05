@@ -636,6 +636,7 @@ latent_hook_impl() { print -r -- \"$1\"; }
 pattern_removed_hook() { print -r -- \"$1\"; }
 pattern_kept_hook() { print -r -- \"$1\"; }
 zle_hook_widget_impl() { print -r -- \"$1\"; }
+zle_hook_backing_impl() { print -r -- \"$1\"; }
 bracket_removed_hook() { print -r -- \"$1\"; }
 number_removed_hook_12() { print -r -- \"$1\"; }
 negated_class_removed_hook() { print -r -- \"$1\"; }
@@ -655,6 +656,8 @@ add-zsh-hook precmd pattern_removed_hook
 add-zsh-hook precmd pattern_kept_hook
 add-zsh-hook -D precmd 'pattern_removed_*'
 add-zle-hook-widget line-init zle_hook_widget_impl
+zle -N zle-hook-widget-alias zle_hook_backing_impl
+add-zle-hook-widget line-init zle-hook-widget-alias
 add-zsh-hook precmd bracket_removed_hook
 add-zsh-hook precmd number_removed_hook_12
 add-zsh-hook precmd negated_class_removed_hook
@@ -696,6 +699,7 @@ setup_hook() { add-zsh-hook precmd latent_hook_impl; }
                     "shared_widget_impl",
                     "pattern_kept_hook",
                     "zle_hook_widget_impl",
+                    "zle_hook_backing_impl",
                     "negated_class_kept_hook"
                 ]
             );

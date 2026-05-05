@@ -402,8 +402,12 @@ shared_widget
         let source = "\
 #!/bin/zsh
 line_init_widget() { print -r -- \"$1\"; }
+line_init_impl() { print -r -- \"$1\"; }
+zle -N line-init-alias line_init_impl
 add-zle-hook-widget line-init line_init_widget
+add-zle-hook-widget line-init line-init-alias
 line_init_widget
+line_init_impl
 ";
         let diagnostics = test_snippet(
             source,
