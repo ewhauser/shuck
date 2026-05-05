@@ -1946,12 +1946,18 @@ impl SemanticModel {
             && contract.provided_bindings.is_empty()
             && contract.provided_functions.is_empty()
             && !contract.externally_consumed_bindings
+            && contract.externally_consumed_binding_prefixes.is_empty()
         {
             return;
         }
 
         if contract.externally_consumed_bindings {
             self.mark_file_entry_consumed_bindings();
+        }
+        if !contract.externally_consumed_binding_prefixes.is_empty() {
+            self.mark_file_entry_consumed_binding_prefixes(
+                &contract.externally_consumed_binding_prefixes,
+            );
         }
 
         let mut synthetic_reads = self.synthetic_reads.clone();
@@ -2008,6 +2014,23 @@ impl SemanticModel {
     fn mark_file_entry_consumed_bindings(&mut self) {
         for binding in &mut self.bindings {
             if file_entry_contract_can_consume_binding(binding) {
+                binding.attributes |= BindingAttributes::EXTERNALLY_CONSUMED;
+            }
+        }
+        self.heuristic_unused_assignments.retain(|binding_id| {
+            !self.bindings[binding_id.index()]
+                .attributes
+                .contains(BindingAttributes::EXTERNALLY_CONSUMED)
+        });
+    }
+
+    fn mark_file_entry_consumed_binding_prefixes(&mut self, prefixes: &[Name]) {
+        for binding in &mut self.bindings {
+            if file_entry_contract_can_consume_binding(binding)
+                && prefixes
+                    .iter()
+                    .any(|prefix| binding.name.as_str().starts_with(prefix.as_str()))
+            {
                 binding.attributes |= BindingAttributes::EXTERNALLY_CONSUMED;
             }
         }

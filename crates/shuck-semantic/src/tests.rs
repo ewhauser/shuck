@@ -895,6 +895,7 @@ printf '%s\\n' \"$pkgname\"
                 )],
                 provided_functions: Vec::new(),
                 externally_consumed_bindings: false,
+                externally_consumed_binding_prefixes: Vec::new(),
             }),
             ..SemanticBuildOptions::default()
         },
@@ -3227,6 +3228,7 @@ echo $value
                 )],
                 provided_functions: Vec::new(),
                 externally_consumed_bindings: false,
+                externally_consumed_binding_prefixes: Vec::new(),
             }),
             ..SemanticBuildOptions::default()
         },
@@ -8973,6 +8975,7 @@ fn file_entry_contracts_seed_multiple_first_command_reads_as_imported_bindings()
                 ],
                 provided_functions: Vec::new(),
                 externally_consumed_bindings: false,
+                externally_consumed_binding_prefixes: Vec::new(),
             }),
             ..SemanticBuildOptions::default()
         },
@@ -9038,6 +9041,7 @@ build() {
                 ],
                 provided_functions: Vec::new(),
                 externally_consumed_bindings: false,
+                externally_consumed_binding_prefixes: Vec::new(),
             }),
             ..SemanticBuildOptions::default()
         },
@@ -9114,6 +9118,7 @@ hook() {
                 ],
                 provided_functions: Vec::new(),
                 externally_consumed_bindings: false,
+                externally_consumed_binding_prefixes: Vec::new(),
             }),
             ..SemanticBuildOptions::default()
         },
@@ -9170,6 +9175,7 @@ fn initialized_file_entry_bindings_suppress_uninitialized_reads() {
                 )],
                 provided_functions: Vec::new(),
                 externally_consumed_bindings: false,
+                externally_consumed_binding_prefixes: Vec::new(),
             }),
             ..SemanticBuildOptions::default()
         },
@@ -9204,6 +9210,7 @@ fn file_entry_contracts_can_mark_assignments_as_caller_consumed() {
                 provided_bindings: Vec::new(),
                 provided_functions: Vec::new(),
                 externally_consumed_bindings: true,
+                externally_consumed_binding_prefixes: Vec::new(),
             }),
             ..SemanticBuildOptions::default()
         },

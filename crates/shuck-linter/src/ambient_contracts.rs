@@ -61,10 +61,16 @@ impl FileEntryContractCollector for AmbientContractCollector<'_> {
 }
 
 fn providers() -> &'static [AmbientContractProvider] {
-    &[AmbientContractProvider {
-        matches: matches_sourced_runtime_contract,
-        build: build_sourced_runtime_contract,
-    }]
+    &[
+        AmbientContractProvider {
+            matches: matches_sourced_runtime_contract,
+            build: build_sourced_runtime_contract,
+        },
+        AmbientContractProvider {
+            matches: matches_zsh_config_contract,
+            build: build_zsh_config_contract,
+        },
+    ]
 }
 
 fn merge_contract(merged: &mut FileContract, contract: FileContract) {
@@ -77,6 +83,9 @@ fn merge_contract(merged: &mut FileContract, contract: FileContract) {
     }
     for function in contract.provided_functions {
         merged.add_provided_function(function);
+    }
+    for prefix in contract.externally_consumed_binding_prefixes {
+        merged.add_externally_consumed_binding_prefix(prefix);
     }
 }
 
@@ -112,6 +121,101 @@ fn build_sourced_runtime_contract(
         ));
     }
     contract
+}
+
+fn matches_zsh_config_contract(
+    collector: &AmbientContractCollector<'_>,
+    path: &Path,
+    shell: ShellDialect,
+) -> bool {
+    let lower = lower_path(path);
+    shell_matches_zsh_config_context(shell, &lower)
+        && zsh_config_consumed_prefixes(collector.source, &lower)
+            .next()
+            .is_some()
+}
+
+fn build_zsh_config_contract(
+    collector: &AmbientContractCollector<'_>,
+    path: &Path,
+    _shell: ShellDialect,
+) -> FileContract {
+    let lower = lower_path(path);
+    let mut contract = FileContract::default();
+    for prefix in zsh_config_consumed_prefixes(collector.source, &lower) {
+        contract.add_externally_consumed_binding_prefix(Name::from(prefix));
+    }
+    contract
+}
+
+fn zsh_config_consumed_prefixes<'a>(
+    source: &'a str,
+    lower_path: &'a str,
+) -> impl Iterator<Item = &'static str> + 'a {
+    ["POWERLEVEL9K_", "ZDOT_"].into_iter().filter(|prefix| {
+        source.contains(prefix) && zsh_config_prefix_path_shape(prefix, lower_path)
+    })
+}
+
+fn zsh_config_prefix_path_shape(prefix: &str, lower_path: &str) -> bool {
+    match prefix {
+        "POWERLEVEL9K_" => p10k_config_path_shape(lower_path) || zsh_dotfile_path_shape(lower_path),
+        "ZDOT_" => zsh_dotfile_path_shape(lower_path),
+        _ => false,
+    }
+}
+
+fn shell_matches_zsh_config_context(shell: ShellDialect, lower_path: &str) -> bool {
+    shell == ShellDialect::Zsh
+        || (shell == ShellDialect::Unknown
+            && (p10k_config_path_shape(lower_path) || zsh_dotfile_path_shape(lower_path)))
+}
+
+fn p10k_config_path_shape(lower_path: &str) -> bool {
+    let file_name = path_file_name(lower_path);
+    if file_name == ".p10k.zsh"
+        || file_name == "p10k.zsh"
+        || (file_name.starts_with("p10k-") && file_name.ends_with(".zsh"))
+    {
+        return true;
+    }
+
+    path_matches_any(
+        lower_path,
+        &[
+            "/powerlevel10k/config/",
+            "/powerlevel10k/internal/configure.zsh",
+        ],
+    )
+}
+
+fn zsh_dotfile_path_shape(lower_path: &str) -> bool {
+    path_has_component(
+        lower_path,
+        &[
+            ".zshrc",
+            "zshrc",
+            ".zshenv",
+            "zshenv",
+            ".zprofile",
+            "zprofile",
+            ".zlogin",
+            "zlogin",
+            ".zlogout",
+            "zlogout",
+            "zdot",
+        ],
+    ) || lower_path.contains("/zsh/config/")
+}
+
+fn path_has_component(lower_path: &str, names: &[&str]) -> bool {
+    lower_path
+        .split('/')
+        .any(|component| names.contains(&component))
+}
+
+fn path_file_name(lower_path: &str) -> &str {
+    lower_path.rsplit('/').next().unwrap_or(lower_path)
 }
 
 fn sourced_runtime_path_shape(lower: &str) -> bool {
@@ -368,10 +472,14 @@ mod tests {
     };
 
     fn contract_for(path: &Path, source: &str) -> Option<FileContract> {
+        contract_for_shell(path, source, ShellDialect::Sh)
+    }
+
+    fn contract_for_shell(path: &Path, source: &str, shell: ShellDialect) -> Option<FileContract> {
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let mut observer = NoopTraversalObserver;
-        let mut collector = AmbientContractCollector::new(source, Some(path), ShellDialect::Sh);
+        let mut collector = AmbientContractCollector::new(source, Some(path), shell);
         let _semantic = build_with_observer_with_options(
             &output.file,
             source,
@@ -399,6 +507,13 @@ mod tests {
                 && binding.file_entry_initialization
                     == shuck_semantic::FileEntryBindingInitialization::AmbientOnly
         })
+    }
+
+    fn has_consumed_prefix(contract: &FileContract, prefix: &str) -> bool {
+        contract
+            .externally_consumed_binding_prefixes
+            .iter()
+            .any(|consumed_prefix| consumed_prefix.as_str() == prefix)
     }
 
     #[test]
@@ -452,6 +567,65 @@ helper() {
         assert!(!has_initialized_binding(&contract, "green"));
         assert!(!has_initialized_binding(&contract, "reset_color"));
         assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn zsh_config_namespaces_get_consumed_prefix_contracts() {
+        let path = Path::new("/tmp/zdot/.zshrc");
+        let source = "\
+POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(dir vcs)
+ZDOT_MODULE_NAME=prompt
+";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        assert!(has_consumed_prefix(&contract, "POWERLEVEL9K_"));
+        assert!(has_consumed_prefix(&contract, "ZDOT_"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn zsh_config_prefix_contracts_are_zsh_only() {
+        let path = Path::new("/tmp/project/script.sh");
+        let source = "POWERLEVEL9K_DIR_FOREGROUND=31\n";
+
+        assert!(contract_for_shell(path, source, ShellDialect::Sh).is_none());
+    }
+
+    #[test]
+    fn ordinary_zsh_paths_do_not_get_config_prefix_contracts() {
+        let path = Path::new("/tmp/project/plugins/example.zsh");
+        let source = "\
+POWERLEVEL9K_DIR_FOREGROUND=31
+ZDOT_MODULE_NAME=prompt
+";
+
+        assert!(contract_for_shell(path, source, ShellDialect::Zsh).is_none());
+    }
+
+    #[test]
+    fn shebangless_zsh_dotfiles_get_config_prefix_contracts() {
+        let path = Path::new("/tmp/home/.zshrc");
+        let source = "\
+POWERLEVEL9K_DIR_FOREGROUND=31
+ZDOT_MODULE_NAME=prompt
+";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Unknown).unwrap();
+
+        assert!(has_consumed_prefix(&contract, "POWERLEVEL9K_"));
+        assert!(has_consumed_prefix(&contract, "ZDOT_"));
+    }
+
+    #[test]
+    fn zshrc_named_directories_do_not_count_as_dotfiles() {
+        let path = Path::new("/tmp/project/zshrc-theme/prompt.zsh");
+        let source = "\
+POWERLEVEL9K_DIR_FOREGROUND=31
+ZDOT_MODULE_NAME=prompt
+";
+
+        assert!(contract_for_shell(path, source, ShellDialect::Zsh).is_none());
     }
 
     #[test]
