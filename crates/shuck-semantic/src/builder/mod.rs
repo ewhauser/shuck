@@ -14,7 +14,7 @@ use shuck_ast::{
     static_word_text, try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;
-use shuck_parser::{ShellProfile, ZshEmulationMode, parser::Parser};
+use shuck_parser::{ShellDialect, ShellProfile, ZshEmulationMode, ZshOptionState, parser::Parser};
 use smallvec::SmallVec;
 
 use crate::binding::{
@@ -129,7 +129,7 @@ fn semantic_statement_span(stmt: &Stmt) -> Span {
     Span::from_positions(stmt.span.start, end)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FlowState {
     in_function: bool,
     loop_depth: u32,
@@ -137,14 +137,46 @@ struct FlowState {
     in_block: bool,
     exit_status_checked: bool,
     conditionally_executed: bool,
+    pipeline_tail_runs_in_current_shell: bool,
+}
+
+impl Default for FlowState {
+    fn default() -> Self {
+        Self {
+            in_function: false,
+            loop_depth: 0,
+            in_subshell: false,
+            in_block: false,
+            exit_status_checked: false,
+            conditionally_executed: false,
+            pipeline_tail_runs_in_current_shell: true,
+        }
+    }
 }
 
 impl FlowState {
+    fn for_shell_profile(profile: &ShellProfile) -> Self {
+        let mut flow = Self::default();
+        if profile.dialect == ShellDialect::Zsh {
+            flow.pipeline_tail_runs_in_current_shell =
+                profile.zsh_options().is_some_and(|options| {
+                    *options != ZshOptionState::for_emulate(ZshEmulationMode::Sh)
+                });
+        }
+        flow
+    }
+
     fn conditional(self) -> Self {
         Self {
             conditionally_executed: true,
             ..self
         }
+    }
+
+    fn with_zsh_emulation(mut self, mode: Option<ZshEmulationMode>) -> Self {
+        self.pipeline_tail_runs_in_current_shell =
+            !matches!(mode, None | Some(ZshEmulationMode::Sh));
+        self
     }
 }
 
@@ -232,7 +264,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             arithmetic_reference_kind: ReferenceKind::ArithmeticRead,
             word_reference_kind_override: None,
         };
-        let file_commands = builder.visit_stmt_seq(&file.body, FlowState::default());
+        let file_commands = builder.visit_stmt_seq(
+            &file.body,
+            FlowState::for_shell_profile(&builder.shell_profile),
+        );
         builder.recorded_program.set_file_commands(file_commands);
         builder.mark_scope_completed(ScopeId(0));
         builder.drain_deferred_functions();

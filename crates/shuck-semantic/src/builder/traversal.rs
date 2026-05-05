@@ -59,7 +59,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     pub(super) fn visit_stmt_seq_into(
         &mut self,
         commands: &'a StmtSeq,
-        flow: FlowState,
+        mut flow: FlowState,
         recorded: &mut Vec<CommandId>,
     ) {
         recorded.reserve(commands.len());
@@ -70,7 +70,71 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             self.observer
                 .recorded_statement_sequence_command(commands.span, stmt.span, command);
             recorded.push(command);
+            flow = self.flow_after_statement(stmt, flow);
         }
+    }
+
+    fn flow_after_statement(&self, stmt: &'a Stmt, flow: FlowState) -> FlowState {
+        self.flow_after_command(&stmt.command, flow)
+    }
+
+    fn flow_after_command(&self, command: &'a Command, flow: FlowState) -> FlowState {
+        match command {
+            Command::Simple(_) => {
+                let info = recorded_command_info(command, self.source, self.runtime.bash_enabled());
+                flow_after_zsh_effects(flow, &info.zsh_effects)
+            }
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => {
+                let after_block = self.flow_after_stmt_seq(
+                    commands,
+                    FlowState {
+                        in_block: true,
+                        ..flow
+                    },
+                );
+                flow_after_nested_current_shell_effects(flow, after_block)
+            }
+            Command::Compound(CompoundCommand::If(command)) => {
+                self.flow_after_stmt_seq(&command.condition, flow)
+            }
+            Command::Compound(CompoundCommand::While(command)) => {
+                self.flow_after_stmt_seq(&command.condition, flow)
+            }
+            Command::Compound(CompoundCommand::Until(command)) => {
+                self.flow_after_stmt_seq(&command.condition, flow)
+            }
+            Command::Compound(CompoundCommand::Always(command)) => {
+                let block_flow = FlowState {
+                    in_block: true,
+                    ..flow
+                };
+                let after_body = self.flow_after_stmt_seq(&command.body, block_flow);
+                let after_always = self.flow_after_stmt_seq(&command.always_body, after_body);
+                flow_after_nested_current_shell_effects(flow, after_always)
+            }
+            Command::Compound(CompoundCommand::Time(command)) => command
+                .command
+                .as_deref()
+                .map_or(flow, |command| self.flow_after_statement(command, flow)),
+            Command::Binary(command) => match command.op {
+                BinaryOp::And | BinaryOp::Or => self.flow_after_statement(&command.left, flow),
+                BinaryOp::Pipe | BinaryOp::PipeAll
+                    if self.shell_profile.dialect == ShellDialect::Zsh
+                        && flow.pipeline_tail_runs_in_current_shell =>
+                {
+                    self.flow_after_statement(&command.right, flow)
+                }
+                BinaryOp::Pipe | BinaryOp::PipeAll => flow,
+            },
+            _ => flow,
+        }
+    }
+
+    fn flow_after_stmt_seq(&self, commands: &'a StmtSeq, mut flow: FlowState) -> FlowState {
+        for stmt in commands.iter() {
+            flow = self.flow_after_statement(stmt, flow);
+        }
+        flow
     }
 
     pub(super) fn visit_stmt(&mut self, stmt: &'a Stmt, flow: FlowState) -> CommandId {
@@ -374,9 +438,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     pub(super) fn visit_pipeline_binary(
         &mut self,
         command: &'a BinaryCommand,
-        mut flow: FlowState,
+        flow: FlowState,
     ) -> CommandId {
-        flow.in_subshell = true;
+        let tail_runs_in_current_shell = self.shell_profile.dialect == ShellDialect::Zsh
+            && flow.pipeline_tail_runs_in_current_shell;
+        let pipeline_child_flow = FlowState {
+            in_subshell: true,
+            pipeline_tail_runs_in_current_shell: false,
+            ..flow
+        };
         let mut segments = Vec::with_capacity(2);
         for (stmt, operator_before) in [
             (&command.left, None),
@@ -388,17 +458,27 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 }),
             ),
         ] {
+            let is_tail_segment = operator_before.is_some();
+            let segment_runs_in_current_shell = tail_runs_in_current_shell && is_tail_segment;
             let segment_is_nested_pipeline = matches!(
                 &stmt.command,
                 Command::Binary(binary) if matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll)
             );
-            let scope = if segment_is_nested_pipeline {
+            let scope = if segment_is_nested_pipeline || segment_runs_in_current_shell {
                 self.current_scope()
             } else {
                 self.push_scope(ScopeKind::Pipeline, self.current_scope(), stmt.span)
             };
-            let recorded = self.visit_stmt(stmt, flow);
-            if !segment_is_nested_pipeline {
+            let segment_flow = if segment_runs_in_current_shell {
+                FlowState {
+                    pipeline_tail_runs_in_current_shell: true,
+                    ..flow
+                }
+            } else {
+                pipeline_child_flow
+            };
+            let recorded = self.visit_stmt(stmt, segment_flow);
+            if !segment_is_nested_pipeline && !segment_runs_in_current_shell {
                 self.pop_scope(scope);
                 self.mark_scope_completed(scope);
             }
@@ -1018,5 +1098,27 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             .copied()
             .find(|scope| !matches!(self.scopes[scope.index()].kind, ScopeKind::Function(_)))
             .unwrap_or(ScopeId(0))
+    }
+}
+
+fn flow_after_zsh_effects(mut flow: FlowState, effects: &[RecordedZshCommandEffect]) -> FlowState {
+    for effect in effects {
+        match effect {
+            RecordedZshCommandEffect::Emulate { mode, .. } => {
+                flow = flow.with_zsh_emulation(Some(*mode));
+            }
+            RecordedZshCommandEffect::EmulateUnknown { .. } => {
+                flow = flow.with_zsh_emulation(None);
+            }
+            RecordedZshCommandEffect::SetOptions { .. } => {}
+        }
+    }
+    flow
+}
+
+fn flow_after_nested_current_shell_effects(flow: FlowState, after_nested: FlowState) -> FlowState {
+    FlowState {
+        pipeline_tail_runs_in_current_shell: after_nested.pipeline_tail_runs_in_current_shell,
+        ..flow
     }
 }

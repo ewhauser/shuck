@@ -1391,6 +1391,243 @@ fn records_pipeline_segment_scopes() {
 }
 
 #[test]
+fn zsh_final_pipeline_segment_uses_enclosing_scope() {
+    let source = "\
+value=old
+printf '%s\\n' x | value=new
+print -r -- \"$value\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let pipeline_assignment = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .unwrap();
+    assert!(!matches!(
+        model.scope_kind(pipeline_assignment.scope),
+        ScopeKind::Pipeline
+    ));
+}
+
+#[test]
+fn zsh_sh_emulation_keeps_pipeline_tail_in_pipeline_scope() {
+    let source = "\
+emulate sh
+value=old
+printf '%s\\n' x | value=new
+print -r -- \"$value\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let pipeline_assignment = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .unwrap();
+    assert!(matches!(
+        model.scope_kind(pipeline_assignment.scope),
+        ScopeKind::Pipeline
+    ));
+}
+
+#[test]
+fn zsh_initial_sh_emulation_keeps_pipeline_tail_in_pipeline_scope() {
+    let source = "\
+value=old
+printf '%s\\n' x | value=new
+print -r -- \"$value\"
+";
+    let model = model_with_profile(
+        source,
+        ShellProfile::with_zsh_options(
+            ShellDialect::Zsh,
+            ZshOptionState::for_emulate(ZshEmulationMode::Sh),
+        ),
+    );
+
+    let pipeline_assignment = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .unwrap();
+    assert!(matches!(
+        model.scope_kind(pipeline_assignment.scope),
+        ScopeKind::Pipeline
+    ));
+}
+
+#[test]
+fn zsh_compound_sh_emulation_keeps_later_pipeline_tail_in_pipeline_scope() {
+    let source = "\
+{ emulate sh; }
+value=old
+printf '%s\\n' x | value=new
+print -r -- \"$value\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let pipeline_assignment = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .unwrap();
+    assert!(matches!(
+        model.scope_kind(pipeline_assignment.scope),
+        ScopeKind::Pipeline
+    ));
+}
+
+#[test]
+fn zsh_if_condition_sh_emulation_keeps_later_pipeline_tail_in_pipeline_scope() {
+    let source = "\
+if emulate sh; then :; fi
+value=old
+printf '%s\\n' x | value=new
+print -r -- \"$value\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let pipeline_assignment = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .unwrap();
+    assert!(matches!(
+        model.scope_kind(pipeline_assignment.scope),
+        ScopeKind::Pipeline
+    ));
+}
+
+#[test]
+fn zsh_logical_left_sh_emulation_keeps_later_pipeline_tail_in_pipeline_scope() {
+    let source = "\
+emulate sh && :
+value=old
+printf '%s\\n' x | value=new
+print -r -- \"$value\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let pipeline_assignment = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .unwrap();
+    assert!(matches!(
+        model.scope_kind(pipeline_assignment.scope),
+        ScopeKind::Pipeline
+    ));
+}
+
+#[test]
+fn zsh_pipeline_tail_sh_emulation_keeps_later_pipeline_tail_in_pipeline_scope() {
+    let source = "\
+print setup | emulate sh
+value=old
+printf '%s\\n' x | value=new
+print -r -- \"$value\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let pipeline_assignment = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .unwrap();
+    assert!(matches!(
+        model.scope_kind(pipeline_assignment.scope),
+        ScopeKind::Pipeline
+    ));
+}
+
+#[test]
+fn zsh_always_body_sh_emulation_keeps_later_pipeline_tail_in_pipeline_scope() {
+    let source = "\
+{ emulate sh; } always { :; }
+value=old
+printf '%s\\n' x | value=new
+print -r -- \"$value\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let pipeline_assignment = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .unwrap();
+    assert!(matches!(
+        model.scope_kind(pipeline_assignment.scope),
+        ScopeKind::Pipeline
+    ));
+}
+
+#[test]
+fn zsh_always_cleanup_sh_emulation_keeps_later_pipeline_tail_in_pipeline_scope() {
+    let source = "\
+{ :; } always { emulate sh; }
+value=old
+printf '%s\\n' x | value=new
+print -r -- \"$value\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let pipeline_assignment = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .unwrap();
+    assert!(matches!(
+        model.scope_kind(pipeline_assignment.scope),
+        ScopeKind::Pipeline
+    ));
+}
+
+#[test]
+fn zsh_emulation_restores_native_pipeline_tail_scope() {
+    let source = "\
+emulate sh
+emulate zsh
+value=old
+printf '%s\\n' x | value=new
+print -r -- \"$value\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let pipeline_assignment = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.span.start.offset == source.find("value=new").unwrap())
+        .unwrap();
+    assert!(!matches!(
+        model.scope_kind(pipeline_assignment.scope),
+        ScopeKind::Pipeline
+    ));
+}
+
+#[test]
+fn zsh_nonfinal_pipeline_segments_keep_pipeline_scope() {
+    let source = "\
+value=old
+{ value=left; print x; } | { value=middle; print y; } | cat
+print -r -- \"$value\"
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    for assignment in ["value=left", "value=middle"] {
+        let binding = model
+            .bindings()
+            .iter()
+            .find(|binding| binding.span.start.offset == source.find(assignment).unwrap())
+            .unwrap();
+        assert!(matches!(
+            model.scope_kind(binding.scope),
+            ScopeKind::Pipeline
+        ));
+    }
+}
+
+#[test]
 fn indexed_scope_lookup_matches_linear_scan_for_all_offsets() {
     let source = "\
 outer() {
@@ -2893,6 +3130,33 @@ done
     };
     let break_context = model.flow_context_at(&break_span).unwrap();
     assert_eq!(break_context.loop_depth, 1);
+}
+
+#[test]
+fn brace_group_effect_scan_preserves_sibling_flow_context() {
+    let source = "\
+{ emulate sh; }
+echo ok
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let model = SemanticModel::build(&output.file, source, &indexer);
+
+    let Command::Compound(CompoundCommand::BraceGroup(commands)) = &output.file.body[0].command
+    else {
+        panic!("expected brace group");
+    };
+    let Command::Simple(inner_command) = &commands[0].command else {
+        panic!("expected inner simple command");
+    };
+    let inner_context = model.flow_context_at(&inner_command.span).unwrap();
+    assert!(inner_context.in_block);
+
+    let Command::Simple(sibling_command) = &output.file.body[1].command else {
+        panic!("expected sibling simple command");
+    };
+    let sibling_context = model.flow_context_at(&sibling_command.span).unwrap();
+    assert!(!sibling_context.in_block);
 }
 
 #[test]
