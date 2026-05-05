@@ -22,6 +22,7 @@ impl Violation for SingleQuotedLiteral {
 struct ScanContext<'a> {
     command_name: Option<&'a str>,
     assignment_target: Option<&'a str>,
+    shell_dialect: shuck_parser::ShellDialect,
     variable_set_operand: bool,
     literal_expansion_exempt: bool,
 }
@@ -40,6 +41,7 @@ pub fn single_quoted_literal(checker: &mut Checker) {
             let context = ScanContext {
                 command_name: fragment.command_name(),
                 assignment_target: fragment.assignment_target(),
+                shell_dialect: fragment.shell_dialect(),
                 variable_set_operand: fragment.variable_set_operand(),
                 literal_expansion_exempt: fragment.literal_expansion_exempt(),
             };
@@ -100,7 +102,7 @@ fn should_report_single_quoted_literal(text: &str, context: ScanContext<'_>) -> 
 
     if context
         .assignment_target
-        .is_some_and(assignment_target_is_exempt)
+        .is_some_and(|target| assignment_target_is_exempt(target, context.shell_dialect))
     {
         return false;
     }
@@ -157,8 +159,18 @@ fn sed_text_is_exempt(text: &str) -> bool {
     false
 }
 
-fn assignment_target_is_exempt(target: &str) -> bool {
-    matches!(target, "PS1" | "PS2" | "PS3" | "PS4" | "PROMPT_COMMAND")
+fn assignment_target_is_exempt(target: &str, shell_dialect: shuck_parser::ShellDialect) -> bool {
+    if matches!(target, "PS1" | "PS2" | "PS3" | "PS4" | "PROMPT_COMMAND") {
+        return true;
+    }
+
+    shell_dialect == shuck_parser::ShellDialect::Zsh
+        && (matches!(target, "PROMPT" | "RPROMPT" | "RPS1" | "RPS2" | "SPROMPT")
+            || powerlevel10k_prompt_expansion_target(target))
+}
+
+fn powerlevel10k_prompt_expansion_target(target: &str) -> bool {
+    target.starts_with("POWERLEVEL9K_") && target.ends_with("_EXPANSION")
 }
 
 #[cfg(test)]
@@ -166,7 +178,8 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        assignment_target_is_exempt, contains_sc2016_trigger, quoted_fragment_to_double_quotes,
+        assignment_target_is_exempt, contains_sc2016_trigger,
+        powerlevel10k_prompt_expansion_target, quoted_fragment_to_double_quotes,
         sed_text_is_exempt,
     };
     use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
@@ -219,10 +232,28 @@ mod tests {
     #[test]
     fn recognizes_prompt_assignment_exemptions() {
         for target in ["PS1", "PS2", "PS3", "PS4", "PROMPT_COMMAND"] {
-            assert!(assignment_target_is_exempt(target), "{target}");
+            assert!(
+                assignment_target_is_exempt(target, shuck_parser::ShellDialect::Bash),
+                "{target}"
+            );
         }
 
-        assert!(!assignment_target_is_exempt("HOME"));
+        assert!(!assignment_target_is_exempt(
+            "HOME",
+            shuck_parser::ShellDialect::Bash
+        ));
+        assert!(assignment_target_is_exempt(
+            "PROMPT",
+            shuck_parser::ShellDialect::Zsh
+        ));
+        assert!(!assignment_target_is_exempt(
+            "PROMPT",
+            shuck_parser::ShellDialect::Bash
+        ));
+        assert!(powerlevel10k_prompt_expansion_target(
+            "POWERLEVEL9K_VCS_CONTENT_EXPANSION"
+        ));
+        assert!(!powerlevel10k_prompt_expansion_target("POWERLEVEL9K_MODE"));
     }
 
     #[test]
@@ -277,6 +308,30 @@ mod tests {
             0
         );
         assert_eq!(c005("xprop -set WM_NAME '$HOME'\n"), 0);
+        assert_eq!(
+            c005("#!/bin/zsh\nzstyle -e ':completion:*' hosts 'reply=($PREFIX)'\n"),
+            0
+        );
+        assert_eq!(
+            c005("#!/bin/zsh\nzstyle ':completion:*' hosts '$PREFIX'\n"),
+            1
+        );
+        assert_eq!(
+            c005("#!/bin/bash\nzstyle -e ':completion:*' hosts 'reply=($PREFIX)'\n"),
+            1
+        );
+        assert_eq!(c005("#!/bin/zsh\nsched +1 'echo $HOME'\n"), 0);
+        assert_eq!(c005("#!/bin/bash\nsched +1 'echo $HOME'\n"), 1);
+        assert_eq!(c005("#!/bin/zsh\nPROMPT='$(pwd) '\n"), 0);
+        assert_eq!(c005("#!/bin/bash\nPROMPT='$(pwd) '\n"), 1);
+        assert_eq!(
+            c005("#!/bin/zsh\ntypeset -g POWERLEVEL9K_VCS_CONTENT_EXPANSION='${my_git_format}'\n"),
+            0
+        );
+        assert_eq!(
+            c005("#!/bin/zsh\ntypeset -g POWERLEVEL9K_MODE='${mode}'\n"),
+            1
+        );
         assert_eq!(
             c005(
                 "PERLIO=:utf8 perl -pe '$_=lc'\nperl -MConfig -le 'print $Config{installvendorlib}'\n"

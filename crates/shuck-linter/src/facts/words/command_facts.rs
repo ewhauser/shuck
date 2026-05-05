@@ -975,20 +975,16 @@ pub(super) fn detect_sudo_family_invoker(
 
 pub(super) fn single_quoted_literal_exempt_argument(
     command_name: Option<&str>,
+    shell_dialect: shuck_parser::ShellDialect,
     args: &[Word],
     arg_index: usize,
     body_arg_start: usize,
     word: &Word,
-    trap_action: Option<&Word>,
     source: &str,
 ) -> bool {
     let Some(command_name) = command_name else {
         return false;
     };
-
-    if trap_action.is_some_and(|action| std::ptr::eq(action, word)) {
-        return true;
-    }
 
     let Some(body_args) = args.get(body_arg_start..) else {
         return false;
@@ -1013,6 +1009,9 @@ pub(super) fn single_quoted_literal_exempt_argument(
         "jq" => jq_literal_argument_index(body_args, source).contains(&relative_arg_index),
         "rename" => rename_program_argument_index(body_args, source) == Some(relative_arg_index),
         "rg" => rg_pattern_argument_index(body_args, source) == Some(relative_arg_index),
+        "sched" if shell_dialect == shuck_parser::ShellDialect::Zsh => {
+            sched_command_argument_index(body_args, source) == Some(relative_arg_index)
+        }
         "sh" | "bash" | "dash" | "ksh" | "zsh" => {
             shell_command_argument_index(body_args, source) == Some(relative_arg_index)
         }
@@ -1022,6 +1021,9 @@ pub(super) fn single_quoted_literal_exempt_argument(
         }),
         "unset" => true,
         "xprop" => xprop_value_argument_index(body_args, source) == Some(relative_arg_index),
+        "zstyle" if shell_dialect == shuck_parser::ShellDialect::Zsh => {
+            zstyle_eval_argument_index(body_args, source) == Some(relative_arg_index)
+        }
         _ if command_name.ends_with("awk") => {
             awk_literal_argument_index(body_args, source).contains(&relative_arg_index)
         }
@@ -1030,6 +1032,29 @@ pub(super) fn single_quoted_literal_exempt_argument(
         }
         _ => false,
     }
+}
+
+fn sched_command_argument_index(args: &[Word], source: &str) -> Option<usize> {
+    args.windows(2).enumerate().find_map(|(index, pair)| {
+        let time = static_word_text(&pair[0], source)?;
+        let starts_like_delay = time
+            .as_ref()
+            .strip_prefix('+')
+            .is_some_and(|tail| tail.chars().next().is_some_and(|ch| ch.is_ascii_digit()));
+        let starts_like_absolute_time = time
+            .as_ref()
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_digit());
+        (starts_like_delay || starts_like_absolute_time).then_some(index + 1)
+    })
+}
+
+fn zstyle_eval_argument_index(args: &[Word], source: &str) -> Option<usize> {
+    args.windows(4).enumerate().find_map(|(index, window)| {
+        let flag = static_word_text(&window[0], source)?;
+        (flag.as_ref() == "-e").then_some(index + 3)
+    })
 }
 
 pub(super) fn single_quoted_literal_exempt_here_string(command_name: Option<&str>) -> bool {
