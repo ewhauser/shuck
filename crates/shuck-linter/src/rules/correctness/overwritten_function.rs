@@ -440,26 +440,18 @@ fn report_transient_shadowed_file_scope_definitions(
     checker: &Checker<'_>,
     reach: &mut DirectFunctionCallReachability<'_, '_>,
 ) -> Vec<(BindingId, CompactString, FunctionNotReachedReason)> {
+    let transient_shadow_offsets = transient_function_shadow_offsets_by_name(checker);
+
     checker
         .semantic()
         .function_definition_bindings()
         .filter(|binding| scope_is_file_scope(checker, binding.scope))
         .filter_map(|binding| {
-            let first_shadow_offset = checker
-                .facts()
-                .function_headers()
+            let offsets = transient_shadow_offsets.get(&binding.name)?;
+            let first_shadow_offset = offsets
                 .iter()
-                .filter(|header| header.binding_id() != Some(binding.id))
-                .filter_map(|header| {
-                    let (name, span) = header.static_name_entry()?;
-                    (name == &binding.name
-                        && span.start.offset > binding.span.start.offset
-                        && header
-                            .function_scope()
-                            .is_some_and(|scope| scope_has_transient_ancestor(checker, scope)))
-                    .then_some(span.start.offset)
-                })
-                .min()?;
+                .copied()
+                .find(|offset| *offset > binding.span.start.offset)?;
             if !checker.semantic_analysis().cfg().script_always_terminates() {
                 return None;
             }
@@ -484,6 +476,29 @@ fn report_transient_shadowed_file_scope_definitions(
             ))
         })
         .collect()
+}
+
+fn transient_function_shadow_offsets_by_name(checker: &Checker<'_>) -> FxHashMap<Name, Vec<usize>> {
+    let mut offsets_by_name = FxHashMap::<Name, Vec<usize>>::default();
+    for header in checker.facts().function_headers() {
+        let Some(scope) = header.function_scope() else {
+            continue;
+        };
+        if !scope_has_transient_ancestor(checker, scope) {
+            continue;
+        }
+        let Some((name, span)) = header.static_name_entry() else {
+            continue;
+        };
+        offsets_by_name
+            .entry(name.clone())
+            .or_default()
+            .push(span.start.offset);
+    }
+    for offsets in offsets_by_name.values_mut() {
+        offsets.sort_unstable();
+    }
+    offsets_by_name
 }
 
 fn first_compat_cutoff_after_binding(
