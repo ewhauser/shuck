@@ -108,7 +108,7 @@ impl ShellDialect {
         for line in source.lines() {
             let trimmed = line.trim_start();
             if trimmed.starts_with('#') {
-                let comment = trimmed.trim_start_matches('#').trim_start();
+                let comment = trimmed.strip_prefix('#').unwrap_or_default();
                 if comment.starts_with("compdef") || comment.starts_with("autoload") {
                     saw_zsh_marker = true;
                 }
@@ -218,6 +218,15 @@ autoload -U compaudit compinit
             Some(Path::new("/tmp/_git.sh")),
         );
         assert_eq!(inferred, ShellDialect::Zsh);
+    }
+
+    #[test]
+    fn ignores_free_form_comments_that_mention_zsh_directive_words() {
+        let inferred = ShellDialect::infer(
+            "# autoload helper cache\n# compdef examples live elsewhere\nprintf '%s\\n' ok\n",
+            Some(Path::new("/tmp/example.sh")),
+        );
+        assert_eq!(inferred, ShellDialect::Sh);
     }
 
     #[test]
