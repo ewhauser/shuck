@@ -3275,26 +3275,57 @@ fn attach_function_body_commands(
     parent_ids: &mut [Option<CommandId>],
     child_ids: &mut [Vec<CommandId>],
 ) {
+    let mut function_ids = command_ids
+        .iter()
+        .copied()
+        .filter(|id| model.command_syntax_kind(*id) == Some(CommandKind::Function))
+        .collect::<Vec<_>>();
+    if function_ids.is_empty() {
+        return;
+    }
+    function_ids
+        .sort_unstable_by(|left, right| compare_command_ids_by_syntax_span(model, *left, *right));
+
+    let mut body_children = Vec::new();
     for body in model.recorded_program.function_bodies().values().copied() {
         for child in model.recorded_program.commands_in(body).iter().copied() {
-            if parent_ids[child.index()].is_some() {
-                continue;
+            body_children.push(child);
+        }
+    }
+    body_children
+        .sort_unstable_by(|left, right| compare_command_ids_by_syntax_span(model, *left, *right));
+    body_children.dedup();
+
+    let mut active_functions = Vec::new();
+    let mut next_function = 0usize;
+    for child in body_children {
+        if parent_ids[child.index()].is_some() {
+            continue;
+        }
+        let child_span = model.command_syntax_span(child);
+        while let Some(function_id) = function_ids.get(next_function).copied() {
+            let function_span = model.command_syntax_span(function_id);
+            if function_span.start.offset > child_span.start.offset {
+                break;
             }
-            let child_span = model.command_syntax_span(child);
-            let Some(parent) = command_ids
-                .iter()
-                .copied()
-                .filter(|candidate| {
-                    model.command_syntax_kind(*candidate) == Some(CommandKind::Function)
-                        && contains_command_span(model.command_syntax_span(*candidate), child_span)
-                })
-                .min_by_key(|candidate| {
-                    let span = model.command_syntax_span(*candidate);
-                    (span.end.offset - span.start.offset, candidate.index())
-                })
-            else {
-                continue;
-            };
+            while active_functions.last().is_some_and(|active| {
+                !contains_command_span(model.command_syntax_span(*active), function_span)
+            }) {
+                active_functions.pop();
+            }
+            active_functions.push(function_id);
+            next_function += 1;
+        }
+        while active_functions.last().is_some_and(|active| {
+            !contains_command_span(model.command_syntax_span(*active), child_span)
+        }) {
+            active_functions.pop();
+        }
+
+        if let Some(parent) = active_functions.iter().rev().copied().find(|candidate| {
+            *candidate != child
+                && contains_command_span(model.command_syntax_span(*candidate), child_span)
+        }) {
             assign_command_parent(parent, child, parent_ids, child_ids);
         }
     }
