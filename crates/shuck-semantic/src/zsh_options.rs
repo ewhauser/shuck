@@ -56,7 +56,7 @@ struct FunctionSummary {
 struct FunctionSummaryKey {
     scope: ScopeId,
     entry: InternalState,
-    active_scopes: SmallVec<[ScopeId; 4]>,
+    active_function_scopes: SmallVec<[ScopeId; 4]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -960,11 +960,17 @@ impl<'a> Analyzer<'a> {
             };
         }
 
-        let cache_key = self.function_summary_key(scope, &entry.current);
+        let cache_key = FunctionSummaryKey {
+            scope,
+            entry: entry.current.clone(),
+            active_function_scopes: self.active_function_summary_context(),
+        };
+        let recursive_context = !self.active_function_scopes.is_empty();
         if let Some(summary) = self.function_summaries.get(&cache_key) {
             return summary.clone();
         }
-        if allow_shared_reuse
+        if !recursive_context
+            && allow_shared_reuse
             && let Some(summary) = self
                 .shared_function_summaries
                 .and_then(|summaries| summaries.get(&cache_key))
@@ -983,21 +989,19 @@ impl<'a> Analyzer<'a> {
         };
         self.function_summaries
             .insert(cache_key.clone(), summary.clone());
-        if let Some(shared_summaries) = self.shared_function_summaries {
+        // Recursive-context summaries are useful inside this analyzer, but they may have cut a
+        // call through `active_function_scopes`, so do not publish them across root analyses.
+        if !recursive_context && let Some(shared_summaries) = self.shared_function_summaries {
             shared_summaries.insert(cache_key, summary.clone());
         }
         summary
     }
 
-    fn function_summary_key(&self, scope: ScopeId, entry: &InternalState) -> FunctionSummaryKey {
-        let mut active_scopes: SmallVec<[ScopeId; 4]> =
+    fn active_function_summary_context(&self) -> SmallVec<[ScopeId; 4]> {
+        let mut active: SmallVec<[ScopeId; 4]> =
             self.active_function_scopes.iter().copied().collect();
-        active_scopes.sort_by_key(|scope| scope.index());
-        FunctionSummaryKey {
-            scope,
-            entry: entry.clone(),
-            active_scopes,
-        }
+        active.sort_by_key(|scope| scope.0);
+        active
     }
 
     fn resolve_visible_function_scope(
