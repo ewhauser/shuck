@@ -726,8 +726,10 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         }
         let nonpersistent_assignment_spans = build_nonpersistent_assignment_spans(
             self.semantic,
+            semantic_analysis,
             &commands,
             self.source,
+            matches!(self.shell, ShellDialect::Zsh),
             matches!(self.shell, ShellDialect::Bash) && pipefail_enabled_anywhere,
             &arithmetic_only_suppressed_subscript_spans,
         );

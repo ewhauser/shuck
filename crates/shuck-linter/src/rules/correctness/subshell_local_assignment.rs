@@ -525,6 +525,142 @@ snapshot=\"$(
     }
 
     #[test]
+    fn ignores_zsh_later_reads_after_helper_resets_name_in_parent_scope() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+(
+  for REPLY in a; do :; done
+)
+helper
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_later_reads_in_sibling_nested_scopes() {
+        let source = "\
+#!/bin/zsh
+case $site in
+  github)
+    (
+      for REPLY in a; do :; done
+    )
+    ;;
+  cygwin)
+    (
+      print -r -- $REPLY
+    )
+    ;;
+esac
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_later_reads_after_later_defined_helper_resets_name() {
+        let source = "\
+#!/bin/zsh
+demo() {
+  (
+    for REPLY in a; do :; done
+  )
+  helper
+  print -r -- $REPLY
+}
+helper() {
+  REPLY=value
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_reply_reads_after_unresolved_private_helper_calls() {
+        let source = "\
+#!/bin/zsh
+demo() {
+  (
+    for reply in a; do :; done
+  )
+  .helper-from-sourced-file input
+  print -r -- $reply
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_set_a_outparam_helpers_after_command_substitution_loop_assignments() {
+        let source = "\
+#!/bin/zsh
+fill() {
+  set -A $1 ${(f)\"$(
+    shift
+    for d; do
+      print -r -- $d
+    done
+  )\"}
+}
+fill d /tmp
+print -r -- $d
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_zsh_process_substitution_fd_closes_after_parent_fd_assignment() {
+        let source = "\
+#!/bin/zsh
+demo() {
+  local fd
+  sysopen -ro cloexec -u fd <(
+    (
+      local fd
+      sysopen -wo create,excl -u fd -- lock
+      exec {fd}>&-
+    ) &!
+  )
+  IFS= read -ru $fd
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_later_arithmetic_assignments_after_pipeline_updates() {
         let source = "\
 #!/bin/bash
