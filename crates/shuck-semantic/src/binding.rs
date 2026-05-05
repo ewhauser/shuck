@@ -137,6 +137,8 @@ pub enum BuiltinBindingTargetKind {
     Printf,
     /// `getopts`
     Getopts,
+    /// `zparseopts`
+    Zparseopts,
 }
 
 /// High-level category for a semantic binding.
@@ -164,6 +166,8 @@ pub enum BindingKind {
     PrintfTarget,
     /// A target created by `getopts`.
     GetoptsTarget,
+    /// A target created by `zparseopts`.
+    ZparseoptsTarget,
     /// An arithmetic assignment binding.
     ArithmeticAssignment,
     /// A nameref binding.
@@ -178,7 +182,9 @@ pub(crate) fn is_array_like_binding(binding: &Binding) -> bool {
         .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC)
         || matches!(
             binding.kind,
-            BindingKind::ArrayAssignment | BindingKind::MapfileTarget
+            BindingKind::ArrayAssignment
+                | BindingKind::MapfileTarget
+                | BindingKind::ZparseoptsTarget
         )
 }
 

@@ -111,6 +111,7 @@ fn binding_contributes_known_variable_name(binding: &Binding) -> bool {
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
+        | BindingKind::ZparseoptsTarget
         | BindingKind::ArithmeticAssignment
         | BindingKind::Nameref => true,
     }

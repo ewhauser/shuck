@@ -4627,6 +4627,105 @@ mapfile
 }
 
 #[test]
+fn zparseopts_targets_record_array_bindings_in_zsh() {
+    let source = "\
+zparseopts -D -E -F -a all -A assoc -- \\
+  h=help -help=help \\
+  v+:=verbose -verbose+:=verbose
+";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let target = |name: &str| {
+        model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == name && matches!(binding.kind, BindingKind::ZparseoptsTarget)
+            })
+            .unwrap_or_else(|| panic!("missing zparseopts target {name}"))
+    };
+
+    let all = target("all");
+    assert_eq!(all.span.slice(source), "all");
+    assert!(all.attributes.contains(BindingAttributes::ARRAY));
+    assert!(!all.attributes.contains(BindingAttributes::ASSOC));
+    assert!(matches!(
+        all.origin,
+        BindingOrigin::BuiltinTarget {
+            kind: BuiltinBindingTargetKind::Zparseopts,
+            ..
+        }
+    ));
+
+    let assoc = target("assoc");
+    assert_eq!(assoc.span.slice(source), "assoc");
+    assert!(assoc.attributes.contains(BindingAttributes::ARRAY));
+    assert!(assoc.attributes.contains(BindingAttributes::ASSOC));
+
+    for name in ["help", "verbose"] {
+        let binding = target(name);
+        assert_eq!(binding.span.slice(source), name);
+        assert!(binding.attributes.contains(BindingAttributes::ARRAY));
+        assert!(!binding.attributes.contains(BindingAttributes::ASSOC));
+    }
+}
+
+#[test]
+fn zparseopts_attached_and_separator_targets_are_precise() {
+    let source = "zparseopts -aall -Aassoc -- -long=long_target s=short_target\n";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let targets = model
+        .bindings()
+        .iter()
+        .filter(|binding| matches!(binding.kind, BindingKind::ZparseoptsTarget))
+        .map(|binding| {
+            (
+                binding.name.as_str().to_owned(),
+                binding.span.slice(source).to_owned(),
+                binding.attributes.contains(BindingAttributes::ASSOC),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        targets,
+        vec![
+            ("all".to_owned(), "all".to_owned(), false),
+            ("assoc".to_owned(), "assoc".to_owned(), true),
+            ("long_target".to_owned(), "long_target".to_owned(), false),
+            ("short_target".to_owned(), "short_target".to_owned(), false),
+        ]
+    );
+}
+
+#[test]
+fn zparseopts_dynamic_targets_do_not_create_static_bindings() {
+    let source = "zparseopts -a$aggregate -- x=$target\n";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    assert!(
+        !model
+            .bindings()
+            .iter()
+            .any(|binding| matches!(binding.kind, BindingKind::ZparseoptsTarget))
+    );
+}
+
+#[test]
+fn zparseopts_targets_are_zsh_only() {
+    let source = "zparseopts -- x=target\n";
+    let model = model_with_dialect(source, ShellDialect::Bash);
+
+    assert!(
+        !model
+            .bindings()
+            .iter()
+            .any(|binding| matches!(binding.kind, BindingKind::ZparseoptsTarget))
+    );
+}
+
+#[test]
 fn mapfile_missing_option_operand_does_not_panic() {
     let source = "mapfile -u\n";
     let model = model(source);

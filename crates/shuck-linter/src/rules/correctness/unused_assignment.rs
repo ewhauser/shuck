@@ -249,6 +249,7 @@ fn is_reportable_unused_assignment(kind: BindingKind, _attributes: BindingAttrib
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
+        | BindingKind::ZparseoptsTarget
         | BindingKind::ArithmeticAssignment => true,
         BindingKind::AppendAssignment | BindingKind::ParameterDefaultAssignment => false,
         BindingKind::Declaration(_) => true,

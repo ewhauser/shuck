@@ -798,6 +798,117 @@ fn getopts_target(args: &[&Word], source: &str) -> Option<(Name, Span)> {
     args.get(1).and_then(|word| named_target_word(word, source))
 }
 
+fn zparseopts_targets(args: &[&Word], source: &str) -> Vec<(Name, Span, BindingAttributes)> {
+    let mut targets = Vec::new();
+    let mut index = 0;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+        if text == "--" {
+            index += 1;
+            break;
+        }
+        let Some(flags) = text.strip_prefix('-') else {
+            break;
+        };
+        if flags.is_empty() {
+            break;
+        }
+
+        let mut consumed_option = false;
+        let mut stop_after_target = false;
+        for (offset, flag) in flags.char_indices() {
+            match flag {
+                'D' | 'E' | 'F' | 'K' | 'M' => {
+                    consumed_option = true;
+                }
+                'a' | 'A' => {
+                    consumed_option = true;
+                    let attached_offset = offset + flag.len_utf8();
+                    let attributes = if flag == 'A' {
+                        BindingAttributes::ARRAY | BindingAttributes::ASSOC
+                    } else {
+                        BindingAttributes::ARRAY
+                    };
+                    if attached_offset < flags.len() {
+                        if let Some(target) = zparseopts_attached_array_target(
+                            word,
+                            source,
+                            &flags[attached_offset..],
+                            attributes,
+                        ) {
+                            targets.push(target);
+                        }
+                    } else if let Some((name, span)) = args
+                        .get(index + 1)
+                        .and_then(|word| named_target_word(word, source))
+                    {
+                        targets.push((name, span, attributes));
+                        index += 1;
+                    }
+                    stop_after_target = true;
+                    break;
+                }
+                _ => {
+                    consumed_option = false;
+                    break;
+                }
+            }
+        }
+        if !consumed_option {
+            break;
+        }
+        index += 1;
+        if stop_after_target {
+            continue;
+        }
+    }
+
+    for word in &args[index..] {
+        if let Some(target) = zparseopts_spec_target(word, source) {
+            targets.push(target);
+        }
+    }
+
+    targets
+}
+
+fn zparseopts_attached_array_target(
+    word: &Word,
+    source: &str,
+    target_text: &str,
+    attributes: BindingAttributes,
+) -> Option<(Name, Span, BindingAttributes)> {
+    if !is_name(target_text) {
+        return None;
+    }
+
+    let text = static_word_text(word, source)?;
+    let start = text.len().saturating_sub(target_text.len());
+    Some((
+        Name::from(target_text),
+        word_text_offset_span(word.span, source, start, text.len()),
+        attributes,
+    ))
+}
+
+fn zparseopts_spec_target(word: &Word, source: &str) -> Option<(Name, Span, BindingAttributes)> {
+    let text = static_word_text(word, source)?;
+    let target_start = text.find('=')? + 1;
+    let target = &text[target_start..];
+    if !is_name(target) {
+        return None;
+    }
+
+    Some((
+        Name::from(target),
+        word_text_offset_span(word.span, source, target_start, text.len()),
+        BindingAttributes::ARRAY,
+    ))
+}
+
 fn variable_set_test_operand_name(
     expression: &ConditionalExpr,
     source: &str,

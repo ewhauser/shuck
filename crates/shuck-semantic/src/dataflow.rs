@@ -869,6 +869,7 @@ fn participates_in_unused_assignment_family(
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
+        | BindingKind::ZparseoptsTarget
         | BindingKind::ArithmeticAssignment
         | BindingKind::Declaration(_) => true,
         BindingKind::FunctionDefinition | BindingKind::Imported | BindingKind::Nameref => false,
@@ -887,6 +888,7 @@ fn can_survive_unused_assignment_branch_collapse(
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
+        | BindingKind::ZparseoptsTarget
         | BindingKind::ArithmeticAssignment => true,
         BindingKind::Declaration(_) => {
             attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
@@ -2634,6 +2636,7 @@ fn binding_initializes_name(binding: &Binding) -> Option<ContractCertainty> {
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
+        | BindingKind::ZparseoptsTarget
         | BindingKind::ArithmeticAssignment => Some(ContractCertainty::Definite),
     }
 }

@@ -337,6 +337,93 @@ print -r -- ${functions[iterm2_precmd]}
     }
 
     #[test]
+    fn zparseopts_targets_initialize_option_arrays() {
+        let source = "\
+#!/bin/zsh
+zparseopts -D -E -F -a all -A optmap -- \\
+  h=help -help=help \\
+  v+:=verbose -verbose+:=verbose \\
+  o:=output -output:=output
+printf '%s\\n' \"$all\" \"$optmap\" \"$help\" \"$verbose\" \"$output\" \"$missing\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zparseopts_attached_array_targets_are_arrays() {
+        let source = "\
+#!/bin/zsh
+zparseopts -aall -Aassoc -- x:=xout y=yout
+printf '%s\\n' \"${all[1]}\" \"${assoc[-x]}\" \"${xout[1]}\" \"${yout[1]}\" \"$missing\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zparseopts_dynamic_targets_still_report_dynamic_names() {
+        let source = "\
+#!/bin/zsh
+zparseopts -a$aggregate -- x=$target_name
+printf '%s\\n' \"$aggregate\" \"$target_name\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$aggregate", "$target_name"]
+        );
+    }
+
+    #[test]
+    fn zparseopts_targets_do_not_initialize_names_in_bash() {
+        let source = "\
+#!/bin/bash
+zparseopts -- x=target
+printf '%s\\n' \"$target\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Bash),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$target"]
+        );
+    }
+
+    #[test]
     fn subscript_suppression_hides_later_same_name_uses() {
         let source = "\
 #!/bin/bash
