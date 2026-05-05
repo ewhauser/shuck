@@ -427,7 +427,7 @@ fn shell_separator(byte: u8) -> bool {
 }
 
 fn shell_separator_char(ch: char) -> bool {
-    matches!(ch, ';' | '&' | '|' | '(' | ')')
+    matches!(ch, ';' | '&' | '|' | '(' | ')' | '<' | '>')
 }
 
 fn starts_with_shell_word(line: &str, needle: &str) -> bool {
@@ -743,6 +743,18 @@ cat <<- \tBAR
 cat <<'EOF)'
 $ZSH_VERSION
 EOF)
+printf '%s\\n' \"$ZSH_VERSION\"
+";
+        let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
+        assert_eq!(inferred, ShellDialect::Zsh);
+    }
+
+    #[test]
+    fn heredoc_delimiter_stops_before_following_redirection() {
+        let source = "\
+cat <<EOF>/tmp/out
+$ZSH_VERSION
+EOF
 printf '%s\\n' \"$ZSH_VERSION\"
 ";
         let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
