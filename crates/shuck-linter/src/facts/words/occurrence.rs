@@ -1010,25 +1010,29 @@ pub(super) fn build_unquoted_command_argument_use_offsets(
     offsets_by_name
 }
 
+struct ZshArrayFanoutContext<'a, 'flow> {
+    semantic: &'a SemanticModel,
+    semantic_analysis: &'a SemanticAnalysis<'a>,
+    value_flow: &'flow SemanticValueFlow<'flow, 'a>,
+    scope: ScopeId,
+    options: Option<&'a ZshOptionState>,
+    array_like_capable_names: &'a FxHashSet<Name>,
+}
+
 fn apply_zsh_array_fanout(
     word: &Word,
-    semantic: &SemanticModel,
-    semantic_analysis: &SemanticAnalysis<'_>,
-    value_flow: &SemanticValueFlow<'_, '_>,
-    scope: ScopeId,
-    options: Option<&ZshOptionState>,
-    array_like_capable_names: &FxHashSet<Name>,
+    context: ZshArrayFanoutContext<'_, '_>,
     analysis: &mut ExpansionAnalysis,
 ) {
-    if semantic.shell_profile().dialect != shuck_parser::parser::ShellDialect::Zsh
-        || zsh_unindexed_array_fanout_is_disabled(options)
+    if context.semantic.shell_profile().dialect != shuck_parser::parser::ShellDialect::Zsh
+        || zsh_unindexed_array_fanout_is_disabled(context.options)
         || !word_has_unquoted_visible_array_reference(
             word,
-            semantic,
-            semantic_analysis,
-            value_flow,
-            scope,
-            array_like_capable_names,
+            context.semantic,
+            context.semantic_analysis,
+            context.value_flow,
+            context.scope,
+            context.array_like_capable_names,
         )
     {
         return;
@@ -2577,12 +2581,14 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         let mut analysis = analyze_word(word, self.source, Some(&self.command_shell_behavior));
         apply_zsh_array_fanout(
             word,
-            self.semantic,
-            self.semantic_analysis,
-            &self.value_flow,
-            self.command_scope,
-            self.command_shell_behavior.zsh_options(),
-            self.array_like_capable_names,
+            ZshArrayFanoutContext {
+                semantic: self.semantic,
+                semantic_analysis: self.semantic_analysis,
+                value_flow: &self.value_flow,
+                scope: self.command_scope,
+                options: self.command_shell_behavior.zsh_options(),
+                array_like_capable_names: self.array_like_capable_names,
+            },
             &mut analysis,
         );
         let derived =

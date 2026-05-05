@@ -416,7 +416,8 @@ fn report_compat_cutoff_function_definitions(
     );
     let script_terminators = build_compat_script_terminator_facts(checker, &structural_facts);
     reach.enable_activation_index();
-    let candidates = checker
+
+    checker
         .semantic()
         .function_definition_bindings()
         .filter_map(|binding| {
@@ -431,9 +432,7 @@ fn report_compat_cutoff_function_definitions(
             (!binding_has_direct_call_before_offset(reach, binding.id, cutoff.offset))
                 .then(|| (binding.id, binding.name.as_str().into(), cutoff.reason))
         })
-        .collect::<Vec<_>>();
-
-    candidates
+        .collect::<Vec<_>>()
 }
 
 fn report_transient_shadowed_file_scope_definitions(
