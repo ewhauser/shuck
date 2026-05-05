@@ -40,7 +40,7 @@ pub struct BindingValueFact<'a> {
     standalone_status_or_pid_capture: bool,
     conditional_assignment_shortcut: bool,
     one_sided_short_circuit_assignment: bool,
-    zsh_selectorless_subscript_value: bool,
+    zsh_selectorless_subscript_value_base_names: Box<[Name]>,
 }
 
 #[derive(Debug, Clone)]
@@ -68,9 +68,8 @@ impl<'a> BindingValueFact<'a> {
             standalone_status_or_pid_capture,
             conditional_assignment_shortcut: false,
             one_sided_short_circuit_assignment: false,
-            zsh_selectorless_subscript_value: word_is_zsh_selectorless_subscript_value(
-                word, source,
-            ),
+            zsh_selectorless_subscript_value_base_names:
+                word_zsh_selectorless_subscript_value_base_names(word, source),
         }
     }
 
@@ -80,7 +79,7 @@ impl<'a> BindingValueFact<'a> {
             standalone_status_or_pid_capture: false,
             conditional_assignment_shortcut: false,
             one_sided_short_circuit_assignment: false,
-            zsh_selectorless_subscript_value: false,
+            zsh_selectorless_subscript_value_base_names: Box::default(),
         }
     }
 
@@ -111,7 +110,13 @@ impl<'a> BindingValueFact<'a> {
     }
 
     pub fn zsh_selectorless_subscript_value(&self) -> bool {
-        self.zsh_selectorless_subscript_value
+        !self.zsh_selectorless_subscript_value_base_names.is_empty()
+    }
+
+    pub fn zsh_selectorless_subscript_value_references_base_name(&self, name: &Name) -> bool {
+        self.zsh_selectorless_subscript_value_base_names
+            .iter()
+            .any(|base_name| base_name == name)
     }
 
     fn mark_conditional_assignment_shortcut(&mut self) {
@@ -2292,22 +2297,27 @@ fn word_has_command_substitution(
         .has_command_substitution()
 }
 
-fn word_is_zsh_selectorless_subscript_value(word: &Word, source: &str) -> bool {
-    let mut saw_selectorless_subscript = false;
-    word_part_nodes_are_zsh_selectorless_subscript_value(
+fn word_zsh_selectorless_subscript_value_base_names(word: &Word, source: &str) -> Box<[Name]> {
+    let mut base_names = Vec::new();
+    if word_part_nodes_are_zsh_selectorless_subscript_value(
         &word.parts,
         source,
-        &mut saw_selectorless_subscript,
-    ) && saw_selectorless_subscript
+        &mut base_names,
+    ) && !base_names.is_empty()
+    {
+        base_names.into_boxed_slice()
+    } else {
+        Box::default()
+    }
 }
 
 fn word_part_nodes_are_zsh_selectorless_subscript_value(
     parts: &[WordPartNode],
     source: &str,
-    saw_selectorless_subscript: &mut bool,
+    base_names: &mut Vec<Name>,
 ) -> bool {
     for (index, part) in parts.iter().enumerate() {
-        if let WordPart::Variable(_) = &part.kind
+        if let WordPart::Variable(name) = &part.kind
             && parts.get(index + 1).is_some_and(|next| {
                 matches!(
                     &next.kind,
@@ -2315,13 +2325,13 @@ fn word_part_nodes_are_zsh_selectorless_subscript_value(
                 )
             })
         {
-            *saw_selectorless_subscript = true;
+            base_names.push(name.clone());
             continue;
         }
         if !word_part_is_zsh_selectorless_subscript_value(
             &part.kind,
             source,
-            saw_selectorless_subscript,
+            base_names,
         ) {
             return false;
         }
@@ -2332,25 +2342,21 @@ fn word_part_nodes_are_zsh_selectorless_subscript_value(
 fn word_part_is_zsh_selectorless_subscript_value(
     part: &WordPart,
     source: &str,
-    saw_selectorless_subscript: &mut bool,
+    base_names: &mut Vec<Name>,
 ) -> bool {
     match part {
         WordPart::Literal(_) | WordPart::SingleQuoted { .. } => true,
         WordPart::DoubleQuoted { parts, .. } => {
-            word_part_nodes_are_zsh_selectorless_subscript_value(
-                parts,
-                source,
-                saw_selectorless_subscript,
-            )
+            word_part_nodes_are_zsh_selectorless_subscript_value(parts, source, base_names)
         }
         WordPart::Parameter(parameter) => {
-            parameter_is_zsh_selectorless_subscript_value(parameter, saw_selectorless_subscript)
+            parameter_is_zsh_selectorless_subscript_value(parameter, base_names)
         }
         WordPart::ArrayAccess(reference) | WordPart::ArraySlice { reference, .. } => {
             if !var_ref_has_selectorless_subscript(reference) {
                 return false;
             }
-            *saw_selectorless_subscript = true;
+            base_names.push(reference.name.clone());
             true
         }
         WordPart::ZshQualifiedGlob(_)
@@ -2378,14 +2384,14 @@ fn literal_starts_with_zsh_subscript(text: &str) -> bool {
 
 fn parameter_is_zsh_selectorless_subscript_value(
     parameter: &ParameterExpansion,
-    saw_selectorless_subscript: &mut bool,
+    base_names: &mut Vec<Name>,
 ) -> bool {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
             if !var_ref_has_selectorless_subscript(reference) {
                 return false;
             }
-            *saw_selectorless_subscript = true;
+            base_names.push(reference.name.clone());
             true
         }
         ParameterExpansionSyntax::Bourne(
@@ -2407,14 +2413,11 @@ fn parameter_is_zsh_selectorless_subscript_value(
                     if !var_ref_has_selectorless_subscript(reference) {
                         return false;
                     }
-                    *saw_selectorless_subscript = true;
+                    base_names.push(reference.name.clone());
                     true
                 }
                 ZshExpansionTarget::Nested(parameter) => {
-                    parameter_is_zsh_selectorless_subscript_value(
-                        parameter,
-                        saw_selectorless_subscript,
-                    )
+                    parameter_is_zsh_selectorless_subscript_value(parameter, base_names)
                 }
                 ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => false,
             }

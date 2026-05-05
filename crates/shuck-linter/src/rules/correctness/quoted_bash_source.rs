@@ -152,6 +152,22 @@ precm=(builtin emulate zsh)
     }
 
     #[test]
+    fn zsh_ambiguous_presence_tests_do_not_require_explicit_selectors() {
+        let source = "\
+#!/bin/zsh
+maybe() {
+  [[ -n $flag ]] && setopt ksh_arrays
+}
+maybe
+precm=(builtin emulate zsh)
+[[ -n $precm ]] && builtin ${precm[@]} 'source \"$ZERO\"'
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn zsh_ksh_array_presence_tests_require_explicit_selectors() {
         let source = "\
 #!/bin/zsh
@@ -510,6 +526,56 @@ arr=(new1 new2) printf '%s\\n' \"$arr\"
     }
 
     #[test]
+    fn zsh_array_assignment_suppression_does_not_hide_later_scalar_assignments() {
+        let source = "\
+#!/bin/zsh
+maybe_ksh_arrays() {
+  [[ -n $flag ]] && setopt ksharrays
+}
+maybe_ksh_arrays
+arr=(one two)
+out=($arr) copy=$arr
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
+        );
+    }
+
+    #[test]
+    fn zsh_array_assignment_suppression_does_not_hide_nested_reads() {
+        let source = "\
+#!/bin/zsh
+maybe_ksh_arrays() {
+  [[ -n $flag ]] && setopt ksharrays
+}
+maybe_ksh_arrays
+arr=(one two)
+out=($(print -r -- $arr))
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
+        );
+    }
+
+    #[test]
     fn read_option_values_do_not_become_array_targets() {
         let source = "\
 #!/bin/bash
@@ -788,6 +854,43 @@ OPTS[k]=1
 local -a ___opt
 ___opt=(-a -b)
 .zinit-load-snippet $___opt foo
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedBashSource).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn zsh_native_array_expansion_stays_clean_after_localoptions_dispatcher() {
+        let source = "\
+#!/bin/zsh
+function omz {
+  setopt localoptions noksharrays
+  [[ $# -gt 0 ]] || return 1
+  local command=\"$1\"
+  shift
+  (( ${+functions[_omz::$command]} )) || return 1
+  _omz::$command \"$@\"
+}
+
+function _omz {
+  local -a cmds subcmds
+  if (( CURRENT == 4 )); then
+    case \"${words[2]}::${words[3]}\" in
+      plugin::(disable|enable|load))
+        local -aU valid_plugins
+        if [[ \"${words[3]}\" = disable ]]; then
+          valid_plugins=($plugins)
+        else
+          valid_plugins=(\"$ZSH\"/plugins/*/{_*,*.plugin.zsh}(-.N:h:t))
+        fi
+        _describe 'plugin' valid_plugins ;;
+    esac
+  fi
+}
 ";
         let diagnostics = test_snippet(
             source,

@@ -114,6 +114,10 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
             ));
         }
 
+        if self.reference_is_zsh_array_assignment_list_value(reference) {
+            return None;
+        }
+
         Some(match self.array_reference_policy(reference) {
             shuck_semantic::ArrayReferencePolicy::RequiresExplicitSelector => {
                 PlainUnindexedArrayReferenceFact::SelectorRequired(
@@ -131,6 +135,28 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
                     reference.span,
                 ))
             }
+        })
+    }
+
+    fn reference_is_zsh_array_assignment_list_value(&mut self, reference: &Reference) -> bool {
+        if self.facts.shell != ShellDialect::Zsh
+            || matches!(
+                self.array_reference_policy(reference),
+                shuck_semantic::ArrayReferencePolicy::RequiresExplicitSelector
+            )
+        {
+            return false;
+        }
+
+        self.facts.word_facts().any(|word| {
+            self.facts.is_compound_assignment_value_word(word)
+                && self
+                    .semantic
+                    .references_in_command_span(
+                        self.facts.command(word.command_id()).span(),
+                        word.span(),
+                    )
+                    .any(|direct_reference| direct_reference.id == reference.id)
         })
     }
 
@@ -262,17 +288,17 @@ impl<'a, 'src> PlainUnindexedArrayReferenceContext<'a, 'src> {
     }
 
     fn reference_is_zsh_conditional_operand(&self, reference: &Reference) -> bool {
-        matches!(
+        !matches!(
             self.array_reference_policy(reference),
-            shuck_semantic::ArrayReferencePolicy::NativeZshScalar
+            shuck_semantic::ArrayReferencePolicy::RequiresExplicitSelector
         )
             && matches!(reference.kind, shuck_semantic::ReferenceKind::ConditionalOperand)
     }
 
     fn reference_is_zsh_presence_test(&self, reference: &Reference) -> bool {
-        matches!(
+        !matches!(
             self.array_reference_policy(reference),
-            shuck_semantic::ArrayReferencePolicy::NativeZshScalar
+            shuck_semantic::ArrayReferencePolicy::RequiresExplicitSelector
         )
             && self
                 .facts
