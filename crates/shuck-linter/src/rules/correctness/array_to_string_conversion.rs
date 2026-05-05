@@ -89,11 +89,7 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
 
             checker.facts().binding_value(binding.id)?.scalar_word()?;
 
-            if zsh_selectorless_subscript_value_resets_scalar_history(
-                checker,
-                binding,
-                saw_array_history,
-            ) {
+            if zsh_selectorless_subscript_value_resets_scalar_history(checker, binding) {
                 push_array_history(
                     &mut array_history,
                     name,
@@ -214,16 +210,14 @@ impl ArrayHistoryState {
 fn zsh_selectorless_subscript_value_resets_scalar_history(
     checker: &Checker<'_>,
     binding: &Binding,
-    saw_array_history: bool,
 ) -> bool {
     checker.shell() == ShellDialect::Zsh
-        && !saw_array_history
-        && matches!(
+        && !matches!(
             checker
                 .semantic()
                 .shell_behavior_at(binding.span.start.offset)
                 .array_reference_policy(),
-            ArrayReferencePolicy::NativeZshScalar
+            ArrayReferencePolicy::RequiresExplicitSelector
         )
         && checker
             .facts()
@@ -1112,6 +1106,44 @@ fi
     }
 
     #[test]
+    fn zsh_selected_element_scalar_reassignment_clears_array_history() {
+        let source = "\
+#!/bin/zsh
+for program in $programs; do
+  sha_str=($(command shasum $program))
+  sha_str=$sha_str[1]
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn zsh_split_then_selected_element_scalar_reassignment_is_intentional() {
+        let source = "\
+#!/bin/zsh
+issue_arg=${issue_arg##*/}
+issue_arg=(${(s:_:)issue_arg})
+if [[ ${#issue_arg[@]} = 1 && ${issue_arg} == *-* ]]; then
+  issue_arg=(${(s:-:)issue_arg})
+  issue_arg=\"${issue_arg[1]}-${issue_arg[2]}\"
+else
+  issue_arg=${issue_arg[1]}
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_scalar_reassignments_after_read_array_targets() {
         let source = "\
 #!/bin/bash
@@ -1244,6 +1276,31 @@ g() {
   local fuzzer=$1
 }
 fuzzer=$1
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn zsh_local_array_collapse_does_not_escape_to_later_local_scalars() {
+        let source = "\
+#!/bin/zsh
+upglob() {
+  local cached=$_cache[$1]
+  if [[ -n $cached ]]; then
+    cached=(${(s: :)cached})
+  fi
+}
+read_pyenv() {
+  local -a stat
+  zstat -A stat +mtime -- $1 2>/dev/null || stat=(-1)
+  local cached=$_other_cache[$1:$2]
+  print -r -- $cached
+}
 ";
         let diagnostics = test_snippet(
             source,
@@ -1576,7 +1633,7 @@ echo \"$ret\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["items", "kitems"],
+            vec!["kitems"],
             "{diagnostics:#?}"
         );
     }
