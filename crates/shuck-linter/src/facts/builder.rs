@@ -317,7 +317,8 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     self.semantic_artifacts,
                     self.source,
                     &command_shell_behavior,
-                );
+                )
+                .into_sparse();
                 let declaration_assignment_probes = build_declaration_assignment_probes(
                     visit.command,
                     &normalized,

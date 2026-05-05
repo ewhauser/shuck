@@ -79,9 +79,9 @@ use std::{borrow::Cow, ops::ControlFlow, sync::OnceLock};
 
 #[allow(unused_imports)]
 pub(crate) use self::command_options::{
-    CommandOptionFacts, ExitCommandFacts, ExprCommandFacts, ExprStringHelperKind,
-    FunctionPositionalParameterFacts, GrepPatternSourceKind, MapfileCommandFacts, PathWordFact,
-    WaitCommandFacts,
+    CommandOptionFacts, CommandOptionFactsRef, ExitCommandFacts, ExprCommandFacts,
+    ExprStringHelperKind, FunctionPositionalParameterFacts, GrepPatternSourceKind,
+    MapfileCommandFacts, PathWordFact, WaitCommandFacts,
 };
 #[allow(unused_imports)]
 pub(crate) use self::command_options::{

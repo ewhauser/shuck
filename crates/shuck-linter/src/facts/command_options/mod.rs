@@ -625,6 +625,115 @@ pub struct CommandOptionFacts<'a> {
     file_operand_words: Box<[&'a Word]>,
 }
 
+#[derive(Clone, Copy)]
+pub struct CommandOptionFactsRef<'facts, 'a> {
+    inner: Option<&'facts CommandOptionFacts<'a>>,
+}
+
+impl<'facts, 'a> CommandOptionFactsRef<'facts, 'a> {
+    pub(super) fn new(inner: Option<&'facts CommandOptionFacts<'a>>) -> Self {
+        Self { inner }
+    }
+
+    pub fn rm(self) -> Option<&'facts RmCommandFacts> {
+        self.inner.and_then(CommandOptionFacts::rm)
+    }
+
+    pub fn ssh(self) -> Option<&'facts SshCommandFacts> {
+        self.inner.and_then(CommandOptionFacts::ssh)
+    }
+
+    pub fn read(self) -> Option<&'facts ReadCommandFacts> {
+        self.inner.and_then(CommandOptionFacts::read)
+    }
+
+    pub fn su(self) -> Option<&'facts SuCommandFacts> {
+        self.inner.and_then(CommandOptionFacts::su)
+    }
+
+    pub fn echo(self) -> Option<&'facts EchoCommandFacts<'a>> {
+        self.inner.and_then(CommandOptionFacts::echo)
+    }
+
+    pub fn sed(self) -> Option<&'facts SedCommandFacts> {
+        self.inner.and_then(CommandOptionFacts::sed)
+    }
+
+    pub fn tr(self) -> Option<&'facts TrCommandFacts<'a>> {
+        self.inner.and_then(CommandOptionFacts::tr)
+    }
+
+    pub fn printf(self) -> Option<&'facts PrintfCommandFacts<'a>> {
+        self.inner.and_then(CommandOptionFacts::printf)
+    }
+
+    pub fn unset(self) -> Option<&'facts UnsetCommandFacts<'a>> {
+        self.inner.and_then(CommandOptionFacts::unset)
+    }
+
+    pub fn find(self) -> Option<&'facts FindCommandFacts> {
+        self.inner.and_then(CommandOptionFacts::find)
+    }
+
+    pub fn find_exec(self) -> Option<&'facts FindExecCommandFacts> {
+        self.inner.and_then(CommandOptionFacts::find_exec)
+    }
+
+    pub fn find_exec_shell(self) -> Option<&'facts FindExecShellCommandFacts> {
+        self.inner.and_then(CommandOptionFacts::find_exec_shell)
+    }
+
+    pub fn mapfile(self) -> Option<&'facts MapfileCommandFacts> {
+        self.inner.and_then(CommandOptionFacts::mapfile)
+    }
+
+    pub fn xargs(self) -> Option<&'facts XargsCommandFacts<'a>> {
+        self.inner.and_then(CommandOptionFacts::xargs)
+    }
+
+    pub fn wait(self) -> Option<&'facts WaitCommandFacts> {
+        self.inner.and_then(CommandOptionFacts::wait)
+    }
+
+    pub fn grep(self) -> Option<&'facts GrepCommandFacts<'a>> {
+        self.inner.and_then(CommandOptionFacts::grep)
+    }
+
+    pub fn ps(self) -> Option<&'facts PsCommandFacts> {
+        self.inner.and_then(CommandOptionFacts::ps)
+    }
+
+    pub fn set(self) -> Option<&'facts SetCommandFacts> {
+        self.inner.and_then(CommandOptionFacts::set)
+    }
+
+    pub fn directory_change(self) -> Option<&'facts DirectoryChangeCommandFacts> {
+        self.inner.and_then(CommandOptionFacts::directory_change)
+    }
+
+    pub fn expr(self) -> Option<&'facts ExprCommandFacts> {
+        self.inner.and_then(CommandOptionFacts::expr)
+    }
+
+    pub fn exit(self) -> Option<&'facts ExitCommandFacts<'a>> {
+        self.inner.and_then(CommandOptionFacts::exit)
+    }
+
+    pub fn sudo_family(self) -> Option<&'facts SudoFamilyCommandFacts> {
+        self.inner.and_then(CommandOptionFacts::sudo_family)
+    }
+
+    pub fn nonportable_sh_builtin_option_span(self) -> Option<Span> {
+        self.inner
+            .and_then(CommandOptionFacts::nonportable_sh_builtin_option_span)
+    }
+
+    pub fn file_operand_words(self) -> &'facts [&'a Word] {
+        self.inner
+            .map_or(&[], CommandOptionFacts::file_operand_words)
+    }
+}
+
 impl<'a> CommandOptionFacts<'a> {
     pub fn rm(&self) -> Option<&RmCommandFacts> {
         self.rm.as_ref()
@@ -720,6 +829,37 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn file_operand_words(&self) -> &[&'a Word] {
         &self.file_operand_words
+    }
+
+    pub(super) fn into_sparse(self) -> Option<Box<Self>> {
+        (!self.is_empty()).then(|| Box::new(self))
+    }
+
+    fn is_empty(&self) -> bool {
+        self.rm.is_none()
+            && self.ssh.is_none()
+            && self.read.is_none()
+            && self.su.is_none()
+            && self.echo.is_none()
+            && self.sed.is_none()
+            && self.tr.is_none()
+            && self.printf.is_none()
+            && self.unset.is_none()
+            && self.find.is_none()
+            && self.find_exec.is_none()
+            && self.find_exec_shell.is_none()
+            && self.mapfile.is_none()
+            && self.xargs.is_none()
+            && self.wait.is_none()
+            && self.grep.is_none()
+            && self.ps.is_none()
+            && self.set.is_none()
+            && self.directory_change.is_none()
+            && self.expr.is_none()
+            && self.exit.is_none()
+            && self.sudo_family.is_none()
+            && self.nonportable_sh_builtin_option_span.is_none()
+            && self.file_operand_words.is_empty()
     }
 
     #[cfg_attr(shuck_profiling, inline(never))]
