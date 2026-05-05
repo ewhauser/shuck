@@ -10,6 +10,7 @@ pub struct SingleQuotedFragmentFact {
     dollar_quoted: bool,
     command_name: Option<Box<str>>,
     assignment_target: Option<Box<str>>,
+    shell_dialect: shuck_parser::ShellDialect,
     variable_set_operand: bool,
     literal_expansion_exempt: bool,
     literal_backslash_in_single_quotes_span: Option<Span>,
@@ -34,6 +35,10 @@ impl SingleQuotedFragmentFact {
 
     pub fn assignment_target(&self) -> Option<&str> {
         self.assignment_target.as_deref()
+    }
+
+    pub fn shell_dialect(&self) -> shuck_parser::ShellDialect {
+        self.shell_dialect
     }
 
     pub fn variable_set_operand(&self) -> bool {
@@ -468,6 +473,7 @@ pub(super) struct SurfaceFragmentFacts {
 pub(super) struct SurfaceScanContext<'a> {
     command_name: Option<&'a str>,
     assignment_target: Option<&'a str>,
+    shell_dialect: shuck_parser::ShellDialect,
     nested_word_command: bool,
     variable_set_operand: bool,
     literal_expansion_exempt: bool,
@@ -478,10 +484,15 @@ pub(super) struct SurfaceScanContext<'a> {
 }
 
 impl<'a> SurfaceScanContext<'a> {
-    pub(super) fn new(command_name: Option<&'a str>, nested_word_command: bool) -> Self {
+    pub(super) fn new(
+        command_name: Option<&'a str>,
+        nested_word_command: bool,
+        shell_dialect: shuck_parser::ShellDialect,
+    ) -> Self {
         Self {
             command_name,
             nested_word_command,
+            shell_dialect,
             subscript_suppresses_later_references: true,
             collect_open_double_quotes: true,
             collect_pattern_charclasses: false,
@@ -880,6 +891,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                             .assignment_target
                             .map(str::to_owned)
                             .map(String::into_boxed_str),
+                        shell_dialect: context.shell_dialect,
                         variable_set_operand: context.variable_set_operand,
                         literal_expansion_exempt: context.literal_expansion_exempt,
                         literal_backslash_in_single_quotes_span:

@@ -1634,7 +1634,11 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     }
 
     fn surface_context(&self) -> SurfaceScanContext<'norm> {
-        SurfaceScanContext::new(self.surface_command_name, self.nested_word_command)
+        SurfaceScanContext::new(
+            self.surface_command_name,
+            self.nested_word_command,
+            self.semantic.shell_profile().dialect,
+        )
     }
 
     fn collect_surface_only_word(
@@ -1718,7 +1722,11 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 CompoundCommand::Conditional(command) => {
                     self.collect_conditional_expansion_words(
                         &command.expression,
-                        SurfaceScanContext::new(None, self.nested_word_command),
+                        SurfaceScanContext::new(
+                            None,
+                            self.nested_word_command,
+                            self.semantic.shell_profile().dialect,
+                        ),
                     );
                 }
                 CompoundCommand::Arithmetic(command) => {
@@ -1898,6 +1906,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                         surface_context.variable_set_operand()
                     } else if single_quoted_literal_exempt_argument(
                         surface_command_name,
+                        self.semantic.shell_profile().dialect,
                         &command.args,
                         arg_index,
                         body_arg_start,
@@ -1955,7 +1964,11 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             }
             Command::Builtin(command) => match command {
                 BuiltinCommand::Break(command) => {
-                    let surface_context = SurfaceScanContext::new(None, self.nested_word_command);
+                    let surface_context = SurfaceScanContext::new(
+                        None,
+                        self.nested_word_command,
+                        self.semantic.shell_profile().dialect,
+                    );
                     if let Some(word) = &command.depth {
                         self.push_word_with_surface(
                             word,
@@ -1971,7 +1984,11 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     );
                 }
                 BuiltinCommand::Continue(command) => {
-                    let surface_context = SurfaceScanContext::new(None, self.nested_word_command);
+                    let surface_context = SurfaceScanContext::new(
+                        None,
+                        self.nested_word_command,
+                        self.semantic.shell_profile().dialect,
+                    );
                     if let Some(word) = &command.depth {
                         self.push_word_with_surface(
                             word,
@@ -1987,7 +2004,11 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     );
                 }
                 BuiltinCommand::Return(command) => {
-                    let surface_context = SurfaceScanContext::new(None, self.nested_word_command);
+                    let surface_context = SurfaceScanContext::new(
+                        None,
+                        self.nested_word_command,
+                        self.semantic.shell_profile().dialect,
+                    );
                     if let Some(word) = &command.code {
                         self.push_word_with_surface(
                             word,
@@ -2003,7 +2024,11 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     );
                 }
                 BuiltinCommand::Exit(command) => {
-                    let surface_context = SurfaceScanContext::new(None, self.nested_word_command);
+                    let surface_context = SurfaceScanContext::new(
+                        None,
+                        self.nested_word_command,
+                        self.semantic.shell_profile().dialect,
+                    );
                     if let Some(word) = &command.code {
                         self.push_word_with_surface(
                             word,
@@ -2020,7 +2045,11 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 }
             },
             Command::Decl(command) => {
-                let surface_context = SurfaceScanContext::new(None, self.nested_word_command);
+                let surface_context = SurfaceScanContext::new(
+                    None,
+                    self.nested_word_command,
+                    self.semantic.shell_profile().dialect,
+                );
                 for operand in &command.operands {
                     match operand {
                         DeclOperand::Flag(word) => {
@@ -2043,7 +2072,11 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 self.collect_words_with_context(
                     &function.args,
                     WordFactContext::Expansion(ExpansionContext::CommandArgument),
-                    SurfaceScanContext::new(None, self.nested_word_command),
+                    SurfaceScanContext::new(
+                        None,
+                        self.nested_word_command,
+                        self.semantic.shell_profile().dialect,
+                    ),
                 );
             }
         }
@@ -2099,8 +2132,11 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                         reference,
                         self.source,
                         &mut |word| {
-                            let surface_context =
-                                SurfaceScanContext::new(None, self.nested_word_command);
+                            let surface_context = SurfaceScanContext::new(
+                                None,
+                                self.nested_word_command,
+                                self.semantic.shell_profile().dialect,
+                            );
                             collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
                                 &word.parts,
                                 self.source,
@@ -2137,7 +2173,11 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         assignment: &'a Assignment,
         context: WordFactContext,
     ) {
-        let surface_context = SurfaceScanContext::new(None, self.nested_word_command)
+        let surface_context = SurfaceScanContext::new(
+            None,
+            self.nested_word_command,
+            self.semantic.shell_profile().dialect,
+        )
             .with_assignment_target(assignment.target.name.as_str());
         let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
             Some(&assignment.target.name),
