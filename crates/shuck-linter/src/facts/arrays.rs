@@ -827,10 +827,11 @@ fn collect_comma_array_assignment_spans(
     command: &Command,
     source: &str,
     shell: ShellDialect,
+    semantic: &SemanticModel,
     spans: &mut Vec<Span>,
 ) {
     for assignment in command_assignments(command) {
-        if let Some(span) = comma_array_assignment_span(assignment, source, shell) {
+        if let Some(span) = comma_array_assignment_span(assignment, source, shell, semantic) {
             spans.push(span);
         }
     }
@@ -839,7 +840,7 @@ fn collect_comma_array_assignment_spans(
         let DeclOperand::Assignment(assignment) = operand else {
             continue;
         };
-        if let Some(span) = comma_array_assignment_span(assignment, source, shell) {
+        if let Some(span) = comma_array_assignment_span(assignment, source, shell, semantic) {
             spans.push(span);
         }
     }
@@ -890,11 +891,12 @@ fn comma_array_assignment_span(
     assignment: &Assignment,
     source: &str,
     shell: ShellDialect,
+    semantic: &SemanticModel,
 ) -> Option<Span> {
     let AssignmentValue::Compound(array) = &assignment.value else {
         return None;
     };
-    if !array_value_has_unquoted_comma(array, source, shell) {
+    if !array_value_has_unquoted_comma(assignment, array, source, shell, semantic) {
         return None;
     }
 
@@ -902,15 +904,38 @@ fn comma_array_assignment_span(
 }
 
 fn array_value_has_unquoted_comma(
+    assignment: &Assignment,
     array: &shuck_ast::ArrayExpr,
     source: &str,
     shell: ShellDialect,
+    semantic: &SemanticModel,
 ) -> bool {
+    let allow_zsh_option_map_values =
+        shell == ShellDialect::Zsh && assignment_target_has_assoc_context(assignment, semantic);
+
     array.elements.iter().any(|element| {
         let value = element.value();
         value.has_top_level_unquoted_comma()
-            && !(shell == ShellDialect::Zsh && zsh_option_map_value_allows_comma(value, source))
+            && !(allow_zsh_option_map_values && zsh_option_map_value_allows_comma(value, source))
     })
+}
+
+fn assignment_target_has_assoc_context(assignment: &Assignment, semantic: &SemanticModel) -> bool {
+    semantic
+        .binding_for_definition_span(assignment.target.name_span)
+        .is_some_and(|binding| {
+            semantic
+                .binding(binding)
+                .attributes
+                .contains(BindingAttributes::ASSOC)
+        })
+        || semantic
+            .previous_visible_binding(
+                &assignment.target.name,
+                assignment.target.name_span,
+                Some(assignment.target.name_span),
+            )
+            .is_some_and(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
 }
 
 fn zsh_option_map_value_allows_comma(value: &shuck_ast::ArrayValueWord, source: &str) -> bool {
