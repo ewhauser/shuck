@@ -146,9 +146,9 @@ fn line_has_zsh_marker(line: &str) -> bool {
         || starts_with_shell_word(line, "zmodload")
         || line_has_zsh_emulate_marker(line)
         || line_has_zsh_autoload_marker(line)
-        || line.contains("${${")
-        || line.contains("${(%):-%x}")
-        || line.contains("${+commands[")
+        || contains_unquoted_literal(line, "${${")
+        || contains_unquoted_literal(line, "${(%):-%x}")
+        || contains_unquoted_literal(line, "${+commands[")
 }
 
 fn line_has_zsh_emulate_marker(line: &str) -> bool {
@@ -173,8 +173,41 @@ fn contains_shell_word(line: &str, needle: &str) -> bool {
 }
 
 fn contains_unquoted_parameter(line: &str, name: &str) -> bool {
-    let bytes = line.as_bytes();
     let name_bytes = name.as_bytes();
+    contains_unquoted_marker(line, |bytes, index| {
+        let braced_start = index + 2;
+        let braced_end = braced_start + name_bytes.len();
+        if bytes.get(index + 1) == Some(&b'{')
+            && bytes
+                .get(braced_start..braced_end)
+                .is_some_and(|candidate| candidate == name_bytes)
+            && bytes
+                .get(braced_end)
+                .is_none_or(|byte| !is_shell_name_byte(*byte))
+        {
+            return true;
+        }
+        let plain_start = index + 1;
+        let plain_end = plain_start + name_bytes.len();
+        bytes
+            .get(plain_start..plain_end)
+            .is_some_and(|candidate| candidate == name_bytes)
+            && bytes
+                .get(plain_end)
+                .is_none_or(|byte| !is_shell_name_byte(*byte))
+    })
+}
+
+fn contains_unquoted_literal(line: &str, literal: &str) -> bool {
+    contains_unquoted_marker(line, |bytes, index| {
+        bytes
+            .get(index..index + literal.len())
+            .is_some_and(|candidate| candidate == literal.as_bytes())
+    })
+}
+
+fn contains_unquoted_marker(line: &str, mut matches_at: impl FnMut(&[u8], usize) -> bool) -> bool {
+    let bytes = line.as_bytes();
     let mut index = 0;
     let mut in_single_quotes = false;
     let mut escaped = false;
@@ -196,30 +229,8 @@ fn contains_unquoted_parameter(line: &str, name: &str) -> bool {
             index += 1;
             continue;
         }
-        if !in_single_quotes && byte == b'$' {
-            let braced_start = index + 2;
-            let braced_end = braced_start + name_bytes.len();
-            if bytes.get(index + 1) == Some(&b'{')
-                && bytes
-                    .get(braced_start..braced_end)
-                    .is_some_and(|candidate| candidate == name_bytes)
-                && bytes
-                    .get(braced_end)
-                    .is_none_or(|byte| !is_shell_name_byte(*byte))
-            {
-                return true;
-            }
-            let plain_start = index + 1;
-            let plain_end = plain_start + name_bytes.len();
-            if bytes
-                .get(plain_start..plain_end)
-                .is_some_and(|candidate| candidate == name_bytes)
-                && bytes
-                    .get(plain_end)
-                    .is_none_or(|byte| !is_shell_name_byte(*byte))
-            {
-                return true;
-            }
+        if !in_single_quotes && matches_at(bytes, index) {
+            return true;
         }
         index += 1;
     }
@@ -301,6 +312,15 @@ autoload -U compaudit compinit
     fn ignores_literal_or_escaped_dialect_parameter_markers() {
         let inferred = ShellDialect::infer(
             "printf '%s\\n' '${ZSH_VERSION}' \"\\$BASH_VERSION\" \"$ZSH_VERSIONED\"\n",
+            Some(Path::new("/tmp/example.sh")),
+        );
+        assert_eq!(inferred, ShellDialect::Sh);
+    }
+
+    #[test]
+    fn ignores_literal_or_escaped_zsh_expansion_markers() {
+        let inferred = ShellDialect::infer(
+            "printf '%s\\n' '${${(%):-%x}:a:h}' \"\\${+commands[git]}\"\n",
             Some(Path::new("/tmp/example.sh")),
         );
         assert_eq!(inferred, ShellDialect::Sh);
