@@ -44,7 +44,7 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
         })
         .fold(FxHashMap::default(), |mut spans, reference| {
             spans
-                .entry(reference.name.clone())
+                .entry(reference.name.to_string())
                 .or_insert_with(Vec::new)
                 .push(reference.span);
             spans
@@ -60,13 +60,13 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
         })
         .fold(FxHashMap::default(), |mut offsets, reference| {
             offsets
-                .entry(reference.name.clone())
+                .entry(reference.name.to_string())
                 .or_insert_with(Vec::new)
                 .push(reference.span.start.offset);
             offsets
         });
 
-    let mut candidate_cache = FxHashMap::<Name, Option<String>>::default();
+    let mut candidate_cache = FxHashMap::<String, Option<String>>::default();
     let mut findings = Vec::new();
     for uninitialized in checker
         .semantic_analysis()
@@ -175,9 +175,9 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
 
 fn heredoc_findings(
     checker: &Checker<'_>,
-    guarded_name_offsets: &FxHashMap<Name, Vec<usize>>,
-    suppressed_reference_spans: &FxHashMap<Name, Vec<Span>>,
-    candidate_cache: &mut FxHashMap<Name, Option<String>>,
+    guarded_name_offsets: &FxHashMap<String, Vec<usize>>,
+    suppressed_reference_spans: &FxHashMap<String, Vec<Span>>,
+    candidate_cache: &mut FxHashMap<String, Option<String>>,
 ) -> Vec<(Span, String, String)> {
     let mut findings = Vec::new();
     let mut seen = FxHashSet::default();
@@ -255,8 +255,8 @@ fn heredoc_findings(
 
 fn scope_compat_findings(
     checker: &Checker<'_>,
-    guarded_name_offsets: &FxHashMap<Name, Vec<usize>>,
-    suppressed_reference_spans: &FxHashMap<Name, Vec<Span>>,
+    guarded_name_offsets: &FxHashMap<String, Vec<usize>>,
+    suppressed_reference_spans: &FxHashMap<String, Vec<Span>>,
 ) -> Vec<(Span, String, String)> {
     let mut findings = Vec::new();
     let mut seen = FxHashSet::default();
@@ -504,7 +504,7 @@ fn is_braced_parameter_use(source: &str, span: Span) -> bool {
 }
 
 fn has_prior_guarded_reference(
-    guarded_name_offsets: &FxHashMap<Name, Vec<usize>>,
+    guarded_name_offsets: &FxHashMap<String, Vec<usize>>,
     name: &str,
     span: Span,
 ) -> bool {
@@ -514,7 +514,7 @@ fn has_prior_guarded_reference(
 }
 
 fn has_suppressed_reference_span(
-    suppressed_reference_spans: &FxHashMap<Name, Vec<Span>>,
+    suppressed_reference_spans: &FxHashMap<String, Vec<Span>>,
     name: &str,
     span: Span,
 ) -> bool {
@@ -566,12 +566,12 @@ fn preferred_candidate_name(checker: &Checker<'_>, target_name: &str) -> Option<
 }
 
 fn cached_candidate_name(
-    cache: &mut FxHashMap<Name, Option<String>>,
+    cache: &mut FxHashMap<String, Option<String>>,
     checker: &Checker<'_>,
     target_name: &str,
 ) -> Option<String> {
     cache
-        .entry(Name::from(target_name))
+        .entry(target_name.to_owned())
         .or_insert_with(|| preferred_candidate_name(checker, target_name))
         .clone()
 }
