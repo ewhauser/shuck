@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.0.35](https://github.com/ewhauser/shuck/compare/v0.0.34...v0.0.35) (2026-05-05)
+
+
+### Bug Fixes
+
+* **linter:** model zsh by-name builtin effects ([#866](https://github.com/ewhauser/shuck/issues/866)) ([8698cfc](https://github.com/ewhauser/shuck/commit/8698cfcef6a9bc5f5192cdcfe03ee3e3d2c2fe86))
+
+
+### Performance
+
+* micro-optimizations ([#873](https://github.com/ewhauser/shuck/issues/873)) ([d2bdeac](https://github.com/ewhauser/shuck/commit/d2bdeacf6fbcca71e625605ad8cd1a0a06929328))
+
+
+### Documentation
+
+* mention LSP editor integration ([#881](https://github.com/ewhauser/shuck/issues/881)) ([05e5aad](https://github.com/ewhauser/shuck/commit/05e5aad134c26967f2c32207ba1bcac7595869ff))
+
 ## [0.0.34](https://github.com/ewhauser/shuck/compare/v0.0.33...v0.0.34) (2026-05-05)
 
 
