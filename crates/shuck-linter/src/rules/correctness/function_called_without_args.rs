@@ -405,6 +405,7 @@ greet
 #!/bin/zsh
 removed_precmd() { print -r -- \"$1\"; }
 removed_chpwd() { print -r -- \"$1\"; }
+add-zsh-hook chpwd removed_chpwd
 add-zsh-hook -d precmd removed_precmd
 add-zsh-hook -UD chpwd removed_chpwd
 removed_precmd
@@ -425,6 +426,47 @@ removed_chpwd
             diagnostics[1].span.slice(source),
             "removed_chpwd() { print -r -- \"$1\"; }"
         );
+    }
+
+    #[test]
+    fn reports_zsh_functions_removed_from_widgets() {
+        let source = "\
+#!/bin/zsh
+removed_widget() { print -r -- \"$1\"; }
+zle -N removed-widget removed_widget
+zle -D removed-widget
+removed_widget
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "removed_widget() { print -r -- \"$1\"; }"
+        );
+    }
+
+    #[test]
+    fn ignores_zsh_functions_still_registered_as_widgets() {
+        let source = "\
+#!/bin/zsh
+shared_widget() { print -r -- \"$1\"; }
+zle -N first-widget shared_widget
+zle -N second-widget shared_widget
+zle -D first-widget
+shared_widget
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]

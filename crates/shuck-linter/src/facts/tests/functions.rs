@@ -629,9 +629,17 @@ not_external() { print -r -- \"$1\"; }
 dynamic_widget() { print -r -- \"$1\"; }
 removed_precmd() { print -r -- \"$1\"; }
 removed_chpwd() { print -r -- \"$1\"; }
+deleted_widget_impl() { print -r -- \"$1\"; }
+shared_widget_impl() { print -r -- \"$1\"; }
 zle -N single_operand_widget
 zle -N widget-name widget_impl
+zle -N deleted-widget deleted_widget_impl
+zle -D deleted-widget
+zle -N first-widget shared_widget_impl
+zle -N second-widget shared_widget_impl
+zle -D first-widget
 add-zsh-hook -Uz precmd precmd_refresh
+add-zsh-hook chpwd removed_chpwd
 add-zsh-hook -d precmd removed_precmd
 add-zsh-hook -UD chpwd removed_chpwd
 zle -N \"$widget_name\" dynamic_widget
@@ -662,7 +670,8 @@ zle -N \"$widget_name\" dynamic_widget
                     "widget_impl",
                     "precmd_refresh",
                     "precmd",
-                    "zsh_directory_name"
+                    "zsh_directory_name",
+                    "shared_widget_impl"
                 ]
             );
         },

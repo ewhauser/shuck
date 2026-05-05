@@ -270,6 +270,7 @@ greet
 #!/bin/zsh
 removed_precmd() { print -r -- \"$1\"; }
 removed_chpwd() { print -r -- \"$1\"; }
+add-zsh-hook chpwd removed_chpwd
 add-zsh-hook -d precmd removed_precmd
 add-zsh-hook -UD chpwd removed_chpwd
 removed_precmd
@@ -283,9 +284,48 @@ removed_chpwd
 
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "removed_precmd");
-        assert_eq!(diagnostics[0].span.start.line, 6);
+        assert_eq!(diagnostics[0].span.start.line, 7);
         assert_eq!(diagnostics[1].span.slice(source), "removed_chpwd");
-        assert_eq!(diagnostics[1].span.start.line, 7);
+        assert_eq!(diagnostics[1].span.start.line, 8);
+    }
+
+    #[test]
+    fn reports_zsh_call_sites_removed_from_widgets() {
+        let source = "\
+#!/bin/zsh
+removed_widget() { print -r -- \"$1\"; }
+zle -N removed-widget removed_widget
+zle -D removed-widget
+removed_widget
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "removed_widget");
+        assert_eq!(diagnostics[0].span.start.line, 5);
+    }
+
+    #[test]
+    fn ignores_zsh_call_sites_still_registered_as_widgets() {
+        let source = "\
+#!/bin/zsh
+shared_widget() { print -r -- \"$1\"; }
+zle -N first-widget shared_widget
+zle -N second-widget shared_widget
+zle -D first-widget
+shared_widget
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]

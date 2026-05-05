@@ -307,13 +307,37 @@ fn build_external_entrypoint_function_scopes(
         }
     }
 
+    let mut zsh_widget_functions = FxHashMap::<Box<str>, Box<str>>::default();
+    let mut zsh_hook_functions = FxHashSet::<(Box<str>, Box<str>)>::default();
     for command in commands {
-        if let Some(name) = command_registers_zsh_external_entrypoint(command, source) {
-            for candidate in function_candidates.iter().flatten() {
-                if candidate.name.as_ref() == name.as_ref() {
-                    scopes.insert(candidate.scope);
+        match command_zsh_external_entrypoint_action(command, source) {
+            Some(ZshExternalEntrypointAction::RegisterWidget { widget, function }) => {
+                zsh_widget_functions.insert(widget, function);
+            }
+            Some(ZshExternalEntrypointAction::UnregisterWidgets { widgets }) => {
+                for widget in widgets {
+                    zsh_widget_functions.remove(&widget);
                 }
             }
+            Some(ZshExternalEntrypointAction::RegisterHook { hook, function }) => {
+                zsh_hook_functions.insert((hook, function));
+            }
+            Some(ZshExternalEntrypointAction::UnregisterHook { hook, function }) => {
+                zsh_hook_functions.remove(&(hook, function));
+            }
+            None => {}
+        }
+    }
+
+    for candidate in function_candidates.iter().flatten() {
+        if zsh_widget_functions
+            .values()
+            .any(|name| name.as_ref() == candidate.name.as_ref())
+            || zsh_hook_functions
+                .iter()
+                .any(|(_, name)| name.as_ref() == candidate.name.as_ref())
+        {
+            scopes.insert(candidate.scope);
         }
     }
 
@@ -423,45 +447,83 @@ fn command_registers_completion_function(
     false
 }
 
-fn command_registers_zsh_external_entrypoint(
+enum ZshExternalEntrypointAction {
+    RegisterWidget { widget: Box<str>, function: Box<str> },
+    UnregisterWidgets { widgets: Vec<Box<str>> },
+    RegisterHook { hook: Box<str>, function: Box<str> },
+    UnregisterHook { hook: Box<str>, function: Box<str> },
+}
+
+fn command_zsh_external_entrypoint_action(
     command: &CommandFact<'_>,
     source: &str,
-) -> Option<Box<str>> {
+) -> Option<ZshExternalEntrypointAction> {
     match command.effective_or_literal_name()? {
-        "zle" => zle_registered_function(command, source),
-        "add-zsh-hook" => add_zsh_hook_registered_function(command, source),
+        "zle" => zle_external_entrypoint_action(command, source),
+        "add-zsh-hook" => add_zsh_hook_external_entrypoint_action(command, source),
         _ => None,
     }
 }
 
-fn zle_registered_function(command: &CommandFact<'_>, source: &str) -> Option<Box<str>> {
+fn zle_external_entrypoint_action(
+    command: &CommandFact<'_>,
+    source: &str,
+) -> Option<ZshExternalEntrypointAction> {
     let args = static_command_args(command, source)?;
-    let registration_index = args.iter().position(|arg| arg == "-N")?;
-    let operands = args[registration_index + 1..]
-        .iter()
-        .filter(|arg| !arg.starts_with('-'))
-        .collect::<Vec<_>>();
-    match operands.as_slice() {
-        [widget] => Some(widget.as_str().into()),
-        [_, function, ..] => Some(function.as_str().into()),
-        _ => None,
+
+    if let Some(registration_index) = args.iter().position(|arg| arg == "-N") {
+        let operands = args[registration_index + 1..]
+            .iter()
+            .filter(|arg| !arg.starts_with('-'))
+            .collect::<Vec<_>>();
+        return match operands.as_slice() {
+            [widget] => Some(ZshExternalEntrypointAction::RegisterWidget {
+                widget: widget.as_str().into(),
+                function: widget.as_str().into(),
+            }),
+            [widget, function, ..] => Some(ZshExternalEntrypointAction::RegisterWidget {
+                widget: widget.as_str().into(),
+                function: function.as_str().into(),
+            }),
+            _ => None,
+        };
     }
+
+    if let Some(removal_index) = args.iter().position(|arg| arg == "-D") {
+        let widgets = args[removal_index + 1..]
+            .iter()
+            .filter(|arg| !arg.starts_with('-'))
+            .map(|arg| arg.as_str().into())
+            .collect::<Vec<_>>();
+        if !widgets.is_empty() {
+            return Some(ZshExternalEntrypointAction::UnregisterWidgets { widgets });
+        }
+    }
+
+    None
 }
 
-fn add_zsh_hook_registered_function(command: &CommandFact<'_>, source: &str) -> Option<Box<str>> {
+fn add_zsh_hook_external_entrypoint_action(
+    command: &CommandFact<'_>,
+    source: &str,
+) -> Option<ZshExternalEntrypointAction> {
     let args = static_command_args(command, source)?;
-    if args
+    let removes_hook = args
         .iter()
-        .any(|arg| is_add_zsh_hook_removal_option(arg.as_str()))
-    {
-        return None;
-    }
+        .any(|arg| is_add_zsh_hook_removal_option(arg.as_str()));
     let operands = args
         .iter()
         .filter(|arg| !arg.starts_with('-'))
         .collect::<Vec<_>>();
     match operands.as_slice() {
-        [_, function, ..] => Some(function.as_str().into()),
+        [hook, function, ..] if removes_hook => Some(ZshExternalEntrypointAction::UnregisterHook {
+            hook: hook.as_str().into(),
+            function: function.as_str().into(),
+        }),
+        [hook, function, ..] => Some(ZshExternalEntrypointAction::RegisterHook {
+            hook: hook.as_str().into(),
+            function: function.as_str().into(),
+        }),
         _ => None,
     }
 }
