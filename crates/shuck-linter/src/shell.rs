@@ -115,7 +115,7 @@ impl ShellDialect {
                 } else {
                     line
                 };
-                if candidate.trim_end() == delimiter {
+                if candidate == delimiter {
                     heredoc_delimiters.remove(0);
                 }
                 continue;
@@ -632,6 +632,13 @@ EOF
 $ZSH_VERSION
 BAR
 ";
+        let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
+        assert_eq!(inferred, ShellDialect::Sh);
+    }
+
+    #[test]
+    fn heredoc_terminators_do_not_allow_trailing_blanks() {
+        let source = "cat <<EOF\nEOF   \n$ZSH_VERSION\nEOF\n";
         let inferred = ShellDialect::infer(source, Some(Path::new("/tmp/example.sh")));
         assert_eq!(inferred, ShellDialect::Sh);
     }
