@@ -4717,6 +4717,21 @@ fn zparseopts_control_options_are_not_stacked() {
 }
 
 #[test]
+fn zparseopts_escaped_equals_in_spec_name_is_not_a_target_separator() {
+    let source = "zparseopts -a opts -- foo\\=bar foo\\=baz=dest\n";
+    let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+
+    let targets = model
+        .bindings()
+        .iter()
+        .filter(|binding| matches!(binding.kind, BindingKind::ZparseoptsTarget))
+        .map(|binding| binding.name.as_str().to_owned())
+        .collect::<Vec<_>>();
+
+    assert_eq!(targets, vec!["opts".to_owned(), "dest".to_owned()]);
+}
+
+#[test]
 fn zparseopts_mapping_does_not_bind_targets_that_name_specs() {
     let source = "zparseopts -A bar -M a=foo b+: c:=b\n";
     let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));

@@ -896,8 +896,8 @@ fn zparseopts_attached_array_target(
 }
 
 fn zparseopts_spec_name(word: &Word, source: &str) -> Option<Box<str>> {
-    let text = static_word_text(word, source)?;
-    let spec = text.split_once('=').map_or(text.as_ref(), |(spec, _)| spec);
+    let text = word.span.slice(source);
+    let spec = zparseopts_spec_separator_offset(text).map_or(text, |offset| &text[..offset]);
     let spec = spec.trim_end_matches(':').trim_end_matches('+');
     (!spec.is_empty()).then_some(spec.into())
 }
@@ -907,8 +907,8 @@ fn zparseopts_spec_target(
     source: &str,
     mapped_spec_names: Option<&FxHashSet<Box<str>>>,
 ) -> Option<(Name, Span, BindingAttributes)> {
-    let text = static_word_text(word, source)?;
-    let target_start = text.find('=')? + 1;
+    let text = word.span.slice(source);
+    let target_start = zparseopts_spec_separator_offset(text)? + 1;
     let target = &text[target_start..];
     if !is_name(target) {
         return None;
@@ -922,6 +922,22 @@ fn zparseopts_spec_target(
         word_text_offset_span(word.span, source, target_start, text.len()),
         BindingAttributes::ARRAY,
     ))
+}
+
+fn zparseopts_spec_separator_offset(text: &str) -> Option<usize> {
+    let mut escaped = false;
+    for (index, ch) in text.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' => escaped = true,
+            '=' => return Some(index),
+            _ => {}
+        }
+    }
+    None
 }
 
 fn variable_set_test_operand_name(

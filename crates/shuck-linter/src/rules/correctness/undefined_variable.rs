@@ -445,6 +445,27 @@ printf '%s\\n' \"$dest\" \"$missing\"
     }
 
     #[test]
+    fn zparseopts_escaped_equals_in_spec_names_do_not_initialize_suffixes() {
+        let source = "\
+#!/bin/zsh
+zparseopts -a opts -- foo\\=bar foo\\=baz=dest
+printf '%s\\n' \"$opts\" \"$dest\" \"$bar\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$bar"]
+        );
+    }
+
+    #[test]
     fn zparseopts_mapping_does_not_initialize_spec_alias_names() {
         let source = "\
 #!/bin/zsh
