@@ -1566,8 +1566,7 @@ fn zsh_set_a_outparam_positions(args: &[&Word], source: &str) -> Vec<usize> {
     for word in args {
         let text = word.span.slice(source);
         if !saw_array_flag {
-            if static_word_text(word, source).is_some_and(|text| text == "-A" || text == "-AArray")
-            {
+            if static_word_text(word, source).is_some_and(|text| text == "-A") {
                 saw_array_flag = true;
             }
             continue;

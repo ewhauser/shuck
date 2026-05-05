@@ -867,6 +867,33 @@ print -r -- $d
     }
 
     #[test]
+    fn reports_zsh_later_reads_after_attached_set_a_helper_argument() {
+        let source = "\
+#!/bin/zsh
+fill() {
+  set -Aresult $1
+}
+(
+  for d in /tmp; do :; done
+)
+fill d
+print -r -- $d
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["for"]
+        );
+    }
+
+    #[test]
     fn ignores_zsh_later_reads_in_sibling_nested_scopes() {
         let source = "\
 #!/bin/zsh
