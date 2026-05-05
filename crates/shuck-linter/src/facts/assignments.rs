@@ -1198,9 +1198,15 @@ fn nonpersistent_reset_site_covers_later_use(
         return false;
     }
 
-    let later_use_blocks = semantic_analysis.block_ids_for_span(effect.later_use_span);
+    let Some(later_use_command) =
+        semantic.innermost_command_id_at(effect.later_use_span.start.offset)
+    else {
+        return false;
+    };
+    let later_use_blocks =
+        semantic_analysis.block_ids_for_span(semantic.command_syntax_span(later_use_command));
     if later_use_blocks.is_empty() {
-        return true;
+        return false;
     }
 
     let assignment_scope = semantic.binding(effect.assignment_binding).scope;
@@ -1292,7 +1298,7 @@ fn build_nonpersistent_assignment_extra_reset_sites(
         }
 
         let Some((callee_scope, call_name_span)) =
-            resolved_function_scope_for_command(semantic_analysis, command)
+            resolved_function_scope_for_command(semantic, semantic_analysis, command)
         else {
             if let Some(reset_span) = zsh_reply_helper_reset_span(command) {
                 resets.push(NonpersistentAssignmentExtraResetSite {
@@ -1524,6 +1530,7 @@ fn positional_outparam_index(text: &str) -> Option<usize> {
 }
 
 fn resolved_function_scope_for_command(
+    semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
     command: &CommandFact<'_>,
 ) -> Option<(ScopeId, Span)> {
@@ -1532,12 +1539,20 @@ fn resolved_function_scope_for_command(
     let binding = semantic_analysis
         .visible_function_binding_at_call(&name, name_span)
         .or_else(|| {
-            semantic_analysis
-                .function_call_arity_sites(&name)
-                .find_map(|(site, binding)| (site.name_span == name_span).then_some(binding))
+            command_is_inside_function_body(semantic, command.scope()).then(|| {
+                semantic_analysis
+                    .function_call_arity_sites(&name)
+                    .find_map(|(site, binding)| (site.name_span == name_span).then_some(binding))
+            })?
         })?;
     let scope = semantic_analysis.function_scope_for_binding(binding)?;
     Some((scope, name_span))
+}
+
+fn command_is_inside_function_body(semantic: &SemanticModel, scope: ScopeId) -> bool {
+    semantic
+        .ancestor_scopes(scope)
+        .any(|scope| matches!(semantic.scope_kind(scope), ScopeKind::Function(_)))
 }
 
 fn command_runs_in_persistent_shell_context(

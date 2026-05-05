@@ -599,6 +599,66 @@ print -r -- $REPLY
     }
 
     #[test]
+    fn reports_zsh_later_reads_when_reset_is_in_disjoint_case_branch() {
+        let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+case $site in
+  github)
+    (
+      for REPLY in a; do :; done
+    )
+    ;;
+  cygwin)
+    helper
+    ;;
+esac
+print -r -- $REPLY
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["for"]
+        );
+    }
+
+    #[test]
+    fn reports_zsh_later_reads_after_top_level_helper_call_before_definition() {
+        let source = "\
+#!/bin/zsh
+(
+  for REPLY in a; do :; done
+)
+helper
+print -r -- $REPLY
+helper() {
+  REPLY=value
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["for"]
+        );
+    }
+
+    #[test]
     fn reports_zsh_later_reads_when_helper_only_resets_loop_variable() {
         let source = "\
 #!/bin/zsh
