@@ -4190,7 +4190,7 @@ mod tests {
     #[test]
     fn standalone_zsh_force_glob_helper_rejects_affixed_and_nested_words() {
         let span = Span::new();
-        let forced = WordPart::Parameter(zsh_parameter_with_modifiers(&['~'], span));
+        let forced = WordPart::Parameter(Box::new(zsh_parameter_with_modifiers(&['~'], span)));
 
         assert!(word_is_standalone_zsh_force_glob_parameter(&word(vec![
             forced.clone()
@@ -4249,7 +4249,10 @@ mod tests {
             parts: vec![WordPartNode::new(
                 WordPart::DoubleQuoted {
                     parts: vec![WordPartNode::new(
-                        WordPart::Parameter(zsh_parameter_with_modifiers(&['~'], forced_span)),
+                        WordPart::Parameter(Box::new(zsh_parameter_with_modifiers(
+                            &['~'],
+                            forced_span,
+                        ))),
                         forced_span,
                     )],
                     dollar: false,
