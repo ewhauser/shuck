@@ -2,7 +2,8 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use shuck_ast::{
-    Name, NormalizedCommand, Word, WrapperKind, normalize_command_words, static_word_text,
+    Name, NormalizedCommand, ParameterExpansionSyntax, Word, WordPart, WrapperKind,
+    ZshExpansionOperation, ZshExpansionTarget, normalize_command_words, static_word_text,
 };
 use shuck_semantic::{
     ContractCertainty, FileContract, FileEntryContractCollector, ProvidedBinding,
@@ -21,15 +22,25 @@ pub(crate) struct AmbientContractCollector<'a> {
     path: Option<&'a Path>,
     shell: ShellDialect,
     completion_initializer_invoked: bool,
+    caller_scoped_array_length_names: BTreeSet<Name>,
 }
 
 impl<'a> AmbientContractCollector<'a> {
     pub(crate) fn new(source: &'a str, path: Option<&'a Path>, shell: ShellDialect) -> Self {
+        let mut caller_scoped_array_length_names = BTreeSet::new();
+        if shell == ShellDialect::Zsh {
+            collect_caller_scoped_array_length_names_from_source(
+                source,
+                &mut caller_scoped_array_length_names,
+            );
+        }
+
         Self {
             source,
             path,
             shell,
             completion_initializer_invoked: false,
+            caller_scoped_array_length_names,
         }
     }
 
@@ -53,6 +64,14 @@ impl FileEntryContractCollector for AmbientContractCollector<'_> {
     fn observe_simple_command(&mut self, command: &NormalizedCommand<'_>) {
         self.completion_initializer_invoked |=
             normalized_command_invokes_completion_initializer(command, self.source);
+        if self.shell == ShellDialect::Zsh {
+            for word in command.body_args() {
+                collect_caller_scoped_array_length_names(
+                    word,
+                    &mut self.caller_scoped_array_length_names,
+                );
+            }
+        }
     }
 
     fn finish(&self) -> Option<FileContract> {
@@ -69,6 +88,10 @@ fn providers() -> &'static [AmbientContractProvider] {
         AmbientContractProvider {
             matches: matches_zsh_config_contract,
             build: build_zsh_config_contract,
+        },
+        AmbientContractProvider {
+            matches: matches_zsh_caller_scoped_array_contract,
+            build: build_zsh_caller_scoped_array_contract,
         },
     ]
 }
@@ -144,6 +167,32 @@ fn build_zsh_config_contract(
     let mut contract = FileContract::default();
     for prefix in zsh_config_consumed_prefixes(collector.source, &lower) {
         contract.add_externally_consumed_binding_prefix(Name::from(prefix));
+    }
+    contract
+}
+
+fn matches_zsh_caller_scoped_array_contract(
+    collector: &AmbientContractCollector<'_>,
+    _path: &Path,
+    shell: ShellDialect,
+) -> bool {
+    shell == ShellDialect::Zsh
+        && has_probable_function_definition(collector.source)
+        && !collector.caller_scoped_array_length_names.is_empty()
+}
+
+fn build_zsh_caller_scoped_array_contract(
+    collector: &AmbientContractCollector<'_>,
+    _path: &Path,
+    _shell: ShellDialect,
+) -> FileContract {
+    let mut contract = FileContract::default();
+    for name in &collector.caller_scoped_array_length_names {
+        contract.add_provided_binding(ProvidedBinding::new_file_entry_initialized(
+            name.clone(),
+            ProvidedBindingKind::Variable,
+            ContractCertainty::Definite,
+        ));
     }
     contract
 }
@@ -388,6 +437,186 @@ fn normalized_words_invoke_completion_initializer(words: &[&Word], source: &str)
     ))
 }
 
+fn collect_caller_scoped_array_length_names(word: &Word, names: &mut BTreeSet<Name>) {
+    for part in &word.parts {
+        collect_caller_scoped_array_length_names_from_part(&part.kind, names);
+    }
+}
+
+fn collect_caller_scoped_array_length_names_from_source(source: &str, names: &mut BTreeSet<Name>) {
+    for line in source.lines() {
+        let code = code_before_shell_comment(line);
+        collect_caller_scoped_array_length_names_from_code(code, names);
+    }
+}
+
+fn code_before_shell_comment(line: &str) -> &str {
+    let mut previous_was_whitespace = true;
+    for (index, ch) in line.char_indices() {
+        if ch == '#' && previous_was_whitespace {
+            return &line[..index];
+        }
+        previous_was_whitespace = ch.is_whitespace();
+    }
+    line
+}
+
+fn collect_caller_scoped_array_length_names_from_code(code: &str, names: &mut BTreeSet<Name>) {
+    let bytes = code.as_bytes();
+    let mut cursor = 0;
+    while let Some(relative) = code[cursor..].find("${#") {
+        let start = cursor + relative + 3;
+        let Some((name, after_name)) = parse_shell_name_at(code, start) else {
+            cursor = start;
+            continue;
+        };
+        if bytes.get(after_name) != Some(&b'[')
+            || !matches!(bytes.get(after_name + 1), Some(b'@' | b'*'))
+            || bytes.get(after_name + 2) != Some(&b']')
+            || bytes.get(after_name + 3) != Some(&b'}')
+        {
+            cursor = after_name;
+            continue;
+        }
+        names.insert(Name::from(name));
+        cursor = after_name + 4;
+    }
+}
+
+fn parse_shell_name_at(source: &str, start: usize) -> Option<(&str, usize)> {
+    let mut chars = source[start..].char_indices();
+    let (_, first) = chars.next()?;
+    if !(first == '_' || first.is_ascii_alphabetic()) {
+        return None;
+    }
+
+    let mut end = start + first.len_utf8();
+    for (offset, ch) in chars {
+        if ch == '_' || ch.is_ascii_alphanumeric() {
+            end = start + offset + ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    Some((&source[start..end], end))
+}
+
+fn collect_caller_scoped_array_length_names_from_part(part: &WordPart, names: &mut BTreeSet<Name>) {
+    match part {
+        WordPart::DoubleQuoted { parts, .. } => {
+            for part in parts {
+                collect_caller_scoped_array_length_names_from_part(&part.kind, names);
+            }
+        }
+        WordPart::ArrayLength(reference) if reference.has_array_selector() => {
+            names.insert(reference.name.clone());
+        }
+        WordPart::Parameter(expansion) => {
+            collect_caller_scoped_array_length_names_from_expansion(expansion, names);
+        }
+        WordPart::ParameterExpansion {
+            operand_word_ast, ..
+        }
+        | WordPart::IndirectExpansion {
+            operand_word_ast, ..
+        } => {
+            if let Some(word) = operand_word_ast {
+                collect_caller_scoped_array_length_names(word, names);
+            }
+        }
+        WordPart::Substring {
+            offset_word_ast,
+            length_word_ast,
+            ..
+        }
+        | WordPart::ArraySlice {
+            offset_word_ast,
+            length_word_ast,
+            ..
+        } => {
+            collect_caller_scoped_array_length_names(offset_word_ast, names);
+            if let Some(word) = length_word_ast {
+                collect_caller_scoped_array_length_names(word, names);
+            }
+        }
+        WordPart::ArithmeticExpansion {
+            expression_word_ast,
+            ..
+        } => {
+            collect_caller_scoped_array_length_names(expression_word_ast, names);
+        }
+        _ => {}
+    }
+}
+
+fn collect_caller_scoped_array_length_names_from_expansion(
+    expansion: &shuck_ast::ParameterExpansion,
+    names: &mut BTreeSet<Name>,
+) {
+    match &expansion.syntax {
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            if syntax.length_prefix.is_some()
+                && let ZshExpansionTarget::Reference(reference) = &syntax.target
+                && reference.has_array_selector()
+            {
+                names.insert(reference.name.clone());
+            }
+
+            match &syntax.target {
+                ZshExpansionTarget::Nested(expansion) => {
+                    collect_caller_scoped_array_length_names_from_expansion(expansion, names);
+                }
+                ZshExpansionTarget::Word(word) => {
+                    collect_caller_scoped_array_length_names(word, names);
+                }
+                ZshExpansionTarget::Reference(_) | ZshExpansionTarget::Empty => {}
+            }
+
+            if let Some(operation) = &syntax.operation {
+                collect_caller_scoped_array_length_names_from_zsh_operation(operation, names);
+            }
+            for modifier in &syntax.modifiers {
+                if let Some(word) = modifier.argument_word_ast() {
+                    collect_caller_scoped_array_length_names(word, names);
+                }
+            }
+        }
+        ParameterExpansionSyntax::Bourne(expansion) => {
+            if let Some(word) = expansion.operand_word_ast() {
+                collect_caller_scoped_array_length_names(word, names);
+            }
+            if let Some(word) = expansion.offset_word_ast() {
+                collect_caller_scoped_array_length_names(word, names);
+            }
+            if let Some(word) = expansion.length_word_ast() {
+                collect_caller_scoped_array_length_names(word, names);
+            }
+        }
+    }
+}
+
+fn collect_caller_scoped_array_length_names_from_zsh_operation(
+    operation: &ZshExpansionOperation,
+    names: &mut BTreeSet<Name>,
+) {
+    if let Some(word) = operation.operand_word_ast() {
+        collect_caller_scoped_array_length_names(word, names);
+    }
+    if let Some(word) = operation.pattern_word_ast() {
+        collect_caller_scoped_array_length_names(word, names);
+    }
+    if let Some(word) = operation.replacement_word_ast() {
+        collect_caller_scoped_array_length_names(word, names);
+    }
+    if let Some(word) = operation.offset_word_ast() {
+        collect_caller_scoped_array_length_names(word, names);
+    }
+    if let Some(word) = operation.length_word_ast() {
+        collect_caller_scoped_array_length_names(word, names);
+    }
+}
+
 fn wrapper_can_affect_current_shell(wrapper: &WrapperKind) -> bool {
     matches!(
         wrapper,
@@ -626,6 +855,40 @@ ZDOT_MODULE_NAME=prompt
 ";
 
         assert!(contract_for_shell(path, source, ShellDialect::Zsh).is_none());
+    }
+
+    #[test]
+    fn zsh_sourced_helpers_initialize_caller_scoped_array_length_targets() {
+        let path = Path::new("/tmp/project/core/update_core.zsh");
+        let source = "\
+#!/bin/zsh
+safe_rm() {
+  if [[ ${#dry_run[@]} -gt 0 ]]; then
+    print -r -- dry
+  fi
+}
+";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+        assert!(has_initialized_binding(&contract, "dry_run"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn zsh_sourced_helper_array_contracts_ignore_comments() {
+        let path = Path::new("/tmp/project/core/update_core.zsh");
+        let source = "\
+#!/bin/zsh
+# if [[ ${#dry_run[@]} -gt 0 ]]; then
+safe_rm() {
+  print -r -- $dry_run
+}
+";
+
+        let contract = contract_for_shell(path, source, ShellDialect::Zsh);
+
+        assert!(contract.is_none());
     }
 
     #[test]
