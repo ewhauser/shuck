@@ -470,6 +470,34 @@ shared_widget
     }
 
     #[test]
+    fn reports_zsh_functions_registered_by_unexecuted_setup_functions() {
+        let source = "\
+#!/bin/zsh
+latent_widget() { print -r -- \"$1\"; }
+latent_hook() { print -r -- \"$1\"; }
+setup_widget() { zle -N latent-widget latent_widget; }
+setup_hook() { add-zsh-hook precmd latent_hook; }
+latent_widget
+latent_hook
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs)
+                .with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "latent_widget() { print -r -- \"$1\"; }"
+        );
+        assert_eq!(
+            diagnostics[1].span.slice(source),
+            "latent_hook() { print -r -- \"$1\"; }"
+        );
+    }
+
+    #[test]
     fn reports_zsh_functions_with_dynamic_widget_registration() {
         let source = "\
 #!/bin/zsh

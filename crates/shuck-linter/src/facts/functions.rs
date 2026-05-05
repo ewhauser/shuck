@@ -310,6 +310,9 @@ fn build_external_entrypoint_function_scopes(
     let mut zsh_widget_functions = FxHashMap::<Box<str>, Box<str>>::default();
     let mut zsh_hook_functions = FxHashSet::<(Box<str>, Box<str>)>::default();
     for command in commands {
+        if !is_top_level_zsh_entrypoint_registration(semantic, command) {
+            continue;
+        }
         match command_zsh_external_entrypoint_action(command, source) {
             Some(ZshExternalEntrypointAction::RegisterWidget { widget, function }) => {
                 zsh_widget_functions.insert(widget, function);
@@ -364,6 +367,13 @@ fn build_external_entrypoint_function_scopes(
     }
 
     scopes
+}
+
+fn is_top_level_zsh_entrypoint_registration(
+    semantic: &SemanticModel,
+    command: &CommandFact<'_>,
+) -> bool {
+    semantic.scope(command.scope()).parent.is_none() && !command.is_nested_word_command()
 }
 
 fn function_command_slot_count(commands: &[CommandFact<'_>]) -> usize {

@@ -631,6 +631,8 @@ removed_precmd() { print -r -- \"$1\"; }
 removed_chpwd() { print -r -- \"$1\"; }
 deleted_widget_impl() { print -r -- \"$1\"; }
 shared_widget_impl() { print -r -- \"$1\"; }
+latent_widget_impl() { print -r -- \"$1\"; }
+latent_hook_impl() { print -r -- \"$1\"; }
 zle -N single_operand_widget
 zle -N widget-name widget_impl
 zle -N deleted-widget deleted_widget_impl
@@ -643,6 +645,8 @@ add-zsh-hook chpwd removed_chpwd
 add-zsh-hook -d precmd removed_precmd
 add-zsh-hook -UD chpwd removed_chpwd
 zle -N \"$widget_name\" dynamic_widget
+setup_widget() { zle -N latent-widget latent_widget_impl; }
+setup_hook() { add-zsh-hook precmd latent_hook_impl; }
 ";
 
     with_facts_dialect(
