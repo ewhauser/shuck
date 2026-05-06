@@ -112,6 +112,7 @@ fn is_zsh_completion_context_name(name: &str) -> bool {
             | "QIPREFIX"
             | "QISUFFIX"
             | "SUFFIX"
+            | "_comp_command1"
             | "compstate"
             | "curcontext"
             | "verbose"
@@ -910,6 +911,185 @@ compdef __example example
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_helpers_read_completion_context_from_registered_callers() {
+        let source = "\
+#!/bin/zsh
+function __example() {
+  __example_args
+}
+function __example_args() {
+  print -r -- $words $CURRENT $missing
+}
+compdef __example example
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_command_variables_are_available_in_registered_functions() {
+        let source = "\
+#!/bin/zsh
+function __composer() {
+  print -r -- $_comp_command1 $missing
+}
+compdef __composer composer
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_context_names_work_when_function_and_compdef_share_branch() {
+        let source = "\
+#!/bin/zsh
+if ! is-at-least 5.7; then
+  function __composer() {
+    _arguments '*:: :->subcmds'
+    print -r -- $_comp_command1 $missing
+  }
+  compdef __composer composer
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_context_names_ignore_branch_words_in_comments_between_registration() {
+        let source = "\
+#!/bin/zsh
+if ! is-at-least 5.7; then
+  function __composer() {
+    print -r -- $_comp_command1 $missing
+  }
+  # else fallback is handled by zsh itself
+  compdef __composer composer
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_context_names_stay_reportable_across_exclusive_branches() {
+        let source = "\
+#!/bin/zsh
+if is-at-least 5.7; then
+  function __composer() {
+    print -r -- $_comp_command1 $missing
+  }
+else
+  compdef __composer composer
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$_comp_command1", "$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_context_names_keep_case_boundaries_after_parameter_hash() {
+        let source = "\
+#!/bin/zsh
+service=a
+value=prefix
+case $service in
+  a)
+    function __composer() {
+      print -r -- $_comp_command1 $missing
+    }
+    print -r -- ${value#prefix} ;;
+  b)
+    compdef __composer composer ;;
+esac
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$_comp_command1", "$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_context_names_stay_reportable_for_short_circuit_compdef() {
+        let source = "\
+#!/bin/zsh
+function __composer() {
+  print -r -- $_comp_command1 $missing
+} || compdef __composer composer
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$_comp_command1", "$missing"]
         );
     }
 

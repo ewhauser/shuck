@@ -619,6 +619,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         );
         let completion_registered_function_scopes = build_completion_registered_function_scopes(
             self.semantic,
+            semantic_analysis,
             &commands,
             &command_fact_indices_by_id,
             &lists,
