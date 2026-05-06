@@ -118,7 +118,7 @@ fn zsh_special_parameter_available(
             zsh_runtime_path_shape(path.lower_path()) || source.loads_zsh_module("zsh/langinfo")
         }
         "compstate" | "words" => zsh_runtime_path_shape(path.lower_path()),
-        "galiases" | "history" | "keymaps" | "reswords" | "saliases" => {
+        "galiases" | "histchars" | "history" | "keymaps" | "reswords" | "saliases" => {
             zsh_runtime_path_shape(path.lower_path()) || source.loads_zsh_module("zsh/parameter")
         }
         _ => true,
@@ -172,6 +172,7 @@ fn zsh_test_fixture_consumed_prefixes<'a>(
 const ZSH_INITIALIZED_SPECIAL_PARAMETERS: &[&str] = &[
     "compstate",
     "galiases",
+    "histchars",
     "history",
     "keymaps",
     "langinfo",

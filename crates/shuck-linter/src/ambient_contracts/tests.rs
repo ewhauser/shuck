@@ -150,6 +150,7 @@ prompt=\"%{$fg_bold[blue]%}%{$reset_color%}\"
 
     for name in [
         "sysparams",
+        "histchars",
         "history",
         "words",
         "compstate",

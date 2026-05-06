@@ -20568,17 +20568,6 @@ repos:
           column: 53
         classification: real
       - path: "highlighters/main/main-highlighter.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `histchars` is referenced before assignment"
-        start:
-          line: 693
-          column: 71
-        end:
-          line: 693
-          column: 84
-        classification: false_positive
-      - path: "highlighters/main/main-highlighter.zsh"
         code: "C081"
         severity: "warning"
         message: "quote the right-hand side so string comparisons do not turn into glob matches"
@@ -21622,17 +21611,6 @@ repos:
         end:
           line: 52
           column: 12
-        classification: false_positive
-      - path: "zsh-syntax-highlighting.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `histchars` is referenced before assignment"
-        start:
-          line: 59
-          column: 50
-        end:
-          line: 59
-          column: 63
         classification: false_positive
       - path: "zsh-syntax-highlighting.zsh"
         code: "C005"

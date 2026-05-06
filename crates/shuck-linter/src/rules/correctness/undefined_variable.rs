@@ -1281,6 +1281,27 @@ print -r -- $chpwd_functions $still_missing
     }
 
     #[test]
+    fn zsh_runtime_special_parameters_include_history_characters() {
+        let source = "\
+#!/bin/zsh
+print -r -- $histchars $still_missing
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$still_missing"]
+        );
+    }
+
+    #[test]
     fn pathless_zsh_hook_array_references_stay_reportable() {
         let source = "\
 #!/bin/zsh
