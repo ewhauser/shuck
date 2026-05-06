@@ -67,6 +67,56 @@ class RunBenchmarkScriptTests(unittest.TestCase):
             self.assertIn("override-only", log)
             self.assertNotIn("repo-only", log)
 
+    def test_zsh_fixtures_are_included(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            repo_root = temp_root / "repo"
+            fixtures = repo_root / "crates" / "shuck-benchmark" / "resources" / "files"
+            output_dir = temp_root / "out"
+            fake_bin = temp_root / "bin"
+            hyperfine_log = temp_root / "hyperfine.log"
+
+            fixtures.mkdir(parents=True)
+            output_dir.mkdir()
+            fake_bin.mkdir()
+
+            (fixtures / "fixture.sh").write_text("#!/bin/sh\necho fixture\n")
+            (fixtures / "prompt.zsh").write_text("print prompt\n")
+
+            fake_hyperfine = fake_bin / "hyperfine"
+            fake_hyperfine.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!/bin/sh
+                    printf '%s\\n' "$*" >> "{hyperfine_log}"
+                    exit 0
+                    """
+                )
+            )
+            fake_hyperfine.chmod(0o755)
+
+            env = os.environ.copy()
+            env.update(
+                {
+                    "PATH": f"{fake_bin}:{env['PATH']}",
+                    "SHUCK_BENCHMARK_MODE": "shuck-only",
+                    "SHUCK_BENCHMARK_OUTPUT_DIR": str(output_dir),
+                    "SHUCK_BENCHMARK_REPO_ROOT": str(repo_root),
+                }
+            )
+
+            subprocess.run(
+                ["sh", str(RUN_SCRIPT)],
+                check=True,
+                cwd=REPO_ROOT,
+                env=env,
+            )
+
+            log = hyperfine_log.read_text()
+            self.assertIn("shuck/fixture", log)
+            self.assertIn("shuck/prompt", log)
+            self.assertIn(str(fixtures / "prompt.zsh"), log)
+
     def test_compare_mode_omits_shellcheck_no_ext_variant(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
@@ -115,6 +165,160 @@ class RunBenchmarkScriptTests(unittest.TestCase):
             self.assertIn("shellcheck/fixture", log)
             self.assertIn("shellcheck/all", log)
             self.assertNotIn("shellcheck-no-ext", log)
+
+    def test_compare_mode_skips_shellcheck_for_zsh_fixtures(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            repo_root = temp_root / "repo"
+            fixtures = repo_root / "crates" / "shuck-benchmark" / "resources" / "files"
+            output_dir = temp_root / "out"
+            fake_bin = temp_root / "bin"
+            hyperfine_log = temp_root / "hyperfine.log"
+
+            fixtures.mkdir(parents=True)
+            output_dir.mkdir()
+            fake_bin.mkdir()
+
+            sh_fixture = fixtures / "fixture.sh"
+            zsh_fixture = fixtures / "prompt.zsh"
+            sh_fixture.write_text("#!/bin/sh\necho fixture\n")
+            zsh_fixture.write_text("print prompt\n")
+
+            fake_hyperfine = fake_bin / "hyperfine"
+            fake_hyperfine.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!/bin/sh
+                    printf '%s\\n' "$*" >> "{hyperfine_log}"
+                    exit 0
+                    """
+                )
+            )
+            fake_hyperfine.chmod(0o755)
+
+            env = os.environ.copy()
+            env.update(
+                {
+                    "PATH": f"{fake_bin}:{env['PATH']}",
+                    "SHUCK_BENCHMARK_MODE": "compare",
+                    "SHUCK_BENCHMARK_OUTPUT_DIR": str(output_dir),
+                    "SHUCK_BENCHMARK_REPO_ROOT": str(repo_root),
+                }
+            )
+
+            subprocess.run(
+                ["sh", str(RUN_SCRIPT)],
+                check=True,
+                cwd=REPO_ROOT,
+                env=env,
+            )
+
+            log = hyperfine_log.read_text()
+            self.assertIn("shuck/prompt", log)
+            self.assertNotIn("shellcheck/prompt", log)
+            self.assertIn(f"shellcheck --enable=all --severity=style '{sh_fixture}'", log)
+            self.assertNotIn(f"shellcheck --enable=all --severity=style '{zsh_fixture}'", log)
+
+    def test_fixture_paths_are_shell_quoted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            repo_root = temp_root / "repo"
+            fixtures = repo_root / "crates" / "shuck-benchmark" / "resources" / "files"
+            output_dir = temp_root / "out"
+            fake_bin = temp_root / "bin"
+            hyperfine_log = temp_root / "hyperfine.log"
+
+            fixtures.mkdir(parents=True)
+            output_dir.mkdir()
+            fake_bin.mkdir()
+
+            spaced_fixture = fixtures / "has space.sh"
+            spaced_fixture.write_text("#!/bin/sh\necho fixture\n")
+
+            fake_hyperfine = fake_bin / "hyperfine"
+            fake_hyperfine.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!/bin/sh
+                    printf '%s\\n' "$*" >> "{hyperfine_log}"
+                    exit 0
+                    """
+                )
+            )
+            fake_hyperfine.chmod(0o755)
+
+            env = os.environ.copy()
+            env.update(
+                {
+                    "PATH": f"{fake_bin}:{env['PATH']}",
+                    "SHUCK_BENCHMARK_MODE": "compare",
+                    "SHUCK_BENCHMARK_OUTPUT_DIR": str(output_dir),
+                    "SHUCK_BENCHMARK_REPO_ROOT": str(repo_root),
+                }
+            )
+
+            subprocess.run(
+                ["sh", str(RUN_SCRIPT)],
+                check=True,
+                cwd=REPO_ROOT,
+                env=env,
+            )
+
+            quoted_fixture = f"'{spaced_fixture}'"
+            log = hyperfine_log.read_text()
+            self.assertIn(f"shuck check --no-cache --select ALL {quoted_fixture}", log)
+            self.assertIn(f"shellcheck --enable=all --severity=style {quoted_fixture}", log)
+
+    def test_mixed_extension_fixtures_keep_distinct_names(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            repo_root = temp_root / "repo"
+            fixtures = repo_root / "crates" / "shuck-benchmark" / "resources" / "files"
+            output_dir = temp_root / "out"
+            fake_bin = temp_root / "bin"
+            hyperfine_log = temp_root / "hyperfine.log"
+
+            fixtures.mkdir(parents=True)
+            output_dir.mkdir()
+            fake_bin.mkdir()
+
+            (fixtures / "dup.sh").write_text("#!/bin/sh\necho sh\n")
+            (fixtures / "dup.zsh").write_text("print zsh\n")
+
+            fake_hyperfine = fake_bin / "hyperfine"
+            fake_hyperfine.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!/bin/sh
+                    printf '%s\\n' "$*" >> "{hyperfine_log}"
+                    exit 0
+                    """
+                )
+            )
+            fake_hyperfine.chmod(0o755)
+
+            env = os.environ.copy()
+            env.update(
+                {
+                    "PATH": f"{fake_bin}:{env['PATH']}",
+                    "SHUCK_BENCHMARK_MODE": "compare",
+                    "SHUCK_BENCHMARK_OUTPUT_DIR": str(output_dir),
+                    "SHUCK_BENCHMARK_REPO_ROOT": str(repo_root),
+                }
+            )
+
+            subprocess.run(
+                ["sh", str(RUN_SCRIPT)],
+                check=True,
+                cwd=REPO_ROOT,
+                env=env,
+            )
+
+            log = hyperfine_log.read_text()
+            self.assertIn("bench-dup.json", log)
+            self.assertIn("bench-dup.zsh.json", log)
+            self.assertIn("shuck/dup ", log)
+            self.assertIn("shuck/dup.zsh ", log)
 
 
 if __name__ == "__main__":

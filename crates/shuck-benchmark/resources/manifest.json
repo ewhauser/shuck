@@ -59,6 +59,16 @@
       "spdx_license_id": "MIT",
       "license_filename": "licenses/fzf-LICENSE",
       "byte_size": 12760
+    },
+    {
+      "local_filename": "files/romkatv__powerlevel10k__internal__p10k.zsh",
+      "upstream_repo": "romkatv/powerlevel10k",
+      "upstream_path": "internal/p10k.zsh",
+      "commit": "604f19a9eaa18e76db2e60b8d446d5f879065f90",
+      "source_url": "https://raw.githubusercontent.com/romkatv/powerlevel10k/604f19a9eaa18e76db2e60b8d446d5f879065f90/internal/p10k.zsh",
+      "spdx_license_id": "MIT",
+      "license_filename": "licenses/powerlevel10k-LICENSE",
+      "byte_size": 346125
     }
   ]
 }

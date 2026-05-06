@@ -8,5 +8,5 @@ The fixtures, manifest, and license files are kept in the same layout as the Go
 frontend:
 
 - `manifest.json` pins each upstream source and commit
-- `files/` contains the vendored shell scripts
+- `files/` contains the vendored shell scripts (`.sh` and `.zsh`)
 - `licenses/` contains the corresponding upstream license texts

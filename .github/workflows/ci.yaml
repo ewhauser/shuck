@@ -213,7 +213,13 @@ jobs:
       - name: "Snapshot benchmark fixtures"
         run: |
           mkdir -p "$RUNNER_TEMP/macro-benchmark/fixtures"
-          cp "$GITHUB_WORKSPACE"/crates/shuck-benchmark/resources/files/*.sh "$RUNNER_TEMP/macro-benchmark/fixtures/"
+          for fixture in \
+            "$GITHUB_WORKSPACE"/crates/shuck-benchmark/resources/files/*.sh \
+            "$GITHUB_WORKSPACE"/crates/shuck-benchmark/resources/files/*.zsh; do
+            if [ -f "$fixture" ]; then
+              cp "$fixture" "$RUNNER_TEMP/macro-benchmark/fixtures/"
+            fi
+          done
       - name: "Pack benchmark baseline artifact"
         run: |
           mkdir -p "$RUNNER_TEMP/benchmark-baseline-artifact"
@@ -338,7 +344,13 @@ jobs:
           benchmark_report_dir="$RUNNER_TEMP/benchmark-report"
           rm -rf "$benchmark_root/baseline" "$benchmark_root/fixtures"
           mkdir -p "$benchmark_root/baseline" "$benchmark_root/fixtures" "$benchmark_report_dir"
-          cp "$GITHUB_WORKSPACE/base"/crates/shuck-benchmark/resources/files/*.sh "$benchmark_root/fixtures/"
+          for fixture in \
+            "$GITHUB_WORKSPACE"/base/crates/shuck-benchmark/resources/files/*.sh \
+            "$GITHUB_WORKSPACE"/base/crates/shuck-benchmark/resources/files/*.zsh; do
+            if [ -f "$fixture" ]; then
+              cp "$fixture" "$benchmark_root/fixtures/"
+            fi
+          done
           export CARGO_TARGET_DIR="$benchmark_root/target"
           export SHUCK_BENCHMARK_MODE=shuck-only
           export SHUCK_BENCHMARK_OUTPUT_DIR="$benchmark_root/baseline"

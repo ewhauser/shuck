@@ -196,13 +196,23 @@ mod tests {
         let manifest = serde_json::from_str::<Manifest>(include_str!("../resources/manifest.json"))
             .expect("benchmark fixture manifest should parse");
 
-        assert_eq!(manifest.fixtures.len(), TEST_FILES.len());
-
         let fixture_sizes = manifest
             .fixtures
             .iter()
             .map(|fixture| (fixture.local_filename.as_str(), fixture.byte_size))
             .collect::<std::collections::BTreeMap<_, _>>();
+
+        for fixture in manifest.fixtures.iter() {
+            let source = std::fs::read_to_string(resources_dir().join(&fixture.local_filename))
+                .unwrap_or_else(|err| panic!("failed to read {}: {err}", fixture.local_filename));
+            assert_eq!(
+                source.len(),
+                fixture.byte_size,
+                "{}",
+                fixture.local_filename
+            );
+            assert!(!source.is_empty(), "{}", fixture.local_filename);
+        }
 
         for test_file in TEST_FILES.iter() {
             let local_filename = format!("files/{}.sh", test_file.name);
