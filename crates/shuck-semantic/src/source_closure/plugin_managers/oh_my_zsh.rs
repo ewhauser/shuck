@@ -1,11 +1,20 @@
-//! Zsh plugin request discovery.
+//! Oh My Zsh style plugin request discovery.
 //!
 //! This module recognizes framework/plugin declarations that imply additional
 //! files should be analyzed as part of a zsh source closure. It emits logical
 //! `PluginRequest`s only; resolving those requests to concrete files remains the
 //! job of the configured `PluginResolver`.
 
+use super::super::*;
 use super::*;
+
+pub(super) struct OhMyZshPluginManager;
+
+impl ZshPluginManager for OhMyZshPluginManager {
+    fn collect_plugin_requests(&self, context: &PluginManagerContext<'_>) -> Vec<PluginRequest> {
+        collect_oh_my_zsh_plugin_requests(context)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PluginListState {
@@ -21,24 +30,16 @@ struct DetectedPluginBootstrap {
     root_hint: Option<PathBuf>,
 }
 
-pub(super) fn sorted_dependency_paths(paths: &FxHashSet<PathBuf>) -> Vec<PathBuf> {
+pub(in crate::source_closure) fn sorted_dependency_paths(
+    paths: &FxHashSet<PathBuf>,
+) -> Vec<PathBuf> {
     let mut sorted = paths.iter().cloned().collect::<Vec<_>>();
     sorted.sort();
     sorted.dedup();
     sorted
 }
 
-pub(super) fn collect_plugin_requests(
-    model: &SemanticModel,
-    file: &File,
-    source: &str,
-    source_path: &Path,
-    plugin_resolver: &(dyn PluginResolver + Send + Sync),
-) -> Vec<PluginRequest> {
-    if model.shell_profile().dialect != ParseShellDialect::Zsh {
-        return Vec::new();
-    }
-
+fn collect_oh_my_zsh_plugin_requests(context: &PluginManagerContext<'_>) -> Vec<PluginRequest> {
     let mut path_templates = FxHashMap::<Name, SourcePathTemplate>::default();
     let home_dir = env::var_os("HOME").map(PathBuf::from);
     let mut plugin_state = PluginListState::Unset;
@@ -46,12 +47,12 @@ pub(super) fn collect_plugin_requests(
     let mut requests = Vec::new();
     let mut bootstraps = Vec::new();
 
-    for stmt in &file.body.stmts {
+    for stmt in &context.file.body.stmts {
         for assignment in top_level_assignments(stmt) {
             if assignment.target.subscript.is_none()
                 && let Some(template) = assignment_path_template(
                     assignment,
-                    source,
+                    context.source,
                     &path_templates,
                     home_dir.as_deref(),
                 )
@@ -61,11 +62,14 @@ pub(super) fn collect_plugin_requests(
 
             match assignment.target.name.as_str() {
                 "plugins" => {
-                    plugin_state =
-                        plugin_list_state_after_assignment(&plugin_state, assignment, source);
+                    plugin_state = plugin_list_state_after_assignment(
+                        &plugin_state,
+                        assignment,
+                        context.source,
+                    );
                 }
                 "ZSH_THEME" => {
-                    theme_name = assignment_theme_name(assignment, source);
+                    theme_name = assignment_theme_name(assignment, context.source);
                 }
                 _ => {}
             }
@@ -73,8 +77,8 @@ pub(super) fn collect_plugin_requests(
 
         let Some(bootstrap) = detect_plugin_bootstrap(
             stmt,
-            source,
-            source_path,
+            context.source,
+            context.source_path,
             &path_templates,
             home_dir.as_deref(),
         ) else {
@@ -108,11 +112,13 @@ pub(super) fn collect_plugin_requests(
     }
 
     requests.extend(anchor_configured_plugin_requests(
-        plugin_resolver.additional_plugin_requests(source_path),
+        context
+            .plugin_resolver
+            .additional_plugin_requests(context.source_path),
         &bootstraps,
-        file.span,
+        context.file.span,
     ));
-    dedup_plugin_requests(requests)
+    requests
 }
 
 fn top_level_assignments(stmt: &shuck_ast::Stmt) -> Vec<&Assignment> {
@@ -425,7 +431,9 @@ fn position_after(mut position: shuck_ast::Position) -> shuck_ast::Position {
     position
 }
 
-pub(super) fn dedup_plugin_requests(requests: Vec<PluginRequest>) -> Vec<PluginRequest> {
+pub(in crate::source_closure) fn dedup_plugin_requests(
+    requests: Vec<PluginRequest>,
+) -> Vec<PluginRequest> {
     let mut merged: Vec<PluginRequest> = Vec::new();
     let mut positions = FxHashMap::<
         (

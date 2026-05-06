@@ -4,7 +4,7 @@
 //! plugin entrypoints into semantic contracts that can be applied to the caller.
 //! It keeps the public `source_closure` surface stable while delegating
 //! zsh-specific plugin request discovery and deferred callback modeling to
-//! focused sibling modules.
+//! focused plugin-manager implementations.
 
 use std::cell::RefCell;
 use std::env;
@@ -25,11 +25,11 @@ use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile, ZshOptionSta
 use crate::function_resolution::{
     call_payloads_by_callee_scope, lexically_visible_function_binding_in_scope,
 };
-mod plugin_requests;
-mod zsh_deferred;
+mod plugin_managers;
 
-use plugin_requests::{collect_plugin_requests, sorted_dependency_paths};
-use zsh_deferred::deferred_zsh_entrypoint_required_reads;
+use plugin_managers::{
+    collect_plugin_requests, deferred_zsh_entrypoint_required_reads, sorted_dependency_paths,
+};
 
 use crate::{
     Binding, BindingKind, ContractCertainty, FileContract, FunctionContract, FunctionScopeKind,
@@ -2033,7 +2033,7 @@ noglob source \"$3\"
         let mut alpha_explicit = alpha_implicit.clone();
         alpha_explicit.explicit = true;
 
-        let deduped = plugin_requests::dedup_plugin_requests(vec![
+        let deduped = plugin_managers::dedup_plugin_requests(vec![
             alpha_implicit,
             beta_explicit.clone(),
             alpha_explicit,

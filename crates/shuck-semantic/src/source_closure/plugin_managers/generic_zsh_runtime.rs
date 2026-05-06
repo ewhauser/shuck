@@ -6,7 +6,19 @@
 //! wrapper patterns, but it does not execute shell code or interpret arbitrary
 //! `eval` strings.
 
+use super::super::*;
 use super::*;
+
+pub(super) struct GenericZshRuntimeManager;
+
+impl ZshPluginManager for GenericZshRuntimeManager {
+    fn collect_deferred_required_reads(
+        &self,
+        context: &DeferredPluginRuntimeContext<'_>,
+    ) -> Vec<Name> {
+        collect_generic_deferred_required_reads(context)
+    }
+}
 
 // Zsh plugins often install work that runs after the file is sourced, e.g.
 // through `add-zsh-hook precmd callback` or `zle -N widget callback`. For source
@@ -14,30 +26,21 @@ use super::*;
 // that sets a variable before loading the plugin expects the callback to observe
 // that value later, even though the callback body is not called syntactically at
 // source time.
-pub(super) fn deferred_zsh_entrypoint_required_reads(
-    semantic: &SemanticModel,
-    analysis: &crate::SemanticAnalysis<'_>,
-    facts: &AstFacts,
-    source: &str,
-    scope: ScopeId,
-    synthetic_reads: &[SyntheticRead],
+fn collect_generic_deferred_required_reads(
+    context: &DeferredPluginRuntimeContext<'_>,
 ) -> Vec<Name> {
-    if semantic.shell_profile().dialect != ParseShellDialect::Zsh {
-        return Vec::new();
-    }
-
-    let roots = deferred_zsh_entrypoint_roots(facts, scope);
+    let roots = deferred_zsh_entrypoint_roots(context.facts, context.scope);
     if roots.is_empty() {
         return Vec::new();
     }
 
-    let function_scopes = function_scopes_by_name(semantic, scope);
+    let function_scopes = function_scopes_by_name(context.semantic, context.scope);
     let mut visitor = DeferredFunctionReadVisitor {
-        semantic,
-        analysis,
-        facts,
-        source,
-        synthetic_reads,
+        semantic: context.semantic,
+        analysis: context.analysis,
+        facts: context.facts,
+        source: context.source,
+        synthetic_reads: context.synthetic_reads,
         function_scopes: &function_scopes,
         visited: FxHashSet::default(),
         visited_generated: FxHashSet::default(),
