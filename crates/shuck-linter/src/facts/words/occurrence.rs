@@ -1024,7 +1024,13 @@ struct ZshArrayFanoutContext<'a, 'flow> {
     value_flow: &'flow SemanticValueFlow<'flow, 'a>,
     scope: ScopeId,
     options: Option<&'a ZshOptionState>,
+    lookups: ZshArrayFanoutLookups<'a>,
+}
+
+#[derive(Clone, Copy)]
+struct ZshArrayFanoutLookups<'a> {
     array_like_capable_names: &'a FxHashSet<Name>,
+    single_array_like_bindings: &'a FxHashMap<Name, BindingId>,
 }
 
 fn apply_zsh_array_fanout(
@@ -1040,7 +1046,7 @@ fn apply_zsh_array_fanout(
             context.semantic_analysis,
             context.value_flow,
             context.scope,
-            context.array_like_capable_names,
+            context.lookups,
         )
     {
         return;
@@ -1063,7 +1069,7 @@ fn word_has_unquoted_visible_array_reference(
     semantic_analysis: &SemanticAnalysis<'_>,
     value_flow: &SemanticValueFlow<'_, '_>,
     scope: ScopeId,
-    array_like_capable_names: &FxHashSet<Name>,
+    lookups: ZshArrayFanoutLookups<'_>,
 ) -> bool {
     parts_have_unquoted_visible_array_reference(
         &word.parts,
@@ -1072,7 +1078,7 @@ fn word_has_unquoted_visible_array_reference(
         value_flow,
         scope,
         false,
-        array_like_capable_names,
+        lookups,
     )
 }
 
@@ -1083,7 +1089,7 @@ fn parts_have_unquoted_visible_array_reference(
     value_flow: &SemanticValueFlow<'_, '_>,
     scope: ScopeId,
     in_double_quotes: bool,
-    array_like_capable_names: &FxHashSet<Name>,
+    lookups: ZshArrayFanoutLookups<'_>,
 ) -> bool {
     for part in parts {
         match &part.kind {
@@ -1095,7 +1101,7 @@ fn parts_have_unquoted_visible_array_reference(
                     value_flow,
                     scope,
                     true,
-                    array_like_capable_names,
+                    lookups,
                 ) {
                     return true;
                 }
@@ -1108,7 +1114,7 @@ fn parts_have_unquoted_visible_array_reference(
                     semantic_analysis,
                     value_flow,
                     scope,
-                    array_like_capable_names,
+                    lookups,
                 ) {
                     return true;
                 }
@@ -1120,7 +1126,7 @@ fn parts_have_unquoted_visible_array_reference(
                     semantic_analysis,
                     value_flow,
                     scope,
-                    array_like_capable_names,
+                    lookups,
                 ) {
                     return true;
                 }
@@ -1138,7 +1144,7 @@ fn zsh_parameter_targets_visible_array(
     semantic_analysis: &SemanticAnalysis<'_>,
     value_flow: &SemanticValueFlow<'_, '_>,
     scope: ScopeId,
-    array_like_capable_names: &FxHashSet<Name>,
+    lookups: ZshArrayFanoutLookups<'_>,
 ) -> bool {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
@@ -1153,7 +1159,7 @@ fn zsh_parameter_targets_visible_array(
             semantic_analysis,
             value_flow,
             scope,
-            array_like_capable_names,
+            lookups,
         ),
         _ => false,
     }
@@ -1166,10 +1172,15 @@ fn visible_name_is_array_like(
     semantic_analysis: &SemanticAnalysis<'_>,
     value_flow: &SemanticValueFlow<'_, '_>,
     scope: ScopeId,
-    array_like_capable_names: &FxHashSet<Name>,
+    lookups: ZshArrayFanoutLookups<'_>,
 ) -> bool {
-    if !array_like_capable_names.contains(name) {
+    if !lookups.array_like_capable_names.contains(name) {
         return false;
+    }
+    if let Some(binding_id) = lookups.single_array_like_bindings.get(name)
+        && semantic.binding_visible_at(*binding_id, span)
+    {
+        return true;
     }
     let synthetic_use_block = if semantic_analysis.reference_id_for_name_at(name, span).is_none() {
         Some(semantic_analysis.flow_entry_block_for_binding_scopes(&[scope], span.start.offset))
@@ -1245,6 +1256,7 @@ pub(super) struct WordFactOutputs<'out, 'a> {
     pub(super) assoc_binding_visibility_memo:
         &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
     pub(super) array_like_capable_names: &'out FxHashSet<Name>,
+    pub(super) single_array_like_bindings: &'out FxHashMap<Name, BindingId>,
     pub(super) semantic_analysis: &'out SemanticAnalysis<'a>,
     pub(super) case_pattern_expansions: &'out mut Vec<CasePatternExpansionFact>,
     pub(super) pattern_literal_spans: &'out mut Vec<Span>,
@@ -1556,6 +1568,7 @@ pub(super) struct WordFactCollector<'out, 'a, 'norm> {
     array_assignment_split_word_ids: &'out mut Vec<WordOccurrenceId>,
     assoc_binding_visibility_memo: &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
     array_like_capable_names: &'out FxHashSet<Name>,
+    single_array_like_bindings: &'out FxHashMap<Name, BindingId>,
     semantic_analysis: &'out SemanticAnalysis<'a>,
     value_flow: SemanticValueFlow<'out, 'a>,
     seen: &'out mut FxHashSet<WordOccurrenceSeenKey>,
@@ -1649,6 +1662,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             array_assignment_split_word_ids: outputs.array_assignment_split_word_ids,
             assoc_binding_visibility_memo: outputs.assoc_binding_visibility_memo,
             array_like_capable_names: outputs.array_like_capable_names,
+            single_array_like_bindings: outputs.single_array_like_bindings,
             semantic_analysis: outputs.semantic_analysis,
             value_flow,
             seen: {
@@ -2607,7 +2621,10 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 value_flow: &self.value_flow,
                 scope: self.command_scope,
                 options: self.command_shell_behavior.zsh_options(),
-                array_like_capable_names: self.array_like_capable_names,
+                lookups: ZshArrayFanoutLookups {
+                    array_like_capable_names: self.array_like_capable_names,
+                    single_array_like_bindings: self.single_array_like_bindings,
+                },
             },
             &mut analysis,
         );
