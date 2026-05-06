@@ -2319,9 +2319,11 @@ noglob source \"$3\"
 
         let context = SourceClosureLookupContext {
             source_path_resolver: None,
+            plugin_resolver: None,
             analyzed_paths: None,
             shell_profile: ShellProfile::native(ParseShellDialect::Bash),
             resolved_helper_paths: RefCell::new(FxHashMap::default()),
+            dependency_paths: RefCell::new(FxHashSet::default()),
         };
         let mut summaries = FxHashMap::default();
         let mut active = FxHashSet::default();

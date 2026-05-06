@@ -28,6 +28,8 @@ pub(super) struct FileCheckResult {
     pub(super) fixes_applied: usize,
     pub(super) parse_failed: bool,
 }
+
+#[allow(clippy::too_many_arguments)]
 pub(super) fn analyze_file(
     pending: PendingProjectFile,
     base_linter_settings: &LinterSettings,
@@ -58,6 +60,7 @@ pub(super) fn analyze_file(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn analyze_shell_file(
     pending: PendingProjectFile,
     base_linter_settings: &LinterSettings,
