@@ -12,18 +12,50 @@ shellcheck_check="shellcheck --enable=all --severity=style"
 
 mkdir -p "$cache_dir"
 
-for file in "$fixtures_dir"/*.sh; do
-    name=$(basename "$file" .sh)
+shuck_fixture_list=$(
+    for fixture in "$fixtures_dir"/*.sh "$fixtures_dir"/*.zsh; do
+        if [ -f "$fixture" ]; then
+            printf '%s\n' "$fixture"
+        fi
+    done | sort
+)
+shellcheck_fixture_list=$(
+    for fixture in "$fixtures_dir"/*.sh; do
+        if [ -f "$fixture" ]; then
+            printf '%s\n' "$fixture"
+        fi
+    done | sort
+)
+if [ -z "$shuck_fixture_list" ]; then
+    echo "ERROR: no benchmark fixtures found in $fixtures_dir" >&2
+    exit 1
+fi
+
+for file in $shuck_fixture_list; do
+    name=$(basename "$file")
+    name=${name%.*}
     echo "==> Benchmarking: $name"
     case "$benchmark_mode" in
         compare)
-            hyperfine \
-                --ignore-failure \
-                --warmup 3 \
-                --runs 10 \
-                --export-json "$cache_dir/bench-$name.json" \
-                -n "shuck/$name" "$shuck_check $file" \
-                -n "shellcheck/$name" "$shellcheck_check $file"
+            case "$file" in
+                *.zsh)
+                    hyperfine \
+                        --ignore-failure \
+                        --warmup 3 \
+                        --runs 10 \
+                        --export-json "$cache_dir/bench-$name.json" \
+                        -n "shuck/$name" "$shuck_check $file"
+                    ;;
+                *)
+                    hyperfine \
+                        --ignore-failure \
+                        --warmup 3 \
+                        --runs 10 \
+                        --export-json "$cache_dir/bench-$name.json" \
+                        -n "shuck/$name" "$shuck_check $file" \
+                        -n "shellcheck/$name" "$shellcheck_check $file"
+                    ;;
+            esac
             ;;
         shuck-only)
             hyperfine \
@@ -40,19 +72,32 @@ for file in "$fixtures_dir"/*.sh; do
     esac
 done
 
-set -- "$fixtures_dir"/*.sh
+set -- $shuck_fixture_list
+shuck_fixtures=$*
 
 echo "==> Benchmarking: all"
 case "$benchmark_mode" in
     compare)
-        hyperfine \
-            --ignore-failure \
-            --warmup 3 \
-            --runs 10 \
-            --export-json "$cache_dir/bench-all.json" \
-            --export-markdown "$cache_dir/bench-all.md" \
-            -n "shuck/all" "$shuck_check $*" \
-            -n "shellcheck/all" "$shellcheck_check $*"
+        if [ -n "$shellcheck_fixture_list" ]; then
+            set -- $shellcheck_fixture_list
+            shellcheck_fixtures=$*
+            hyperfine \
+                --ignore-failure \
+                --warmup 3 \
+                --runs 10 \
+                --export-json "$cache_dir/bench-all.json" \
+                --export-markdown "$cache_dir/bench-all.md" \
+                -n "shuck/all" "$shuck_check $shuck_fixtures" \
+                -n "shellcheck/all" "$shellcheck_check $shellcheck_fixtures"
+        else
+            hyperfine \
+                --ignore-failure \
+                --warmup 3 \
+                --runs 10 \
+                --export-json "$cache_dir/bench-all.json" \
+                --export-markdown "$cache_dir/bench-all.md" \
+                -n "shuck/all" "$shuck_check $shuck_fixtures"
+        fi
         ;;
     shuck-only)
         hyperfine \
@@ -61,7 +106,7 @@ case "$benchmark_mode" in
             --runs 10 \
             --export-json "$cache_dir/bench-all.json" \
             --export-markdown "$cache_dir/bench-all.md" \
-            -n "shuck/all" "$shuck_check $*"
+            -n "shuck/all" "$shuck_check $shuck_fixtures"
         ;;
     *)
         echo "ERROR: unsupported SHUCK_BENCHMARK_MODE=$benchmark_mode" >&2
