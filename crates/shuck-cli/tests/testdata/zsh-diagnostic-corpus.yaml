@@ -20809,17 +20809,6 @@ repos:
           line: 30
           column: 65
         classification: real
-      - path: "highlighters/main/test-data/backslash-continuation.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PREBUFFER` is assigned but never used"
-        start:
-          line: 30
-          column: 1
-        end:
-          line: 30
-          column: 10
-        classification: false_positive
       - path: "highlighters/main/test-data/brackets-mismatch7.zsh"
         code: "C005"
         severity: "warning"
@@ -20974,17 +20963,6 @@ repos:
           line: 30
           column: 23
         classification: real
-      - path: "highlighters/main/test-data/multiline-string.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PREBUFFER` is assigned but never used"
-        start:
-          line: 30
-          column: 1
-        end:
-          line: 30
-          column: 10
-        classification: false_positive
       - path: "highlighters/main/test-data/opt-shwordsplit1.zsh"
         code: "C001"
         severity: "warning"
@@ -21304,17 +21282,6 @@ repos:
           line: 33
           column: 40
         classification: false_positive
-      - path: "highlighters/main/test-data/path_prefix3.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PREBUFFER` is assigned but never used"
-        start:
-          line: 33
-          column: 1
-        end:
-          line: 33
-          column: 10
-        classification: false_positive
       - path: "highlighters/main/test-data/process-substitution2.zsh"
         code: "C005"
         severity: "warning"
@@ -21359,39 +21326,6 @@ repos:
           line: 32
           column: 9
         classification: real
-      - path: "highlighters/main/test-data/vanilla-newline.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PREBUFFER` is assigned but never used"
-        start:
-          line: 30
-          column: 1
-        end:
-          line: 30
-          column: 10
-        classification: false_positive
-      - path: "highlighters/main/test-data/vi-linewise-mode.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `REGION_ACTIVE` is assigned but never used"
-        start:
-          line: 32
-          column: 1
-        end:
-          line: 32
-          column: 14
-        classification: false_positive
-      - path: "highlighters/main/test-data/vi-linewise-mode.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `MARK` is assigned but never used"
-        start:
-          line: 34
-          column: 1
-        end:
-          line: 34
-          column: 5
-        classification: false_positive
       - path: "highlighters/regexp/test-data/word-boundary.zsh"
         code: "C001"
         severity: "warning"

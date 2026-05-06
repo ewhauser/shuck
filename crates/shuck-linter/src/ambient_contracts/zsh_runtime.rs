@@ -53,6 +53,10 @@ pub(super) fn build_zsh_ambient_runtime_contract(
         contract.add_externally_consumed_binding_name(Name::from(name));
     }
 
+    for name in zsh_test_fixture_consumed_names(source, path) {
+        contract.add_externally_consumed_binding_name(Name::from(name));
+    }
+
     for prefix in zsh_test_fixture_consumed_prefixes(source, path) {
         contract.add_externally_consumed_binding_prefix(Name::from(prefix));
     }
@@ -72,6 +76,9 @@ fn zsh_ambient_runtime_has_signal(source: &SourceSignals<'_>, path: &PathSignals
         || source.mentions_any(ZSH_HOOK_ARRAY_PARAMETERS)
         || zsh_prompt_color_runtime_shape(source, path)
         || !zsh_externally_consumed_names(source, path).is_empty()
+        || zsh_test_fixture_consumed_names(source, path)
+            .next()
+            .is_some()
         || zsh_test_fixture_consumed_prefixes(source, path)
             .next()
             .is_some()
@@ -159,6 +166,17 @@ const ZSH_HOOK_ARRAY_PARAMETERS: &[&str] = &[
     "zshaddhistory_functions",
     "zshexit_functions",
 ];
+
+fn zsh_test_fixture_consumed_names<'a>(
+    source: &'a SourceSignals<'_>,
+    path: &'a PathSignals,
+) -> impl Iterator<Item = &'static str> + 'a {
+    ["MARK", "PREBUFFER", "REGION_ACTIVE"].into_iter().filter(|name| {
+        zsh_syntax_highlighting_test_path_shape(path.lower_path())
+            && zsh_test_data_path_shape(path.lower_path())
+            && source.assigns_name(name)
+    })
+}
 
 fn zsh_test_fixture_consumed_prefixes<'a>(
     source: &'a SourceSignals<'_>,

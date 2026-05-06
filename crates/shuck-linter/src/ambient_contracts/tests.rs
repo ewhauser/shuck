@@ -426,6 +426,23 @@ fn zsh_syntax_highlighting_test_data_expected_values_are_consumed() {
 }
 
 #[test]
+fn zsh_syntax_highlighting_test_data_zle_state_is_consumed() {
+    let path =
+        Path::new("/tmp/zsh/zsh-syntax-highlighting/highlighters/main/test-data/example.zsh");
+    let source = "\
+PREBUFFER=$'echo foo\\n'
+MARK=1
+REGION_ACTIVE=1
+";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    for name in ["PREBUFFER", "MARK", "REGION_ACTIVE"] {
+        assert!(has_consumed_name(&contract, name), "{contract:?}");
+    }
+}
+
+#[test]
 fn zsh_syntax_highlighting_test_harness_expected_values_are_consumed() {
     let path = Path::new("/tmp/zsh/zsh-syntax-highlighting/tests/test-zprof.zsh");
     let source = "\

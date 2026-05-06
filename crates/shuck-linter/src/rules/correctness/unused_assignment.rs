@@ -1349,6 +1349,25 @@ ordinary=1
     }
 
     #[test]
+    fn zsh_test_data_zle_state_assignments_are_consumed() {
+        let source = "\
+#!/usr/bin/env zsh
+PREBUFFER=$'echo foo\\n'
+MARK=1
+REGION_ACTIVE=1
+ordinary=1
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/zsh-syntax-highlighting/highlighters/main/test-data/example.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
+    }
+
+    #[test]
     fn zsh_test_harness_expected_outputs_are_external_consumers() {
         let source = "\
 #!/usr/bin/env zsh
