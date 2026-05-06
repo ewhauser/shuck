@@ -1,10 +1,10 @@
 use std::any::Any;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -36,13 +36,17 @@ const LARGE_CORPUS_SAMPLE_PERCENT_ENV: &str = "SHUCK_LARGE_CORPUS_SAMPLE_PERCENT
 const LARGE_CORPUS_MAPPED_ONLY_ENV: &str = "SHUCK_LARGE_CORPUS_MAPPED_ONLY";
 const LARGE_CORPUS_KEEP_GOING_ENV: &str = "SHUCK_LARGE_CORPUS_KEEP_GOING";
 const LARGE_CORPUS_TIMING_ENV: &str = "SHUCK_LARGE_CORPUS_TIMING";
+const ZSH_DIAGNOSTIC_CORPUS_ROOT_ENV: &str = "SHUCK_ZSH_DIAGNOSTIC_CORPUS_ROOT";
+const ZSH_DIAGNOSTIC_CORPUS_TIMEOUT_ENV: &str = "SHUCK_ZSH_DIAGNOSTIC_CORPUS_TIMEOUT_SECS";
 
 const LARGE_CORPUS_DEFAULT_SHELLCHECK_TIMEOUT: Duration = Duration::from_secs(300);
 const LARGE_CORPUS_DEFAULT_SHUCK_TIMEOUT: Duration = Duration::from_secs(30);
+const ZSH_DIAGNOSTIC_CORPUS_DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
 const LARGE_CORPUS_AUTOSCALED_SHUCK_TIMEOUT_BUFFER: Duration = Duration::from_secs(15);
 const LARGE_CORPUS_MAX_AUTOSCALED_SHUCK_TIMEOUT: Duration = Duration::from_secs(150);
 const LARGE_CORPUS_AUTOSCALED_SHUCK_LINES_PER_SEC: usize = 175;
 const LARGE_CORPUS_CACHE_DIR_NAME: &str = ".cache/large-corpus";
+const ZSH_DIAGNOSTIC_CORPUS_CACHE_DIR_NAME: &str = ".cache/zsh-diagnostic-corpus";
 const LARGE_CORPUS_MAX_WORKER_COUNT: usize = 4;
 const LARGE_CORPUS_TIMEOUT_FAILURE_CAP: usize = 5;
 const LARGE_CORPUS_PROGRESS_PERCENT_STEP: usize = 5;
@@ -78,6 +82,7 @@ const LARGE_CORPUS_SHELLCHECK_PARSE_IGNORE_SUFFIXES: &[&str] = &[
 ];
 const SHELLCHECK_CACHE_SCHEMA: u32 = 3;
 const SHELLCHECK_CACHE_MIGRATION_VERSION: u32 = 1;
+const ZSH_DIAGNOSTIC_CORPUS_BASELINE: &str = include_str!("testdata/zsh-diagnostic-corpus.yaml");
 
 // ---------------------------------------------------------------------------
 // Config
@@ -96,6 +101,202 @@ struct LargeCorpusConfig {
     mapped_only: bool,
     keep_going: bool,
     timing_mode: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ZshDiagnosticCorpusConfig {
+    corpus_dir: PathBuf,
+    timeout: Duration,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct ZshDiagnosticCorpusDocument {
+    schema: u32,
+    repos: Vec<ZshDiagnosticCorpusRepo>,
+}
+
+impl ZshDiagnosticCorpusDocument {
+    fn validate(&self) -> Result<(), String> {
+        if self.schema != 1 {
+            return Err(format!(
+                "unsupported zsh diagnostic corpus schema {}, expected 1",
+                self.schema
+            ));
+        }
+        if self.repos.is_empty() {
+            return Err("zsh diagnostic corpus baseline must list at least one repo".into());
+        }
+
+        let mut seen_repos = HashSet::new();
+        for repo in &self.repos {
+            repo.validate()?;
+            if !seen_repos.insert(repo.name.as_str()) {
+                return Err(format!(
+                    "zsh diagnostic corpus baseline repeats repo `{}`",
+                    repo.name
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct ZshDiagnosticCorpusRepo {
+    name: String,
+    github_url: String,
+    commit: String,
+    #[serde(default)]
+    diagnostics: Vec<ZshDiagnosticRecord>,
+}
+
+impl ZshDiagnosticCorpusRepo {
+    fn validate(&self) -> Result<(), String> {
+        if self.name.is_empty() {
+            return Err("zsh diagnostic corpus repo names cannot be empty".into());
+        }
+        if self.github_url.is_empty() {
+            return Err(format!(
+                "zsh diagnostic corpus repo `{}` must include github_url",
+                self.name
+            ));
+        }
+        if self.commit.is_empty() {
+            return Err(format!(
+                "zsh diagnostic corpus repo `{}` must include commit",
+                self.name
+            ));
+        }
+
+        for diagnostic in &self.diagnostics {
+            diagnostic.validate(&self.name)?;
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(deny_unknown_fields)]
+struct ZshDiagnosticRecord {
+    path: String,
+    code: String,
+    severity: String,
+    message: String,
+    start: ZshDiagnosticPosition,
+    end: ZshDiagnosticPosition,
+    classification: ZshDiagnosticClassification,
+}
+
+impl ZshDiagnosticRecord {
+    fn validate(&self, repo_name: &str) -> Result<(), String> {
+        if self.path.is_empty() {
+            return Err(format!(
+                "zsh diagnostic corpus repo `{repo_name}` has a diagnostic with an empty path"
+            ));
+        }
+        if Path::new(&self.path).is_absolute() {
+            return Err(format!(
+                "zsh diagnostic corpus repo `{repo_name}` diagnostic path `{}` must be relative",
+                self.path
+            ));
+        }
+        if self.code.is_empty() {
+            return Err(format!(
+                "zsh diagnostic corpus repo `{repo_name}` path `{}` has an empty code",
+                self.path
+            ));
+        }
+        if self.severity.is_empty() {
+            return Err(format!(
+                "zsh diagnostic corpus repo `{repo_name}` path `{}` has an empty severity",
+                self.path
+            ));
+        }
+        self.start.validate(repo_name, &self.path, "start")?;
+        self.end.validate(repo_name, &self.path, "end")?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(deny_unknown_fields)]
+struct ZshDiagnosticPosition {
+    line: usize,
+    column: usize,
+}
+
+impl ZshDiagnosticPosition {
+    fn validate(&self, repo_name: &str, path: &str, label: &str) -> Result<(), String> {
+        if self.line == 0 || self.column == 0 {
+            return Err(format!(
+                "zsh diagnostic corpus repo `{repo_name}` path `{path}` has invalid {label} position {}:{}",
+                self.line, self.column
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+enum ZshDiagnosticClassification {
+    Real,
+    FalsePositive,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+struct ZshDiagnosticCorpusManifest {
+    repos: Vec<ZshDiagnosticCorpusManifestRepo>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+struct ZshDiagnosticCorpusManifestRepo {
+    name: String,
+    github_url: String,
+    commit: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+struct ZshJsonDiagnostic {
+    code: String,
+    severity: String,
+    message: String,
+    location: ZshJsonLocation,
+    end_location: ZshJsonLocation,
+    filename: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+struct ZshJsonLocation {
+    row: usize,
+    column: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct ZshObservedDiagnostic {
+    path: String,
+    code: String,
+    severity: String,
+    message: String,
+    start: ZshDiagnosticPosition,
+    end: ZshDiagnosticPosition,
+}
+
+impl From<&ZshDiagnosticRecord> for ZshObservedDiagnostic {
+    fn from(record: &ZshDiagnosticRecord) -> Self {
+        Self {
+            path: record.path.clone(),
+            code: record.code.clone(),
+            severity: record.severity.clone(),
+            message: record.message.clone(),
+            start: record.start.clone(),
+            end: record.end.clone(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1080,6 +1281,96 @@ fn large_corpus_zsh_fixtures_parse() {
     );
 }
 
+#[test]
+#[ignore = "requires the zsh diagnostic corpus; run `make test-large-corpus`"]
+fn zsh_diagnostic_corpus_matches_baseline() {
+    let cfg = match resolve_zsh_diagnostic_corpus_config() {
+        Some(cfg) => cfg,
+        None => {
+            eprintln!(
+                "zsh diagnostic corpus test skipped (set {ZSH_DIAGNOSTIC_CORPUS_ROOT_ENV} or run `make setup-large-corpus`)"
+            );
+            return;
+        }
+    };
+
+    let baseline = load_zsh_diagnostic_corpus_baseline();
+    let manifest = load_zsh_diagnostic_corpus_manifest(&cfg.corpus_dir);
+    let visible_root = tempfile::tempdir().expect("create visible zsh diagnostic corpus root");
+    let mut failures = Vec::new();
+
+    for repo in &baseline.repos {
+        if let Err(err) = validate_zsh_diagnostic_manifest_repo(&manifest, repo) {
+            failures.push(err);
+            continue;
+        }
+
+        let repo_dir = cfg.corpus_dir.join("repos").join(&repo.name);
+        if !repo_dir.is_dir() {
+            failures.push(format!(
+                "repo `{}` is missing from {}",
+                repo.name,
+                cfg.corpus_dir.join("repos").display()
+            ));
+            continue;
+        }
+
+        let visible_repo_dir =
+            match expose_zsh_diagnostic_repo(&repo_dir, visible_root.path(), &repo.name) {
+                Ok(path) => path,
+                Err(err) => {
+                    failures.push(format!("repo `{}`: {err}", repo.name));
+                    continue;
+                }
+            };
+
+        let output = match run_zsh_diagnostic_shuck_check(&visible_repo_dir, cfg.timeout) {
+            Ok(output) => output,
+            Err(err) => {
+                failures.push(format!("repo `{}`: {err}", repo.name));
+                continue;
+            }
+        };
+
+        if !matches!(output.status.code(), Some(0 | 1)) {
+            failures.push(format!(
+                "repo `{}`: shuck exited with status {:?}",
+                repo.name,
+                output.status.code()
+            ));
+            continue;
+        }
+        if !output.stderr.is_empty() {
+            failures.push(format!(
+                "repo `{}`: shuck wrote stderr:\n{}",
+                repo.name,
+                String::from_utf8_lossy(&output.stderr)
+            ));
+            continue;
+        }
+
+        let actual =
+            match parse_zsh_diagnostic_json_lines(&repo.name, &visible_repo_dir, &output.stdout) {
+                Ok(actual) => actual,
+                Err(err) => {
+                    failures.push(err);
+                    continue;
+                }
+            };
+        let expected = expected_zsh_observed_diagnostics(repo);
+        let diffs = diff_zsh_observed_diagnostics(&expected, &actual);
+        if !diffs.is_empty() {
+            failures.push(format_zsh_diagnostic_repo_diff(&repo.name, &diffs));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "zsh diagnostic corpus drifted from baseline:\n\nZsh Diagnostic Corpus Drift:\n{}",
+        failures.join("\n\n")
+    );
+}
+
 fn collect_fixture_failures<F>(
     fixtures: &[&LargeCorpusFixture],
     keep_going: bool,
@@ -1466,6 +1757,301 @@ fn probe_invalid_zsh_fixture(path: &Path, timeout: Duration) -> Result<Option<St
 fn zsh_stderr_looks_like_parse_error(stderr: &str) -> bool {
     let lower = stderr.to_ascii_lowercase();
     lower.contains("parse error") || lower.contains("unmatched ")
+}
+
+fn load_zsh_diagnostic_corpus_baseline() -> ZshDiagnosticCorpusDocument {
+    let baseline: ZshDiagnosticCorpusDocument =
+        serde_yaml::from_str(ZSH_DIAGNOSTIC_CORPUS_BASELINE)
+            .unwrap_or_else(|err| panic!("parse zsh diagnostic corpus baseline: {err}"));
+    baseline.validate().unwrap_or_else(|err| panic!("{err}"));
+    baseline
+}
+
+fn load_zsh_diagnostic_corpus_manifest(corpus_dir: &Path) -> ZshDiagnosticCorpusManifest {
+    let path = corpus_dir.join("manifest.yaml");
+    let data =
+        fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+    serde_yaml::from_str(&data).unwrap_or_else(|err| panic!("parse {}: {err}", path.display()))
+}
+
+fn validate_zsh_diagnostic_manifest_repo(
+    manifest: &ZshDiagnosticCorpusManifest,
+    baseline_repo: &ZshDiagnosticCorpusRepo,
+) -> Result<(), String> {
+    let Some(manifest_repo) = manifest
+        .repos
+        .iter()
+        .find(|repo| repo.name == baseline_repo.name)
+    else {
+        return Err(format!(
+            "repo `{}` is missing from zsh diagnostic corpus manifest",
+            baseline_repo.name
+        ));
+    };
+
+    if manifest_repo.github_url != baseline_repo.github_url
+        || manifest_repo.commit != baseline_repo.commit
+    {
+        return Err(format!(
+            "repo `{}` manifest metadata differs from baseline: got {} @ {}, expected {} @ {}",
+            baseline_repo.name,
+            manifest_repo.github_url,
+            manifest_repo.commit,
+            baseline_repo.github_url,
+            baseline_repo.commit
+        ));
+    }
+
+    Ok(())
+}
+
+fn resolve_zsh_diagnostic_corpus_config() -> Option<ZshDiagnosticCorpusConfig> {
+    let repo_root = repo_root();
+    let default_root = repo_root.join(ZSH_DIAGNOSTIC_CORPUS_CACHE_DIR_NAME);
+    let required = env_truthy(LARGE_CORPUS_ENV, false);
+    let root = env::var(ZSH_DIAGNOSTIC_CORPUS_ROOT_ENV)
+        .ok()
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or(default_root);
+
+    if !zsh_diagnostic_corpus_dir_looks_valid(&root) {
+        if required {
+            panic!(
+                "zsh diagnostic corpus not found; set {ZSH_DIAGNOSTIC_CORPUS_ROOT_ENV} to an existing corpus directory or run scripts/corpus-download.sh to populate {}",
+                repo_root
+                    .join(ZSH_DIAGNOSTIC_CORPUS_CACHE_DIR_NAME)
+                    .display()
+            );
+        }
+        return None;
+    }
+
+    let default_timeout_secs = positive_env_int(
+        LARGE_CORPUS_SHELLCHECK_TIMEOUT_ENV,
+        ZSH_DIAGNOSTIC_CORPUS_DEFAULT_TIMEOUT.as_secs() as usize,
+    );
+    let timeout_secs = positive_env_int(ZSH_DIAGNOSTIC_CORPUS_TIMEOUT_ENV, default_timeout_secs);
+
+    Some(ZshDiagnosticCorpusConfig {
+        corpus_dir: root,
+        timeout: Duration::from_secs(timeout_secs as u64),
+    })
+}
+
+fn zsh_diagnostic_corpus_dir_looks_valid(dir: &Path) -> bool {
+    dir.join("manifest.yaml").is_file() && dir.join("repos").is_dir()
+}
+
+fn expose_zsh_diagnostic_repo(
+    source_repo_dir: &Path,
+    visible_root: &Path,
+    repo_name: &str,
+) -> Result<PathBuf, String> {
+    let visible_repo_dir = visible_root.join(repo_name);
+    expose_zsh_diagnostic_repo_impl(source_repo_dir, &visible_repo_dir)?;
+    Ok(visible_repo_dir)
+}
+
+#[cfg(unix)]
+fn expose_zsh_diagnostic_repo_impl(
+    source_repo_dir: &Path,
+    visible_repo_dir: &Path,
+) -> Result<(), String> {
+    std::os::unix::fs::symlink(source_repo_dir, visible_repo_dir).map_err(|err| {
+        format!(
+            "symlink {} -> {}: {err}",
+            visible_repo_dir.display(),
+            source_repo_dir.display()
+        )
+    })
+}
+
+#[cfg(not(unix))]
+fn expose_zsh_diagnostic_repo_impl(
+    source_repo_dir: &Path,
+    visible_repo_dir: &Path,
+) -> Result<(), String> {
+    copy_zsh_diagnostic_repo(source_repo_dir, visible_repo_dir)
+}
+
+#[cfg(not(unix))]
+fn copy_zsh_diagnostic_repo(source: &Path, dest: &Path) -> Result<(), String> {
+    fs::create_dir_all(dest).map_err(|err| format!("create {}: {err}", dest.display()))?;
+    for entry in fs::read_dir(source).map_err(|err| format!("read {}: {err}", source.display()))? {
+        let entry = entry.map_err(|err| format!("read {} entry: {err}", source.display()))?;
+        let source_path = entry.path();
+        let dest_path = dest.join(entry.file_name());
+        let file_type = entry
+            .file_type()
+            .map_err(|err| format!("stat {}: {err}", source_path.display()))?;
+        if file_type.is_dir() {
+            copy_zsh_diagnostic_repo(&source_path, &dest_path)?;
+        } else if file_type.is_file() {
+            fs::copy(&source_path, &dest_path).map_err(|err| {
+                format!(
+                    "copy {} -> {}: {err}",
+                    source_path.display(),
+                    dest_path.display()
+                )
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn run_zsh_diagnostic_shuck_check(repo_dir: &Path, timeout: Duration) -> Result<Output, String> {
+    let repo_dir = repo_dir.to_path_buf();
+    run_with_timeout("shuck", timeout, move || {
+        Command::new(assert_cmd::cargo::cargo_bin("shuck"))
+            .args(["check", "--no-cache", "--output-format", "json-lines"])
+            .arg(&repo_dir)
+            .output()
+            .map_err(|err| format!("failed to run shuck check on {}: {err}", repo_dir.display()))
+    })?
+}
+
+fn parse_zsh_diagnostic_json_lines(
+    repo_name: &str,
+    repo_dir: &Path,
+    stdout: &[u8],
+) -> Result<Vec<ZshObservedDiagnostic>, String> {
+    let text = std::str::from_utf8(stdout)
+        .map_err(|err| format!("repo `{repo_name}`: shuck stdout was not UTF-8: {err}"))?;
+    let mut diagnostics = Vec::new();
+
+    for (index, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let diagnostic: ZshJsonDiagnostic = serde_json::from_str(line).map_err(|err| {
+            format!(
+                "repo `{repo_name}`: invalid json-lines diagnostic at line {}: {err}: {line}",
+                index + 1
+            )
+        })?;
+        diagnostics.push(zsh_observed_diagnostic_from_json(
+            repo_name, repo_dir, diagnostic,
+        )?);
+    }
+
+    diagnostics.sort();
+    Ok(diagnostics)
+}
+
+fn zsh_observed_diagnostic_from_json(
+    repo_name: &str,
+    repo_dir: &Path,
+    diagnostic: ZshJsonDiagnostic,
+) -> Result<ZshObservedDiagnostic, String> {
+    Ok(ZshObservedDiagnostic {
+        path: normalize_zsh_diagnostic_filename(repo_name, repo_dir, &diagnostic.filename)?,
+        code: diagnostic.code,
+        severity: diagnostic.severity,
+        message: diagnostic.message,
+        start: ZshDiagnosticPosition {
+            line: diagnostic.location.row,
+            column: diagnostic.location.column,
+        },
+        end: ZshDiagnosticPosition {
+            line: diagnostic.end_location.row,
+            column: diagnostic.end_location.column,
+        },
+    })
+}
+
+fn normalize_zsh_diagnostic_filename(
+    repo_name: &str,
+    repo_dir: &Path,
+    filename: &str,
+) -> Result<String, String> {
+    let path = Path::new(filename);
+    let relative = path.strip_prefix(repo_dir).map_err(|_| {
+        format!(
+            "repo `{repo_name}`: diagnostic filename `{filename}` is not under {}",
+            repo_dir.display()
+        )
+    })?;
+    Ok(normalize_cache_rel_path(relative))
+}
+
+fn expected_zsh_observed_diagnostics(repo: &ZshDiagnosticCorpusRepo) -> Vec<ZshObservedDiagnostic> {
+    let mut diagnostics = repo
+        .diagnostics
+        .iter()
+        .map(ZshObservedDiagnostic::from)
+        .collect::<Vec<_>>();
+    diagnostics.sort();
+    diagnostics
+}
+
+fn diff_zsh_observed_diagnostics(
+    expected: &[ZshObservedDiagnostic],
+    actual: &[ZshObservedDiagnostic],
+) -> Vec<String> {
+    let expected_counts = zsh_observed_diagnostic_counts(expected);
+    let actual_counts = zsh_observed_diagnostic_counts(actual);
+    let mut diffs = Vec::new();
+
+    for (diagnostic, expected_count) in &expected_counts {
+        let actual_count = actual_counts.get(diagnostic).copied().unwrap_or(0);
+        if actual_count < *expected_count {
+            diffs.push(format!(
+                "missing x{} {}",
+                expected_count - actual_count,
+                format_zsh_observed_diagnostic(diagnostic)
+            ));
+        }
+    }
+
+    for (diagnostic, actual_count) in &actual_counts {
+        let expected_count = expected_counts.get(diagnostic).copied().unwrap_or(0);
+        if expected_count < *actual_count {
+            diffs.push(format!(
+                "added x{} {}",
+                actual_count - expected_count,
+                format_zsh_observed_diagnostic(diagnostic)
+            ));
+        }
+    }
+
+    diffs
+}
+
+fn zsh_observed_diagnostic_counts(
+    diagnostics: &[ZshObservedDiagnostic],
+) -> BTreeMap<ZshObservedDiagnostic, usize> {
+    let mut counts = BTreeMap::new();
+    for diagnostic in diagnostics {
+        *counts.entry(diagnostic.clone()).or_insert(0) += 1;
+    }
+    counts
+}
+
+fn format_zsh_diagnostic_repo_diff(repo_name: &str, diffs: &[String]) -> String {
+    let limit = 100;
+    let mut lines = diffs.iter().take(limit).cloned().collect::<Vec<_>>();
+    if diffs.len() > limit {
+        lines.push(format!(
+            "... omitted {} additional zsh diagnostic drift(s)",
+            diffs.len() - limit
+        ));
+    }
+    format!("repo `{repo_name}`:\n{}", indent_detail(&lines.join("\n")))
+}
+
+fn format_zsh_observed_diagnostic(diagnostic: &ZshObservedDiagnostic) -> String {
+    format!(
+        "{}:{}:{}-{}:{} {} {} {}",
+        diagnostic.path,
+        diagnostic.start.line,
+        diagnostic.start.column,
+        diagnostic.end.line,
+        diagnostic.end.column,
+        diagnostic.code,
+        diagnostic.severity,
+        diagnostic.message
+    )
 }
 
 fn fixture_failure_kind_for_message(message: &str, label: &str) -> FixtureFailureKind {
@@ -4818,6 +5404,138 @@ mod tests {
             cache_rel_path: cache_rel_path.to_path_buf(),
             shell: "sh".into(),
             source_hash: "source-hash".into(),
+        }
+    }
+
+    #[test]
+    fn zsh_diagnostic_diff_ignores_order() {
+        let first = zsh_observed("a.zsh", "C001", "first", 1, 1);
+        let second = zsh_observed("b.zsh", "C002", "second", 2, 1);
+
+        let diffs = diff_zsh_observed_diagnostics(
+            &[second.clone(), first.clone()],
+            &[first.clone(), second.clone()],
+        );
+
+        assert!(diffs.is_empty());
+    }
+
+    #[test]
+    fn zsh_diagnostic_diff_reports_added_and_missing_records() {
+        let expected = zsh_observed("a.zsh", "C001", "expected", 1, 1);
+        let actual = zsh_observed("a.zsh", "C002", "actual", 1, 1);
+
+        let diffs = diff_zsh_observed_diagnostics(
+            std::slice::from_ref(&expected),
+            std::slice::from_ref(&actual),
+        );
+
+        assert_eq!(diffs.len(), 2);
+        assert!(diffs.iter().any(|diff| diff.contains("missing")));
+        assert!(diffs.iter().any(|diff| diff.contains("added")));
+    }
+
+    #[test]
+    fn zsh_diagnostic_diff_treats_message_and_span_changes_as_drift() {
+        let expected = zsh_observed("a.zsh", "C001", "old message", 1, 1);
+        let changed_message = zsh_observed("a.zsh", "C001", "new message", 1, 1);
+        let changed_span = zsh_observed("a.zsh", "C001", "old message", 1, 2);
+
+        assert_eq!(
+            diff_zsh_observed_diagnostics(
+                std::slice::from_ref(&expected),
+                std::slice::from_ref(&changed_message)
+            )
+            .len(),
+            2
+        );
+        assert_eq!(
+            diff_zsh_observed_diagnostics(
+                std::slice::from_ref(&expected),
+                std::slice::from_ref(&changed_span)
+            )
+            .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn zsh_diagnostic_record_identity_includes_classification() {
+        let real = zsh_record(
+            "a.zsh",
+            "C001",
+            "message",
+            ZshDiagnosticClassification::Real,
+        );
+        let false_positive = zsh_record(
+            "a.zsh",
+            "C001",
+            "message",
+            ZshDiagnosticClassification::FalsePositive,
+        );
+
+        assert_ne!(real, false_positive);
+    }
+
+    #[test]
+    fn zsh_diagnostic_baseline_rejects_unknown_classification() {
+        let yaml = r#"
+schema: 1
+repos:
+  - name: repo
+    github_url: https://example.test/repo.git
+    commit: abc123
+    diagnostics:
+      - path: test.zsh
+        code: C001
+        severity: warning
+        message: message
+        start:
+          line: 1
+          column: 1
+        end:
+          line: 1
+          column: 2
+        classification: unclassified
+"#;
+
+        assert!(serde_yaml::from_str::<ZshDiagnosticCorpusDocument>(yaml).is_err());
+    }
+
+    fn zsh_observed(
+        path: &str,
+        code: &str,
+        message: &str,
+        line: usize,
+        column: usize,
+    ) -> ZshObservedDiagnostic {
+        ZshObservedDiagnostic {
+            path: path.into(),
+            code: code.into(),
+            severity: "warning".into(),
+            message: message.into(),
+            start: ZshDiagnosticPosition { line, column },
+            end: ZshDiagnosticPosition {
+                line,
+                column: column + 1,
+            },
+        }
+    }
+
+    fn zsh_record(
+        path: &str,
+        code: &str,
+        message: &str,
+        classification: ZshDiagnosticClassification,
+    ) -> ZshDiagnosticRecord {
+        ZshDiagnosticRecord {
+            path: path.into(),
+            code: code.into(),
+            severity: "warning".into(),
+            message: message.into(),
+            start: ZshDiagnosticPosition { line: 1, column: 1 },
+            end: ZshDiagnosticPosition { line: 1, column: 2 },
+            classification,
         }
     }
 
