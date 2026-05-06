@@ -6,14 +6,18 @@
 //! should come from parser, indexer, semantic, or linter facts instead.
 
 pub(super) fn code_before_shell_comment(line: &str) -> &str {
-    let mut previous_was_whitespace = true;
+    let mut previous = None;
     for (index, ch) in line.char_indices() {
-        if ch == '#' && previous_was_whitespace {
+        if ch == '#' && shell_comment_can_start_after(previous) {
             return &line[..index];
         }
-        previous_was_whitespace = ch.is_whitespace();
+        previous = Some(ch);
     }
     line
+}
+
+fn shell_comment_can_start_after(previous: Option<char>) -> bool {
+    previous.is_none_or(|ch| ch.is_whitespace() || matches!(ch, ';' | '&' | '|' | '<' | '>'))
 }
 
 pub(super) fn parse_shell_name_at(source: &str, start: usize) -> Option<(&str, usize)> {

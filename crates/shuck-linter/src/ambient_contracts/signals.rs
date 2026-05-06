@@ -372,4 +372,18 @@ mod tests {
         assert!(signals.assigns_name("HISTFILE"));
         assert!(signals.assigns_name("HISTSIZE"));
     }
+
+    #[test]
+    fn zmodload_signal_ignores_separator_comments() {
+        let signals = SourceSignals::new("true;# zmodload zsh/parameter\n");
+
+        assert!(!signals.loads_zsh_module("zsh/parameter"));
+    }
+
+    #[test]
+    fn zmodload_signal_keeps_executed_segments_after_separators() {
+        let signals = SourceSignals::new("true; zmodload zsh/parameter\n");
+
+        assert!(signals.loads_zsh_module("zsh/parameter"));
+    }
 }
