@@ -208,6 +208,20 @@ less_termcap[me]=\"${reset_color}\"
 }
 
 #[test]
+fn zsh_runtime_contract_initializes_ohmyzsh_emotty_emoji_arrays() {
+    let path = Path::new("/tmp/zsh/ohmyzsh/plugins/emotty/emotty.plugin.zsh");
+    let source = "\
+print -r -- \"${emoji[smile]}${emoji2[emoji_style]}\"
+";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    for name in ["emoji", "emoji2"] {
+        assert!(has_initialized_binding(&contract, name), "{contract:?}");
+    }
+}
+
+#[test]
 fn zsh_runtime_contract_initializes_prompt_colors_after_colors_autoload() {
     let path = Path::new("/tmp/zsh/holman-dotfiles/zsh/prompt.zsh");
     let source = "\

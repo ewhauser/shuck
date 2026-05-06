@@ -71,6 +71,7 @@ fn zsh_ambient_runtime_has_signal(source: &SourceSignals<'_>, path: &PathSignals
     source.mentions_any(ZSH_INITIALIZED_SPECIAL_PARAMETERS)
         || source.mentions_any(ZSH_HOOK_ARRAY_PARAMETERS)
         || zsh_prompt_color_runtime_shape(source, path)
+        || ohmyzsh_emotty_runtime_shape(source, path)
         || !zsh_externally_consumed_names(source, path).is_empty()
         || zsh_test_fixture_consumed_prefixes(source, path)
             .next()
@@ -101,6 +102,14 @@ fn zsh_initialized_runtime_names<'a>(
                 .copied()
                 .filter(move |name| {
                     source.mentions_name(name) && zsh_runtime_path_shape(path.lower_path())
+                }),
+        )
+        .chain(
+            OHMYZSH_EMOTTY_PARAMETERS
+                .iter()
+                .copied()
+                .filter(move |name| {
+                    source.mentions_name(name) && ohmyzsh_emotty_runtime_shape(source, path)
                 }),
         )
 }
@@ -198,7 +207,17 @@ const ZSH_PROMPT_COLOR_PARAMETERS: &[&str] = &[
 const ZSH_EXTERNALLY_CONSUMED_OUTPUT_PARAMETERS: &[&str] =
     &["REPLY", "compstate", "comppostfuncs", "reply"];
 
+const OHMYZSH_EMOTTY_PARAMETERS: &[&str] = &["emoji", "emoji2"];
+
 fn zsh_prompt_color_runtime_shape(source: &SourceSignals<'_>, path: &PathSignals) -> bool {
     (zsh_runtime_path_shape(path.lower_path()) || source.loads_zsh_colors())
         && source.mentions_any(ZSH_PROMPT_COLOR_PARAMETERS)
+}
+
+fn ohmyzsh_emotty_runtime_shape(source: &SourceSignals<'_>, path: &PathSignals) -> bool {
+    (path.lower_path().contains("/ohmyzsh/plugins/emotty/")
+        || path
+            .lower_path()
+            .ends_with("/ohmyzsh/themes/emotty.zsh-theme"))
+        && source.mentions_any(OHMYZSH_EMOTTY_PARAMETERS)
 }

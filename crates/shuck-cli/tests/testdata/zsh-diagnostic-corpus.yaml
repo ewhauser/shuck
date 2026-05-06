@@ -2840,28 +2840,6 @@ repos:
           line: 67
           column: 31
         classification: false_positive
-      - path: "plugins/emotty/emotty.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `emoji` is referenced before assignment"
-        start:
-          line: 42
-          column: 9
-        end:
-          line: 42
-          column: 36
-        classification: false_positive
-      - path: "plugins/emotty/emotty.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `emoji2` is referenced before assignment"
-        start:
-          line: 42
-          column: 36
-        end:
-          line: 42
-          column: 58
-        classification: false_positive
       - path: "plugins/emotty/emotty_emoji_set.zsh"
         code: "C006"
         severity: "error"
@@ -7393,28 +7371,6 @@ repos:
         end:
           line: 118
           column: 8
-        classification: false_positive
-      - path: "themes/emotty.zsh-theme"
-        code: "C006"
-        severity: "error"
-        message: "variable `emoji` is referenced before assignment"
-        start:
-          line: 60
-          column: 14
-        end:
-          line: 60
-          column: 20
-        classification: false_positive
-      - path: "themes/emotty.zsh-theme"
-        code: "C006"
-        severity: "error"
-        message: "variable `emoji2` is referenced before assignment"
-        start:
-          line: 63
-          column: 61
-        end:
-          line: 63
-          column: 68
         classification: false_positive
       - path: "themes/emotty.zsh-theme"
         code: "C001"
