@@ -57,7 +57,7 @@ struct SourceClosureLookupContext<'a> {
     plugin_resolver: Option<&'a (dyn PluginResolver + Send + Sync)>,
     analyzed_paths: Option<&'a FxHashSet<PathBuf>>,
     shell_profile: ShellProfile,
-    resolved_helper_paths: RefCell<FxHashMap<HelperPathResolutionKey, Vec<PathBuf>>>,
+    resolved_helper_paths: RefCell<FxHashMap<HelperPathResolutionKey, HelperPathResolution>>,
     dependency_paths: RefCell<FxHashSet<PathBuf>>,
 }
 
@@ -65,6 +65,12 @@ struct SourceClosureLookupContext<'a> {
 struct HelperPathResolutionKey {
     source_path: PathBuf,
     candidate: compact_str::CompactString,
+}
+
+#[derive(Debug, Clone, Default)]
+struct HelperPathResolution {
+    paths: Vec<PathBuf>,
+    plugin_resolved: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -384,12 +390,14 @@ fn merge_contracts_for_candidates(
     let mut resolved = false;
     let mut explicit = false;
     for candidate in candidates {
-        let resolved_paths = resolve_helper_paths_cached(source_path, &candidate, context);
-        resolved |= !resolved_paths.is_empty();
-        explicit |= resolved_paths
-            .iter()
-            .any(|path| path_is_explicitly_analyzed(path, context.analyzed_paths));
-        for resolved_path in resolved_paths {
+        let resolution = resolve_helper_paths_cached(source_path, &candidate, context);
+        resolved |= !resolution.paths.is_empty();
+        explicit |= resolution.plugin_resolved
+            || resolution
+                .paths
+                .iter()
+                .any(|path| path_is_explicitly_analyzed(path, context.analyzed_paths));
+        for resolved_path in resolution.paths {
             contracts.push(summarize_helper(&resolved_path, summaries, active, context));
         }
     }
@@ -408,11 +416,13 @@ fn source_ref_metadata_for_candidates(
     let mut resolved = false;
     let mut explicit = false;
     for candidate in candidates {
-        let resolved_paths = resolve_helper_paths_cached(source_path, &candidate, context);
-        resolved |= !resolved_paths.is_empty();
-        explicit |= resolved_paths
-            .iter()
-            .any(|path| path_is_explicitly_analyzed(path, context.analyzed_paths));
+        let resolution = resolve_helper_paths_cached(source_path, &candidate, context);
+        resolved |= !resolution.paths.is_empty();
+        explicit |= resolution.plugin_resolved
+            || resolution
+                .paths
+                .iter()
+                .any(|path| path_is_explicitly_analyzed(path, context.analyzed_paths));
     }
 
     (resolved, explicit)
@@ -939,11 +949,15 @@ fn anchor_configured_plugin_requests(
     bootstraps: &[DetectedPluginBootstrap],
     file_span: Span,
 ) -> Vec<PluginRequest> {
+    let file_scope_tail = Span::at(position_after(file_span.end));
     let mut anchored = Vec::new();
     for request in requests {
         if request.kind == PluginRequestKind::Entrypoint {
             anchored.push(PluginRequest {
-                span: file_span,
+                // Configured entrypoints are not tied to a source command. Treat
+                // them as late file-scope loads so their contract can consume
+                // setup assignments made earlier in the file.
+                span: file_scope_tail,
                 ..request
             });
             continue;
@@ -973,6 +987,12 @@ fn anchor_configured_plugin_requests(
         }
     }
     anchored
+}
+
+fn position_after(mut position: shuck_ast::Position) -> shuck_ast::Position {
+    position.offset += 1;
+    position.column += 1;
+    position
 }
 
 fn dedup_plugin_requests(requests: Vec<PluginRequest>) -> Vec<PluginRequest> {
@@ -1829,38 +1849,65 @@ fn resolve_literal_call_args_by_scope(
 fn resolve_helper_paths(
     source_path: &Path,
     candidate: &str,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
-) -> Vec<PathBuf> {
+    context: &SourceClosureLookupContext<'_>,
+) -> HelperPathResolution {
     for candidate_path in candidate_path_variants(candidate) {
         if candidate_path.is_absolute() {
             if candidate_path.is_file() {
-                return vec![candidate_path];
+                return HelperPathResolution {
+                    paths: vec![candidate_path],
+                    plugin_resolved: false,
+                };
             }
             continue;
         }
 
         let Some(base_dir) = source_path.parent() else {
-            return Vec::new();
+            return HelperPathResolution::default();
         };
 
         let direct = base_dir.join(&candidate_path);
         if direct.is_file() {
-            return vec![direct];
+            return HelperPathResolution {
+                paths: vec![direct],
+                plugin_resolved: false,
+            };
         }
     }
 
-    source_path_resolver
+    if context.shell_profile.dialect == ParseShellDialect::Zsh
+        && let Some(plugin_paths) = context.plugin_resolver.map(|resolver| {
+            resolver
+                .resolve_source_path(source_path, candidate)
+                .into_iter()
+                .filter(|path| path.is_file())
+                .collect::<Vec<_>>()
+        })
+        && !plugin_paths.is_empty()
+    {
+        return HelperPathResolution {
+            paths: plugin_paths,
+            plugin_resolved: true,
+        };
+    }
+
+    let paths = context
+        .source_path_resolver
         .into_iter()
         .flat_map(|resolver| resolver.resolve_candidate_paths(source_path, candidate))
         .filter(|path| path.is_file())
-        .collect()
+        .collect();
+    HelperPathResolution {
+        paths,
+        plugin_resolved: false,
+    }
 }
 
 fn resolve_helper_paths_cached(
     source_path: &Path,
     candidate: &str,
     context: &SourceClosureLookupContext<'_>,
-) -> Vec<PathBuf> {
+) -> HelperPathResolution {
     let key = HelperPathResolutionKey {
         source_path: source_path.to_path_buf(),
         candidate: candidate.into(),
@@ -1869,7 +1916,7 @@ fn resolve_helper_paths_cached(
         return paths.clone();
     }
 
-    let paths = resolve_helper_paths(source_path, candidate, context.source_path_resolver);
+    let paths = resolve_helper_paths(source_path, candidate, context);
     context
         .resolved_helper_paths
         .borrow_mut()
@@ -2451,11 +2498,19 @@ noglob source \"$3\"
             canonical_loader.parent().unwrap().to_string_lossy()
         );
 
-        let resolved = resolve_helper_paths(&canonical_loader, &candidate, None);
+        let context = SourceClosureLookupContext {
+            source_path_resolver: None,
+            plugin_resolver: None,
+            analyzed_paths: None,
+            shell_profile: ShellProfile::native(ParseShellDialect::Bash),
+            resolved_helper_paths: RefCell::new(FxHashMap::default()),
+            dependency_paths: RefCell::new(FxHashSet::default()),
+        };
+        let resolved = resolve_helper_paths(&canonical_loader, &candidate, &context);
 
-        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved.paths.len(), 1);
         assert_eq!(
-            fs::canonicalize(&resolved[0]).unwrap(),
+            fs::canonicalize(&resolved.paths[0]).unwrap(),
             fs::canonicalize(&helper).unwrap()
         );
     }

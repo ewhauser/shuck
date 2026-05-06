@@ -544,6 +544,11 @@ pub trait PluginResolver {
         Vec::new()
     }
 
+    /// Resolves a zsh `source` candidate through plugin/framework roots.
+    fn resolve_source_path(&self, _source_path: &Path, _candidate: &str) -> Vec<PathBuf> {
+        Vec::new()
+    }
+
     /// Resolves one plugin request into entrypoint paths and optional contracts.
     fn resolve_plugin_request(
         &self,

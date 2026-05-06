@@ -725,14 +725,25 @@ fn build_unused_assignment_events(
     }
 
     for (read_index, synthetic_read) in context.synthetic_reads.iter().enumerate() {
-        let Some(block_id) = command_block_for_span(context.cfg, synthetic_read.span) else {
+        let mut push_synthetic_read = |block_id: BlockId| {
+            events[block_id.index()].push(UnusedAssignmentEvent {
+                offset: synthetic_read.span.start.offset,
+                order: 0,
+                kind: UnusedAssignmentEventKind::SyntheticRead(read_index),
+            });
+        };
+
+        if let Some(block_id) = command_block_for_span(context.cfg, synthetic_read.span) {
+            push_synthetic_read(block_id);
             continue;
         };
-        events[block_id.index()].push(UnusedAssignmentEvent {
-            offset: synthetic_read.span.start.offset,
-            order: 0,
-            kind: UnusedAssignmentEventKind::SyntheticRead(read_index),
-        });
+
+        let Some(exits) = context.cfg.scope_exits(synthetic_read.scope) else {
+            continue;
+        };
+        for block_id in exits {
+            push_synthetic_read(*block_id);
+        }
     }
 
     for plan in read_plans {

@@ -83,6 +83,49 @@ const LARGE_CORPUS_SHELLCHECK_PARSE_IGNORE_SUFFIXES: &[&str] = &[
 const SHELLCHECK_CACHE_SCHEMA: u32 = 3;
 const SHELLCHECK_CACHE_MIGRATION_VERSION: u32 = 1;
 const ZSH_DIAGNOSTIC_CORPUS_BASELINE: &str = include_str!("testdata/zsh-diagnostic-corpus.yaml");
+const ZSH_DIAGNOSTIC_OH_MY_ZSH_REPO: &str = "ohmyzsh";
+const ZSH_DIAGNOSTIC_PLUGIN_ENTRYPOINTS: &[(&str, &str)] = &[
+    (
+        "zdot/modules/autocompletion/autocompletion.zsh",
+        "ohmyzsh/plugins/zoxide/zoxide.plugin.zsh",
+    ),
+    (
+        "zdot/modules/autocompletion/autocompletion.zsh",
+        "zsh-autosuggestions/zsh-autosuggestions.plugin.zsh",
+    ),
+    (
+        "zdot/modules/fzf/fzf.zsh",
+        "ohmyzsh/plugins/fzf/fzf.plugin.zsh",
+    ),
+    (
+        "zdot/modules/old-plugins/old-plugins.zsh",
+        "zsh-autosuggestions/zsh-autosuggestions.plugin.zsh",
+    ),
+    (
+        "zdot/modules/shell-extras/shell-extras.zsh",
+        "ohmyzsh/plugins/debian/debian.plugin.zsh",
+    ),
+    (
+        "zdot/modules/shell-extras/shell-extras.zsh",
+        "ohmyzsh/plugins/eza/eza.plugin.zsh",
+    ),
+    (
+        "zdot/modules/shell-extras/shell-extras.zsh",
+        "ohmyzsh/plugins/git/git.plugin.zsh",
+    ),
+    (
+        "zdot/modules/shell-extras/shell-extras.zsh",
+        "ohmyzsh/plugins/ssh/ssh.plugin.zsh",
+    ),
+    (
+        "prezto/modules/autosuggestions/init.zsh",
+        "zsh-autosuggestions/zsh-autosuggestions.plugin.zsh",
+    ),
+    (
+        "prezto/modules/syntax-highlighting/init.zsh",
+        "zsh-syntax-highlighting/zsh-syntax-highlighting.plugin.zsh",
+    ),
+];
 
 // ---------------------------------------------------------------------------
 // Config
@@ -1298,6 +1341,9 @@ fn zsh_diagnostic_corpus_matches_baseline() {
     let manifest = load_zsh_diagnostic_corpus_manifest(&cfg.corpus_dir);
     let visible_root = tempfile::tempdir().expect("create visible zsh diagnostic corpus root");
     let mut failures = Vec::new();
+    let (visible_repos, expose_failures) =
+        expose_zsh_diagnostic_repos(&cfg.corpus_dir, visible_root.path(), &manifest);
+    failures.extend(expose_failures);
 
     for repo in &baseline.repos {
         if let Err(err) = validate_zsh_diagnostic_manifest_repo(&manifest, repo) {
@@ -1305,26 +1351,19 @@ fn zsh_diagnostic_corpus_matches_baseline() {
             continue;
         }
 
-        let repo_dir = cfg.corpus_dir.join("repos").join(&repo.name);
-        if !repo_dir.is_dir() {
+        let Some(visible_repo_dir) = visible_repos.get(&repo.name) else {
             failures.push(format!(
-                "repo `{}` is missing from {}",
-                repo.name,
-                cfg.corpus_dir.join("repos").display()
+                "repo `{}` was not exposed in the visible corpus",
+                repo.name
             ));
             continue;
-        }
+        };
 
-        let visible_repo_dir =
-            match expose_zsh_diagnostic_repo(&repo_dir, visible_root.path(), &repo.name) {
-                Ok(path) => path,
-                Err(err) => {
-                    failures.push(format!("repo `{}`: {err}", repo.name));
-                    continue;
-                }
-            };
-
-        let output = match run_zsh_diagnostic_shuck_check(&visible_repo_dir, cfg.timeout) {
+        let output = match run_zsh_diagnostic_shuck_check(
+            visible_root.path(),
+            visible_repo_dir,
+            cfg.timeout,
+        ) {
             Ok(output) => output,
             Err(err) => {
                 failures.push(format!("repo `{}`: {err}", repo.name));
@@ -1350,7 +1389,7 @@ fn zsh_diagnostic_corpus_matches_baseline() {
         }
 
         let actual =
-            match parse_zsh_diagnostic_json_lines(&repo.name, &visible_repo_dir, &output.stdout) {
+            match parse_zsh_diagnostic_json_lines(&repo.name, visible_repo_dir, &output.stdout) {
                 Ok(actual) => actual,
                 Err(err) => {
                     failures.push(err);
@@ -1843,6 +1882,37 @@ fn zsh_diagnostic_corpus_dir_looks_valid(dir: &Path) -> bool {
     dir.join("manifest.yaml").is_file() && dir.join("repos").is_dir()
 }
 
+fn expose_zsh_diagnostic_repos(
+    corpus_dir: &Path,
+    visible_root: &Path,
+    manifest: &ZshDiagnosticCorpusManifest,
+) -> (HashMap<String, PathBuf>, Vec<String>) {
+    let source_root = corpus_dir.join("repos");
+    let mut visible_repos = HashMap::new();
+    let mut failures = Vec::new();
+
+    for repo in &manifest.repos {
+        let source_repo_dir = source_root.join(&repo.name);
+        if !source_repo_dir.is_dir() {
+            failures.push(format!(
+                "repo `{}` is missing from {}",
+                repo.name,
+                source_root.display()
+            ));
+            continue;
+        }
+
+        match expose_zsh_diagnostic_repo(&source_repo_dir, visible_root, &repo.name) {
+            Ok(visible_repo_dir) => {
+                visible_repos.insert(repo.name.clone(), visible_repo_dir);
+            }
+            Err(err) => failures.push(format!("repo `{}`: {err}", repo.name)),
+        }
+    }
+
+    (visible_repos, failures)
+}
+
 fn expose_zsh_diagnostic_repo(
     source_repo_dir: &Path,
     visible_root: &Path,
@@ -1900,15 +1970,45 @@ fn copy_zsh_diagnostic_repo(source: &Path, dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn run_zsh_diagnostic_shuck_check(repo_dir: &Path, timeout: Duration) -> Result<Output, String> {
+fn run_zsh_diagnostic_shuck_check(
+    visible_root: &Path,
+    repo_dir: &Path,
+    timeout: Duration,
+) -> Result<Output, String> {
+    let plugin_args = zsh_diagnostic_plugin_args(visible_root);
     let repo_dir = repo_dir.to_path_buf();
     run_with_timeout("shuck", timeout, move || {
         Command::new(assert_cmd::cargo::cargo_bin("shuck"))
             .args(["check", "--no-cache", "--output-format", "json-lines"])
+            .args(&plugin_args)
             .arg(&repo_dir)
             .output()
             .map_err(|err| format!("failed to run shuck check on {}: {err}", repo_dir.display()))
     })?
+}
+
+fn zsh_diagnostic_plugin_args(visible_root: &Path) -> Vec<String> {
+    let mut args = Vec::new();
+    let oh_my_zsh_root = visible_root.join(ZSH_DIAGNOSTIC_OH_MY_ZSH_REPO);
+    if oh_my_zsh_root.join("oh-my-zsh.sh").is_file() {
+        args.push("--zsh-plugin-root".into());
+        args.push(format!("oh-my-zsh={}", path_arg(&oh_my_zsh_root)));
+    }
+
+    for (source_pattern, entrypoint) in ZSH_DIAGNOSTIC_PLUGIN_ENTRYPOINTS {
+        let pattern = visible_root.join(source_pattern);
+        let entrypoint = visible_root.join(entrypoint);
+        if entrypoint.is_file() {
+            args.push("--extend-zsh-plugin-entrypoint".into());
+            args.push(format!("{}:{}", path_arg(&pattern), path_arg(&entrypoint)));
+        }
+    }
+
+    args
+}
+
+fn path_arg(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 fn parse_zsh_diagnostic_json_lines(
@@ -5502,6 +5602,85 @@ repos:
         assert!(serde_yaml::from_str::<ZshDiagnosticCorpusDocument>(yaml).is_err());
     }
 
+    #[test]
+    fn zsh_diagnostic_plugin_args_include_available_corpus_plugins() {
+        let visible_root = tempfile::tempdir().expect("create visible root");
+        write_file(
+            visible_root.path().join("ohmyzsh/oh-my-zsh.sh"),
+            "source plugins/git/git.plugin.zsh\n",
+        );
+        write_file(
+            visible_root
+                .path()
+                .join("ohmyzsh/plugins/git/git.plugin.zsh"),
+            "git plugin\n",
+        );
+        write_file(
+            visible_root
+                .path()
+                .join("zsh-autosuggestions/zsh-autosuggestions.plugin.zsh"),
+            "autosuggestions plugin\n",
+        );
+
+        let args = zsh_diagnostic_plugin_args(visible_root.path());
+
+        assert!(args.windows(2).any(|window| {
+            window[0] == "--zsh-plugin-root"
+                && window[1]
+                    == format!(
+                        "oh-my-zsh={}",
+                        visible_root.path().join("ohmyzsh").display()
+                    )
+        }));
+        assert!(args.windows(2).any(|window| {
+            window[0] == "--extend-zsh-plugin-entrypoint"
+                && window[1].ends_with(&format!(
+                    "zdot/modules/autocompletion/autocompletion.zsh:{}",
+                    visible_root
+                        .path()
+                        .join("zsh-autosuggestions/zsh-autosuggestions.plugin.zsh")
+                        .display()
+                ))
+        }));
+        assert!(!args.iter().any(|arg| arg.contains("zoxide.plugin.zsh")));
+    }
+
+    #[test]
+    fn expose_zsh_diagnostic_repos_exposes_manifest_repos_together() {
+        let corpus_root = tempfile::tempdir().expect("create corpus root");
+        write_file(
+            corpus_root.path().join("repos/app/app.zsh"),
+            "source app.zsh\n",
+        );
+        write_file(
+            corpus_root.path().join("repos/plugin/plugin.plugin.zsh"),
+            "plugin\n",
+        );
+        let visible_root = tempfile::tempdir().expect("create visible root");
+        let manifest = ZshDiagnosticCorpusManifest {
+            repos: vec![
+                ZshDiagnosticCorpusManifestRepo {
+                    name: "app".into(),
+                    github_url: "https://example.test/app.git".into(),
+                    commit: "abc123".into(),
+                },
+                ZshDiagnosticCorpusManifestRepo {
+                    name: "plugin".into(),
+                    github_url: "https://example.test/plugin.git".into(),
+                    commit: "def456".into(),
+                },
+            ],
+        };
+
+        let (visible, failures) =
+            expose_zsh_diagnostic_repos(corpus_root.path(), visible_root.path(), &manifest);
+
+        assert!(failures.is_empty());
+        assert_eq!(visible.len(), 2);
+        assert!(visible["app"].join("app.zsh").is_file());
+        assert!(visible["plugin"].join("plugin.plugin.zsh").is_file());
+    }
+
     fn zsh_observed(
         path: &str,
         code: &str,
@@ -5574,6 +5753,14 @@ repos:
             fs::create_dir_all(parent).unwrap();
         }
         fs::write(path, cache_file_data(label)).unwrap();
+    }
+
+    fn write_file(path: impl AsRef<Path>, contents: &str) {
+        let path = path.as_ref();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, contents).unwrap();
     }
 
     fn cache_file_data(label: &str) -> String {
