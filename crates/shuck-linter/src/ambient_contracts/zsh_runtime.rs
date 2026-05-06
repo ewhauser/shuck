@@ -71,6 +71,7 @@ fn zsh_ambient_runtime_has_signal(source: &SourceSignals<'_>, path: &PathSignals
     source.mentions_any(ZSH_INITIALIZED_SPECIAL_PARAMETERS)
         || source.mentions_any(ZSH_HOOK_ARRAY_PARAMETERS)
         || zsh_prompt_color_runtime_shape(source, path)
+        || dotfiler_runtime_shape(source, path)
         || !zsh_externally_consumed_names(source, path).is_empty()
         || zsh_test_fixture_consumed_prefixes(source, path)
             .next()
@@ -101,6 +102,14 @@ fn zsh_initialized_runtime_names<'a>(
                 .copied()
                 .filter(move |name| {
                     source.mentions_name(name) && zsh_runtime_path_shape(path.lower_path())
+                }),
+        )
+        .chain(
+            DOTFILER_RUNTIME_PARAMETERS
+                .iter()
+                .copied()
+                .filter(move |name| {
+                    source.mentions_name(name) && dotfiler_runtime_shape(source, path)
                 }),
         )
 }
@@ -198,7 +207,13 @@ const ZSH_PROMPT_COLOR_PARAMETERS: &[&str] = &[
 const ZSH_EXTERNALLY_CONSUMED_OUTPUT_PARAMETERS: &[&str] =
     &["REPLY", "compstate", "comppostfuncs", "reply"];
 
+const DOTFILER_RUNTIME_PARAMETERS: &[&str] = &["_dotfiler_registered_hooks"];
+
 fn zsh_prompt_color_runtime_shape(source: &SourceSignals<'_>, path: &PathSignals) -> bool {
     (zsh_runtime_path_shape(path.lower_path()) || source.loads_zsh_colors())
         && source.mentions_any(ZSH_PROMPT_COLOR_PARAMETERS)
+}
+
+fn dotfiler_runtime_shape(source: &SourceSignals<'_>, path: &PathSignals) -> bool {
+    path.lower_path().contains("/dotfiler/") && source.mentions_any(DOTFILER_RUNTIME_PARAMETERS)
 }

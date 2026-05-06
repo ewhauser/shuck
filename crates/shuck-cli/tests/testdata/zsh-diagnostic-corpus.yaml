@@ -28,17 +28,6 @@ repos:
           column: 24
         classification: real
       - path: "check_update.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `_dotfiler_registered_hooks` is referenced before assignment"
-        start:
-          line: 168
-          column: 71
-        end:
-          line: 168
-          column: 103
-        classification: false_positive
-      - path: "check_update.zsh"
         code: "C008"
         severity: "warning"
         message: "double-quoted trap handlers expand variables when the trap is set"
@@ -413,17 +402,6 @@ repos:
           column: 41
         classification: real
       - path: "setup.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `_dotfiler_registered_hooks` is referenced before assignment"
-        start:
-          line: 167
-          column: 19
-        end:
-          line: 167
-          column: 49
-        classification: false_positive
-      - path: "setup.zsh"
         code: "C002"
         severity: "warning"
         message: "source path is built at runtime"
@@ -489,17 +467,6 @@ repos:
           line: 256
           column: 28
         classification: real
-      - path: "setup_core.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `_dotfiler_registered_hooks` is referenced before assignment"
-        start:
-          line: 163
-          column: 19
-        end:
-          line: 163
-          column: 51
-        classification: false_positive
       - path: "setup_core.zsh"
         code: "C055"
         severity: "warning"
@@ -808,17 +775,6 @@ repos:
           line: 509
           column: 47
         classification: real
-      - path: "update.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `_dotfiler_registered_hooks` is referenced before assignment"
-        start:
-          line: 688
-          column: 27
-        end:
-          line: 688
-          column: 57
-        classification: false_positive
       - path: "update.zsh"
         code: "C002"
         severity: "warning"

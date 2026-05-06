@@ -1281,6 +1281,31 @@ print -r -- $chpwd_functions $still_missing
     }
 
     #[test]
+    fn dotfiler_hook_registry_is_initialized_by_dotfiler_runtime() {
+        let source = "\
+#!/bin/zsh
+local _before=${#_dotfiler_registered_hooks}
+for name in \"${_dotfiler_registered_hooks[@]}\"; do
+  print -r -- \"$name\"
+done
+print -r -- $still_missing
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/dotfiler/setup.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$still_missing"]
+        );
+    }
+
+    #[test]
     fn pathless_zsh_hook_array_references_stay_reportable() {
         let source = "\
 #!/bin/zsh

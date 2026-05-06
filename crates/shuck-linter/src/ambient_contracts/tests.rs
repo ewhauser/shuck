@@ -396,6 +396,24 @@ compstate[insert]=menu
 }
 
 #[test]
+fn zsh_runtime_contract_initializes_dotfiler_hook_registry() {
+    let path = Path::new("/tmp/zsh/dotfiler/setup.zsh");
+    let source = "\
+local _before=${#_dotfiler_registered_hooks}
+for name in \"${_dotfiler_registered_hooks[@]}\"; do
+  print -r -- \"$name\"
+done
+";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(has_initialized_binding(
+        &contract,
+        "_dotfiler_registered_hooks"
+    ));
+}
+
+#[test]
 fn pathless_zsh_hook_arrays_do_not_get_ambient_contracts() {
     let source = "precmd_functions=(${precmd_functions:#_example_precmd})\n";
 
