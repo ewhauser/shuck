@@ -16991,17 +16991,6 @@ repos:
           line: 82
           column: 12
         classification: real
-      - path: "scripts/benchmark.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `TIMEFMT` is assigned but never used"
-        start:
-          line: 136
-          column: 18
-        end:
-          line: 136
-          column: 25
-        classification: false_positive
       - path: "zdot.zsh"
         code: "C003"
         severity: "warning"
@@ -21557,17 +21546,6 @@ repos:
           line: 71
           column: 19
         classification: real
-      - path: "tests/test-perfs.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `TIMEFMT` is assigned but never used"
-        start:
-          line: 97
-          column: 1
-        end:
-          line: 97
-          column: 8
-        classification: false_positive
       - path: "tests/test-perfs.zsh"
         code: "C114"
         severity: "warning"

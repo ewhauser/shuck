@@ -1468,6 +1468,7 @@ runner() {
 reply=(one two)
 REPLY=value
 compstate[insert]=menu
+TIMEFMT='%E'
 ordinary=1
 ";
         let diagnostics = test_snippet_at_path(

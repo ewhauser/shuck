@@ -386,11 +386,12 @@ fn zsh_runtime_contract_marks_exact_output_parameters_consumed() {
 reply=(one two)
 REPLY=value
 compstate[insert]=menu
+TIMEFMT='%E'
 ";
 
     let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
 
-    for name in ["reply", "REPLY", "compstate"] {
+    for name in ["reply", "REPLY", "compstate", "TIMEFMT"] {
         assert!(has_consumed_name(&contract, name), "{contract:?}");
     }
 }
