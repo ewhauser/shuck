@@ -74,6 +74,16 @@ fn plain_shuck_help_stays_on_existing_cli() {
 }
 
 #[test]
+fn plain_shuck_version_reports_release_version() {
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.arg("--version");
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")))
+        .stdout(predicate::str::contains("ShellCheck compatibility mode").not());
+}
+
+#[test]
 fn compat_reads_shellcheckrc_from_cwd() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join(".shellcheckrc"), "disable=SC2086\n").unwrap();
