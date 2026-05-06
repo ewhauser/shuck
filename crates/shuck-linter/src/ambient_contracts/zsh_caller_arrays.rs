@@ -16,7 +16,6 @@
 //! parsed word parts observed during semantic traversal.
 
 use std::collections::BTreeSet;
-use std::path::Path;
 
 use shuck_ast::{
     Name, ParameterExpansionSyntax, Word, WordPart, ZshExpansionOperation, ZshExpansionTarget,
@@ -24,24 +23,22 @@ use shuck_ast::{
 use shuck_semantic::{ContractCertainty, FileContract, ProvidedBinding, ProvidedBindingKind};
 
 use super::AmbientContractCollector;
-use super::source_scan::{
-    code_before_shell_comment, has_probable_function_definition, parse_shell_name_at,
-};
+use super::source_scan::{code_before_shell_comment, parse_shell_name_at};
 use crate::ShellDialect;
 
 pub(super) fn matches_zsh_caller_scoped_array_contract(
     collector: &AmbientContractCollector<'_>,
-    _path: &Path,
     shell: ShellDialect,
 ) -> bool {
     shell == ShellDialect::Zsh
-        && has_probable_function_definition(collector.source)
+        && collector
+            .source_signals()
+            .has_probable_function_definition()
         && !collector.caller_scoped_array_length_names.is_empty()
 }
 
 pub(super) fn build_zsh_caller_scoped_array_contract(
     collector: &AmbientContractCollector<'_>,
-    _path: &Path,
     _shell: ShellDialect,
 ) -> FileContract {
     let mut contract = FileContract::default();
