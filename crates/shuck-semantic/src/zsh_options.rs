@@ -304,6 +304,10 @@ pub(crate) fn analyze(
             Default::default(),
         ),
         function_summaries: FxHashMap::with_capacity_and_hasher(function_count, Default::default()),
+        direct_function_callees: FxHashMap::with_capacity_and_hasher(
+            function_count,
+            Default::default(),
+        ),
         shared_function_summaries: None,
     };
 
@@ -403,6 +407,7 @@ pub(crate) fn function_runtime_analysis_with_entry(
         snapshots: FxHashMap::with_capacity_and_hasher(scope_capacity, Default::default()),
         active_function_scopes: FxHashSet::default(),
         function_summaries: FxHashMap::default(),
+        direct_function_callees: FxHashMap::default(),
         shared_function_summaries: shared_summaries,
     };
     analyzer.analyze_function_scope_with_shared_summary_reuse(
@@ -433,6 +438,7 @@ pub(crate) fn set_public_option_field(
 #[derive(Debug, Default)]
 pub(crate) struct SharedFunctionSummaryCache {
     summaries: Mutex<FxHashMap<FunctionSummaryKey, FunctionSummary>>,
+    direct_callees: Mutex<FxHashMap<ScopeId, SmallVec<[ScopeId; 8]>>>,
 }
 
 impl SharedFunctionSummaryCache {
@@ -450,6 +456,22 @@ impl SharedFunctionSummaryCache {
             Err(poisoned) => poisoned.into_inner(),
         };
         summaries.insert(key, summary);
+    }
+
+    fn get_direct_callees(&self, scope: ScopeId) -> Option<SmallVec<[ScopeId; 8]>> {
+        let callees = match self.direct_callees.lock() {
+            Ok(callees) => callees,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        callees.get(&scope).cloned()
+    }
+
+    fn insert_direct_callees(&self, scope: ScopeId, callees: SmallVec<[ScopeId; 8]>) {
+        let mut cached = match self.direct_callees.lock() {
+            Ok(cached) => cached,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        cached.insert(scope, callees);
     }
 }
 
@@ -506,6 +528,7 @@ struct Analyzer<'a> {
     snapshots: FxHashMap<ScopeId, Vec<ZshOptionSnapshot>>,
     active_function_scopes: FxHashSet<ScopeId>,
     function_summaries: FxHashMap<FunctionSummaryKey, FunctionSummary>,
+    direct_function_callees: FxHashMap<ScopeId, SmallVec<[ScopeId; 8]>>,
     shared_function_summaries: Option<&'a SharedFunctionSummaryCache>,
 }
 
@@ -963,9 +986,9 @@ impl<'a> Analyzer<'a> {
         let cache_key = FunctionSummaryKey {
             scope,
             entry: entry.current.clone(),
-            active_function_scopes: self.active_function_summary_context(),
+            active_function_scopes: self.active_function_summary_context(scope),
         };
-        let recursive_context = !self.active_function_scopes.is_empty();
+        let recursive_context = !cache_key.active_function_scopes.is_empty();
         if let Some(summary) = self.function_summaries.get(&cache_key) {
             return summary.clone();
         }
@@ -997,11 +1020,217 @@ impl<'a> Analyzer<'a> {
         summary
     }
 
-    fn active_function_summary_context(&self) -> SmallVec<[ScopeId; 4]> {
-        let mut active: SmallVec<[ScopeId; 4]> =
-            self.active_function_scopes.iter().copied().collect();
+    fn active_function_summary_context(&mut self, scope: ScopeId) -> SmallVec<[ScopeId; 4]> {
+        if self.active_function_scopes.is_empty() {
+            return SmallVec::new();
+        }
+
+        // A summary only depends on active functions that this function can reach before the
+        // recursion guard cuts the call. Unrelated active ancestors should not split the cache.
+        let mut active = SmallVec::<[ScopeId; 4]>::new();
+        let mut visited = FxHashSet::default();
+        let mut stack: Vec<ScopeId> = self.direct_function_callees(scope).into_iter().collect();
+
+        while let Some(callee) = stack.pop() {
+            if !visited.insert(callee) {
+                continue;
+            }
+            if self.active_function_scopes.contains(&callee) {
+                active.push(callee);
+                continue;
+            }
+            stack.extend(self.direct_function_callees(callee));
+        }
+
         active.sort_by_key(|scope| scope.0);
         active
+    }
+
+    fn direct_function_callees(&mut self, scope: ScopeId) -> SmallVec<[ScopeId; 8]> {
+        if let Some(callees) = self.direct_function_callees.get(&scope) {
+            return callees.clone();
+        }
+        if let Some(callees) = self
+            .shared_function_summaries
+            .and_then(|summaries| summaries.get_direct_callees(scope))
+        {
+            self.direct_function_callees.insert(scope, callees.clone());
+            return callees;
+        }
+
+        let mut callees = SmallVec::<[ScopeId; 8]>::new();
+        let mut seen = FxHashSet::default();
+        self.collect_direct_function_callees_in_range(
+            scope,
+            self.recorded_program.function_body(scope),
+            &mut seen,
+            &mut callees,
+        );
+        self.direct_function_callees.insert(scope, callees.clone());
+        if let Some(shared_summaries) = self.shared_function_summaries {
+            shared_summaries.insert_direct_callees(scope, callees.clone());
+        }
+        callees
+    }
+
+    fn collect_direct_function_callees_in_range(
+        &self,
+        scope: ScopeId,
+        commands: RecordedCommandRange,
+        seen: &mut FxHashSet<ScopeId>,
+        callees: &mut SmallVec<[ScopeId; 8]>,
+    ) {
+        for &command in self.recorded_program.commands_in(commands) {
+            self.collect_direct_function_callees_in_command(scope, command, seen, callees);
+        }
+    }
+
+    fn collect_direct_function_callees_in_command(
+        &self,
+        scope: ScopeId,
+        command: CommandId,
+        seen: &mut FxHashSet<ScopeId>,
+        callees: &mut SmallVec<[ScopeId; 8]>,
+    ) {
+        let command = self.recorded_program.command(command);
+        for region in self.recorded_program.nested_regions(command.nested_regions) {
+            self.collect_direct_function_callees_in_range(
+                region.scope,
+                region.commands,
+                seen,
+                callees,
+            );
+        }
+
+        let command_scope = command.scope.unwrap_or(scope);
+        if let Some(info) = command
+            .command_info
+            .map(|info_id| self.recorded_program.command_info(info_id))
+        {
+            if let Some(function_scope) = info.static_callee.as_deref().and_then(|name| {
+                self.resolve_visible_function_scope(command_scope, command.span.start.offset, name)
+            }) {
+                push_unique_scope(seen, callees, function_scope);
+            } else if let Some(name_span) = info.dynamic_name_span {
+                for function_scope in self.visible_function_scopes_at(command_scope, name_span) {
+                    push_unique_scope(seen, callees, function_scope);
+                }
+            }
+        }
+
+        match &command.kind {
+            RecordedCommandKind::Linear
+            | RecordedCommandKind::Break { .. }
+            | RecordedCommandKind::Continue { .. }
+            | RecordedCommandKind::Return
+            | RecordedCommandKind::Exit => {}
+            RecordedCommandKind::List { first, rest } => {
+                self.collect_direct_function_callees_in_command(
+                    command_scope,
+                    *first,
+                    seen,
+                    callees,
+                );
+                for item in self.recorded_program.list_items(*rest) {
+                    self.collect_direct_function_callees_in_command(
+                        command_scope,
+                        item.command,
+                        seen,
+                        callees,
+                    );
+                }
+            }
+            RecordedCommandKind::If {
+                condition,
+                then_branch,
+                elif_branches,
+                else_branch,
+            } => {
+                self.collect_direct_function_callees_in_range(
+                    command_scope,
+                    *condition,
+                    seen,
+                    callees,
+                );
+                self.collect_direct_function_callees_in_range(
+                    command_scope,
+                    *then_branch,
+                    seen,
+                    callees,
+                );
+                for branch in self.recorded_program.elif_branches(*elif_branches) {
+                    self.collect_direct_function_callees_in_range(
+                        command_scope,
+                        branch.condition,
+                        seen,
+                        callees,
+                    );
+                    self.collect_direct_function_callees_in_range(
+                        command_scope,
+                        branch.body,
+                        seen,
+                        callees,
+                    );
+                }
+                self.collect_direct_function_callees_in_range(
+                    command_scope,
+                    *else_branch,
+                    seen,
+                    callees,
+                );
+            }
+            RecordedCommandKind::While { condition, body }
+            | RecordedCommandKind::Until { condition, body } => {
+                self.collect_direct_function_callees_in_range(
+                    command_scope,
+                    *condition,
+                    seen,
+                    callees,
+                );
+                self.collect_direct_function_callees_in_range(command_scope, *body, seen, callees);
+            }
+            RecordedCommandKind::For { body }
+            | RecordedCommandKind::Select { body }
+            | RecordedCommandKind::ArithmeticFor { body }
+            | RecordedCommandKind::BraceGroup { body } => {
+                self.collect_direct_function_callees_in_range(command_scope, *body, seen, callees);
+            }
+            RecordedCommandKind::Always { body, always_body } => {
+                self.collect_direct_function_callees_in_range(command_scope, *body, seen, callees);
+                self.collect_direct_function_callees_in_range(
+                    command_scope,
+                    *always_body,
+                    seen,
+                    callees,
+                );
+            }
+            RecordedCommandKind::Case { arms } => {
+                for arm in self.recorded_program.case_arms(*arms) {
+                    self.collect_direct_function_callees_in_range(
+                        command_scope,
+                        arm.commands,
+                        seen,
+                        callees,
+                    );
+                }
+            }
+            RecordedCommandKind::Subshell { body } => {
+                let subshell_scope = self
+                    .subshell_scope_for(command.span.start.offset)
+                    .unwrap_or(command_scope);
+                self.collect_direct_function_callees_in_range(subshell_scope, *body, seen, callees);
+            }
+            RecordedCommandKind::Pipeline { segments } => {
+                for segment in self.recorded_program.pipeline_segments(*segments) {
+                    self.collect_direct_function_callees_in_command(
+                        segment.scope,
+                        segment.command,
+                        seen,
+                        callees,
+                    );
+                }
+            }
+        }
     }
 
     fn resolve_visible_function_scope(
@@ -1257,6 +1486,16 @@ impl FunctionSummary {
 
 fn contains_span(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+}
+
+fn push_unique_scope(
+    seen: &mut FxHashSet<ScopeId>,
+    scopes: &mut SmallVec<[ScopeId; 8]>,
+    scope: ScopeId,
+) {
+    if seen.insert(scope) {
+        scopes.push(scope);
+    }
 }
 
 fn binding_visible_at(scopes: &[Scope], binding: &Binding, scope: ScopeId, at: Span) -> bool {
