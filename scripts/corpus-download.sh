@@ -6,14 +6,55 @@ default_corpus_dir="$repo_root/.cache/large-corpus"
 archive_file="${SHUCK_LARGE_CORPUS_ARCHIVE_FILE:-shuck-cache-v3.tar.zst}"
 archive_url="${SHUCK_LARGE_CORPUS_ARCHIVE_URL:-https://github.com/ewhauser/shuck/releases/download/v0.0.0-test-files/$archive_file}"
 sha256="${SHUCK_LARGE_CORPUS_ARCHIVE_SHA256:-880356ce713decb75c894a488c7a5f9cbeef2e3f76e43bb04525ebab4211ccd7}"
-tmp_file="/tmp/$archive_file"
+default_zsh_diagnostic_corpus_dir="$repo_root/.cache/zsh-diagnostic-corpus"
+zsh_diagnostic_archive_file="${SHUCK_ZSH_DIAGNOSTIC_CORPUS_ARCHIVE_FILE:-shuck-zsh-diagnostic-corpus-v1.tar.zst}"
+zsh_diagnostic_archive_url="${SHUCK_ZSH_DIAGNOSTIC_CORPUS_ARCHIVE_URL:-https://github.com/ewhauser/shuck/releases/download/v0.0.0-test-files/$zsh_diagnostic_archive_file}"
+zsh_diagnostic_sha256="${SHUCK_ZSH_DIAGNOSTIC_CORPUS_ARCHIVE_SHA256:-6fefa7c1aea0aba37e0111a73d2dea2e0ba08df2ed1a8704a3464798ac413dda}"
+zsh_diagnostic_corpus_dir="${SHUCK_ZSH_DIAGNOSTIC_CORPUS_ROOT:-$default_zsh_diagnostic_corpus_dir}"
 
 usage() {
   echo "Usage: $0 [-c] [-l] [corpus-dir]"
   echo "  -c  Clone repos from GitHub instead of downloading pre-built archive"
   echo "  -l  List repos only (dry run, only with -c)"
   echo "  corpus-dir defaults to $default_corpus_dir"
+  echo "  zsh diagnostic corpus defaults to $default_zsh_diagnostic_corpus_dir"
   exit 1
+}
+
+download_archive() {
+  corpus_dir=$1
+  marker_dir=$2
+  archive_file=$3
+  archive_url=$4
+  sha256=$5
+  label=$6
+  tmp_file="/tmp/$archive_file"
+
+  if [ -d "$marker_dir" ]; then
+    count=$(find "$marker_dir" -type f | wc -l | tr -d ' ')
+    echo "$label already exists ($count files in $marker_dir)"
+    echo "To re-download, remove $corpus_dir and re-run."
+    return 0
+  fi
+
+  echo "Downloading $label archive..."
+  curl -L --fail --retry 3 -o "$tmp_file" "$archive_url"
+
+  echo "Verifying $label checksum..."
+  if command -v sha256sum >/dev/null 2>&1; then
+    echo "$sha256  $tmp_file" | sha256sum -c -
+  elif command -v shasum >/dev/null 2>&1; then
+    echo "$sha256  $tmp_file" | shasum -a 256 -c -
+  else
+    echo "WARNING: no sha256sum or shasum found, skipping checksum verification"
+  fi
+
+  echo "Extracting $label to $repo_root..."
+  tar --zstd -xf "$tmp_file" -C "$repo_root"
+  rm -f "$tmp_file"
+
+  count=$(find "$marker_dir" -type f | wc -l | tr -d ' ')
+  echo "Done. $count files in $marker_dir"
 }
 
 clone_mode=false
@@ -43,32 +84,8 @@ if [ "$clone_mode" = false ]; then
     exit 1
   fi
 
-  scripts_dir="$corpus_dir/scripts"
-  if [ -d "$scripts_dir" ]; then
-    count=$(find "$scripts_dir" -type f | wc -l | tr -d ' ')
-    echo "Large corpus already exists ($count scripts in $scripts_dir)"
-    echo "To re-download, remove $corpus_dir and re-run."
-    exit 0
-  fi
-
-  echo "Downloading large corpus archive..."
-  curl -L --fail --retry 3 -o "$tmp_file" "$archive_url"
-
-  echo "Verifying checksum..."
-  if command -v sha256sum >/dev/null 2>&1; then
-    echo "$sha256  $tmp_file" | sha256sum -c -
-  elif command -v shasum >/dev/null 2>&1; then
-    echo "$sha256  $tmp_file" | shasum -a 256 -c -
-  else
-    echo "WARNING: no sha256sum or shasum found, skipping checksum verification"
-  fi
-
-  echo "Extracting to $repo_root..."
-  tar --zstd -xf "$tmp_file" -C "$repo_root"
-  rm -f "$tmp_file"
-
-  count=$(find "$scripts_dir" -type f | wc -l | tr -d ' ')
-  echo "Done. $count scripts in $scripts_dir"
+  download_archive "$corpus_dir" "$corpus_dir/scripts" "$archive_file" "$archive_url" "$sha256" "Large corpus"
+  download_archive "$zsh_diagnostic_corpus_dir" "$zsh_diagnostic_corpus_dir/repos" "$zsh_diagnostic_archive_file" "$zsh_diagnostic_archive_url" "$zsh_diagnostic_sha256" "Zsh diagnostic corpus"
   exit 0
 fi
 

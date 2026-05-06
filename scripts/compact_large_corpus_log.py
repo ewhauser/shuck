@@ -14,9 +14,10 @@ SECTION_HEADERS = {
     "Reviewed Divergence:",
     "Harness Warnings:",
     "Harness Failures:",
+    "Zsh Diagnostic Corpus Drift:",
 }
 MAX_BLOCKS_PER_SECTION = 8
-FIXTURE_HEADER_RE = re.compile(r"^/.*$")
+FIXTURE_HEADER_RE = re.compile(r"^(?:/.*|repo `.*`:\s*)$")
 IMPORTANT_LINE_RES = [
     re.compile(r"^running \d+ tests$"),
     re.compile(r"^large corpus: processed \d+/\d+ fixtures"),
@@ -25,8 +26,12 @@ IMPORTANT_LINE_RES = [
     re.compile(r"^large corpus .* had \d+ blocking issue\(s\) "),
     re.compile(r"^large corpus test skipped "),
     re.compile(r"^large corpus zsh parse skipped "),
+    re.compile(r"^zsh diagnostic corpus test skipped "),
+    re.compile(r"^zsh diagnostic corpus drifted "),
     re.compile(r"^thread 'large_corpus"),
+    re.compile(r"^thread 'zsh_diagnostic_corpus_matches_baseline"),
     re.compile(r"^test large_corpus_"),
+    re.compile(r"^test zsh_diagnostic_"),
     re.compile(r"^failures:$"),
     re.compile(r"^test result: "),
     re.compile(r"^error: test failed"),

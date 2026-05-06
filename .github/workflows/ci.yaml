@@ -518,14 +518,18 @@ jobs:
       - name: "Install Nix"
         uses: DeterminateSystems/determinate-nix-action@32cb6a5ae30bb0dfc996fa7baf8bf1ed28442fa4 # v3.17.3
       - uses: DeterminateSystems/flakehub-cache-action@77fe95416299b8d1351b57bf10a1042a0ed75708 # v3.17.3
-      - name: "Download large corpus cache"
+      - name: "Download large corpus caches"
         run: |
           gh release download v0.0.0-test-files -R ewhauser/shuck -p 'shuck-cache-v3.tar.zst' -D /tmp
+          gh release download v0.0.0-test-files -R ewhauser/shuck -p 'shuck-zsh-diagnostic-corpus-v1.tar.zst' -D /tmp
           echo "880356ce713decb75c894a488c7a5f9cbeef2e3f76e43bb04525ebab4211ccd7  /tmp/shuck-cache-v3.tar.zst" | sha256sum -c -
+          echo "6fefa7c1aea0aba37e0111a73d2dea2e0ba08df2ed1a8704a3464798ac413dda  /tmp/shuck-zsh-diagnostic-corpus-v1.tar.zst" | sha256sum -c -
         env:
           GH_TOKEN: ${{ github.token }}
-      - name: "Extract large corpus cache"
-        run: tar --zstd -xf /tmp/shuck-cache-v3.tar.zst -C "$GITHUB_WORKSPACE"
+      - name: "Extract large corpus caches"
+        run: |
+          tar --zstd -xf /tmp/shuck-cache-v3.tar.zst -C "$GITHUB_WORKSPACE"
+          tar --zstd -xf /tmp/shuck-zsh-diagnostic-corpus-v1.tar.zst -C "$GITHUB_WORKSPACE"
       - name: "Run large corpus tests"
         id: large-corpus
         shell: bash
