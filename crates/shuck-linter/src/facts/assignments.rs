@@ -1088,9 +1088,6 @@ fn build_nonpersistent_assignment_spans(
     arithmetic_only_suppressed_subscript_spans: &[Span],
 ) -> NonpersistentAssignmentSpans {
     let command_contexts = build_nonpersistent_assignment_command_contexts(commands);
-    let extra_reset_sites = suppress_zsh_nested_subshell_noise.then(|| {
-        build_nonpersistent_assignment_extra_reset_sites(semantic, semantic_analysis, commands, source)
-    });
     let prompt_runtime_reads = build_prompt_runtime_read_spans(commands, source)
         .into_iter()
         .map(|read| NonpersistentAssignmentExtraRead {
@@ -1110,10 +1107,7 @@ fn build_nonpersistent_assignment_spans(
             extra_reads: prompt_runtime_reads,
         },
     );
-    let loop_assignment_spans = build_subshell_loop_assignment_report_spans(commands);
-    let mut later_use_sites = Vec::new();
-    let mut assignment_sites = Vec::new();
-
+    let mut candidate_effects = Vec::new();
     for effect in analysis.effects {
         if arithmetic_only_suppressed_subscript_spans
             .iter()
@@ -1131,6 +1125,31 @@ fn build_nonpersistent_assignment_spans(
         {
             continue;
         }
+
+        candidate_effects.push(effect);
+    }
+
+    if candidate_effects.is_empty() {
+        return NonpersistentAssignmentSpans::default();
+    }
+
+    let needed_reset_names = suppress_zsh_nested_subshell_noise.then(|| {
+        candidate_effects
+            .iter()
+            .map(|effect| effect.name.clone())
+            .collect::<FxHashSet<_>>()
+    });
+    let extra_reset_sites = needed_reset_names.as_ref().map(|needed_names| {
+        build_nonpersistent_assignment_extra_reset_sites(
+            semantic,
+            semantic_analysis,
+            commands,
+            source,
+            needed_names,
+        )
+    });
+    let mut reported_effects = Vec::new();
+    for effect in candidate_effects {
         if let Some(extra_reset_sites) = &extra_reset_sites
             && extra_reset_sites.iter().any(|reset| {
                 reset.name == effect.name
@@ -1147,6 +1166,18 @@ fn build_nonpersistent_assignment_spans(
             continue;
         }
 
+        reported_effects.push(effect);
+    }
+
+    if reported_effects.is_empty() {
+        return NonpersistentAssignmentSpans::default();
+    }
+
+    let loop_assignment_spans = build_subshell_loop_assignment_report_spans(commands);
+    let mut later_use_sites = Vec::new();
+    let mut assignment_sites = Vec::new();
+
+    for effect in reported_effects {
         let assignment_binding = semantic.binding(effect.assignment_binding);
         assignment_sites.push(NamedSpan {
             name: effect.name.clone(),
@@ -1337,22 +1368,50 @@ fn build_nonpersistent_assignment_extra_reset_sites(
     semantic_analysis: &SemanticAnalysis<'_>,
     commands: &[CommandFact<'_>],
     source: &str,
+    needed_names: &FxHashSet<Name>,
 ) -> Vec<NonpersistentAssignmentExtraResetSite> {
-    let helper_output_names_by_scope = helper_output_names_by_scope(semantic, semantic_analysis);
+    let helper_output_names_by_scope =
+        helper_output_names_by_scope(semantic, semantic_analysis, needed_names);
     let zsh_set_a_outparam_positions_by_scope =
         zsh_set_a_outparam_positions_by_scope(semantic, semantic_analysis, commands, source);
+    let helper_function_names = helper_function_names_for_scopes(
+        semantic,
+        semantic_analysis,
+        &helper_output_names_by_scope,
+        &zsh_set_a_outparam_positions_by_scope,
+    );
+    let needs_reply_reset = needed_names.contains("REPLY") || needed_names.contains("reply");
+    if helper_function_names.is_empty() && !needs_reply_reset {
+        return Vec::new();
+    }
+    let reply_function_names = needs_reply_reset.then(|| function_definition_names(semantic));
     let mut resets = Vec::new();
 
     for command in commands {
+        let Some(command_name) = command.effective_or_literal_name() else {
+            continue;
+        };
+        let can_call_relevant_helper = helper_function_names.contains(command_name);
+        let can_set_reply_by_name = needs_reply_reset && zsh_helper_name_can_set_reply(command_name);
+        if !can_call_relevant_helper && !can_set_reply_by_name {
+            continue;
+        }
         if !command_runs_in_persistent_shell_context(semantic, command, source) {
             continue;
         }
-        let flow_span = reset_flow_span_for_command(semantic, semantic_analysis, command, source);
 
-        let Some((callee_scope, call_name_span)) =
-            resolved_function_scope_for_command(semantic, semantic_analysis, command)
-        else {
+        let reply_name_may_resolve_to_function = can_set_reply_by_name
+            && reply_function_names
+                .as_ref()
+                .is_some_and(|names| names.contains(command_name));
+        let resolved_function_scope = (can_call_relevant_helper || reply_name_may_resolve_to_function)
+            .then(|| resolved_function_scope_for_command(semantic, semantic_analysis, command))
+            .flatten();
+
+        let Some((callee_scope, call_name_span)) = resolved_function_scope else {
             if let Some(reset_span) = zsh_reply_helper_reset_span(command) {
+                let flow_span =
+                    reset_flow_span_for_command(semantic, semantic_analysis, command, source);
                 resets.push(NonpersistentAssignmentExtraResetSite {
                     name: Name::from("REPLY"),
                     span: reset_span,
@@ -1369,7 +1428,14 @@ fn build_nonpersistent_assignment_extra_reset_sites(
             continue;
         };
 
-        if let Some(names) = helper_output_names_by_scope.get(&callee_scope) {
+        let names = helper_output_names_by_scope.get(&callee_scope);
+        let positions = zsh_set_a_outparam_positions_by_scope.get(&callee_scope);
+        if names.is_none() && positions.is_none() {
+            continue;
+        }
+
+        let flow_span = reset_flow_span_for_command(semantic, semantic_analysis, command, source);
+        if let Some(names) = names {
             resets.extend(names.iter().cloned().map(|name| NonpersistentAssignmentExtraResetSite {
                 name,
                 span: call_name_span,
@@ -1378,7 +1444,7 @@ fn build_nonpersistent_assignment_extra_reset_sites(
             }));
         }
 
-        if let Some(positions) = zsh_set_a_outparam_positions_by_scope.get(&callee_scope) {
+        if let Some(positions) = positions {
             for position in positions {
                 let Some(argument) = command.body_args().get(position.saturating_sub(1)).copied()
                 else {
@@ -1388,6 +1454,9 @@ fn build_nonpersistent_assignment_extra_reset_sites(
                     continue;
                 };
                 if !is_shell_variable_name(&name) {
+                    continue;
+                }
+                if !needed_names.contains(name.as_ref()) {
                     continue;
                 }
                 resets.push(NonpersistentAssignmentExtraResetSite {
@@ -1468,10 +1537,14 @@ fn zsh_helper_name_can_set_reply(name: &str) -> bool {
 fn helper_output_names_by_scope(
     semantic: &SemanticModel,
     semantic_analysis: &SemanticAnalysis<'_>,
+    needed_names: &FxHashSet<Name>,
 ) -> FxHashMap<ScopeId, Vec<Name>> {
     let mut names_by_scope = FxHashMap::<ScopeId, Vec<Name>>::default();
 
     for binding in semantic.bindings() {
+        if !needed_names.contains(binding.name.as_str()) {
+            continue;
+        }
         if !helper_binding_can_reset_parent_scope(semantic, semantic_analysis, binding) {
             continue;
         }
@@ -1491,6 +1564,44 @@ fn helper_output_names_by_scope(
     }
 
     names_by_scope
+}
+
+fn helper_function_names_for_scopes(
+    semantic: &SemanticModel,
+    semantic_analysis: &SemanticAnalysis<'_>,
+    helper_output_names_by_scope: &FxHashMap<ScopeId, Vec<Name>>,
+    zsh_set_a_outparam_positions_by_scope: &FxHashMap<ScopeId, Vec<usize>>,
+) -> FxHashSet<Name> {
+    let mut helper_scopes = FxHashSet::default();
+    helper_scopes.extend(helper_output_names_by_scope.keys().copied());
+    helper_scopes.extend(zsh_set_a_outparam_positions_by_scope.keys().copied());
+    if helper_scopes.is_empty() {
+        return FxHashSet::default();
+    }
+
+    let mut function_names = FxHashSet::default();
+    for binding in semantic.bindings() {
+        if !matches!(binding.kind, BindingKind::FunctionDefinition) {
+            continue;
+        }
+        let Some(function_scope) = semantic_analysis.function_scope_for_binding(binding.id) else {
+            continue;
+        };
+        if helper_scopes.contains(&function_scope) {
+            function_names.insert(binding.name.clone());
+        }
+    }
+
+    function_names
+}
+
+fn function_definition_names(semantic: &SemanticModel) -> FxHashSet<Name> {
+    semantic
+        .bindings()
+        .iter()
+        .filter(|binding| matches!(binding.kind, BindingKind::FunctionDefinition))
+        .map(|binding| binding.name.clone())
+        .collect()
 }
 
 fn helper_binding_can_reset_parent_scope(

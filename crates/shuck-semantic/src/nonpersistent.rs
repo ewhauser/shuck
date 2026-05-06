@@ -187,6 +187,9 @@ impl SemanticModel {
                 .or_default()
                 .push(candidate);
         }
+        if candidate_bindings_by_name.is_empty() {
+            return NonpersistentAssignmentAnalysis::default();
+        }
         for candidates in candidate_bindings_by_name.values_mut() {
             candidates.sort_by_key(|candidate| {
                 (
