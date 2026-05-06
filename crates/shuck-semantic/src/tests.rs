@@ -9280,6 +9280,147 @@ _plugin_fetch_suggestion() {
 }
 
 #[test]
+fn zsh_plugin_generated_callback_inference_ignores_non_eval_text() {
+    struct EntryResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for EntryResolver {
+        fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+            vec![PluginRequest {
+                framework: PluginFramework::ExplicitFilesystem,
+                kind: PluginRequestKind::Entrypoint,
+                name: self.entrypoint.to_string_lossy().into_owned(),
+                span: Span::new(),
+                explicit: true,
+                root_hint: None,
+            }]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.kind == PluginRequestKind::Entrypoint {
+                PluginResolution {
+                    entrypoints: vec![self.entrypoint.clone()],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.zsh");
+    let plugin = temp.path().join("plugin.zsh");
+    fs::write(&main, "#!/bin/zsh\nPLUGIN_ONLY=1\n").unwrap();
+    fs::write(
+        &plugin,
+        "\
+add-zsh-hook precmd _plugin_start
+_plugin_start() {
+  _plugin_bind_widget any modify
+}
+_plugin_bind_widget() {
+  local action=$2
+  print \"_plugin_$action\"
+}
+_plugin_modify() {
+  print \"$PLUGIN_ONLY\"
+}
+",
+    )
+    .unwrap();
+
+    let resolver = EntryResolver { entrypoint: plugin };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        !model
+            .synthetic_reads
+            .iter()
+            .any(|read| read.name == "PLUGIN_ONLY"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    let unused = reportable_unused_names(&model);
+    assert!(
+        unused.contains(&Name::from("PLUGIN_ONLY")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
+fn zsh_plugin_deferred_file_scope_reads_ignore_declaration_names() {
+    struct EntryResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for EntryResolver {
+        fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+            vec![PluginRequest {
+                framework: PluginFramework::ExplicitFilesystem,
+                kind: PluginRequestKind::Entrypoint,
+                name: self.entrypoint.to_string_lossy().into_owned(),
+                span: Span::new(),
+                explicit: true,
+                root_hint: None,
+            }]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.kind == PluginRequestKind::Entrypoint {
+                PluginResolution {
+                    entrypoints: vec![self.entrypoint.clone()],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.zsh");
+    let plugin = temp.path().join("plugin.zsh");
+    fs::write(&main, "#!/bin/zsh\nPLUGIN_DECLARED=1\n").unwrap();
+    fs::write(
+        &plugin,
+        "\
+add-zsh-hook precmd _plugin_start
+_plugin_start() {
+  typeset -g PLUGIN_DECLARED
+}
+",
+    )
+    .unwrap();
+
+    let resolver = EntryResolver { entrypoint: plugin };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        !model
+            .synthetic_reads
+            .iter()
+            .any(|read| read.name == "PLUGIN_DECLARED"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    let unused = reportable_unused_names(&model);
+    assert!(
+        unused.contains(&Name::from("PLUGIN_DECLARED")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
 fn plugin_aware_zsh_source_resolution_imports_framework_entrypoint() {
     struct SourceResolver {
         entrypoint: PathBuf,

@@ -8,6 +8,7 @@
 
 use super::super::*;
 use super::*;
+use crate::ReferenceKind;
 
 pub(super) struct GenericZshRuntimeManager;
 
@@ -232,6 +233,9 @@ fn file_scope_reads_in_scopes(
 ) -> Vec<Name> {
     let mut reads = FxHashSet::default();
     for reference in semantic.references() {
+        if matches!(reference.kind, ReferenceKind::DeclarationName) {
+            continue;
+        }
         if !member_scopes.contains(&reference.scope) {
             continue;
         }
@@ -261,21 +265,82 @@ fn generated_eval_calls_for_scope(
         &source[scope.span.start.offset.min(source.len())..scope.span.end.offset.min(source.len())];
     let aliases = positional_aliases(body);
     let mut calls = Vec::new();
-    for (prefix, variable) in prefixed_variable_expansions(body) {
-        let Some(position) = aliases.get(&variable) else {
-            continue;
-        };
-        let Some(Some(fragment)) = args.get(position.saturating_sub(1)) else {
-            continue;
-        };
-        if valid_generated_function_fragment(fragment) {
-            let generated = format!("{prefix}{fragment}");
-            calls.push(Name::from(generated.as_str()));
+    for template in eval_template_bodies(body) {
+        for (prefix, variable) in prefixed_variable_expansions(template) {
+            let Some(position) = aliases.get(&variable) else {
+                continue;
+            };
+            let Some(Some(fragment)) = args.get(position.saturating_sub(1)) else {
+                continue;
+            };
+            if valid_generated_function_fragment(fragment) {
+                let generated = format!("{prefix}{fragment}");
+                calls.push(Name::from(generated.as_str()));
+            }
         }
     }
     calls.sort_by(|left, right| left.as_str().cmp(right.as_str()));
     calls.dedup();
     calls
+}
+
+// Return static quoted arguments passed directly to `eval`. Generated callback
+// inference is limited to these templates so ordinary text like
+// `print "_plugin_$action"` does not become a synthetic call edge.
+fn eval_template_bodies(body: &str) -> Vec<&str> {
+    let bytes = body.as_bytes();
+    let mut templates = Vec::new();
+    let mut index = 0;
+    while let Some(eval_offset) = body[index..].find("eval") {
+        let eval_start = index + eval_offset;
+        let eval_end = eval_start + "eval".len();
+        if eval_start > 0 && is_function_name_byte(bytes[eval_start - 1])
+            || bytes
+                .get(eval_end)
+                .is_some_and(|byte| is_function_name_byte(*byte))
+        {
+            index = eval_end;
+            continue;
+        }
+
+        let mut cursor = eval_end;
+        while bytes
+            .get(cursor)
+            .is_some_and(|byte| byte.is_ascii_whitespace())
+        {
+            cursor += 1;
+        }
+        let Some(&quote) = bytes
+            .get(cursor)
+            .filter(|quote| matches!(quote, b'\'' | b'"'))
+        else {
+            index = eval_end;
+            continue;
+        };
+        let content_start = cursor + 1;
+        let Some(content_end) = find_quoted_template_end(bytes, content_start, quote) else {
+            index = content_start;
+            continue;
+        };
+        templates.push(&body[content_start..content_end]);
+        index = content_end + 1;
+    }
+    templates
+}
+
+fn find_quoted_template_end(bytes: &[u8], start: usize, quote: u8) -> Option<usize> {
+    let mut index = start;
+    while index < bytes.len() {
+        if bytes[index] == b'\\' && quote == b'"' {
+            index += 2;
+            continue;
+        }
+        if bytes[index] == quote {
+            return Some(index);
+        }
+        index += 1;
+    }
+    None
 }
 
 // Given a generated wrapper name, inspect eval templates in the source to find
