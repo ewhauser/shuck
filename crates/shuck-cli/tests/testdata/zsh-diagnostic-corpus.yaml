@@ -15597,6 +15597,105 @@ repos:
           line: 53
           column: 27
         classification: real
+      - path: "runcoms/zlogin"
+        code: "C006"
+        severity: "error"
+        message: "variable `commands` is referenced before assignment"
+        start:
+          line: 24
+          column: 11
+        end:
+          line: 24
+          column: 19
+        classification: false_positive
+      - path: "runcoms/zlogin"
+        code: "C006"
+        severity: "error"
+        message: "variable `fortune` is referenced before assignment"
+        start:
+          line: 24
+          column: 20
+        end:
+          line: 24
+          column: 27
+        classification: false_positive
+      - path: "runcoms/zlogout"
+        code: "C100"
+        severity: "warning"
+        message: "array references should choose an explicit element or selector"
+        start:
+          line: 17
+          column: 6
+        end:
+          line: 17
+          column: 14
+        classification: false_positive
+      - path: "runcoms/zprofile"
+        code: "C001"
+        severity: "warning"
+        message: "variable `cdpath` is assigned but never used"
+        start:
+          line: 43
+          column: 13
+        end:
+          line: 43
+          column: 19
+        classification: false_positive
+      - path: "runcoms/zprofile"
+        code: "C001"
+        severity: "warning"
+        message: "variable `fpath` is assigned but never used"
+        start:
+          line: 43
+          column: 20
+        end:
+          line: 43
+          column: 25
+        classification: false_positive
+      - path: "runcoms/zprofile"
+        code: "C001"
+        severity: "warning"
+        message: "variable `mailpath` is assigned but never used"
+        start:
+          line: 43
+          column: 26
+        end:
+          line: 43
+          column: 34
+        classification: false_positive
+      - path: "runcoms/zprofile"
+        code: "C006"
+        severity: "error"
+        message: "variable `commands` is referenced before assignment"
+        start:
+          line: 72
+          column: 35
+        end:
+          line: 72
+          column: 44
+        classification: false_positive
+      - path: "runcoms/zshenv"
+        code: "C003"
+        severity: "warning"
+        message: "sourced file is not available to this analysis"
+        start:
+          line: 10
+          column: 10
+        end:
+          line: 10
+          column: 39
+        classification: real
+      - path: "runcoms/zshrc"
+        code: "C003"
+        severity: "warning"
+        message: "sourced file is not available to this analysis"
+        start:
+          line: 10
+          column: 10
+        end:
+          line: 10
+          column: 47
+        classification: real
   - name: "thoughtbot-dotfiles"
     github_url: "https://github.com/thoughtbot/dotfiles.git"
     commit: "317ba3a479e4b104328150070b71e1a89d5bd532"
@@ -15733,6 +15832,17 @@ repos:
           line: 6
           column: 18
         classification: real
+      - path: "zprofile"
+        code: "C091"
+        severity: "warning"
+        message: "quoted `~/...` stays literal; use `$HOME` or an unquoted tilde"
+        start:
+          line: 3
+          column: 12
+        end:
+          line: 3
+          column: 24
+        classification: real
       - path: "zsh/configs/fzf.zsh"
         code: "C002"
         severity: "warning"
@@ -15787,6 +15897,94 @@ repos:
         end:
           line: 8
           column: 44
+        classification: real
+      - path: "zshenv"
+        code: "C002"
+        severity: "warning"
+        message: "source path is built at runtime"
+        start:
+          line: 4
+          column: 36
+        end:
+          line: 4
+          column: 51
+        classification: real
+      - path: "zshenv"
+        code: "C081"
+        severity: "warning"
+        message: "quote the right-hand side so string comparisons do not turn into glob matches"
+        start:
+          line: 6
+          column: 16
+        end:
+          line: 6
+          column: 26
+        classification: real
+      - path: "zshrc"
+        code: "C002"
+        severity: "warning"
+        message: "source path is built at runtime"
+        start:
+          line: 3
+          column: 10
+        end:
+          line: 3
+          column: 19
+        classification: real
+      - path: "zshrc"
+        code: "C002"
+        severity: "warning"
+        message: "source path is built at runtime"
+        start:
+          line: 13
+          column: 11
+        end:
+          line: 13
+          column: 18
+        classification: real
+      - path: "zshrc"
+        code: "C002"
+        severity: "warning"
+        message: "source path is built at runtime"
+        start:
+          line: 23
+          column: 13
+        end:
+          line: 23
+          column: 20
+        classification: real
+      - path: "zshrc"
+        code: "C002"
+        severity: "warning"
+        message: "source path is built at runtime"
+        start:
+          line: 30
+          column: 11
+        end:
+          line: 30
+          column: 18
+        classification: real
+      - path: "zshrc"
+        code: "C002"
+        severity: "warning"
+        message: "source path is built at runtime"
+        start:
+          line: 46
+          column: 35
+        end:
+          line: 46
+          column: 49
+        classification: real
+      - path: "zshrc"
+        code: "C002"
+        severity: "warning"
+        message: "source path is built at runtime"
+        start:
+          line: 49
+          column: 31
+        end:
+          line: 49
+          column: 41
         classification: real
   - name: "zdot"
     github_url: "https://github.com/georgeharker/zdot.git"
@@ -17027,6 +17225,72 @@ repos:
         end:
           line: 11
           column: 17
+        classification: real
+      - path: "docker/zshrc"
+        code: "C003"
+        severity: "warning"
+        message: "sourced file is not available to this analysis"
+        start:
+          line: 4
+          column: 10
+        end:
+          line: 4
+          column: 30
+        classification: real
+      - path: "docker/zshrc"
+        code: "C003"
+        severity: "warning"
+        message: "sourced file is not available to this analysis"
+        start:
+          line: 8
+          column: 8
+        end:
+          line: 8
+          column: 22
+        classification: real
+      - path: "docker/zshrc"
+        code: "C006"
+        severity: "error"
+        message: "variable `zinit` is referenced before assignment"
+        start:
+          line: 10
+          column: 28
+        end:
+          line: 10
+          column: 33
+        classification: false_positive
+      - path: "docker/zshrc"
+        code: "C003"
+        severity: "warning"
+        message: "sourced file is not available to this analysis"
+        start:
+          line: 13
+          column: 8
+        end:
+          line: 13
+          column: 29
+        classification: real
+      - path: "docker/zshrc"
+        code: "C003"
+        severity: "warning"
+        message: "sourced file is not available to this analysis"
+        start:
+          line: 25
+          column: 8
+        end:
+          line: 25
+          column: 31
+        classification: real
+      - path: "docker/zshrc"
+        code: "C002"
+        severity: "warning"
+        message: "source path is built at runtime"
+        start:
+          line: 31
+          column: 10
+        end:
+          line: 31
+          column: 22
         classification: real
       - path: "share/git-process-output.zsh"
         code: "C001"
