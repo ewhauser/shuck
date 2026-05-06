@@ -157,6 +157,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     self.add_reference_if_bound(&argument, ReferenceKind::ImplicitRead, span);
                 }
             }
+            "_wanted" if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh => {
+                if let Some((argument, span)) =
+                    args.get(1).and_then(|word| named_target_word(word, self.source))
+                {
+                    self.add_reference_if_bound(&argument, ReferenceKind::ImplicitRead, span);
+                }
+            }
             "_arguments" if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh => {
                 for (argument, attributes) in
                     zsh_arguments_targets(zsh_arguments_has_state_action(args, self.source))

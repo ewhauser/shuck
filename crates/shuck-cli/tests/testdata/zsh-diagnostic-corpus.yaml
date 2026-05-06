@@ -2029,50 +2029,6 @@ repos:
       - path: "plugins/cabal/cabal.plugin.zsh"
         code: "C001"
         severity: "warning"
-        message: "variable `context` is assigned but never used"
-        start:
-          line: 57
-          column: 5
-        end:
-          line: 57
-          column: 15
-        classification: false_positive
-      - path: "plugins/cabal/cabal.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `line` is assigned but never used"
-        start:
-          line: 57
-          column: 5
-        end:
-          line: 57
-          column: 15
-        classification: real
-      - path: "plugins/cabal/cabal.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `opt_args` is assigned but never used"
-        start:
-          line: 57
-          column: 5
-        end:
-          line: 57
-          column: 15
-        classification: false_positive
-      - path: "plugins/cabal/cabal.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `state_descr` is assigned but never used"
-        start:
-          line: 57
-          column: 5
-        end:
-          line: 57
-          column: 15
-        classification: false_positive
-      - path: "plugins/cabal/cabal.plugin.zsh"
-        code: "C001"
-        severity: "warning"
         message: "variable `ret` is assigned but never used"
         start:
           line: 87
@@ -3305,28 +3261,6 @@ repos:
       - path: "plugins/git-extras/git-extras.plugin.zsh"
         code: "C001"
         severity: "warning"
-        message: "variable `expl` is assigned but never used"
-        start:
-          line: 97
-          column: 11
-        end:
-          line: 97
-          column: 15
-        classification: false_positive
-      - path: "plugins/git-extras/git-extras.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `state_descr` is assigned but never used"
-        start:
-          line: 218
-          column: 5
-        end:
-          line: 218
-          column: 15
-        classification: false_positive
-      - path: "plugins/git-extras/git-extras.plugin.zsh"
-        code: "C001"
-        severity: "warning"
         message: "variable `ret` is assigned but never used"
         start:
           line: 228
@@ -3335,28 +3269,6 @@ repos:
           line: 228
           column: 58
         classification: real
-      - path: "plugins/git-extras/git-extras.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `context` is assigned but never used"
-        start:
-          line: 337
-          column: 5
-        end:
-          line: 337
-          column: 15
-        classification: false_positive
-      - path: "plugins/git-extras/git-extras.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `opt_args` is assigned but never used"
-        start:
-          line: 337
-          column: 5
-        end:
-          line: 337
-          column: 15
-        classification: false_positive
       - path: "plugins/git-extras/git-extras.plugin.zsh"
         code: "C006"
         severity: "error"
@@ -3446,17 +3358,6 @@ repos:
           column: 83
         classification: real
       - path: "plugins/git-flow-avh/git-flow-avh.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `state_descr` is assigned but never used"
-        start:
-          line: 409
-          column: 5
-        end:
-          line: 409
-          column: 15
-        classification: false_positive
-      - path: "plugins/git-flow-avh/git-flow-avh.plugin.zsh"
         code: "C005"
         severity: "warning"
         message: "shell expansion inside single quotes stays literal"
@@ -3467,39 +3368,6 @@ repos:
           line: 418
           column: 76
         classification: real
-      - path: "plugins/git-flow-avh/git-flow-avh.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `context` is assigned but never used"
-        start:
-          line: 437
-          column: 21
-        end:
-          line: 437
-          column: 31
-        classification: false_positive
-      - path: "plugins/git-flow-avh/git-flow-avh.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `opt_args` is assigned but never used"
-        start:
-          line: 437
-          column: 21
-        end:
-          line: 437
-          column: 31
-        classification: false_positive
-      - path: "plugins/git-flow-avh/git-flow-avh.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `expl` is assigned but never used"
-        start:
-          line: 509
-          column: 11
-        end:
-          line: 509
-          column: 15
-        classification: false_positive
       - path: "plugins/git-flow-avh/git-flow-avh.plugin.zsh"
         code: "C006"
         severity: "error"
@@ -3556,17 +3424,6 @@ repos:
           column: 70
         classification: real
       - path: "plugins/git-hubflow/git-hubflow.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `state_descr` is assigned but never used"
-        start:
-          line: 181
-          column: 5
-        end:
-          line: 181
-          column: 15
-        classification: false_positive
-      - path: "plugins/git-hubflow/git-hubflow.plugin.zsh"
         code: "C005"
         severity: "warning"
         message: "shell expansion inside single quotes stays literal"
@@ -3577,39 +3434,6 @@ repos:
           line: 190
           column: 83
         classification: real
-      - path: "plugins/git-hubflow/git-hubflow.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `context` is assigned but never used"
-        start:
-          line: 257
-          column: 21
-        end:
-          line: 257
-          column: 31
-        classification: false_positive
-      - path: "plugins/git-hubflow/git-hubflow.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `opt_args` is assigned but never used"
-        start:
-          line: 257
-          column: 21
-        end:
-          line: 257
-          column: 31
-        classification: false_positive
-      - path: "plugins/git-hubflow/git-hubflow.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `expl` is assigned but never used"
-        start:
-          line: 316
-          column: 11
-        end:
-          line: 316
-          column: 15
-        classification: false_positive
       - path: "plugins/git-hubflow/git-hubflow.plugin.zsh"
         code: "C006"
         severity: "error"
@@ -6470,17 +6294,6 @@ repos:
           line: 183
           column: 1
         classification: real
-      - path: "plugins/term_tab/term_tab.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `expl` is assigned but never used"
-        start:
-          line: 18
-          column: 12
-        end:
-          line: 18
-          column: 16
-        classification: false_positive
       - path: "plugins/thefuck/thefuck.plugin.zsh"
         code: "C122"
         severity: "warning"
@@ -6689,39 +6502,6 @@ repos:
         end:
           line: 17
           column: 52
-        classification: false_positive
-      - path: "plugins/wd/_wd.sh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `context` is assigned but never used"
-        start:
-          line: 49
-          column: 3
-        end:
-          line: 49
-          column: 13
-        classification: false_positive
-      - path: "plugins/wd/_wd.sh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `opt_args` is assigned but never used"
-        start:
-          line: 49
-          column: 3
-        end:
-          line: 49
-          column: 13
-        classification: false_positive
-      - path: "plugins/wd/_wd.sh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `state_descr` is assigned but never used"
-        start:
-          line: 49
-          column: 3
-        end:
-          line: 49
-          column: 13
         classification: false_positive
       - path: "plugins/wd/wd.sh"
         code: "C018"

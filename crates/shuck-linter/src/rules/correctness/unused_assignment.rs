@@ -244,9 +244,6 @@ fn is_zsh_arguments_context_binding_in_completion_function(
     else {
         return false;
     };
-    if !checker.facts().function_is_completion_registered(scope) {
-        return false;
-    }
 
     if matches!(
         binding.origin,
@@ -1611,6 +1608,54 @@ fi
     }
 
     #[test]
+    fn zsh_arguments_targets_are_not_unused_in_completion_helpers() {
+        let source = "\
+#!/bin/zsh
+function _cab_commands() {
+  local state
+  _arguments ':subcommand:->subcommand'
+  ordinary=1
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["ordinary"]
+        );
+    }
+
+    #[test]
+    fn zsh_wanted_explanation_operand_counts_as_use() {
+        let source = "\
+#!/bin/zsh
+function _term_list() {
+  local -a expl
+  _wanted directories expl 'current directory from other shell' compadd
+  ordinary=1
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["ordinary"]
+        );
+    }
+
+    #[test]
     fn zsh_arguments_targets_ignore_branch_words_in_comments_between_registration() {
         let source = "\
 #!/bin/zsh
@@ -1684,19 +1729,12 @@ fi
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec![
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "ordinary"
-            ]
+            vec!["ordinary"]
         );
     }
 
     #[test]
-    fn zsh_arguments_targets_keep_case_boundaries_after_parameter_hash() {
+    fn zsh_arguments_targets_are_not_unused_with_branch_separated_compdef() {
         let source = "\
 #!/bin/zsh
 case $service in
@@ -1720,19 +1758,12 @@ esac
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec![
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "ordinary"
-            ]
+            vec!["ordinary"]
         );
     }
 
     #[test]
-    fn zsh_arguments_targets_stay_unused_for_short_circuit_compdef() {
+    fn zsh_arguments_targets_are_not_unused_with_short_circuit_compdef() {
         let source = "\
 #!/bin/zsh
 function _composer() {
@@ -1750,14 +1781,7 @@ function _composer() {
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec![
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "ordinary"
-            ]
+            vec!["ordinary"]
         );
     }
 
