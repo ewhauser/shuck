@@ -63,6 +63,33 @@ fn compute_array_like_capable_names(semantic: &SemanticModel) -> FxHashSet<Name>
     names
 }
 
+#[cfg_attr(shuck_profiling, inline(never))]
+fn compute_single_array_like_bindings(semantic: &SemanticModel) -> FxHashMap<Name, BindingId> {
+    let mut bindings_by_name = FxHashMap::default();
+    for binding in semantic.bindings() {
+        let array_like = binding
+            .attributes
+            .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC)
+            || matches!(
+                binding.kind,
+                BindingKind::ArrayAssignment | BindingKind::MapfileTarget
+            );
+        match bindings_by_name.entry(binding.name.clone()) {
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(array_like.then_some(binding.id));
+            }
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                entry.insert(None);
+            }
+        }
+    }
+
+    bindings_by_name
+        .into_iter()
+        .filter_map(|(name, binding_id)| binding_id.map(|binding_id| (name, binding_id)))
+        .collect()
+}
+
 impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
     fn new(
         file: &'a File,
@@ -130,6 +157,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
         let mut seen_pending_arithmetic_word_occurrences = FxHashSet::default();
         let mut assoc_binding_visibility_memo = FxHashMap::default();
         let array_like_capable_names = compute_array_like_capable_names(self.semantic);
+        let single_array_like_bindings = compute_single_array_like_bindings(self.semantic);
         let mut pattern_exactly_one_extglob_spans = Vec::new();
         let mut case_pattern_expansions = Vec::new();
         let mut pattern_literal_spans = Vec::new();
@@ -255,6 +283,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                             &mut seen_pending_arithmetic_word_occurrences,
                         assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
                         array_like_capable_names: &array_like_capable_names,
+                        single_array_like_bindings: &single_array_like_bindings,
                         semantic_analysis: self.semantic_analysis,
                         case_pattern_expansions: &mut case_pattern_expansions,
                         pattern_literal_spans: &mut pattern_literal_spans,
