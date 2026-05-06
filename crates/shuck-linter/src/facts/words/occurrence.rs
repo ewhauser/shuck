@@ -1024,6 +1024,11 @@ struct ZshArrayFanoutContext<'a, 'flow> {
     value_flow: &'flow SemanticValueFlow<'flow, 'a>,
     scope: ScopeId,
     options: Option<&'a ZshOptionState>,
+    lookups: ZshArrayFanoutLookups<'a>,
+}
+
+#[derive(Clone, Copy)]
+struct ZshArrayFanoutLookups<'a> {
     array_like_capable_names: &'a FxHashSet<Name>,
     single_array_like_bindings: &'a FxHashMap<Name, BindingId>,
 }
@@ -1041,8 +1046,7 @@ fn apply_zsh_array_fanout(
             context.semantic_analysis,
             context.value_flow,
             context.scope,
-            context.array_like_capable_names,
-            context.single_array_like_bindings,
+            context.lookups,
         )
     {
         return;
@@ -1065,8 +1069,7 @@ fn word_has_unquoted_visible_array_reference(
     semantic_analysis: &SemanticAnalysis<'_>,
     value_flow: &SemanticValueFlow<'_, '_>,
     scope: ScopeId,
-    array_like_capable_names: &FxHashSet<Name>,
-    single_array_like_bindings: &FxHashMap<Name, BindingId>,
+    lookups: ZshArrayFanoutLookups<'_>,
 ) -> bool {
     parts_have_unquoted_visible_array_reference(
         &word.parts,
@@ -1075,8 +1078,7 @@ fn word_has_unquoted_visible_array_reference(
         value_flow,
         scope,
         false,
-        array_like_capable_names,
-        single_array_like_bindings,
+        lookups,
     )
 }
 
@@ -1087,8 +1089,7 @@ fn parts_have_unquoted_visible_array_reference(
     value_flow: &SemanticValueFlow<'_, '_>,
     scope: ScopeId,
     in_double_quotes: bool,
-    array_like_capable_names: &FxHashSet<Name>,
-    single_array_like_bindings: &FxHashMap<Name, BindingId>,
+    lookups: ZshArrayFanoutLookups<'_>,
 ) -> bool {
     for part in parts {
         match &part.kind {
@@ -1100,8 +1101,7 @@ fn parts_have_unquoted_visible_array_reference(
                     value_flow,
                     scope,
                     true,
-                    array_like_capable_names,
-                    single_array_like_bindings,
+                    lookups,
                 ) {
                     return true;
                 }
@@ -1114,8 +1114,7 @@ fn parts_have_unquoted_visible_array_reference(
                     semantic_analysis,
                     value_flow,
                     scope,
-                    array_like_capable_names,
-                    single_array_like_bindings,
+                    lookups,
                 ) {
                     return true;
                 }
@@ -1127,8 +1126,7 @@ fn parts_have_unquoted_visible_array_reference(
                     semantic_analysis,
                     value_flow,
                     scope,
-                    array_like_capable_names,
-                    single_array_like_bindings,
+                    lookups,
                 ) {
                     return true;
                 }
@@ -1146,8 +1144,7 @@ fn zsh_parameter_targets_visible_array(
     semantic_analysis: &SemanticAnalysis<'_>,
     value_flow: &SemanticValueFlow<'_, '_>,
     scope: ScopeId,
-    array_like_capable_names: &FxHashSet<Name>,
-    single_array_like_bindings: &FxHashMap<Name, BindingId>,
+    lookups: ZshArrayFanoutLookups<'_>,
 ) -> bool {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
@@ -1162,8 +1159,7 @@ fn zsh_parameter_targets_visible_array(
             semantic_analysis,
             value_flow,
             scope,
-            array_like_capable_names,
-            single_array_like_bindings,
+            lookups,
         ),
         _ => false,
     }
@@ -1176,13 +1172,12 @@ fn visible_name_is_array_like(
     semantic_analysis: &SemanticAnalysis<'_>,
     value_flow: &SemanticValueFlow<'_, '_>,
     scope: ScopeId,
-    array_like_capable_names: &FxHashSet<Name>,
-    single_array_like_bindings: &FxHashMap<Name, BindingId>,
+    lookups: ZshArrayFanoutLookups<'_>,
 ) -> bool {
-    if !array_like_capable_names.contains(name) {
+    if !lookups.array_like_capable_names.contains(name) {
         return false;
     }
-    if let Some(binding_id) = single_array_like_bindings.get(name)
+    if let Some(binding_id) = lookups.single_array_like_bindings.get(name)
         && semantic.binding_visible_at(*binding_id, span)
     {
         return true;
@@ -2626,8 +2621,10 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 value_flow: &self.value_flow,
                 scope: self.command_scope,
                 options: self.command_shell_behavior.zsh_options(),
-                array_like_capable_names: self.array_like_capable_names,
-                single_array_like_bindings: self.single_array_like_bindings,
+                lookups: ZshArrayFanoutLookups {
+                    array_like_capable_names: self.array_like_capable_names,
+                    single_array_like_bindings: self.single_array_like_bindings,
+                },
             },
             &mut analysis,
         );
