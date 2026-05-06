@@ -345,7 +345,8 @@ mod tests {
         let missing_dependency = tempdir.path().join("plugins/git.plugin.zsh");
         fs::create_dir_all(missing_dependency.parent().unwrap()).unwrap();
 
-        let cache_data = CheckCacheData::from_displayed(&[], false, &[missing_dependency.clone()]);
+        let cache_data =
+            CheckCacheData::from_displayed(&[], false, std::slice::from_ref(&missing_dependency));
 
         assert_eq!(
             cache_data.dependency_paths(),
@@ -365,7 +366,8 @@ mod tests {
         fs::create_dir_all(dependency.parent().unwrap()).unwrap();
         fs::write(&dependency, "plugin_loaded=1\n").unwrap();
 
-        let cache_data = CheckCacheData::from_displayed(&[], false, &[dependency.clone()]);
+        let cache_data =
+            CheckCacheData::from_displayed(&[], false, std::slice::from_ref(&dependency));
         assert!(cache_data.dependencies_match());
 
         fs::remove_file(&dependency).unwrap();
