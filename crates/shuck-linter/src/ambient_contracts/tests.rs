@@ -153,6 +153,7 @@ prompt=\"%{$fg_bold[blue]%}%{$reset_color%}\"
         "history",
         "words",
         "compstate",
+        "nameddirs",
         "fg_bold",
         "reset_color",
     ] {

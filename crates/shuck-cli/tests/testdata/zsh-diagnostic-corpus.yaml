@@ -5954,17 +5954,6 @@ repos:
           column: 34
         classification: real
       - path: "plugins/scd/scd"
-        code: "C006"
-        severity: "error"
-        message: "variable `nameddirs` is referenced before assignment"
-        start:
-          line: 168
-          column: 24
-        end:
-          line: 168
-          column: 40
-        classification: false_positive
-      - path: "plugins/scd/scd"
         code: "C002"
         severity: "warning"
         message: "source path is built at runtime"
@@ -6173,17 +6162,6 @@ repos:
           line: 138
           column: 26
         classification: real
-      - path: "plugins/shrink-path/shrink-path.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `nameddirs` is referenced before assignment"
-        start:
-          line: 151
-          column: 29
-        end:
-          line: 151
-          column: 44
-        classification: false_positive
       - path: "plugins/shrink-path/shrink-path.plugin.zsh"
         code: "C088"
         severity: "warning"
