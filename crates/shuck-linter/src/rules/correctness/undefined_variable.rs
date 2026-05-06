@@ -1281,6 +1281,27 @@ print -r -- $chpwd_functions $still_missing
     }
 
     #[test]
+    fn ohmyzsh_tools_read_prompt_colors_from_framework_runtime() {
+        let source = "\
+#!/bin/zsh
+print \"$fg[blue]${reset_color}\" \"$still_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/tools/theme_chooser.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$still_missing"]
+        );
+    }
+
+    #[test]
     fn pathless_zsh_hook_array_references_stay_reportable() {
         let source = "\
 #!/bin/zsh

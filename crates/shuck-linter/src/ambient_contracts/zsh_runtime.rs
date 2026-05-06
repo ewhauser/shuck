@@ -199,6 +199,12 @@ const ZSH_EXTERNALLY_CONSUMED_OUTPUT_PARAMETERS: &[&str] =
     &["REPLY", "compstate", "comppostfuncs", "reply"];
 
 fn zsh_prompt_color_runtime_shape(source: &SourceSignals<'_>, path: &PathSignals) -> bool {
-    (zsh_runtime_path_shape(path.lower_path()) || source.loads_zsh_colors())
+    (zsh_runtime_path_shape(path.lower_path())
+        || source.loads_zsh_colors()
+        || ohmyzsh_tools_path_shape(path))
         && source.mentions_any(ZSH_PROMPT_COLOR_PARAMETERS)
+}
+
+fn ohmyzsh_tools_path_shape(path: &PathSignals) -> bool {
+    path.lower_path().contains("/ohmyzsh/tools/")
 }

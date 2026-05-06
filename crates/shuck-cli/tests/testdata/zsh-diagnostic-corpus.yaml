@@ -7867,28 +7867,6 @@ repos:
           line: 273
           column: 39
         classification: real
-      - path: "tools/check_for_upgrade.sh"
-        code: "C006"
-        severity: "error"
-        message: "variable `fg` is referenced before assignment"
-        start:
-          line: 283
-          column: 21
-        end:
-          line: 283
-          column: 34
-        classification: false_positive
-      - path: "tools/check_for_upgrade.sh"
-        code: "C006"
-        severity: "error"
-        message: "variable `reset_color` is referenced before assignment"
-        start:
-          line: 283
-          column: 36
-        end:
-          line: 283
-          column: 50
-        classification: false_positive
       - path: "tools/install.sh"
         code: "C010"
         severity: "warning"
@@ -7943,28 +7921,6 @@ repos:
         end:
           line: 16
           column: 13
-        classification: false_positive
-      - path: "tools/theme_chooser.sh"
-        code: "C006"
-        severity: "error"
-        message: "variable `fg` is referenced before assignment"
-        start:
-          line: 25
-          column: 12
-        end:
-          line: 25
-          column: 15
-        classification: false_positive
-      - path: "tools/theme_chooser.sh"
-        code: "C006"
-        severity: "error"
-        message: "variable `reset_color` is referenced before assignment"
-        start:
-          line: 25
-          column: 63
-        end:
-          line: 25
-          column: 75
         classification: false_positive
       - path: "tools/theme_chooser.sh"
         code: "C002"

@@ -208,6 +208,20 @@ less_termcap[me]=\"${reset_color}\"
 }
 
 #[test]
+fn zsh_runtime_contract_initializes_ohmyzsh_tool_prompt_colors() {
+    let path = Path::new("/tmp/zsh/ohmyzsh/tools/theme_chooser.sh");
+    let source = "\
+print \"$fg[blue]${reset_color}\"
+";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    for name in ["fg", "reset_color"] {
+        assert!(has_initialized_binding(&contract, name), "{contract:?}");
+    }
+}
+
+#[test]
 fn zsh_runtime_contract_initializes_prompt_colors_after_colors_autoload() {
     let path = Path::new("/tmp/zsh/holman-dotfiles/zsh/prompt.zsh");
     let source = "\
