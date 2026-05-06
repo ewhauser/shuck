@@ -160,21 +160,6 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
-    pub(super) fn binding_was_cleared_in_scope_after(
-        &self,
-        name: &Name,
-        scope: ScopeId,
-        binding_offset: usize,
-    ) -> bool {
-        self.cleared_variables
-            .get(&(scope, name.clone()))
-            .is_some_and(|cleared_offsets| {
-                cleared_offsets
-                    .iter()
-                    .any(|cleared_offset| *cleared_offset > binding_offset)
-            })
-    }
-
     pub(super) fn binding_was_cleared_in_scope_between(
         &self,
         name: &Name,
@@ -240,10 +225,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 })
             })
             .is_some_and(|binding_id| {
-                !self.binding_was_cleared_in_scope_after(
+                !self.binding_was_cleared_in_scope_between(
                     name,
                     scope,
                     self.bindings[binding_id.index()].span.start.offset,
+                    offset,
                 )
             })
     }

@@ -1502,6 +1502,25 @@ helper() {
     }
 
     #[test]
+    fn zsh_function_output_parameters_respect_locals_until_unset() {
+        let source = "\
+#!/usr/bin/env zsh
+helper() {
+  local REPLY
+  REPLY=value
+  unset REPLY
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "REPLY");
+    }
+
+    #[test]
     fn zsh_special_prompt_parameters_are_runtime_consumed() {
         let source = "\
 #!/bin/zsh

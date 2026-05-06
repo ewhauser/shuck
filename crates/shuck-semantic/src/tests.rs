@@ -4452,6 +4452,30 @@ helper() {
 }
 
 #[test]
+fn zsh_reply_assignment_stays_local_until_local_is_cleared() {
+    let source = "\
+#!/bin/zsh
+helper() {
+  local REPLY
+  REPLY=value
+  unset REPLY
+}
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+
+    let reply_bindings = model.bindings_for(&Name::from("REPLY"));
+    let assignment = model.binding(*reply_bindings.last().expect("assignment binding"));
+    assert!(
+        !assignment
+            .attributes
+            .contains(BindingAttributes::EXTERNALLY_CONSUMED)
+    );
+    assert!(
+        binding_names(&model, model.analysis().unused_assignments()).contains(&"REPLY".to_owned())
+    );
+}
+
+#[test]
 fn mapfile_missing_option_operand_does_not_panic() {
     let source = "mapfile -u\n";
     let model = model(source);
