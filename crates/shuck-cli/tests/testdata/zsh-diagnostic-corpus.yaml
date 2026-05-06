@@ -15388,17 +15388,6 @@ repos:
           line: 172
           column: 40
         classification: real
-      - path: "modules/autosuggestions/init.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE` is assigned but never used"
-        start:
-          line: 24
-          column: 3
-        end:
-          line: 24
-          column: 34
-        classification: false_positive
       - path: "modules/command-not-found/init.zsh"
         code: "C003"
         severity: "warning"
@@ -16364,72 +16353,6 @@ repos:
           line: 15
           column: 17
         classification: false_positive
-      - path: "modules/autocompletion/autocompletion.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_AUTOSUGGEST_STRATEGY` is assigned but never used"
-        start:
-          line: 10
-          column: 5
-        end:
-          line: 10
-          column: 29
-        classification: false_positive
-      - path: "modules/autocompletion/autocompletion.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ABBR_AUTOLOAD` is assigned but never used"
-        start:
-          line: 13
-          column: 5
-        end:
-          line: 13
-          column: 18
-        classification: false_positive
-      - path: "modules/autocompletion/autocompletion.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ABBR_SET_EXPANSION_CURSOR` is assigned but never used"
-        start:
-          line: 14
-          column: 5
-        end:
-          line: 14
-          column: 30
-        classification: false_positive
-      - path: "modules/autocompletion/autocompletion.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ABBR_SET_LINE_CURSOR` is assigned but never used"
-        start:
-          line: 15
-          column: 5
-        end:
-          line: 15
-          column: 25
-        classification: false_positive
-      - path: "modules/autocompletion/autocompletion.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ABBR_GET_AVAILABLE_ABBREVIATION` is assigned but never used"
-        start:
-          line: 16
-          column: 5
-        end:
-          line: 16
-          column: 36
-        classification: false_positive
-      - path: "modules/autocompletion/autocompletion.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ABBR_USER_ABBREVIATIONS_FILE` is assigned but never used"
-        start:
-          line: 17
-          column: 5
-        end:
-          line: 17
-          column: 33
-        classification: false_positive
       - path: "modules/brew/brew.zsh"
         code: "C006"
         severity: "error"
@@ -16562,72 +16485,6 @@ repos:
           line: 33
           column: 18
         classification: real
-      - path: "modules/old-plugins/old-plugins.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_AUTOSUGGEST_STRATEGY` is assigned but never used"
-        start:
-          line: 36
-          column: 5
-        end:
-          line: 36
-          column: 29
-        classification: false_positive
-      - path: "modules/old-plugins/old-plugins.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ABBR_AUTOLOAD` is assigned but never used"
-        start:
-          line: 39
-          column: 5
-        end:
-          line: 39
-          column: 18
-        classification: false_positive
-      - path: "modules/old-plugins/old-plugins.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ABBR_SET_EXPANSION_CURSOR` is assigned but never used"
-        start:
-          line: 40
-          column: 5
-        end:
-          line: 40
-          column: 30
-        classification: false_positive
-      - path: "modules/old-plugins/old-plugins.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ABBR_SET_LINE_CURSOR` is assigned but never used"
-        start:
-          line: 41
-          column: 5
-        end:
-          line: 41
-          column: 25
-        classification: false_positive
-      - path: "modules/old-plugins/old-plugins.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ABBR_GET_AVAILABLE_ABBREVIATION` is assigned but never used"
-        start:
-          line: 42
-          column: 5
-        end:
-          line: 42
-          column: 36
-        classification: false_positive
-      - path: "modules/old-plugins/old-plugins.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ABBR_USER_ABBREVIATIONS_FILE` is assigned but never used"
-        start:
-          line: 43
-          column: 5
-        end:
-          line: 43
-          column: 33
-        classification: false_positive
       - path: "modules/old-plugins/old-plugins.zsh"
         code: "C003"
         severity: "warning"

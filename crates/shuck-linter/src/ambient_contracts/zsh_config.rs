@@ -57,6 +57,7 @@ fn zsh_config_consumed_prefixes<'a>(
     path: &'a PathSignals,
 ) -> impl Iterator<Item = &'static str> + 'a {
     [
+        "ABBR_",
         "HISTORY_SUBSTRING_SEARCH_",
         "ITERM2_",
         "P9K_",
@@ -71,6 +72,7 @@ fn zsh_config_consumed_prefixes<'a>(
 
 fn zsh_config_prefix_path_shape(prefix: &str, path: &PathSignals) -> bool {
     match prefix {
+        "ABBR_" => zsh_dotfile_path_shape(path.lower_path()) || path.contains("/zsh-abbr/"),
         "HISTORY_SUBSTRING_SEARCH_" => {
             path.contains("/history-substring-search/")
                 || path.contains("/modules/history-substring-search/")
@@ -82,7 +84,11 @@ fn zsh_config_prefix_path_shape(prefix: &str, path: &PathSignals) -> bool {
             p10k_config_path_shape(path.lower_path()) || zsh_dotfile_path_shape(path.lower_path())
         }
         "ZDOT_" => zsh_dotfile_path_shape(path.lower_path()),
-        "ZSH_AUTOSUGGEST_" => path.contains("/zsh-autosuggestions/"),
+        "ZSH_AUTOSUGGEST_" => {
+            path.contains("/zsh-autosuggestions/")
+                || path.contains("/modules/autosuggestions/")
+                || zsh_dotfile_path_shape(path.lower_path())
+        }
         "ZSH_HIGHLIGHT_" => path.contains("/zsh-syntax-highlighting/"),
         _ => false,
     }
