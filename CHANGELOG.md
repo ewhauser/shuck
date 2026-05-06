@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.0.35](https://github.com/ewhauser/shuck/compare/v0.0.34...v0.0.35) (2026-05-06)
+
+
+### Bug Fixes
+
+* **linter:** model zsh by-name builtin effects ([#866](https://github.com/ewhauser/shuck/issues/866)) ([8698cfc](https://github.com/ewhauser/shuck/commit/8698cfcef6a9bc5f5192cdcfe03ee3e3d2c2fe86))
+* **linter:** recognize zsh completion ambient variables ([#899](https://github.com/ewhauser/shuck/issues/899)) ([81534b2](https://github.com/ewhauser/shuck/commit/81534b28dda90e72b6f447e49c1ac8dec414ba57))
+* narrow zsh array scalar diagnostics ([#889](https://github.com/ewhauser/shuck/issues/889)) ([4832ec4](https://github.com/ewhauser/shuck/commit/4832ec4cbbd54354fe606b2006e9acb4be7a3484))
+* **semantic:** bound zsh runtime summary reuse ([#896](https://github.com/ewhauser/shuck/issues/896)) ([ba903c9](https://github.com/ewhauser/shuck/commit/ba903c9e931f06f05960a210acc034e40ba920f1))
+
+
+### Performance
+
+* **linter:** avoid quadratic zsh reset flow lookup ([#885](https://github.com/ewhauser/shuck/issues/885)) ([f63afaf](https://github.com/ewhauser/shuck/commit/f63afaf395f19f4af4458011f5889087ce90472e))
+* **linter:** cache ambient contract signals ([#905](https://github.com/ewhauser/shuck/issues/905)) ([6e1a3d6](https://github.com/ewhauser/shuck/commit/6e1a3d6e1153f402369bd0134a78ff9d624d329f))
+* **linter:** reduce nonpersistent assignment scans ([#909](https://github.com/ewhauser/shuck/issues/909)) ([e28daeb](https://github.com/ewhauser/shuck/commit/e28daeb303f4c51f4ebf101f70f70b3767c80879))
+* **linter:** speed up zsh array fanout facts ([#910](https://github.com/ewhauser/shuck/issues/910)) ([6103f4b](https://github.com/ewhauser/shuck/commit/6103f4b36c41b6e0c7a73e6b8bee03cdcbebdb4f))
+* micro-optimizations ([#873](https://github.com/ewhauser/shuck/issues/873)) ([d2bdeac](https://github.com/ewhauser/shuck/commit/d2bdeacf6fbcca71e625605ad8cd1a0a06929328))
+* reduce zsh runtime and C063 overhead ([#901](https://github.com/ewhauser/shuck/issues/901)) ([f1e3e86](https://github.com/ewhauser/shuck/commit/f1e3e8606fda9d042db3c30e514baf8759f098fd))
+* **semantic:** cache zsh runtime function summaries ([#891](https://github.com/ewhauser/shuck/issues/891)) ([5375c44](https://github.com/ewhauser/shuck/commit/5375c445833abf47c76173dfcb2ddc71fa9eab89))
+* **semantic:** pre-size zsh option analysis caches ([#908](https://github.com/ewhauser/shuck/issues/908)) ([547be8f](https://github.com/ewhauser/shuck/commit/547be8f91df2161caef17950a0d91185192161b2))
+
+
+### Documentation
+
+* mention LSP editor integration ([#881](https://github.com/ewhauser/shuck/issues/881)) ([05e5aad](https://github.com/ewhauser/shuck/commit/05e5aad134c26967f2c32207ba1bcac7595869ff))
+
+
+### Refactor
+
+* **linter:** split ambient contracts module ([#902](https://github.com/ewhauser/shuck/issues/902)) ([d15aa7e](https://github.com/ewhauser/shuck/commit/d15aa7e361c101a4c697c977fbddddaca49672a8))
+* **semantic:** split cfg module ([#907](https://github.com/ewhauser/shuck/issues/907)) ([9ed2444](https://github.com/ewhauser/shuck/commit/9ed2444573d35f4a6597a171440804090bb77438))
+* **semantic:** split command topology module ([#904](https://github.com/ewhauser/shuck/issues/904)) ([96e7bbd](https://github.com/ewhauser/shuck/commit/96e7bbdea0e83897d94cc5de770b63ecf3e18621))
+* **semantic:** split dataflow module ([#906](https://github.com/ewhauser/shuck/issues/906)) ([716867e](https://github.com/ewhauser/shuck/commit/716867eff46ac0b2cb9b8c538e5f64274bbb12f2))
+
 ## [0.0.34](https://github.com/ewhauser/shuck/compare/v0.0.33...v0.0.34) (2026-05-05)
 
 
