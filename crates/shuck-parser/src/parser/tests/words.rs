@@ -7715,6 +7715,66 @@ fn test_zsh_parameter_colon_modifiers_preserve_targets_without_bourne_slice_offs
 }
 
 #[test]
+fn test_zsh_length_prefix_preserves_colon_modifier_targets() {
+    let source = "print ${#link:t} ${#*:#0} ${#BUFFER:$highlight_start_index}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let command = expect_simple(&output.file.body[0]);
+
+    let link = expect_parameter(&command.args[0]);
+    let ParameterExpansionSyntax::Zsh(link) = &link.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    assert_eq!(
+        link.length_prefix.expect("expected length").slice(source),
+        "#"
+    );
+    let ZshExpansionTarget::Reference(reference) = &link.target else {
+        panic!("expected reference target");
+    };
+    assert_eq!(reference.name.as_str(), "link");
+    assert!(matches!(
+        link.operation,
+        Some(ZshExpansionOperation::Unknown { ref text, .. }) if text.slice(source) == ":t"
+    ));
+
+    let filtered_args = expect_parameter(&command.args[1]);
+    let ParameterExpansionSyntax::Zsh(filtered_args) = &filtered_args.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    let ZshExpansionTarget::Reference(reference) = &filtered_args.target else {
+        panic!("expected reference target");
+    };
+    assert_eq!(reference.name.as_str(), "*");
+    assert!(matches!(
+        filtered_args.operation,
+        Some(ZshExpansionOperation::PatternOperation {
+            kind: ZshPatternOp::Filter,
+            ref operand,
+            ..
+        }) if operand.slice(source) == "0"
+    ));
+
+    let sliced = expect_parameter(&command.args[2]);
+    let ParameterExpansionSyntax::Zsh(sliced) = &sliced.syntax else {
+        panic!("expected zsh parameter syntax");
+    };
+    let ZshExpansionTarget::Reference(reference) = &sliced.target else {
+        panic!("expected reference target");
+    };
+    assert_eq!(reference.name.as_str(), "BUFFER");
+    assert!(matches!(
+        sliced.operation,
+        Some(ZshExpansionOperation::Slice {
+            ref offset,
+            length: None,
+            ..
+        }) if offset.slice(source) == "$highlight_start_index"
+    ));
+}
+
+#[test]
 fn test_zsh_parameter_colon_modifiers_with_digits_preserve_targets() {
     let source = "print ${path:A:h3} ${path:t2}\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)
