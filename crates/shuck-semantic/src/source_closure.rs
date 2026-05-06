@@ -1929,17 +1929,28 @@ fn summarize_helper(
     active: &mut FxHashSet<HelperSummaryKey>,
     context: &SourceClosureLookupContext<'_>,
 ) -> FileContract {
-    let canonical_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let requested_path = path.to_path_buf();
     context
         .dependency_paths
         .borrow_mut()
-        .insert(canonical_path.clone());
+        .insert(requested_path.clone());
     let requested_key = HelperSummaryKey {
-        path: canonical_path.clone(),
+        path: requested_path.clone(),
         shell_profile: ShellProfileKey::from_profile(&context.shell_profile),
     };
     if let Some(summary) = summaries.get(&requested_key) {
         return summary.clone();
+    }
+
+    let canonical_path = fs::canonicalize(path).unwrap_or_else(|_| requested_path.clone());
+    let canonical_requested_key = HelperSummaryKey {
+        path: canonical_path.clone(),
+        shell_profile: ShellProfileKey::from_profile(&context.shell_profile),
+    };
+    if let Some(summary) = summaries.get(&canonical_requested_key) {
+        let summary = summary.clone();
+        summaries.insert(requested_key, summary.clone());
+        return summary;
     }
 
     let Ok(source) = fs::read_to_string(&canonical_path) else {
@@ -1952,6 +1963,7 @@ fn summarize_helper(
     };
     if let Some(summary) = summaries.get(&key) {
         let summary = summary.clone();
+        summaries.insert(canonical_requested_key, summary.clone());
         summaries.insert(requested_key, summary.clone());
         return summary;
     }
@@ -1969,6 +1981,7 @@ fn summarize_helper(
     );
     active.remove(&key);
     summaries.insert(key, summary.clone());
+    summaries.insert(canonical_requested_key, summary.clone());
     summaries.insert(requested_key, summary.clone());
     summary
 }
@@ -2339,6 +2352,35 @@ noglob source \"$3\"
 
         let second = summarize_helper(&canonical_helper, &mut summaries, &mut active, &context);
         assert_eq!(second, first);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn summarize_helper_tracks_requested_symlink_path_as_dependency() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempdir().unwrap();
+        let helper_target = temp.path().join("helper-target");
+        let helper_link = temp.path().join("helper-link");
+        std::fs::write(&helper_target, "#!/bin/zsh\nloaded_value=ok\n").unwrap();
+        symlink(&helper_target, &helper_link).unwrap();
+
+        let context = SourceClosureLookupContext {
+            source_path_resolver: None,
+            plugin_resolver: None,
+            analyzed_paths: None,
+            shell_profile: ShellProfile::native(ParseShellDialect::Bash),
+            resolved_helper_paths: RefCell::new(FxHashMap::default()),
+            dependency_paths: RefCell::new(FxHashSet::default()),
+        };
+        let mut summaries = FxHashMap::default();
+        let mut active = FxHashSet::default();
+
+        summarize_helper(&helper_link, &mut summaries, &mut active, &context);
+
+        let dependency_paths = context.dependency_paths.borrow();
+        assert!(dependency_paths.contains(&helper_link));
+        assert!(!dependency_paths.contains(&std::fs::canonicalize(&helper_target).unwrap()));
     }
 
     #[cfg(windows)]

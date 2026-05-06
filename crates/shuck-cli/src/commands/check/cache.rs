@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -98,7 +97,7 @@ pub(super) struct ResolvedDependencyFingerprint {
 
 impl ResolvedDependencyFingerprint {
     fn from_path(path: &Path) -> Self {
-        let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let path = path.to_path_buf();
         let file_key = FileCacheKey::from_path(&path).ok();
         Self { path, file_key }
     }
@@ -371,6 +370,34 @@ mod tests {
         assert!(cache_data.dependencies_match());
 
         fs::remove_file(&dependency).unwrap();
+
+        assert!(!cache_data.dependencies_match());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cache_detects_when_a_dependency_symlink_retargets() {
+        use std::os::unix::fs::symlink;
+
+        let tempdir = tempdir().unwrap();
+        let targets = tempdir.path().join("targets");
+        fs::create_dir_all(&targets).unwrap();
+        let first_target = targets.join("plugin-v1.zsh");
+        let second_target = targets.join("plugin-v2.zsh");
+        fs::write(&first_target, "plugin_loaded=v1\n").unwrap();
+        fs::write(&second_target, "plugin_loaded=v2\n").unwrap();
+
+        let symlink_path = tempdir.path().join("plugins/current.plugin.zsh");
+        fs::create_dir_all(symlink_path.parent().unwrap()).unwrap();
+        symlink(&first_target, &symlink_path).unwrap();
+
+        let cache_data =
+            CheckCacheData::from_displayed(&[], false, std::slice::from_ref(&symlink_path));
+        assert_eq!(cache_data.dependency_paths(), vec![symlink_path.clone()]);
+        assert!(cache_data.dependencies_match());
+
+        fs::remove_file(&symlink_path).unwrap();
+        symlink(&second_target, &symlink_path).unwrap();
 
         assert!(!cache_data.dependencies_match());
     }

@@ -11,6 +11,7 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::{DirEntry, ParallelVisitor, WalkBuilder, WalkState};
 use shuck_config::{resolve_project_root_for_file, resolve_project_root_for_input};
 use shuck_extract::is_extractable;
+use shuck_linter::ShellDialect;
 
 pub(crate) const DEFAULT_IGNORED_DIR_NAMES: &[&str] = &[
     ".shuck_cache",
@@ -25,19 +26,6 @@ pub(crate) const DEFAULT_IGNORED_DIR_NAMES: &[&str] = &[
 ];
 
 const SHEBANG_SNIFF_LIMIT_BYTES: u64 = 4096;
-const KNOWN_ZSH_DOTFILE_NAMES: &[&str] = &[
-    ".zshrc",
-    "zshrc",
-    ".zshenv",
-    "zshenv",
-    ".zprofile",
-    "zprofile",
-    ".zlogin",
-    "zlogin",
-    ".zlogout",
-    "zlogout",
-];
-
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct ProjectRoot {
     pub storage_root: PathBuf,
@@ -608,19 +596,7 @@ pub(crate) fn normalize_path(path: &Path) -> PathBuf {
 }
 
 pub(crate) fn is_shell_script(path: &Path) -> Result<bool> {
-    if let Some(file_name) = path.file_name().and_then(|name| name.to_str()) {
-        let lower_file_name = file_name.to_ascii_lowercase();
-        if KNOWN_ZSH_DOTFILE_NAMES.contains(&lower_file_name.as_str()) {
-            return Ok(true);
-        }
-    }
-
-    if let Some("sh" | "bash" | "zsh" | "ksh" | "dash" | "mksh") = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.to_ascii_lowercase())
-        .as_deref()
-    {
+    if ShellDialect::infer_from_path(path) != ShellDialect::Unknown {
         return Ok(true);
     }
 
