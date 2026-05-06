@@ -5558,17 +5558,6 @@ repos:
           column: 34
         classification: real
       - path: "plugins/scd/scd"
-        code: "C006"
-        severity: "error"
-        message: "variable `nameddirs` is referenced before assignment"
-        start:
-          line: 168
-          column: 24
-        end:
-          line: 168
-          column: 40
-        classification: false_positive
-      - path: "plugins/scd/scd"
         code: "C002"
         severity: "warning"
         message: "source path is built at runtime"
@@ -5777,17 +5766,6 @@ repos:
           line: 138
           column: 26
         classification: real
-      - path: "plugins/shrink-path/shrink-path.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `nameddirs` is referenced before assignment"
-        start:
-          line: 151
-          column: 29
-        end:
-          line: 151
-          column: 44
-        classification: false_positive
       - path: "plugins/shrink-path/shrink-path.plugin.zsh"
         code: "C088"
         severity: "warning"
@@ -14871,17 +14849,6 @@ repos:
           line: 22
           column: 31
         classification: real
-      - path: "modules/completion/init.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `_comps` is referenced before assignment"
-        start:
-          line: 132
-          column: 66
-        end:
-          line: 132
-          column: 91
-        classification: false_positive
       - path: "modules/editor/init.zsh"
         code: "C156"
         severity: "warning"
@@ -19974,17 +19941,6 @@ repos:
           column: 53
         classification: real
       - path: "highlighters/main/main-highlighter.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `histchars` is referenced before assignment"
-        start:
-          line: 693
-          column: 71
-        end:
-          line: 693
-          column: 84
-        classification: false_positive
-      - path: "highlighters/main/main-highlighter.zsh"
         code: "C081"
         severity: "warning"
         message: "quote the right-hand side so string comparisons do not turn into glob matches"
@@ -20984,17 +20940,6 @@ repos:
         end:
           line: 52
           column: 12
-        classification: false_positive
-      - path: "zsh-syntax-highlighting.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `histchars` is referenced before assignment"
-        start:
-          line: 59
-          column: 50
-        end:
-          line: 59
-          column: 63
         classification: false_positive
       - path: "zsh-syntax-highlighting.zsh"
         code: "C005"

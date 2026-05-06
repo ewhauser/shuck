@@ -174,6 +174,19 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     );
                 }
             }
+            "compinit" if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh => {
+                self.add_binding(
+                    &Name::from("_comps"),
+                    BindingKind::Imported,
+                    self.current_scope(),
+                    name_span,
+                    BindingOrigin::BuiltinTarget {
+                        definition_span: name_span,
+                        kind: BuiltinBindingTargetKind::Compinit,
+                    },
+                    BindingAttributes::ARRAY | BindingAttributes::ASSOC,
+                );
+            }
             "_wanted" if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh => {
                 if let Some((argument, span)) = wanted_named_array_operand(args, self.source) {
                     self.add_reference_if_bound(&argument, ReferenceKind::ImplicitRead, span);

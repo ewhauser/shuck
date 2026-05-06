@@ -262,7 +262,7 @@ fn bash_runtime_source(shebang: &str) -> String {
 
 fn zsh_runtime_source(shebang: &str) -> String {
     format!(
-        "{shebang}\nprintf '%s\\n' \"${{options[xtrace]}}\" \"${{functions[typeset]}}\" \"${{aliases[ls]}}\" \"${{commands[printf]}}\" \"${{parameters[path]}}\" \"${{termcap[ku]}}\" \"${{terminfo[kcuu1]}}\" \"${{path[1]}}\" \"${{pipestatus[1]}}\" \"${{funcstack[1]}}\" \"${{funcfiletrace[1]}}\" \"${{funcsourcetrace[1]}}\" \"${{psvar[1]}}\" \"${{widgets[widget]}}\" \"${{zsh_eval_context[1]}}\" \"${{module_path[1]}}\" \"${{manpath[1]}}\" \"${{mailpath[1]}}\" \"${{historywords[1]}}\" \"${{jobdirs[1]}}\" \"${{jobstates[1]}}\" \"${{jobtexts[1]}}\" \"${{signals[1]}}\" \"$MATCH\" \"$MBEGIN\" \"$MEND\" \"$BUFFER\" \"$LBUFFER\" \"$RBUFFER\" \"$CURSOR\" \"$WIDGET\" \"$KEYS\" \"$NUMERIC\" \"$POSTDISPLAY\" \"$region_highlight\" \"$LINES\" \"$COLUMNS\" \"$ZSH_VERSION\" \"$ZSH_NAME\" \"$ZSH_PATCHLEVEL\" \"$ZSH_SUBSHELL\" \"$ZSH_ARGZERO\"\n"
+        "{shebang}\nprintf '%s\\n' \"${{options[xtrace]}}\" \"${{functions[typeset]}}\" \"${{aliases[ls]}}\" \"${{commands[printf]}}\" \"${{parameters[path]}}\" \"${{termcap[ku]}}\" \"${{terminfo[kcuu1]}}\" \"${{path[1]}}\" \"${{pipestatus[1]}}\" \"${{funcstack[1]}}\" \"${{funcfiletrace[1]}}\" \"${{funcsourcetrace[1]}}\" \"${{psvar[1]}}\" \"${{widgets[widget]}}\" \"${{zsh_eval_context[1]}}\" \"${{module_path[1]}}\" \"${{manpath[1]}}\" \"${{mailpath[1]}}\" \"${{historywords[1]}}\" \"${{jobdirs[1]}}\" \"${{jobstates[1]}}\" \"${{jobtexts[1]}}\" \"${{signals[1]}}\" \"${{nameddirs[project]}}\" \"$MATCH\" \"$MBEGIN\" \"$MEND\" \"$BUFFER\" \"$LBUFFER\" \"$RBUFFER\" \"$CURSOR\" \"$WIDGET\" \"$KEYS\" \"$NUMERIC\" \"$POSTDISPLAY\" \"$histchars\" \"$region_highlight\" \"$LINES\" \"$COLUMNS\" \"$ZSH_VERSION\" \"$ZSH_NAME\" \"$ZSH_PATCHLEVEL\" \"$ZSH_SUBSHELL\" \"$ZSH_ARGZERO\"\n"
     )
 }
 
@@ -4302,6 +4302,32 @@ zparseopts -D -E -F -a all -A assoc -- \\
 }
 
 #[test]
+fn compinit_initializes_completion_tables_in_zsh() {
+    let source = "\
+#!/bin/zsh
+autoload -Uz compinit
+compinit
+print -r -- ${_comps[(I)-value-*]}
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let binding = binding_for_name(&model, "_comps");
+
+    assert!(matches!(binding.kind, BindingKind::Imported));
+    assert!(binding.attributes.contains(BindingAttributes::ARRAY));
+    assert!(binding.attributes.contains(BindingAttributes::ASSOC));
+    assert!(matches!(
+        binding.origin,
+        BindingOrigin::BuiltinTarget {
+            kind: BuiltinBindingTargetKind::Compinit,
+            ..
+        }
+    ));
+    assert_eq!(binding.references.len(), 1);
+    assert_eq!(model.reference(binding.references[0]).name.as_str(), "_comps");
+    assert_names_absent(&["_comps"], &uninitialized_names(&model));
+}
+
+#[test]
 fn zparseopts_attached_and_separator_targets_are_precise() {
     let source = "zparseopts -aall -Aassoc -- -long=long_target s=short_target\n";
     let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
@@ -6996,6 +7022,7 @@ fn zsh_runtime_vars_are_not_marked_uninitialized_in_zsh_scripts() {
         "jobstates",
         "jobtexts",
         "signals",
+        "nameddirs",
         "MATCH",
         "match",
         "MBEGIN",
@@ -7010,6 +7037,7 @@ fn zsh_runtime_vars_are_not_marked_uninitialized_in_zsh_scripts() {
         "KEYS",
         "NUMERIC",
         "POSTDISPLAY",
+        "histchars",
         "region_highlight",
         "LINES",
         "COLUMNS",
@@ -7031,11 +7059,11 @@ fn zsh_runtime_vars_are_not_marked_uninitialized_in_zsh_scripts() {
 fn zsh_runtime_array_references_are_classified() {
     let source = "\
 #!/bin/zsh
-printf '%s\\n' \"${path[1]}\" \"${options[xtrace]}\" \"${pipestatus[1]}\" \"${match[1]}\" \"$ZSH_VERSION\"
+printf '%s\\n' \"${path[1]}\" \"${options[xtrace]}\" \"${pipestatus[1]}\" \"${match[1]}\" \"${nameddirs[project]}\" \"$ZSH_VERSION\"
 ";
     let model = model(source);
 
-    for name in ["path", "options", "pipestatus", "match"] {
+    for name in ["path", "options", "pipestatus", "match", "nameddirs"] {
         let reference = model
             .references()
             .iter()
