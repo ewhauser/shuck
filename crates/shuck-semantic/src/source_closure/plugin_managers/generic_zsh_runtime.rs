@@ -245,7 +245,7 @@ impl DeferredFunctionReadVisitor<'_> {
             if !self.visited_generated.insert(name.clone()) {
                 return;
             }
-            for target in generated_template_targets_for_name(self.source, name) {
+            for target in generated_template_targets_for_name(self.facts, name) {
                 self.visit_name(&target, &[]);
             }
             return;
@@ -282,7 +282,9 @@ impl DeferredFunctionReadVisitor<'_> {
         {
             self.visit_name(&call.name, &call.args);
         }
-        for generated in generated_eval_calls_for_scope(self.semantic, self.source, scope, args) {
+        for generated in
+            generated_eval_calls_for_scope(self.semantic, self.facts, self.source, scope, args)
+        {
             self.visit_name(&generated, &[]);
         }
     }
@@ -321,6 +323,7 @@ fn file_scope_reads_in_scopes(
 // when the caller passed a static second argument such as `modify`.
 fn generated_eval_calls_for_scope(
     semantic: &SemanticModel,
+    facts: &AstFacts,
     source: &str,
     scope: ScopeId,
     args: &[Option<String>],
@@ -329,8 +332,9 @@ fn generated_eval_calls_for_scope(
     let body =
         &source[scope.span.start.offset.min(source.len())..scope.span.end.offset.min(source.len())];
     let aliases = positional_aliases(body);
+    let member_scopes = scope_members_excluding_functions(semantic.scopes(), scope.id);
     let mut calls = Vec::new();
-    for template in eval_template_bodies(body) {
+    for template in eval_template_bodies(facts, &member_scopes) {
         for (prefix, variable) in prefixed_variable_expansions(template) {
             let Some(position) = aliases.get(&variable) else {
                 continue;
@@ -352,96 +356,63 @@ fn generated_eval_calls_for_scope(
 // Return static quoted arguments passed directly to `eval`. Generated callback
 // inference is limited to these templates so ordinary text like
 // `print "_plugin_$action"` does not become a synthetic call edge.
-fn eval_template_bodies(body: &str) -> Vec<&str> {
-    let bytes = body.as_bytes();
-    let mut templates = Vec::new();
-    let mut index = 0;
-    while let Some(eval_offset) = body[index..].find("eval") {
-        let eval_start = index + eval_offset;
-        let eval_end = eval_start + "eval".len();
-        if eval_start > 0 && is_function_name_byte(bytes[eval_start - 1])
-            || bytes
-                .get(eval_end)
-                .is_some_and(|byte| is_function_name_byte(*byte))
-        {
-            index = eval_end;
-            continue;
-        }
-
-        let mut cursor = eval_end;
-        while bytes
-            .get(cursor)
-            .is_some_and(|byte| byte.is_ascii_whitespace())
-        {
-            cursor += 1;
-        }
-        let Some(&quote) = bytes
-            .get(cursor)
-            .filter(|quote| matches!(quote, b'\'' | b'"'))
-        else {
-            index = eval_end;
-            continue;
-        };
-        let content_start = cursor + 1;
-        let Some(content_end) = find_quoted_template_end(bytes, content_start, quote) else {
-            index = content_start;
-            continue;
-        };
-        templates.push(&body[content_start..content_end]);
-        index = content_end + 1;
-    }
-    templates
-}
-
-fn find_quoted_template_end(bytes: &[u8], start: usize, quote: u8) -> Option<usize> {
-    let mut index = start;
-    while index < bytes.len() {
-        if bytes[index] == b'\\' && quote == b'"' {
-            index += 2;
-            continue;
-        }
-        if bytes[index] == quote {
-            return Some(index);
-        }
-        index += 1;
-    }
-    None
+fn eval_template_bodies<'a>(
+    facts: &'a AstFacts,
+    member_scopes: &FxHashSet<ScopeId>,
+) -> Vec<&'a str> {
+    facts
+        .calls
+        .iter()
+        .filter(|call| member_scopes.contains(&call.scope) && call.name.as_str() == "eval")
+        .flat_map(|call| call.args.iter().filter_map(Option::as_deref))
+        .collect()
 }
 
 // Given a generated wrapper name, inspect eval templates in the source to find
 // the static function that wrapper delegates to. This is a source-shape bridge,
 // not a general eval interpreter: it only rewrites shared-variable function-name
 // prefixes that appear in the same template.
-fn generated_template_targets_for_name(source: &str, name: &Name) -> Vec<Name> {
-    let expansions = prefixed_variable_expansions_with_offsets(source);
+fn generated_template_targets_for_name(facts: &AstFacts, name: &Name) -> Vec<Name> {
     let mut targets = Vec::new();
-    for (index, definition) in expansions.iter().enumerate() {
-        let Some(fragment) = name.as_str().strip_prefix(&definition.prefix) else {
-            continue;
-        };
-        if !valid_generated_function_fragment(fragment)
-            || !looks_like_generated_function_definition(source, definition.end)
-        {
-            continue;
-        }
-
-        for target in expansions
-            .iter()
-            .skip(index + 1)
-            .filter(|target| target.variable == definition.variable)
-        {
-            if target.prefix == definition.prefix {
+    for template in eval_template_bodies_for_all_scopes(facts) {
+        let expansions = prefixed_variable_expansions_with_offsets(template);
+        for (index, definition) in expansions.iter().enumerate() {
+            let Some(fragment) = name.as_str().strip_prefix(&definition.prefix) else {
+                continue;
+            };
+            if !valid_generated_function_fragment(fragment)
+                || !looks_like_generated_function_definition(template, definition.end)
+            {
                 continue;
             }
-            let generated = format!("{}{}", target.prefix, fragment);
-            if valid_static_function_name(&generated) {
-                targets.push(Name::from(generated.as_str()));
+
+            for target in expansions
+                .iter()
+                .skip(index + 1)
+                .filter(|target| target.variable == definition.variable)
+            {
+                if target.prefix == definition.prefix {
+                    continue;
+                }
+                let generated = format!("{}{}", target.prefix, fragment);
+                if valid_static_function_name(&generated) {
+                    targets.push(Name::from(generated.as_str()));
+                }
             }
         }
     }
     targets.sort_by(|left, right| left.as_str().cmp(right.as_str()));
     targets.dedup();
     targets
+}
+
+fn eval_template_bodies_for_all_scopes(facts: &AstFacts) -> Vec<&str> {
+    facts
+        .calls
+        .iter()
+        .filter(|call| call.name.as_str() == "eval")
+        .flat_map(|call| call.args.iter().filter_map(Option::as_deref))
+        .collect()
 }
 
 // A generated function definition has `()` immediately after the variable-backed
@@ -462,12 +433,23 @@ fn positional_aliases(body: &str) -> FxHashMap<String, usize> {
             continue;
         };
         if valid_variable_name(name)
-            && let Some(position) = value.strip_prefix('$').and_then(|value| value.parse().ok())
+            && let Some(position) = positional_alias_value(value)
         {
             aliases.insert(name.to_owned(), position);
         }
     }
     aliases
+}
+
+fn positional_alias_value(value: &str) -> Option<usize> {
+    value
+        .strip_prefix('$')
+        .or_else(|| {
+            value
+                .strip_prefix("\"$")
+                .and_then(|value| value.strip_suffix('"'))
+        })
+        .and_then(|value| value.parse().ok())
 }
 
 // A function-name prefix ending in `$variable`, plus the byte offset where the
