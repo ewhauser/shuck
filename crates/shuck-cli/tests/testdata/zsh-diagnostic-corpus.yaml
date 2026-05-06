@@ -1266,7 +1266,7 @@ repos:
         end:
           line: 537
           column: 36
-        classification: false_positive
+        classification: real
       - path: "lib/cli.zsh"
         code: "C107"
         severity: "warning"
@@ -1860,7 +1860,7 @@ repos:
         end:
           line: 68
           column: 28
-        classification: false_positive
+        classification: real
       - path: "plugins/autoenv/autoenv.plugin.zsh"
         code: "C003"
         severity: "warning"
@@ -2465,7 +2465,7 @@ repos:
         end:
           line: 55
           column: 78
-        classification: false_positive
+        classification: real
       - path: "plugins/dotenv/dotenv.plugin.zsh"
         code: "C002"
         severity: "warning"
@@ -2608,7 +2608,7 @@ repos:
         end:
           line: 15
           column: 34
-        classification: false_positive
+        classification: real
       - path: "plugins/emacs/emacsclient.sh"
         code: "X003"
         severity: "warning"
@@ -6205,7 +6205,7 @@ repos:
         end:
           line: 173
           column: 73
-        classification: false_positive
+        classification: real
       - path: "plugins/shrink-path/shrink-path.plugin.zsh"
         code: "C081"
         severity: "warning"
@@ -6315,7 +6315,7 @@ repos:
         end:
           line: 44
           column: 58
-        classification: false_positive
+        classification: real
       - path: "plugins/sublime-merge/sublime-merge.plugin.zsh"
         code: "C122"
         severity: "warning"
@@ -6403,7 +6403,7 @@ repos:
         end:
           line: 15
           column: 39
-        classification: false_positive
+        classification: real
       - path: "plugins/symfony6/symfony6.plugin.zsh"
         code: "C100"
         severity: "warning"
@@ -7140,7 +7140,7 @@ repos:
         end:
           line: 46
           column: 36
-        classification: false_positive
+        classification: real
       - path: "plugins/zsh-interactive-cd/zsh-interactive-cd.plugin.zsh"
         code: "C092"
         severity: "warning"
@@ -15831,7 +15831,7 @@ repos:
         end:
           line: 18
           column: 42
-        classification: false_positive
+        classification: real
       - path: "bin/replace"
         code: "X012"
         severity: "warning"
@@ -16957,7 +16957,7 @@ repos:
         end:
           line: 29
           column: 24
-        classification: false_positive
+        classification: real
       - path: "modules/venv/venv.zsh"
         code: "C001"
         severity: "warning"
