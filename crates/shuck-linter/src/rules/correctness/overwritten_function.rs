@@ -327,6 +327,8 @@ fn supplemental_function_call_candidates(checker: &Checker<'_>) -> Vec<FunctionC
 
 fn first_argument_forwarding_wrappers(checker: &Checker<'_>) -> FxHashMap<Name, Vec<BindingId>> {
     let mut wrappers = FxHashMap::<Name, Vec<BindingId>>::default();
+    let positional_argument_function_scopes =
+        function_scopes_invoking_positional_arguments(checker);
     checker
         .facts()
         .function_headers()
@@ -335,7 +337,8 @@ fn first_argument_forwarding_wrappers(checker: &Checker<'_>) -> FxHashMap<Name, 
             let (name, _) = header.static_name_entry()?;
             let binding_id = header.binding_id()?;
             let function_scope = header.function_scope()?;
-            function_body_invokes_positional_arguments(checker, function_scope)
+            positional_argument_function_scopes
+                .contains(&function_scope)
                 .then_some((name.clone(), binding_id))
         })
         .for_each(|(name, binding_id)| wrappers.entry(name).or_default().push(binding_id));
@@ -367,19 +370,23 @@ fn wrapper_call_resolves_to_forwarding_binding(
     })
 }
 
-fn function_body_invokes_positional_arguments(
-    checker: &Checker<'_>,
-    function_scope: ScopeId,
-) -> bool {
-    checker.facts().structural_commands().any(|fact| {
-        checker.semantic().enclosing_function_scope(fact.scope()) == Some(function_scope)
-            && fact.body_word_span().is_some_and(|span| {
-                matches!(
-                    span.slice(checker.source()),
-                    "$@" | "\"$@\"" | "${@}" | "\"${@}\"" | "$*" | "${*}"
-                )
-            })
-    })
+fn function_scopes_invoking_positional_arguments(checker: &Checker<'_>) -> FxHashSet<ScopeId> {
+    checker
+        .facts()
+        .structural_commands()
+        .filter_map(|fact| {
+            fact.body_word_span()
+                .is_some_and(|span| {
+                    positional_argument_invocation_text(span.slice(checker.source()))
+                })
+                .then(|| checker.semantic().enclosing_function_scope(fact.scope()))
+                .flatten()
+        })
+        .collect()
+}
+
+fn positional_argument_invocation_text(text: &str) -> bool {
+    matches!(text, "$@" | "\"$@\"" | "${@}" | "\"${@}\"" | "$*" | "${*}")
 }
 
 fn build_direct_function_call_reachability<'checker, 'model>(
