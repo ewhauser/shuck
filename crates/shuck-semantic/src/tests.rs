@@ -4323,7 +4323,10 @@ print -r -- ${_comps[(I)-value-*]}
         }
     ));
     assert_eq!(binding.references.len(), 1);
-    assert_eq!(model.reference(binding.references[0]).name.as_str(), "_comps");
+    assert_eq!(
+        model.reference(binding.references[0]).name.as_str(),
+        "_comps"
+    );
     assert_names_absent(&["_comps"], &uninitialized_names(&model));
 }
 
