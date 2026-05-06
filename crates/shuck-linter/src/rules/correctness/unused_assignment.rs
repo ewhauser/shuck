@@ -1332,6 +1332,23 @@ ordinary=1
     }
 
     #[test]
+    fn zsh_autosuggestion_strategy_output_is_external_consumer() {
+        let source = "\
+#!/usr/bin/env zsh
+typeset -g suggestion=value
+ordinary=1
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/zsh-autosuggestions/src/strategies/history.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
+    }
+
+    #[test]
     fn zsh_test_data_expected_outputs_are_external_consumers() {
         let source = "\
 #!/usr/bin/env zsh

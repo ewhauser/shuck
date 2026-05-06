@@ -20068,39 +20068,6 @@ repos:
           line: 104
           column: 18
         classification: false_positive
-      - path: "src/strategies/completion.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `suggestion` is assigned but never used"
-        start:
-          line: 132
-          column: 3
-        end:
-          line: 132
-          column: 13
-        classification: false_positive
-      - path: "src/strategies/history.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `suggestion` is assigned but never used"
-        start:
-          line: 31
-          column: 13
-        end:
-          line: 31
-          column: 23
-        classification: false_positive
-      - path: "src/strategies/match_prev_cmd.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `suggestion` is assigned but never used"
-        start:
-          line: 65
-          column: 13
-        end:
-          line: 65
-          column: 23
-        classification: false_positive
       - path: "src/widgets.zsh"
         code: "C055"
         severity: "warning"

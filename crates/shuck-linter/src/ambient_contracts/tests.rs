@@ -451,6 +451,16 @@ fn zsh_autosuggestion_config_namespace_is_consumed_on_project_paths() {
 }
 
 #[test]
+fn zsh_autosuggestion_strategy_output_is_consumed_on_strategy_paths() {
+    let path = Path::new("/tmp/zsh/zsh-autosuggestions/src/strategies/history.zsh");
+    let source = "typeset -g suggestion=value\n";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(has_consumed_name(&contract, "suggestion"));
+}
+
+#[test]
 fn zsh_config_prefix_contracts_are_zsh_only() {
     let path = Path::new("/tmp/project/script.sh");
     let source = "POWERLEVEL9K_DIR_FOREGROUND=31\n";

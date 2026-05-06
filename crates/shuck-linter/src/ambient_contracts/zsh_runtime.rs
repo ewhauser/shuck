@@ -147,6 +147,11 @@ fn zsh_externally_consumed_names(
                 .filter(|name| source.assigns_name(name)),
         );
     }
+    if zsh_autosuggestions_strategy_path_shape(path.lower_path())
+        && source.assigns_name("suggestion")
+    {
+        consumed.push("suggestion");
+    }
     consumed
 }
 
@@ -201,4 +206,8 @@ const ZSH_EXTERNALLY_CONSUMED_OUTPUT_PARAMETERS: &[&str] =
 fn zsh_prompt_color_runtime_shape(source: &SourceSignals<'_>, path: &PathSignals) -> bool {
     (zsh_runtime_path_shape(path.lower_path()) || source.loads_zsh_colors())
         && source.mentions_any(ZSH_PROMPT_COLOR_PARAMETERS)
+}
+
+fn zsh_autosuggestions_strategy_path_shape(lower_path: &str) -> bool {
+    lower_path.contains("/zsh-autosuggestions/src/strategies/")
 }
