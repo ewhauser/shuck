@@ -2245,7 +2245,14 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             Some(assignment.target.name_span),
             assignment.target.subscript.as_deref(),
         );
-        if !indexed_semantics {
+        let external_zsh_assoc_key =
+            Self::zsh_assignment_target_subscript_has_external_assoc_key_semantics(
+                self.semantic.shell_profile().dialect,
+                &assignment.target.name,
+                assignment.target.subscript.as_deref(),
+                self.source,
+            );
+        if !indexed_semantics || external_zsh_assoc_key {
             self.surface
                 .record_arithmetic_only_suppressed_subscript(assignment.target.subscript.as_deref());
         }
@@ -3033,6 +3040,31 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         }
 
         true
+    }
+
+    fn zsh_assignment_target_subscript_has_external_assoc_key_semantics(
+        dialect: shuck_parser::parser::ShellDialect,
+        owner_name: &Name,
+        subscript: Option<&Subscript>,
+        source: &str,
+    ) -> bool {
+        if dialect != shuck_parser::parser::ShellDialect::Zsh {
+            return false;
+        }
+        if owner_name.as_str() != "ZSH_HIGHLIGHT_STYLES" {
+            return false;
+        }
+        let Some(subscript) = subscript else {
+            return false;
+        };
+        if subscript.selector().is_some() {
+            return false;
+        }
+        let text = subscript.syntax_text(source);
+        !text.is_empty()
+            && text
+                .chars()
+                .all(|ch| ch == '-' || ch == '_' || ch.is_ascii_alphanumeric())
     }
 
     fn assoc_binding_visible_for_subscript(

@@ -20182,28 +20182,6 @@ repos:
           line: 30
           column: 9
         classification: real
-      - path: "highlighters/brackets/test-data/cursor-matchingbracket.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `bracket` is referenced before assignment"
-        start:
-          line: 32
-          column: 22
-        end:
-          line: 32
-          column: 29
-        classification: false_positive
-      - path: "highlighters/brackets/test-data/cursor-matchingbracket.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `level` is referenced before assignment"
-        start:
-          line: 32
-          column: 30
-        end:
-          line: 32
-          column: 35
-        classification: false_positive
       - path: "highlighters/brackets/test-data/loop-styles.zsh"
         code: "C001"
         severity: "warning"
@@ -20215,28 +20193,6 @@ repos:
           line: 30
           column: 9
         classification: real
-      - path: "highlighters/brackets/test-data/loop-styles.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `bracket` is referenced before assignment"
-        start:
-          line: 32
-          column: 22
-        end:
-          line: 32
-          column: 29
-        classification: false_positive
-      - path: "highlighters/brackets/test-data/loop-styles.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `level` is referenced before assignment"
-        start:
-          line: 32
-          column: 30
-        end:
-          line: 32
-          column: 35
-        classification: false_positive
       - path: "highlighters/brackets/test-data/mismatch-patentheses.zsh"
         code: "C001"
         severity: "warning"
@@ -20248,28 +20204,6 @@ repos:
           line: 30
           column: 9
         classification: real
-      - path: "highlighters/brackets/test-data/mismatch-patentheses.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `bracket` is referenced before assignment"
-        start:
-          line: 32
-          column: 22
-        end:
-          line: 32
-          column: 29
-        classification: false_positive
-      - path: "highlighters/brackets/test-data/mismatch-patentheses.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `level` is referenced before assignment"
-        start:
-          line: 32
-          column: 30
-        end:
-          line: 32
-          column: 35
-        classification: false_positive
       - path: "highlighters/brackets/test-data/near-quotes.zsh"
         code: "C001"
         severity: "warning"
@@ -20281,28 +20215,6 @@ repos:
           line: 30
           column: 9
         classification: real
-      - path: "highlighters/brackets/test-data/near-quotes.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `bracket` is referenced before assignment"
-        start:
-          line: 32
-          column: 22
-        end:
-          line: 32
-          column: 29
-        classification: false_positive
-      - path: "highlighters/brackets/test-data/near-quotes.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `level` is referenced before assignment"
-        start:
-          line: 32
-          column: 30
-        end:
-          line: 32
-          column: 35
-        classification: false_positive
       - path: "highlighters/brackets/test-data/nested-parentheses.zsh"
         code: "C001"
         severity: "warning"
@@ -20314,28 +20226,6 @@ repos:
           line: 30
           column: 9
         classification: real
-      - path: "highlighters/brackets/test-data/nested-parentheses.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `bracket` is referenced before assignment"
-        start:
-          line: 32
-          column: 22
-        end:
-          line: 32
-          column: 29
-        classification: false_positive
-      - path: "highlighters/brackets/test-data/nested-parentheses.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `level` is referenced before assignment"
-        start:
-          line: 32
-          column: 30
-        end:
-          line: 32
-          column: 35
-        classification: false_positive
       - path: "highlighters/brackets/test-data/nested-parentheses.zsh"
         code: "C005"
         severity: "warning"
@@ -20358,28 +20248,6 @@ repos:
           line: 30
           column: 9
         classification: real
-      - path: "highlighters/brackets/test-data/simple-parentheses.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `bracket` is referenced before assignment"
-        start:
-          line: 32
-          column: 22
-        end:
-          line: 32
-          column: 29
-        classification: false_positive
-      - path: "highlighters/brackets/test-data/simple-parentheses.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `level` is referenced before assignment"
-        start:
-          line: 32
-          column: 30
-        end:
-          line: 32
-          column: 35
-        classification: false_positive
       - path: "highlighters/brackets/test-data/unclosed-patentheses.zsh"
         code: "C001"
         severity: "warning"
@@ -20391,28 +20259,6 @@ repos:
           line: 30
           column: 9
         classification: real
-      - path: "highlighters/brackets/test-data/unclosed-patentheses.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `bracket` is referenced before assignment"
-        start:
-          line: 32
-          column: 22
-        end:
-          line: 32
-          column: 29
-        classification: false_positive
-      - path: "highlighters/brackets/test-data/unclosed-patentheses.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `level` is referenced before assignment"
-        start:
-          line: 32
-          column: 30
-        end:
-          line: 32
-          column: 35
-        classification: false_positive
       - path: "highlighters/brackets/test-data/unclosed-patentheses2.zsh"
         code: "C001"
         severity: "warning"
@@ -20424,28 +20270,6 @@ repos:
           line: 30
           column: 9
         classification: real
-      - path: "highlighters/brackets/test-data/unclosed-patentheses2.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `bracket` is referenced before assignment"
-        start:
-          line: 32
-          column: 22
-        end:
-          line: 32
-          column: 29
-        classification: false_positive
-      - path: "highlighters/brackets/test-data/unclosed-patentheses2.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `level` is referenced before assignment"
-        start:
-          line: 32
-          column: 30
-        end:
-          line: 32
-          column: 35
-        classification: false_positive
       - path: "highlighters/main/main-highlighter.zsh"
         code: "C001"
         severity: "warning"
@@ -21271,39 +21095,6 @@ repos:
           line: 32
           column: 12
         classification: real
-      - path: "highlighters/main/test-data/path-separators.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `path_pathseparator` is referenced before assignment"
-        start:
-          line: 32
-          column: 22
-        end:
-          line: 32
-          column: 40
-        classification: false_positive
-      - path: "highlighters/main/test-data/path-separators.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `path_prefix_pathseparator` is referenced before assignment"
-        start:
-          line: 33
-          column: 22
-        end:
-          line: 33
-          column: 47
-        classification: false_positive
-      - path: "highlighters/main/test-data/path-separators2.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `path_pathseparator` is referenced before assignment"
-        start:
-          line: 33
-          column: 22
-        end:
-          line: 33
-          column: 40
-        classification: false_positive
       - path: "highlighters/main/test-data/path_prefix3.zsh"
         code: "C001"
         severity: "warning"
