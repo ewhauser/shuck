@@ -3141,6 +3141,24 @@ impl<'a> Parser<'a> {
         Self::zsh_modifier_suffix_candidate_chars(&mut lookahead)
     }
 
+    fn zsh_length_parameter_requires_fallback(
+        &self,
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+        cursor: &Position,
+        source_backed: bool,
+    ) -> bool {
+        if !self.dialect.features().zsh_parameter_modifiers {
+            return false;
+        }
+
+        let mut lookahead = chars.clone();
+        let mut lookahead_cursor = *cursor;
+        let tail = self.read_brace_operand(&mut lookahead, &mut lookahead_cursor, source_backed);
+        let raw_body = self.prefixed_parameter_raw_body("#", *cursor, tail, source_backed);
+        self.find_zsh_operation_start(raw_body.slice(self.input))
+            .is_some()
+    }
+
     fn parse_zsh_bare_prefixed_parameter(
         &mut self,
         chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
@@ -4542,6 +4560,24 @@ impl<'a> Parser<'a> {
                     }
 
                     if self.zsh_parameter_requires_fallback(&mut chars) {
+                        let tail = self.read_brace_operand(&mut chars, &mut cursor, source_backed);
+                        let raw_body = self.prefixed_parameter_raw_body(
+                            "#",
+                            brace_body_start,
+                            tail,
+                            source_backed,
+                        );
+                        let parameter = self.zsh_parameter_word_part(raw_body, part_start, cursor);
+                        Self::push_word_part(parts, parameter, part_start, cursor);
+                        current_start = cursor;
+                        continue;
+                    }
+
+                    if self.zsh_length_parameter_requires_fallback(
+                        &mut chars,
+                        &cursor,
+                        source_backed,
+                    ) {
                         let tail = self.read_brace_operand(&mut chars, &mut cursor, source_backed);
                         let raw_body = self.prefixed_parameter_raw_body(
                             "#",

@@ -3171,17 +3171,6 @@ repos:
           column: 6
         classification: real
       - path: "plugins/git-extras/git-extras.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `*:#0` is referenced before assignment"
-        start:
-          line: 32
-          column: 9
-        end:
-          line: 32
-          column: 17
-        classification: false_positive
-      - path: "plugins/git-extras/git-extras.plugin.zsh"
         code: "C001"
         severity: "warning"
         message: "variable `expl` is assigned but never used"
@@ -3379,17 +3368,6 @@ repos:
           line: 509
           column: 15
         classification: false_positive
-      - path: "plugins/git-flow-avh/git-flow-avh.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `pipestatus:#0` is referenced before assignment"
-        start:
-          line: 519
-          column: 11
-        end:
-          line: 519
-          column: 28
-        classification: false_positive
       - path: "plugins/git-hubflow/git-hubflow.plugin.zsh"
         code: "C005"
         severity: "warning"
@@ -3488,17 +3466,6 @@ repos:
         end:
           line: 316
           column: 15
-        classification: false_positive
-      - path: "plugins/git-hubflow/git-hubflow.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `pipestatus:#0` is referenced before assignment"
-        start:
-          line: 326
-          column: 11
-        end:
-          line: 326
-          column: 28
         classification: false_positive
       - path: "plugins/git-prompt/git-prompt.plugin.zsh"
         code: "C001"
@@ -4986,17 +4953,6 @@ repos:
           column: 71
         classification: real
       - path: "plugins/history-substring-search/history-substring-search.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `BUFFER:$highlight_start_index` is referenced before assignment"
-        start:
-          line: 397
-          column: 41
-        end:
-          line: 397
-          column: 74
-        classification: false_positive
-      - path: "plugins/history-substring-search/history-substring-search.zsh"
         code: "C001"
         severity: "warning"
         message: "variable `xlbuflines` is assigned but never used"
@@ -5139,17 +5095,6 @@ repos:
           line: 35
           column: 23
         classification: real
-      - path: "plugins/jump/jump.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `link:t` is referenced before assignment"
-        start:
-          line: 36
-          column: 9
-        end:
-          line: 36
-          column: 19
-        classification: false_positive
       - path: "plugins/jump/jump.plugin.zsh"
         code: "C114"
         severity: "warning"
@@ -6954,17 +6899,6 @@ repos:
           line: 832
           column: 19
         classification: real
-      - path: "plugins/z/z.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `cd:h` is referenced before assignment"
-        start:
-          line: 868
-          column: 36
-        end:
-          line: 868
-          column: 43
-        classification: false_positive
       - path: "plugins/z/z.plugin.zsh"
         code: "C048"
         severity: "warning"

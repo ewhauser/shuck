@@ -1303,6 +1303,30 @@ print -r -- $chpwd_functions $still_missing
     }
 
     #[test]
+    fn zsh_length_prefixed_parameter_operations_do_not_merge_into_variable_names() {
+        let source = "\
+#!/bin/zsh
+link=/tmp/file
+BUFFER=abcdef
+highlight_start_index=2
+printf '%s\\n' ${#link:t} ${#*:#0} ${#BUFFER:$highlight_start_index} $missing
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("fixture.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
     fn pathless_zsh_hook_array_references_stay_reportable() {
         let source = "\
 #!/bin/zsh
