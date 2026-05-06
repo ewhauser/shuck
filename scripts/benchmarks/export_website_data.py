@@ -189,12 +189,13 @@ def load_fixture_metadata(repo_root: Path) -> tuple[list[dict[str, Any]], dict[s
         local_filename = fixture["local_filename"]
         file_path = manifest_path.parent / local_filename
         source = file_path.read_text(errors="replace")
-        slug = Path(local_filename).stem
+        file_name = Path(local_filename).name
+        slug = file_name.removesuffix(".sh")
         line_count = len(source.splitlines())
         entry = {
             "slug": slug,
             "name": slug,
-            "fileName": Path(local_filename).name,
+            "fileName": file_name,
             "path": local_filename,
             "bytes": int(fixture["byte_size"]),
             "lines": line_count,

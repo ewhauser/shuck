@@ -46,7 +46,7 @@ for file in "$fixtures_dir"/*.sh "$fixtures_dir"/*.zsh; do
         continue
     fi
     name=$(basename "$file")
-    name=${name%.*}
+    name=${name%.sh}
     quoted_file=$(quote_shell_arg "$file")
     echo "==> Benchmarking: $name"
     case "$benchmark_mode" in
