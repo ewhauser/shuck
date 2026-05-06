@@ -704,6 +704,34 @@ fn test_unquoted_heredoc_body_keeps_dollar_quoted_forms_literal() {
 }
 
 #[test]
+fn test_unquoted_heredoc_body_accepts_array_parameter_forms() {
+    let input = "cat <<EOF\n${words[1]} ${#words[@]}\nEOF\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let body = &script.body[0]
+        .redirects
+        .iter()
+        .find_map(|redirect| redirect.heredoc())
+        .expect("expected heredoc redirect")
+        .body;
+
+    assert!(!heredoc_body_is_literal(body));
+    assert_eq!(
+        heredoc_top_level_part_slices(body, input),
+        vec!["${words[1]}", " ", "${#words[@]}", "\n"]
+    );
+    assert!(matches!(
+        body.parts[0].kind,
+        shuck_ast::HeredocBodyPart::Parameter(_)
+    ));
+    assert!(matches!(
+        body.parts[2].kind,
+        shuck_ast::HeredocBodyPart::Parameter(_)
+    ));
+    assert_eq!(body.render(input), "${words[1]} ${#words[@]}\n");
+}
+
+#[test]
 fn test_unquoted_heredoc_body_keeps_later_expansions_live_after_quoted_lines() {
     let input = "\
 cat <<EOF > \"$archname\"
