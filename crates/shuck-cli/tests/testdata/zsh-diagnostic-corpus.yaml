@@ -6297,17 +6297,6 @@ repos:
       - path: "plugins/sublime-merge/sublime-merge.plugin.zsh"
         code: "C006"
         severity: "error"
-        message: "variable `ProgramW6432` is referenced before assignment"
-        start:
-          line: 42
-          column: 15
-        end:
-          line: 42
-          column: 28
-        classification: false_positive
-      - path: "plugins/sublime-merge/sublime-merge.plugin.zsh"
-        code: "C006"
-        severity: "error"
         message: "variable `_sublime_merge_cygwin_paths` is referenced before assignment"
         start:
           line: 44
@@ -6327,17 +6316,6 @@ repos:
           line: 45
           column: 12
         classification: real
-      - path: "plugins/sublime/sublime.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `ProgramW6432` is referenced before assignment"
-        start:
-          line: 51
-          column: 19
-        end:
-          line: 51
-          column: 32
-        classification: false_positive
       - path: "plugins/sublime/sublime.plugin.zsh"
         code: "C122"
         severity: "warning"

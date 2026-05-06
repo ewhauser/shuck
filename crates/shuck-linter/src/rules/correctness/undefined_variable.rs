@@ -1281,6 +1281,26 @@ print -r -- $chpwd_functions $still_missing
     }
 
     #[test]
+    fn known_mixed_case_environment_names_follow_default_environment_suppression() {
+        let source = "\
+#!/bin/zsh
+print -r -- \"$ProgramW6432\" \"$still_missing\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$still_missing"]
+        );
+    }
+
+    #[test]
     fn pathless_zsh_hook_array_references_stay_reportable() {
         let source = "\
 #!/bin/zsh

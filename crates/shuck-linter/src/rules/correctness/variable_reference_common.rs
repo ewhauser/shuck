@@ -56,10 +56,11 @@ pub(super) fn is_reportable_variable_reference(
 }
 
 pub(super) fn is_environment_style_name(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .chars()
-            .all(|char| char.is_ascii_uppercase() || char.is_ascii_digit() || char == '_')
+    matches!(name, "ProgramW6432")
+        || (!name.is_empty()
+            && name
+                .chars()
+                .all(|char| char.is_ascii_uppercase() || char.is_ascii_digit() || char == '_'))
 }
 
 pub(super) fn is_sc2154_defining_binding(kind: BindingKind) -> bool {
