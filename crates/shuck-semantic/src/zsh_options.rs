@@ -396,6 +396,7 @@ pub(crate) fn function_runtime_analysis_with_entry(
         .collect();
     scope_index.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| b.end.cmp(&a.end)));
     let scope_capacity = scope_index.len();
+    let function_count = recorded_program.function_body_scopes.len();
 
     let mut analyzer = Analyzer {
         scopes,
@@ -406,8 +407,11 @@ pub(crate) fn function_runtime_analysis_with_entry(
         scope_entries: FxHashMap::with_capacity_and_hasher(scope_capacity, Default::default()),
         snapshots: FxHashMap::with_capacity_and_hasher(scope_capacity, Default::default()),
         active_function_scopes: FxHashSet::default(),
-        function_summaries: FxHashMap::default(),
-        direct_function_callees: FxHashMap::default(),
+        function_summaries: FxHashMap::with_capacity_and_hasher(function_count, Default::default()),
+        direct_function_callees: FxHashMap::with_capacity_and_hasher(
+            function_count,
+            Default::default(),
+        ),
         shared_function_summaries: shared_summaries,
     };
     analyzer.analyze_function_scope_with_shared_summary_reuse(
