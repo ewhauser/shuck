@@ -269,17 +269,6 @@ repos:
           line: 151
           column: 82
         classification: real
-      - path: "helpers.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `REPLY` is assigned but never used"
-        start:
-          line: 168
-          column: 9
-        end:
-          line: 168
-          column: 14
-        classification: false_positive
       - path: "install.zsh"
         code: "C001"
         severity: "warning"
@@ -9498,17 +9487,6 @@ repos:
         end:
           line: 352
           column: 39
-        classification: false_positive
-      - path: "gitstatus/mbuild"
-        code: "C001"
-        severity: "warning"
-        message: "variable `REPLY` is assigned but never used"
-        start:
-          line: 362
-          column: 19
-        end:
-          line: 362
-          column: 24
         classification: false_positive
       - path: "gitstatus/mbuild"
         code: "C001"
@@ -20060,17 +20038,6 @@ repos:
       - path: "src/strategies/completion.zsh"
         code: "C001"
         severity: "warning"
-        message: "variable `REPLY` is assigned but never used"
-        start:
-          line: 104
-          column: 13
-        end:
-          line: 104
-          column: 18
-        classification: false_positive
-      - path: "src/strategies/completion.zsh"
-        code: "C001"
-        severity: "warning"
         message: "variable `suggestion` is assigned but never used"
         start:
           line: 132
@@ -20123,17 +20090,6 @@ repos:
           line: 367
           column: 36
         classification: real
-      - path: "zsh-autosuggestions.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `REPLY` is assigned but never used"
-        start:
-          line: 599
-          column: 13
-        end:
-          line: 599
-          column: 18
-        classification: false_positive
   - name: "zsh-syntax-highlighting"
     github_url: "https://github.com/zsh-users/zsh-syntax-highlighting.git"
     commit: "1d85c692615a25fe2293bdd44b34c217d5d2bf04"
@@ -21656,17 +21612,6 @@ repos:
           line: 189
           column: 34
         classification: real
-      - path: "zsh-syntax-highlighting.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `REPLY` is assigned but never used"
-        start:
-          line: 207
-          column: 9
-        end:
-          line: 207
-          column: 14
-        classification: false_positive
       - path: "zsh-syntax-highlighting.zsh"
         code: "C006"
         severity: "error"

@@ -115,6 +115,10 @@ pub fn unused_assignment(checker: &mut Checker) {
             continue;
         }
 
+        if is_zsh_function_scoped_reply_binding(checker, binding) {
+            continue;
+        }
+
         if !is_reportable_unused_assignment(binding.kind, binding.attributes) {
             continue;
         }
@@ -268,6 +272,15 @@ fn is_zsh_arguments_context_name(name: &str) -> bool {
         name,
         "context" | "line" | "opt_args" | "state" | "state_descr"
     )
+}
+
+fn is_zsh_function_scoped_reply_binding(checker: &Checker<'_>, binding: &Binding) -> bool {
+    checker.shell() == crate::ShellDialect::Zsh
+        && binding.name.as_str() == "REPLY"
+        && checker
+            .semantic_analysis()
+            .enclosing_function_scope_at(binding.span.start.offset)
+            .is_some()
 }
 
 fn function_has_zsh_arguments_target_for_name(
@@ -1547,9 +1560,31 @@ helper() {
             &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
         );
 
-        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "reply");
-        assert_eq!(diagnostics[1].span.slice(source), "REPLY");
+    }
+
+    #[test]
+    fn zsh_function_reply_outputs_are_not_unused() {
+        let source = "\
+#!/usr/bin/env zsh
+relative_path() {
+  if [[ -z $1 ]]; then
+    REPLY=.
+  else
+    REPLY=$1
+  fi
+}
+ordinary=1
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/dotfiler/helpers.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
     }
 
     #[test]
