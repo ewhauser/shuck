@@ -3621,17 +3621,6 @@ repos:
           line: 326
           column: 28
         classification: false_positive
-      - path: "plugins/git-prompt/git-prompt.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `RPROMPT` is assigned but never used"
-        start:
-          line: 113
-          column: 1
-        end:
-          line: 113
-          column: 8
-        classification: false_positive
       - path: "plugins/git/git.plugin.zsh"
         code: "C010"
         severity: "warning"
@@ -7364,28 +7353,6 @@ repos:
       - path: "themes/adben.zsh-theme"
         code: "C001"
         severity: "warning"
-        message: "variable `PROMPT` is assigned but never used"
-        start:
-          line: 112
-          column: 1
-        end:
-          line: 112
-          column: 7
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `RPROMPT` is assigned but never used"
-        start:
-          line: 116
-          column: 1
-        end:
-          line: 116
-          column: 8
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
         message: "variable `PROMPT2` is assigned but never used"
         start:
           line: 118
@@ -7449,50 +7416,6 @@ repos:
           line: 102
           column: 16
         classification: real
-      - path: "themes/emotty.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PROMPT` is assigned but never used"
-        start:
-          line: 104
-          column: 1
-        end:
-          line: 104
-          column: 7
-        classification: false_positive
-      - path: "themes/emotty.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `RPROMPT` is assigned but never used"
-        start:
-          line: 105
-          column: 1
-        end:
-          line: 105
-          column: 8
-        classification: false_positive
-      - path: "themes/nicoulaj.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PROMPT` is assigned but never used"
-        start:
-          line: 42
-          column: 1
-        end:
-          line: 42
-          column: 7
-        classification: false_positive
-      - path: "themes/nicoulaj.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `RPROMPT` is assigned but never used"
-        start:
-          line: 43
-          column: 1
-        end:
-          line: 43
-          column: 8
-        classification: false_positive
       - path: "themes/refined.zsh-theme"
         code: "C006"
         severity: "error"
@@ -7525,28 +7448,6 @@ repos:
         end:
           line: 52
           column: 91
-        classification: false_positive
-      - path: "themes/refined.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PROMPT` is assigned but never used"
-        start:
-          line: 81
-          column: 1
-        end:
-          line: 81
-          column: 7
-        classification: false_positive
-      - path: "themes/refined.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `RPROMPT` is assigned but never used"
-        start:
-          line: 82
-          column: 1
-        end:
-          line: 82
-          column: 8
         classification: false_positive
       - path: "themes/sonicradish.zsh-theme"
         code: "C001"
@@ -7625,17 +7526,6 @@ repos:
           line: 20
           column: 11
         classification: real
-      - path: "themes/sonicradish.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PROMPT` is assigned but never used"
-        start:
-          line: 23
-          column: 1
-        end:
-          line: 23
-          column: 7
-        classification: false_positive
       - path: "themes/sonicradish.zsh-theme"
         code: "C001"
         severity: "warning"

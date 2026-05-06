@@ -383,6 +383,8 @@ fn pathless_zsh_sources_do_not_get_ambient_runtime_contracts() {
 fn zsh_runtime_contract_marks_exact_output_parameters_consumed() {
     let path = Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh");
     let source = "\
+PROMPT='%n@%m'
+RPROMPT='%~'
 reply=(one two)
 REPLY=value
 compstate[insert]=menu
@@ -390,7 +392,7 @@ compstate[insert]=menu
 
     let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
 
-    for name in ["reply", "REPLY", "compstate"] {
+    for name in ["PROMPT", "RPROMPT", "reply", "REPLY", "compstate"] {
         assert!(has_consumed_name(&contract, name), "{contract:?}");
     }
 }
