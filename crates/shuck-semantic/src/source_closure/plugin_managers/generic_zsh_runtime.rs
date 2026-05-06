@@ -66,10 +66,10 @@ fn deferred_zsh_entrypoint_roots(facts: &AstFacts, scope: ScopeId) -> Vec<Name> 
     for call in facts.calls.iter().filter(|call| call.scope == scope) {
         match call.name.as_str() {
             "add-zsh-hook" | "add-zle-hook-widget" => {
-                if add_zsh_hook_removes_callback(call) {
+                if zsh_hook_call_does_not_register_callbacks(call) {
                     continue;
                 }
-                if let Some(function) = zsh_hook_callback_name(call) {
+                for function in zsh_hook_callback_names(call) {
                     roots.push(function);
                 }
             }
@@ -86,23 +86,27 @@ fn deferred_zsh_entrypoint_roots(facts: &AstFacts, scope: ScopeId) -> Vec<Name> 
     roots
 }
 
-// `add-zsh-hook -d/-D hook func` removes callbacks instead of registering them,
-// so deletion calls must not become deferred entrypoints.
-fn add_zsh_hook_removes_callback(call: &CallInfo) -> bool {
+// `add-zsh-hook -d/-D hook func` removes callbacks and `-L` lists callbacks
+// instead of registering them, so these calls must not become deferred roots.
+fn zsh_hook_call_does_not_register_callbacks(call: &CallInfo) -> bool {
     call.args.iter().flatten().any(|arg| {
         let Some(flags) = arg.strip_prefix('-') else {
             return false;
         };
-        flags.chars().any(|flag| matches!(flag, 'd' | 'D'))
+        flags.chars().any(|flag| matches!(flag, 'd' | 'D' | 'L'))
     })
 }
 
-// `add-zsh-hook hook function` and `add-zle-hook-widget hook function` both use
-// the second non-option operand as the callback name.
-fn zsh_hook_callback_name(call: &CallInfo) -> Option<Name> {
+// `add-zsh-hook hook function ...` and `add-zle-hook-widget hook function ...`
+// both use operands after the hook name as callback names.
+fn zsh_hook_callback_names(call: &CallInfo) -> Vec<Name> {
     let operands = static_non_option_args(call);
-    let function = operands.get(1)?;
-    valid_static_function_name(function).then(|| Name::from(function.as_str()))
+    operands
+        .into_iter()
+        .skip(1)
+        .filter(|function| valid_static_function_name(function))
+        .map(|function| Name::from(function.as_str()))
+        .collect()
 }
 
 // For `zle -N`, a single operand means widget and function share a name; two
