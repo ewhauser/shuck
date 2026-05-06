@@ -385,12 +385,13 @@ fn zsh_runtime_contract_marks_exact_output_parameters_consumed() {
     let source = "\
 reply=(one two)
 REPLY=value
+WORDCHARS=''
 compstate[insert]=menu
 ";
 
     let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
 
-    for name in ["reply", "REPLY", "compstate"] {
+    for name in ["reply", "REPLY", "WORDCHARS", "compstate"] {
         assert!(has_consumed_name(&contract, name), "{contract:?}");
     }
 }
