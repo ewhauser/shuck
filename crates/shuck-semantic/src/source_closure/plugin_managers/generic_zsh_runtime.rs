@@ -34,7 +34,8 @@ fn collect_generic_deferred_required_reads(
         return Vec::new();
     }
 
-    let function_scopes = function_scopes_by_name(context.semantic, context.scope);
+    let function_scopes =
+        function_scopes_by_name(context.semantic, context.analysis, context.scope);
     let mut visitor = DeferredFunctionReadVisitor {
         semantic: context.semantic,
         analysis: context.analysis,
@@ -139,18 +140,19 @@ fn valid_static_function_name(name: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | ':' | '.'))
 }
 
-fn function_scopes_by_name(semantic: &SemanticModel, scope: ScopeId) -> FxHashMap<Name, ScopeId> {
+fn function_scopes_by_name(
+    semantic: &SemanticModel,
+    analysis: &crate::SemanticAnalysis<'_>,
+    scope: ScopeId,
+) -> FxHashMap<Name, ScopeId> {
     let mut scopes = FxHashMap::default();
-    for candidate in semantic
-        .scopes()
-        .iter()
-        .filter(|candidate| candidate.parent == Some(scope))
-    {
-        let ScopeKind::Function(FunctionScopeKind::Named(names)) = &candidate.kind else {
+    for (function_scope, bindings) in analysis.function_bindings_by_scope() {
+        if semantic.scope(function_scope).parent != Some(scope) {
             continue;
-        };
-        for name in names {
-            scopes.insert(name.clone(), candidate.id);
+        }
+        for binding_id in bindings {
+            let binding = semantic.binding(*binding_id);
+            scopes.insert(binding.name.clone(), function_scope);
         }
     }
     scopes
