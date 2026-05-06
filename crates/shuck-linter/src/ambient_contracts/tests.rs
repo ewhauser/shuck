@@ -191,6 +191,20 @@ chpwd_functions+=(_async_prompt_chpwd)
 }
 
 #[test]
+fn zsh_runtime_contract_initializes_completion_system_tables() {
+    let path = Path::new("/tmp/zsh/prezto/modules/completion/init.zsh");
+    let source = "\
+autoload -Uz compinit
+compinit
+print -r -- ${_comps[(I)-value-*]}
+";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(has_initialized_binding(&contract, "_comps"), "{contract:?}");
+}
+
+#[test]
 fn zsh_runtime_contract_initializes_braced_prompt_color_arrays() {
     let path = Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh");
     let source = "\

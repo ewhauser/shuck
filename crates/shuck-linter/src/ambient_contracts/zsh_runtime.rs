@@ -70,6 +70,7 @@ fn shell_matches_zsh_runtime_context(shell: ShellDialect, path: &PathSignals) ->
 fn zsh_ambient_runtime_has_signal(source: &SourceSignals<'_>, path: &PathSignals) -> bool {
     source.mentions_any(ZSH_INITIALIZED_SPECIAL_PARAMETERS)
         || source.mentions_any(ZSH_HOOK_ARRAY_PARAMETERS)
+        || zsh_completion_system_runtime_shape(source)
         || zsh_prompt_color_runtime_shape(source, path)
         || !zsh_externally_consumed_names(source, path).is_empty()
         || zsh_test_fixture_consumed_prefixes(source, path)
@@ -101,6 +102,14 @@ fn zsh_initialized_runtime_names<'a>(
                 .copied()
                 .filter(move |name| {
                     source.mentions_name(name) && zsh_runtime_path_shape(path.lower_path())
+                }),
+        )
+        .chain(
+            ZSH_COMPLETION_SYSTEM_PARAMETERS
+                .iter()
+                .copied()
+                .filter(move |name| {
+                    source.mentions_name(name) && zsh_completion_system_runtime_shape(source)
                 }),
         )
 }
@@ -198,7 +207,13 @@ const ZSH_PROMPT_COLOR_PARAMETERS: &[&str] = &[
 const ZSH_EXTERNALLY_CONSUMED_OUTPUT_PARAMETERS: &[&str] =
     &["REPLY", "compstate", "comppostfuncs", "reply"];
 
+const ZSH_COMPLETION_SYSTEM_PARAMETERS: &[&str] = &["_comps"];
+
 fn zsh_prompt_color_runtime_shape(source: &SourceSignals<'_>, path: &PathSignals) -> bool {
     (zsh_runtime_path_shape(path.lower_path()) || source.loads_zsh_colors())
         && source.mentions_any(ZSH_PROMPT_COLOR_PARAMETERS)
+}
+
+fn zsh_completion_system_runtime_shape(source: &SourceSignals<'_>) -> bool {
+    source.mentions_any(ZSH_COMPLETION_SYSTEM_PARAMETERS) && source.contains("compinit")
 }

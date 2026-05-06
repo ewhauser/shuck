@@ -15432,17 +15432,6 @@ repos:
           line: 22
           column: 31
         classification: real
-      - path: "modules/completion/init.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `_comps` is referenced before assignment"
-        start:
-          line: 132
-          column: 66
-        end:
-          line: 132
-          column: 91
-        classification: false_positive
       - path: "modules/editor/init.zsh"
         code: "C001"
         severity: "warning"

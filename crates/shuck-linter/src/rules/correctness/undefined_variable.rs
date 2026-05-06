@@ -1281,6 +1281,29 @@ print -r -- $chpwd_functions $still_missing
     }
 
     #[test]
+    fn zsh_completion_tables_are_initialized_after_compinit() {
+        let source = "\
+#!/bin/zsh
+autoload -Uz compinit
+compinit
+print -r -- ${_comps[(I)-value-*]} $still_missing
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/prezto/modules/completion/init.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$still_missing"]
+        );
+    }
+
+    #[test]
     fn pathless_zsh_hook_array_references_stay_reportable() {
         let source = "\
 #!/bin/zsh
