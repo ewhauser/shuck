@@ -677,7 +677,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn heredoc_body_part_from_word_part_node(part: WordPartNode) -> HeredocBodyPartNode {
+    fn heredoc_body_part_from_word_part_node(
+        &self,
+        part: WordPartNode,
+        source_backed: bool,
+    ) -> HeredocBodyPartNode {
+        let span = part.span;
         let kind = match part.kind {
             WordPart::Literal(text) => HeredocBodyPart::Literal(text),
             WordPart::Variable(name) => HeredocBodyPart::Variable(name),
@@ -696,10 +701,44 @@ impl<'a> Parser<'a> {
                 syntax,
             },
             WordPart::Parameter(parameter) => HeredocBodyPart::Parameter(parameter),
-            other => panic!("unsupported heredoc body part: {other:?}"),
+            part @ (WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::Transformation { .. }) => {
+                match self.parameter_word_part_from_legacy(
+                    part,
+                    span.start,
+                    span.end,
+                    source_backed,
+                ) {
+                    WordPart::Parameter(parameter) => HeredocBodyPart::Parameter(parameter),
+                    other => self.literal_heredoc_body_part_from_word_part(other, span),
+                }
+            }
+            other => self.literal_heredoc_body_part_from_word_part(other, span),
         };
 
-        HeredocBodyPartNode::new(kind, part.span)
+        HeredocBodyPartNode::new(kind, span)
+    }
+
+    fn literal_heredoc_body_part_from_word_part(
+        &self,
+        part: WordPart,
+        span: Span,
+    ) -> HeredocBodyPart {
+        if span.end.offset <= self.input.len() {
+            return HeredocBodyPart::Literal(LiteralText::source());
+        }
+
+        let mut syntax = String::new();
+        self.push_word_part_syntax(&mut syntax, &part, span);
+        HeredocBodyPart::Literal(LiteralText::owned(syntax))
     }
 
     fn brace_syntax_from_parts(&self, parts: &[WordPartNode], offset: usize) -> Vec<BraceSyntax> {

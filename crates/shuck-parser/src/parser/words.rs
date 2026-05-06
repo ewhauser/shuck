@@ -5748,7 +5748,7 @@ impl<'a> Parser<'a> {
         );
         let parts = parts
             .into_iter()
-            .map(Self::heredoc_body_part_from_word_part_node)
+            .map(|part| self.heredoc_body_part_from_word_part_node(part, source_backed))
             .collect();
         self.heredoc_body_with_parts(parts, span, HeredocBodyMode::Expanding, source_backed)
     }
