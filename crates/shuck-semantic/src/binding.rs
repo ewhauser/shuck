@@ -143,6 +143,8 @@ pub enum BuiltinBindingTargetKind {
     Zstyle,
     /// zsh `_arguments`
     ZshArguments,
+    /// zsh `compinit`
+    Compinit,
 }
 
 /// High-level category for a semantic binding.

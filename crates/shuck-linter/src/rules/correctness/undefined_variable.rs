@@ -957,6 +957,48 @@ print -r -- $functrace $missing
     }
 
     #[test]
+    fn zsh_core_runtime_special_parameters_include_history_chars_and_named_directories() {
+        let source = "\
+#!/bin/zsh
+print -r -- $histchars ${nameddirs[project]} $still_missing
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$still_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_tables_are_initialized_after_compinit_without_path_context() {
+        let source = "\
+#!/bin/zsh
+autoload -Uz compinit
+compinit
+print -r -- ${_comps[(I)-value-*]} $still_missing
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$still_missing"]
+        );
+    }
+
+    #[test]
     fn zsh_completion_helpers_read_completion_context_from_registered_callers() {
         let source = "\
 #!/bin/zsh
