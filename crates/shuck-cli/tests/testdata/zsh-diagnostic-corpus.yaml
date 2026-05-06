@@ -1653,28 +1653,6 @@ repos:
           column: 27
         classification: false_positive
       - path: "lib/theme-and-appearance.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_RUBY_PROMPT_PREFIX` is assigned but never used"
-        start:
-          line: 12
-          column: 1
-        end:
-          line: 12
-          column: 29
-        classification: false_positive
-      - path: "lib/theme-and-appearance.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_RUBY_PROMPT_SUFFIX` is assigned but never used"
-        start:
-          line: 13
-          column: 1
-        end:
-          line: 13
-          column: 29
-        classification: false_positive
-      - path: "lib/theme-and-appearance.zsh"
         code: "C010"
         severity: "warning"
         message: "chaining `&&` and `||` makes the fallback depend on the middle command status"
@@ -7210,50 +7188,6 @@ repos:
       - path: "themes/adben.zsh-theme"
         code: "C001"
         severity: "warning"
-        message: "variable `ZSH_THEME_SVN_PROMPT_PREFIX` is assigned but never used"
-        start:
-          line: 51
-          column: 1
-        end:
-          line: 51
-          column: 28
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_SVN_PROMPT_SUFFIX` is assigned but never used"
-        start:
-          line: 52
-          column: 1
-        end:
-          line: 52
-          column: 28
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_SVN_PROMPT_DIRTY` is assigned but never used"
-        start:
-          line: 53
-          column: 1
-        end:
-          line: 53
-          column: 27
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `ZSH_THEME_SVN_PROMPT_CLEAN` is assigned but never used"
-        start:
-          line: 54
-          column: 1
-        end:
-          line: 54
-          column: 27
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
         message: "variable `ZSH_THEME_GIT_PROMPT_PREFIX` is assigned but never used"
         start:
           line: 57
@@ -7381,17 +7315,6 @@ repos:
           column: 1
         end:
           line: 116
-          column: 8
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PROMPT2` is assigned but never used"
-        start:
-          line: 118
-          column: 1
-        end:
-          line: 118
           column: 8
         classification: false_positive
       - path: "themes/emotty.zsh-theme"

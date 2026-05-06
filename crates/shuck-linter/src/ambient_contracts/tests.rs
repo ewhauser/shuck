@@ -139,6 +139,20 @@ ZDOT_MODULE_NAME=prompt
 }
 
 #[test]
+fn ohmyzsh_theme_prompt_namespaces_are_consumed() {
+    let path = Path::new("/tmp/zsh/ohmyzsh/themes/example.zsh-theme");
+    let source = "\
+ZSH_THEME_RUBY_PROMPT_PREFIX='('
+ZSH_THEME_SVN_PROMPT_PREFIX='svn:'
+";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(has_consumed_prefix(&contract, "ZSH_THEME_RUBY_PROMPT_"));
+    assert!(has_consumed_prefix(&contract, "ZSH_THEME_SVN_PROMPT_"));
+}
+
+#[test]
 fn zsh_runtime_contract_initializes_special_parameters_and_prompt_colors() {
     let path = Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh");
     let source = "\
@@ -386,11 +400,12 @@ fn zsh_runtime_contract_marks_exact_output_parameters_consumed() {
 reply=(one two)
 REPLY=value
 compstate[insert]=menu
+PROMPT2='> '
 ";
 
     let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
 
-    for name in ["reply", "REPLY", "compstate"] {
+    for name in ["reply", "REPLY", "compstate", "PROMPT2"] {
         assert!(has_consumed_name(&contract, name), "{contract:?}");
     }
 }

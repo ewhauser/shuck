@@ -62,6 +62,8 @@ fn zsh_config_consumed_prefixes<'a>(
         "P9K_",
         "POWERLEVEL9K_",
         "ZDOT_",
+        "ZSH_THEME_RUBY_PROMPT_",
+        "ZSH_THEME_SVN_PROMPT_",
         "ZSH_AUTOSUGGEST_",
         "ZSH_HIGHLIGHT_",
     ]
@@ -82,10 +84,19 @@ fn zsh_config_prefix_path_shape(prefix: &str, path: &PathSignals) -> bool {
             p10k_config_path_shape(path.lower_path()) || zsh_dotfile_path_shape(path.lower_path())
         }
         "ZDOT_" => zsh_dotfile_path_shape(path.lower_path()),
+        "ZSH_THEME_RUBY_PROMPT_" | "ZSH_THEME_SVN_PROMPT_" => {
+            ohmyzsh_theme_path_shape(path.lower_path())
+        }
         "ZSH_AUTOSUGGEST_" => path.contains("/zsh-autosuggestions/"),
         "ZSH_HIGHLIGHT_" => path.contains("/zsh-syntax-highlighting/"),
         _ => false,
     }
+}
+
+fn ohmyzsh_theme_path_shape(lower_path: &str) -> bool {
+    lower_path.contains("/ohmyzsh/lib/")
+        || lower_path.contains("/ohmyzsh/themes/")
+        || lower_path.ends_with(".zsh-theme")
 }
 
 const ZSH_CONFIG_EXTERNALLY_CONSUMED_NAMES: &[&str] = &["HISTFILE", "HISTSIZE", "SAVEHIST"];

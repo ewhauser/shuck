@@ -196,7 +196,7 @@ const ZSH_PROMPT_COLOR_PARAMETERS: &[&str] = &[
 ];
 
 const ZSH_EXTERNALLY_CONSUMED_OUTPUT_PARAMETERS: &[&str] =
-    &["REPLY", "compstate", "comppostfuncs", "reply"];
+    &["PROMPT2", "REPLY", "compstate", "comppostfuncs", "reply"];
 
 fn zsh_prompt_color_runtime_shape(source: &SourceSignals<'_>, path: &PathSignals) -> bool {
     (zsh_runtime_path_shape(path.lower_path()) || source.loads_zsh_colors())
