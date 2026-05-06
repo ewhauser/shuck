@@ -843,17 +843,52 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                                 nested_regions,
                             );
                         }
-                        ZshExpansionOperation::Unknown { text, .. } => self.visit_fragment_word(
-                            operation.operand_word_ast(),
-                            Some(text),
-                            kind,
-                            flow,
-                            nested_regions,
-                        ),
+                        ZshExpansionOperation::Unknown { text, .. } => {
+                            self.visit_zsh_unknown_operation_references(text, kind);
+                            self.visit_fragment_word(
+                                operation.operand_word_ast(),
+                                Some(text),
+                                kind,
+                                flow,
+                                nested_regions,
+                            );
+                        }
                     }
                 }
             }
         }
+    }
+
+    fn visit_zsh_unknown_operation_references(
+        &mut self,
+        text: &shuck_ast::SourceText,
+        kind: WordVisitKind,
+    ) {
+        // Some valid zsh parameter forms are still represented as unknown
+        // operations by the parser. `${=name}` is one of those: `=` controls
+        // word splitting, but `name` is still the parameter being read.
+        if self.shell_profile.dialect != shuck_parser::ShellDialect::Zsh {
+            return;
+        }
+
+        let raw = text.slice(self.source);
+        let Some(name) = raw.strip_prefix('=') else {
+            return;
+        };
+        if !is_shell_identifier(name) {
+            return;
+        }
+
+        let name_start = text.span().start.advanced_by("=");
+        let span = Span::from_positions(name_start, name_start.advanced_by(name));
+        let name = Name::from(name);
+        let reference_kind =
+            self.word_reference_kind_override
+                .unwrap_or(reference_kind_for_word_visit(
+                    kind,
+                    ReferenceKind::ParameterExpansion,
+                ));
+        self.add_reference(&name, reference_kind, span);
     }
 
     fn visit_zsh_existence_probe_subscript(
