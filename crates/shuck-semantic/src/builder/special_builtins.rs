@@ -174,6 +174,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     );
                 }
             }
+            "_wanted" if self.shell_profile.dialect == shuck_parser::ShellDialect::Zsh => {
+                if let Some((argument, span)) = wanted_named_array_operand(args, self.source) {
+                    self.add_reference_if_bound(&argument, ReferenceKind::ImplicitRead, span);
+                }
+            }
             "let" => self.record_let_arithmetic_assignment_targets(args),
             "eval" => self.record_eval_argument_references(args),
             "trap" => self.record_trap_action_references(args),
@@ -315,6 +320,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 if flags.contains(&'p') {
                     attributes |= BindingAttributes::EXTERNALLY_CONSUMED;
                 }
+                attributes = self.zsh_function_output_binding_attributes(
+                    &assignment.name,
+                    assignment.name_span,
+                    attributes,
+                    flow,
+                );
                 let kind = if attributes.contains(BindingAttributes::NAMEREF) {
                     BindingKind::Nameref
                 } else {
@@ -547,17 +558,21 @@ fn zstyle_target(args: &[&Word], source: &str) -> Option<(Name, Span, BindingAtt
 }
 
 fn zsh_arguments_targets(include_state_targets: bool) -> Vec<(Name, BindingAttributes)> {
+    let consumed = BindingAttributes::EXTERNALLY_CONSUMED;
     let mut targets = vec![
-        (Name::from("context"), BindingAttributes::ARRAY),
-        (Name::from("line"), BindingAttributes::ARRAY),
+        (Name::from("context"), BindingAttributes::ARRAY | consumed),
+        (Name::from("line"), BindingAttributes::ARRAY | consumed),
         (
             Name::from("opt_args"),
-            BindingAttributes::ARRAY | BindingAttributes::ASSOC,
+            BindingAttributes::ARRAY | BindingAttributes::ASSOC | consumed,
         ),
     ];
     if include_state_targets {
-        targets.push((Name::from("state"), BindingAttributes::ARRAY));
-        targets.push((Name::from("state_descr"), BindingAttributes::ARRAY));
+        targets.push((Name::from("state"), BindingAttributes::ARRAY | consumed));
+        targets.push((
+            Name::from("state_descr"),
+            BindingAttributes::ARRAY | consumed,
+        ));
     }
     targets
 }
@@ -590,6 +605,42 @@ fn zsh_argument_spec_has_state_action(text: &str) -> bool {
         }
     }
     false
+}
+
+fn wanted_named_array_operand(args: &[&Word], source: &str) -> Option<(Name, Span)> {
+    let mut index = 0usize;
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+        if text == "--" {
+            index += 1;
+            break;
+        }
+        let Some(flags) = text.strip_prefix('-') else {
+            break;
+        };
+        if flags.is_empty() || flags.starts_with('-') {
+            break;
+        }
+
+        if flags == "C" {
+            index += 2;
+            continue;
+        }
+        if flags.starts_with('C')
+            || flags
+                .chars()
+                .all(|flag| matches!(flag, 'x' | '1' | '2' | 'V' | 'J'))
+        {
+            index += 1;
+            continue;
+        }
+        break;
+    }
+
+    args.get(index + 1)
+        .and_then(|word| named_target_word(word, source))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

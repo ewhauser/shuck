@@ -269,17 +269,6 @@ repos:
           line: 151
           column: 82
         classification: real
-      - path: "helpers.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `REPLY` is assigned but never used"
-        start:
-          line: 168
-          column: 9
-        end:
-          line: 168
-          column: 14
-        classification: false_positive
       - path: "install.zsh"
         code: "C001"
         severity: "warning"
@@ -1010,17 +999,6 @@ repos:
           line: 17
           column: 27
         classification: real
-      - path: "ruby/completion.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `reply` is assigned but never used"
-        start:
-          line: 21
-          column: 3
-        end:
-          line: 21
-          column: 8
-        classification: false_positive
       - path: "script/bootstrap"
         code: "C013"
         severity: "warning"
@@ -1113,17 +1091,6 @@ repos:
           line: 104
           column: 13
         classification: real
-      - path: "lib/cli.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `functrace` is referenced before assignment"
-        start:
-          line: 125
-          column: 30
-        end:
-          line: 125
-          column: 47
-        classification: false_positive
       - path: "lib/cli.zsh"
         code: "C132"
         severity: "warning"
@@ -2015,50 +1982,6 @@ repos:
           line: 2
           column: 16
         classification: real
-      - path: "plugins/cabal/cabal.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `context` is assigned but never used"
-        start:
-          line: 57
-          column: 5
-        end:
-          line: 57
-          column: 15
-        classification: false_positive
-      - path: "plugins/cabal/cabal.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `line` is assigned but never used"
-        start:
-          line: 57
-          column: 5
-        end:
-          line: 57
-          column: 15
-        classification: real
-      - path: "plugins/cabal/cabal.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `opt_args` is assigned but never used"
-        start:
-          line: 57
-          column: 5
-        end:
-          line: 57
-          column: 15
-        classification: false_positive
-      - path: "plugins/cabal/cabal.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `state_descr` is assigned but never used"
-        start:
-          line: 57
-          column: 5
-        end:
-          line: 57
-          column: 15
-        classification: false_positive
       - path: "plugins/cabal/cabal.plugin.zsh"
         code: "C001"
         severity: "warning"
@@ -3173,28 +3096,6 @@ repos:
       - path: "plugins/git-extras/git-extras.plugin.zsh"
         code: "C001"
         severity: "warning"
-        message: "variable `expl` is assigned but never used"
-        start:
-          line: 97
-          column: 11
-        end:
-          line: 97
-          column: 15
-        classification: false_positive
-      - path: "plugins/git-extras/git-extras.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `state_descr` is assigned but never used"
-        start:
-          line: 218
-          column: 5
-        end:
-          line: 218
-          column: 15
-        classification: false_positive
-      - path: "plugins/git-extras/git-extras.plugin.zsh"
-        code: "C001"
-        severity: "warning"
         message: "variable `ret` is assigned but never used"
         start:
           line: 228
@@ -3203,28 +3104,6 @@ repos:
           line: 228
           column: 58
         classification: real
-      - path: "plugins/git-extras/git-extras.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `context` is assigned but never used"
-        start:
-          line: 337
-          column: 5
-        end:
-          line: 337
-          column: 15
-        classification: false_positive
-      - path: "plugins/git-extras/git-extras.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `opt_args` is assigned but never used"
-        start:
-          line: 337
-          column: 5
-        end:
-          line: 337
-          column: 15
-        classification: false_positive
       - path: "plugins/git-extras/git-extras.plugin.zsh"
         code: "C006"
         severity: "error"
@@ -3314,17 +3193,6 @@ repos:
           column: 83
         classification: real
       - path: "plugins/git-flow-avh/git-flow-avh.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `state_descr` is assigned but never used"
-        start:
-          line: 409
-          column: 5
-        end:
-          line: 409
-          column: 15
-        classification: false_positive
-      - path: "plugins/git-flow-avh/git-flow-avh.plugin.zsh"
         code: "C005"
         severity: "warning"
         message: "shell expansion inside single quotes stays literal"
@@ -3335,39 +3203,6 @@ repos:
           line: 418
           column: 76
         classification: real
-      - path: "plugins/git-flow-avh/git-flow-avh.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `context` is assigned but never used"
-        start:
-          line: 437
-          column: 21
-        end:
-          line: 437
-          column: 31
-        classification: false_positive
-      - path: "plugins/git-flow-avh/git-flow-avh.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `opt_args` is assigned but never used"
-        start:
-          line: 437
-          column: 21
-        end:
-          line: 437
-          column: 31
-        classification: false_positive
-      - path: "plugins/git-flow-avh/git-flow-avh.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `expl` is assigned but never used"
-        start:
-          line: 509
-          column: 11
-        end:
-          line: 509
-          column: 15
-        classification: false_positive
       - path: "plugins/git-hubflow/git-hubflow.plugin.zsh"
         code: "C005"
         severity: "warning"
@@ -3413,17 +3248,6 @@ repos:
           column: 70
         classification: real
       - path: "plugins/git-hubflow/git-hubflow.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `state_descr` is assigned but never used"
-        start:
-          line: 181
-          column: 5
-        end:
-          line: 181
-          column: 15
-        classification: false_positive
-      - path: "plugins/git-hubflow/git-hubflow.plugin.zsh"
         code: "C005"
         severity: "warning"
         message: "shell expansion inside single quotes stays literal"
@@ -3434,50 +3258,6 @@ repos:
           line: 190
           column: 83
         classification: real
-      - path: "plugins/git-hubflow/git-hubflow.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `context` is assigned but never used"
-        start:
-          line: 257
-          column: 21
-        end:
-          line: 257
-          column: 31
-        classification: false_positive
-      - path: "plugins/git-hubflow/git-hubflow.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `opt_args` is assigned but never used"
-        start:
-          line: 257
-          column: 21
-        end:
-          line: 257
-          column: 31
-        classification: false_positive
-      - path: "plugins/git-hubflow/git-hubflow.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `expl` is assigned but never used"
-        start:
-          line: 316
-          column: 11
-        end:
-          line: 316
-          column: 15
-        classification: false_positive
-      - path: "plugins/git-prompt/git-prompt.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `RPROMPT` is assigned but never used"
-        start:
-          line: 113
-          column: 1
-        end:
-          line: 113
-          column: 8
-        classification: false_positive
       - path: "plugins/git/git.plugin.zsh"
         code: "C010"
         severity: "warning"
@@ -6294,17 +6074,6 @@ repos:
           line: 183
           column: 1
         classification: real
-      - path: "plugins/term_tab/term_tab.plugin.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `expl` is assigned but never used"
-        start:
-          line: 18
-          column: 12
-        end:
-          line: 18
-          column: 16
-        classification: false_positive
       - path: "plugins/thefuck/thefuck.plugin.zsh"
         code: "C122"
         severity: "warning"
@@ -6513,39 +6282,6 @@ repos:
         end:
           line: 17
           column: 52
-        classification: false_positive
-      - path: "plugins/wd/_wd.sh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `context` is assigned but never used"
-        start:
-          line: 49
-          column: 3
-        end:
-          line: 49
-          column: 13
-        classification: false_positive
-      - path: "plugins/wd/_wd.sh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `opt_args` is assigned but never used"
-        start:
-          line: 49
-          column: 3
-        end:
-          line: 49
-          column: 13
-        classification: false_positive
-      - path: "plugins/wd/_wd.sh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `state_descr` is assigned but never used"
-        start:
-          line: 49
-          column: 3
-        end:
-          line: 49
-          column: 13
         classification: false_positive
       - path: "plugins/wd/wd.sh"
         code: "C018"
@@ -7174,39 +6910,6 @@ repos:
           line: 66
           column: 31
         classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PROMPT` is assigned but never used"
-        start:
-          line: 112
-          column: 1
-        end:
-          line: 112
-          column: 7
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `RPROMPT` is assigned but never used"
-        start:
-          line: 116
-          column: 1
-        end:
-          line: 116
-          column: 8
-        classification: false_positive
-      - path: "themes/adben.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PROMPT2` is assigned but never used"
-        start:
-          line: 118
-          column: 1
-        end:
-          line: 118
-          column: 8
-        classification: false_positive
       - path: "themes/emotty.zsh-theme"
         code: "C006"
         severity: "error"
@@ -7262,50 +6965,6 @@ repos:
           line: 102
           column: 16
         classification: real
-      - path: "themes/emotty.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PROMPT` is assigned but never used"
-        start:
-          line: 104
-          column: 1
-        end:
-          line: 104
-          column: 7
-        classification: false_positive
-      - path: "themes/emotty.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `RPROMPT` is assigned but never used"
-        start:
-          line: 105
-          column: 1
-        end:
-          line: 105
-          column: 8
-        classification: false_positive
-      - path: "themes/nicoulaj.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PROMPT` is assigned but never used"
-        start:
-          line: 42
-          column: 1
-        end:
-          line: 42
-          column: 7
-        classification: false_positive
-      - path: "themes/nicoulaj.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `RPROMPT` is assigned but never used"
-        start:
-          line: 43
-          column: 1
-        end:
-          line: 43
-          column: 8
-        classification: false_positive
       - path: "themes/refined.zsh-theme"
         code: "C006"
         severity: "error"
@@ -7338,28 +6997,6 @@ repos:
         end:
           line: 52
           column: 91
-        classification: false_positive
-      - path: "themes/refined.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PROMPT` is assigned but never used"
-        start:
-          line: 81
-          column: 1
-        end:
-          line: 81
-          column: 7
-        classification: false_positive
-      - path: "themes/refined.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `RPROMPT` is assigned but never used"
-        start:
-          line: 82
-          column: 1
-        end:
-          line: 82
-          column: 8
         classification: false_positive
       - path: "themes/sonicradish.zsh-theme"
         code: "C001"
@@ -7438,17 +7075,6 @@ repos:
           line: 20
           column: 11
         classification: real
-      - path: "themes/sonicradish.zsh-theme"
-        code: "C001"
-        severity: "warning"
-        message: "variable `PROMPT` is assigned but never used"
-        start:
-          line: 23
-          column: 1
-        end:
-          line: 23
-          column: 7
-        classification: false_positive
       - path: "themes/sonicradish.zsh-theme"
         code: "C001"
         severity: "warning"
@@ -16793,17 +16419,6 @@ repos:
           line: 82
           column: 12
         classification: real
-      - path: "scripts/benchmark.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `TIMEFMT` is assigned but never used"
-        start:
-          line: 136
-          column: 18
-        end:
-          line: 136
-          column: 25
-        classification: false_positive
       - path: "zdot.zsh"
         code: "C003"
         severity: "warning"
@@ -21315,17 +20930,6 @@ repos:
           line: 71
           column: 19
         classification: real
-      - path: "tests/test-perfs.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `TIMEFMT` is assigned but never used"
-        start:
-          line: 97
-          column: 1
-        end:
-          line: 97
-          column: 8
-        classification: false_positive
       - path: "tests/test-perfs.zsh"
         code: "C114"
         severity: "warning"

@@ -937,6 +937,26 @@ compdef __example example
     }
 
     #[test]
+    fn zsh_functrace_is_available_without_local_initialization() {
+        let source = "\
+#!/bin/zsh
+print -r -- $functrace $missing
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
     fn zsh_completion_helpers_read_completion_context_from_registered_callers() {
         let source = "\
 #!/bin/zsh

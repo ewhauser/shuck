@@ -74,6 +74,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         {
             attributes |= BindingAttributes::ARRAY | BindingAttributes::ASSOC;
         }
+        attributes = self.zsh_function_output_binding_attributes(
+            &assignment.target.name,
+            assignment.target.name_span,
+            attributes,
+            flow,
+        );
 
         let source_path_template = assignment_source_path_template_for_binding(self, assignment);
         let binding = self.add_binding(
@@ -154,21 +160,6 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
-    pub(super) fn binding_was_cleared_in_scope_after(
-        &self,
-        name: &Name,
-        scope: ScopeId,
-        binding_offset: usize,
-    ) -> bool {
-        self.cleared_variables
-            .get(&(scope, name.clone()))
-            .is_some_and(|cleared_offsets| {
-                cleared_offsets
-                    .iter()
-                    .any(|cleared_offset| *cleared_offset > binding_offset)
-            })
-    }
-
     pub(super) fn binding_was_cleared_in_scope_between(
         &self,
         name: &Name,
@@ -234,12 +225,40 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 })
             })
             .is_some_and(|binding_id| {
-                !self.binding_was_cleared_in_scope_after(
+                !self.binding_was_cleared_in_scope_between(
                     name,
                     scope,
                     self.bindings[binding_id.index()].span.start.offset,
+                    offset,
                 )
             })
+    }
+
+    pub(super) fn zsh_function_output_binding_attributes(
+        &self,
+        name: &Name,
+        span: Span,
+        mut attributes: BindingAttributes,
+        flow: FlowState,
+    ) -> BindingAttributes {
+        if flow.in_subshell
+            || self.shell_profile.dialect != ShellDialect::Zsh
+            || !matches!(name.as_str(), "REPLY" | "reply")
+        {
+            return attributes;
+        }
+
+        let Some(function_scope) = self.nearest_function_scope() else {
+            return attributes;
+        };
+        if attributes.contains(BindingAttributes::LOCAL)
+            || self.has_uncleared_local_binding_in_scope(name, function_scope, span.start.offset)
+        {
+            return attributes;
+        }
+
+        attributes |= BindingAttributes::EXTERNALLY_CONSUMED;
+        attributes
     }
 
     pub(super) fn add_binding(

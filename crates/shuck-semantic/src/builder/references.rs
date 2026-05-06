@@ -314,6 +314,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     && !binding
                         .attributes
                         .contains(BindingAttributes::SELF_REFERENTIAL_READ)
+                    && !binding
+                        .attributes
+                        .contains(BindingAttributes::EXTERNALLY_CONSUMED)
             })
             .map(|binding| binding.id)
             .collect()
