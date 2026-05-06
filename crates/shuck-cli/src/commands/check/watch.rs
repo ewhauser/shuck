@@ -830,7 +830,7 @@ mod tests {
 
         let root_target = targets
             .iter()
-            .find(|target| target.watch_path == PathBuf::from("/"))
+            .find(|target| target.watch_path == Path::new("/"))
             .expect("expected filesystem root watch target");
 
         assert!(!root_target.recursive);
