@@ -266,10 +266,11 @@ fn dependency_watch_target(dependency_path: &Path) -> Result<Option<WatchTarget>
     };
 
     let watch_path = normalize_path(&existing_parent);
+    let dependency_parent_exists = resolved_path.parent().is_some_and(Path::exists);
     let mut target = WatchTarget {
         watch_path: watch_path.clone(),
         watch_paths: vec![watch_path],
-        recursive: false,
+        recursive: !dependency_parent_exists,
         match_paths: vec![resolved_path.clone()],
     };
     if let Ok(canonical_parent) = fs::canonicalize(&existing_parent) {
@@ -780,7 +781,7 @@ mod tests {
 
         let canonical_root = fs::canonicalize(tempdir.path()).unwrap();
         assert!(targets.iter().any(|target| {
-            !target.recursive
+            target.recursive
                 && target.watch_path == normalize_path(tempdir.path())
                 && target.watch_paths.contains(&canonical_root)
                 && target

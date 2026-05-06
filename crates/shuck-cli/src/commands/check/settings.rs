@@ -589,9 +589,8 @@ impl PluginResolver for ResolvedZshPluginSettings {
         match request.kind {
             PluginRequestKind::Entrypoint => {
                 let path = PathBuf::from(&request.name);
-                let entrypoints = path.is_file().then_some(path).into_iter().collect();
                 PluginResolution {
-                    entrypoints,
+                    entrypoints: vec![path],
                     file_entry_contracts: Vec::new(),
                 }
             }
@@ -608,7 +607,7 @@ impl PluginResolver for ResolvedZshPluginSettings {
                     .join(&request.name)
                     .join(format!("{}.plugin.zsh", request.name));
                 PluginResolution {
-                    entrypoints: path.is_file().then_some(path).into_iter().collect(),
+                    entrypoints: vec![path],
                     file_entry_contracts: Vec::new(),
                 }
             }
@@ -624,7 +623,7 @@ impl PluginResolver for ResolvedZshPluginSettings {
                     .join("themes")
                     .join(format!("{}.zsh-theme", request.name));
                 PluginResolution {
-                    entrypoints: path.is_file().then_some(path).into_iter().collect(),
+                    entrypoints: vec![path],
                     file_entry_contracts: Vec::new(),
                 }
             }

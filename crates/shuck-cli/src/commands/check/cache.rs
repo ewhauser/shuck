@@ -613,6 +613,57 @@ mod tests {
     }
 
     #[test]
+    fn invalidates_cache_when_configured_zsh_plugin_entrypoint_appears() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join(".zshrc"), "echo ok\n").unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[lint.zsh.plugins]\nentrypoints = [{ pattern = '.zshrc', paths = ['./vendor/prompt.plugin.zsh'] }]\n",
+        )
+        .unwrap();
+
+        let mut args = check_args(false);
+        args.paths = vec![PathBuf::from(".zshrc")];
+        args.rule_selection.per_file_shell = Some(vec![PatternShellPair {
+            pattern: ".zshrc".to_owned(),
+            shell: ShellDialect::Zsh,
+        }]);
+
+        let first = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        let second = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        assert_eq!(first.cache_hits, 0);
+        assert_eq!(first.cache_misses, 1);
+        assert_eq!(second.cache_hits, 1);
+        assert_eq!(second.cache_misses, 0);
+
+        let plugin = tempdir.path().join("vendor/prompt.plugin.zsh");
+        fs::create_dir_all(plugin.parent().unwrap()).unwrap();
+        fs::write(&plugin, "prompt_fn() { :; }\n").unwrap();
+
+        let third = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        assert_eq!(third.cache_hits, 0);
+        assert_eq!(third.cache_misses, 1);
+    }
+
+    #[test]
     fn configured_zsh_plugin_loads_track_dependencies_for_dynamic_plugin_lists() {
         let tempdir = tempdir().unwrap();
         let omz_root = tempdir.path().join("oh-my-zsh");
