@@ -4,6 +4,8 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::thread;
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 
@@ -103,7 +105,7 @@ pub(crate) fn detect_shell_version(shell: Shell, path: &Path) -> Result<Version>
     let candidates = version_probe_commands(shell);
     let mut last_error = None;
     for args in candidates {
-        let output = Command::new(path).args(args).output();
+        let output = retry_executable_file_busy(|| Command::new(path).args(&args).output());
         match output {
             Ok(output) => {
                 if !output.status.success() {
@@ -135,6 +137,42 @@ pub(crate) fn detect_shell_version(shell: Shell, path: &Path) -> Result<Version>
     }
 
     Err(last_error.unwrap_or_else(|| anyhow!("unable to detect shell version")))
+}
+
+fn retry_executable_file_busy<T>(
+    mut operation: impl FnMut() -> std::io::Result<T>,
+) -> std::io::Result<T> {
+    // Freshly written or replaced shell fixtures can briefly report ETXTBSY on Linux.
+    // Retrying only that errno keeps real probe failures intact while smoothing over the
+    // transient launch race in tests and during binary replacement.
+    const RETRY_DELAYS: &[Duration] = &[
+        Duration::from_millis(5),
+        Duration::from_millis(10),
+        Duration::from_millis(25),
+        Duration::from_millis(50),
+    ];
+
+    let mut attempts = 0;
+    loop {
+        match operation() {
+            Ok(value) => return Ok(value),
+            Err(err) if is_executable_file_busy(&err) && attempts < RETRY_DELAYS.len() => {
+                thread::sleep(RETRY_DELAYS[attempts]);
+                attempts += 1;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+}
+
+#[cfg(unix)]
+fn is_executable_file_busy(err: &std::io::Error) -> bool {
+    err.raw_os_error() == Some(26)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file_busy(_err: &std::io::Error) -> bool {
+    false
 }
 
 fn version_probe_commands(shell: Shell) -> Vec<Vec<OsString>> {
@@ -207,4 +245,44 @@ fn extract_mksh_version(text: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::io;
+
+    use super::retry_executable_file_busy;
+
+    #[cfg(unix)]
+    #[test]
+    fn retries_executable_file_busy_errors() {
+        let attempts = Cell::new(0);
+        let result = retry_executable_file_busy(|| {
+            let next = attempts.get();
+            attempts.set(next + 1);
+            if next < 2 {
+                Err(io::Error::from_raw_os_error(26))
+            } else {
+                Ok("ok")
+            }
+        })
+        .unwrap();
+
+        assert_eq!(result, "ok");
+        assert_eq!(attempts.get(), 3);
+    }
+
+    #[test]
+    fn does_not_retry_other_io_errors() {
+        let attempts = Cell::new(0);
+        let err = retry_executable_file_busy(|| -> io::Result<()> {
+            attempts.set(attempts.get() + 1);
+            Err(io::Error::from_raw_os_error(2))
+        })
+        .unwrap_err();
+
+        assert_eq!(attempts.get(), 1);
+        assert_eq!(err.raw_os_error(), Some(2));
+    }
 }
