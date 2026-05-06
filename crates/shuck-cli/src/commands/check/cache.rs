@@ -17,6 +17,7 @@ use crate::discover::{DiscoveredFile, FileKind};
 pub(super) struct CheckCacheSettings {
     effective: EffectiveCheckSettings,
     analyzed_paths: Vec<PathBuf>,
+    source_resolution_home: Option<PathBuf>,
 }
 
 impl CheckCacheSettings {
@@ -24,6 +25,7 @@ impl CheckCacheSettings {
         Self {
             effective: settings.effective.clone(),
             analyzed_paths: analyzed_shell_relative_paths(files),
+            source_resolution_home: std::env::var_os("HOME").map(PathBuf::from),
         }
     }
 }
@@ -33,6 +35,7 @@ impl CacheKey for CheckCacheSettings {
         state.write_tag(b"check-cache-settings");
         self.effective.cache_key(state);
         self.analyzed_paths.cache_key(state);
+        self.source_resolution_home.cache_key(state);
     }
 }
 
@@ -298,6 +301,7 @@ mod tests {
     use crate::commands::check::run::run_check_with_cwd;
     use crate::commands::check::settings::{
         CompiledPerFileShellList, PerFileShell, parse_rule_selectors,
+        resolve_project_check_settings,
     };
     use crate::commands::check::test_support::*;
     use crate::commands::check::watch::{
@@ -309,7 +313,8 @@ mod tests {
         DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
     };
     use crate::commands::project_runner::PendingProjectFile;
-    use crate::discover::{FileKind, normalize_path};
+    use crate::discover::{DiscoveredFile, FileKind, ProjectRoot, normalize_path};
+    use shuck_cache::cache_key_hex;
     use shuck_config::ConfigArguments;
 
     #[test]
@@ -464,6 +469,55 @@ mod tests {
             "{:?}",
             diagnostic_codes(&broad_again)
         );
+    }
+
+    #[test]
+    fn cache_key_includes_home_for_home_relative_source_resolution() {
+        let tempdir = tempdir().unwrap();
+        let script = tempdir.path().join(".zshrc");
+        fs::write(
+            &script,
+            "#!/bin/zsh\nsource \"$HOME/.helpers/prompt.zsh\"\n",
+        )
+        .unwrap();
+
+        let mut args = check_args(false);
+        args.paths = vec![PathBuf::from(".zshrc")];
+        args.rule_selection.per_file_shell = Some(vec![PatternShellPair {
+            pattern: ".zshrc".to_owned(),
+            shell: ShellDialect::Zsh,
+        }]);
+
+        let project_root = ProjectRoot {
+            storage_root: tempdir.path().to_path_buf(),
+            canonical_root: fs::canonicalize(tempdir.path()).unwrap(),
+        };
+        let settings = resolve_project_check_settings(
+            &project_root,
+            &ConfigArguments::default(),
+            &args.rule_selection,
+            &args.zsh_plugin_resolution,
+        )
+        .unwrap();
+        let files = [DiscoveredFile {
+            display_path: PathBuf::from(".zshrc"),
+            absolute_path: script.clone(),
+            relative_path: PathBuf::from(".zshrc"),
+            project_root,
+            kind: FileKind::Shell,
+        }];
+        let base = CheckCacheSettings::new(&settings, &files);
+
+        let first = CheckCacheSettings {
+            source_resolution_home: Some(PathBuf::from("/tmp/home-a")),
+            ..base.clone()
+        };
+        let second = CheckCacheSettings {
+            source_resolution_home: Some(PathBuf::from("/tmp/home-b")),
+            ..base
+        };
+
+        assert_ne!(cache_key_hex(&first), cache_key_hex(&second));
     }
 
     #[test]

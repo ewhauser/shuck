@@ -976,7 +976,8 @@ fn anchor_configured_plugin_requests(
 }
 
 fn dedup_plugin_requests(requests: Vec<PluginRequest>) -> Vec<PluginRequest> {
-    let mut merged = FxHashMap::<
+    let mut merged: Vec<PluginRequest> = Vec::new();
+    let mut positions = FxHashMap::<
         (
             PluginFramework,
             PluginRequestKind,
@@ -984,7 +985,7 @@ fn dedup_plugin_requests(requests: Vec<PluginRequest>) -> Vec<PluginRequest> {
             usize,
             Option<PathBuf>,
         ),
-        PluginRequest,
+        usize,
     >::default();
     for request in requests {
         let key = (
@@ -994,14 +995,17 @@ fn dedup_plugin_requests(requests: Vec<PluginRequest>) -> Vec<PluginRequest> {
             request.span.start.offset,
             request.root_hint.clone(),
         );
-        match merged.get(&key) {
-            Some(existing) if existing.explicit => {}
-            _ => {
-                merged.insert(key, request);
+        if let Some(&position) = positions.get(&key) {
+            if merged[position].explicit {
+                continue;
             }
+            merged[position] = request;
+        } else {
+            positions.insert(key, merged.len());
+            merged.push(request);
         }
     }
-    merged.into_values().collect()
+    merged
 }
 
 fn imported_function_sites_for_contract(
@@ -2381,6 +2385,40 @@ noglob source \"$3\"
         let dependency_paths = context.dependency_paths.borrow();
         assert!(dependency_paths.contains(&helper_link));
         assert!(!dependency_paths.contains(&std::fs::canonicalize(&helper_target).unwrap()));
+    }
+
+    #[test]
+    fn dedup_plugin_requests_preserves_first_request_order_when_replacing_duplicates() {
+        let mut alpha_implicit = PluginRequest {
+            framework: PluginFramework::OhMyZsh,
+            kind: PluginRequestKind::Plugin,
+            name: "alpha".to_owned(),
+            span: Span::new(),
+            explicit: false,
+            root_hint: None,
+        };
+        alpha_implicit.span.start.offset = 7;
+
+        let mut beta_explicit = PluginRequest {
+            framework: PluginFramework::OhMyZsh,
+            kind: PluginRequestKind::Plugin,
+            name: "beta".to_owned(),
+            span: Span::new(),
+            explicit: true,
+            root_hint: None,
+        };
+        beta_explicit.span.start.offset = 7;
+
+        let mut alpha_explicit = alpha_implicit.clone();
+        alpha_explicit.explicit = true;
+
+        let deduped =
+            dedup_plugin_requests(vec![alpha_implicit, beta_explicit.clone(), alpha_explicit]);
+
+        assert_eq!(deduped.len(), 2);
+        assert_eq!(deduped[0].name, "alpha");
+        assert!(deduped[0].explicit);
+        assert_eq!(deduped[1], beta_explicit);
     }
 
     #[cfg(windows)]
