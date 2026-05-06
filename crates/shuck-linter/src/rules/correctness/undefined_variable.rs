@@ -234,7 +234,7 @@ printf '%s\\n' \"$plain_test\" \"$file_test\" \"$still_missing\"
     fn zsh_runtime_special_parameters_do_not_report_undefined() {
         let source = "\
 #!/bin/zsh
-print -r -- \"$sysparams\" \"$history\" \"$words\" \"$compstate\"
+print -r -- \"$sysparams\" \"$history\" \"$words\" \"$compstate\" \"$functrace\"
 print -r -- \"$ordinary_missing\"
 ";
         let diagnostics = test_snippet_at_path(

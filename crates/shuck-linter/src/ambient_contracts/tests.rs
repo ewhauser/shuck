@@ -142,7 +142,7 @@ ZDOT_MODULE_NAME=prompt
 fn zsh_runtime_contract_initializes_special_parameters_and_prompt_colors() {
     let path = Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh");
     let source = "\
-print -r -- \"$sysparams\" \"$history\" \"$words\" \"$compstate\"
+print -r -- \"$sysparams\" \"$history\" \"$words\" \"$compstate\" \"$functrace\"
 prompt=\"%{$fg_bold[blue]%}%{$reset_color%}\"
 ";
 
@@ -153,6 +153,7 @@ prompt=\"%{$fg_bold[blue]%}%{$reset_color%}\"
         "history",
         "words",
         "compstate",
+        "functrace",
         "fg_bold",
         "reset_color",
     ] {

@@ -171,6 +171,7 @@ fn zsh_test_fixture_consumed_prefixes<'a>(
 
 const ZSH_INITIALIZED_SPECIAL_PARAMETERS: &[&str] = &[
     "compstate",
+    "functrace",
     "galiases",
     "history",
     "keymaps",

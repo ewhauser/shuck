@@ -1114,17 +1114,6 @@ repos:
           column: 13
         classification: real
       - path: "lib/cli.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `functrace` is referenced before assignment"
-        start:
-          line: 125
-          column: 30
-        end:
-          line: 125
-          column: 47
-        classification: false_positive
-      - path: "lib/cli.zsh"
         code: "C132"
         severity: "warning"
         message: "this same-command expansion still sees the earlier shell value"
