@@ -624,6 +624,28 @@ print -r -- ${functions[iterm2_precmd]}
     }
 
     #[test]
+    fn suppresses_zsh_assignment_target_literal_map_keys_with_imported_declarations() {
+        let source = "\
+#!/bin/zsh
+emoji[regional_indicator_symbol_letter_d_regional_indicator_symbol_letter_e]=x
+arr[i]=x
+arr[plain_key]=x
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["i"]
+        );
+    }
+
+    #[test]
     fn zparseopts_targets_initialize_option_arrays() {
         let source = "\
 #!/bin/zsh

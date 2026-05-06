@@ -2245,7 +2245,12 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             Some(assignment.target.name_span),
             assignment.target.subscript.as_deref(),
         );
-        if !indexed_semantics {
+        let bare_zsh_literal_key = Self::zsh_assignment_target_subscript_is_bare_literal_key(
+            self.semantic.shell_profile().dialect,
+            assignment.target.subscript.as_deref(),
+            self.source,
+        );
+        if !indexed_semantics || bare_zsh_literal_key {
             self.surface
                 .record_arithmetic_only_suppressed_subscript(assignment.target.subscript.as_deref());
         }
@@ -3033,6 +3038,31 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         }
 
         true
+    }
+
+    fn zsh_assignment_target_subscript_is_bare_literal_key(
+        dialect: shuck_parser::parser::ShellDialect,
+        subscript: Option<&Subscript>,
+        source: &str,
+    ) -> bool {
+        if dialect != shuck_parser::parser::ShellDialect::Zsh {
+            return false;
+        }
+        let Some(subscript) = subscript else {
+            return false;
+        };
+        if subscript.selector().is_some() {
+            return false;
+        }
+        let text = subscript.syntax_text(source);
+        text.contains('_')
+            && text
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+            && text
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
     }
 
     fn assoc_binding_visible_for_subscript(

@@ -2698,116 +2698,6 @@ repos:
           column: 20
         classification: real
       - path: "plugins/emoji/emoji.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `regional_indicator_symbol_letter_d_regional_indicator_symbol_letter_e` is referenced before assignment"
-        start:
-          line: 31
-          column: 7
-        end:
-          line: 31
-          column: 76
-        classification: false_positive
-      - path: "plugins/emoji/emoji.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `regional_indicator_symbol_letter_g_regional_indicator_symbol_letter_b` is referenced before assignment"
-        start:
-          line: 32
-          column: 7
-        end:
-          line: 32
-          column: 76
-        classification: false_positive
-      - path: "plugins/emoji/emoji.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `regional_indicator_symbol_letter_c_regional_indicator_symbol_letter_n` is referenced before assignment"
-        start:
-          line: 33
-          column: 7
-        end:
-          line: 33
-          column: 76
-        classification: false_positive
-      - path: "plugins/emoji/emoji.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `regional_indicator_symbol_letter_j_regional_indicator_symbol_letter_p` is referenced before assignment"
-        start:
-          line: 34
-          column: 7
-        end:
-          line: 34
-          column: 76
-        classification: false_positive
-      - path: "plugins/emoji/emoji.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `regional_indicator_symbol_letter_k_regional_indicator_symbol_letter_r` is referenced before assignment"
-        start:
-          line: 35
-          column: 7
-        end:
-          line: 35
-          column: 76
-        classification: false_positive
-      - path: "plugins/emoji/emoji.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `regional_indicator_symbol_letter_f_regional_indicator_symbol_letter_r` is referenced before assignment"
-        start:
-          line: 36
-          column: 7
-        end:
-          line: 36
-          column: 76
-        classification: false_positive
-      - path: "plugins/emoji/emoji.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `regional_indicator_symbol_letter_e_regional_indicator_symbol_letter_s` is referenced before assignment"
-        start:
-          line: 37
-          column: 7
-        end:
-          line: 37
-          column: 76
-        classification: false_positive
-      - path: "plugins/emoji/emoji.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `regional_indicator_symbol_letter_i_regional_indicator_symbol_letter_t` is referenced before assignment"
-        start:
-          line: 38
-          column: 7
-        end:
-          line: 38
-          column: 76
-        classification: false_positive
-      - path: "plugins/emoji/emoji.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `regional_indicator_symbol_letter_u_regional_indicator_symbol_letter_s` is referenced before assignment"
-        start:
-          line: 39
-          column: 7
-        end:
-          line: 39
-          column: 76
-        classification: false_positive
-      - path: "plugins/emoji/emoji.plugin.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `regional_indicator_symbol_letter_r_regional_indicator_symbol_letter_u` is referenced before assignment"
-        start:
-          line: 40
-          column: 7
-        end:
-          line: 40
-          column: 76
-        classification: false_positive
-      - path: "plugins/emoji/emoji.plugin.zsh"
         code: "C001"
         severity: "warning"
         message: "variable `emoji_skintone` is assigned but never used"
@@ -19317,17 +19207,6 @@ repos:
           column: 40
         classification: real
       - path: "zinit.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `___m_bkp` is referenced before assignment"
-        start:
-          line: 1361
-          column: 15
-        end:
-          line: 1361
-          column: 23
-        classification: false_positive
-      - path: "zinit.zsh"
         code: "C108"
         severity: "warning"
         message: "quote `unset` array-subscript operands so bracket text stays literal"
@@ -21271,39 +21150,6 @@ repos:
           line: 32
           column: 12
         classification: real
-      - path: "highlighters/main/test-data/path-separators.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `path_pathseparator` is referenced before assignment"
-        start:
-          line: 32
-          column: 22
-        end:
-          line: 32
-          column: 40
-        classification: false_positive
-      - path: "highlighters/main/test-data/path-separators.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `path_prefix_pathseparator` is referenced before assignment"
-        start:
-          line: 33
-          column: 22
-        end:
-          line: 33
-          column: 47
-        classification: false_positive
-      - path: "highlighters/main/test-data/path-separators2.zsh"
-        code: "C006"
-        severity: "error"
-        message: "variable `path_pathseparator` is referenced before assignment"
-        start:
-          line: 33
-          column: 22
-        end:
-          line: 33
-          column: 40
-        classification: false_positive
       - path: "highlighters/main/test-data/path_prefix3.zsh"
         code: "C001"
         severity: "warning"
