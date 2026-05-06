@@ -1377,17 +1377,6 @@ repos:
           line: 920
           column: 37
         classification: real
-      - path: "lib/completion.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `WORDCHARS` is assigned but never used"
-        start:
-          line: 4
-          column: 1
-        end:
-          line: 4
-          column: 10
-        classification: false_positive
       - path: "lib/diagnostics.zsh"
         code: "C001"
         severity: "warning"
@@ -15332,17 +15321,6 @@ repos:
         end:
           line: 132
           column: 91
-        classification: false_positive
-      - path: "modules/editor/init.zsh"
-        code: "C001"
-        severity: "warning"
-        message: "variable `WORDCHARS` is assigned but never used"
-        start:
-          line: 25
-          column: 6
-        end:
-          line: 25
-          column: 15
         classification: false_positive
       - path: "modules/editor/init.zsh"
         code: "C156"
