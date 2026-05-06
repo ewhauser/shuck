@@ -4412,6 +4412,46 @@ fn zparseopts_targets_are_zsh_only() {
 }
 
 #[test]
+fn zsh_function_reply_assignment_is_marked_externally_consumed() {
+    let source = "\
+#!/bin/zsh
+helper() {
+  REPLY=value
+}
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+
+    let binding = binding_for_name(&model, "REPLY");
+    assert!(
+        binding
+            .attributes
+            .contains(BindingAttributes::EXTERNALLY_CONSUMED),
+        "{binding:?}"
+    );
+    assert!(
+        !binding_names(&model, model.analysis().unused_assignments()).contains(&"REPLY".to_owned())
+    );
+}
+
+#[test]
+fn zsh_local_reply_assignment_stays_local() {
+    let source = "\
+#!/bin/zsh
+helper() {
+  local REPLY=value
+}
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+
+    let binding = binding_for_name(&model, "REPLY");
+    assert!(
+        !binding
+            .attributes
+            .contains(BindingAttributes::EXTERNALLY_CONSUMED)
+    );
+}
+
+#[test]
 fn mapfile_missing_option_operand_does_not_panic() {
     let source = "mapfile -u\n";
     let model = model(source);

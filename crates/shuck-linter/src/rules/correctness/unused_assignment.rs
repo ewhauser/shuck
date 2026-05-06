@@ -2,8 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use compact_str::CompactString;
 use shuck_semantic::{
-    Binding, BindingAttributes, BindingId, BindingKind, BindingOrigin, BuiltinBindingTargetKind,
-    ReferenceKind,
+    Binding, BindingAttributes, BindingId, BindingKind, BindingOrigin, ReferenceKind,
 };
 
 use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
@@ -108,10 +107,6 @@ pub fn unused_assignment(checker: &mut Checker) {
     for binding_id in &unused_bindings {
         let binding = semantic.binding(*binding_id);
         if is_intentionally_unused_binding(binding) {
-            continue;
-        }
-
-        if is_zsh_arguments_context_binding_in_completion_function(checker, binding) {
             continue;
         }
 
@@ -226,69 +221,6 @@ fn all_reportable_assignment_spans_suppressed(
 
 fn is_intentionally_unused_binding(binding: &Binding) -> bool {
     is_underscore_name(binding.name.as_str()) || is_intentionally_unused_placeholder(binding)
-}
-
-fn is_zsh_arguments_context_binding_in_completion_function(
-    checker: &Checker<'_>,
-    binding: &Binding,
-) -> bool {
-    if checker.shell() != crate::ShellDialect::Zsh
-        || !is_zsh_arguments_context_name(binding.name.as_str())
-    {
-        return false;
-    }
-
-    let Some(scope) = checker
-        .semantic_analysis()
-        .enclosing_function_scope_at(binding.span.start.offset)
-    else {
-        return false;
-    };
-    if !checker.facts().function_is_completion_registered(scope) {
-        return false;
-    }
-
-    if matches!(
-        binding.origin,
-        BindingOrigin::BuiltinTarget {
-            kind: BuiltinBindingTargetKind::ZshArguments,
-            ..
-        }
-    ) {
-        return true;
-    }
-
-    matches!(binding.origin, BindingOrigin::Declaration { .. })
-        && binding.attributes.contains(BindingAttributes::LOCAL)
-        && function_has_zsh_arguments_target_for_name(checker, scope, binding.name.as_str())
-}
-
-fn is_zsh_arguments_context_name(name: &str) -> bool {
-    matches!(
-        name,
-        "context" | "line" | "opt_args" | "state" | "state_descr"
-    )
-}
-
-fn function_has_zsh_arguments_target_for_name(
-    checker: &Checker<'_>,
-    scope: shuck_semantic::ScopeId,
-    name: &str,
-) -> bool {
-    checker.semantic().bindings().iter().any(|candidate| {
-        candidate.name.as_str() == name
-            && matches!(
-                candidate.origin,
-                BindingOrigin::BuiltinTarget {
-                    kind: BuiltinBindingTargetKind::ZshArguments,
-                    ..
-                }
-            )
-            && checker
-                .semantic_analysis()
-                .enclosing_function_scope_at(candidate.span.start.offset)
-                == Some(scope)
-    })
 }
 
 fn is_intentionally_unused_placeholder(binding: &Binding) -> bool {
@@ -1570,6 +1502,44 @@ helper() {
     }
 
     #[test]
+    fn zsh_special_prompt_parameters_are_runtime_consumed() {
+        let source = "\
+#!/bin/zsh
+PROMPT='%n@%m %~ %# '
+RPROMPT='%?'
+PROMPT2='continue> '
+TIMEFMT='%*Es'
+ordinary=1
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
+    }
+
+    #[test]
+    fn zsh_function_output_parameters_are_core_external_consumers() {
+        let source = "\
+#!/usr/bin/env zsh
+helper() {
+  REPLY=value
+  reply=(one two)
+}
+ordinary=1
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
+    }
+
+    #[test]
     fn zsh_arguments_targets_are_not_unused_in_registered_completion_functions() {
         let source = "\
 #!/bin/zsh
@@ -1598,6 +1568,25 @@ compdef _example example
                 .collect::<Vec<_>>(),
             vec!["ordinary", "helper_unused"]
         );
+    }
+
+    #[test]
+    fn zsh_arguments_targets_are_not_unused_without_compdef_registration() {
+        let source = "\
+#!/bin/zsh
+function _cab_commands() {
+  local state
+  _arguments ':subcommand:->subcommand'
+  ordinary=1
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
     }
 
     #[test]
@@ -1701,14 +1690,7 @@ fi
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec![
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "ordinary"
-            ]
+            vec!["ordinary"]
         );
     }
 
@@ -1737,14 +1719,7 @@ esac
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec![
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "ordinary"
-            ]
+            vec!["ordinary"]
         );
     }
 
@@ -1767,14 +1742,55 @@ function _composer() {
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec![
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "_arguments",
-                "ordinary"
-            ]
+            vec!["ordinary"]
+        );
+    }
+
+    #[test]
+    fn zsh_wanted_named_array_operand_counts_as_use() {
+        let source = "\
+#!/bin/zsh
+_example() {
+  local expl
+  _wanted tags expl 'tag description' compadd -- one two
+  ordinary=1
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["ordinary"]
+        );
+    }
+
+    #[test]
+    fn zsh_wanted_skips_core_option_prefixes_before_named_array_operand() {
+        let source = "\
+#!/bin/zsh
+_example() {
+  local expl
+  _wanted -x -C commands -1V tags expl 'tag description' compadd -- one two
+  ordinary=1
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["ordinary"]
         );
     }
 
