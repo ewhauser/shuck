@@ -832,6 +832,30 @@ _update_core_safe_rm() {
     }
 
     #[test]
+    fn zsh_reply_helpers_initialize_reply_for_later_reads() {
+        let source = "\
+#!/bin/zsh
+_update_core_resolve_subtree_spec repo spec
+remote=$reply[1]
+zdot_provides_tool_args ':zdot:brew' op eza gh
+zdot_simple_hook brew \"${reply[@]}\"
+print -r -- $missing
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
     fn zsh_sourced_hook_helpers_accept_caller_scoped_option_arrays() {
         let source = "\
 #!/bin/zsh

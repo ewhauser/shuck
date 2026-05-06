@@ -924,6 +924,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 &command_fact_indices_by_id,
                 &innermost_command_ids_by_offset,
                 &subscript_later_suppression_spans,
+                self.source,
             );
 
         let mut backtick_substitution_spans = word_spans::backtick_substitution_spans(locator);
@@ -1186,6 +1187,7 @@ fn build_c006_suppressing_reference_offsets_by_name(
     command_fact_indices_by_id: &[Option<usize>],
     innermost_command_ids_by_offset: &CommandOffsetLookup,
     subscript_later_suppression_spans: &[Span],
+    source: &str,
 ) -> FxHashMap<Name, Vec<usize>> {
     let mut offsets_by_name = semantic
         .guarded_or_defaulting_reference_offsets_by_name()
@@ -1205,6 +1207,21 @@ fn build_c006_suppressing_reference_offsets_by_name(
                     .entry(reference.name.clone())
                     .or_default()
                     .push(reference.span.start.offset);
+            }
+        }
+    }
+
+    for command in commands {
+        if command.shell_behavior().shell_dialect() == shuck_semantic::ShellDialect::Zsh
+            && zsh_reply_helper_reset_span(command).is_some()
+            && command_runs_in_persistent_shell_context(semantic, command, source)
+            && let Some(name_word) = command.body_name_word()
+        {
+            for name in ["REPLY", "reply"] {
+                offsets_by_name
+                    .entry(Name::from(name))
+                    .or_default()
+                    .push(name_word.span.start.offset);
             }
         }
     }

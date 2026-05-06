@@ -1531,7 +1531,9 @@ fn zsh_reply_helper_reset_span(command: &CommandFact<'_>) -> Option<Span> {
 }
 
 fn zsh_helper_name_can_set_reply(name: &str) -> bool {
-    (name.starts_with('.') && name != "." && name != "..") || name.starts_with('_')
+    (name.starts_with('.') && name != "." && name != "..")
+        || name.starts_with('_')
+        || matches!(name, "zdot_provides_tool_args")
 }
 
 fn helper_output_names_by_scope(
