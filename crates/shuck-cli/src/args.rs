@@ -652,8 +652,7 @@ impl std::str::FromStr for PatternPathPair {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let (pattern, path) = value
-            .rsplit_once(':')
+        let (pattern, path) = split_pattern_path_pair(value)
             .ok_or_else(|| "expected <FilePattern>:<Path>".to_owned())?;
         let pattern = pattern.trim();
         let path = path.trim();
@@ -667,6 +666,25 @@ impl std::str::FromStr for PatternPathPair {
             path: path.to_owned(),
         })
     }
+}
+
+fn split_pattern_path_pair(value: &str) -> Option<(&str, &str)> {
+    let bytes = value.as_bytes();
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte != b':' {
+            continue;
+        }
+        if index == 1
+            && bytes.first().is_some_and(|byte| byte.is_ascii_alphabetic())
+            && bytes
+                .get(2)
+                .is_some_and(|byte| *byte == b'/' || *byte == b'\\')
+        {
+            continue;
+        }
+        return Some((&value[..index], &value[index + 1..]));
+    }
+    None
 }
 
 fn parse_cli_rule_selector(value: &str) -> Result<RuleSelector, String> {
@@ -1659,6 +1677,33 @@ mod tests {
             vec![PatternPathPair {
                 pattern: "!src/.zshrc".to_owned(),
                 path: "./vendor/theme.zsh".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
+    fn parses_zsh_plugin_entrypoints_with_windows_absolute_paths() {
+        let command = parse_check([
+            "shuck",
+            "check",
+            "--zsh-plugin-entrypoint",
+            r"**/.zshrc:C:/plugins/git.plugin.zsh",
+            "--extend-zsh-plugin-entrypoint",
+            r"C:/repo/**/*.zshrc:C:/plugins/theme.zsh",
+        ]);
+
+        assert_eq!(
+            command.zsh_plugin_resolution.zsh_plugin_entrypoint,
+            Some(vec![PatternPathPair {
+                pattern: "**/.zshrc".to_owned(),
+                path: "C:/plugins/git.plugin.zsh".to_owned(),
+            }])
+        );
+        assert_eq!(
+            command.zsh_plugin_resolution.extend_zsh_plugin_entrypoint,
+            vec![PatternPathPair {
+                pattern: r"C:/repo/**/*.zshrc".to_owned(),
+                path: "C:/plugins/theme.zsh".to_owned(),
             }]
         );
     }

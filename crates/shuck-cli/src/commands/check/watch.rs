@@ -203,18 +203,9 @@ pub(super) fn collect_watch_targets(
         }
     }
     for dependency_path in dependency_paths {
-        let resolved_path = normalize_path(dependency_path);
-        if !resolved_path.exists() {
-            continue;
+        if let Some(target) = dependency_watch_target(dependency_path)? {
+            targets.push(target);
         }
-        let canonical_path = fs::canonicalize(&resolved_path).map_err(anyhow::Error::from)?;
-        let canonical_parent = canonical_path.parent().map(Path::to_path_buf);
-        let mut target = WatchTarget::file(resolved_path);
-        target.add_match_path(canonical_path);
-        if let Some(parent) = canonical_parent {
-            target.add_watch_path(parent);
-        }
-        targets.push(target);
     }
 
     targets.sort_by(|left, right| {
@@ -250,6 +241,41 @@ pub(super) fn collect_watch_targets(
     }
 
     Ok(deduped)
+}
+
+fn dependency_watch_target(dependency_path: &Path) -> Result<Option<WatchTarget>> {
+    let resolved_path = normalize_path(dependency_path);
+    if resolved_path.exists() {
+        let canonical_path = fs::canonicalize(&resolved_path).map_err(anyhow::Error::from)?;
+        let canonical_parent = canonical_path.parent().map(Path::to_path_buf);
+        let mut target = WatchTarget::file(resolved_path);
+        target.add_match_path(canonical_path);
+        if let Some(parent) = canonical_parent {
+            target.add_watch_path(parent);
+        }
+        return Ok(Some(target));
+    }
+
+    let Some(existing_parent) = resolved_path
+        .ancestors()
+        .skip(1)
+        .find(|path| path.exists())
+        .map(Path::to_path_buf)
+    else {
+        return Ok(None);
+    };
+
+    let watch_path = normalize_path(&existing_parent);
+    let mut target = WatchTarget {
+        watch_path: watch_path.clone(),
+        watch_paths: vec![watch_path],
+        recursive: false,
+        match_paths: vec![resolved_path.clone()],
+    };
+    if let Ok(canonical_parent) = fs::canonicalize(&existing_parent) {
+        target.add_watch_path(canonical_parent);
+    }
+    Ok(Some(target))
 }
 
 fn build_watcher(
@@ -707,6 +733,59 @@ mod tests {
             !target.recursive
                 && target.watch_path == normalize_path(dependency.parent().unwrap())
                 && target.match_paths.contains(&canonical_dependency)
+        }));
+    }
+
+    #[test]
+    fn collect_watch_targets_include_missing_dependency_parents() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("script.sh"), "#!/bin/bash\necho ok\n").unwrap();
+        let dependency_dir = tempdir.path().join("deps");
+        fs::create_dir_all(&dependency_dir).unwrap();
+        let missing_dependency = dependency_dir.join("plugin.plugin.zsh");
+
+        let targets = collect_watch_targets(
+            &[PathBuf::from("script.sh")],
+            &ConfigArguments::from_cli(Vec::new(), true).unwrap(),
+            tempdir.path(),
+            std::slice::from_ref(&missing_dependency),
+        )
+        .unwrap();
+
+        let canonical_dependency_dir = fs::canonicalize(&dependency_dir).unwrap();
+        assert!(targets.iter().any(|target| {
+            !target.recursive
+                && target.watch_path == normalize_path(&dependency_dir)
+                && target.watch_paths.contains(&canonical_dependency_dir)
+                && target
+                    .match_paths
+                    .contains(&normalize_path(&missing_dependency))
+        }));
+    }
+
+    #[test]
+    fn collect_watch_targets_fall_back_to_nearest_existing_parent_for_missing_dependencies() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("script.sh"), "#!/bin/bash\necho ok\n").unwrap();
+        let missing_parent = tempdir.path().join("vendor/plugins");
+        let missing_dependency = missing_parent.join("plugin.plugin.zsh");
+
+        let targets = collect_watch_targets(
+            &[PathBuf::from("script.sh")],
+            &ConfigArguments::from_cli(Vec::new(), true).unwrap(),
+            tempdir.path(),
+            std::slice::from_ref(&missing_dependency),
+        )
+        .unwrap();
+
+        let canonical_root = fs::canonicalize(tempdir.path()).unwrap();
+        assert!(targets.iter().any(|target| {
+            !target.recursive
+                && target.watch_path == normalize_path(tempdir.path())
+                && target.watch_paths.contains(&canonical_root)
+                && target
+                    .match_paths
+                    .contains(&normalize_path(&missing_dependency))
         }));
     }
 

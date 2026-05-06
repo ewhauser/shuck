@@ -70,7 +70,7 @@ impl CheckCacheData {
             parse_failed,
             dependency_fingerprints: dependency_paths
                 .iter()
-                .filter_map(|path| ResolvedDependencyFingerprint::from_path(path))
+                .map(|path| ResolvedDependencyFingerprint::from_path(path))
                 .collect(),
         }
     }
@@ -84,9 +84,7 @@ impl CheckCacheData {
 
     pub(super) fn dependencies_match(&self) -> bool {
         self.dependency_fingerprints.iter().all(|fingerprint| {
-            FileCacheKey::from_path(&fingerprint.path)
-                .map(|current| current == fingerprint.file_key)
-                .unwrap_or(false)
+            FileCacheKey::from_path(&fingerprint.path).ok() == fingerprint.file_key
         })
     }
 }
@@ -94,14 +92,15 @@ impl CheckCacheData {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct ResolvedDependencyFingerprint {
     pub(super) path: PathBuf,
-    pub(super) file_key: FileCacheKey,
+    #[serde(default)]
+    pub(super) file_key: Option<FileCacheKey>,
 }
 
 impl ResolvedDependencyFingerprint {
-    fn from_path(path: &Path) -> Option<Self> {
+    fn from_path(path: &Path) -> Self {
         let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        let file_key = FileCacheKey::from_path(&path).ok()?;
-        Some(Self { path, file_key })
+        let file_key = FileCacheKey::from_path(&path).ok();
+        Self { path, file_key }
     }
 }
 
@@ -338,6 +337,40 @@ mod tests {
         assert_eq!(first.cache_misses, 1);
         assert_eq!(second.cache_hits, 1);
         assert_eq!(second.cache_misses, 0);
+    }
+
+    #[test]
+    fn cache_tracks_missing_dependency_paths_until_they_exist() {
+        let tempdir = tempdir().unwrap();
+        let missing_dependency = tempdir.path().join("plugins/git.plugin.zsh");
+        fs::create_dir_all(missing_dependency.parent().unwrap()).unwrap();
+
+        let cache_data = CheckCacheData::from_displayed(&[], false, &[missing_dependency.clone()]);
+
+        assert_eq!(
+            cache_data.dependency_paths(),
+            vec![missing_dependency.clone()]
+        );
+        assert!(cache_data.dependencies_match());
+
+        fs::write(&missing_dependency, "plugin_loaded=1\n").unwrap();
+
+        assert!(!cache_data.dependencies_match());
+    }
+
+    #[test]
+    fn cache_detects_when_a_dependency_disappears() {
+        let tempdir = tempdir().unwrap();
+        let dependency = tempdir.path().join("plugins/git.plugin.zsh");
+        fs::create_dir_all(dependency.parent().unwrap()).unwrap();
+        fs::write(&dependency, "plugin_loaded=1\n").unwrap();
+
+        let cache_data = CheckCacheData::from_displayed(&[], false, &[dependency.clone()]);
+        assert!(cache_data.dependencies_match());
+
+        fs::remove_file(&dependency).unwrap();
+
+        assert!(!cache_data.dependencies_match());
     }
 
     #[test]

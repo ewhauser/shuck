@@ -404,6 +404,16 @@ impl ResolvedZshPluginSettings {
         entrypoints: Vec<ZshPluginEntrypointSpec>,
     ) -> Result<Self> {
         let project_root = project_root.into();
+        if !enabled {
+            return Ok(Self {
+                enabled,
+                project_root,
+                roots: BTreeMap::new(),
+                plugin_loads: Vec::new(),
+                theme_loads: Vec::new(),
+                entrypoints: Vec::new(),
+            });
+        }
         let roots = roots
             .into_iter()
             .map(|(framework, path)| {
@@ -1703,6 +1713,36 @@ mod tests {
             per_file_shell.shell_for_path(path),
             Some(ShellDialect::Bash)
         );
+    }
+
+    #[test]
+    fn disabled_zsh_plugin_resolution_ignores_invalid_plugin_settings() {
+        let settings = ResolvedZshPluginSettings::resolve(
+            PathBuf::from("/workspace"),
+            false,
+            BTreeMap::from([("oh-my-zsh".to_owned(), "~/.oh-my-zsh".to_owned())]),
+            vec![ZshPluginLoadSpec {
+                pattern: "[".to_owned(),
+                framework: "oh-my-zsh".to_owned(),
+                name: "git".to_owned(),
+            }],
+            vec![ZshThemeLoadSpec {
+                pattern: "[".to_owned(),
+                framework: "oh-my-zsh".to_owned(),
+                name: "agnoster".to_owned(),
+            }],
+            vec![ZshPluginEntrypointSpec {
+                pattern: "[".to_owned(),
+                paths: vec!["./vendor/prompt.plugin.zsh".to_owned()],
+            }],
+        )
+        .unwrap();
+
+        assert!(!settings.enabled);
+        assert!(settings.roots.is_empty());
+        assert!(settings.plugin_loads.is_empty());
+        assert!(settings.theme_loads.is_empty());
+        assert!(settings.entrypoints.is_empty());
     }
 
     #[test]
