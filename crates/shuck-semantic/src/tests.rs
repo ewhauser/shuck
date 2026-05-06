@@ -2680,6 +2680,32 @@ target
 }
 
 #[test]
+fn function_call_reachability_blocks_prior_binding_called_from_later_wrapper() {
+    let source = "\
+target() { : old; }
+wrapper() {
+  target
+}
+target() { : new; }
+wrapper
+";
+    let model = model(source);
+    let first = function_binding_id(&model, "target", 0);
+    let second = function_binding_id(&model, "target", 1);
+    let analysis = model.analysis();
+    let mut reachability = analysis.direct_function_call_reachability(Vec::new());
+
+    assert!(!reachability.binding_has_reachable_direct_call(
+        first,
+        DirectFunctionCallWindow::before_offset(source.len())
+    ));
+    assert!(reachability.binding_has_reachable_direct_call(
+        second,
+        DirectFunctionCallWindow::before_offset(source.len())
+    ));
+}
+
+#[test]
 fn function_call_reachability_uses_supplemental_call_candidates() {
     let source = "\
 target() { :; }

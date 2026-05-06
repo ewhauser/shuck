@@ -166,6 +166,45 @@ impl<'model> SemanticAnalysis<'model> {
                             .ancestor_scopes(call_scope)
                             .any(|scope| scope == other_binding.scope)
                 });
+        let unreachable = self.unreachable_blocks();
+        let shadow_blocks =
+            self.shadow_function_blocks_from_cfg(&binding.name, binding_id, unreachable);
+        if !shadow_blocks.is_empty()
+            && self
+                .model
+                .ancestor_scopes(call_scope)
+                .any(|scope| scope == binding.scope)
+            && let Some(function_scope) = self.enclosing_function_scope(call_scope)
+            && function_scope != binding.scope
+        {
+            let binding_blocks = self
+                .blocks_containing_binding(binding_id)
+                .iter()
+                .copied()
+                .filter(|block| !unreachable.contains(block))
+                .collect::<Vec<_>>();
+            if binding_blocks.is_empty() {
+                return false;
+            }
+            if self.binding_can_reach_natural_exit_avoiding_shadow(
+                &binding_blocks,
+                &shadow_blocks,
+                unreachable,
+                &FxHashSet::default(),
+            ) {
+                return true;
+            }
+            let empty_script_terminators = FxHashSet::default();
+            let mut visiting_scopes = FxHashSet::default();
+            return self.function_scope_can_run_on_path_before_shadow(
+                function_scope,
+                &binding_blocks,
+                &shadow_blocks,
+                unreachable,
+                &empty_script_terminators,
+                &mut visiting_scopes,
+            );
+        }
         if !has_visible_shadow {
             return true;
         }
@@ -179,7 +218,6 @@ impl<'model> SemanticAnalysis<'model> {
 
         let mut avoid = self.shadow_function_blocks_for_binding(binding_id);
         avoid.extend(self.cfg().script_terminators().iter().copied());
-        let unreachable = self.unreachable_blocks();
         let binding_blocks = self
             .blocks_containing_binding(binding_id)
             .iter()
@@ -198,6 +236,142 @@ impl<'model> SemanticAnalysis<'model> {
         }
 
         self.blocks_have_path_avoiding(&binding_blocks, &call_blocks, &avoid)
+    }
+
+    fn binding_can_reach_natural_exit_avoiding_shadow(
+        &self,
+        binding_blocks: &[BlockId],
+        shadow_blocks: &FxHashSet<BlockId>,
+        unreachable: &FxHashSet<BlockId>,
+        script_terminators: &FxHashSet<BlockId>,
+    ) -> bool {
+        if shadow_blocks.is_empty() {
+            return true;
+        }
+        let mut endpoints = self
+            .cfg()
+            .natural_exits()
+            .iter()
+            .copied()
+            .filter(|block| !unreachable.contains(block))
+            .collect::<Vec<_>>();
+        let shadow_offset = shadow_blocks
+            .iter()
+            .flat_map(|block| block_min_offset(self.cfg().block(*block), self.model))
+            .max();
+        if let Some(shadow_offset) = shadow_offset {
+            endpoints.extend(self.cfg().blocks().iter().filter_map(|block| {
+                (!unreachable.contains(&block.id)
+                    && !shadow_blocks.contains(&block.id)
+                    && block_min_offset(block, self.model)
+                        .is_some_and(|offset| offset > shadow_offset))
+                .then_some(block.id)
+            }));
+        }
+        endpoints.sort_by_key(|block| block.index());
+        endpoints.dedup();
+        !endpoints.is_empty()
+            && blocks_have_path_avoiding_many(
+                self.cfg(),
+                binding_blocks,
+                &endpoints,
+                shadow_blocks,
+                script_terminators,
+            )
+    }
+
+    fn function_scope_can_run_on_path_before_shadow(
+        &self,
+        function_scope: ScopeId,
+        binding_blocks: &[BlockId],
+        shadow_blocks: &FxHashSet<BlockId>,
+        unreachable: &FxHashSet<BlockId>,
+        script_terminators: &FxHashSet<BlockId>,
+        visiting_scopes: &mut FxHashSet<ScopeId>,
+    ) -> bool {
+        if !visiting_scopes.insert(function_scope) {
+            return false;
+        }
+        let can_run = self
+            .model
+            .recorded_program
+            .function_body_scopes
+            .iter()
+            .filter_map(|(function_binding, body_scope)| {
+                (*body_scope == function_scope).then_some(*function_binding)
+            })
+            .any(|function_binding| {
+                let function = self.model.binding(function_binding);
+                self.model
+                    .call_sites_for(&function.name)
+                    .iter()
+                    .any(|caller| {
+                        self.call_site_can_run_on_path_before_shadow(
+                            &function.name,
+                            caller,
+                            function_binding,
+                            function.span.start.offset,
+                            binding_blocks,
+                            shadow_blocks,
+                            unreachable,
+                            script_terminators,
+                            visiting_scopes,
+                        )
+                    })
+            });
+        visiting_scopes.remove(&function_scope);
+        can_run
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn call_site_can_run_on_path_before_shadow(
+        &self,
+        function_name: &Name,
+        caller: &CallSite,
+        function_binding: BindingId,
+        function_offset: usize,
+        binding_blocks: &[BlockId],
+        shadow_blocks: &FxHashSet<BlockId>,
+        unreachable: &FxHashSet<BlockId>,
+        script_terminators: &FxHashSet<BlockId>,
+        visiting_scopes: &mut FxHashSet<ScopeId>,
+    ) -> bool {
+        if !self.overwrite_call_site_resolves_to_binding(function_name, caller, function_binding)
+            || !self.call_site_can_execute_after_function_definition(caller, function_offset)
+        {
+            return false;
+        }
+
+        let caller_blocks = self.reachable_call_site_blocks_in_cfg(self.cfg(), caller, unreachable);
+        if caller_blocks.is_empty() {
+            return false;
+        }
+
+        let Some(caller_function_scope) = self.enclosing_function_scope(caller.scope) else {
+            return blocks_have_path_avoiding_many(
+                self.cfg(),
+                binding_blocks,
+                &caller_blocks,
+                shadow_blocks,
+                script_terminators,
+            );
+        };
+        let Some(scope_entry) = self.cfg().scope_entry(caller_function_scope) else {
+            return false;
+        };
+        blocks_have_path_avoiding(
+            self.cfg(),
+            &[scope_entry],
+            &caller_blocks,
+            script_terminators,
+        ) && self.function_scope_can_run_on_path_before_shadow(
+            caller_function_scope,
+            binding_blocks,
+            shadow_blocks,
+            unreachable,
+            script_terminators,
+            visiting_scopes,
+        )
     }
 
     fn overwrite_call_site_resolves_to_binding(
@@ -875,12 +1049,70 @@ impl<'model> SemanticAnalysis<'model> {
             return false;
         }
 
-        if site.scope == binding.scope
-            || self
-                .model
-                .ancestor_scopes(site.scope)
-                .any(|scope| scope == binding.scope)
+        if site.scope == binding.scope {
+            let binding_blocks: Vec<BlockId> = self
+                .blocks_containing_binding(binding_id)
+                .iter()
+                .copied()
+                .filter(|block| !unreachable.contains(block))
+                .collect();
+            if binding_blocks.is_empty() {
+                return false;
+            }
+            let shadow_blocks = self.shadow_function_blocks_from_cfg(name, binding_id, unreachable);
+            return blocks_have_path_avoiding_many(
+                cfg,
+                &binding_blocks,
+                &site_blocks,
+                &shadow_blocks,
+                script_terminators,
+            );
+        }
+
+        if self
+            .model
+            .ancestor_scopes(site.scope)
+            .any(|scope| scope == binding.scope)
         {
+            if let Some(function_scope) = self.enclosing_function_scope(site.scope)
+                && function_scope != binding.scope
+            {
+                let Some(scope_entry) = cfg.scope_entry(function_scope) else {
+                    return false;
+                };
+                if !blocks_have_path_avoiding(cfg, &[scope_entry], &site_blocks, script_terminators)
+                {
+                    return false;
+                }
+                let binding_blocks: Vec<BlockId> = self
+                    .blocks_containing_binding(binding_id)
+                    .iter()
+                    .copied()
+                    .filter(|block| !unreachable.contains(block))
+                    .collect();
+                if binding_blocks.is_empty() {
+                    return false;
+                }
+                let shadow_blocks =
+                    self.shadow_function_blocks_from_cfg(name, binding_id, unreachable);
+                if self.binding_can_reach_natural_exit_avoiding_shadow(
+                    &binding_blocks,
+                    &shadow_blocks,
+                    unreachable,
+                    script_terminators,
+                ) {
+                    return true;
+                }
+                return self.function_scope_can_run_on_path_before_shadow(
+                    function_scope,
+                    &binding_blocks,
+                    &shadow_blocks,
+                    unreachable,
+                    script_terminators,
+                    &mut FxHashSet::default(),
+                );
+            }
+
             let binding_blocks: Vec<BlockId> = self
                 .blocks_containing_binding(binding_id)
                 .iter()
@@ -1465,6 +1697,20 @@ fn blocks_have_path_avoiding(
             .copied()
             .any(|end| block_reaches_avoiding(cfg, start, end, avoid))
     })
+}
+
+fn block_min_offset(block: &BasicBlock, model: &SemanticModel) -> Option<usize> {
+    block
+        .commands
+        .iter()
+        .map(|span| span.start.offset)
+        .chain(
+            block
+                .bindings
+                .iter()
+                .map(|binding| model.binding(*binding).span.start.offset),
+        )
+        .min()
 }
 
 fn blocks_have_path_avoiding_many(

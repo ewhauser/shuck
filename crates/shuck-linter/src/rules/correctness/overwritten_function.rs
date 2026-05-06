@@ -1,7 +1,7 @@
 use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 use compact_str::CompactString;
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::Name;
+use shuck_ast::{Name, static_word_text};
 use shuck_semantic::{
     BindingId, BindingKind, BindingOrigin, DirectFunctionCallReachability,
     DirectFunctionCallWindow, FunctionCallCandidate, FunctionCallPersistence,
@@ -283,22 +283,103 @@ fn build_compat_structural_facts(checker: &Checker<'_>) -> CompatStructuralFacts
     }
 }
 
-fn supplemental_function_call_candidates<'checker, 'model>(
-    checker: &'checker Checker<'model>,
-) -> impl Iterator<Item = FunctionCallCandidate> + 'checker {
-    checker
+fn supplemental_function_call_candidates(checker: &Checker<'_>) -> Vec<FunctionCallCandidate> {
+    let forwarding_wrappers = first_argument_forwarding_wrappers(checker);
+    let mut candidates = Vec::new();
+
+    for fact in checker
         .facts()
         .structural_commands()
         .filter(|fact| !matches!(fact.command(), shuck_ast::Command::Function(_)))
-        .filter_map(|fact| {
-            let callee = fact.effective_name()?;
-            Some(FunctionCallCandidate {
+    {
+        if let Some(callee) = fact.effective_name() {
+            candidates.push(FunctionCallCandidate {
                 callee: Name::from(callee),
                 scope: fact.scope(),
                 name_span: fact.body_span(),
-                command_span: fact.body_span(),
-            })
+                command_span: fact.span(),
+            });
+        }
+
+        if fact.effective_name().is_some_and(|name| {
+            wrapper_call_resolves_to_forwarding_binding(
+                checker,
+                &forwarding_wrappers,
+                Name::from(name),
+                fact.scope(),
+                fact.body_word_span(),
+                fact.span(),
+            )
+        }) && let Some(first_arg) = fact.body_args().first()
+            && let Some(callee) = static_word_text(first_arg, checker.source())
+        {
+            candidates.push(FunctionCallCandidate {
+                callee: Name::from(callee.as_ref()),
+                scope: fact.scope(),
+                name_span: first_arg.span,
+                command_span: fact.span(),
+            });
+        }
+    }
+
+    candidates
+}
+
+fn first_argument_forwarding_wrappers(checker: &Checker<'_>) -> FxHashMap<Name, Vec<BindingId>> {
+    let mut wrappers = FxHashMap::<Name, Vec<BindingId>>::default();
+    checker
+        .facts()
+        .function_headers()
+        .iter()
+        .filter_map(|header| {
+            let (name, _) = header.static_name_entry()?;
+            let binding_id = header.binding_id()?;
+            let function_scope = header.function_scope()?;
+            function_body_invokes_positional_arguments(checker, function_scope)
+                .then_some((name.clone(), binding_id))
         })
+        .for_each(|(name, binding_id)| wrappers.entry(name).or_default().push(binding_id));
+    wrappers
+}
+
+fn wrapper_call_resolves_to_forwarding_binding(
+    checker: &Checker<'_>,
+    forwarding_wrappers: &FxHashMap<Name, Vec<BindingId>>,
+    name: Name,
+    call_scope: ScopeId,
+    name_span: Option<shuck_ast::Span>,
+    command_span: shuck_ast::Span,
+) -> bool {
+    let Some(name_span) = name_span else {
+        return false;
+    };
+    forwarding_wrappers.get(&name).is_some_and(|bindings| {
+        bindings.iter().any(|binding_id| {
+            checker
+                .semantic_analysis()
+                .function_call_may_resolve_to_binding(
+                    *binding_id,
+                    call_scope,
+                    name_span,
+                    command_span,
+                )
+        })
+    })
+}
+
+fn function_body_invokes_positional_arguments(
+    checker: &Checker<'_>,
+    function_scope: ScopeId,
+) -> bool {
+    checker.facts().structural_commands().any(|fact| {
+        checker.semantic().enclosing_function_scope(fact.scope()) == Some(function_scope)
+            && fact.body_word_span().is_some_and(|span| {
+                matches!(
+                    span.slice(checker.source()),
+                    "$@" | "\"$@\"" | "${@}" | "\"${@}\"" | "$*" | "${*}"
+                )
+            })
+    })
 }
 
 fn build_direct_function_call_reachability<'checker, 'model>(
@@ -807,15 +888,8 @@ fn should_suppress_unreached(
         .rule_options()
         .c063
         .report_unreached_nested_definitions;
-
     matches!(binding.kind, BindingKind::Imported)
         || (matches!(unreached.reason, UnreachedFunctionReason::ScriptTerminates)
-            && has_apparent_infinite_loop_after(checker, binding.span.start.offset))
-        || (compat_mode
-            && matches!(unreached.reason, UnreachedFunctionReason::ScriptTerminates)
-            && has_top_level_return_after(checker, binding.span.start.offset))
-        || (compat_mode
-            && matches!(unreached.reason, UnreachedFunctionReason::ScriptTerminates)
             && last_script_terminator_offset_after(checker, binding.span.start.offset).is_some_and(
                 |terminator_offset| {
                     has_direct_call_to_binding_before_offset(
@@ -825,6 +899,16 @@ fn should_suppress_unreached(
                     )
                 },
             ))
+        || (matches!(
+            unreached.reason,
+            UnreachedFunctionReason::UnreachableDefinition
+        ) && !has_file_scope_termination_barrier_before(checker, binding.span.start.offset)
+            && has_direct_call_to_binding_before_offset(reach, unreached.binding, usize::MAX))
+        || (matches!(unreached.reason, UnreachedFunctionReason::ScriptTerminates)
+            && has_apparent_infinite_loop_after(checker, binding.span.start.offset))
+        || (compat_mode
+            && matches!(unreached.reason, UnreachedFunctionReason::ScriptTerminates)
+            && has_top_level_return_after(checker, binding.span.start.offset))
         || (matches!(
             unreached.reason,
             UnreachedFunctionReason::EnclosingFunctionUnreached
@@ -860,6 +944,42 @@ fn last_script_terminator_offset_after(
                 .then_some(offset)
         })
         .max()
+}
+
+fn has_file_scope_script_terminator_before(checker: &Checker<'_>, before_offset: usize) -> bool {
+    let cfg = checker.semantic_analysis().cfg();
+    let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+    cfg.script_terminators()
+        .iter()
+        .filter(|block_id| !unreachable.contains(block_id))
+        .flat_map(|block_id| cfg.block(*block_id).commands.iter())
+        .any(|span| {
+            let offset = span.start.offset;
+            offset < before_offset
+                && checker
+                    .facts()
+                    .innermost_command_at(offset)
+                    .map(|fact| scope_is_file_scope(checker, fact.scope()))
+                    .unwrap_or_else(|| {
+                        scope_is_file_scope(checker, checker.semantic().scope_at(offset))
+                    })
+        })
+}
+
+fn has_file_scope_termination_barrier_before(checker: &Checker<'_>, before_offset: usize) -> bool {
+    has_file_scope_script_terminator_before(checker, before_offset)
+        || has_file_scope_return_before(checker, before_offset)
+}
+
+fn has_file_scope_return_before(checker: &Checker<'_>, before_offset: usize) -> bool {
+    checker.facts().structural_commands().any(|fact| {
+        let offset = fact.body_span().start.offset;
+        offset < before_offset
+            && fact.effective_name_is("return")
+            && scope_is_file_scope(checker, fact.scope())
+            && !command_offset_is_under_dominance_barrier(checker, offset)
+            && !command_offset_is_unreachable(checker, offset)
+    })
 }
 
 fn has_top_level_return_after(checker: &Checker<'_>, after_offset: usize) -> bool {
@@ -2177,6 +2297,235 @@ exit 0
     }
 
     #[test]
+    fn later_anonymous_function_call_reaches_transitive_helpers_before_exit() {
+        let source = "\
+function run_command() {
+  :
+}
+
+function install_font() {
+  run_command
+}
+
+function ask_font() {
+  install_font
+}
+
+() {
+  ask_font
+  exit
+}
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn later_anonymous_function_call_reaches_conditional_helpers_before_exit() {
+        let source = "\
+if [[ $OSTYPE == cygwin ]]; then
+  function flock() {
+    :
+  }
+else
+  function flock() {
+    :
+  }
+fi
+
+function build() {
+  flock
+}
+
+function mbuild() {
+  build
+}
+
+() {
+  mbuild \"$@\"
+  exit
+}
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/mbuild.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn large_file_reachability_suppresses_later_body_calls_before_exit() {
+        let mut source = String::new();
+        for i in 0..205 {
+            source.push_str(&format!("function filler_{i}() {{ :; }}\n"));
+        }
+        source.push_str(
+            "\
+function helper() {
+  :
+}
+
+function driver() {
+  helper
+}
+
+driver
+exit
+",
+        );
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/large.zsh"),
+            &source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn first_argument_forwarding_wrapper_reaches_function_chain_before_exit() {
+        let source = "\
+function flock() {
+  :
+}
+
+function build() {
+  flock
+}
+
+function mbuild() {
+  build
+}
+
+function run_process_tree() {
+  \"$@\"
+}
+
+run_process_tree mbuild \"$@\"
+exit
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/mbuild.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn quoted_star_wrapper_does_not_reach_first_argument() {
+        let source = "\
+function helper() {
+  :
+}
+
+function other() {
+  :
+}
+
+function run_quoted_star() {
+  \"$*\"
+}
+
+function run_quoted_braced_star() {
+  \"${*}\"
+}
+
+run_quoted_star helper arg
+run_quoted_braced_star other arg
+exit
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.span.start.line == 1),
+            "diagnostics: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.span.start.line == 5),
+            "diagnostics: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn nested_forwarding_body_does_not_make_outer_function_a_wrapper() {
+        let source = "\
+function helper() {
+  :
+}
+
+function outer() {
+  function inner() {
+    \"$@\"
+  }
+}
+
+outer helper
+exit
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.span.start.line == 1),
+            "diagnostics: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn redefined_forwarding_wrapper_does_not_reach_first_argument() {
+        let source = "\
+function helper() {
+  :
+}
+
+function run_wrapper() {
+  \"$@\"
+}
+
+function run_wrapper() {
+  :
+}
+
+run_wrapper helper
+exit
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.span.start.line == 1),
+            "diagnostics: {diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn direct_calls_before_script_termination_do_not_report() {
         let source = "\
 myfunc() { echo hi; }
@@ -2207,6 +2556,69 @@ myfunc() { echo hi; }
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
         assert_eq!(diagnostics[0].span.start.line, 2);
+    }
+
+    #[test]
+    fn unreachable_function_definitions_report_despite_later_unreachable_body_call() {
+        let source = "\
+exit 0
+helper() { echo hi; }
+driver() { helper; }
+driver
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.span.start.line == 2),
+            "diagnostics: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn unreachable_function_definitions_report_after_sourceable_return() {
+        let source = "\
+return 2>/dev/null
+helper() { echo hi; }
+driver() { helper; }
+driver
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.span.start.line == 2),
+            "diagnostics: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn conditional_file_scope_return_does_not_block_later_body_call() {
+        let source = "\
+if cond; then
+  return 1
+fi
+helper() { echo hi; }
+driver() { helper; }
+driver
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
