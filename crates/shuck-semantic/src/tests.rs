@@ -3,7 +3,7 @@ use shuck_ast::{Command, CompoundCommand, Position, Span};
 use shuck_indexer::Indexer;
 use shuck_parser::parser::{Parser, ShellDialect};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tempfile::tempdir;
 
 fn model(source: &str) -> SemanticModel {
@@ -102,6 +102,28 @@ fn model_at_path_with_resolver(
         &mut observer,
         Some(path),
         source_path_resolver,
+    )
+}
+
+fn model_at_path_with_plugin_resolver(
+    path: &Path,
+    plugin_resolver: &(dyn PluginResolver + Send + Sync),
+) -> SemanticModel {
+    let source = fs::read_to_string(path).unwrap();
+    let output = Parser::with_dialect(&source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let indexer = Indexer::new(&source, &output);
+    SemanticModel::build_with_options(
+        &output.file,
+        &source,
+        &indexer,
+        SemanticBuildOptions {
+            source_path: Some(path),
+            plugin_resolver: Some(plugin_resolver),
+            shell_profile: Some(ShellProfile::native(shuck_parser::ShellDialect::Zsh)),
+            ..SemanticBuildOptions::default()
+        },
     )
 }
 
@@ -9023,6 +9045,117 @@ source \"$(dirname \"${BASH_SOURCE[0]}\")/missing-helper.bash\"
     );
     let unused = reportable_unused_names(&model);
     assert!(unused.is_empty(), "unused: {:?}", unused);
+}
+
+#[test]
+fn configured_zsh_plugin_entrypoint_reads_apply_after_file_assignments() {
+    struct EntryResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for EntryResolver {
+        fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+            vec![PluginRequest {
+                framework: PluginFramework::ExplicitFilesystem,
+                kind: PluginRequestKind::Entrypoint,
+                name: self.entrypoint.to_string_lossy().into_owned(),
+                span: Span::new(),
+                explicit: true,
+                root_hint: None,
+            }]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.kind == PluginRequestKind::Entrypoint {
+                PluginResolution {
+                    entrypoints: vec![self.entrypoint.clone()],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.zsh");
+    let plugin = temp.path().join("plugin.zsh");
+    fs::write(&main, "#!/bin/zsh\nflag=1\n").unwrap();
+    fs::write(&plugin, "echo \"$flag\"\n").unwrap();
+
+    let resolver = EntryResolver { entrypoint: plugin };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        model.synthetic_reads.iter().any(|read| read.name == "flag"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    let unused = reportable_unused_names(&model);
+    assert!(
+        !unused.contains(&Name::from("flag")),
+        "unused: {:?}",
+        unused
+    );
+}
+
+#[test]
+fn plugin_aware_zsh_source_resolution_imports_framework_entrypoint() {
+    struct SourceResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for SourceResolver {
+        fn resolve_source_path(&self, _source_path: &Path, candidate: &str) -> Vec<PathBuf> {
+            if candidate.ends_with("/oh-my-zsh.sh") {
+                vec![self.entrypoint.clone()]
+            } else {
+                Vec::new()
+            }
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            _request: &PluginRequest,
+        ) -> PluginResolution {
+            PluginResolution::default()
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.zsh");
+    let entrypoint = temp.path().join("oh-my-zsh.sh");
+    fs::write(
+        &main,
+        "#!/bin/zsh\nZSH=/not-installed/.oh-my-zsh\nflag=1\nsource \"$ZSH/oh-my-zsh.sh\"\n",
+    )
+    .unwrap();
+    fs::write(&entrypoint, "echo \"$flag\"\n").unwrap();
+
+    let resolver = SourceResolver { entrypoint };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        model.synthetic_reads.iter().any(|read| read.name == "flag"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    assert_eq!(
+        model.source_refs()[0].resolution,
+        SourceRefResolution::Resolved
+    );
+    assert!(model.source_refs()[0].explicitly_provided);
+    let unused = reportable_unused_names(&model);
+    assert!(
+        !unused.contains(&Name::from("flag")),
+        "unused: {:?}",
+        unused
+    );
 }
 
 #[test]

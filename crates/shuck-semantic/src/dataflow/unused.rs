@@ -725,7 +725,14 @@ fn build_unused_assignment_events(
     }
 
     for (read_index, synthetic_read) in context.synthetic_reads.iter().enumerate() {
-        let Some(block_id) = command_block_for_span(context.cfg, synthetic_read.span) else {
+        let Some(block_id) =
+            command_block_for_span(context.cfg, synthetic_read.span).or_else(|| {
+                context
+                    .cfg
+                    .scope_exits(synthetic_read.scope)
+                    .and_then(|exits| exits.last().copied())
+            })
+        else {
             continue;
         };
         events[block_id.index()].push(UnusedAssignmentEvent {

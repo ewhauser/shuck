@@ -7340,17 +7340,6 @@ repos:
           column: 16
         classification: real
       - path: "tools/theme_chooser.sh"
-        code: "C003"
-        severity: "warning"
-        message: "sourced file is not available to this analysis"
-        start:
-          line: 12
-          column: 8
-        end:
-          line: 12
-          column: 25
-        classification: real
-      - path: "tools/theme_chooser.sh"
         code: "C006"
         severity: "error"
         message: "variable `a` is referenced before assignment"

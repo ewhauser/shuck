@@ -577,6 +577,19 @@ impl PluginResolver for ResolvedZshPluginSettings {
         requests
     }
 
+    fn resolve_source_path(&self, _source_path: &Path, candidate: &str) -> Vec<PathBuf> {
+        if !self.enabled {
+            return Vec::new();
+        }
+
+        let Some(root) = self.roots.get("oh-my-zsh") else {
+            return Vec::new();
+        };
+        oh_my_zsh_source_suffix(candidate)
+            .map(|suffix| vec![root.join(suffix)])
+            .unwrap_or_default()
+    }
+
     fn resolve_plugin_request(
         &self,
         _source_path: &Path,
@@ -701,6 +714,24 @@ fn plugin_root_for_request(
         PluginFramework::Other(other) => other.as_str(),
     };
     settings.roots.get(key).cloned()
+}
+
+fn oh_my_zsh_source_suffix(candidate: &str) -> Option<PathBuf> {
+    let normalized = candidate.replace('\\', "/");
+    if normalized == "oh-my-zsh.sh" || normalized.ends_with("/oh-my-zsh.sh") {
+        return Some(PathBuf::from("oh-my-zsh.sh"));
+    }
+
+    for marker in ["/plugins/", "/themes/", "/lib/"] {
+        if let Some(index) = normalized.rfind(marker) {
+            let suffix = &normalized[index + 1..];
+            if !suffix.is_empty() {
+                return Some(PathBuf::from(suffix));
+            }
+        }
+    }
+
+    None
 }
 
 fn normalize_zsh_plugin_path(project_root: &Path, value: &str) -> Result<PathBuf> {
