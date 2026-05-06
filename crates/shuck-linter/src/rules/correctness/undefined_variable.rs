@@ -624,6 +624,29 @@ print -r -- ${functions[iterm2_precmd]}
     }
 
     #[test]
+    fn suppresses_external_zinit_state_map_keys() {
+        let source = "\
+#!/bin/zsh
+ZINIT[annex-multi-flag:pull-active]=0
+ZINIT[BINDKEYS___dtrace/_dtrace]+=x
+(( ZINIT[-r/--reset-opt-hook-has-been-run] == 0 ))
+arr[annex-multi-flag]=0
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["annex", "multi", "flag"]
+        );
+    }
+
+    #[test]
     fn zparseopts_targets_initialize_option_arrays() {
         let source = "\
 #!/bin/zsh

@@ -201,7 +201,7 @@ fn arithmetic_index_uses_zsh_option_map_key_semantics(
         {
             return true;
         }
-        if !zsh_option_map_binding_origin(owner_name, binding, source)
+        if !zsh_implicit_assoc_binding_origin(owner_name, binding, source)
             || zsh_option_map_binding_has_prior_assoc_lookup_blocker(
                 semantic, owner_name, binding, source,
             )
@@ -217,7 +217,8 @@ fn arithmetic_index_uses_zsh_option_map_key_semantics(
         source,
     )
         && semantic.shell_profile().dialect == shuck_parser::parser::ShellDialect::Zsh
-        && zsh_option_map_subscript_key(owner_name.as_str(), index.span.slice(source))
+        && (zsh_option_map_subscript_key(owner_name.as_str(), index.span.slice(source))
+            || zsh_external_assoc_subscript_key(owner_name.as_str(), index.span.slice(source)))
 }
 
 fn zsh_option_map_binding_permits_implicit_assoc_key(
@@ -233,10 +234,15 @@ fn zsh_option_map_binding_permits_implicit_assoc_key(
         return true;
     }
 
-    zsh_option_map_binding_origin(owner_name, binding, source)
+    zsh_implicit_assoc_binding_origin(owner_name, binding, source)
         && !zsh_option_map_binding_has_prior_assoc_lookup_blocker(
             semantic, owner_name, binding, source,
         )
+}
+
+fn zsh_implicit_assoc_binding_origin(owner_name: &Name, binding: &Binding, source: &str) -> bool {
+    zsh_option_map_binding_origin(owner_name, binding, source)
+        || zsh_external_assoc_binding_origin(owner_name, binding, source)
 }
 
 fn zsh_option_map_binding_origin(owner_name: &Name, binding: &Binding, source: &str) -> bool {
@@ -246,6 +252,24 @@ fn zsh_option_map_binding_origin(owner_name: &Name, binding: &Binding, source: &
         } => zsh_option_map_assignment_target(owner_name, definition_span.slice(source)),
         shuck_semantic::BindingOrigin::ArithmeticAssignment { target_span, .. } => {
             zsh_option_map_assignment_target(owner_name, target_span.slice(source))
+        }
+        shuck_semantic::BindingOrigin::ParameterDefaultAssignment { .. }
+        | shuck_semantic::BindingOrigin::LoopVariable { .. }
+        | shuck_semantic::BindingOrigin::Imported { .. }
+        | shuck_semantic::BindingOrigin::FunctionDefinition { .. }
+        | shuck_semantic::BindingOrigin::BuiltinTarget { .. }
+        | shuck_semantic::BindingOrigin::Declaration { .. }
+        | shuck_semantic::BindingOrigin::Nameref { .. } => false,
+    }
+}
+
+fn zsh_external_assoc_binding_origin(owner_name: &Name, binding: &Binding, source: &str) -> bool {
+    match &binding.origin {
+        shuck_semantic::BindingOrigin::Assignment {
+            definition_span, ..
+        } => zsh_external_assoc_assignment_target(owner_name, definition_span.slice(source)),
+        shuck_semantic::BindingOrigin::ArithmeticAssignment { target_span, .. } => {
+            zsh_external_assoc_assignment_target(owner_name, target_span.slice(source))
         }
         shuck_semantic::BindingOrigin::ParameterDefaultAssignment { .. }
         | shuck_semantic::BindingOrigin::LoopVariable { .. }
@@ -268,7 +292,7 @@ fn zsh_option_map_binding_has_prior_assoc_lookup_blocker(
         candidate.scope == binding.scope
             && candidate.span.start.offset < binding.span.start.offset
             && zsh_option_map_binding_blocks_assoc_lookup(candidate)
-            && !zsh_option_map_binding_origin(owner_name, candidate, source)
+            && !zsh_implicit_assoc_binding_origin(owner_name, candidate, source)
     })
 }
 
@@ -296,6 +320,17 @@ fn zsh_option_map_assignment_target(owner_name: &Name, text: &str) -> bool {
     zsh_option_map_subscript_key(owner_name.as_str(), subscript)
 }
 
+fn zsh_external_assoc_assignment_target(owner_name: &Name, text: &str) -> bool {
+    let Some(rest) = text.strip_prefix(owner_name.as_str()) else {
+        return false;
+    };
+    let Some(subscript) = rest.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) else {
+        return false;
+    };
+
+    zsh_external_assoc_subscript_key(owner_name.as_str(), subscript)
+}
+
 fn zsh_option_map_subscript_key(owner_name: &str, text: &str) -> bool {
     if owner_name != "OPTS" {
         return false;
@@ -320,6 +355,18 @@ fn zsh_option_map_subscript_key(owner_name: &str, text: &str) -> bool {
         && long_option
             .chars()
             .all(|ch| ch == '-' || ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn zsh_external_assoc_subscript_key(owner_name: &str, text: &str) -> bool {
+    if owner_name != "ZINIT" {
+        return false;
+    }
+
+    let text = text.trim();
+    !text.is_empty()
+        && text.chars().all(|ch| {
+            ch == '-' || ch == '_' || ch == '/' || ch == ':' || ch.is_ascii_alphanumeric()
+        })
 }
 
 fn collect_base_prefix_spans_in_command_parts(
