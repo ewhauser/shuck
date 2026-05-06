@@ -30,7 +30,13 @@ impl ZshPluginManager for GenericZshRuntimeManager {
 fn collect_generic_deferred_required_reads(
     context: &DeferredPluginRuntimeContext<'_>,
 ) -> Vec<Name> {
-    let roots = deferred_zsh_entrypoint_roots(context.facts, context.scope);
+    let registration_scopes = source_time_registration_scopes(
+        context.semantic,
+        context.analysis,
+        context.facts,
+        context.scope,
+    );
+    let roots = deferred_zsh_entrypoint_roots(context.facts, &registration_scopes);
     if roots.is_empty() {
         return Vec::new();
     }
@@ -61,9 +67,16 @@ fn collect_generic_deferred_required_reads(
 // Return statically registered zsh lifecycle callbacks in this scope. This is
 // intentionally zsh-framework-agnostic: the roots come from zsh's hook/widget
 // APIs, not from plugin names or path conventions.
-fn deferred_zsh_entrypoint_roots(facts: &AstFacts, scope: ScopeId) -> Vec<Name> {
+fn deferred_zsh_entrypoint_roots(
+    facts: &AstFacts,
+    registration_scopes: &FxHashSet<ScopeId>,
+) -> Vec<Name> {
     let mut roots = Vec::new();
-    for call in facts.calls.iter().filter(|call| call.scope == scope) {
+    for call in facts
+        .calls
+        .iter()
+        .filter(|call| registration_scopes.contains(&call.scope))
+    {
         match call.name.as_str() {
             "add-zsh-hook" | "add-zle-hook-widget" => {
                 if zsh_hook_call_does_not_register_callbacks(call) {
@@ -84,6 +97,47 @@ fn deferred_zsh_entrypoint_roots(facts: &AstFacts, scope: ScopeId) -> Vec<Name> 
     roots.sort_by(|left, right| left.as_str().cmp(right.as_str()));
     roots.dedup();
     roots
+}
+
+// Hook registrations can happen directly at file scope or inside setup
+// functions that run while the plugin is sourced. Follow static source-time
+// function calls using the semantic function resolver, and collect the
+// non-function scopes where hook registration commands may execute.
+fn source_time_registration_scopes(
+    semantic: &SemanticModel,
+    analysis: &crate::SemanticAnalysis<'_>,
+    facts: &AstFacts,
+    root: ScopeId,
+) -> FxHashSet<ScopeId> {
+    let mut registration_scopes = FxHashSet::default();
+    let mut visited_roots = FxHashSet::default();
+    let mut pending = vec![root];
+
+    while let Some(scope) = pending.pop() {
+        if !visited_roots.insert(scope) {
+            continue;
+        }
+        let member_scopes = scope_members_excluding_functions(semantic.scopes(), scope);
+        registration_scopes.extend(member_scopes.iter().copied());
+        for call in facts
+            .calls
+            .iter()
+            .filter(|call| member_scopes.contains(&call.scope))
+        {
+            let Some(binding) = analysis.visible_function_binding_defined_before(
+                &call.name,
+                call.scope,
+                call.span.start.offset,
+            ) else {
+                continue;
+            };
+            if let Some(callee_scope) = analysis.function_scope_for_binding(binding) {
+                pending.push(callee_scope);
+            }
+        }
+    }
+
+    registration_scopes
 }
 
 // `add-zsh-hook -d/-D hook func` removes callbacks and `-L` lists callbacks
@@ -151,14 +205,21 @@ fn function_scopes_by_name(
     scope: ScopeId,
 ) -> FxHashMap<Name, ScopeId> {
     let mut scopes = FxHashMap::default();
-    for (function_scope, bindings) in analysis.function_bindings_by_scope() {
+    let mut definitions = semantic
+        .function_definition_bindings()
+        .filter_map(|binding| {
+            analysis
+                .function_scope_for_binding(binding.id)
+                .map(|function_scope| (binding, function_scope))
+        })
+        .collect::<Vec<_>>();
+    definitions.sort_by_key(|(binding, _)| binding.span.start.offset);
+
+    for (binding, function_scope) in definitions {
         if semantic.scope(function_scope).parent != Some(scope) {
             continue;
         }
-        for binding_id in bindings {
-            let binding = semantic.binding(*binding_id);
-            scopes.insert(binding.name.clone(), function_scope);
-        }
+        scopes.insert(binding.name.clone(), function_scope);
     }
     scopes
 }

@@ -9558,6 +9558,142 @@ _plugin_second() {
 }
 
 #[test]
+fn zsh_plugin_deferred_callback_uses_latest_function_definition() {
+    struct EntryResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for EntryResolver {
+        fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+            vec![PluginRequest {
+                framework: PluginFramework::ExplicitFilesystem,
+                kind: PluginRequestKind::Entrypoint,
+                name: self.entrypoint.to_string_lossy().into_owned(),
+                span: Span::new(),
+                explicit: true,
+                root_hint: None,
+            }]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.kind == PluginRequestKind::Entrypoint {
+                PluginResolution {
+                    entrypoints: vec![self.entrypoint.clone()],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.zsh");
+    let plugin = temp.path().join("plugin.zsh");
+    fs::write(&main, "#!/bin/zsh\nOLD_CALLBACK=1\nNEW_CALLBACK=1\n").unwrap();
+    fs::write(
+        &plugin,
+        "\
+add-zsh-hook precmd _plugin_callback
+_plugin_callback() {
+  print \"$OLD_CALLBACK\"
+}
+_plugin_callback() {
+  print \"$NEW_CALLBACK\"
+}
+",
+    )
+    .unwrap();
+
+    let resolver = EntryResolver { entrypoint: plugin };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    let unused = reportable_unused_names(&model);
+    assert!(
+        unused.contains(&Name::from("OLD_CALLBACK")),
+        "unused: {unused:?}"
+    );
+    assert!(
+        !unused.contains(&Name::from("NEW_CALLBACK")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
+fn zsh_plugin_hook_registration_inside_called_setup_function_is_deferred_root() {
+    struct EntryResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for EntryResolver {
+        fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+            vec![PluginRequest {
+                framework: PluginFramework::ExplicitFilesystem,
+                kind: PluginRequestKind::Entrypoint,
+                name: self.entrypoint.to_string_lossy().into_owned(),
+                span: Span::new(),
+                explicit: true,
+                root_hint: None,
+            }]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            request: &PluginRequest,
+        ) -> PluginResolution {
+            if request.kind == PluginRequestKind::Entrypoint {
+                PluginResolution {
+                    entrypoints: vec![self.entrypoint.clone()],
+                    file_entry_contracts: Vec::new(),
+                }
+            } else {
+                PluginResolution::default()
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.zsh");
+    let plugin = temp.path().join("plugin.zsh");
+    fs::write(&main, "#!/bin/zsh\nSETUP_CALLBACK=1\n").unwrap();
+    fs::write(
+        &plugin,
+        "\
+_plugin_setup() {
+  add-zsh-hook precmd _plugin_callback
+}
+_plugin_setup
+_plugin_callback() {
+  print \"$SETUP_CALLBACK\"
+}
+",
+    )
+    .unwrap();
+
+    let resolver = EntryResolver { entrypoint: plugin };
+    let model = model_at_path_with_plugin_resolver(&main, &resolver);
+
+    assert!(
+        model
+            .synthetic_reads
+            .iter()
+            .any(|read| read.name == "SETUP_CALLBACK"),
+        "synthetic reads: {:?}",
+        model.synthetic_reads
+    );
+    let unused = reportable_unused_names(&model);
+    assert!(
+        !unused.contains(&Name::from("SETUP_CALLBACK")),
+        "unused: {unused:?}"
+    );
+}
+
+#[test]
 fn plugin_aware_zsh_source_resolution_imports_framework_entrypoint() {
     struct SourceResolver {
         entrypoint: PathBuf,
