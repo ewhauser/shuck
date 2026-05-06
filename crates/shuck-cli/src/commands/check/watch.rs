@@ -62,7 +62,7 @@ impl WatchTarget {
         if self.recursive {
             self.match_paths
                 .iter()
-                .any(|match_path| path.starts_with(match_path))
+                .any(|match_path| path.starts_with(match_path) || match_path.starts_with(path))
         } else {
             self.match_paths.iter().any(|match_path| match_path == path)
         }
@@ -788,6 +788,22 @@ mod tests {
                     .match_paths
                     .contains(&normalize_path(&missing_dependency))
         }));
+    }
+
+    #[test]
+    fn recursive_missing_dependency_targets_match_ancestor_directory_events() {
+        let target = WatchTarget {
+            watch_path: PathBuf::from("/workspace"),
+            watch_paths: vec![PathBuf::from("/workspace")],
+            recursive: true,
+            match_paths: vec![PathBuf::from("/workspace/vendor/plugins/plugin.plugin.zsh")],
+        };
+
+        assert!(target.matches_event_path(Path::new("/workspace/vendor")));
+        assert!(
+            target.matches_event_path(Path::new("/workspace/vendor/plugins/plugin.plugin.zsh",))
+        );
+        assert!(!target.matches_event_path(Path::new("/workspace/other")));
     }
 
     #[test]

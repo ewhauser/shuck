@@ -16,6 +16,8 @@ mod embedded;
 mod run;
 mod settings;
 mod watch;
+#[cfg(test)]
+mod zsh_plugin_dependency_fixtures;
 
 use add_ignore::run_add_ignore_with_cwd;
 use display::{print_diagnostics, print_report};
