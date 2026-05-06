@@ -1389,7 +1389,7 @@ fn zsh_diagnostic_corpus_matches_baseline() {
         }
 
         let actual =
-            match parse_zsh_diagnostic_json_lines(&repo.name, &visible_repo_dir, &output.stdout) {
+            match parse_zsh_diagnostic_json_lines(&repo.name, visible_repo_dir, &output.stdout) {
                 Ok(actual) => actual,
                 Err(err) => {
                     failures.push(err);

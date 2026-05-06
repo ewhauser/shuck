@@ -1868,13 +1868,15 @@ fn resolve_helper_paths(
         }
     }
 
-    if let Some(plugin_paths) = context.plugin_resolver.map(|resolver| {
-        resolver
-            .resolve_source_path(source_path, candidate)
-            .into_iter()
-            .filter(|path| path.is_file())
-            .collect::<Vec<_>>()
-    }) && !plugin_paths.is_empty()
+    if context.shell_profile.dialect == ParseShellDialect::Zsh
+        && let Some(plugin_paths) = context.plugin_resolver.map(|resolver| {
+            resolver
+                .resolve_source_path(source_path, candidate)
+                .into_iter()
+                .filter(|path| path.is_file())
+                .collect::<Vec<_>>()
+        })
+        && !plugin_paths.is_empty()
     {
         return HelperPathResolution {
             paths: plugin_paths,
@@ -2489,11 +2491,19 @@ noglob source \"$3\"
             canonical_loader.parent().unwrap().to_string_lossy()
         );
 
-        let resolved = resolve_helper_paths(&canonical_loader, &candidate, None);
+        let context = SourceClosureLookupContext {
+            source_path_resolver: None,
+            plugin_resolver: None,
+            analyzed_paths: None,
+            shell_profile: ShellProfile::native(ParseShellDialect::Bash),
+            resolved_helper_paths: RefCell::new(FxHashMap::default()),
+            dependency_paths: RefCell::new(FxHashSet::default()),
+        };
+        let resolved = resolve_helper_paths(&canonical_loader, &candidate, &context);
 
-        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved.paths.len(), 1);
         assert_eq!(
-            fs::canonicalize(&resolved[0]).unwrap(),
+            fs::canonicalize(&resolved.paths[0]).unwrap(),
             fs::canonicalize(&helper).unwrap()
         );
     }

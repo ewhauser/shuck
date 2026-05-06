@@ -9159,6 +9159,61 @@ fn plugin_aware_zsh_source_resolution_imports_framework_entrypoint() {
 }
 
 #[test]
+fn plugin_source_resolution_does_not_apply_to_non_zsh_sources() {
+    struct SourceResolver {
+        entrypoint: PathBuf,
+    }
+
+    impl PluginResolver for SourceResolver {
+        fn resolve_source_path(&self, _source_path: &Path, _candidate: &str) -> Vec<PathBuf> {
+            vec![self.entrypoint.clone()]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            _request: &PluginRequest,
+        ) -> PluginResolution {
+            PluginResolution::default()
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join("main.sh");
+    let entrypoint = temp.path().join("plugin.sh");
+    fs::write(
+        &main,
+        "#!/bin/sh\nflag=1\nsource /opt/app/plugins/plugin.sh\n",
+    )
+    .unwrap();
+    fs::write(&entrypoint, "echo \"$flag\"\n").unwrap();
+
+    let resolver = SourceResolver { entrypoint };
+    let source = fs::read_to_string(&main).unwrap();
+    let output = Parser::with_dialect(&source, ShellDialect::Bash)
+        .parse()
+        .unwrap();
+    let indexer = Indexer::new(&source, &output);
+    let model = SemanticModel::build_with_options(
+        &output.file,
+        &source,
+        &indexer,
+        SemanticBuildOptions {
+            source_path: Some(&main),
+            plugin_resolver: Some(&resolver),
+            shell_profile: Some(ShellProfile::native(shuck_parser::ShellDialect::Bash)),
+            ..SemanticBuildOptions::default()
+        },
+    );
+
+    assert_eq!(
+        model.source_refs()[0].resolution,
+        SourceRefResolution::Unresolved
+    );
+    assert!(!model.source_refs()[0].explicitly_provided);
+}
+
+#[test]
 fn precise_unused_assignments_match_dataflow_for_source_closure_cases() {
     let temp = tempdir().unwrap();
 
