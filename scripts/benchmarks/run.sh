@@ -12,28 +12,42 @@ shellcheck_check="shellcheck --enable=all --severity=style"
 
 mkdir -p "$cache_dir"
 
-shuck_fixture_list=$(
-    for fixture in "$fixtures_dir"/*.sh "$fixtures_dir"/*.zsh; do
-        if [ -f "$fixture" ]; then
-            printf '%s\n' "$fixture"
-        fi
-    done | sort
-)
-shellcheck_fixture_list=$(
-    for fixture in "$fixtures_dir"/*.sh; do
-        if [ -f "$fixture" ]; then
-            printf '%s\n' "$fixture"
-        fi
-    done | sort
-)
-if [ -z "$shuck_fixture_list" ]; then
+quote_shell_arg() {
+    printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+append_shell_arg() {
+    if [ -n "$1" ]; then
+        printf '%s ' "$1"
+    fi
+    quote_shell_arg "$2"
+}
+
+shuck_fixtures=
+shellcheck_fixtures=
+
+for fixture in "$fixtures_dir"/*.sh "$fixtures_dir"/*.zsh; do
+    if [ -f "$fixture" ]; then
+        shuck_fixtures=$(append_shell_arg "$shuck_fixtures" "$fixture")
+    fi
+done
+for fixture in "$fixtures_dir"/*.sh; do
+    if [ -f "$fixture" ]; then
+        shellcheck_fixtures=$(append_shell_arg "$shellcheck_fixtures" "$fixture")
+    fi
+done
+if [ -z "$shuck_fixtures" ]; then
     echo "ERROR: no benchmark fixtures found in $fixtures_dir" >&2
     exit 1
 fi
 
-for file in $shuck_fixture_list; do
+for file in "$fixtures_dir"/*.sh "$fixtures_dir"/*.zsh; do
+    if [ ! -f "$file" ]; then
+        continue
+    fi
     name=$(basename "$file")
     name=${name%.*}
+    quoted_file=$(quote_shell_arg "$file")
     echo "==> Benchmarking: $name"
     case "$benchmark_mode" in
         compare)
@@ -44,7 +58,7 @@ for file in $shuck_fixture_list; do
                         --warmup 3 \
                         --runs 10 \
                         --export-json "$cache_dir/bench-$name.json" \
-                        -n "shuck/$name" "$shuck_check $file"
+                        -n "shuck/$name" "$shuck_check $quoted_file"
                     ;;
                 *)
                     hyperfine \
@@ -52,8 +66,8 @@ for file in $shuck_fixture_list; do
                         --warmup 3 \
                         --runs 10 \
                         --export-json "$cache_dir/bench-$name.json" \
-                        -n "shuck/$name" "$shuck_check $file" \
-                        -n "shellcheck/$name" "$shellcheck_check $file"
+                        -n "shuck/$name" "$shuck_check $quoted_file" \
+                        -n "shellcheck/$name" "$shellcheck_check $quoted_file"
                     ;;
             esac
             ;;
@@ -63,7 +77,7 @@ for file in $shuck_fixture_list; do
                 --warmup 3 \
                 --runs 10 \
                 --export-json "$cache_dir/bench-$name.json" \
-                -n "shuck/$name" "$shuck_check $file"
+                -n "shuck/$name" "$shuck_check $quoted_file"
             ;;
         *)
             echo "ERROR: unsupported SHUCK_BENCHMARK_MODE=$benchmark_mode" >&2
@@ -72,15 +86,10 @@ for file in $shuck_fixture_list; do
     esac
 done
 
-set -- $shuck_fixture_list
-shuck_fixtures=$*
-
 echo "==> Benchmarking: all"
 case "$benchmark_mode" in
     compare)
-        if [ -n "$shellcheck_fixture_list" ]; then
-            set -- $shellcheck_fixture_list
-            shellcheck_fixtures=$*
+        if [ -n "$shellcheck_fixtures" ]; then
             hyperfine \
                 --ignore-failure \
                 --warmup 3 \
