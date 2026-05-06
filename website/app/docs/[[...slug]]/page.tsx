@@ -9,6 +9,7 @@ const pages: Record<string, () => Promise<{ default: React.ComponentType; metada
   "run": () => import("@/content/run/index.mdx"),
   "embedded-scripts": () => import("@/content/embedded-scripts/index.mdx"),
   "configuration": () => import("@/content/configuration/index.mdx"),
+  "zsh-support": () => import("@/content/zsh-support/index.mdx"),
   "suppression": () => import("@/content/suppression/index.mdx"),
   "settings": () => import("@/content/settings/index.mdx"),
   "shellcheck-compat": () => import("@/content/shellcheck-compat/index.mdx"),

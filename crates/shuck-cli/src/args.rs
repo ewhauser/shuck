@@ -405,6 +405,9 @@ pub struct CheckCommand {
     /// Rule selection and suppression settings.
     #[command(flatten)]
     pub rule_selection: RuleSelectionArgs,
+    /// Zsh plugin-resolution settings.
+    #[command(flatten)]
+    pub zsh_plugin_resolution: ZshPluginArgs,
     /// File discovery and exclusion settings.
     #[command(flatten)]
     pub file_selection: FileSelectionArgs,
@@ -565,6 +568,125 @@ impl std::str::FromStr for PatternShellPair {
     }
 }
 
+/// A `<framework>=<path>` mapping from the CLI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrameworkRootPair {
+    /// Logical plugin framework name.
+    pub framework: String,
+    /// Filesystem path for that framework root.
+    pub path: String,
+}
+
+impl std::str::FromStr for FrameworkRootPair {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let (framework, path) = value
+            .split_once('=')
+            .ok_or_else(|| "expected <Framework>=<Path>".to_owned())?;
+        let framework = framework.trim();
+        let path = path.trim();
+
+        if framework.is_empty() || path.is_empty() {
+            return Err("expected <Framework>=<Path>".to_owned());
+        }
+
+        Ok(Self {
+            framework: framework.to_owned(),
+            path: path.to_owned(),
+        })
+    }
+}
+
+/// A `<pattern>:<framework>:<name>` mapping from the CLI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatternFrameworkNameTriple {
+    /// Glob-style file pattern.
+    pub pattern: String,
+    /// Logical plugin framework name.
+    pub framework: String,
+    /// Plugin or theme name.
+    pub name: String,
+}
+
+impl std::str::FromStr for PatternFrameworkNameTriple {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let mut parts = value.rsplitn(3, ':');
+        let name = parts
+            .next()
+            .ok_or_else(|| "expected <FilePattern>:<Framework>:<Name>".to_owned())?;
+        let framework = parts
+            .next()
+            .ok_or_else(|| "expected <FilePattern>:<Framework>:<Name>".to_owned())?;
+        let pattern = parts
+            .next()
+            .ok_or_else(|| "expected <FilePattern>:<Framework>:<Name>".to_owned())?;
+        let pattern = pattern.trim();
+        let framework = framework.trim();
+        let name = name.trim();
+
+        if pattern.is_empty() || framework.is_empty() || name.is_empty() {
+            return Err("expected <FilePattern>:<Framework>:<Name>".to_owned());
+        }
+
+        Ok(Self {
+            pattern: pattern.to_owned(),
+            framework: framework.to_owned(),
+            name: name.to_owned(),
+        })
+    }
+}
+
+/// A `<pattern>:<path>` mapping from the CLI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatternPathPair {
+    /// Glob-style file pattern.
+    pub pattern: String,
+    /// Filesystem path associated with matching files.
+    pub path: String,
+}
+
+impl std::str::FromStr for PatternPathPair {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let (pattern, path) = split_pattern_path_pair(value)
+            .ok_or_else(|| "expected <FilePattern>:<Path>".to_owned())?;
+        let pattern = pattern.trim();
+        let path = path.trim();
+
+        if pattern.is_empty() || path.is_empty() {
+            return Err("expected <FilePattern>:<Path>".to_owned());
+        }
+
+        Ok(Self {
+            pattern: pattern.to_owned(),
+            path: path.to_owned(),
+        })
+    }
+}
+
+fn split_pattern_path_pair(value: &str) -> Option<(&str, &str)> {
+    let bytes = value.as_bytes();
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte != b':' {
+            continue;
+        }
+        if index == 1
+            && bytes.first().is_some_and(|byte| byte.is_ascii_alphabetic())
+            && bytes
+                .get(2)
+                .is_some_and(|byte| *byte == b'/' || *byte == b'\\')
+        {
+            continue;
+        }
+        return Some((&value[..index], &value[index + 1..]));
+    }
+    None
+}
+
 fn parse_cli_rule_selector(value: &str) -> Result<RuleSelector, String> {
     let value = value.trim();
     if value.is_empty() {
@@ -669,6 +791,97 @@ pub struct RuleSelectionArgs {
         hide_possible_values = true
     )]
     pub extend_fixable: Vec<RuleSelector>,
+}
+
+/// Zsh plugin-resolution flags shared by `shuck check`.
+#[derive(Debug, Clone, Default, ClapArgs)]
+pub struct ZshPluginArgs {
+    /// Enable zsh plugin resolution.
+    #[arg(
+        long,
+        overrides_with = "no_zsh_plugin_resolution",
+        help_heading = "Zsh plugin resolution"
+    )]
+    pub(crate) zsh_plugin_resolution: bool,
+    #[arg(long, overrides_with = "zsh_plugin_resolution", hide = true)]
+    pub(crate) no_zsh_plugin_resolution: bool,
+    /// Replace configured zsh plugin roots with the provided framework-to-path mappings.
+    #[arg(
+        long = "zsh-plugin-root",
+        value_delimiter = ',',
+        value_name = "FRAMEWORK=PATH",
+        help_heading = "Zsh plugin resolution"
+    )]
+    pub zsh_plugin_root: Option<Vec<FrameworkRootPair>>,
+    /// Add or replace individual zsh plugin roots on top of earlier config or CLI values.
+    #[arg(
+        long = "extend-zsh-plugin-root",
+        value_delimiter = ',',
+        value_name = "FRAMEWORK=PATH",
+        help_heading = "Zsh plugin resolution"
+    )]
+    pub extend_zsh_plugin_root: Vec<FrameworkRootPair>,
+    /// Replace configured logical zsh plugin loads with the provided pattern-to-framework-to-name mappings.
+    #[arg(
+        long = "zsh-plugin",
+        value_delimiter = ',',
+        value_name = "FILE_PATTERN:FRAMEWORK:NAME",
+        help_heading = "Zsh plugin resolution"
+    )]
+    pub zsh_plugin: Option<Vec<PatternFrameworkNameTriple>>,
+    /// Add logical zsh plugin loads on top of earlier config or CLI values.
+    #[arg(
+        long = "extend-zsh-plugin",
+        value_delimiter = ',',
+        value_name = "FILE_PATTERN:FRAMEWORK:NAME",
+        help_heading = "Zsh plugin resolution"
+    )]
+    pub extend_zsh_plugin: Vec<PatternFrameworkNameTriple>,
+    /// Replace configured logical zsh theme loads with the provided pattern-to-framework-to-name mappings.
+    #[arg(
+        long = "zsh-theme",
+        value_delimiter = ',',
+        value_name = "FILE_PATTERN:FRAMEWORK:NAME",
+        help_heading = "Zsh plugin resolution"
+    )]
+    pub zsh_theme: Option<Vec<PatternFrameworkNameTriple>>,
+    /// Add logical zsh theme loads on top of earlier config or CLI values.
+    #[arg(
+        long = "extend-zsh-theme",
+        value_delimiter = ',',
+        value_name = "FILE_PATTERN:FRAMEWORK:NAME",
+        help_heading = "Zsh plugin resolution"
+    )]
+    pub extend_zsh_theme: Vec<PatternFrameworkNameTriple>,
+    /// Replace configured raw zsh plugin entrypoints with the provided pattern-to-path mappings.
+    #[arg(
+        long = "zsh-plugin-entrypoint",
+        value_delimiter = ',',
+        value_name = "FILE_PATTERN:PATH",
+        help_heading = "Zsh plugin resolution"
+    )]
+    pub zsh_plugin_entrypoint: Option<Vec<PatternPathPair>>,
+    /// Add raw zsh plugin entrypoints on top of earlier config or CLI values.
+    #[arg(
+        long = "extend-zsh-plugin-entrypoint",
+        value_delimiter = ',',
+        value_name = "FILE_PATTERN:PATH",
+        help_heading = "Zsh plugin resolution"
+    )]
+    pub extend_zsh_plugin_entrypoint: Vec<PatternPathPair>,
+}
+
+impl ZshPluginArgs {
+    /// Returns the requested zsh plugin-resolution override, if any.
+    pub fn resolution(&self) -> Option<bool> {
+        if self.zsh_plugin_resolution {
+            Some(true)
+        } else if self.no_zsh_plugin_resolution {
+            Some(false)
+        } else {
+            None
+        }
+    }
 }
 
 fn parse_with_color<Cli, I, T>(itr: I) -> Result<Cli, clap::Error>
@@ -1384,6 +1597,118 @@ mod tests {
     }
 
     #[test]
+    fn parses_zsh_plugin_resolution_pairs() {
+        let command = parse_check([
+            "shuck",
+            "check",
+            "--zsh-plugin-root",
+            "oh-my-zsh=~/.oh-my-zsh",
+            "--extend-zsh-plugin-root",
+            "custom=./vendor/plugins",
+            "--zsh-plugin",
+            "tests/.zshrc:oh-my-zsh:git",
+            "--extend-zsh-plugin",
+            "!src/.zshrc:oh-my-zsh:docker",
+            "--zsh-theme",
+            "tests/.zshrc:oh-my-zsh:agnoster",
+            "--extend-zsh-theme",
+            "!src/.zshrc:oh-my-zsh:robbyrussell",
+            "--zsh-plugin-entrypoint",
+            "tests/.zshrc:./vendor/prompt.plugin.zsh",
+            "--extend-zsh-plugin-entrypoint",
+            "!src/.zshrc:./vendor/theme.zsh",
+        ]);
+
+        assert_eq!(
+            command.zsh_plugin_resolution.zsh_plugin_root,
+            Some(vec![FrameworkRootPair {
+                framework: "oh-my-zsh".to_owned(),
+                path: "~/.oh-my-zsh".to_owned(),
+            }])
+        );
+        assert_eq!(
+            command.zsh_plugin_resolution.extend_zsh_plugin_root,
+            vec![FrameworkRootPair {
+                framework: "custom".to_owned(),
+                path: "./vendor/plugins".to_owned(),
+            }]
+        );
+        assert_eq!(
+            command.zsh_plugin_resolution.zsh_plugin,
+            Some(vec![PatternFrameworkNameTriple {
+                pattern: "tests/.zshrc".to_owned(),
+                framework: "oh-my-zsh".to_owned(),
+                name: "git".to_owned(),
+            }])
+        );
+        assert_eq!(
+            command.zsh_plugin_resolution.extend_zsh_plugin,
+            vec![PatternFrameworkNameTriple {
+                pattern: "!src/.zshrc".to_owned(),
+                framework: "oh-my-zsh".to_owned(),
+                name: "docker".to_owned(),
+            }]
+        );
+        assert_eq!(
+            command.zsh_plugin_resolution.zsh_theme,
+            Some(vec![PatternFrameworkNameTriple {
+                pattern: "tests/.zshrc".to_owned(),
+                framework: "oh-my-zsh".to_owned(),
+                name: "agnoster".to_owned(),
+            }])
+        );
+        assert_eq!(
+            command.zsh_plugin_resolution.extend_zsh_theme,
+            vec![PatternFrameworkNameTriple {
+                pattern: "!src/.zshrc".to_owned(),
+                framework: "oh-my-zsh".to_owned(),
+                name: "robbyrussell".to_owned(),
+            }]
+        );
+        assert_eq!(
+            command.zsh_plugin_resolution.zsh_plugin_entrypoint,
+            Some(vec![PatternPathPair {
+                pattern: "tests/.zshrc".to_owned(),
+                path: "./vendor/prompt.plugin.zsh".to_owned(),
+            }])
+        );
+        assert_eq!(
+            command.zsh_plugin_resolution.extend_zsh_plugin_entrypoint,
+            vec![PatternPathPair {
+                pattern: "!src/.zshrc".to_owned(),
+                path: "./vendor/theme.zsh".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
+    fn parses_zsh_plugin_entrypoints_with_windows_absolute_paths() {
+        let command = parse_check([
+            "shuck",
+            "check",
+            "--zsh-plugin-entrypoint",
+            r"**/.zshrc:C:/plugins/git.plugin.zsh",
+            "--extend-zsh-plugin-entrypoint",
+            r"C:/repo/**/*.zshrc:C:/plugins/theme.zsh",
+        ]);
+
+        assert_eq!(
+            command.zsh_plugin_resolution.zsh_plugin_entrypoint,
+            Some(vec![PatternPathPair {
+                pattern: "**/.zshrc".to_owned(),
+                path: "C:/plugins/git.plugin.zsh".to_owned(),
+            }])
+        );
+        assert_eq!(
+            command.zsh_plugin_resolution.extend_zsh_plugin_entrypoint,
+            vec![PatternPathPair {
+                pattern: r"C:/repo/**/*.zshrc".to_owned(),
+                path: "C:/plugins/theme.zsh".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
     fn rejects_empty_cli_rule_selectors() {
         let error = StableCli::try_parse_from(["shuck", "check", "--select", ""]).unwrap_err();
 
@@ -1438,6 +1763,23 @@ mod tests {
 
         assert!(!command.respect_gitignore());
         assert!(!command.force_exclude());
+    }
+
+    #[test]
+    fn zsh_plugin_negative_flag_overrides_positive_flag() {
+        let args = Args::try_parse_from([
+            "shuck",
+            "check",
+            "--zsh-plugin-resolution",
+            "--no-zsh-plugin-resolution",
+        ])
+        .unwrap();
+
+        let Command::Check(command) = args.command else {
+            panic!("expected check command");
+        };
+
+        assert_eq!(command.zsh_plugin_resolution.resolution(), Some(false));
     }
 
     #[test]

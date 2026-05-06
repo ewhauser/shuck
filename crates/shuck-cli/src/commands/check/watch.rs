@@ -62,7 +62,7 @@ impl WatchTarget {
         if self.recursive {
             self.match_paths
                 .iter()
-                .any(|match_path| path.starts_with(match_path))
+                .any(|match_path| path.starts_with(match_path) || match_path.starts_with(path))
         } else {
             self.match_paths.iter().any(|match_path| match_path == path)
         }
@@ -109,19 +109,17 @@ pub(super) fn watch_check(
     cwd: &Path,
     cache_root: &Path,
 ) -> Result<ExitStatus> {
-    let watch_targets = collect_watch_targets(&args.paths, config_arguments, cwd)?;
     let (tx, rx) = channel();
-    let mut watcher = recommended_watcher(tx)?;
-    for target in &watch_targets {
-        for watch_path in &target.watch_paths {
-            watcher.watch(watch_path, target.recursive_mode())?;
-        }
-    }
+    let mut watch_targets = collect_watch_targets(&args.paths, config_arguments, cwd, &[])?;
+    let mut _watcher = build_watcher(&tx, &watch_targets)?;
 
     clear_screen()?;
     print_watch_banner("Starting linter in watch mode...")?;
     let report = run_check_with_cwd(args, config_arguments, cwd, cache_root)?;
     print_report(&report, args.output_format)?;
+    watch_targets =
+        collect_watch_targets(&args.paths, config_arguments, cwd, &report.dependency_paths)?;
+    _watcher = build_watcher(&tx, &watch_targets)?;
 
     loop {
         wait_for_watch_rerun(&rx, cache_root, &watch_targets)?;
@@ -130,6 +128,9 @@ pub(super) fn watch_check(
         print_watch_banner("File change detected...")?;
         let report = run_check_with_cwd(args, config_arguments, cwd, cache_root)?;
         print_report(&report, args.output_format)?;
+        watch_targets =
+            collect_watch_targets(&args.paths, config_arguments, cwd, &report.dependency_paths)?;
+        _watcher = build_watcher(&tx, &watch_targets)?;
     }
 }
 
@@ -164,6 +165,7 @@ pub(super) fn collect_watch_targets(
     paths: &[PathBuf],
     config_arguments: &ConfigArguments,
     cwd: &Path,
+    dependency_paths: &[PathBuf],
 ) -> Result<Vec<WatchTarget>> {
     let inputs = effective_check_inputs(paths);
     let mut targets = Vec::new();
@@ -197,6 +199,11 @@ pub(super) fn collect_watch_targets(
             if let Some(parent) = canonical_config_parent {
                 target.add_watch_path(parent.to_path_buf());
             }
+            targets.push(target);
+        }
+    }
+    for dependency_path in dependency_paths {
+        if let Some(target) = dependency_watch_target(dependency_path)? {
             targets.push(target);
         }
     }
@@ -234,6 +241,73 @@ pub(super) fn collect_watch_targets(
     }
 
     Ok(deduped)
+}
+
+fn dependency_watch_target(dependency_path: &Path) -> Result<Option<WatchTarget>> {
+    let resolved_path = normalize_path(dependency_path);
+    if resolved_path.exists() {
+        let canonical_path = fs::canonicalize(&resolved_path).map_err(anyhow::Error::from)?;
+        let canonical_parent = canonical_path.parent().map(Path::to_path_buf);
+        let mut target = WatchTarget::file(resolved_path);
+        target.add_match_path(canonical_path);
+        if let Some(parent) = canonical_parent {
+            target.add_watch_path(parent);
+        }
+        return Ok(Some(target));
+    }
+
+    let Some(existing_parent) = resolved_path
+        .ancestors()
+        .skip(1)
+        .find(|path| path.exists())
+        .map(Path::to_path_buf)
+    else {
+        return Ok(None);
+    };
+
+    let watch_path = normalize_path(&existing_parent);
+    let dependency_parent_exists = resolved_path.parent().is_some_and(Path::exists);
+    let root_recursive_fallback = !dependency_parent_exists && watch_path.parent().is_none();
+    let mut target = WatchTarget {
+        watch_path: watch_path.clone(),
+        watch_paths: vec![watch_path],
+        recursive: !dependency_parent_exists && !root_recursive_fallback,
+        match_paths: vec![resolved_path.clone()],
+    };
+    if root_recursive_fallback
+        && let Some(first_missing_child) =
+            first_dependency_path_below_watch_root(&existing_parent, &resolved_path)
+    {
+        target.add_match_path(first_missing_child);
+    }
+    if let Ok(canonical_parent) = fs::canonicalize(&existing_parent) {
+        target.add_watch_path(canonical_parent);
+    }
+    Ok(Some(target))
+}
+
+fn first_dependency_path_below_watch_root(
+    watch_root: &Path,
+    dependency_path: &Path,
+) -> Option<PathBuf> {
+    let relative = dependency_path.strip_prefix(watch_root).ok()?;
+    let first_component = relative.components().next()?;
+    let mut first_child = watch_root.to_path_buf();
+    first_child.push(first_component.as_os_str());
+    Some(normalize_path(&first_child))
+}
+
+fn build_watcher(
+    tx: &std::sync::mpsc::Sender<notify::Result<notify::Event>>,
+    watch_targets: &[WatchTarget],
+) -> Result<notify::RecommendedWatcher> {
+    let mut watcher = recommended_watcher(tx.clone())?;
+    for target in watch_targets {
+        for watch_path in &target.watch_paths {
+            watcher.watch(watch_path, target.recursive_mode())?;
+        }
+    }
+    Ok(watcher)
 }
 
 fn watch_config_target(
@@ -535,7 +609,7 @@ mod tests {
         fs::write(&file, "#!/bin/bash\necho ok\n").unwrap();
 
         let default_targets =
-            collect_watch_targets(&[], &ConfigArguments::default(), tempdir.path()).unwrap();
+            collect_watch_targets(&[], &ConfigArguments::default(), tempdir.path(), &[]).unwrap();
         assert_eq!(
             default_targets,
             vec![WatchTarget {
@@ -556,6 +630,7 @@ mod tests {
             &[PathBuf::from("nested"), PathBuf::from("nested/deeper")],
             &ConfigArguments::default(),
             tempdir.path(),
+            &[],
         )
         .unwrap();
         assert_eq!(
@@ -586,6 +661,7 @@ mod tests {
             &[PathBuf::from("nested/script.sh")],
             &ConfigArguments::default(),
             tempdir.path(),
+            &[],
         )
         .unwrap();
         assert_eq!(
@@ -630,6 +706,7 @@ mod tests {
             ],
             &ConfigArguments::from_cli(Vec::new(), true).unwrap(),
             tempdir.path(),
+            &[],
         )
         .unwrap();
 
@@ -652,6 +729,137 @@ mod tests {
                 },
             }]
         );
+    }
+
+    #[test]
+    fn collect_watch_targets_include_dependency_files() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("script.sh"), "#!/bin/bash\necho ok\n").unwrap();
+        let dependency = tempdir.path().join("deps/plugin.plugin.zsh");
+        fs::create_dir_all(dependency.parent().unwrap()).unwrap();
+        fs::write(&dependency, "plugin_fn() { :; }\n").unwrap();
+
+        let targets = collect_watch_targets(
+            &[PathBuf::from("script.sh")],
+            &ConfigArguments::from_cli(Vec::new(), true).unwrap(),
+            tempdir.path(),
+            std::slice::from_ref(&dependency),
+        )
+        .unwrap();
+
+        let canonical_dependency = fs::canonicalize(&dependency).unwrap();
+        assert!(targets.iter().any(|target| {
+            !target.recursive
+                && target.watch_path == normalize_path(dependency.parent().unwrap())
+                && target.match_paths.contains(&canonical_dependency)
+        }));
+    }
+
+    #[test]
+    fn collect_watch_targets_include_missing_dependency_parents() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("script.sh"), "#!/bin/bash\necho ok\n").unwrap();
+        let dependency_dir = tempdir.path().join("deps");
+        fs::create_dir_all(&dependency_dir).unwrap();
+        let missing_dependency = dependency_dir.join("plugin.plugin.zsh");
+
+        let targets = collect_watch_targets(
+            &[PathBuf::from("script.sh")],
+            &ConfigArguments::from_cli(Vec::new(), true).unwrap(),
+            tempdir.path(),
+            std::slice::from_ref(&missing_dependency),
+        )
+        .unwrap();
+
+        let canonical_dependency_dir = fs::canonicalize(&dependency_dir).unwrap();
+        assert!(targets.iter().any(|target| {
+            !target.recursive
+                && target.watch_path == normalize_path(&dependency_dir)
+                && target.watch_paths.contains(&canonical_dependency_dir)
+                && target
+                    .match_paths
+                    .contains(&normalize_path(&missing_dependency))
+        }));
+    }
+
+    #[test]
+    fn collect_watch_targets_fall_back_to_nearest_existing_parent_for_missing_dependencies() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("script.sh"), "#!/bin/bash\necho ok\n").unwrap();
+        let missing_parent = tempdir.path().join("vendor/plugins");
+        let missing_dependency = missing_parent.join("plugin.plugin.zsh");
+
+        let targets = collect_watch_targets(
+            &[PathBuf::from("script.sh")],
+            &ConfigArguments::from_cli(Vec::new(), true).unwrap(),
+            tempdir.path(),
+            std::slice::from_ref(&missing_dependency),
+        )
+        .unwrap();
+
+        let canonical_root = fs::canonicalize(tempdir.path()).unwrap();
+        assert!(targets.iter().any(|target| {
+            target.recursive
+                && target.watch_path == normalize_path(tempdir.path())
+                && target.watch_paths.contains(&canonical_root)
+                && target
+                    .match_paths
+                    .contains(&normalize_path(&missing_dependency))
+        }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn collect_watch_targets_do_not_watch_root_recursively_for_missing_absolute_dependencies() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("script.sh"), "#!/bin/bash\necho ok\n").unwrap();
+
+        let top_level = format!(
+            "/shuck-watch-root-fallback-{}",
+            tempdir.path().file_name().unwrap().to_string_lossy()
+        );
+        let missing_dependency = Path::new(&top_level).join("plugins/plugin.plugin.zsh");
+
+        let targets = collect_watch_targets(
+            &[PathBuf::from("script.sh")],
+            &ConfigArguments::from_cli(Vec::new(), true).unwrap(),
+            tempdir.path(),
+            std::slice::from_ref(&missing_dependency),
+        )
+        .unwrap();
+
+        let root_target = targets
+            .iter()
+            .find(|target| target.watch_path == Path::new("/"))
+            .expect("expected filesystem root watch target");
+
+        assert!(!root_target.recursive);
+        assert!(
+            root_target
+                .match_paths
+                .contains(&normalize_path(&missing_dependency))
+        );
+        assert!(
+            root_target
+                .match_paths
+                .contains(&normalize_path(Path::new(&top_level)))
+        );
+    }
+
+    #[test]
+    fn recursive_missing_dependency_targets_match_ancestor_directory_events() {
+        let target = WatchTarget {
+            watch_path: PathBuf::from("/workspace"),
+            watch_paths: vec![PathBuf::from("/workspace")],
+            recursive: true,
+            match_paths: vec![PathBuf::from("/workspace/vendor/plugins/plugin.plugin.zsh")],
+        };
+
+        assert!(target.matches_event_path(Path::new("/workspace/vendor")));
+        assert!(
+            target.matches_event_path(Path::new("/workspace/vendor/plugins/plugin.plugin.zsh",))
+        );
+        assert!(!target.matches_event_path(Path::new("/workspace/other")));
     }
 
     #[test]

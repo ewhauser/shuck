@@ -13,6 +13,7 @@ pub(crate) use index::{
     first_statement_line, sort_command_spans_for_lookup, statement_suppression_span,
 };
 pub use rewrite::{
-    AddIgnoreParseError, AddIgnoreResult, add_ignores_to_path, build_ignore_edit_for_line,
+    AddIgnoreParseError, AddIgnoreResult, add_ignores_to_path, add_ignores_to_path_with_resolvers,
+    build_ignore_edit_for_line,
 };
 pub use shellcheck_map::ShellCheckCodeMap;

@@ -1,13 +1,14 @@
 use std::cell::RefCell;
+use std::env;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    ArithmeticExpr, ArithmeticExprNode, BourneParameterExpansion, Command, File, Name,
-    ParameterExpansion, ParameterExpansionSyntax, Span, StmtSeq, VarRef, Word, WordPart,
-    WordPartNode, ZshDefaultingOp, ZshExpansionOperation, ZshExpansionTarget,
-    ZshParameterExpansion, static_word_text,
+    ArithmeticExpr, ArithmeticExprNode, ArrayElem, Assignment, AssignmentValue,
+    BourneParameterExpansion, Command, DeclOperand, File, Name, ParameterExpansion,
+    ParameterExpansionSyntax, Span, StmtSeq, VarRef, Word, WordPart, WordPartNode, ZshDefaultingOp,
+    ZshExpansionOperation, ZshExpansionTarget, ZshParameterExpansion, static_word_text,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -18,7 +19,8 @@ use crate::function_resolution::{
 };
 use crate::{
     Binding, BindingKind, ContractCertainty, FileContract, FunctionContract, FunctionScopeKind,
-    ProvidedBinding, ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel, SourcePathResolver,
+    PluginFramework, PluginRequest, PluginRequestKind, PluginResolver, ProvidedBinding,
+    ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel, SourcePathResolver,
     SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution, SpanKey, SyntheticRead,
     build_semantic_model_base, infer_explicit_parse_dialect_from_source,
 };
@@ -28,6 +30,7 @@ struct SourceClosureContracts {
     synthetic_reads: Vec<SyntheticRead>,
     imported_bindings: Vec<ImportedBindingContractSite>,
     imported_functions: Vec<ImportedFunctionContractSite>,
+    dependency_paths: Vec<PathBuf>,
     source_ref_resolutions: Vec<SourceRefResolution>,
     source_ref_explicitness: Vec<bool>,
     source_ref_diagnostic_classes: Vec<SourceRefDiagnosticClass>,
@@ -36,6 +39,7 @@ struct SourceClosureContracts {
 type SourceClosureContractResult = (
     Vec<SyntheticRead>,
     Vec<ImportedBindingContractSite>,
+    Vec<PathBuf>,
     Vec<SourceRefResolution>,
     Vec<bool>,
     Vec<SourceRefDiagnosticClass>,
@@ -50,9 +54,11 @@ type SourceRefMetadataResult = (
 #[derive(Clone)]
 struct SourceClosureLookupContext<'a> {
     source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&'a (dyn PluginResolver + Send + Sync)>,
     analyzed_paths: Option<&'a FxHashSet<PathBuf>>,
     shell_profile: ShellProfile,
     resolved_helper_paths: RefCell<FxHashMap<HelperPathResolutionKey, Vec<PathBuf>>>,
+    dependency_paths: RefCell<FxHashSet<PathBuf>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -105,15 +111,18 @@ pub(crate) fn collect_source_closure_contracts(
     source: &str,
     source_path: &Path,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
     analyzed_paths: Option<&FxHashSet<PathBuf>>,
 ) -> SourceClosureContractResult {
     let mut summaries = FxHashMap::default();
     let mut active = FxHashSet::default();
     let context = SourceClosureLookupContext {
         source_path_resolver,
+        plugin_resolver,
         analyzed_paths,
         shell_profile: model.shell_profile().clone(),
         resolved_helper_paths: RefCell::new(FxHashMap::default()),
+        dependency_paths: RefCell::new(FxHashSet::default()),
     };
     let contracts = collect_source_closure_contracts_with_cache(
         model,
@@ -127,6 +136,7 @@ pub(crate) fn collect_source_closure_contracts(
     (
         contracts.synthetic_reads,
         contracts.imported_bindings,
+        contracts.dependency_paths,
         contracts.source_ref_resolutions,
         contracts.source_ref_explicitness,
         contracts.source_ref_diagnostic_classes,
@@ -147,9 +157,11 @@ pub(crate) fn collect_source_ref_metadata(
     };
     let context = SourceClosureLookupContext {
         source_path_resolver,
+        plugin_resolver: None,
         analyzed_paths,
         shell_profile: model.shell_profile().clone(),
         resolved_helper_paths: RefCell::new(FxHashMap::default()),
+        dependency_paths: RefCell::new(FxHashSet::default()),
     };
     let mut source_ref_resolutions = Vec::new();
     let mut source_ref_explicitness = Vec::new();
@@ -196,8 +208,8 @@ pub(crate) fn collect_source_ref_metadata(
 
 fn collect_source_closure_contracts_with_cache(
     model: &SemanticModel,
-    _file: &File,
-    _source: &str,
+    file: &File,
+    source: &str,
     source_path: &Path,
     summaries: &mut FxHashMap<HelperSummaryKey, FileContract>,
     active: &mut FxHashSet<HelperSummaryKey>,
@@ -273,6 +285,39 @@ fn collect_source_closure_contracts_with_cache(
         }
     }
 
+    if let Some(plugin_resolver) = context.plugin_resolver {
+        for request in collect_plugin_requests(model, file, source, source_path, plugin_resolver) {
+            let scope = model.scope_at(request.span.start.offset);
+            let resolution = plugin_resolver.resolve_plugin_request(source_path, &request);
+            let mut contracts = resolution.file_entry_contracts;
+            for entrypoint in resolution.entrypoints {
+                contracts.push(summarize_helper(&entrypoint, summaries, active, context));
+            }
+            let contract = FileContract::merge_candidate_contracts(&contracts);
+            for provided in contract.provided_bindings.iter().cloned() {
+                imported_bindings.push(ImportedBindingContractSite {
+                    scope,
+                    span: request.span,
+                    origin_paths: binding_origin_paths(&contract, &provided),
+                    binding: provided,
+                });
+            }
+            imported_functions.extend(imported_function_sites_for_contract(
+                scope,
+                request.span,
+                &contract,
+                true,
+            ));
+            for name in contract.required_reads {
+                synthetic_reads.push(SyntheticRead {
+                    scope,
+                    span: request.span,
+                    name,
+                });
+            }
+        }
+    }
+
     for call in &facts.calls {
         if let Some(function_site) = visible_imported_function_contract(
             model,
@@ -321,6 +366,7 @@ fn collect_source_closure_contracts_with_cache(
         synthetic_reads: dedup_synthetic_reads(synthetic_reads),
         imported_bindings: dedup_imported_bindings(imported_bindings),
         imported_functions,
+        dependency_paths: sorted_dependency_paths(&context.dependency_paths.borrow()),
         source_ref_resolutions,
         source_ref_explicitness,
         source_ref_diagnostic_classes,
@@ -519,6 +565,447 @@ fn merge_origin_paths(dest: &mut Vec<PathBuf>, origins: &[PathBuf]) {
             dest.push(origin.clone());
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PluginListState {
+    Unset,
+    Static(Vec<String>),
+    Dynamic,
+}
+
+#[derive(Debug, Clone)]
+struct DetectedPluginBootstrap {
+    framework: PluginFramework,
+    span: Span,
+    root_hint: Option<PathBuf>,
+}
+
+fn sorted_dependency_paths(paths: &FxHashSet<PathBuf>) -> Vec<PathBuf> {
+    let mut sorted = paths.iter().cloned().collect::<Vec<_>>();
+    sorted.sort();
+    sorted.dedup();
+    sorted
+}
+
+fn collect_plugin_requests(
+    model: &SemanticModel,
+    file: &File,
+    source: &str,
+    source_path: &Path,
+    plugin_resolver: &(dyn PluginResolver + Send + Sync),
+) -> Vec<PluginRequest> {
+    if model.shell_profile().dialect != ParseShellDialect::Zsh {
+        return Vec::new();
+    }
+
+    let mut path_templates = FxHashMap::<Name, SourcePathTemplate>::default();
+    let home_dir = env::var_os("HOME").map(PathBuf::from);
+    let mut plugin_state = PluginListState::Unset;
+    let mut theme_name = None::<String>;
+    let mut requests = Vec::new();
+    let mut bootstraps = Vec::new();
+
+    for stmt in &file.body.stmts {
+        for assignment in top_level_assignments(stmt) {
+            if assignment.target.subscript.is_none()
+                && let Some(template) = assignment_path_template(
+                    assignment,
+                    source,
+                    &path_templates,
+                    home_dir.as_deref(),
+                )
+            {
+                path_templates.insert(assignment.target.name.clone(), template);
+            }
+
+            match assignment.target.name.as_str() {
+                "plugins" => {
+                    plugin_state =
+                        plugin_list_state_after_assignment(&plugin_state, assignment, source);
+                }
+                "ZSH_THEME" => {
+                    theme_name = assignment_theme_name(assignment, source);
+                }
+                _ => {}
+            }
+        }
+
+        let Some(bootstrap) = detect_plugin_bootstrap(
+            stmt,
+            source,
+            source_path,
+            &path_templates,
+            home_dir.as_deref(),
+        ) else {
+            continue;
+        };
+        bootstraps.push(bootstrap.clone());
+
+        if let PluginListState::Static(names) = &plugin_state {
+            for name in names {
+                requests.push(PluginRequest {
+                    framework: bootstrap.framework.clone(),
+                    kind: PluginRequestKind::Plugin,
+                    name: name.clone(),
+                    span: bootstrap.span,
+                    explicit: false,
+                    root_hint: bootstrap.root_hint.clone(),
+                });
+            }
+        }
+
+        if let Some(theme_name) = theme_name.as_ref().filter(|name| !name.contains('/')) {
+            requests.push(PluginRequest {
+                framework: bootstrap.framework.clone(),
+                kind: PluginRequestKind::Theme,
+                name: theme_name.clone(),
+                span: bootstrap.span,
+                explicit: false,
+                root_hint: bootstrap.root_hint.clone(),
+            });
+        }
+    }
+
+    requests.extend(anchor_configured_plugin_requests(
+        plugin_resolver.additional_plugin_requests(source_path),
+        &bootstraps,
+        file.span,
+    ));
+    dedup_plugin_requests(requests)
+}
+
+fn top_level_assignments(stmt: &shuck_ast::Stmt) -> Vec<&Assignment> {
+    match &stmt.command {
+        Command::Simple(command) => command.assignments.iter().collect(),
+        Command::Decl(command) => command
+            .assignments
+            .iter()
+            .chain(command.operands.iter().filter_map(|operand| match operand {
+                DeclOperand::Assignment(assignment) => Some(assignment),
+                _ => None,
+            }))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn assignment_path_template(
+    assignment: &Assignment,
+    source: &str,
+    known_templates: &FxHashMap<Name, SourcePathTemplate>,
+    home_dir: Option<&Path>,
+) -> Option<SourcePathTemplate> {
+    let AssignmentValue::Scalar(word) = &assignment.value else {
+        return None;
+    };
+    if let Some(text) = static_word_text(word, source) {
+        return static_path_template(&text, home_dir);
+    }
+
+    assignment_source_path_template(word, source, false, false, |name, _| {
+        resolve_variable_source_template(name, known_templates, home_dir)
+    })
+}
+
+fn static_path_template(text: &str, home_dir: Option<&Path>) -> Option<SourcePathTemplate> {
+    let expanded = expand_static_home_path(text, home_dir)?;
+    Some(SourcePathTemplate::Interpolated(vec![
+        TemplatePart::Literal(expanded),
+    ]))
+}
+
+fn resolve_variable_source_template(
+    name: &Name,
+    known_templates: &FxHashMap<Name, SourcePathTemplate>,
+    home_dir: Option<&Path>,
+) -> Option<SourcePathTemplate> {
+    if name.as_str() == "HOME" {
+        return home_dir
+            .and_then(|home| static_path_template(&path_to_template_string(home), None));
+    }
+
+    known_templates.get(name).cloned()
+}
+
+fn expand_static_home_path(text: &str, home_dir: Option<&Path>) -> Option<String> {
+    if let Some(home_dir) = home_dir {
+        let home = path_to_template_string(home_dir);
+        if text == "~" {
+            return Some(home);
+        }
+        if let Some(stripped) = text.strip_prefix("~/") {
+            return Some(format!("{home}/{stripped}"));
+        }
+    }
+
+    Some(text.to_owned())
+}
+
+fn plugin_list_state_after_assignment(
+    current: &PluginListState,
+    assignment: &Assignment,
+    source: &str,
+) -> PluginListState {
+    if assignment.target.subscript.is_some() {
+        return PluginListState::Dynamic;
+    }
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        return PluginListState::Dynamic;
+    };
+    let Some(names) = static_plugin_names(array.elements.as_slice(), source) else {
+        return PluginListState::Dynamic;
+    };
+    if assignment.append {
+        let mut combined = match current {
+            PluginListState::Unset => Vec::new(),
+            PluginListState::Static(existing) => existing.clone(),
+            PluginListState::Dynamic => return PluginListState::Dynamic,
+        };
+        for name in names {
+            if !combined.contains(&name) {
+                combined.push(name);
+            }
+        }
+        PluginListState::Static(combined)
+    } else {
+        PluginListState::Static(names)
+    }
+}
+
+fn static_plugin_names(elements: &[ArrayElem], source: &str) -> Option<Vec<String>> {
+    let mut names = Vec::new();
+    for element in elements {
+        let ArrayElem::Sequential(value) = element else {
+            return None;
+        };
+        let text = static_word_text(value, source)?;
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        names.push(trimmed.to_owned());
+    }
+    Some(names)
+}
+
+fn assignment_theme_name(assignment: &Assignment, source: &str) -> Option<String> {
+    if assignment.append || assignment.target.subscript.is_some() {
+        return None;
+    }
+    let AssignmentValue::Scalar(word) = &assignment.value else {
+        return None;
+    };
+    let text = static_word_text(word, source)?;
+    let trimmed = text.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+fn detect_plugin_bootstrap(
+    stmt: &shuck_ast::Stmt,
+    source: &str,
+    source_path: &Path,
+    known_templates: &FxHashMap<Name, SourcePathTemplate>,
+    home_dir: Option<&Path>,
+) -> Option<DetectedPluginBootstrap> {
+    let Command::Simple(command) = &stmt.command else {
+        return None;
+    };
+    let name = static_word_text(&command.name, source)?;
+    if !matches!(name.as_ref(), "source" | ".") {
+        return None;
+    }
+    let arg = command.args.first()?;
+
+    let concrete_path =
+        bootstrap_argument_path(arg, source, source_path, known_templates, home_dir);
+    if concrete_path
+        .as_deref()
+        .and_then(Path::file_name)
+        .is_some_and(|name| name == "oh-my-zsh.sh")
+    {
+        return Some(DetectedPluginBootstrap {
+            framework: PluginFramework::OhMyZsh,
+            span: stmt.span,
+            root_hint: concrete_path.and_then(|path| path.parent().map(Path::to_path_buf)),
+        });
+    }
+
+    if let Some(text) = static_word_text(arg, source) {
+        if text.trim().ends_with("oh-my-zsh.sh") {
+            return Some(DetectedPluginBootstrap {
+                framework: PluginFramework::OhMyZsh,
+                span: stmt.span,
+                root_hint: framework_root_hint(known_templates, source_path, "ZSH"),
+            });
+        }
+        return None;
+    }
+
+    let template = assignment_source_path_template(arg, source, false, false, |name, _| {
+        resolve_variable_source_template(name, known_templates, home_dir)
+    });
+    let looks_like_bootstrap = template
+        .as_ref()
+        .is_some_and(|template| template_ends_with_literal(template, "oh-my-zsh.sh"));
+    looks_like_bootstrap.then(|| DetectedPluginBootstrap {
+        framework: PluginFramework::OhMyZsh,
+        span: stmt.span,
+        root_hint: framework_root_hint(known_templates, source_path, "ZSH"),
+    })
+}
+
+fn bootstrap_argument_path(
+    word: &Word,
+    source: &str,
+    source_path: &Path,
+    known_templates: &FxHashMap<Name, SourcePathTemplate>,
+    home_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    if let Some(text) = static_word_text(word, source) {
+        let text = expand_static_home_path(&text, home_dir)?;
+        let path = PathBuf::from(text.trim());
+        return Some(if path.is_absolute() {
+            lexical_normalize_path(&path)
+        } else {
+            lexical_normalize_path(&source_path.parent()?.join(path))
+        });
+    }
+
+    let template = source_path_template_with_resolver(word, source, false, false, |name, _| {
+        resolve_variable_source_template(name, known_templates, home_dir)
+    })?;
+    if template.ignored_root {
+        return None;
+    }
+    render_source_path_template(&template.template, source_path)
+}
+
+fn render_source_path_template(
+    template: &SourcePathTemplate,
+    source_path: &Path,
+) -> Option<PathBuf> {
+    let SourcePathTemplate::Interpolated(parts) = template;
+    let mut rendered = String::new();
+    for part in parts {
+        match part {
+            TemplatePart::Literal(text) => rendered.push_str(text),
+            TemplatePart::SourceDir => {
+                rendered.push_str(&path_to_template_string(source_path.parent()?))
+            }
+            TemplatePart::SourceFile => rendered.push_str(&path_to_template_string(source_path)),
+            TemplatePart::Arg(_) => return None,
+        }
+    }
+    let trimmed = rendered.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let path = PathBuf::from(trimmed);
+    Some(if path.is_absolute() {
+        lexical_normalize_path(&path)
+    } else {
+        lexical_normalize_path(&source_path.parent()?.join(path))
+    })
+}
+
+fn template_ends_with_literal(template: &SourcePathTemplate, suffix: &str) -> bool {
+    match template {
+        SourcePathTemplate::Interpolated(parts) => {
+            let literal = parts
+                .iter()
+                .filter_map(|part| match part {
+                    TemplatePart::Literal(text) => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<String>();
+            literal.ends_with(suffix)
+        }
+    }
+}
+
+fn framework_root_hint(
+    known_templates: &FxHashMap<Name, SourcePathTemplate>,
+    source_path: &Path,
+    variable_name: &str,
+) -> Option<PathBuf> {
+    known_templates
+        .get(&Name::from(variable_name))
+        .and_then(|template| render_source_path_template(template, source_path))
+}
+
+fn anchor_configured_plugin_requests(
+    requests: Vec<PluginRequest>,
+    bootstraps: &[DetectedPluginBootstrap],
+    file_span: Span,
+) -> Vec<PluginRequest> {
+    let mut anchored = Vec::new();
+    for request in requests {
+        if request.kind == PluginRequestKind::Entrypoint {
+            anchored.push(PluginRequest {
+                span: file_span,
+                ..request
+            });
+            continue;
+        }
+
+        let matching = bootstraps
+            .iter()
+            .filter(|bootstrap| bootstrap.framework == request.framework)
+            .collect::<Vec<_>>();
+        if matching.is_empty() {
+            anchored.push(PluginRequest {
+                span: file_span,
+                ..request
+            });
+            continue;
+        }
+
+        for bootstrap in matching {
+            anchored.push(PluginRequest {
+                span: bootstrap.span,
+                root_hint: bootstrap
+                    .root_hint
+                    .clone()
+                    .or_else(|| request.root_hint.clone()),
+                ..request.clone()
+            });
+        }
+    }
+    anchored
+}
+
+fn dedup_plugin_requests(requests: Vec<PluginRequest>) -> Vec<PluginRequest> {
+    let mut merged: Vec<PluginRequest> = Vec::new();
+    let mut positions = FxHashMap::<
+        (
+            PluginFramework,
+            PluginRequestKind,
+            String,
+            usize,
+            Option<PathBuf>,
+        ),
+        usize,
+    >::default();
+    for request in requests {
+        let key = (
+            request.framework.clone(),
+            request.kind,
+            request.name.clone(),
+            request.span.start.offset,
+            request.root_hint.clone(),
+        );
+        if let Some(&position) = positions.get(&key) {
+            if merged[position].explicit {
+                continue;
+            }
+            merged[position] = request;
+        } else {
+            positions.insert(key, merged.len());
+            merged.push(request);
+        }
+    }
+    merged
 }
 
 fn imported_function_sites_for_contract(
@@ -737,6 +1224,7 @@ pub(crate) fn source_path_template(
         zsh_runtime_vars_enabled,
         |_, _| None,
     )
+    .map(|resolved| resolved.template)
 }
 
 pub(crate) fn assignment_source_path_template(
@@ -753,6 +1241,12 @@ pub(crate) fn assignment_source_path_template(
         zsh_runtime_vars_enabled,
         resolve_variable_template,
     )
+    .map(|resolved| resolved.template)
+}
+
+struct ResolvedSourcePathTemplate {
+    template: SourcePathTemplate,
+    ignored_root: bool,
 }
 
 fn source_path_template_with_resolver(
@@ -761,10 +1255,13 @@ fn source_path_template_with_resolver(
     bash_runtime_vars_enabled: bool,
     zsh_runtime_vars_enabled: bool,
     resolve_variable_template: impl FnMut(&Name, Span) -> Option<SourcePathTemplate>,
-) -> Option<SourcePathTemplate> {
+) -> Option<ResolvedSourcePathTemplate> {
     if let Some(text) = static_word_text(word, source) {
-        return (!text.is_empty()).then(|| {
-            SourcePathTemplate::Interpolated(vec![TemplatePart::Literal(text.into_owned())])
+        return (!text.is_empty()).then(|| ResolvedSourcePathTemplate {
+            template: SourcePathTemplate::Interpolated(vec![TemplatePart::Literal(
+                text.into_owned(),
+            )]),
+            ignored_root: false,
         });
     }
 
@@ -788,7 +1285,10 @@ fn source_path_template_with_resolver(
         return None;
     }
 
-    (saw_dynamic && !parts.is_empty()).then_some(SourcePathTemplate::Interpolated(parts))
+    (saw_dynamic && !parts.is_empty()).then_some(ResolvedSourcePathTemplate {
+        template: SourcePathTemplate::Interpolated(parts),
+        ignored_root,
+    })
 }
 
 struct SourceTemplateContext<'a, F> {
@@ -1433,13 +1933,28 @@ fn summarize_helper(
     active: &mut FxHashSet<HelperSummaryKey>,
     context: &SourceClosureLookupContext<'_>,
 ) -> FileContract {
-    let canonical_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let requested_path = path.to_path_buf();
+    context
+        .dependency_paths
+        .borrow_mut()
+        .insert(requested_path.clone());
     let requested_key = HelperSummaryKey {
-        path: canonical_path.clone(),
+        path: requested_path.clone(),
         shell_profile: ShellProfileKey::from_profile(&context.shell_profile),
     };
     if let Some(summary) = summaries.get(&requested_key) {
         return summary.clone();
+    }
+
+    let canonical_path = fs::canonicalize(path).unwrap_or_else(|_| requested_path.clone());
+    let canonical_requested_key = HelperSummaryKey {
+        path: canonical_path.clone(),
+        shell_profile: ShellProfileKey::from_profile(&context.shell_profile),
+    };
+    if let Some(summary) = summaries.get(&canonical_requested_key) {
+        let summary = summary.clone();
+        summaries.insert(requested_key, summary.clone());
+        return summary;
     }
 
     let Ok(source) = fs::read_to_string(&canonical_path) else {
@@ -1452,6 +1967,7 @@ fn summarize_helper(
     };
     if let Some(summary) = summaries.get(&key) {
         let summary = summary.clone();
+        summaries.insert(canonical_requested_key, summary.clone());
         summaries.insert(requested_key, summary.clone());
         return summary;
     }
@@ -1469,6 +1985,7 @@ fn summarize_helper(
     );
     active.remove(&key);
     summaries.insert(key, summary.clone());
+    summaries.insert(canonical_requested_key, summary.clone());
     summaries.insert(requested_key, summary.clone());
     summary
 }
@@ -1505,14 +2022,17 @@ fn summarize_helper_uncached(
         active,
         &SourceClosureLookupContext {
             source_path_resolver,
+            plugin_resolver: None,
             analyzed_paths: None,
             shell_profile,
             resolved_helper_paths: RefCell::new(FxHashMap::default()),
+            dependency_paths: RefCell::new(FxHashSet::default()),
         },
     );
     semantic.apply_source_contracts(
         collected.synthetic_reads.clone(),
         collected.imported_bindings.clone(),
+        collected.dependency_paths.clone(),
         collected.source_ref_resolutions.clone(),
         collected.source_ref_explicitness.clone(),
         collected.source_ref_diagnostic_classes.clone(),
@@ -1816,9 +2336,11 @@ noglob source \"$3\"
 
         let context = SourceClosureLookupContext {
             source_path_resolver: None,
+            plugin_resolver: None,
             analyzed_paths: None,
             shell_profile: ShellProfile::native(ParseShellDialect::Bash),
             resolved_helper_paths: RefCell::new(FxHashMap::default()),
+            dependency_paths: RefCell::new(FxHashSet::default()),
         };
         let mut summaries = FxHashMap::default();
         let mut active = FxHashSet::default();
@@ -1834,6 +2356,69 @@ noglob source \"$3\"
 
         let second = summarize_helper(&canonical_helper, &mut summaries, &mut active, &context);
         assert_eq!(second, first);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn summarize_helper_tracks_requested_symlink_path_as_dependency() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempdir().unwrap();
+        let helper_target = temp.path().join("helper-target");
+        let helper_link = temp.path().join("helper-link");
+        std::fs::write(&helper_target, "#!/bin/zsh\nloaded_value=ok\n").unwrap();
+        symlink(&helper_target, &helper_link).unwrap();
+
+        let context = SourceClosureLookupContext {
+            source_path_resolver: None,
+            plugin_resolver: None,
+            analyzed_paths: None,
+            shell_profile: ShellProfile::native(ParseShellDialect::Bash),
+            resolved_helper_paths: RefCell::new(FxHashMap::default()),
+            dependency_paths: RefCell::new(FxHashSet::default()),
+        };
+        let mut summaries = FxHashMap::default();
+        let mut active = FxHashSet::default();
+
+        summarize_helper(&helper_link, &mut summaries, &mut active, &context);
+
+        let dependency_paths = context.dependency_paths.borrow();
+        assert!(dependency_paths.contains(&helper_link));
+        assert!(!dependency_paths.contains(&std::fs::canonicalize(&helper_target).unwrap()));
+    }
+
+    #[test]
+    fn dedup_plugin_requests_preserves_first_request_order_when_replacing_duplicates() {
+        let mut alpha_implicit = PluginRequest {
+            framework: PluginFramework::OhMyZsh,
+            kind: PluginRequestKind::Plugin,
+            name: "alpha".to_owned(),
+            span: Span::new(),
+            explicit: false,
+            root_hint: None,
+        };
+        alpha_implicit.span.start.offset = 7;
+
+        let mut beta_explicit = PluginRequest {
+            framework: PluginFramework::OhMyZsh,
+            kind: PluginRequestKind::Plugin,
+            name: "beta".to_owned(),
+            span: Span::new(),
+            explicit: true,
+            root_hint: None,
+        };
+        beta_explicit.span.start.offset = 7;
+
+        let mut alpha_explicit = alpha_implicit.clone();
+        alpha_explicit.explicit = true;
+
+        let deduped =
+            dedup_plugin_requests(vec![alpha_implicit, beta_explicit.clone(), alpha_explicit]);
+
+        assert_eq!(deduped.len(), 2);
+        assert_eq!(deduped[0].name, "alpha");
+        assert!(deduped[0].explicit);
+        assert_eq!(deduped[1], beta_explicit);
     }
 
     #[cfg(windows)]

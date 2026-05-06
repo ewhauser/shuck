@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::args::{CheckCommand, CheckOutputFormatArg, FileSelectionArgs, RuleSelectionArgs};
+use crate::args::{
+    CheckCommand, CheckOutputFormatArg, FileSelectionArgs, RuleSelectionArgs, ZshPluginArgs,
+};
 use crate::commands::check::CheckReport;
 use crate::commands::check::settings::CompiledPerFileShellList;
 use crate::commands::check_output::{DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind};
@@ -72,6 +74,7 @@ pub(super) fn check_args_with_format(
         watch: false,
         paths: Vec::new(),
         rule_selection: RuleSelectionArgs::default(),
+        zsh_plugin_resolution: ZshPluginArgs::default(),
         file_selection: FileSelectionArgs::default(),
         exit_zero: false,
         exit_non_zero_on_fix: false,

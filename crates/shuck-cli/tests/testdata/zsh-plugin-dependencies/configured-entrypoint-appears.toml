@@ -1,0 +1,26 @@
+name = "configured zsh plugin entrypoint appears"
+path = ".zshrc"
+before_codes = ["C001"]
+after_codes = []
+watch = true
+
+[[files]]
+path = ".zshrc"
+contents = '''
+#!/bin/zsh
+prompt_theme_value=power
+'''
+
+[[files]]
+path = "shuck.toml"
+contents = '''
+[lint.zsh.plugins]
+resolution = true
+entrypoints = [{ pattern = ".zshrc", paths = ["./vendor/prompt.plugin.zsh"] }]
+'''
+
+[[after_files]]
+path = "vendor/prompt.plugin.zsh"
+contents = '''
+printf '%s\n' "$prompt_theme_value"
+'''

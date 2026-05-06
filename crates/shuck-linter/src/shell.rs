@@ -49,25 +49,21 @@ impl ShellDialect {
     }
 
     pub fn infer(source: &str, path: Option<&Path>) -> Self {
-        let extension_dialect = path.map_or(Self::Unknown, Self::infer_from_extension);
+        let path_dialect = path.map_or(Self::Unknown, Self::infer_from_path);
         let shebang_dialect = Self::infer_from_shebang(source);
         Self::infer_from_shellcheck_header(source)
             .or_else(|| {
-                Self::zsh_extension_compat_shebang_override(
-                    source,
-                    extension_dialect,
-                    shebang_dialect,
-                )
+                Self::zsh_extension_compat_shebang_override(source, path_dialect, shebang_dialect)
             })
             .or(shebang_dialect)
-            .or_else(|| match extension_dialect {
+            .or_else(|| match path_dialect {
                 Self::Unknown | Self::Sh => Self::infer_from_source_markers(source),
                 dialect => Some(dialect),
             })
-            .unwrap_or(extension_dialect)
+            .unwrap_or(path_dialect)
     }
 
-    fn infer_from_extension(path: &Path) -> Self {
+    pub fn infer_from_path(path: &Path) -> Self {
         match path
             .extension()
             .and_then(|ext| ext.to_str())
@@ -80,7 +76,12 @@ impl ShellDialect {
             Some("ksh") => Self::Ksh,
             Some("mksh") => Self::Mksh,
             Some("zsh") => Self::Zsh,
-            _ => Self::Unknown,
+            _ => path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .filter(|name| is_known_zsh_dotfile_name(name))
+                .map(|_| Self::Zsh)
+                .unwrap_or(Self::Unknown),
         }
     }
 
@@ -542,6 +543,22 @@ fn is_shell_name_byte(byte: u8) -> bool {
     byte == b'_' || byte.is_ascii_alphanumeric()
 }
 
+fn is_known_zsh_dotfile_name(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        ".zshrc"
+            | "zshrc"
+            | ".zshenv"
+            | "zshenv"
+            | ".zprofile"
+            | "zprofile"
+            | ".zlogin"
+            | "zlogin"
+            | ".zlogout"
+            | "zlogout"
+    )
+}
+
 fn shell_words(line: &str) -> Vec<&str> {
     line.split(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()))
         .filter(|word| !word.is_empty())
@@ -568,6 +585,15 @@ mod tests {
     fn infers_from_extension_when_shebang_is_missing() {
         let inferred = ShellDialect::infer("local foo=bar\n", Some(Path::new("/tmp/example.bash")));
         assert_eq!(inferred, ShellDialect::Bash);
+    }
+
+    #[test]
+    fn infers_known_zsh_dotfiles_without_source_markers() {
+        let inferred = ShellDialect::infer(
+            "plugins=(git)\nsource \"$ZDOTDIR/oh-my-zsh.sh\"\n",
+            Some(Path::new("/tmp/.zshrc")),
+        );
+        assert_eq!(inferred, ShellDialect::Zsh);
     }
 
     #[test]

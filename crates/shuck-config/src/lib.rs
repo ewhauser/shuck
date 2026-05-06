@@ -41,6 +41,15 @@ const CONFIG_OVERRIDE_LINT_KEYS: &[&str] = &[
     "unfixable",
     "extend-fixable",
     "rule-options",
+    "zsh",
+];
+const CONFIG_OVERRIDE_LINT_ZSH_KEYS: &[&str] = &["plugins"];
+const CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS: &[&str] = &[
+    "resolution",
+    "roots",
+    "plugin-loads",
+    "theme-loads",
+    "entrypoints",
 ];
 const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &["c001", "c063"];
 const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
@@ -93,6 +102,46 @@ pub struct LintConfig {
     pub unfixable: Option<Vec<String>>,
     pub extend_fixable: Option<Vec<String>>,
     pub rule_options: Option<LintRuleOptionsConfig>,
+    pub zsh: Option<LintZshConfig>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LintZshConfig {
+    pub plugins: Option<ZshPluginsConfig>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ZshPluginsConfig {
+    pub resolution: Option<bool>,
+    pub roots: Option<BTreeMap<String, String>>,
+    pub plugin_loads: Option<Vec<ZshPluginLoadConfig>>,
+    pub theme_loads: Option<Vec<ZshThemeLoadConfig>>,
+    pub entrypoints: Option<Vec<ZshPluginEntrypointConfig>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ZshPluginLoadConfig {
+    pub pattern: String,
+    pub framework: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ZshThemeLoadConfig {
+    pub pattern: String,
+    pub framework: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ZshPluginEntrypointConfig {
+    pub pattern: String,
+    pub paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -253,37 +302,86 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
                 example: r#"unfixable = ["C001"]"#,
             },
         ],
-        sections: &[ConfigSectionMetadata {
-            key: "rule-options",
-            docs: "Rule-specific behavior overrides for diagnostics that intentionally support more than one analysis mode.",
-            fields: &[],
-            sections: &[
-                ConfigSectionMetadata {
-                    key: "c001",
-                    docs: "Behavior overrides for `C001` unused assignment analysis.",
-                    fields: &[ConfigFieldMetadata {
-                        key: "treat-indirect-expansion-targets-as-used",
-                        docs: "Treat scalar indirect-expansion targets such as `${!name}` as a use of the referenced target.",
-                        default: "false",
-                        value_type: "bool",
-                        example: "treat-indirect-expansion-targets-as-used = true",
-                    }],
+        sections: &[
+            ConfigSectionMetadata {
+                key: "rule-options",
+                docs: "Rule-specific behavior overrides for diagnostics that intentionally support more than one analysis mode.",
+                fields: &[],
+                sections: &[
+                    ConfigSectionMetadata {
+                        key: "c001",
+                        docs: "Behavior overrides for `C001` unused assignment analysis.",
+                        fields: &[ConfigFieldMetadata {
+                            key: "treat-indirect-expansion-targets-as-used",
+                            docs: "Treat scalar indirect-expansion targets such as `${!name}` as a use of the referenced target.",
+                            default: "false",
+                            value_type: "bool",
+                            example: "treat-indirect-expansion-targets-as-used = true",
+                        }],
+                        sections: &[],
+                    },
+                    ConfigSectionMetadata {
+                        key: "c063",
+                        docs: "Behavior overrides for `C063` overwritten and unreached function analysis.",
+                        fields: &[ConfigFieldMetadata {
+                            key: "report-unreached-nested-definitions",
+                            docs: "Report nested function definitions when no reachable direct call reaches the enclosing function scope before it exits.",
+                            default: "false",
+                            value_type: "bool",
+                            example: "report-unreached-nested-definitions = true",
+                        }],
+                        sections: &[],
+                    },
+                ],
+            },
+            ConfigSectionMetadata {
+                key: "zsh",
+                docs: "Zsh-specific lint behavior for `shuck check`.",
+                fields: &[],
+                sections: &[ConfigSectionMetadata {
+                    key: "plugins",
+                    docs: "Zsh plugin-resolution settings used to import real plugin entrypoints into semantic analysis.",
+                    fields: &[
+                        ConfigFieldMetadata {
+                            key: "resolution",
+                            docs: "Enable or disable zsh plugin resolution while leaving ordinary source closure enabled.",
+                            default: "true",
+                            value_type: "bool",
+                            example: "resolution = false",
+                        },
+                        ConfigFieldMetadata {
+                            key: "roots",
+                            docs: "Fallback framework roots keyed by logical framework name.",
+                            default: "{}",
+                            value_type: "table[str, path]",
+                            example: r#"roots = { oh-my-zsh = "~/.oh-my-zsh" }"#,
+                        },
+                        ConfigFieldMetadata {
+                            key: "plugin-loads",
+                            docs: "Additional logical plugin loads to attach to matching files.",
+                            default: "[]",
+                            value_type: "list[{ pattern, framework, name }]",
+                            example: r#"plugin-loads = [{ pattern = "**/.zshrc", framework = "oh-my-zsh", name = "git" }]"#,
+                        },
+                        ConfigFieldMetadata {
+                            key: "theme-loads",
+                            docs: "Additional logical theme loads to attach to matching files.",
+                            default: "[]",
+                            value_type: "list[{ pattern, framework, name }]",
+                            example: r#"theme-loads = [{ pattern = "**/.zshrc", framework = "oh-my-zsh", name = "agnoster" }]"#,
+                        },
+                        ConfigFieldMetadata {
+                            key: "entrypoints",
+                            docs: "Raw plugin entrypoint paths to import for matching files.",
+                            default: "[]",
+                            value_type: "list[{ pattern, paths }]",
+                            example: r#"entrypoints = [{ pattern = "**/.zshrc", paths = ["./vendor/prompt/prompt.plugin.zsh"] }]"#,
+                        },
+                    ],
                     sections: &[],
-                },
-                ConfigSectionMetadata {
-                    key: "c063",
-                    docs: "Behavior overrides for `C063` overwritten and unreached function analysis.",
-                    fields: &[ConfigFieldMetadata {
-                        key: "report-unreached-nested-definitions",
-                        docs: "Report nested function definitions when no reachable direct call reaches the enclosing function scope before it exits.",
-                        default: "false",
-                        value_type: "bool",
-                        example: "report-unreached-nested-definitions = true",
-                    }],
-                    sections: &[],
-                },
-            ],
-        }],
+                }],
+            },
+        ],
     },
     ConfigSectionMetadata {
         key: "run",
@@ -639,6 +737,41 @@ impl LintConfig {
                 .get_or_insert_default()
                 .apply_overrides(rule_options);
         }
+        if let Some(zsh) = overrides.zsh {
+            self.zsh.get_or_insert_default().apply_overrides(zsh);
+        }
+    }
+}
+
+impl LintZshConfig {
+    fn apply_overrides(&mut self, overrides: LintZshConfig) {
+        if let Some(plugins) = overrides.plugins {
+            self.plugins
+                .get_or_insert_default()
+                .apply_overrides(plugins);
+        }
+    }
+}
+
+impl ZshPluginsConfig {
+    fn apply_overrides(&mut self, overrides: ZshPluginsConfig) {
+        if overrides.resolution.is_some() {
+            self.resolution = overrides.resolution;
+        }
+        if let Some(roots) = overrides.roots {
+            self.roots.get_or_insert_default().extend(roots);
+        }
+        if let Some(plugin_loads) = overrides.plugin_loads {
+            self.plugin_loads
+                .get_or_insert_default()
+                .extend(plugin_loads);
+        }
+        if let Some(theme_loads) = overrides.theme_loads {
+            self.theme_loads.get_or_insert_default().extend(theme_loads);
+        }
+        if let Some(entrypoints) = overrides.entrypoints {
+            self.entrypoints.get_or_insert_default().extend(entrypoints);
+        }
     }
 }
 
@@ -707,10 +840,49 @@ fn validate_override_table(table: &toml::Table) -> std::result::Result<(), Strin
         if let Some(rule_options_value) = lint.get("rule-options") {
             validate_lint_rule_options_override(rule_options_value)?;
         }
+        if let Some(zsh_value) = lint.get("zsh") {
+            validate_lint_zsh_override(zsh_value)?;
+        }
     }
 
     if let Some(run_value) = table.get("run") {
         validate_run_override(run_value)?;
+    }
+
+    Ok(())
+}
+
+fn validate_lint_zsh_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let zsh = value
+        .as_table()
+        .ok_or_else(|| "`[lint.zsh]` must be a TOML table".to_owned())?;
+    for key in zsh.keys() {
+        if !CONFIG_OVERRIDE_LINT_ZSH_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.zsh]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_LINT_ZSH_KEYS.join(", ")
+            ));
+        }
+    }
+
+    if let Some(plugins_value) = zsh.get("plugins") {
+        validate_lint_zsh_plugins_override(plugins_value)?;
+    }
+
+    Ok(())
+}
+
+fn validate_lint_zsh_plugins_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let plugins = value
+        .as_table()
+        .ok_or_else(|| "`[lint.zsh.plugins]` must be a TOML table".to_owned())?;
+    for key in plugins.keys() {
+        if !CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.zsh.plugins]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS.join(", ")
+            ));
+        }
     }
 
     Ok(())
@@ -1052,12 +1224,74 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_validate_supported_zsh_plugin_keys() {
+        let config = parse_config_override(
+            "lint.zsh.plugins.resolution = false\n\
+             lint.zsh.plugins.roots.oh-my-zsh = '~/.oh-my-zsh'\n\
+             lint.zsh.plugins.plugin-loads = [{ pattern = '**/.zshrc', framework = 'oh-my-zsh', name = 'git' }]\n\
+             lint.zsh.plugins.theme-loads = [{ pattern = '**/.zshrc', framework = 'oh-my-zsh', name = 'agnoster' }]\n\
+             lint.zsh.plugins.entrypoints = [{ pattern = '**/.zshrc', paths = ['./vendor/prompt.plugin.zsh'] }]",
+        )
+        .unwrap();
+        let plugins = config
+            .lint
+            .zsh
+            .as_ref()
+            .and_then(|zsh| zsh.plugins.as_ref())
+            .expect("missing zsh plugin config");
+        assert_eq!(plugins.resolution, Some(false));
+        assert_eq!(
+            plugins
+                .roots
+                .as_ref()
+                .and_then(|roots| roots.get("oh-my-zsh")),
+            Some(&"~/.oh-my-zsh".to_owned())
+        );
+        assert_eq!(
+            plugins
+                .plugin_loads
+                .as_ref()
+                .and_then(|loads| loads.first())
+                .map(|load| load.name.as_str()),
+            Some("git")
+        );
+        assert_eq!(
+            plugins
+                .theme_loads
+                .as_ref()
+                .and_then(|loads| loads.first())
+                .map(|load| load.name.as_str()),
+            Some("agnoster")
+        );
+        assert_eq!(
+            plugins
+                .entrypoints
+                .as_ref()
+                .and_then(|loads| loads.first())
+                .map(|load| load.paths.as_slice()),
+            Some(&["./vendor/prompt.plugin.zsh".to_owned()][..])
+        );
+    }
+
+    #[test]
     fn inline_config_overrides_reject_uninitialized_declaration_rule_option() {
         let err = parse_config_override(
             "lint.rule-options.c001.report-uninitialized-declarations = true",
         )
         .unwrap_err();
         assert!(err.contains("unsupported `[lint.rule-options.c001]` option"));
+    }
+
+    #[test]
+    fn inline_config_overrides_reject_unknown_lint_zsh_keys() {
+        let err = parse_config_override("lint.zsh.preview = true").unwrap_err();
+        assert!(err.contains("unsupported `[lint.zsh]` option `preview`"));
+    }
+
+    #[test]
+    fn inline_config_overrides_reject_unknown_lint_zsh_plugin_keys() {
+        let err = parse_config_override("lint.zsh.plugins.preview = true").unwrap_err();
+        assert!(err.contains("unsupported `[lint.zsh.plugins]` option `preview`"));
     }
 
     #[test]
@@ -1193,6 +1427,53 @@ mod tests {
     }
 
     #[test]
+    fn zsh_plugin_config_arguments_merge_roots_and_append_loads() {
+        let tempdir = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override(
+                        "lint.zsh.plugins.roots.oh-my-zsh = '/first'\n\
+                         lint.zsh.plugins.plugin-loads = [{ pattern = '**/.zshrc', framework = 'oh-my-zsh', name = 'git' }]",
+                    )
+                    .unwrap(),
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override(
+                        "lint.zsh.plugins.roots.oh-my-zsh = '/second'\n\
+                         lint.zsh.plugins.plugin-loads = [{ pattern = '**/.zshrc', framework = 'oh-my-zsh', name = 'docker' }]",
+                    )
+                    .unwrap(),
+                )),
+            ],
+            false,
+        )
+        .unwrap();
+
+        let loaded = load_project_config(tempdir.path(), &config).unwrap();
+        let plugins = loaded
+            .lint
+            .zsh
+            .as_ref()
+            .and_then(|zsh| zsh.plugins.as_ref())
+            .expect("missing zsh plugin config");
+        assert_eq!(
+            plugins
+                .roots
+                .as_ref()
+                .and_then(|roots| roots.get("oh-my-zsh")),
+            Some(&"/second".to_owned())
+        );
+        assert_eq!(
+            plugins.plugin_loads.as_ref().map(|loads| loads
+                .iter()
+                .map(|load| load.name.clone())
+                .collect::<Vec<_>>()),
+            Some(vec!["git".to_owned(), "docker".to_owned()])
+        );
+    }
+
+    #[test]
     fn run_config_arguments_allow_last_override_to_win() {
         let tempdir = tempdir().unwrap();
         let config = ConfigArguments::from_cli(
@@ -1250,6 +1531,22 @@ mod tests {
         let tempdir = tempdir().unwrap();
         let config_path = tempdir.path().join("shuck.toml");
         fs::write(&config_path, "[lint.rule-options.c001]\npreview = true\n").unwrap();
+
+        let err = load_project_config(
+            tempdir.path(),
+            &ConfigArguments::from_cli(vec![SingleConfigArgument::FilePath(config_path)], false)
+                .unwrap(),
+        )
+        .unwrap_err();
+
+        assert!(format!("{err:#}").contains("preview"));
+    }
+
+    #[test]
+    fn config_file_rejects_unknown_nested_zsh_plugin_fields() {
+        let tempdir = tempdir().unwrap();
+        let config_path = tempdir.path().join("shuck.toml");
+        fs::write(&config_path, "[lint.zsh.plugins]\npreview = true\n").unwrap();
 
         let err = load_project_config(
             tempdir.path(),

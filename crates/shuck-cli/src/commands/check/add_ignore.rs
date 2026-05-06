@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use shuck_config::ConfigArguments;
-use shuck_linter::add_ignores_to_path;
+use shuck_linter::add_ignores_to_path_with_resolvers;
 
 use super::analyze::read_shared_source;
 use super::cache::CheckCacheData;
@@ -51,7 +51,12 @@ pub(super) fn run_add_ignore_with_cwd(
         true,
         b"project-cache-key",
         |project_root| {
-            resolve_project_check_settings(project_root, config_arguments, &args.rule_selection)
+            resolve_project_check_settings(
+                project_root,
+                config_arguments,
+                &args.rule_selection,
+                &args.zsh_plugin_resolution,
+            )
         },
     )?;
 
@@ -63,6 +68,7 @@ pub(super) fn run_add_ignore_with_cwd(
 
     for run in runs {
         let per_file_shell = Arc::clone(&run.settings.per_file_shell);
+        let zsh_plugins = Arc::clone(&run.settings.zsh_plugins);
         let analyzed_paths = run
             .files
             .iter()
@@ -81,7 +87,13 @@ pub(super) fn run_add_ignore_with_cwd(
                 } else {
                     linter_settings.clone()
                 };
-            let result = add_ignores_to_path(&file.absolute_path, &file_linter_settings, reason)?;
+            let result = add_ignores_to_path_with_resolvers(
+                &file.absolute_path,
+                &file_linter_settings,
+                reason,
+                None,
+                Some(zsh_plugins.as_ref()),
+            )?;
             report.directives_added += result.directives_added;
             if result.parse_error.is_none() && result.diagnostics.is_empty() {
                 continue;

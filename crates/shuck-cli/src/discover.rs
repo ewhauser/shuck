@@ -11,6 +11,7 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::{DirEntry, ParallelVisitor, WalkBuilder, WalkState};
 use shuck_config::{resolve_project_root_for_file, resolve_project_root_for_input};
 use shuck_extract::is_extractable;
+use shuck_linter::ShellDialect;
 
 pub(crate) const DEFAULT_IGNORED_DIR_NAMES: &[&str] = &[
     ".shuck_cache",
@@ -25,7 +26,6 @@ pub(crate) const DEFAULT_IGNORED_DIR_NAMES: &[&str] = &[
 ];
 
 const SHEBANG_SNIFF_LIMIT_BYTES: u64 = 4096;
-
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct ProjectRoot {
     pub storage_root: PathBuf,
@@ -596,12 +596,7 @@ pub(crate) fn normalize_path(path: &Path) -> PathBuf {
 }
 
 pub(crate) fn is_shell_script(path: &Path) -> Result<bool> {
-    if let Some("sh" | "bash" | "zsh" | "ksh" | "dash" | "mksh") = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.to_ascii_lowercase())
-        .as_deref()
-    {
+    if ShellDialect::infer_from_path(path) != ShellDialect::Unknown {
         return Ok(true);
     }
 
@@ -722,6 +717,16 @@ mod tests {
         fs::write(&script, "#!/usr/bin/env -S bash -e\necho ok\n").unwrap();
 
         assert!(is_shell_script(&script).unwrap());
+    }
+
+    #[test]
+    fn detects_common_zsh_dotfiles_without_shebangs() {
+        let tempdir = tempdir().unwrap();
+        for name in [".zshrc", ".zshenv", ".zprofile", ".zlogin", ".zlogout"] {
+            let script = tempdir.path().join(name);
+            fs::write(&script, "plugins=(git)\n").unwrap();
+            assert!(is_shell_script(&script).unwrap(), "{name}");
+        }
     }
 
     #[test]

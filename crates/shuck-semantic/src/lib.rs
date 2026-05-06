@@ -487,6 +487,71 @@ where
     }
 }
 
+/// Known plugin frameworks that can resolve logical plugin names into entrypoint files.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum PluginFramework {
+    /// oh-my-zsh style plugin and theme layouts.
+    OhMyZsh,
+    /// Prezto module layouts.
+    Prezto,
+    /// An explicit filesystem path rather than a logical framework/plugin pair.
+    ExplicitFilesystem,
+    /// A custom framework name reserved for future extension points.
+    Other(String),
+}
+
+/// The kind of plugin request being resolved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PluginRequestKind {
+    /// A logical framework plugin such as `git`.
+    Plugin,
+    /// A logical framework theme such as `agnoster`.
+    Theme,
+    /// An explicit raw entrypoint path.
+    Entrypoint,
+}
+
+/// A single plugin load request extracted from source or configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginRequest {
+    /// Framework used to resolve this request.
+    pub framework: PluginFramework,
+    /// Request category.
+    pub kind: PluginRequestKind,
+    /// Plugin name, theme name, or raw entrypoint path depending on `kind`.
+    pub name: String,
+    /// Source span used to anchor imported bindings and reads.
+    pub span: Span,
+    /// Whether the request came from explicit user configuration.
+    pub explicit: bool,
+    /// Concrete framework root inferred from the source file when one is available.
+    pub root_hint: Option<PathBuf>,
+}
+
+/// Resolved plugin entrypoints and optional future plugin contracts.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PluginResolution {
+    /// Plugin entrypoint files to summarize and import.
+    pub entrypoints: Vec<PathBuf>,
+    /// Optional plugin contracts supplied without reading entrypoint files.
+    pub file_entry_contracts: Vec<FileContract>,
+}
+
+/// Resolver for zsh plugin loads discovered during semantic analysis.
+pub trait PluginResolver {
+    /// Returns additional configured plugin requests for `source_path`.
+    fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+        Vec::new()
+    }
+
+    /// Resolves one plugin request into entrypoint paths and optional contracts.
+    fn resolve_plugin_request(
+        &self,
+        source_path: &Path,
+        request: &PluginRequest,
+    ) -> PluginResolution;
+}
+
 fn dedup_synthetic_reads(reads: Vec<SyntheticRead>) -> Vec<SyntheticRead> {
     let mut seen = FxHashSet::default();
     let mut deduped = Vec::new();
@@ -690,6 +755,7 @@ pub struct SemanticModel {
     command_references: FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
     cleared_variables: FxHashMap<(ScopeId, Name), SmallVec<[usize; 2]>>,
     import_origins_by_binding: FxHashMap<BindingId, Vec<PathBuf>>,
+    imported_dependency_paths: Vec<PathBuf>,
     heuristic_unused_assignments: Vec<BindingId>,
     zsh_option_analysis: Option<ZshOptionAnalysis>,
     zsh_runtime_ambiguous_entry_mask: OnceLock<zsh_options::ZshOptionMask>,
@@ -816,6 +882,7 @@ impl SemanticModel {
             command_references: built.command_references,
             cleared_variables: built.cleared_variables,
             import_origins_by_binding: FxHashMap::default(),
+            imported_dependency_paths: Vec::new(),
             heuristic_unused_assignments: built.heuristic_unused_assignments,
             zsh_option_analysis,
             zsh_runtime_ambiguous_entry_mask: OnceLock::new(),
@@ -1901,12 +1968,14 @@ impl SemanticModel {
         &mut self,
         synthetic_reads: Vec<SyntheticRead>,
         imported_bindings: Vec<ImportedBindingContractSite>,
+        dependency_paths: Vec<PathBuf>,
         source_ref_resolutions: Vec<SourceRefResolution>,
         source_ref_explicitness: Vec<bool>,
         source_ref_diagnostic_classes: Vec<SourceRefDiagnosticClass>,
     ) {
         if synthetic_reads.is_empty()
             && imported_bindings.is_empty()
+            && dependency_paths.is_empty()
             && source_ref_resolutions.is_empty()
             && source_ref_explicitness.is_empty()
             && source_ref_diagnostic_classes.is_empty()
@@ -1917,6 +1986,15 @@ impl SemanticModel {
         let mut merged_reads = self.synthetic_reads.clone();
         merged_reads.extend(synthetic_reads);
         self.set_synthetic_reads(dedup_synthetic_reads(merged_reads));
+        if !dependency_paths.is_empty() {
+            for path in dependency_paths {
+                if !self.imported_dependency_paths.contains(&path) {
+                    self.imported_dependency_paths.push(path);
+                }
+            }
+            self.imported_dependency_paths.sort();
+            self.imported_dependency_paths.dedup();
+        }
 
         if !source_ref_resolutions.is_empty() {
             debug_assert_eq!(source_ref_resolutions.len(), self.source_refs.len());
@@ -2073,6 +2151,11 @@ impl SemanticModel {
             .get(&id)
             .map(Vec::as_slice)
             .unwrap_or(&[])
+    }
+
+    /// Returns helper and plugin files that influenced imported semantic contracts.
+    pub fn imported_dependency_paths(&self) -> &[PathBuf] {
+        &self.imported_dependency_paths
     }
 
     /// Returns flattened statement-sequence commands recorded during traversal.
@@ -2235,6 +2318,7 @@ pub fn build_with_observer_at_path_with_resolver<'a>(
         SemanticBuildOptions {
             source_path,
             source_path_resolver,
+            plugin_resolver: None,
             file_entry_contract: None,
             file_entry_contract_collector: None,
             analyzed_paths: None,
@@ -2254,6 +2338,7 @@ fn build_semantic_model<'a>(
     let SemanticBuildOptions {
         source_path,
         source_path_resolver,
+        plugin_resolver,
         file_entry_contract,
         mut file_entry_contract_collector,
         analyzed_paths,
@@ -2284,6 +2369,7 @@ fn build_semantic_model<'a>(
         let (
             synthetic_reads,
             imported_bindings,
+            dependency_paths,
             source_ref_resolutions,
             source_ref_explicitness,
             source_ref_diagnostic_classes,
@@ -2294,6 +2380,7 @@ fn build_semantic_model<'a>(
                 source,
                 source_path,
                 source_path_resolver,
+                plugin_resolver,
                 analyzed_paths,
             )
         } else {
@@ -2307,6 +2394,7 @@ fn build_semantic_model<'a>(
             (
                 Vec::new(),
                 Vec::new(),
+                Vec::new(),
                 source_ref_resolutions,
                 source_ref_explicitness,
                 source_ref_diagnostic_classes,
@@ -2315,6 +2403,7 @@ fn build_semantic_model<'a>(
         model.apply_source_contracts(
             synthetic_reads,
             imported_bindings,
+            dependency_paths,
             source_ref_resolutions,
             source_ref_explicitness,
             source_ref_diagnostic_classes,

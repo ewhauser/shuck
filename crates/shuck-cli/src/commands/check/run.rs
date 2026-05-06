@@ -45,7 +45,12 @@ pub(super) fn run_check_with_cwd(
             cache_tag: b"project-cache-key",
         },
         |project_root| {
-            resolve_project_check_settings(project_root, config_arguments, &args.rule_selection)
+            resolve_project_check_settings(
+                project_root,
+                config_arguments,
+                &args.rule_selection,
+                &args.zsh_plugin_resolution,
+            )
         },
         |_, files, settings| Ok(CheckCacheSettings::new(settings, files)),
     )?;
@@ -71,22 +76,26 @@ pub(super) fn run_check_with_cwd(
             .linter_settings
             .clone()
             .with_analyzed_path_set(analyzed_paths);
-        let pending = run.take_pending_files(|file, cached| {
-            report.cache_hits += 1;
-            report.parse_failed |= cached.parse_failed;
-            let source = (include_source && !cached.diagnostics.is_empty())
-                .then(|| read_shared_source(&file.absolute_path))
-                .transpose()?;
-            push_cached_diagnostics(
-                &mut report,
-                &file.display_path,
-                &file.relative_path,
-                &file.absolute_path,
-                &cached.diagnostics,
-                source,
-            );
-            Ok(())
-        })?;
+        let pending = run.take_pending_files_with_validator(
+            |_, cached| Ok(cached.dependencies_match()),
+            |file, cached| {
+                report.cache_hits += 1;
+                report.parse_failed |= cached.parse_failed;
+                report.dependency_paths.extend(cached.dependency_paths());
+                let source = (include_source && !cached.diagnostics.is_empty())
+                    .then(|| read_shared_source(&file.absolute_path))
+                    .transpose()?;
+                push_cached_diagnostics(
+                    &mut report,
+                    &file.display_path,
+                    &file.relative_path,
+                    &file.absolute_path,
+                    &cached.diagnostics,
+                    source,
+                );
+                Ok(())
+            },
+        )?;
 
         let results = pending
             .into_par_iter()
@@ -95,6 +104,7 @@ pub(super) fn run_check_with_cwd(
                     pending,
                     &linter_settings,
                     &project_settings.per_file_shell,
+                    Some(project_settings.zsh_plugins.as_ref()),
                     &shellcheck_map,
                     include_source,
                     fix_applicability,
@@ -108,6 +118,7 @@ pub(super) fn run_check_with_cwd(
             report.fixes_applied += result.fixes_applied;
             report.parse_failed |= result.parse_failed;
             report.diagnostics.extend(result.diagnostics);
+            report.dependency_paths.extend(result.dependency_paths);
             if let Some(cache) = run.cache.as_mut() {
                 cache.insert(
                     result.file.relative_path.clone(),
@@ -128,6 +139,8 @@ pub(super) fn run_check_with_cwd(
             .then(left.span.start.column.cmp(&right.span.start.column))
             .then(left.message.cmp(&right.message))
     });
+    report.dependency_paths.sort();
+    report.dependency_paths.dedup();
 
     Ok(report)
 }
@@ -149,6 +162,7 @@ pub(crate) fn benchmark_check_paths(
                 select: Some(vec![RuleSelector::All]),
                 ..RuleSelectionArgs::default()
             },
+            zsh_plugin_resolution: Default::default(),
             file_selection: FileSelectionArgs::default(),
             exit_zero: false,
             exit_non_zero_on_fix: false,

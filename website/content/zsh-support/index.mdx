@@ -1,0 +1,137 @@
+# Zsh Support
+
+Shuck supports zsh as a first-class shell dialect, including common startup files and zsh-specific plugin environments.
+
+This guide focuses on the zsh-specific pieces that are easy to miss:
+
+- which files Shuck treats as zsh automatically;
+- how plugin resolution works for common `oh-my-zsh` setups;
+- when to add config for dynamic plugin lists or custom layouts.
+
+## Automatic file detection
+
+Shuck already treats these as shell inputs without requiring a shebang:
+
+- `*.zsh`
+- `.zshrc`
+- `.zshenv`
+- `.zprofile`
+- `.zlogin`
+- `.zlogout`
+
+If your zsh files use a custom name, tell Shuck explicitly with `per-file-shell`:
+
+```toml
+[lint]
+per-file-shell = { "dotfiles/zsh/**" = "zsh" }
+```
+
+See the [Configuration guide](/docs/configuration) and [Settings Reference](/docs/settings) for the surrounding config surface.
+
+## What works automatically
+
+Shuck can resolve real plugin entrypoints for common static `oh-my-zsh` configs.
+
+For example, this works without extra config when the framework root and plugin list are statically visible:
+
+```zsh
+ZSH="$HOME/.oh-my-zsh"
+plugins=(git docker zsh-autosuggestions)
+ZSH_THEME=agnoster
+source "$ZSH/oh-my-zsh.sh"
+```
+
+In that shape, Shuck resolves:
+
+- plugins from `$ZSH/plugins/<name>/<name>.plugin.zsh`
+- built-in themes from `$ZSH/themes/<name>.zsh-theme`
+
+Those resolved files are summarized through the normal semantic source-closure pipeline, so their functions, bindings, and reads become available to the analyzed zsh file.
+
+## When to add config
+
+The source file is still the preferred source of truth. Add config when your real zsh setup is harder to recover statically.
+
+### Machine-local framework roots
+
+If the file hides the framework root behind machine-local setup, add a root mapping:
+
+```toml
+[lint.zsh.plugins]
+roots = { oh-my-zsh = "~/.oh-my-zsh" }
+```
+
+### Dynamic plugin lists
+
+If the file computes `plugins=(...)` dynamically, declare the logical plugin loads you want Shuck to bring into scope:
+
+```toml
+[lint.zsh.plugins]
+plugin-loads = [
+  { pattern = "**/.zshrc", framework = "oh-my-zsh", name = "git" },
+  { pattern = "**/.zshrc", framework = "oh-my-zsh", name = "docker" },
+]
+```
+
+Theme loads follow the same pattern:
+
+```toml
+[lint.zsh.plugins]
+theme-loads = [
+  { pattern = "**/.zshrc", framework = "oh-my-zsh", name = "agnoster" },
+]
+```
+
+### Custom layouts
+
+If your setup does not match the built-in framework layout, attach raw entrypoints directly:
+
+```toml
+[lint.zsh.plugins]
+entrypoints = [
+  { pattern = "**/.zshrc", paths = ["./vendor/prompt/prompt.plugin.zsh"] },
+]
+```
+
+## CLI equivalents
+
+Everything under `[lint.zsh.plugins]` also has a matching `shuck check` flag.
+
+The most useful ones are:
+
+- `--zsh-plugin-resolution` and `--no-zsh-plugin-resolution`
+- `--zsh-plugin-root` and `--extend-zsh-plugin-root`
+- `--zsh-plugin` and `--extend-zsh-plugin`
+- `--zsh-theme` and `--extend-zsh-theme`
+- `--zsh-plugin-entrypoint` and `--extend-zsh-plugin-entrypoint`
+
+Example:
+
+```bash
+shuck check \
+  --zsh-plugin-root 'oh-my-zsh=~/.oh-my-zsh' \
+  --zsh-plugin '**/.zshrc:oh-my-zsh:git' \
+  --zsh-theme '**/.zshrc:oh-my-zsh:agnoster' \
+  .
+```
+
+Use the replace forms when you want to set the full value at the command line, and the `extend-` forms when you want to add on top of config that is already present.
+
+## Current scope
+
+Today the built-in resolver is intentionally conservative.
+
+Supported directly:
+
+- static `oh-my-zsh` plugin resolution
+- static `oh-my-zsh` built-in theme resolution
+- explicit plugin and theme loads from config or CLI
+- explicit raw entrypoints from config or CLI
+
+Not supported automatically:
+
+- executing framework loaders or plugin-manager DSLs
+- inferring plugin installs from managers such as `zinit`, `zplug`, or `antigen`
+- inventing plugin loads when the source and config do not identify them statically
+
+When your setup falls outside the automatic cases, use `plugin-loads`, `theme-loads`, or `entrypoints` to describe only the pieces Shuck should import.

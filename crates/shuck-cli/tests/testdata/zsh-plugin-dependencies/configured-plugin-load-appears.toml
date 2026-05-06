@@ -1,0 +1,35 @@
+name = "configured zsh plugin load appears"
+path = ".zshrc"
+before_codes = ["C001"]
+after_codes = []
+
+[[files]]
+path = ".zshrc"
+contents = '''
+#!/bin/zsh
+git_plugin_value=loaded
+source ./oh-my-zsh/oh-my-zsh.sh
+'''
+
+[[files]]
+path = "oh-my-zsh/oh-my-zsh.sh"
+contents = '''
+# bootstrap
+'''
+
+[[files]]
+path = "shuck.toml"
+contents = '''
+[lint.zsh.plugins]
+resolution = true
+plugin-loads = [{ pattern = ".zshrc", framework = "oh-my-zsh", name = "git" }]
+
+[lint.zsh.plugins.roots]
+oh-my-zsh = "./oh-my-zsh"
+'''
+
+[[after_files]]
+path = "oh-my-zsh/plugins/git/git.plugin.zsh"
+contents = '''
+printf '%s\n' "$git_plugin_value"
+'''
