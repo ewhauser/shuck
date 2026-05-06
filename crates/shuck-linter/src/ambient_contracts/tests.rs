@@ -396,6 +396,43 @@ compstate[insert]=menu
 }
 
 #[test]
+fn powerlevel10k_gitstatus_outputs_are_consumed() {
+    let path = Path::new("/tmp/zsh/powerlevel10k/gitstatus/gitstatus.plugin.zsh");
+    let source = "\
+VCS_STATUS_WORKDIR=/tmp/project
+VCS_STATUS_RESULT=ok-sync
+GITSTATUS_PROMPT_LEN=42
+";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(
+        has_consumed_prefix(&contract, "VCS_STATUS_"),
+        "{contract:?}"
+    );
+    assert!(
+        has_consumed_name(&contract, "GITSTATUS_PROMPT_LEN"),
+        "{contract:?}"
+    );
+}
+
+#[test]
+fn powerlevel10k_bash_gitstatus_outputs_are_consumed() {
+    let path = Path::new("/tmp/zsh/powerlevel10k/gitstatus/gitstatus.plugin.sh");
+    let source = "\
+VCS_STATUS_WORKDIR=/tmp/project
+VCS_STATUS_RESULT=ok-sync
+";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Sh).unwrap();
+
+    assert!(
+        has_consumed_prefix(&contract, "VCS_STATUS_"),
+        "{contract:?}"
+    );
+}
+
+#[test]
 fn pathless_zsh_hook_arrays_do_not_get_ambient_contracts() {
     let source = "precmd_functions=(${precmd_functions:#_example_precmd})\n";
 

@@ -19,8 +19,8 @@ use shuck_semantic::{ContractCertainty, FileContract, ProvidedBinding, ProvidedB
 use super::AmbientContractCollector;
 use super::signals::{PathSignals, SourceSignals};
 use super::zsh_paths::{
-    zsh_dotfile_path_shape, zsh_project_path_shape, zsh_runtime_path_shape,
-    zsh_syntax_highlighting_test_path_shape, zsh_test_data_path_shape,
+    p10k_gitstatus_path_shape, zsh_dotfile_path_shape, zsh_project_path_shape,
+    zsh_runtime_path_shape, zsh_syntax_highlighting_test_path_shape, zsh_test_data_path_shape,
 };
 use crate::ShellDialect;
 
@@ -53,6 +53,10 @@ pub(super) fn build_zsh_ambient_runtime_contract(
         contract.add_externally_consumed_binding_name(Name::from(name));
     }
 
+    for prefix in zsh_externally_consumed_prefixes(source, path) {
+        contract.add_externally_consumed_binding_prefix(Name::from(prefix));
+    }
+
     for prefix in zsh_test_fixture_consumed_prefixes(source, path) {
         contract.add_externally_consumed_binding_prefix(Name::from(prefix));
     }
@@ -72,6 +76,9 @@ fn zsh_ambient_runtime_has_signal(source: &SourceSignals<'_>, path: &PathSignals
         || source.mentions_any(ZSH_HOOK_ARRAY_PARAMETERS)
         || zsh_prompt_color_runtime_shape(source, path)
         || !zsh_externally_consumed_names(source, path).is_empty()
+        || zsh_externally_consumed_prefixes(source, path)
+            .next()
+            .is_some()
         || zsh_test_fixture_consumed_prefixes(source, path)
             .next()
             .is_some()
@@ -130,7 +137,10 @@ fn zsh_externally_consumed_names(
     path: &PathSignals,
 ) -> Vec<&'static str> {
     let runtime_path = zsh_runtime_path_shape(path.lower_path());
-    if !runtime_path && !zsh_test_data_path_shape(path.lower_path()) {
+    if !runtime_path
+        && !zsh_test_data_path_shape(path.lower_path())
+        && !p10k_gitstatus_path_shape(path.lower_path())
+    {
         return Vec::new();
     }
 
@@ -147,7 +157,19 @@ fn zsh_externally_consumed_names(
                 .filter(|name| source.assigns_name(name)),
         );
     }
+    if p10k_gitstatus_path_shape(path.lower_path()) && source.assigns_name("GITSTATUS_PROMPT_LEN") {
+        consumed.push("GITSTATUS_PROMPT_LEN");
+    }
     consumed
+}
+
+fn zsh_externally_consumed_prefixes<'a>(
+    source: &'a SourceSignals<'_>,
+    path: &'a PathSignals,
+) -> impl Iterator<Item = &'static str> + 'a {
+    ["VCS_STATUS_"]
+        .into_iter()
+        .filter(|prefix| source.contains(prefix) && p10k_gitstatus_path_shape(path.lower_path()))
 }
 
 const ZSH_HOOK_ARRAY_PARAMETERS: &[&str] = &[

@@ -24,6 +24,10 @@ pub(super) fn p10k_config_path_shape(lower_path: &str) -> bool {
     )
 }
 
+pub(super) fn p10k_gitstatus_path_shape(lower_path: &str) -> bool {
+    lower_path.contains("/powerlevel10k/gitstatus/")
+}
+
 pub(super) fn zsh_dotfile_path_shape(lower_path: &str) -> bool {
     path_has_component(
         lower_path,

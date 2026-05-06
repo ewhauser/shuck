@@ -34,6 +34,7 @@ use shuck_semantic::{ContractCertainty, FileContract, ProvidedBinding, ProvidedB
 use super::AmbientContractCollector;
 use super::signals::PathSignals;
 use super::source_scan::shell_assignment_token;
+use super::zsh_paths::p10k_gitstatus_path_shape;
 use crate::ShellDialect;
 
 pub(super) fn matches_sourced_runtime_contract(
@@ -63,29 +64,34 @@ pub(super) fn build_sourced_runtime_contract(
             ContractCertainty::Definite,
         ));
     }
+    if gitstatus_output_runtime_shape(collector) {
+        contract.add_externally_consumed_binding_prefix(Name::from("VCS_STATUS_"));
+        contract.add_externally_consumed_binding_name(Name::from("GITSTATUS_PROMPT_LEN"));
+    }
     contract
 }
 
 fn sourced_runtime_path_shape(path: &PathSignals) -> bool {
-    path.matches_any(&[
-        "/completion/",
-        "/completions/",
-        ".completion.",
-        "bash_autocomplete",
-        "/themes/",
-        ".theme.",
-        "/plugins/",
-        "/plugin/",
-        "/modules/",
-        "/scriptmodules/",
-        "/scripts/functions/",
-        "/rvm/scripts/",
-        "/lgsm/modules/",
-        "/common/environment/setup/",
-        "/common/chroot-style/",
-        "/common/hooks/",
-        "termux-packages/packages/",
-    ])
+    p10k_gitstatus_path_shape(path.lower_path())
+        || path.matches_any(&[
+            "/completion/",
+            "/completions/",
+            ".completion.",
+            "bash_autocomplete",
+            "/themes/",
+            ".theme.",
+            "/plugins/",
+            "/plugin/",
+            "/modules/",
+            "/scriptmodules/",
+            "/scripts/functions/",
+            "/rvm/scripts/",
+            "/lgsm/modules/",
+            "/common/environment/setup/",
+            "/common/chroot-style/",
+            "/common/hooks/",
+            "termux-packages/packages/",
+        ])
 }
 
 fn sourced_runtime_source_shape(collector: &AmbientContractCollector<'_>) -> bool {
@@ -97,6 +103,7 @@ fn sourced_runtime_source_shape(collector: &AmbientContractCollector<'_>) -> boo
         || source.contains("about-completion")
         || (collector.path_signals().contains("termux-packages") && source.contains("TERMUX_"))
         || collector.completion_initializer_invoked
+        || gitstatus_output_runtime_shape(collector)
 }
 
 fn runtime_names_for_source_path(
@@ -179,6 +186,11 @@ fn completion_runtime_path_shape(path: &PathSignals) -> bool {
         "/bash-progcomp/",
         "bash_autocomplete",
     ])
+}
+
+fn gitstatus_output_runtime_shape(collector: &AmbientContractCollector<'_>) -> bool {
+    p10k_gitstatus_path_shape(collector.path_signals().lower_path())
+        && collector.source_signals().contains("VCS_STATUS_")
 }
 
 pub(super) fn normalized_command_invokes_completion_initializer(

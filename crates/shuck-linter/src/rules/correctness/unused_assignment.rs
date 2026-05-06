@@ -1481,6 +1481,42 @@ ordinary=1
     }
 
     #[test]
+    fn powerlevel10k_gitstatus_outputs_are_external_consumers() {
+        let source = "\
+#!/usr/bin/env zsh
+VCS_STATUS_WORKDIR=/tmp/project
+VCS_STATUS_RESULT=ok-sync
+GITSTATUS_PROMPT_LEN=42
+ordinary=1
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/powerlevel10k/gitstatus/gitstatus.plugin.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
+    }
+
+    #[test]
+    fn powerlevel10k_bash_gitstatus_outputs_are_external_consumers() {
+        let source = "\
+VCS_STATUS_WORKDIR=/tmp/project
+VCS_STATUS_RESULT=ok-sync
+ordinary=1
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/powerlevel10k/gitstatus/gitstatus.plugin.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Sh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
+    }
+
+    #[test]
     fn zsh_hook_arrays_are_external_consumers_in_runtime_paths() {
         let source = "\
 #!/usr/bin/env zsh
