@@ -202,12 +202,15 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                 );
                 let lookup_kind = command_lookup_kind(visit.command);
                 let entries = command_ids_by_span.entry(key).or_default();
-                let previous = entries.iter().find(|entry| entry.kind == lookup_kind);
-                debug_assert!(previous.is_none(), "duplicate command lookup key");
-                entries.push(CommandLookupEntry {
-                    kind: lookup_kind,
-                    id,
-                });
+                // Recovery on malformed nested word commands can surface the same
+                // syntax-backed command more than once. Keep the first lookup target
+                // so stmt-to-fact resolution stays deterministic.
+                if !entries.iter().any(|entry| entry.kind == lookup_kind) {
+                    entries.push(CommandLookupEntry {
+                        kind: lookup_kind,
+                        id,
+                    });
+                }
 
                 if context.is_in_if_condition() {
                     if_condition_command_ids.insert(id);
@@ -252,7 +255,9 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     &normalized,
                 );
                 if let Some(name_word) = normalized.body_name_word() {
-                    command_ids_by_name_word_span.insert(FactSpan::new(name_word.span), id);
+                    command_ids_by_name_word_span
+                        .entry(FactSpan::new(name_word.span))
+                        .or_insert(id);
                 }
                 let nested_word_command = context.is_nested_word_command();
                 build_word_facts_for_command(

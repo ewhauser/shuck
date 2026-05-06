@@ -3938,3 +3938,24 @@ printf '%s\\n' `date` $(uname) <(cat /etc/hosts)
         assert!(substitutions.contains(&("<(cat /etc/hosts)".to_owned(), None, false,)));
     });
 }
+
+#[test]
+fn builds_recovered_nested_command_substitutions_without_duplicate_lookup_panics() {
+    let source = "x=${(#} {($(e";
+
+    with_facts_dialect(
+        source,
+        None,
+        shuck_parser::parser::ShellDialect::Zsh,
+        ShellDialect::Zsh,
+        |_, facts| {
+            assert!(
+                facts
+                    .commands()
+                    .iter()
+                    .any(|fact| fact.span().slice(source) == "e"),
+                "expected the recovered command substitution body to stay discoverable",
+            );
+        },
+    );
+}
