@@ -53,6 +53,10 @@ pub(super) fn build_zsh_ambient_runtime_contract(
         contract.add_externally_consumed_binding_name(Name::from(name));
     }
 
+    for prefix in zsh_runtime_consumed_prefixes(source, path) {
+        contract.add_externally_consumed_binding_prefix(Name::from(prefix));
+    }
+
     for prefix in zsh_test_fixture_consumed_prefixes(source, path) {
         contract.add_externally_consumed_binding_prefix(Name::from(prefix));
     }
@@ -72,6 +76,7 @@ fn zsh_ambient_runtime_has_signal(source: &SourceSignals<'_>, path: &PathSignals
         || source.mentions_any(ZSH_HOOK_ARRAY_PARAMETERS)
         || zsh_prompt_color_runtime_shape(source, path)
         || !zsh_externally_consumed_names(source, path).is_empty()
+        || zsh_runtime_consumed_prefixes(source, path).next().is_some()
         || zsh_test_fixture_consumed_prefixes(source, path)
             .next()
             .is_some()
@@ -148,6 +153,17 @@ fn zsh_externally_consumed_names(
         );
     }
     consumed
+}
+
+fn zsh_runtime_consumed_prefixes<'a>(
+    source: &'a SourceSignals<'_>,
+    path: &'a PathSignals,
+) -> impl Iterator<Item = &'static str> + 'a {
+    ["ZSH_THEME_GIT_PROMPT_"].into_iter().filter(|prefix| {
+        source.contains(prefix)
+            && path.contains("/ohmyzsh/")
+            && (path.contains("/themes/") || path.file_name() == "theme-and-appearance.zsh")
+    })
 }
 
 const ZSH_HOOK_ARRAY_PARAMETERS: &[&str] = &[

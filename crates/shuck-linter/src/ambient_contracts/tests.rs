@@ -396,6 +396,22 @@ compstate[insert]=menu
 }
 
 #[test]
+fn ohmyzsh_theme_git_prompt_names_are_consumed() {
+    let path = Path::new("/tmp/zsh/ohmyzsh/themes/example.zsh-theme");
+    let source = "\
+ZSH_THEME_GIT_PROMPT_PREFIX='git:'
+ZSH_THEME_GIT_PROMPT_DIRTY='*'
+";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(has_consumed_prefix(
+        &contract,
+        "ZSH_THEME_GIT_PROMPT_"
+    ));
+}
+
+#[test]
 fn pathless_zsh_hook_arrays_do_not_get_ambient_contracts() {
     let source = "precmd_functions=(${precmd_functions:#_example_precmd})\n";
 

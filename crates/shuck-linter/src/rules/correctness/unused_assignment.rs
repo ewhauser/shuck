@@ -1332,6 +1332,24 @@ ordinary=1
     }
 
     #[test]
+    fn ohmyzsh_theme_git_prompt_assignments_are_consumed() {
+        let source = "\
+#!/usr/bin/env zsh
+ZSH_THEME_GIT_PROMPT_PREFIX='git:'
+ZSH_THEME_GIT_PROMPT_DIRTY='*'
+ordinary=1
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/themes/example.zsh-theme"),
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "ordinary");
+    }
+
+    #[test]
     fn zsh_test_data_expected_outputs_are_external_consumers() {
         let source = "\
 #!/usr/bin/env zsh
