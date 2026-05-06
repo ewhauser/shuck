@@ -577,7 +577,7 @@ impl PluginResolver for ResolvedZshPluginSettings {
         requests
     }
 
-    fn resolve_source_path(&self, _source_path: &Path, candidate: &str) -> Vec<PathBuf> {
+    fn resolve_source_path(&self, source_path: &Path, candidate: &str) -> Vec<PathBuf> {
         if !self.enabled {
             return Vec::new();
         }
@@ -585,7 +585,7 @@ impl PluginResolver for ResolvedZshPluginSettings {
         let Some(root) = self.roots.get("oh-my-zsh") else {
             return Vec::new();
         };
-        oh_my_zsh_source_suffix(candidate)
+        oh_my_zsh_source_suffix(root, source_path, candidate)
             .map(|suffix| vec![root.join(suffix)])
             .unwrap_or_default()
     }
@@ -716,10 +716,17 @@ fn plugin_root_for_request(
     settings.roots.get(key).cloned()
 }
 
-fn oh_my_zsh_source_suffix(candidate: &str) -> Option<PathBuf> {
+fn oh_my_zsh_source_suffix(root: &Path, source_path: &Path, candidate: &str) -> Option<PathBuf> {
     let normalized = candidate.replace('\\', "/");
     if normalized == "oh-my-zsh.sh" || normalized.ends_with("/oh-my-zsh.sh") {
         return Some(PathBuf::from("oh-my-zsh.sh"));
+    }
+
+    let source_in_framework = source_path.starts_with(root);
+    let candidate_has_framework_anchor = path_text_has_oh_my_zsh_anchor(&normalized)
+        || path_text_starts_with_path(&normalized, root);
+    if !source_in_framework && !candidate_has_framework_anchor {
+        return None;
     }
 
     for marker in ["/plugins/", "/themes/", "/lib/"] {
@@ -732,6 +739,18 @@ fn oh_my_zsh_source_suffix(candidate: &str) -> Option<PathBuf> {
     }
 
     None
+}
+
+fn path_text_has_oh_my_zsh_anchor(path: &str) -> bool {
+    path.contains("/.oh-my-zsh/") || path.contains("/oh-my-zsh/")
+}
+
+fn path_text_starts_with_path(path: &str, root: &Path) -> bool {
+    let root_text = root.to_string_lossy().replace('\\', "/");
+    path == root_text
+        || path
+            .strip_prefix(&root_text)
+            .is_some_and(|tail| tail.starts_with('/'))
 }
 
 fn normalize_zsh_plugin_path(project_root: &Path, value: &str) -> Result<PathBuf> {
@@ -1773,6 +1792,48 @@ mod tests {
         assert!(settings.plugin_loads.is_empty());
         assert!(settings.theme_loads.is_empty());
         assert!(settings.entrypoints.is_empty());
+    }
+
+    #[test]
+    fn oh_my_zsh_source_suffix_rewrites_framework_paths_only() {
+        let root = Path::new("/workspace/.oh-my-zsh");
+
+        assert_eq!(
+            oh_my_zsh_source_suffix(
+                root,
+                Path::new("/workspace/.oh-my-zsh/oh-my-zsh.sh"),
+                "/opt/app/plugins/git/git.plugin.zsh",
+            ),
+            Some(PathBuf::from("plugins/git/git.plugin.zsh"))
+        );
+        assert_eq!(
+            oh_my_zsh_source_suffix(
+                root,
+                Path::new("/workspace/script.zsh"),
+                "/tmp/.oh-my-zsh/plugins/git/git.plugin.zsh",
+            ),
+            Some(PathBuf::from("plugins/git/git.plugin.zsh"))
+        );
+        assert_eq!(
+            oh_my_zsh_source_suffix(
+                root,
+                Path::new("/workspace/script.zsh"),
+                "/opt/app/plugins/git/git.plugin.zsh",
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn oh_my_zsh_source_suffix_still_resolves_framework_entrypoint() {
+        assert_eq!(
+            oh_my_zsh_source_suffix(
+                Path::new("/workspace/.oh-my-zsh"),
+                Path::new("/workspace/script.zsh"),
+                "/not-installed/.oh-my-zsh/oh-my-zsh.sh",
+            ),
+            Some(PathBuf::from("oh-my-zsh.sh"))
+        );
     }
 
     #[test]

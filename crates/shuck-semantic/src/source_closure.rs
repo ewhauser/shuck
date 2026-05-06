@@ -949,6 +949,7 @@ fn anchor_configured_plugin_requests(
     bootstraps: &[DetectedPluginBootstrap],
     file_span: Span,
 ) -> Vec<PluginRequest> {
+    let file_scope_tail = Span::at(position_after(file_span.end));
     let mut anchored = Vec::new();
     for request in requests {
         if request.kind == PluginRequestKind::Entrypoint {
@@ -956,7 +957,7 @@ fn anchor_configured_plugin_requests(
                 // Configured entrypoints are not tied to a source command. Treat
                 // them as late file-scope loads so their contract can consume
                 // setup assignments made earlier in the file.
-                span: Span::at(file_span.end),
+                span: file_scope_tail,
                 ..request
             });
             continue;
@@ -986,6 +987,12 @@ fn anchor_configured_plugin_requests(
         }
     }
     anchored
+}
+
+fn position_after(mut position: shuck_ast::Position) -> shuck_ast::Position {
+    position.offset += 1;
+    position.column += 1;
+    position
 }
 
 fn dedup_plugin_requests(requests: Vec<PluginRequest>) -> Vec<PluginRequest> {

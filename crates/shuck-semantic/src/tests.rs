@@ -9084,7 +9084,11 @@ fn configured_zsh_plugin_entrypoint_reads_apply_after_file_assignments() {
     let temp = tempdir().unwrap();
     let main = temp.path().join("main.zsh");
     let plugin = temp.path().join("plugin.zsh");
-    fs::write(&main, "#!/bin/zsh\nflag=1\n").unwrap();
+    fs::write(
+        &main,
+        "#!/bin/zsh\nflag=1\nlate_scope() {\n  local flag=2\n}\n",
+    )
+    .unwrap();
     fs::write(&plugin, "echo \"$flag\"\n").unwrap();
 
     let resolver = EntryResolver { entrypoint: plugin };
