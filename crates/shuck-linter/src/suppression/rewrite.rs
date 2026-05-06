@@ -11,7 +11,10 @@ use shuck_parser::{
     parser::{ParseResult, Parser},
 };
 
-use crate::{Diagnostic, LinterSettings, Rule, ShellDialect, lint_file_with_directives};
+use crate::{
+    Diagnostic, LinterSettings, PluginResolver, Rule, ShellDialect, SourcePathResolver,
+    lint_file_with_directives, lint_file_with_directives_and_resolvers,
+};
 
 use super::{
     ShellCheckCodeMap, SuppressionAction, SuppressionDirective, SuppressionSource, parse_directives,
@@ -36,10 +39,27 @@ pub fn add_ignores_to_path(
     settings: &LinterSettings,
     reason: Option<&str>,
 ) -> Result<AddIgnoreResult> {
+    add_ignores_to_path_with_resolvers(path, settings, reason, None, None)
+}
+
+pub fn add_ignores_to_path_with_resolvers(
+    path: &Path,
+    settings: &LinterSettings,
+    reason: Option<&str>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
+) -> Result<AddIgnoreResult> {
     let shellcheck_map = ShellCheckCodeMap::default();
     let mut source =
         fs::read_to_string(path).with_context(|| format!("read source from {}", path.display()))?;
-    let mut analysis = analyze_source(&source, settings, &shellcheck_map, Some(path));
+    let mut analysis = analyze_source(
+        &source,
+        settings,
+        &shellcheck_map,
+        Some(path),
+        source_path_resolver,
+        plugin_resolver,
+    );
     let mut directives_added = 0usize;
 
     let target_lines = analysis
@@ -49,7 +69,14 @@ pub fn add_ignores_to_path(
         .collect::<BTreeSet<_>>();
 
     for line in target_lines {
-        analysis = analyze_source(&source, settings, &shellcheck_map, Some(path));
+        analysis = analyze_source(
+            &source,
+            settings,
+            &shellcheck_map,
+            Some(path),
+            source_path_resolver,
+            plugin_resolver,
+        );
         let line_diagnostics = analysis
             .diagnostics
             .iter()
@@ -72,8 +99,14 @@ pub fn add_ignores_to_path(
         };
 
         let candidate_source = apply_edit(&source, &edit);
-        let candidate_analysis =
-            analyze_source(&candidate_source, settings, &shellcheck_map, Some(path));
+        let candidate_analysis = analyze_source(
+            &candidate_source,
+            settings,
+            &shellcheck_map,
+            Some(path),
+            source_path_resolver,
+            plugin_resolver,
+        );
         if !edit_is_valid(&analysis, &candidate_analysis, line, &line_diagnostics) {
             continue;
         }
@@ -103,7 +136,7 @@ pub fn build_ignore_edit_for_line(
     source_path: Option<&Path>,
 ) -> Option<crate::Edit> {
     let shellcheck_map = ShellCheckCodeMap::default();
-    let analysis = analyze_source(source, settings, &shellcheck_map, source_path);
+    let analysis = analyze_source(source, settings, &shellcheck_map, source_path, None, None);
     let line_diagnostics = analysis
         .diagnostics
         .iter()
@@ -123,8 +156,14 @@ pub fn build_ignore_edit_for_line(
         &shellcheck_map,
     )?;
     let candidate_source = apply_edit(source, &edit);
-    let candidate_analysis =
-        analyze_source(&candidate_source, settings, &shellcheck_map, source_path);
+    let candidate_analysis = analyze_source(
+        &candidate_source,
+        settings,
+        &shellcheck_map,
+        source_path,
+        None,
+        None,
+    );
     edit_is_valid(&analysis, &candidate_analysis, line, &line_diagnostics).then_some(
         crate::Edit::replacement_at(
             usize::from(edit.range.start()),
@@ -148,19 +187,34 @@ fn analyze_source(
     settings: &LinterSettings,
     shellcheck_map: &ShellCheckCodeMap,
     source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
 ) -> AnalyzedSource {
     let shell = resolve_shell(settings, source, source_path);
     let parse_result = parse_for_lint(source, shell);
     let indexer = Indexer::new(source, &parse_result);
     let directives = parse_directives(source, indexer.comment_index(), shellcheck_map);
-    let diagnostics = lint_file_with_directives(
-        &parse_result,
-        source,
-        &indexer,
-        settings,
-        &directives,
-        source_path,
-    );
+    let diagnostics = if source_path_resolver.is_some() || plugin_resolver.is_some() {
+        lint_file_with_directives_and_resolvers(
+            &parse_result,
+            source,
+            &indexer,
+            settings,
+            &directives,
+            source_path,
+            source_path_resolver,
+            plugin_resolver,
+        )
+    } else {
+        lint_file_with_directives(
+            &parse_result,
+            source,
+            &indexer,
+            settings,
+            &directives,
+            source_path,
+        )
+    };
     let strict_parse_error = strict_parse_error(&parse_result);
     let parse_error = strict_parse_error
         .clone()
@@ -765,8 +819,22 @@ mod tests {
         let candidate_source =
             "#!/bin/bash\necho $foo  # shuck: ignore=C006\necho $bar\necho \"unterminated\n";
 
-        let current = analyze_source(current_source, &settings, &shellcheck_map, Some(path));
-        let candidate = analyze_source(candidate_source, &settings, &shellcheck_map, Some(path));
+        let current = analyze_source(
+            current_source,
+            &settings,
+            &shellcheck_map,
+            Some(path),
+            None,
+            None,
+        );
+        let candidate = analyze_source(
+            candidate_source,
+            &settings,
+            &shellcheck_map,
+            Some(path),
+            None,
+            None,
+        );
         let line_diagnostics = current
             .diagnostics
             .iter()
@@ -788,8 +856,22 @@ mod tests {
         let current_source = "#!/bin/bash\necho $foo\necho $bar\n";
         let candidate_source = "#!/bin/bash\necho $foo  # shuck: ignore=C006\necho ok\n";
 
-        let current = analyze_source(current_source, &settings, &shellcheck_map, Some(path));
-        let candidate = analyze_source(candidate_source, &settings, &shellcheck_map, Some(path));
+        let current = analyze_source(
+            current_source,
+            &settings,
+            &shellcheck_map,
+            Some(path),
+            None,
+            None,
+        );
+        let candidate = analyze_source(
+            candidate_source,
+            &settings,
+            &shellcheck_map,
+            Some(path),
+            None,
+            None,
+        );
         let line_diagnostics = current
             .diagnostics
             .iter()

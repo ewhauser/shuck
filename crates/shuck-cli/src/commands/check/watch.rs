@@ -109,19 +109,17 @@ pub(super) fn watch_check(
     cwd: &Path,
     cache_root: &Path,
 ) -> Result<ExitStatus> {
-    let watch_targets = collect_watch_targets(&args.paths, config_arguments, cwd)?;
     let (tx, rx) = channel();
-    let mut watcher = recommended_watcher(tx)?;
-    for target in &watch_targets {
-        for watch_path in &target.watch_paths {
-            watcher.watch(watch_path, target.recursive_mode())?;
-        }
-    }
+    let mut watch_targets = collect_watch_targets(&args.paths, config_arguments, cwd, &[])?;
+    let mut _watcher = build_watcher(&tx, &watch_targets)?;
 
     clear_screen()?;
     print_watch_banner("Starting linter in watch mode...")?;
     let report = run_check_with_cwd(args, config_arguments, cwd, cache_root)?;
     print_report(&report, args.output_format)?;
+    watch_targets =
+        collect_watch_targets(&args.paths, config_arguments, cwd, &report.dependency_paths)?;
+    _watcher = build_watcher(&tx, &watch_targets)?;
 
     loop {
         wait_for_watch_rerun(&rx, cache_root, &watch_targets)?;
@@ -130,6 +128,9 @@ pub(super) fn watch_check(
         print_watch_banner("File change detected...")?;
         let report = run_check_with_cwd(args, config_arguments, cwd, cache_root)?;
         print_report(&report, args.output_format)?;
+        watch_targets =
+            collect_watch_targets(&args.paths, config_arguments, cwd, &report.dependency_paths)?;
+        _watcher = build_watcher(&tx, &watch_targets)?;
     }
 }
 
@@ -164,6 +165,7 @@ pub(super) fn collect_watch_targets(
     paths: &[PathBuf],
     config_arguments: &ConfigArguments,
     cwd: &Path,
+    dependency_paths: &[PathBuf],
 ) -> Result<Vec<WatchTarget>> {
     let inputs = effective_check_inputs(paths);
     let mut targets = Vec::new();
@@ -200,6 +202,20 @@ pub(super) fn collect_watch_targets(
             targets.push(target);
         }
     }
+    for dependency_path in dependency_paths {
+        let resolved_path = normalize_path(dependency_path);
+        if !resolved_path.exists() {
+            continue;
+        }
+        let canonical_path = fs::canonicalize(&resolved_path).map_err(anyhow::Error::from)?;
+        let canonical_parent = canonical_path.parent().map(Path::to_path_buf);
+        let mut target = WatchTarget::file(resolved_path);
+        target.add_match_path(canonical_path);
+        if let Some(parent) = canonical_parent {
+            target.add_watch_path(parent);
+        }
+        targets.push(target);
+    }
 
     targets.sort_by(|left, right| {
         left.watch_path
@@ -234,6 +250,19 @@ pub(super) fn collect_watch_targets(
     }
 
     Ok(deduped)
+}
+
+fn build_watcher(
+    tx: &std::sync::mpsc::Sender<notify::Result<notify::Event>>,
+    watch_targets: &[WatchTarget],
+) -> Result<notify::RecommendedWatcher> {
+    let mut watcher = recommended_watcher(tx.clone())?;
+    for target in watch_targets {
+        for watch_path in &target.watch_paths {
+            watcher.watch(watch_path, target.recursive_mode())?;
+        }
+    }
+    Ok(watcher)
 }
 
 fn watch_config_target(
@@ -535,7 +564,7 @@ mod tests {
         fs::write(&file, "#!/bin/bash\necho ok\n").unwrap();
 
         let default_targets =
-            collect_watch_targets(&[], &ConfigArguments::default(), tempdir.path()).unwrap();
+            collect_watch_targets(&[], &ConfigArguments::default(), tempdir.path(), &[]).unwrap();
         assert_eq!(
             default_targets,
             vec![WatchTarget {
@@ -556,6 +585,7 @@ mod tests {
             &[PathBuf::from("nested"), PathBuf::from("nested/deeper")],
             &ConfigArguments::default(),
             tempdir.path(),
+            &[],
         )
         .unwrap();
         assert_eq!(
@@ -586,6 +616,7 @@ mod tests {
             &[PathBuf::from("nested/script.sh")],
             &ConfigArguments::default(),
             tempdir.path(),
+            &[],
         )
         .unwrap();
         assert_eq!(
@@ -630,6 +661,7 @@ mod tests {
             ],
             &ConfigArguments::from_cli(Vec::new(), true).unwrap(),
             tempdir.path(),
+            &[],
         )
         .unwrap();
 
@@ -652,6 +684,30 @@ mod tests {
                 },
             }]
         );
+    }
+
+    #[test]
+    fn collect_watch_targets_include_dependency_files() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("script.sh"), "#!/bin/bash\necho ok\n").unwrap();
+        let dependency = tempdir.path().join("deps/plugin.plugin.zsh");
+        fs::create_dir_all(dependency.parent().unwrap()).unwrap();
+        fs::write(&dependency, "plugin_fn() { :; }\n").unwrap();
+
+        let targets = collect_watch_targets(
+            &[PathBuf::from("script.sh")],
+            &ConfigArguments::from_cli(Vec::new(), true).unwrap(),
+            tempdir.path(),
+            std::slice::from_ref(&dependency),
+        )
+        .unwrap();
+
+        let canonical_dependency = fs::canonicalize(&dependency).unwrap();
+        assert!(targets.iter().any(|target| {
+            !target.recursive
+                && target.watch_path == normalize_path(dependency.parent().unwrap())
+                && target.match_paths.contains(&canonical_dependency)
+        }));
     }
 
     #[test]

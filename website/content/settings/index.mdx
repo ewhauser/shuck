@@ -213,6 +213,99 @@ report-unreached-nested-definitions = true
 
 ---
 
+### `[lint.zsh]`
+
+Zsh-specific lint behavior for `shuck check`.
+
+### `[lint.zsh.plugins]`
+
+Zsh plugin-resolution settings used to import real plugin entrypoints into semantic analysis.
+
+#### `resolution`
+
+Enable or disable zsh plugin resolution while leaving ordinary source closure enabled.
+
+**Default value**: `true`
+
+**Type**: `bool`
+
+**Example usage**:
+
+```toml
+[lint.zsh.plugins]
+resolution = false
+```
+
+---
+
+#### `roots`
+
+Fallback framework roots keyed by logical framework name.
+
+**Default value**: `{}`
+
+**Type**: `table[str, path]`
+
+**Example usage**:
+
+```toml
+[lint.zsh.plugins]
+roots = { oh-my-zsh = "~/.oh-my-zsh" }
+```
+
+---
+
+#### `plugin-loads`
+
+Additional logical plugin loads to attach to matching files.
+
+**Default value**: `[]`
+
+**Type**: `list[{ pattern, framework, name }]`
+
+**Example usage**:
+
+```toml
+[lint.zsh.plugins]
+plugin-loads = [{ pattern = "**/.zshrc", framework = "oh-my-zsh", name = "git" }]
+```
+
+---
+
+#### `theme-loads`
+
+Additional logical theme loads to attach to matching files.
+
+**Default value**: `[]`
+
+**Type**: `list[{ pattern, framework, name }]`
+
+**Example usage**:
+
+```toml
+[lint.zsh.plugins]
+theme-loads = [{ pattern = "**/.zshrc", framework = "oh-my-zsh", name = "agnoster" }]
+```
+
+---
+
+#### `entrypoints`
+
+Raw plugin entrypoint paths to import for matching files.
+
+**Default value**: `[]`
+
+**Type**: `list[{ pattern, paths }]`
+
+**Example usage**:
+
+```toml
+[lint.zsh.plugins]
+entrypoints = [{ pattern = "**/.zshrc", paths = ["./vendor/prompt/prompt.plugin.zsh"] }]
+```
+
+---
+
 ## `[run]`
 
 Interpreter defaults and managed shell version pins for `shuck run` and related commands.

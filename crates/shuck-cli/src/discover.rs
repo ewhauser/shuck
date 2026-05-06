@@ -25,6 +25,18 @@ pub(crate) const DEFAULT_IGNORED_DIR_NAMES: &[&str] = &[
 ];
 
 const SHEBANG_SNIFF_LIMIT_BYTES: u64 = 4096;
+const KNOWN_ZSH_DOTFILE_NAMES: &[&str] = &[
+    ".zshrc",
+    "zshrc",
+    ".zshenv",
+    "zshenv",
+    ".zprofile",
+    "zprofile",
+    ".zlogin",
+    "zlogin",
+    ".zlogout",
+    "zlogout",
+];
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct ProjectRoot {
@@ -596,6 +608,13 @@ pub(crate) fn normalize_path(path: &Path) -> PathBuf {
 }
 
 pub(crate) fn is_shell_script(path: &Path) -> Result<bool> {
+    if let Some(file_name) = path.file_name().and_then(|name| name.to_str()) {
+        let lower_file_name = file_name.to_ascii_lowercase();
+        if KNOWN_ZSH_DOTFILE_NAMES.contains(&lower_file_name.as_str()) {
+            return Ok(true);
+        }
+    }
+
     if let Some("sh" | "bash" | "zsh" | "ksh" | "dash" | "mksh") = path
         .extension()
         .and_then(|ext| ext.to_str())
@@ -722,6 +741,16 @@ mod tests {
         fs::write(&script, "#!/usr/bin/env -S bash -e\necho ok\n").unwrap();
 
         assert!(is_shell_script(&script).unwrap());
+    }
+
+    #[test]
+    fn detects_common_zsh_dotfiles_without_shebangs() {
+        let tempdir = tempdir().unwrap();
+        for name in [".zshrc", ".zshenv", ".zprofile", ".zlogin", ".zlogout"] {
+            let script = tempdir.path().join(name);
+            fs::write(&script, "plugins=(git)\n").unwrap();
+            assert!(is_shell_script(&script).unwrap(), "{name}");
+        }
     }
 
     #[test]

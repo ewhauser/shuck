@@ -130,8 +130,20 @@ impl<T, S> ProjectRun<T, S>
 where
     T: Clone + Serialize + DeserializeOwned,
 {
-    pub(crate) fn take_pending_files<F>(&mut self, mut on_hit: F) -> Result<Vec<PendingProjectFile>>
+    pub(crate) fn take_pending_files<F>(&mut self, on_hit: F) -> Result<Vec<PendingProjectFile>>
     where
+        F: FnMut(DiscoveredFile, T) -> Result<()>,
+    {
+        self.take_pending_files_with_validator(|_, _| Ok(true), on_hit)
+    }
+
+    pub(crate) fn take_pending_files_with_validator<V, F>(
+        &mut self,
+        mut validate_hit: V,
+        mut on_hit: F,
+    ) -> Result<Vec<PendingProjectFile>>
+    where
+        V: FnMut(&DiscoveredFile, &T) -> Result<bool>,
         F: FnMut(DiscoveredFile, T) -> Result<()>,
     {
         let mut pending = Vec::new();
@@ -141,6 +153,10 @@ where
             if let Some(cache) = self.cache.as_mut()
                 && let Some(cached) = cache.get(&file.relative_path, &file_key)
             {
+                if !validate_hit(&file, &cached)? {
+                    pending.push(PendingProjectFile { file, file_key });
+                    continue;
+                }
                 on_hit(file, cached)?;
                 continue;
             }

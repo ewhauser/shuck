@@ -116,7 +116,7 @@ pub use shuck_semantic::{
 pub use suppression::{
     AddIgnoreParseError, AddIgnoreResult, ShellCheckCodeMap, SuppressionAction,
     SuppressionDirective, SuppressionIndex, SuppressionSource, add_ignores_to_path,
-    build_ignore_edit_for_line, parse_directives,
+    add_ignores_to_path_with_resolvers, build_ignore_edit_for_line, parse_directives,
 };
 /// Trait implemented by rule-specific diagnostic payloads.
 pub use violation::Violation;
@@ -127,7 +127,7 @@ use shuck_indexer::Indexer;
 
 use shuck_parser::parser::{ParseResult, Parser};
 use shuck_semantic::{
-    CommandKind, CompoundCommandKind, FlowContext, ScopeId, SemanticBuildOptions,
+    CommandKind, CompoundCommandKind, FlowContext, PluginResolver, ScopeId, SemanticBuildOptions,
     SemanticCommandContext, SemanticModel, SourcePathResolver, TraversalObserver,
     build_with_observer_with_options,
 };
@@ -685,6 +685,30 @@ pub fn analyze_file_at_path_with_resolver(
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> AnalysisResult {
+    analyze_file_at_path_with_resolvers(
+        file,
+        source,
+        indexer,
+        settings,
+        suppression_index,
+        source_path,
+        source_path_resolver,
+        None,
+    )
+}
+
+/// Builds semantic facts and linter diagnostics with custom source and plugin resolvers.
+#[allow(clippy::too_many_arguments)]
+pub fn analyze_file_at_path_with_resolvers(
+    file: &File,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
+) -> AnalysisResult {
     let shell = resolve_shell(settings, source, source_path);
     let first_parse_error = parse_error_position(&parse_for_lint(source, shell));
 
@@ -696,6 +720,7 @@ pub fn analyze_file_at_path_with_resolver(
         suppression_index,
         source_path,
         source_path_resolver,
+        plugin_resolver,
         shell,
         first_parse_error,
     )
@@ -710,6 +735,7 @@ fn analyze_file_at_path_with_resolver_and_shell(
     suppression_index: Option<&SuppressionIndex>,
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
     shell: ShellDialect,
     first_parse_error: Option<(usize, usize)>,
 ) -> AnalysisResult {
@@ -721,6 +747,7 @@ fn analyze_file_at_path_with_resolver_and_shell(
         suppression_index,
         source_path,
         source_path_resolver,
+        plugin_resolver,
         shell,
         first_parse_error,
     );
@@ -739,6 +766,7 @@ fn analyze_linter_file_at_path_with_resolver_and_shell<'a>(
     suppression_index: Option<&SuppressionIndex>,
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
     shell: ShellDialect,
     first_parse_error: Option<(usize, usize)>,
 ) -> LinterAnalysisResult<'a> {
@@ -759,6 +787,7 @@ fn analyze_linter_file_at_path_with_resolver_and_shell<'a>(
         SemanticBuildOptions {
             source_path,
             source_path_resolver,
+            plugin_resolver,
             file_entry_contract: None,
             file_entry_contract_collector: Some(&mut file_entry_contract_collector),
             analyzed_paths,
@@ -864,6 +893,30 @@ pub fn lint_file_at_path_with_resolver(
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> Vec<Diagnostic> {
+    lint_file_at_path_with_resolvers(
+        file,
+        source,
+        indexer,
+        settings,
+        suppression_index,
+        source_path,
+        source_path_resolver,
+        None,
+    )
+}
+
+/// Lints a parsed file with custom source and plugin resolvers.
+#[allow(clippy::too_many_arguments)]
+pub fn lint_file_at_path_with_resolvers(
+    file: &File,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
+) -> Vec<Diagnostic> {
     let shell = resolve_shell(settings, source, source_path);
     let parse_result = parse_for_lint(source, shell);
 
@@ -875,6 +928,7 @@ pub fn lint_file_at_path_with_resolver(
         suppression_index,
         source_path,
         source_path_resolver,
+        plugin_resolver,
         shell,
         parse_error_position(&parse_result),
     );
@@ -918,6 +972,30 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> Vec<Diagnostic> {
+    lint_file_at_path_with_resolver_and_parse_result_with_plugin_resolver(
+        parse_result,
+        source,
+        indexer,
+        settings,
+        shellcheck_map,
+        source_path,
+        source_path_resolver,
+        None,
+    )
+}
+
+/// Lints an existing parse result while preserving parse-aware diagnostics and plugin resolution.
+#[allow(clippy::too_many_arguments)]
+pub fn lint_file_at_path_with_resolver_and_parse_result_with_plugin_resolver(
+    parse_result: &ParseResult,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    shellcheck_map: &ShellCheckCodeMap,
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
+) -> Vec<Diagnostic> {
     let directives = parse_directives(source, indexer.comment_index(), shellcheck_map);
     lint_file_at_path_with_resolver_and_parse_result_and_directives(
         parse_result,
@@ -927,6 +1005,32 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
         &directives,
         source_path,
         source_path_resolver,
+        plugin_resolver,
+    )
+}
+
+/// Analyzes an existing parse result while preserving diagnostics and semantic dependency paths.
+#[allow(clippy::too_many_arguments)]
+pub fn analyze_file_at_path_with_resolver_and_parse_result_with_plugin_resolver(
+    parse_result: &ParseResult,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    shellcheck_map: &ShellCheckCodeMap,
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
+) -> AnalysisResult {
+    let directives = parse_directives(source, indexer.comment_index(), shellcheck_map);
+    analyze_file_at_path_with_resolver_and_parse_result_and_directives(
+        parse_result,
+        source,
+        indexer,
+        settings,
+        &directives,
+        source_path,
+        source_path_resolver,
+        plugin_resolver,
     )
 }
 
@@ -941,7 +1045,32 @@ pub(crate) fn lint_file_at_path_with_resolver_and_parse_result_and_directives(
     directives: &[SuppressionDirective],
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
 ) -> Vec<Diagnostic> {
+    analyze_file_at_path_with_resolver_and_parse_result_and_directives(
+        parse_result,
+        source,
+        indexer,
+        settings,
+        directives,
+        source_path,
+        source_path_resolver,
+        plugin_resolver,
+    )
+    .diagnostics
+}
+
+#[allow(clippy::too_many_arguments)]
+fn analyze_file_at_path_with_resolver_and_parse_result_and_directives(
+    parse_result: &ParseResult,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    directives: &[SuppressionDirective],
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
+) -> AnalysisResult {
     let shell = resolve_shell(settings, source, source_path);
     let locator = Locator::new(source, indexer.line_index());
     let mut file_entry_contract_collector =
@@ -959,6 +1088,7 @@ pub(crate) fn lint_file_at_path_with_resolver_and_parse_result_and_directives(
         SemanticBuildOptions {
             source_path,
             source_path_resolver,
+            plugin_resolver,
             file_entry_contract: None,
             file_entry_contract_collector: Some(&mut file_entry_contract_collector),
             analyzed_paths,
@@ -1013,7 +1143,10 @@ pub(crate) fn lint_file_at_path_with_resolver_and_parse_result_and_directives(
     diagnostics
         .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
 
-    diagnostics
+    AnalysisResult {
+        semantic: linter_semantic_artifacts.into_semantic(),
+        diagnostics,
+    }
 }
 
 /// Lints an existing parse result while parsing suppression directives inside the linter.
@@ -1038,6 +1171,7 @@ pub fn lint_file_at_path_with_resolver_and_parse_result_with_comment_directives(
         &directives,
         source_path,
         source_path_resolver,
+        None,
     )
 }
 
@@ -1071,7 +1205,7 @@ pub(crate) fn lint_file_with_directives(
     directives: &[SuppressionDirective],
     source_path: Option<&Path>,
 ) -> Vec<Diagnostic> {
-    lint_file_at_path_with_resolver_and_parse_result_and_directives(
+    lint_file_with_directives_and_resolvers(
         parse_result,
         source,
         indexer,
@@ -1079,6 +1213,32 @@ pub(crate) fn lint_file_with_directives(
         directives,
         source_path,
         None,
+        None,
+    )
+}
+
+/// Lints an existing parse result while deriving suppressions from parsed directives
+/// and allowing caller-provided source and plugin resolvers.
+#[allow(clippy::too_many_arguments)]
+pub fn lint_file_with_directives_and_resolvers(
+    parse_result: &ParseResult,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    directives: &[SuppressionDirective],
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
+) -> Vec<Diagnostic> {
+    lint_file_at_path_with_resolver_and_parse_result_and_directives(
+        parse_result,
+        source,
+        indexer,
+        settings,
+        directives,
+        source_path,
+        source_path_resolver,
+        plugin_resolver,
     )
 }
 
@@ -1268,6 +1428,7 @@ mod tests {
             &directives,
             Some(path),
             source_path_resolver,
+            None,
         )
     }
 

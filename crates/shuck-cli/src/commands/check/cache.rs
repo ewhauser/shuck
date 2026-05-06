@@ -1,8 +1,9 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use shuck_cache::{CacheKey, CacheKeyHasher};
+use shuck_cache::{CacheKey, CacheKeyHasher, FileCacheKey};
 use shuck_linter::Applicability;
 
 use super::CheckReport;
@@ -51,17 +52,56 @@ pub(super) struct CheckCacheData {
     pub(super) diagnostics: Vec<CachedDisplayedDiagnostic>,
     #[serde(default)]
     pub(super) parse_failed: bool,
+    #[serde(default)]
+    pub(super) dependency_fingerprints: Vec<ResolvedDependencyFingerprint>,
 }
 
 impl CheckCacheData {
-    pub(super) fn from_displayed(diagnostics: &[DisplayedDiagnostic], parse_failed: bool) -> Self {
+    pub(super) fn from_displayed(
+        diagnostics: &[DisplayedDiagnostic],
+        parse_failed: bool,
+        dependency_paths: &[PathBuf],
+    ) -> Self {
         Self {
             diagnostics: diagnostics
                 .iter()
                 .map(CachedDisplayedDiagnostic::from_displayed)
                 .collect(),
             parse_failed,
+            dependency_fingerprints: dependency_paths
+                .iter()
+                .filter_map(|path| ResolvedDependencyFingerprint::from_path(path))
+                .collect(),
         }
+    }
+
+    pub(super) fn dependency_paths(&self) -> Vec<PathBuf> {
+        self.dependency_fingerprints
+            .iter()
+            .map(|fingerprint| fingerprint.path.clone())
+            .collect()
+    }
+
+    pub(super) fn dependencies_match(&self) -> bool {
+        self.dependency_fingerprints.iter().all(|fingerprint| {
+            FileCacheKey::from_path(&fingerprint.path)
+                .map(|current| current == fingerprint.file_key)
+                .unwrap_or(false)
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct ResolvedDependencyFingerprint {
+    pub(super) path: PathBuf,
+    pub(super) file_key: FileCacheKey,
+}
+
+impl ResolvedDependencyFingerprint {
+    fn from_path(path: &Path) -> Option<Self> {
+        let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let file_key = FileCacheKey::from_path(&path).ok()?;
+        Some(Self { path, file_key })
     }
 }
 
@@ -478,6 +518,123 @@ mod tests {
         assert_eq!(second.cache_hits, 0);
         assert_eq!(second.cache_misses, 1);
         assert_eq!(second.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn invalidates_cache_when_resolved_zsh_plugin_entrypoint_changes() {
+        let tempdir = tempdir().unwrap();
+        let omz_root = tempdir.path().join("oh-my-zsh");
+        let plugin_dir = omz_root.join("plugins/git");
+        fs::create_dir_all(&plugin_dir).unwrap();
+        fs::write(omz_root.join("oh-my-zsh.sh"), "# bootstrap\n").unwrap();
+        let plugin = plugin_dir.join("git.plugin.zsh");
+        fs::write(&plugin, "git_prompt() { :; }\n").unwrap();
+        fs::write(
+            tempdir.path().join(".zshrc"),
+            format!(
+                "ZSH='{}'\nplugins=(git)\nsource \"$ZSH/oh-my-zsh.sh\"\n",
+                omz_root.display()
+            ),
+        )
+        .unwrap();
+
+        let mut args = check_args(false);
+        args.paths = vec![PathBuf::from(".zshrc")];
+        args.rule_selection.per_file_shell = Some(vec![PatternShellPair {
+            pattern: ".zshrc".to_owned(),
+            shell: ShellDialect::Zsh,
+        }]);
+
+        let first = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        let second = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        assert_eq!(first.cache_hits, 0);
+        assert_eq!(first.cache_misses, 1);
+        assert_eq!(second.cache_hits, 1);
+        assert_eq!(second.cache_misses, 0);
+
+        fs::write(&plugin, "git_prompt() { echo changed; }\n").unwrap();
+
+        let third = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        assert_eq!(third.cache_hits, 0);
+        assert_eq!(third.cache_misses, 1);
+    }
+
+    #[test]
+    fn configured_zsh_plugin_loads_track_dependencies_for_dynamic_plugin_lists() {
+        let tempdir = tempdir().unwrap();
+        let omz_root = tempdir.path().join("oh-my-zsh");
+        let plugin_dir = omz_root.join("plugins/git");
+        fs::create_dir_all(&plugin_dir).unwrap();
+        fs::write(omz_root.join("oh-my-zsh.sh"), "# bootstrap\n").unwrap();
+        let plugin = plugin_dir.join("git.plugin.zsh");
+        fs::write(&plugin, "git_prompt() { :; }\n").unwrap();
+        fs::write(
+            tempdir.path().join(".zshrc"),
+            "plugin_name=git\nplugins=($plugin_name)\nsource \"$ZSH/oh-my-zsh.sh\"\n",
+        )
+        .unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            format!(
+                "[lint.zsh.plugins.roots]\noh-my-zsh = '{}'\n\n[[lint.zsh.plugins.plugin-loads]]\npattern = '.zshrc'\nframework = 'oh-my-zsh'\nname = 'git'\n",
+                omz_root.display()
+            ),
+        )
+        .unwrap();
+
+        let mut args = check_args(false);
+        args.paths = vec![PathBuf::from(".zshrc")];
+        args.rule_selection.per_file_shell = Some(vec![PatternShellPair {
+            pattern: ".zshrc".to_owned(),
+            shell: ShellDialect::Zsh,
+        }]);
+
+        let first = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        let second = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        assert_eq!(first.cache_hits, 0);
+        assert_eq!(second.cache_hits, 1);
+
+        fs::write(&plugin, "git_prompt() { echo configured; }\n").unwrap();
+
+        let third = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        assert_eq!(third.cache_hits, 0);
+        assert_eq!(third.cache_misses, 1);
     }
 
     #[test]

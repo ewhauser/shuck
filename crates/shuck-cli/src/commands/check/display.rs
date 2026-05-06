@@ -246,6 +246,7 @@ mod tests {
             cache_misses: 0,
             fixes_applied: 0,
             parse_failed: false,
+            dependency_paths: Vec::new(),
         };
 
         let mut output = Vec::new();
@@ -277,6 +278,7 @@ mod tests {
             cache_misses: 0,
             fixes_applied: 0,
             parse_failed: false,
+            dependency_paths: Vec::new(),
         };
 
         let mut output = Vec::new();

@@ -1,17 +1,27 @@
 use std::collections::{BTreeMap, HashMap};
+use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use globset::{Glob, GlobMatcher};
 use shuck_cache::{CacheKey, CacheKeyHasher};
-use shuck_config::{ConfigArguments, LintConfig, load_project_config};
+use shuck_config::{
+    ConfigArguments, LintConfig, ZshPluginEntrypointConfig, ZshPluginLoadConfig,
+    ZshThemeLoadConfig, load_project_config,
+};
 use shuck_linter::{
     CompiledPerFileIgnoreList, LinterSettings, PerFileIgnore, Rule, RuleSelector, RuleSet,
     ShellDialect,
 };
+use shuck_semantic::{
+    PluginFramework, PluginRequest, PluginRequestKind, PluginResolution, PluginResolver,
+};
 
-use crate::args::{PatternRuleSelectorPair, PatternShellPair, RuleSelectionArgs};
+use crate::args::{
+    PatternFrameworkNameTriple, PatternPathPair, PatternRuleSelectorPair, PatternShellPair,
+    RuleSelectionArgs, ZshPluginArgs,
+};
 use crate::discover::{ProjectRoot, normalize_path};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +30,7 @@ pub(super) struct EffectiveCheckSettings {
     per_file_ignores: Vec<EffectivePerFileIgnore>,
     per_file_shell: Vec<EffectivePerFileShell>,
     rule_options: EffectiveRuleOptions,
+    zsh_plugins: EffectiveZshPluginSettings,
     embedded_enabled: bool,
 }
 
@@ -41,12 +52,35 @@ struct EffectiveRuleOptions {
     c063_report_unreached_nested_definitions: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct EffectiveZshPluginSettings {
+    resolution_enabled: bool,
+    roots: Vec<(String, String)>,
+    plugin_loads: Vec<EffectiveZshPluginLoad>,
+    theme_loads: Vec<EffectiveZshPluginLoad>,
+    entrypoints: Vec<EffectiveZshPluginEntrypoint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EffectiveZshPluginLoad {
+    pattern: String,
+    framework: String,
+    name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EffectiveZshPluginEntrypoint {
+    pattern: String,
+    paths: Vec<String>,
+}
+
 impl EffectiveCheckSettings {
     fn new(
         enabled_rules: RuleSet,
         per_file_ignores: &[PerFileIgnore],
         per_file_shell: &[PerFileShell],
         rule_options: &shuck_linter::LinterRuleOptions,
+        zsh_plugins: &ResolvedZshPluginSettings,
         embedded_enabled: bool,
     ) -> Self {
         let mut enabled_rules = enabled_rules
@@ -85,6 +119,7 @@ impl EffectiveCheckSettings {
             per_file_ignores,
             per_file_shell,
             rule_options: EffectiveRuleOptions::new(rule_options),
+            zsh_plugins: zsh_plugins.effective(),
             embedded_enabled,
         }
     }
@@ -97,6 +132,7 @@ impl CacheKey for EffectiveCheckSettings {
         self.per_file_ignores.cache_key(state);
         self.per_file_shell.cache_key(state);
         self.rule_options.cache_key(state);
+        self.zsh_plugins.cache_key(state);
         self.embedded_enabled.cache_key(state);
     }
 }
@@ -138,10 +174,40 @@ impl CacheKey for EffectiveRuleOptions {
     }
 }
 
+impl CacheKey for EffectiveZshPluginSettings {
+    fn cache_key(&self, state: &mut CacheKeyHasher) {
+        state.write_tag(b"effective-zsh-plugin-settings");
+        self.resolution_enabled.cache_key(state);
+        for (framework, path) in &self.roots {
+            framework.cache_key(state);
+            path.cache_key(state);
+        }
+        self.plugin_loads.cache_key(state);
+        self.theme_loads.cache_key(state);
+        self.entrypoints.cache_key(state);
+    }
+}
+
+impl CacheKey for EffectiveZshPluginLoad {
+    fn cache_key(&self, state: &mut CacheKeyHasher) {
+        self.pattern.cache_key(state);
+        self.framework.cache_key(state);
+        self.name.cache_key(state);
+    }
+}
+
+impl CacheKey for EffectiveZshPluginEntrypoint {
+    fn cache_key(&self, state: &mut CacheKeyHasher) {
+        self.pattern.cache_key(state);
+        self.paths.cache_key(state);
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct ResolvedCheckSettings {
     pub(super) linter_settings: LinterSettings,
     pub(super) per_file_shell: Arc<CompiledPerFileShellList>,
+    pub(super) zsh_plugins: Arc<ResolvedZshPluginSettings>,
     pub(super) fixable_rules: RuleSet,
     pub(super) effective: EffectiveCheckSettings,
     pub(super) embedded_enabled: bool,
@@ -164,6 +230,39 @@ struct RuleSelectionLayer {
     fixable: Option<Vec<RuleSelector>>,
     unfixable: Vec<RuleSelector>,
     extend_fixable: Vec<RuleSelector>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ZshPluginLayer {
+    resolution: Option<bool>,
+    roots: Option<BTreeMap<String, String>>,
+    extend_roots: BTreeMap<String, String>,
+    plugin_loads: Option<Vec<ZshPluginLoadSpec>>,
+    extend_plugin_loads: Vec<ZshPluginLoadSpec>,
+    theme_loads: Option<Vec<ZshThemeLoadSpec>>,
+    extend_theme_loads: Vec<ZshThemeLoadSpec>,
+    entrypoints: Option<Vec<ZshPluginEntrypointSpec>>,
+    extend_entrypoints: Vec<ZshPluginEntrypointSpec>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ZshPluginLoadSpec {
+    pattern: String,
+    framework: String,
+    name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ZshThemeLoadSpec {
+    pattern: String,
+    framework: String,
+    name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ZshPluginEntrypointSpec {
+    pattern: String,
+    paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -203,6 +302,45 @@ struct CompiledPerFileShell {
     absolute_matcher: GlobMatcher,
     negated: bool,
     shell: ShellDialect,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct ResolvedZshPluginSettings {
+    enabled: bool,
+    project_root: PathBuf,
+    roots: BTreeMap<String, PathBuf>,
+    plugin_loads: Vec<CompiledZshPluginLoad>,
+    theme_loads: Vec<CompiledZshThemeLoad>,
+    entrypoints: Vec<CompiledZshPluginEntrypoint>,
+}
+
+#[derive(Debug, Clone)]
+struct CompiledZshPluginLoad {
+    matcher: CompiledPathMatcher,
+    framework: String,
+    name: String,
+}
+
+#[derive(Debug, Clone)]
+struct CompiledZshThemeLoad {
+    matcher: CompiledPathMatcher,
+    framework: String,
+    name: String,
+}
+
+#[derive(Debug, Clone)]
+struct CompiledZshPluginEntrypoint {
+    matcher: CompiledPathMatcher,
+    paths: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+struct CompiledPathMatcher {
+    pattern: String,
+    basename_matcher: GlobMatcher,
+    relative_matcher: GlobMatcher,
+    absolute_matcher: GlobMatcher,
+    negated: bool,
 }
 
 impl CompiledPerFileShellList {
@@ -256,6 +394,269 @@ impl CompiledPerFileShellList {
     }
 }
 
+impl ResolvedZshPluginSettings {
+    fn resolve(
+        project_root: impl Into<PathBuf>,
+        enabled: bool,
+        roots: BTreeMap<String, String>,
+        plugin_loads: Vec<ZshPluginLoadSpec>,
+        theme_loads: Vec<ZshThemeLoadSpec>,
+        entrypoints: Vec<ZshPluginEntrypointSpec>,
+    ) -> Result<Self> {
+        let project_root = project_root.into();
+        let roots = roots
+            .into_iter()
+            .map(|(framework, path)| {
+                Ok((framework, normalize_zsh_plugin_path(&project_root, &path)?))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
+        let plugin_loads = plugin_loads
+            .into_iter()
+            .map(|load| {
+                Ok(CompiledZshPluginLoad {
+                    matcher: CompiledPathMatcher::new(load.pattern)?,
+                    framework: load.framework,
+                    name: load.name,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let theme_loads = theme_loads
+            .into_iter()
+            .map(|load| {
+                Ok(CompiledZshThemeLoad {
+                    matcher: CompiledPathMatcher::new(load.pattern)?,
+                    framework: load.framework,
+                    name: load.name,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let entrypoints = entrypoints
+            .into_iter()
+            .map(|entrypoint| {
+                Ok(CompiledZshPluginEntrypoint {
+                    matcher: CompiledPathMatcher::new(entrypoint.pattern)?,
+                    paths: entrypoint
+                        .paths
+                        .into_iter()
+                        .map(|path| normalize_zsh_plugin_path(&project_root, &path))
+                        .collect::<Result<Vec<_>>>()?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(Self {
+            enabled,
+            project_root,
+            roots,
+            plugin_loads,
+            theme_loads,
+            entrypoints,
+        })
+    }
+
+    fn effective(&self) -> EffectiveZshPluginSettings {
+        let mut roots = self
+            .roots
+            .iter()
+            .map(|(framework, path)| (framework.clone(), path.to_string_lossy().into_owned()))
+            .collect::<Vec<_>>();
+        roots.sort_by(|left, right| left.0.cmp(&right.0));
+
+        let mut plugin_loads = self
+            .plugin_loads
+            .iter()
+            .map(|load| EffectiveZshPluginLoad {
+                pattern: load.matcher.pattern.clone(),
+                framework: load.framework.clone(),
+                name: load.name.clone(),
+            })
+            .collect::<Vec<_>>();
+        plugin_loads.sort_by(|left, right| {
+            left.pattern
+                .cmp(&right.pattern)
+                .then(left.framework.cmp(&right.framework))
+                .then(left.name.cmp(&right.name))
+        });
+
+        let mut theme_loads = self
+            .theme_loads
+            .iter()
+            .map(|load| EffectiveZshPluginLoad {
+                pattern: load.matcher.pattern.clone(),
+                framework: load.framework.clone(),
+                name: load.name.clone(),
+            })
+            .collect::<Vec<_>>();
+        theme_loads.sort_by(|left, right| {
+            left.pattern
+                .cmp(&right.pattern)
+                .then(left.framework.cmp(&right.framework))
+                .then(left.name.cmp(&right.name))
+        });
+
+        let mut entrypoints = self
+            .entrypoints
+            .iter()
+            .map(|entrypoint| EffectiveZshPluginEntrypoint {
+                pattern: entrypoint.matcher.pattern.clone(),
+                paths: entrypoint
+                    .paths
+                    .iter()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect(),
+            })
+            .collect::<Vec<_>>();
+        entrypoints.sort_by(|left, right| left.pattern.cmp(&right.pattern));
+
+        EffectiveZshPluginSettings {
+            resolution_enabled: self.enabled,
+            roots,
+            plugin_loads,
+            theme_loads,
+            entrypoints,
+        }
+    }
+}
+
+impl PluginResolver for ResolvedZshPluginSettings {
+    fn additional_plugin_requests(&self, source_path: &Path) -> Vec<PluginRequest> {
+        if !self.enabled {
+            return Vec::new();
+        }
+
+        let mut requests = self
+            .plugin_loads
+            .iter()
+            .filter(|load| load.matcher.matches(&self.project_root, source_path))
+            .map(|load| PluginRequest {
+                framework: plugin_framework_from_name(&load.framework),
+                kind: PluginRequestKind::Plugin,
+                name: load.name.clone(),
+                span: shuck_ast::Span::new(),
+                explicit: true,
+                root_hint: None,
+            })
+            .collect::<Vec<_>>();
+        requests.extend(
+            self.theme_loads
+                .iter()
+                .filter(|load| load.matcher.matches(&self.project_root, source_path))
+                .map(|load| PluginRequest {
+                    framework: plugin_framework_from_name(&load.framework),
+                    kind: PluginRequestKind::Theme,
+                    name: load.name.clone(),
+                    span: shuck_ast::Span::new(),
+                    explicit: true,
+                    root_hint: None,
+                }),
+        );
+        requests.extend(
+            self.entrypoints
+                .iter()
+                .filter(|entrypoint| entrypoint.matcher.matches(&self.project_root, source_path))
+                .flat_map(|entrypoint| entrypoint.paths.iter())
+                .map(|path| PluginRequest {
+                    framework: PluginFramework::ExplicitFilesystem,
+                    kind: PluginRequestKind::Entrypoint,
+                    name: path.to_string_lossy().into_owned(),
+                    span: shuck_ast::Span::new(),
+                    explicit: true,
+                    root_hint: None,
+                }),
+        );
+        requests
+    }
+
+    fn resolve_plugin_request(
+        &self,
+        _source_path: &Path,
+        request: &PluginRequest,
+    ) -> PluginResolution {
+        if !self.enabled {
+            return PluginResolution::default();
+        }
+
+        match request.kind {
+            PluginRequestKind::Entrypoint => {
+                let path = PathBuf::from(&request.name);
+                let entrypoints = path.is_file().then_some(path).into_iter().collect();
+                PluginResolution {
+                    entrypoints,
+                    file_entry_contracts: Vec::new(),
+                }
+            }
+            PluginRequestKind::Plugin => {
+                let Some(root) = request
+                    .root_hint
+                    .clone()
+                    .or_else(|| plugin_root_for_request(self, request))
+                else {
+                    return PluginResolution::default();
+                };
+                let path = root
+                    .join("plugins")
+                    .join(&request.name)
+                    .join(format!("{}.plugin.zsh", request.name));
+                PluginResolution {
+                    entrypoints: path.is_file().then_some(path).into_iter().collect(),
+                    file_entry_contracts: Vec::new(),
+                }
+            }
+            PluginRequestKind::Theme => {
+                let Some(root) = request
+                    .root_hint
+                    .clone()
+                    .or_else(|| plugin_root_for_request(self, request))
+                else {
+                    return PluginResolution::default();
+                };
+                let path = root
+                    .join("themes")
+                    .join(format!("{}.zsh-theme", request.name));
+                PluginResolution {
+                    entrypoints: path.is_file().then_some(path).into_iter().collect(),
+                    file_entry_contracts: Vec::new(),
+                }
+            }
+        }
+    }
+}
+
+impl CompiledPathMatcher {
+    fn new(pattern: String) -> Result<Self> {
+        let mut matcher_pattern = pattern.clone();
+        let negated = matcher_pattern.starts_with('!');
+        if negated {
+            matcher_pattern.drain(..1);
+        }
+
+        Ok(Self {
+            pattern,
+            basename_matcher: Glob::new(&matcher_pattern)
+                .map_err(|err| anyhow!("invalid glob {matcher_pattern:?}: {err}"))?
+                .compile_matcher(),
+            relative_matcher: Glob::new(&matcher_pattern)
+                .map_err(|err| anyhow!("invalid glob {matcher_pattern:?}: {err}"))?
+                .compile_matcher(),
+            absolute_matcher: Glob::new(&matcher_pattern)
+                .map_err(|err| anyhow!("invalid glob {matcher_pattern:?}: {err}"))?
+                .compile_matcher(),
+            negated,
+        })
+    }
+
+    fn matches(&self, project_root: &Path, path: &Path) -> bool {
+        let relative_path = path.strip_prefix(project_root).unwrap_or(path);
+        let Some(file_name) = relative_path.file_name().or_else(|| path.file_name()) else {
+            return false;
+        };
+        let matches = self.basename_matcher.is_match(file_name)
+            || self.relative_matcher.is_match(relative_path)
+            || per_file_shell_absolute_match(&self.absolute_matcher, path);
+        if self.negated { !matches } else { matches }
+    }
+}
+
 fn per_file_shell_absolute_match(matcher: &GlobMatcher, path: &Path) -> bool {
     matcher.is_match(path)
         || matcher.is_match(normalize_path(path))
@@ -270,6 +671,71 @@ fn per_file_shell_absolute_match(matcher: &GlobMatcher, path: &Path) -> bool {
                         .as_deref()
                         .is_some_and(|slash_normalized| matcher.is_match(slash_normalized))
             })
+}
+
+fn plugin_framework_from_name(name: &str) -> PluginFramework {
+    match name {
+        "oh-my-zsh" => PluginFramework::OhMyZsh,
+        "prezto" => PluginFramework::Prezto,
+        other => PluginFramework::Other(other.to_owned()),
+    }
+}
+
+fn plugin_root_for_request(
+    settings: &ResolvedZshPluginSettings,
+    request: &PluginRequest,
+) -> Option<PathBuf> {
+    let key = match &request.framework {
+        PluginFramework::OhMyZsh => "oh-my-zsh",
+        PluginFramework::Prezto => "prezto",
+        PluginFramework::ExplicitFilesystem => return None,
+        PluginFramework::Other(other) => other.as_str(),
+    };
+    settings.roots.get(key).cloned()
+}
+
+fn normalize_zsh_plugin_path(project_root: &Path, value: &str) -> Result<PathBuf> {
+    let expanded = expand_zsh_plugin_path(value)?;
+    let path = PathBuf::from(expanded);
+    let resolved = if path.is_absolute() {
+        path
+    } else {
+        project_root.join(path)
+    };
+    Ok(normalize_path(&resolved))
+}
+
+fn expand_zsh_plugin_path(value: &str) -> Result<String> {
+    if value == "~" || value.starts_with("~/") {
+        let home = home_dir_string()?;
+        return Ok(if value == "~" {
+            home
+        } else {
+            format!("{home}/{}", &value[2..])
+        });
+    }
+    if value == "$HOME" || value.starts_with("$HOME/") {
+        let home = home_dir_string()?;
+        return Ok(if value == "$HOME" {
+            home
+        } else {
+            format!("{home}/{}", &value["$HOME/".len()..])
+        });
+    }
+    if value == "${HOME}" || value.starts_with("${HOME}/") {
+        let home = home_dir_string()?;
+        return Ok(if value == "${HOME}" {
+            home
+        } else {
+            format!("{home}/{}", &value["${HOME}/".len()..])
+        });
+    }
+
+    Ok(value.to_owned())
+}
+
+fn home_dir_string() -> Result<String> {
+    env::var("HOME").map_err(|_| anyhow!("$HOME must be set to resolve zsh plugin paths"))
 }
 
 fn normalized_absolute_shell_match_path(path: &Path) -> Option<PathBuf> {
@@ -291,11 +757,16 @@ pub(super) fn resolve_project_check_settings(
     project_root: &ProjectRoot,
     config_arguments: &ConfigArguments,
     cli_rule_selection: &RuleSelectionArgs,
+    cli_zsh_plugins: &ZshPluginArgs,
 ) -> Result<ResolvedCheckSettings> {
     let config = load_project_config(&project_root.storage_root, config_arguments)?;
-    let layers = [
+    let rule_layers = [
         parse_lint_config_layer(&config.lint)?,
         parse_cli_rule_selection_layer(cli_rule_selection),
+    ];
+    let zsh_layers = [
+        parse_lint_zsh_plugin_layer(&config.lint),
+        parse_cli_zsh_plugin_layer(cli_zsh_plugins),
     ];
     let rule_options = linter_rule_options_for_lint_config(&config.lint);
 
@@ -303,8 +774,13 @@ pub(super) fn resolve_project_check_settings(
     let mut fixable_rules = RuleSet::all();
     let mut per_file_ignores = Vec::new();
     let mut per_file_shell = Vec::new();
+    let mut zsh_plugin_resolution_enabled = true;
+    let mut zsh_plugin_roots = BTreeMap::new();
+    let mut zsh_plugin_loads = Vec::new();
+    let mut zsh_theme_loads = Vec::new();
+    let mut zsh_entrypoints = Vec::new();
 
-    for layer in layers {
+    for layer in rule_layers {
         enabled_rules = apply_rule_selector_layer(
             enabled_rules,
             layer.select.as_deref(),
@@ -328,6 +804,21 @@ pub(super) fn resolve_project_check_settings(
             layer.extend_per_file_shell,
         );
     }
+    for layer in zsh_layers {
+        if let Some(enabled) = layer.resolution {
+            zsh_plugin_resolution_enabled = enabled;
+        }
+        zsh_plugin_roots = apply_root_map_layer(zsh_plugin_roots, layer.roots, layer.extend_roots);
+        zsh_plugin_loads = apply_extend_layer(
+            zsh_plugin_loads,
+            layer.plugin_loads,
+            layer.extend_plugin_loads,
+        );
+        zsh_theme_loads =
+            apply_extend_layer(zsh_theme_loads, layer.theme_loads, layer.extend_theme_loads);
+        zsh_entrypoints =
+            apply_extend_layer(zsh_entrypoints, layer.entrypoints, layer.extend_entrypoints);
+    }
 
     let compiled_per_file_ignores = CompiledPerFileIgnoreList::resolve(
         project_root.canonical_root.clone(),
@@ -337,12 +828,21 @@ pub(super) fn resolve_project_check_settings(
         project_root.canonical_root.clone(),
         per_file_shell.clone(),
     )?;
+    let resolved_zsh_plugins = ResolvedZshPluginSettings::resolve(
+        project_root.canonical_root.clone(),
+        zsh_plugin_resolution_enabled,
+        zsh_plugin_roots,
+        zsh_plugin_loads,
+        zsh_theme_loads,
+        zsh_entrypoints,
+    )?;
     let embedded_enabled = config.check.embedded.unwrap_or(true);
     let effective = EffectiveCheckSettings::new(
         enabled_rules,
         &per_file_ignores,
         &per_file_shell,
         &rule_options,
+        &resolved_zsh_plugins,
         embedded_enabled,
     );
 
@@ -354,6 +854,7 @@ pub(super) fn resolve_project_check_settings(
             ..LinterSettings::default()
         },
         per_file_shell: Arc::new(compiled_per_file_shell),
+        zsh_plugins: Arc::new(resolved_zsh_plugins),
         fixable_rules,
         effective,
         embedded_enabled,
@@ -466,6 +967,139 @@ fn parse_cli_rule_selection_layer(args: &RuleSelectionArgs) -> RuleSelectionLaye
         unfixable: args.unfixable.clone(),
         extend_fixable: args.extend_fixable.clone(),
     }
+}
+
+fn parse_lint_zsh_plugin_layer(lint: &LintConfig) -> ZshPluginLayer {
+    let Some(plugins) = lint.zsh.as_ref().and_then(|zsh| zsh.plugins.as_ref()) else {
+        return ZshPluginLayer::default();
+    };
+
+    ZshPluginLayer {
+        resolution: plugins.resolution,
+        roots: plugins.roots.clone(),
+        extend_roots: BTreeMap::new(),
+        plugin_loads: plugins
+            .plugin_loads
+            .as_ref()
+            .map(|loads| loads.iter().map(zsh_plugin_load_spec_from_config).collect()),
+        extend_plugin_loads: Vec::new(),
+        theme_loads: plugins
+            .theme_loads
+            .as_ref()
+            .map(|loads| loads.iter().map(zsh_theme_load_spec_from_config).collect()),
+        extend_theme_loads: Vec::new(),
+        entrypoints: plugins
+            .entrypoints
+            .as_ref()
+            .map(|loads| loads.iter().map(zsh_entrypoint_spec_from_config).collect()),
+        extend_entrypoints: Vec::new(),
+    }
+}
+
+fn parse_cli_zsh_plugin_layer(args: &ZshPluginArgs) -> ZshPluginLayer {
+    ZshPluginLayer {
+        resolution: args.resolution(),
+        roots: args.zsh_plugin_root.as_ref().map(|roots| {
+            roots
+                .iter()
+                .map(|root| (root.framework.clone(), root.path.clone()))
+                .collect()
+        }),
+        extend_roots: args
+            .extend_zsh_plugin_root
+            .iter()
+            .map(|root| (root.framework.clone(), root.path.clone()))
+            .collect(),
+        plugin_loads: args
+            .zsh_plugin
+            .as_ref()
+            .map(|loads| loads.iter().map(zsh_plugin_load_spec_from_cli).collect()),
+        extend_plugin_loads: args
+            .extend_zsh_plugin
+            .iter()
+            .map(zsh_plugin_load_spec_from_cli)
+            .collect(),
+        theme_loads: args
+            .zsh_theme
+            .as_ref()
+            .map(|loads| loads.iter().map(zsh_theme_load_spec_from_cli).collect()),
+        extend_theme_loads: args
+            .extend_zsh_theme
+            .iter()
+            .map(zsh_theme_load_spec_from_cli)
+            .collect(),
+        entrypoints: args
+            .zsh_plugin_entrypoint
+            .as_ref()
+            .map(|loads| loads.iter().map(zsh_entrypoint_spec_from_cli).collect()),
+        extend_entrypoints: args
+            .extend_zsh_plugin_entrypoint
+            .iter()
+            .map(zsh_entrypoint_spec_from_cli)
+            .collect(),
+    }
+}
+
+fn zsh_plugin_load_spec_from_config(load: &ZshPluginLoadConfig) -> ZshPluginLoadSpec {
+    ZshPluginLoadSpec {
+        pattern: load.pattern.clone(),
+        framework: load.framework.clone(),
+        name: load.name.clone(),
+    }
+}
+
+fn zsh_theme_load_spec_from_config(load: &ZshThemeLoadConfig) -> ZshThemeLoadSpec {
+    ZshThemeLoadSpec {
+        pattern: load.pattern.clone(),
+        framework: load.framework.clone(),
+        name: load.name.clone(),
+    }
+}
+
+fn zsh_entrypoint_spec_from_config(load: &ZshPluginEntrypointConfig) -> ZshPluginEntrypointSpec {
+    ZshPluginEntrypointSpec {
+        pattern: load.pattern.clone(),
+        paths: load.paths.clone(),
+    }
+}
+
+fn zsh_plugin_load_spec_from_cli(load: &PatternFrameworkNameTriple) -> ZshPluginLoadSpec {
+    ZshPluginLoadSpec {
+        pattern: load.pattern.clone(),
+        framework: load.framework.clone(),
+        name: load.name.clone(),
+    }
+}
+
+fn zsh_theme_load_spec_from_cli(load: &PatternFrameworkNameTriple) -> ZshThemeLoadSpec {
+    ZshThemeLoadSpec {
+        pattern: load.pattern.clone(),
+        framework: load.framework.clone(),
+        name: load.name.clone(),
+    }
+}
+
+fn zsh_entrypoint_spec_from_cli(load: &PatternPathPair) -> ZshPluginEntrypointSpec {
+    ZshPluginEntrypointSpec {
+        pattern: load.pattern.clone(),
+        paths: vec![load.path.clone()],
+    }
+}
+
+fn apply_root_map_layer(
+    current: BTreeMap<String, String>,
+    replace: Option<BTreeMap<String, String>>,
+    extend: BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let mut merged = replace.unwrap_or(current);
+    merged.extend(extend);
+    merged
+}
+
+fn apply_extend_layer<T>(current: Vec<T>, replace: Option<Vec<T>>, extend: Vec<T>) -> Vec<T> {
+    let mut merged = replace.unwrap_or(current);
+    merged.extend(extend);
+    merged
 }
 
 pub(super) fn parse_rule_selectors(selectors: &[String], scope: &str) -> Result<Vec<RuleSelector>> {
@@ -897,6 +1531,7 @@ mod tests {
             },
             &ConfigArguments::default(),
             &RuleSelectionArgs::default(),
+            &ZshPluginArgs::default(),
         )
         .unwrap();
 
@@ -922,6 +1557,7 @@ mod tests {
             },
             &ConfigArguments::default(),
             &RuleSelectionArgs::default(),
+            &ZshPluginArgs::default(),
         )
         .unwrap();
 

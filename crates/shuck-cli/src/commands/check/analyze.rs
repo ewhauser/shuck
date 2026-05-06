@@ -24,6 +24,7 @@ pub(super) struct FileCheckResult {
     pub(super) file_key: shuck_cache::FileCacheKey,
     pub(super) cache_data: CheckCacheData,
     pub(super) diagnostics: Vec<DisplayedDiagnostic>,
+    pub(super) dependency_paths: Vec<std::path::PathBuf>,
     pub(super) fixes_applied: usize,
     pub(super) parse_failed: bool,
 }
@@ -31,6 +32,7 @@ pub(super) fn analyze_file(
     pending: PendingProjectFile,
     base_linter_settings: &LinterSettings,
     per_file_shell: &CompiledPerFileShellList,
+    plugin_resolver: Option<&(dyn shuck_semantic::PluginResolver + Send + Sync)>,
     shellcheck_map: &ShellCheckCodeMap,
     include_source: bool,
     fix_applicability: Option<Applicability>,
@@ -41,6 +43,7 @@ pub(super) fn analyze_file(
             pending,
             base_linter_settings,
             per_file_shell,
+            plugin_resolver,
             shellcheck_map,
             include_source,
             fix_applicability,
@@ -59,6 +62,7 @@ fn analyze_shell_file(
     pending: PendingProjectFile,
     base_linter_settings: &LinterSettings,
     per_file_shell: &CompiledPerFileShellList,
+    plugin_resolver: Option<&(dyn shuck_semantic::PluginResolver + Send + Sync)>,
     shellcheck_map: &ShellCheckCodeMap,
     include_source: bool,
     fix_applicability: Option<Applicability>,
@@ -72,14 +76,16 @@ fn analyze_shell_file(
 
     let linter_settings = base_linter_settings.clone().with_shell(inferred_shell);
     let mut parse_result = Parser::with_dialect(&source, parse_dialect).parse();
-    let mut diagnostics = collect_lint_diagnostics(
+    let mut analysis = collect_lint_diagnostics(
         &pending,
         &source,
         &parse_result,
         &linter_settings,
+        plugin_resolver,
         shellcheck_map,
         &pending.file.absolute_path,
     );
+    let mut diagnostics = analysis.diagnostics;
     let mut fixes_applied = 0;
 
     if let Some(applicability) = fix_applicability {
@@ -93,14 +99,16 @@ fn analyze_shell_file(
             source = Arc::<str>::from(applied.code);
             fs::write(&pending.file.absolute_path, &*source)?;
             parse_result = Parser::with_dialect(&source, parse_dialect).parse();
-            diagnostics = collect_lint_diagnostics(
+            analysis = collect_lint_diagnostics(
                 &pending,
                 &source,
                 &parse_result,
                 &linter_settings,
+                plugin_resolver,
                 shellcheck_map,
                 &pending.file.absolute_path,
             );
+            diagnostics = analysis.diagnostics;
             fixes_applied = applied.fixes_applied;
         }
     }
@@ -124,13 +132,15 @@ fn analyze_shell_file(
     } else {
         display_lint_diagnostics(&pending, &source, &diagnostics, include_source)
     };
-    let cache_data = CheckCacheData::from_displayed(&diagnostics, parse_failed);
+    let dependency_paths = analysis.semantic.imported_dependency_paths().to_vec();
+    let cache_data = CheckCacheData::from_displayed(&diagnostics, parse_failed, &dependency_paths);
 
     Ok(FileCheckResult {
         file: pending.file,
         file_key: pending.file_key,
         cache_data,
         diagnostics,
+        dependency_paths,
         fixes_applied,
         parse_failed,
     })
@@ -140,17 +150,20 @@ pub(super) fn collect_lint_diagnostics(
     source: &Arc<str>,
     parse_result: &ParseResult,
     linter_settings: &LinterSettings,
+    plugin_resolver: Option<&(dyn shuck_semantic::PluginResolver + Send + Sync)>,
     shellcheck_map: &ShellCheckCodeMap,
     source_path: &Path,
-) -> Vec<shuck_linter::Diagnostic> {
+) -> shuck_linter::AnalysisResult {
     let indexer = Indexer::new(source, parse_result);
-    shuck_linter::lint_file(
+    shuck_linter::analyze_file_at_path_with_resolver_and_parse_result_with_plugin_resolver(
         parse_result,
         source,
         &indexer,
         linter_settings,
         shellcheck_map,
         Some(source_path),
+        None,
+        plugin_resolver,
     )
 }
 pub(super) fn read_shared_source(path: &Path) -> Result<Arc<str>> {
@@ -290,6 +303,7 @@ mod tests {
             &LinterSettings::for_rule(shuck_linter::Rule::UnusedAssignment)
                 .with_analyzed_paths([broken_path.clone()]),
             &empty_per_file_shell(tempdir.path()),
+            None,
             &ShellCheckCodeMap::default(),
             false,
             None,
@@ -348,10 +362,12 @@ mod tests {
             &source,
             &parse_result,
             &LinterSettings::default(),
+            None,
             &ShellCheckCodeMap::default(),
             &path,
         );
-        let diagnostics = display_lint_diagnostics(&pending, &source, &diagnostics, true);
+        let diagnostics =
+            display_lint_diagnostics(&pending, &source, &diagnostics.diagnostics, true);
 
         let diagnostic_source = diagnostics[0]
             .source

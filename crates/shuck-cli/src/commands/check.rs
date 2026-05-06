@@ -30,6 +30,7 @@ pub(crate) struct CheckReport {
     cache_misses: usize,
     fixes_applied: usize,
     parse_failed: bool,
+    dependency_paths: Vec<std::path::PathBuf>,
 }
 
 impl CheckReport {

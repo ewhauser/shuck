@@ -3,7 +3,7 @@ use shuck_ast::{Name, NormalizedCommand};
 use shuck_parser::ShellProfile;
 use std::path::{Path, PathBuf};
 
-use crate::SourcePathResolver;
+use crate::{PluginResolver, SourcePathResolver};
 
 /// Confidence attached to a provided binding or function contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -358,6 +358,8 @@ pub struct SemanticBuildOptions<'a> {
     pub source_path: Option<&'a Path>,
     /// Resolver for mapping source-like paths to candidate tracked files.
     pub source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
+    /// Resolver for deriving zsh plugin entrypoints and optional plugin contracts.
+    pub plugin_resolver: Option<&'a (dyn PluginResolver + Send + Sync)>,
     /// Precomputed file-entry contract to apply before analysis.
     pub file_entry_contract: Option<FileContract>,
     /// Optional observer that can derive a file-entry contract during traversal.
@@ -375,6 +377,7 @@ impl Default for SemanticBuildOptions<'_> {
         Self {
             source_path: None,
             source_path_resolver: None,
+            plugin_resolver: None,
             file_entry_contract: None,
             file_entry_contract_collector: None,
             analyzed_paths: None,

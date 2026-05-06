@@ -180,6 +180,14 @@ fixable = ["C"]
 extend-fixable = ["S074"]
 ```
 
+## Zsh plugin resolution
+
+Shuck's zsh-specific plugin resolution settings live under `[lint.zsh.plugins]`.
+
+Use that section when you want Shuck to resolve real zsh plugin entrypoints for startup files such as `.zshrc`, especially for `oh-my-zsh` roots, dynamic plugin lists, and custom plugin entrypoints.
+
+See the dedicated [Zsh Support guide](/docs/zsh-support) for the recommended setup patterns and the [Settings Reference](/docs/settings) for the generated key-by-key reference.
+
 ## Runtime settings
 
 The `[run]` section controls managed interpreter defaults for `shuck run`, `shuck install`, and `shuck shell`.

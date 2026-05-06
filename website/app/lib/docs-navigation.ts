@@ -10,6 +10,7 @@ export const docsNavigation: NavItem[] = [
     items: [
       { title: "Overview", href: "/docs/getting-started" },
       { title: "Configuration", href: "/docs/configuration" },
+      { title: "Zsh Support", href: "/docs/zsh-support" },
       { title: "Managed Runtime", href: "/docs/run" },
       { title: "Editor Integration", href: "/docs/editors" },
       { title: "Suppression", href: "/docs/suppression" },
