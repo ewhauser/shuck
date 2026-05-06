@@ -25,7 +25,6 @@
 //! ```
 
 use std::collections::BTreeSet;
-use std::path::Path;
 
 use shuck_ast::{
     Name, NormalizedCommand, Word, WrapperKind, normalize_command_words, static_word_text,
@@ -33,31 +32,24 @@ use shuck_ast::{
 use shuck_semantic::{ContractCertainty, FileContract, ProvidedBinding, ProvidedBindingKind};
 
 use super::AmbientContractCollector;
-use super::path::{lower_path, path_matches_any};
-use super::source_scan::{
-    has_probable_function_definition, has_source_command, shell_assignment_token,
-    source_mentions_any,
-};
+use super::signals::PathSignals;
+use super::source_scan::shell_assignment_token;
 use crate::ShellDialect;
 
 pub(super) fn matches_sourced_runtime_contract(
     collector: &AmbientContractCollector<'_>,
-    path: &Path,
     _shell: ShellDialect,
 ) -> bool {
-    let lower = lower_path(path);
-    sourced_runtime_path_shape(&lower) && sourced_runtime_source_shape(collector, &lower)
+    sourced_runtime_path_shape(collector.path_signals()) && sourced_runtime_source_shape(collector)
 }
 
 pub(super) fn build_sourced_runtime_contract(
     collector: &AmbientContractCollector<'_>,
-    path: &Path,
     _shell: ShellDialect,
 ) -> FileContract {
-    let lower = lower_path(path);
     let mut names = BTreeSet::new();
 
-    for name in runtime_names_for_source_path(collector, &lower) {
+    for name in runtime_names_for_source_path(collector) {
         names.insert((*name).to_owned());
     }
 
@@ -74,51 +66,43 @@ pub(super) fn build_sourced_runtime_contract(
     contract
 }
 
-fn sourced_runtime_path_shape(lower: &str) -> bool {
-    path_matches_any(
-        lower,
-        &[
-            "/completion/",
-            "/completions/",
-            ".completion.",
-            "bash_autocomplete",
-            "/themes/",
-            ".theme.",
-            "/plugins/",
-            "/plugin/",
-            "/modules/",
-            "/scriptmodules/",
-            "/scripts/functions/",
-            "/rvm/scripts/",
-            "/lgsm/modules/",
-            "/common/environment/setup/",
-            "/common/chroot-style/",
-            "/common/hooks/",
-            "termux-packages/packages/",
-        ],
-    )
+fn sourced_runtime_path_shape(path: &PathSignals) -> bool {
+    path.matches_any(&[
+        "/completion/",
+        "/completions/",
+        ".completion.",
+        "bash_autocomplete",
+        "/themes/",
+        ".theme.",
+        "/plugins/",
+        "/plugin/",
+        "/modules/",
+        "/scriptmodules/",
+        "/scripts/functions/",
+        "/rvm/scripts/",
+        "/lgsm/modules/",
+        "/common/environment/setup/",
+        "/common/chroot-style/",
+        "/common/hooks/",
+        "termux-packages/packages/",
+    ])
 }
 
-fn sourced_runtime_source_shape(
-    collector: &AmbientContractCollector<'_>,
-    lower_path: &str,
-) -> bool {
-    let source = collector.source;
-    has_probable_function_definition(source)
-        || has_source_command(source)
+fn sourced_runtime_source_shape(collector: &AmbientContractCollector<'_>) -> bool {
+    let source = collector.source_signals();
+    source.has_probable_function_definition()
+        || source.has_source_command()
         || source.contains("PROMPT_COMMAND")
         || source.contains("COMPREPLY")
         || source.contains("about-completion")
-        || (lower_path.contains("termux-packages") && source.contains("TERMUX_"))
+        || (collector.path_signals().contains("termux-packages") && source.contains("TERMUX_"))
         || collector.completion_initializer_invoked
 }
 
 fn runtime_names_for_source_path(
     collector: &AmbientContractCollector<'_>,
-    lower: &str,
 ) -> &'static [&'static str] {
-    let source = collector.source;
-    if bash_it_theme_runtime_shape(source, lower) {
+    if bash_it_theme_runtime_shape(collector) {
         return &[
             "black",
             "red",
@@ -143,60 +127,58 @@ fn runtime_names_for_source_path(
         ];
     }
 
-    if completion_runtime_shape(collector, lower) {
+    if completion_runtime_shape(collector) {
         return &["cur", "prev", "words", "cword", "comp_args", "split"];
     }
 
     &[]
 }
 
-fn bash_it_theme_runtime_shape(source: &str, lower: &str) -> bool {
-    path_matches_any(lower, &["/bash-it/themes/", "/bash-it/theme/"])
+fn bash_it_theme_runtime_shape(collector: &AmbientContractCollector<'_>) -> bool {
+    let source = collector.source_signals();
+    collector
+        .path_signals()
+        .matches_any(&["/bash-it/themes/", "/bash-it/theme/"])
         && (source.contains("PROMPT_COMMAND")
             || source.contains("SCM_THEME_PROMPT")
-            || source_mentions_any(
-                source,
-                &[
-                    "black",
-                    "red",
-                    "green",
-                    "yellow",
-                    "blue",
-                    "purple",
-                    "cyan",
-                    "white",
-                    "normal",
-                    "default",
-                    "reset_color",
-                    "bold_black",
-                    "bold_red",
-                    "bold_green",
-                    "bold_yellow",
-                    "bold_blue",
-                    "bold_purple",
-                    "bold_cyan",
-                    "bold_white",
-                    "italic",
-                ],
-            ))
+            || source.mentions_any(&[
+                "black",
+                "red",
+                "green",
+                "yellow",
+                "blue",
+                "purple",
+                "cyan",
+                "white",
+                "normal",
+                "default",
+                "reset_color",
+                "bold_black",
+                "bold_red",
+                "bold_green",
+                "bold_yellow",
+                "bold_blue",
+                "bold_purple",
+                "bold_cyan",
+                "bold_white",
+                "italic",
+            ]))
 }
 
-fn completion_runtime_shape(collector: &AmbientContractCollector<'_>, lower: &str) -> bool {
-    completion_runtime_path_shape(lower) && collector.completion_initializer_invoked
+fn completion_runtime_shape(collector: &AmbientContractCollector<'_>) -> bool {
+    completion_runtime_path_shape(collector.path_signals())
+        && collector.completion_initializer_invoked
 }
 
-fn completion_runtime_path_shape(lower: &str) -> bool {
-    path_matches_any(
-        lower,
-        &[
-            "/bash-completion/",
-            "/bash_completion/",
-            "/bash-it/completion/",
-            "/bash-it/completions/",
-            "/bash-progcomp/",
-            "bash_autocomplete",
-        ],
-    )
+fn completion_runtime_path_shape(path: &PathSignals) -> bool {
+    path.matches_any(&[
+        "/bash-completion/",
+        "/bash_completion/",
+        "/bash-it/completion/",
+        "/bash-it/completions/",
+        "/bash-progcomp/",
+        "bash_autocomplete",
+    ])
 }
 
 pub(super) fn normalized_command_invokes_completion_initializer(

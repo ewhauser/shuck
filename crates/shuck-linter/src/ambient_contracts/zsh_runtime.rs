@@ -13,14 +13,11 @@
 //! The provider only applies to zsh-shaped paths or zsh projects so ordinary
 //! scripts do not inherit interactive-runtime assumptions.
 
-use std::path::Path;
-
 use shuck_ast::Name;
 use shuck_semantic::{ContractCertainty, FileContract, ProvidedBinding, ProvidedBindingKind};
 
 use super::AmbientContractCollector;
-use super::path::lower_path;
-use super::source_scan::{source_assigns_name, source_mentions_any, source_mentions_name};
+use super::signals::{PathSignals, SourceSignals};
 use super::zsh_paths::{
     zsh_dotfile_path_shape, zsh_project_path_shape, zsh_runtime_path_shape,
     zsh_syntax_highlighting_test_path_shape, zsh_test_data_path_shape,
@@ -29,24 +26,22 @@ use crate::ShellDialect;
 
 pub(super) fn matches_zsh_ambient_runtime_contract(
     collector: &AmbientContractCollector<'_>,
-    path: &Path,
     shell: ShellDialect,
 ) -> bool {
-    let lower = lower_path(path);
-    shell_matches_zsh_runtime_context(shell, &lower)
-        && zsh_ambient_runtime_has_signal(collector.source, &lower)
+    let path = collector.path_signals();
+    shell_matches_zsh_runtime_context(shell, path)
+        && zsh_ambient_runtime_has_signal(collector.source_signals(), path)
 }
 
 pub(super) fn build_zsh_ambient_runtime_contract(
     collector: &AmbientContractCollector<'_>,
-    path: &Path,
     _shell: ShellDialect,
 ) -> FileContract {
-    let lower = lower_path(path);
-    let source = collector.source;
+    let path = collector.path_signals();
+    let source = collector.source_signals();
     let mut contract = FileContract::default();
 
-    for name in zsh_initialized_runtime_names(source, &lower) {
+    for name in zsh_initialized_runtime_names(source, path) {
         contract.add_provided_binding(ProvidedBinding::new_file_entry_initialized(
             Name::from(name),
             ProvidedBindingKind::Variable,
@@ -54,51 +49,50 @@ pub(super) fn build_zsh_ambient_runtime_contract(
         ));
     }
 
-    for name in zsh_externally_consumed_names(source, &lower) {
+    for name in zsh_externally_consumed_names(source, path) {
         contract.add_externally_consumed_binding_name(Name::from(name));
     }
 
-    for prefix in zsh_test_fixture_consumed_prefixes(source, &lower) {
+    for prefix in zsh_test_fixture_consumed_prefixes(source, path) {
         contract.add_externally_consumed_binding_prefix(Name::from(prefix));
     }
 
     contract
 }
 
-fn shell_matches_zsh_runtime_context(shell: ShellDialect, lower_path: &str) -> bool {
+fn shell_matches_zsh_runtime_context(shell: ShellDialect, path: &PathSignals) -> bool {
     shell == ShellDialect::Zsh
         || (shell == ShellDialect::Unknown
-            && (zsh_dotfile_path_shape(lower_path) || zsh_project_path_shape(lower_path)))
+            && (zsh_dotfile_path_shape(path.lower_path())
+                || zsh_project_path_shape(path.lower_path())))
 }
 
-fn zsh_ambient_runtime_has_signal(source: &str, lower_path: &str) -> bool {
-    source_mentions_any(source, ZSH_INITIALIZED_SPECIAL_PARAMETERS)
-        || source_mentions_any(source, ZSH_HOOK_ARRAY_PARAMETERS)
-        || zsh_prompt_color_runtime_shape(source, lower_path)
-        || !zsh_externally_consumed_names(source, lower_path).is_empty()
-        || zsh_test_fixture_consumed_prefixes(source, lower_path)
+fn zsh_ambient_runtime_has_signal(source: &SourceSignals<'_>, path: &PathSignals) -> bool {
+    source.mentions_any(ZSH_INITIALIZED_SPECIAL_PARAMETERS)
+        || source.mentions_any(ZSH_HOOK_ARRAY_PARAMETERS)
+        || zsh_prompt_color_runtime_shape(source, path)
+        || !zsh_externally_consumed_names(source, path).is_empty()
+        || zsh_test_fixture_consumed_prefixes(source, path)
             .next()
             .is_some()
 }
 
 fn zsh_initialized_runtime_names<'a>(
-    source: &'a str,
-    lower_path: &'a str,
+    source: &'a SourceSignals<'_>,
+    path: &'a PathSignals,
 ) -> impl Iterator<Item = &'static str> + 'a {
     ZSH_INITIALIZED_SPECIAL_PARAMETERS
         .iter()
         .copied()
         .filter(move |name| {
-            source_mentions_name(source, name)
-                && zsh_special_parameter_available(name, source, lower_path)
+            source.mentions_name(name) && zsh_special_parameter_available(name, source, path)
         })
         .chain(
             ZSH_PROMPT_COLOR_PARAMETERS
                 .iter()
                 .copied()
                 .filter(move |name| {
-                    source_mentions_name(source, name)
-                        && zsh_prompt_color_runtime_shape(source, lower_path)
+                    source.mentions_name(name) && zsh_prompt_color_runtime_shape(source, path)
                 }),
         )
         .chain(
@@ -106,52 +100,51 @@ fn zsh_initialized_runtime_names<'a>(
                 .iter()
                 .copied()
                 .filter(move |name| {
-                    source_mentions_name(source, name) && zsh_runtime_path_shape(lower_path)
+                    source.mentions_name(name) && zsh_runtime_path_shape(path.lower_path())
                 }),
         )
 }
 
-fn zsh_special_parameter_available(name: &str, source: &str, lower_path: &str) -> bool {
+fn zsh_special_parameter_available(
+    name: &str,
+    source: &SourceSignals<'_>,
+    path: &PathSignals,
+) -> bool {
     match name {
         "sysparams" => {
-            zsh_runtime_path_shape(lower_path) || source_loads_zsh_module(source, "zsh/system")
+            zsh_runtime_path_shape(path.lower_path()) || source.loads_zsh_module("zsh/system")
         }
         "langinfo" => {
-            zsh_runtime_path_shape(lower_path) || source_loads_zsh_module(source, "zsh/langinfo")
+            zsh_runtime_path_shape(path.lower_path()) || source.loads_zsh_module("zsh/langinfo")
         }
-        "compstate" | "words" => zsh_runtime_path_shape(lower_path),
+        "compstate" | "words" => zsh_runtime_path_shape(path.lower_path()),
         "galiases" | "history" | "keymaps" | "reswords" | "saliases" => {
-            zsh_runtime_path_shape(lower_path) || source_loads_zsh_module(source, "zsh/parameter")
+            zsh_runtime_path_shape(path.lower_path()) || source.loads_zsh_module("zsh/parameter")
         }
         _ => true,
     }
 }
 
-fn source_loads_zsh_module(source: &str, module: &str) -> bool {
-    source.lines().any(|line| {
-        line.split('#')
-            .next()
-            .is_some_and(|code| code.contains("zmodload") && code.contains(module))
-    })
-}
-
-fn zsh_externally_consumed_names(source: &str, lower_path: &str) -> Vec<&'static str> {
-    let runtime_path = zsh_runtime_path_shape(lower_path);
-    if !runtime_path && !zsh_test_data_path_shape(lower_path) {
+fn zsh_externally_consumed_names(
+    source: &SourceSignals<'_>,
+    path: &PathSignals,
+) -> Vec<&'static str> {
+    let runtime_path = zsh_runtime_path_shape(path.lower_path());
+    if !runtime_path && !zsh_test_data_path_shape(path.lower_path()) {
         return Vec::new();
     }
 
     let mut consumed = ZSH_EXTERNALLY_CONSUMED_OUTPUT_PARAMETERS
         .iter()
         .copied()
-        .filter(|name| source_assigns_name(source, name))
+        .filter(|name| source.assigns_name(name))
         .collect::<Vec<_>>();
     if runtime_path {
         consumed.extend(
             ZSH_HOOK_ARRAY_PARAMETERS
                 .iter()
                 .copied()
-                .filter(|name| source_assigns_name(source, name)),
+                .filter(|name| source.assigns_name(name)),
         );
     }
     consumed
@@ -168,11 +161,11 @@ const ZSH_HOOK_ARRAY_PARAMETERS: &[&str] = &[
 ];
 
 fn zsh_test_fixture_consumed_prefixes<'a>(
-    source: &'a str,
-    lower_path: &'a str,
+    source: &'a SourceSignals<'_>,
+    path: &'a PathSignals,
 ) -> impl Iterator<Item = &'static str> + 'a {
     ["expected_"].into_iter().filter(|prefix| {
-        zsh_syntax_highlighting_test_path_shape(lower_path) && source.contains(prefix)
+        zsh_syntax_highlighting_test_path_shape(path.lower_path()) && source.contains(prefix)
     })
 }
 
@@ -205,38 +198,7 @@ const ZSH_PROMPT_COLOR_PARAMETERS: &[&str] = &[
 const ZSH_EXTERNALLY_CONSUMED_OUTPUT_PARAMETERS: &[&str] =
     &["REPLY", "compstate", "comppostfuncs", "reply"];
 
-fn zsh_prompt_color_runtime_shape(source: &str, lower_path: &str) -> bool {
-    (zsh_runtime_path_shape(lower_path) || source_loads_zsh_colors(source))
-        && source_mentions_any(source, ZSH_PROMPT_COLOR_PARAMETERS)
-}
-
-fn source_loads_zsh_colors(source: &str) -> bool {
-    source.lines().any(|line| {
-        line.split('#')
-            .next()
-            .map(str::trim_start)
-            .is_some_and(line_autoloads_zsh_colors)
-    })
-}
-
-fn line_autoloads_zsh_colors(code: &str) -> bool {
-    let code = first_shell_command_segment(code);
-    let mut words = code.split_whitespace();
-    let mut command = words.next();
-    while matches!(command, Some("builtin" | "command")) {
-        command = words.next();
-    }
-    if command != Some("autoload") {
-        return false;
-    }
-
-    words.any(|word| word == "colors")
-}
-
-fn first_shell_command_segment(code: &str) -> &str {
-    ["&&", "||", ";", "|"]
-        .iter()
-        .filter_map(|separator| code.find(separator))
-        .min()
-        .map_or(code, |index| &code[..index])
+fn zsh_prompt_color_runtime_shape(source: &SourceSignals<'_>, path: &PathSignals) -> bool {
+    (zsh_runtime_path_shape(path.lower_path()) || source.loads_zsh_colors())
+        && source.mentions_any(ZSH_PROMPT_COLOR_PARAMETERS)
 }

@@ -38,6 +38,7 @@ use shuck_semantic::{FileContract, FileEntryContractCollector};
 use crate::ShellDialect;
 
 mod path;
+mod signals;
 mod source_scan;
 mod sourced_runtime;
 #[cfg(test)]
@@ -49,14 +50,14 @@ mod zsh_paths;
 mod zsh_runtime;
 
 struct AmbientContractProvider {
-    matches: fn(&AmbientContractCollector<'_>, &Path, ShellDialect) -> bool,
-    build: fn(&AmbientContractCollector<'_>, &Path, ShellDialect) -> FileContract,
+    matches: fn(&AmbientContractCollector<'_>, ShellDialect) -> bool,
+    build: fn(&AmbientContractCollector<'_>, ShellDialect) -> FileContract,
 }
 
 pub(crate) struct AmbientContractCollector<'a> {
     source: &'a str,
-    path: Option<&'a Path>,
     shell: ShellDialect,
+    signals: signals::AmbientSignals<'a>,
     completion_initializer_invoked: bool,
     caller_scoped_array_length_names: BTreeSet<Name>,
 }
@@ -73,26 +74,36 @@ impl<'a> AmbientContractCollector<'a> {
 
         Self {
             source,
-            path,
             shell,
+            signals: signals::AmbientSignals::new(source, path),
             completion_initializer_invoked: false,
             caller_scoped_array_length_names,
         }
     }
 
     fn file_entry_contract(&self) -> Option<FileContract> {
-        let path = self.path?;
+        self.signals.path()?;
         let mut merged = FileContract::default();
         let mut matched = false;
 
         for provider in providers() {
-            if (provider.matches)(self, path, self.shell) {
+            if (provider.matches)(self, self.shell) {
                 matched = true;
-                merge_contract(&mut merged, (provider.build)(self, path, self.shell));
+                merge_contract(&mut merged, (provider.build)(self, self.shell));
             }
         }
 
         matched.then_some(merged)
+    }
+
+    fn source_signals(&self) -> &signals::SourceSignals<'a> {
+        self.signals.source()
+    }
+
+    fn path_signals(&self) -> &signals::PathSignals {
+        self.signals
+            .path()
+            .expect("ambient contracts are only built for path-backed files")
     }
 }
 

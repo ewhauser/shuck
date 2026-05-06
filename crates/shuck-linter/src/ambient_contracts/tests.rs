@@ -161,6 +161,19 @@ prompt=\"%{$fg_bold[blue]%}%{$reset_color%}\"
 }
 
 #[test]
+fn commented_zmodload_does_not_initialize_module_parameters() {
+    let path = Path::new("/tmp/project/scripts/example.zsh");
+    let source = "\
+true;# zmodload zsh/parameter
+print -r -- \"$history\"
+";
+
+    let contract = contract_for_shell(path, source, ShellDialect::Zsh).unwrap();
+
+    assert!(!has_initialized_binding(&contract, "history"));
+}
+
+#[test]
 fn zsh_runtime_contract_initializes_hook_arrays() {
     let path = Path::new("/tmp/zsh/ohmyzsh/lib/async_prompt.zsh");
     let source = "\
