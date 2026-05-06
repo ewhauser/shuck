@@ -9086,7 +9086,7 @@ fn configured_zsh_plugin_entrypoint_reads_apply_after_file_assignments() {
     let plugin = temp.path().join("plugin.zsh");
     fs::write(
         &main,
-        "#!/bin/zsh\nflag=1\nlate_scope() {\n  local flag=2\n}\n",
+        "#!/bin/zsh\nif true; then\n  flag=1\nelse\n  flag=2\nfi\nlate_scope() {\n  local flag=3\n}\n",
     )
     .unwrap();
     fs::write(&plugin, "echo \"$flag\"\n").unwrap();
