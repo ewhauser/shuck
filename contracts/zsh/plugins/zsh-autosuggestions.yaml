@@ -1,0 +1,21 @@
+version: 1
+contracts:
+  - id: zsh/plugin/zsh-autosuggestions/config
+    groups:
+      - zsh
+      - zsh/plugin
+      - zsh/plugin/zsh-autosuggestions
+    label: Zsh autosuggestions configuration prefix
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - ZSH_AUTOSUGGEST_
+    files:
+      - "**/zsh-autosuggestions/**"
+    effects:
+      consumes:
+        prefixes:
+          - ZSH_AUTOSUGGEST_

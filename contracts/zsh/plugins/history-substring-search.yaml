@@ -1,0 +1,22 @@
+version: 1
+contracts:
+  - id: zsh/plugin/history-substring-search/config
+    groups:
+      - zsh
+      - zsh/plugin
+      - zsh/plugin/history-substring-search
+    label: History substring search configuration prefix
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - HISTORY_SUBSTRING_SEARCH_
+    files:
+      - "**/history-substring-search/**"
+      - "**/modules/history-substring-search/**"
+    effects:
+      consumes:
+        prefixes:
+          - HISTORY_SUBSTRING_SEARCH_

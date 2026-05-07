@@ -1,19 +1,18 @@
 version: 1
 contracts:
-  - id: zsh/config/history
+  - id: zsh/zdot/config/prefix
     groups:
       - zsh
-      - zsh/config
-    label: Zsh history configuration variables
+      - zsh/zdot
+      - zsh/zdot/config
+    label: ZDOT configuration prefix
     when:
       type: always
     match:
       shell: zsh_or_unknown
       source:
-        assigns-any-names:
-          - HISTFILE
-          - HISTSIZE
-          - SAVEHIST
+        contains-any:
+          - ZDOT_
     files:
       - "**/.zshrc"
       - "**/zshrc"
@@ -28,14 +27,7 @@ contracts:
       - "**/zdot/**"
       - "**/zsh/config/**"
       - "**/zsh/configs/**"
-      - "**/zsh/**"
-      - "**/modules/history/**"
-      - "**/config.zsh"
-      - "**/history.zsh"
-      - "**/init.zsh"
     effects:
       consumes:
-        names:
-          - HISTFILE
-          - HISTSIZE
-          - SAVEHIST
+        prefixes:
+          - ZDOT_

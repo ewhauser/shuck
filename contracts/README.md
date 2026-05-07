@@ -28,6 +28,8 @@ contracts/
   bash/
   bash-it/
   zsh/
+    plugins/
+    zdot/
     themes/
 ```
 

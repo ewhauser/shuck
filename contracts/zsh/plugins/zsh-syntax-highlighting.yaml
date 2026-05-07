@@ -1,0 +1,21 @@
+version: 1
+contracts:
+  - id: zsh/plugin/zsh-syntax-highlighting/config
+    groups:
+      - zsh
+      - zsh/plugin
+      - zsh/plugin/zsh-syntax-highlighting
+    label: Zsh syntax highlighting configuration prefix
+    when:
+      type: always
+    match:
+      shell: zsh_or_unknown
+      source:
+        contains-any:
+          - ZSH_HIGHLIGHT_
+    files:
+      - "**/zsh-syntax-highlighting/**"
+    effects:
+      consumes:
+        prefixes:
+          - ZSH_HIGHLIGHT_
