@@ -1998,6 +1998,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     if wrapper_target_arg_index == Some(arg_index) {
                         continue;
                     }
+                    let printf_writes_to_stdout = literal_exempt_command_name != Some("printf")
+                        || !printf_assigns_to_variable(&command.args, arg_index, self.source);
                     let base_surface_word_context = if variable_set_operand
                         .is_some_and(|operand| std::ptr::eq(word, operand))
                     {
@@ -2024,11 +2026,10 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                         || (direct_instructional_output_context
                             && single_quoted_literal_instructional_output_argument(
                                 literal_exempt_command_name,
-                                &command.args,
                                 redirects,
                                 &inherited_output_sinks,
                                 &self.command_shell_behavior,
-                                arg_index,
+                                printf_writes_to_stdout,
                                 word,
                                 self.source,
                             ))

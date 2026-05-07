@@ -273,7 +273,7 @@ impl<'a, 'analysis> LinterFactsBuilder<'a, 'analysis> {
                     &normalized,
                     command_shell_behavior.clone(),
                     WordFactOutputs {
-                        command_visits_by_id: &self.command_visits_by_id,
+                        command_visits_by_id: self.command_visits_by_id,
                         word_nodes: &mut word_nodes,
                         word_spans: &mut word_spans,
                         word_span_scratch: &mut word_span_scratch,

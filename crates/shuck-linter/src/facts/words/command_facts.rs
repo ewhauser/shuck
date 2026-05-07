@@ -1213,11 +1213,10 @@ pub(super) fn single_quoted_literal_exempt_here_string(command_name: Option<&str
 
 pub(super) fn single_quoted_literal_instructional_output_argument(
     command_name: Option<&str>,
-    args: &[Word],
     redirects: &[Redirect],
     inherited_output_sinks: &FxHashMap<i32, CommandOutputSink>,
     shell_behavior: &ShellBehaviorAt<'_>,
-    arg_index: usize,
+    writes_to_stdout: bool,
     word: &Word,
     source: &str,
 ) -> bool {
@@ -1225,9 +1224,7 @@ pub(super) fn single_quoted_literal_instructional_output_argument(
         return false;
     }
 
-    if command_name == Some("printf")
-        && printf_assigns_to_variable(args, arg_index, source)
-    {
+    if !writes_to_stdout {
         return false;
     }
 
@@ -1348,7 +1345,7 @@ fn redirected_output_fd(redirect: &Redirect) -> Option<i32> {
     }
 }
 
-fn printf_assigns_to_variable(args: &[Word], arg_index: usize, source: &str) -> bool {
+pub(super) fn printf_assigns_to_variable(args: &[Word], arg_index: usize, source: &str) -> bool {
     match args.first().and_then(|word| static_word_text(word, source)) {
         Some(text) if text == "-v" => arg_index >= 2,
         Some(text) if text.starts_with("-v") && text.len() > 2 => arg_index >= 1,
