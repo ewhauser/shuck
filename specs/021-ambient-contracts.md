@@ -1,0 +1,580 @@
+# 021: Ambient Contracts
+
+## Status
+
+Proposed
+
+## Summary
+
+Add a general contract layer for external behavior that Shuck cannot recover
+from the analyzed source graph. Contracts are shell-agnostic at the config
+surface: a contract has an activation (`when`) and a set of effects (`reads`,
+`consumes`, `provides`, and function `sets`). Zsh plugin loading from spec 020
+is one activation type, not a separate contract system.
+
+The default posture stays source-first. When Shuck can load a sourced helper,
+framework module, or plugin entrypoint, it should parse that file, follow its
+source closure, run the ambient collector for that file entry, and derive
+`FileContract`s from real code. Contracts only describe residual behavior such
+as generated code, external runtime consumption, unavailable source, or
+project-specific framework conventions.
+
+Contracts come from end-user configuration or from Shuck's well-known registry.
+Plugin-authored contract files are out of scope for v1. The registry is
+code-defined, not TOML, so Shuck can cheaply test activations and instantiate
+`FileContract`s only for contracts that actually apply.
+
+## Motivation
+
+Spec 020 and the current zsh plugin fixtures already solve a large class of
+false positives by loading real plugins:
+
+- a Prezto module request can resolve the `zsh-autosuggestions` plugin root;
+- a `zdot_use_plugin zsh-users/zsh-autosuggestions` call can resolve the same
+  standalone plugin;
+- the resolved plugin file registers a zsh hook;
+- source-closure summarization follows the deferred hook callback and discovers
+  that `ZSH_AUTOSUGGEST_STRATEGY` is read later;
+- the caller assignment is then kept live without any plugin-specific variable
+  table.
+
+That is the model to preserve. It also fixes return-by-reference patterns when
+callee source is reachable: sourced helpers and loaded plugin files can expose
+function contracts that provide `reply` or `REPLY` to callers. Those should not
+be re-modeled as hand-written contracts.
+
+The remaining need is broader than zsh plugins. Projects may need to describe
+names consumed or provided by CI runtimes, shell frameworks, generated code,
+test harnesses, deployment wrappers, or plugins whose source is unavailable or
+too dynamic to summarize. A single top-level contract feature gives users one
+mental model instead of separate zsh, plugin, framework, and global escape
+hatches.
+
+## Design
+
+### Goals
+
+- Keep real source loading and source summarization as the first choice.
+- Make contracts a general lint feature, not a zsh-only feature.
+- Use activation types to decide when a contract applies.
+- Treat `zsh_plugin` and future plugin/framework integrations as activation
+  types over the same contract body.
+- Ship well-known contracts through a lazy Rust registry rather than parsing
+  built-in TOML.
+- Keep end-user names concise and close to the user intent.
+- Compile contracts into the existing `FileContract` type.
+- Avoid rule-local or framework-local tables of plugin variable names.
+
+### Non-Goals
+
+- This spec does not replace zsh plugin resolution from spec 020.
+- This spec does not model language semantics such as zsh `$+name` existence
+  tests. Those belong in parser/semantic/linter logic.
+- This spec does not define plugin-distributed contract files.
+- This spec does not execute plugin managers or user shell code.
+- This spec does not emit diagnostics from plugin files as top-level user-file
+  diagnostics.
+
+### Source-First Rule
+
+Every proposed contract should pass this question first:
+
+> Could Shuck load a real source file and derive this fact instead?
+
+If yes, prefer improving source resolution, plugin resolution, helper
+summarization, deferred runtime modeling, or ambient collector threading. Use a
+contract only when the fact is intentionally outside the static source graph or
+when the source is unavailable to the analyzed project.
+
+Examples:
+
+| Case | Preferred mechanism |
+|---|---|
+| `zsh-autosuggestions` hook reads `ZSH_AUTOSUGGEST_STRATEGY` | Load plugin source and summarize deferred hook callback |
+| Sourced helper sets `reply` for caller | Source closure and function contract summarization |
+| `$+functions[name]` reports undefined `+functions` | Fix zsh parameter/arithmetic semantics |
+| CI injects names that a checked script reads | Contract activated for matching files |
+| `ZSH_TMUX_*` options are consumed by plugin/runtime code Shuck cannot statically reach | Contract activated by `zsh_plugin` |
+| `zdot` module metadata is assigned in module files and consumed by a dispatcher | Contract activated for matching files |
+
+### Contract Shape
+
+Use one top-level contract section. Built-in controls live on the section, and
+user-authored contracts live under `[[lint.contracts.custom]]`:
+
+```toml
+[lint.contracts]
+well-known = true
+disabled = ["zsh/oh-my-zsh/plugin/tmux"]
+
+[[lint.contracts.custom]]
+id = "github-actions-env"
+when = "always"
+files = [".github/**/*.sh"]
+provides = { variables = ["GITHUB_OUTPUT", "GITHUB_ENV"] }
+
+[[lint.contracts.custom]]
+id = "oh-my-zsh-tmux"
+when = { type = "zsh_plugin", framework = "oh-my-zsh", plugin = "tmux" }
+files = ["**/.zshrc"]
+consumes = { prefixes = ["ZSH_TMUX_"] }
+
+[[lint.contracts.custom]]
+id = "zdot-module-metadata"
+when = "always"
+files = ["modules/**/*.zsh"]
+consumes = { names = ["ZDOT_MODULE"], prefixes = ["ZDOT_"] }
+```
+
+`files` is an optional path filter. If omitted, the activation decides
+applicability. Users can intentionally make a repository-wide contract with
+`when = "always"` and no `files`, but docs should recommend path filters for
+most contracts. For request-based activations such as `zsh_plugin`, `files`
+matches the file that requested the plugin, not the resolved plugin entrypoint.
+
+`well-known = false` disables the built-in registry entirely. `disabled`
+selectors apply when the registry is enabled and can turn off individual
+built-ins or groups.
+
+`id` is a stable selector token, not only a display name. Config contracts must
+have an `id` so diagnostics, generated docs, replacement, and disable behavior
+can point at the same contract across runs.
+
+### Activation Types
+
+Activation decides when a contract is eligible.
+
+```toml
+when = "always"
+when = { type = "zsh_plugin", framework = "oh-my-zsh", plugin = "tmux" }
+when = { type = "zsh_theme", framework = "oh-my-zsh", theme = "agnoster" }
+```
+
+Initial activation types:
+
+| Activation | Meaning |
+|---|---|
+| `always` | Apply to matching files without an additional runtime condition. This is the global-contract form. |
+| `zsh_plugin` | Apply when Shuck observes or configures a matching zsh plugin request and plugin resolution is enabled. |
+| `zsh_theme` | Apply when Shuck observes or configures a matching zsh theme request and plugin resolution is enabled. |
+
+Future activation types can reuse the same contract body:
+
+- `sourced_file`, for contracts attached to a specific helper path;
+- `command`, for framework commands that establish ambient state;
+- `shell`, for shell-specific entry contracts that are too project-specific for
+  built-in ambient providers.
+
+### Identity, Groups, And Controls
+
+`id` alone is not enough for built-in controls. Well-known contracts need a
+stable exact ID plus stable grouping selectors. That lets users disable one
+contract, a whole framework family, or every well-known contract without
+depending on a human-readable label.
+
+Well-known IDs should be hierarchical:
+
+```text
+zsh/oh-my-zsh/plugin/tmux
+zsh/standalone/plugin/zsh-abbr
+runtime/github-actions/env
+```
+
+Each well-known contract also declares groups:
+
+```rust
+groups: &[
+    "zsh",
+    "zsh/oh-my-zsh",
+    "zsh/oh-my-zsh/plugin",
+]
+```
+
+Selectors are bare well-known IDs or groups:
+
+```toml
+[lint.contracts]
+disabled = [
+  # Disable all built-in contracts.
+  "*",
+  # Disable all built-in Oh My Zsh contracts.
+  "zsh/oh-my-zsh",
+  # Disable only one built-in contract.
+  "zsh/oh-my-zsh/plugin/tmux",
+]
+```
+
+A selector matches if it equals the contract ID or one of the contract groups.
+`*` matches every built-in contract. The selector space is intentionally scoped
+to the well-known registry: custom contracts are controlled by adding, removing,
+or editing their config entries.
+
+Custom contracts can replace built-ins without requiring a separate disabled
+entry:
+
+```toml
+[[lint.contracts.custom]]
+id = "local-oh-my-zsh-tmux"
+replaces = ["zsh/oh-my-zsh/plugin/tmux"]
+when = { type = "zsh_plugin", framework = "oh-my-zsh", plugin = "tmux" }
+consumes = { prefixes = ["LOCAL_TMUX_"] }
+```
+
+`replaces` is equivalent to adding those selectors to `disabled` and then
+adding the custom contract. It is useful when a repo wants to override the
+built-in behavior while keeping the override next to the replacement contract.
+
+### Effects
+
+Effect names should be short and user-facing. They compile to `FileContract`
+fields internally.
+
+```toml
+reads = ["CALLER_VALUE"]
+consumes = { names = ["FAST_WORK_DIR"], prefixes = ["ABBR_"], all = false }
+provides = { variables = ["reply"], functions = ["helper"] }
+functions = [
+  { name = "helper", reads = ["CALLER_VALUE"], sets = ["REPLY"] },
+]
+```
+
+Mapping:
+
+| User field | Internal meaning |
+|---|---|
+| `reads` | `required_reads`; creates synthetic reads in the importer. |
+| `consumes.names` | `externally_consumed_binding_names`; keeps exact assignments live. |
+| `consumes.prefixes` | `externally_consumed_binding_prefixes`; keeps prefix assignments live. |
+| `consumes.all` | `externally_consumed_bindings`; rare escape hatch. |
+| `provides.variables` | `provided_bindings` with variable kind, definite certainty, and file-entry initialization. |
+| `provides.functions` | `provided_bindings` with function kind and empty `provided_functions` for callable names. |
+| `functions[].reads` | Required reads for a provided function. |
+| `functions[].sets` | Definite variable bindings a provided function may set for its caller, such as `reply` or `REPLY`. |
+
+The simple string-list form is intentionally opinionated: `provides.variables`
+means the variable is available and initialized when the contract applies. That
+matches end-user cases like CI-provided environment names. If users later need
+weaker declarations such as "name exists but may be unset", add object forms
+rather than overloading the simple list.
+
+### Effect Scope And Timing
+
+Contracts need explicit timing so they do not become a bag of fake reads.
+
+| Effect | Timing |
+|---|---|
+| `reads` | Ordered. The activated runtime reads the caller environment at the activation span. For `when = "always"` this is file entry; for `zsh_plugin` this is the observed plugin request. |
+| `consumes` | File-scoped. An external runtime may observe assignments made by the matching file, regardless of lexical order. This is for unused-assignment analysis only. |
+| `provides` | Ordered. Bindings become visible at file entry for `always`, or at the activation span for request-based activations such as `zsh_plugin`. |
+| `functions[].reads` and `functions[].sets` | Call-scoped. The function contract applies when the named function is called. |
+
+`reads` and `consumes` are not interchangeable:
+
+- Use `reads` when the activated thing actually reads a name at activation
+  time. This can create a synthetic read, keep earlier assignments live, and
+  still report uninitialized reads when nothing provides the name.
+- Use `consumes` when something outside the analyzed file may observe matching
+  assignments after the file has run. This should not create lexical
+  references and should not satisfy uninitialized-variable checks.
+
+For request-based activations, `consumes` targets the requesting file, not the
+resolved helper or plugin entrypoint. A `zsh_plugin` contract that consumes
+`ZSH_TMUX_*` keeps matching assignments in the `.zshrc` live; it does not mark
+assignments inside the tmux plugin file as externally consumed.
+
+### Well-Known Registry
+
+Shuck should maintain a built-in registry for well-known contracts that are
+stable enough to ship with the project. This covers cases like known plugin
+configuration prefixes or project/runtime contracts that are too specific for
+language semantics but common enough that users should not have to rediscover
+them.
+
+The registry should be Rust data and functions, not embedded TOML:
+
+```rust
+pub struct WellKnownContract {
+    pub id: &'static str,
+    pub groups: &'static [&'static str],
+    pub label: &'static str,
+    pub activation: WellKnownActivation,
+    pub matches: fn(&ContractQuery<'_>) -> bool,
+    pub apply: fn(&mut FileContract),
+}
+
+pub enum WellKnownActivation {
+    Always,
+    ZshPlugin {
+        framework: &'static str,
+        plugin: &'static str,
+    },
+    ZshTheme {
+        framework: &'static str,
+        theme: &'static str,
+    },
+}
+
+pub struct ContractQuery<'a> {
+    pub source_path: &'a Path,
+    pub shell_profile: &'a ShellProfile,
+    pub activation: ContractActivationQuery<'a>,
+}
+```
+
+Selection is lazy:
+
+1. contract controls skip disabled selectors before any materialization;
+2. cheap activation check, such as exact `zsh_plugin` framework/plugin match;
+3. optional path/source predicate through `matches`;
+4. only then call `apply` to materialize names into a `FileContract`.
+
+This mirrors the current `ambient_contracts` provider shape:
+
+```rust
+struct AmbientContractProvider {
+    matches: fn(&AmbientContractCollector<'_>, ShellDialect) -> bool,
+    build: fn(&AmbientContractCollector<'_>, ShellDialect) -> FileContract,
+}
+```
+
+The registry should use the same idea but make activation explicit. Simple
+contracts can use helper functions that apply static slices:
+
+```rust
+fn apply_oh_my_zsh_tmux(contract: &mut FileContract) {
+    add_consumed_prefixes(contract, &["ZSH_TMUX_"]);
+}
+```
+
+That avoids:
+
+- deserializing built-in TOML;
+- compiling glob patterns for contracts that can never activate;
+- allocating `Name`s or `FileContract`s for inactive contracts;
+- spreading plugin-specific variable tables through plugin-manager code.
+
+Controls should be evaluated before `apply`, so disabling
+`zsh/oh-my-zsh` skips the whole family without constructing any per-contract
+`FileContract`s.
+
+### Registry Ownership
+
+The well-known registry should not live in `plugin_managers`. The files under
+`crates/shuck-semantic/src/source_closure/plugin_managers` should continue to
+emit common source-closure outputs: plugin requests, dependency requests,
+layout suffixes, and bounded deferred runtime reads.
+
+The registry should also not turn `shuck-semantic/src/plugins` into a policy
+catalog. `shuck-semantic` owns `FileContract` and the resolver traits; it should
+not own the list of plugin variables that suppress linter diagnostics.
+
+Preferred ownership:
+
+- `shuck-linter` owns the well-known registry, next to `ambient_contracts`,
+  because these contracts are lint-facing ambient assumptions.
+- `shuck-cli` combines user config and the well-known registry when building
+  semantic options and plugin-resolution hooks.
+- `shuck-semantic` receives only resulting contract effects through
+  `SemanticBuildOptions`, `PluginResolution.file_entry_contracts`, or a sibling
+  request-site consumption hook if `consumes` cannot share the imported-facts
+  path.
+
+### Internal Flow
+
+The existing source-closure flow remains the join point:
+
+```text
+primary file
+  -> file-entry ambient collector
+  -> source refs and plugin requests
+  -> resolved helper/plugin entrypoints
+  -> helper/plugin source summaries
+  -> activated well-known and custom contracts
+  -> merged FileContract
+  -> final semantic resolution and linter facts
+```
+
+`PluginResolution.file_entry_contracts` remains the right hook for ordered
+plugin-request effects that behave like imported helper facts: `reads`,
+`provides`, and `functions`. The resolver should fill this field from compiled
+config and well-known registry matches after resolving the logical request. It
+should not fill it from hard-coded framework/plugin name tables.
+
+`consumes` needs request-site handling because it affects assignments in the
+file that requested the plugin. Implementation should carry those effects back
+to the source-closure site that observed the request and mark matching caller
+bindings as externally consumed.
+
+Contracts activated by `always` can use the existing
+`SemanticBuildOptions.file_entry_contract` path for the primary file and the
+existing `FileEntryContractCollectorFactory` path for helper/plugin summaries.
+If implementation needs a named provider, the provider should compile to
+`FileContract` before semantic application.
+
+### Crate Boundaries
+
+- `shuck-semantic` owns `FileContract`, contract merging, and semantic
+  application.
+- `shuck-semantic` should not parse contract config.
+- `shuck-semantic` should not own the well-known registry.
+- `shuck-config` owns deserializable config shapes.
+- `shuck-linter` owns built-in well-known contract descriptors.
+- `shuck-cli` compiles config, queries the well-known registry, and installs
+  resulting contracts in the resolver/collector pipeline.
+- `shuck-linter` consumes semantic facts and should not know contract origins.
+
+### Validation Rules
+
+- well-known contract `id` and `groups` values are stable selector API.
+- well-known contract `label` values are human-facing only and must not be used
+  for selection.
+- custom contract `id` values are required and must be unique within the merged
+  project config.
+- `files` patterns use the same matching rules as other per-file settings.
+- `disabled` selectors must be valid well-known IDs, groups, or `*`, such as
+  `zsh/oh-my-zsh` or `*`.
+- `replaces` selectors follow the same syntax as `disabled`.
+- variable and function names are validated against the target shell profile
+  when known; otherwise they use the portable shell identifier subset.
+- prefixes must be non-empty and valid identifier prefixes for the target
+  shell profile.
+- `when = "always"` is the only string shorthand in v1.
+- unknown activation types are configuration errors.
+- malformed config contracts are configuration errors.
+- `provides.variables` string-list entries always mean definite initialized
+  file-entry bindings.
+- `consumes` may only name variables or prefixes; functions must use
+  `provides.functions` or `functions[]`.
+
+### Cache And Watch
+
+Contract inputs affect diagnostics and must participate in dependency tracking.
+
+Cache fingerprints include:
+
+- resolved plugin entrypoints;
+- project config files that define contracts;
+- helper files summarized because of source closure.
+
+Well-known registry entries are versioned with the binary and do not need
+runtime dependency fingerprints. They should participate in the normal settings
+cache key through the Shuck version plus the enabled/disabled/replaced contract
+settings.
+
+Watch mode refreshes these targets after each run, matching the dependency
+refresh model from spec 020.
+
+## Alternatives Considered
+
+### Keep Contracts Under `[lint.zsh]`
+
+Rejected. The same model is useful for non-zsh scripts and project runtimes.
+Zsh plugin loading should be an activation type over a common contract body,
+not the namespace that owns all contracts.
+
+### Separate Global And Plugin Contract Systems
+
+Rejected. This creates duplicate names, duplicate validation, and confusing
+mental models. `always` and `zsh_plugin` activations are enough to distinguish
+the two cases.
+
+### Use `name` As The Contract Selector
+
+Rejected. A display name is not a strong enough grouping mechanism. Built-ins
+need stable IDs and groups so users can disable a single contract or a whole
+family such as `zsh/oh-my-zsh`.
+
+### Use Verbose Internal Field Names In Config
+
+Rejected. Names like `externally-consumed-binding-prefixes` describe
+implementation details, not user intent. Config should use short terms:
+`reads`, `consumes`, `provides`, and `sets`.
+
+### Store Built-In Contracts As TOML
+
+Rejected. TOML would keep user and built-in syntax identical, but it would
+force Shuck to parse and deserialize built-in data at runtime or add a build
+step that eventually recreates a Rust registry. Code-defined descriptors give
+the same behavior with cheaper activation checks and lazy `FileContract`
+materialization.
+
+### Hard-Code Plugin Variable Tables In Rust
+
+Rejected when the tables live in plugin managers, semantic layout code, or
+rules. A well-known registry is still Rust code, but it is intentionally
+centralized, activated through the same contract model as user config, and
+compiled into `FileContract` only after a matching activation is observed.
+
+### Make Contracts The Primary Plugin Model
+
+Rejected. The current fixtures already prove that loading real plugin source
+solves meaningful cases, including deferred zsh hook reads. Contracts should
+not become a substitute for improving resolution and source summarization.
+
+## Verification
+
+### Unit Tests
+
+- parse valid `[[lint.contracts.custom]]` entries;
+- parse `when = "always"`;
+- parse `zsh_plugin` and `zsh_theme` activations;
+- reject unknown activation types;
+- reject duplicate custom IDs;
+- parse `disabled` and `replaces` selectors;
+- reject malformed names and prefixes;
+- compile `reads`, `consumes`, `provides`, and `functions[].sets` into expected
+  `FileContract` values;
+- query the well-known registry without allocating contracts when activation
+  does not match;
+- query the well-known registry without allocating contracts when a disabled
+  selector matches the exact ID or a group;
+- materialize a well-known registry entry into the expected `FileContract` only
+  after activation and path matching succeed;
+- deduplicate repeated names and prefixes deterministically;
+- verify `provides.variables` string-list entries compile as initialized
+  file-entry bindings.
+
+### Semantic Tests
+
+- plugin source summaries still derive `ZSH_AUTOSUGGEST_STRATEGY` reads without
+  any custom contract config;
+- source closure still derives `reply`/`REPLY` function contracts when helper
+  source is reachable;
+- `always` contracts apply to matching primary files and helper/plugin files;
+- `zsh_plugin` contracts apply only when the matching plugin request is loaded;
+- a well-known `zsh_plugin` `reads` contract flows through
+  `PluginResolution.file_entry_contracts` at the plugin request span;
+- `consumes.prefixes` keeps matching C001 candidates live without creating fake
+  lexical reads;
+- request-based `consumes.prefixes` marks assignments in the requesting file,
+  not assignments in the resolved plugin entrypoint;
+- `reads` produces synthetic reads at the importer/load site;
+- `reads` does not keep assignments after the activation live, while `consumes`
+  does.
+
+### End-To-End Tests
+
+- an `always` contract can model a project runtime variable in a non-zsh shell
+  script;
+- a `tmux` oh-my-zsh contract keeps `ZSH_TMUX_*` assignments live only when the
+  `tmux` plugin is loaded;
+- a custom `zsh_plugin` contract keeps `ABBR_*` assignments live when the
+  standalone plugin is resolved;
+- a `zdot` contract can describe project-specific module metadata without
+  making those names first-class zsh runtime globals;
+- disabling plugin resolution prevents `zsh_plugin` contracts from applying,
+  while `always` contracts still apply to matching files.
+
+### Commands
+
+```bash
+cargo test -p shuck-config contracts
+cargo test -p shuck-semantic contract
+cargo test -p shuck-linter unused_assignment
+cargo test -p shuck-cli contract
+make test
+make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C001,C006
+```
+
+The large-corpus run belongs after implementation, not after this spec-only
+change.
