@@ -8,6 +8,7 @@ use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 use shuck_semantic::{UnreachedFunctionAnalysisOptions, UnusedAssignmentAnalysisOptions};
 
+use crate::ambient_contracts::ResolvedAmbientContracts;
 use crate::{Category, Rule, RuleSelector, RuleSet, Severity, ShellDialect};
 
 // ShellCheck's optional checks currently map only to compat-only behavior
@@ -62,6 +63,7 @@ pub struct LinterSettings {
     pub severity_overrides: FxHashMap<Rule, Severity>,
     pub shell: ShellDialect,
     pub ambient_shell_options: AmbientShellOptions,
+    pub ambient_contracts: Arc<ResolvedAmbientContracts>,
     pub analyzed_paths: Option<Arc<FxHashSet<PathBuf>>>,
     pub per_file_ignores: Arc<CompiledPerFileIgnoreList>,
     pub report_environment_style_names: bool,
@@ -82,6 +84,7 @@ impl Default for LinterSettings {
             severity_overrides: FxHashMap::default(),
             shell: ShellDialect::Unknown,
             ambient_shell_options: AmbientShellOptions::default(),
+            ambient_contracts: Arc::new(ResolvedAmbientContracts::default()),
             analyzed_paths: None,
             per_file_ignores: Arc::new(CompiledPerFileIgnoreList::default()),
             report_environment_style_names: false,

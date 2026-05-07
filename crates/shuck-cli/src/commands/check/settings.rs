@@ -7,12 +7,14 @@ use anyhow::{Result, anyhow};
 use globset::{Glob, GlobMatcher};
 use shuck_cache::{CacheKey, CacheKeyHasher};
 use shuck_config::{
-    ConfigArguments, LintConfig, ZshPluginEntrypointConfig, ZshPluginLoadConfig,
+    ConfigArguments, LintConfig, LintContractActivationTypeConfig, LintContractWhenConfig,
+    LintContractsConfig, LintCustomContractConfig, ZshPluginEntrypointConfig, ZshPluginLoadConfig,
     ZshThemeLoadConfig, load_project_config,
 };
 use shuck_linter::{
-    CompiledPerFileIgnoreList, LinterSettings, PerFileIgnore, Rule, RuleSelector, RuleSet,
-    ShellDialect,
+    AmbientContractActivation, AmbientContractConfig, AmbientContractEffects, AmbientContractSpec,
+    AmbientFunctionContractSpec, CompiledPerFileIgnoreList, LinterSettings, PerFileIgnore,
+    ResolvedAmbientContracts, Rule, RuleSelector, RuleSet, ShellDialect,
 };
 use shuck_semantic::{
     PluginFramework, PluginRequest, PluginRequestKind, PluginResolution, PluginResolver,
@@ -32,6 +34,7 @@ pub(super) struct EffectiveCheckSettings {
     per_file_ignores: Vec<EffectivePerFileIgnore>,
     per_file_shell: Vec<EffectivePerFileShell>,
     rule_options: EffectiveRuleOptions,
+    ambient_contracts: EffectiveAmbientContractSettings,
     zsh_plugins: EffectiveZshPluginSettings,
     embedded_enabled: bool,
 }
@@ -52,6 +55,12 @@ struct EffectivePerFileShell {
 struct EffectiveRuleOptions {
     c001_treat_indirect_expansion_targets_as_used: bool,
     c063_report_unreached_nested_definitions: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EffectiveAmbientContractSettings {
+    well_known_ids: Vec<String>,
+    custom_descriptors: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -82,6 +91,7 @@ impl EffectiveCheckSettings {
         per_file_ignores: &[PerFileIgnore],
         per_file_shell: &[PerFileShell],
         rule_options: &shuck_linter::LinterRuleOptions,
+        ambient_contracts: &ResolvedAmbientContracts,
         zsh_plugins: &ResolvedZshPluginSettings,
         embedded_enabled: bool,
     ) -> Self {
@@ -121,6 +131,7 @@ impl EffectiveCheckSettings {
             per_file_ignores,
             per_file_shell,
             rule_options: EffectiveRuleOptions::new(rule_options),
+            ambient_contracts: EffectiveAmbientContractSettings::new(ambient_contracts),
             zsh_plugins: zsh_plugins.effective(),
             embedded_enabled,
         }
@@ -134,6 +145,7 @@ impl CacheKey for EffectiveCheckSettings {
         self.per_file_ignores.cache_key(state);
         self.per_file_shell.cache_key(state);
         self.rule_options.cache_key(state);
+        self.ambient_contracts.cache_key(state);
         self.zsh_plugins.cache_key(state);
         self.embedded_enabled.cache_key(state);
     }
@@ -173,6 +185,24 @@ impl CacheKey for EffectiveRuleOptions {
             .cache_key(state);
         self.c063_report_unreached_nested_definitions
             .cache_key(state);
+    }
+}
+
+impl EffectiveAmbientContractSettings {
+    fn new(ambient_contracts: &ResolvedAmbientContracts) -> Self {
+        let effective = ambient_contracts.effective();
+        Self {
+            well_known_ids: effective.well_known_ids,
+            custom_descriptors: effective.custom_descriptors,
+        }
+    }
+}
+
+impl CacheKey for EffectiveAmbientContractSettings {
+    fn cache_key(&self, state: &mut CacheKeyHasher) {
+        state.write_tag(b"effective-ambient-contracts");
+        self.well_known_ids.cache_key(state);
+        self.custom_descriptors.cache_key(state);
     }
 }
 
@@ -310,6 +340,7 @@ struct CompiledPerFileShell {
 pub(super) struct ResolvedZshPluginSettings {
     enabled: bool,
     project_root: PathBuf,
+    ambient_contracts: Arc<ResolvedAmbientContracts>,
     roots: BTreeMap<String, PathBuf>,
     plugin_loads: Vec<CompiledZshPluginLoad>,
     theme_loads: Vec<CompiledZshThemeLoad>,
@@ -400,6 +431,7 @@ impl ResolvedZshPluginSettings {
     fn resolve(
         project_root: impl Into<PathBuf>,
         enabled: bool,
+        ambient_contracts: Arc<ResolvedAmbientContracts>,
         roots: BTreeMap<String, String>,
         plugin_loads: Vec<ZshPluginLoadSpec>,
         theme_loads: Vec<ZshThemeLoadSpec>,
@@ -410,6 +442,7 @@ impl ResolvedZshPluginSettings {
             return Ok(Self {
                 enabled,
                 project_root,
+                ambient_contracts,
                 roots: BTreeMap::new(),
                 plugin_loads: Vec::new(),
                 theme_loads: Vec::new(),
@@ -459,6 +492,7 @@ impl ResolvedZshPluginSettings {
         Ok(Self {
             enabled,
             project_root,
+            ambient_contracts,
             roots,
             plugin_loads,
             theme_loads,
@@ -608,6 +642,7 @@ impl PluginResolver for ResolvedZshPluginSettings {
                 PluginResolution {
                     entrypoints: vec![path],
                     file_entry_contracts: Vec::new(),
+                    requesting_file_contract: Default::default(),
                 }
             }
             PluginRequestKind::Plugin => {
@@ -621,9 +656,13 @@ impl PluginResolver for ResolvedZshPluginSettings {
                 let Some(path) = resolve_zsh_plugin_entrypoint(&root, request) else {
                     return PluginResolution::default();
                 };
+                let request_contracts = self
+                    .ambient_contracts
+                    .request_contracts_for_plugin(_source_path, request);
                 PluginResolution {
                     entrypoints: vec![path],
-                    file_entry_contracts: Vec::new(),
+                    file_entry_contracts: request_contracts.imported_contracts,
+                    requesting_file_contract: request_contracts.requesting_file_contract,
                 }
             }
             PluginRequestKind::Theme => {
@@ -637,9 +676,13 @@ impl PluginResolver for ResolvedZshPluginSettings {
                 let Some(path) = resolve_zsh_plugin_entrypoint(&root, request) else {
                     return PluginResolution::default();
                 };
+                let request_contracts = self
+                    .ambient_contracts
+                    .request_contracts_for_plugin(_source_path, request);
                 PluginResolution {
                     entrypoints: vec![path],
-                    file_entry_contracts: Vec::new(),
+                    file_entry_contracts: request_contracts.imported_contracts,
+                    requesting_file_contract: request_contracts.requesting_file_contract,
                 }
             }
         }
@@ -856,9 +899,14 @@ pub(super) fn resolve_project_check_settings(
         project_root.canonical_root.clone(),
         per_file_shell.clone(),
     )?;
+    let ambient_contracts = Arc::new(resolve_ambient_contracts(
+        project_root.canonical_root.as_path(),
+        config.lint.contracts.as_ref(),
+    )?);
     let resolved_zsh_plugins = ResolvedZshPluginSettings::resolve(
         project_root.canonical_root.clone(),
         zsh_plugin_resolution_enabled,
+        Arc::clone(&ambient_contracts),
         zsh_plugin_roots,
         zsh_plugin_loads,
         zsh_theme_loads,
@@ -870,6 +918,7 @@ pub(super) fn resolve_project_check_settings(
         &per_file_ignores,
         &per_file_shell,
         &rule_options,
+        ambient_contracts.as_ref(),
         &resolved_zsh_plugins,
         embedded_enabled,
     );
@@ -877,6 +926,7 @@ pub(super) fn resolve_project_check_settings(
     Ok(ResolvedCheckSettings {
         linter_settings: LinterSettings {
             rules: enabled_rules,
+            ambient_contracts: Arc::clone(&ambient_contracts),
             per_file_ignores: Arc::new(compiled_per_file_ignores),
             rule_options,
             ..LinterSettings::default()
@@ -909,6 +959,117 @@ fn linter_rule_options_for_lint_config(lint: &LintConfig) -> shuck_linter::Linte
     }
 
     rule_options
+}
+
+fn resolve_ambient_contracts(
+    project_root: &Path,
+    config: Option<&LintContractsConfig>,
+) -> Result<ResolvedAmbientContracts> {
+    let Some(config) = config else {
+        return Ok(ResolvedAmbientContracts::default());
+    };
+
+    let mut ambient = AmbientContractConfig {
+        well_known: config.well_known.unwrap_or(true),
+        disabled: config.disabled.clone().unwrap_or_default(),
+        custom: Vec::new(),
+    };
+
+    for contract in config.custom.as_deref().unwrap_or(&[]) {
+        ambient
+            .custom
+            .push(ambient_contract_spec_from_config(contract)?);
+    }
+
+    ResolvedAmbientContracts::resolve(project_root.to_path_buf(), ambient)
+}
+
+fn ambient_contract_spec_from_config(
+    contract: &LintCustomContractConfig,
+) -> Result<AmbientContractSpec> {
+    Ok(AmbientContractSpec {
+        id: contract.id.clone(),
+        replaces: contract.replaces.clone().unwrap_or_default(),
+        when: ambient_contract_activation_from_config(&contract.when)?,
+        files: contract.files.clone().unwrap_or_default(),
+        effects: AmbientContractEffects {
+            reads: contract.reads.clone().unwrap_or_default(),
+            consumes_names: contract
+                .consumes
+                .as_ref()
+                .and_then(|consumes| consumes.names.clone())
+                .unwrap_or_default(),
+            consumes_prefixes: contract
+                .consumes
+                .as_ref()
+                .and_then(|consumes| consumes.prefixes.clone())
+                .unwrap_or_default(),
+            consumes_all: contract
+                .consumes
+                .as_ref()
+                .and_then(|consumes| consumes.all)
+                .unwrap_or(false),
+            provides_variables: contract
+                .provides
+                .as_ref()
+                .and_then(|provides| provides.variables.clone())
+                .unwrap_or_default(),
+            provides_functions: contract
+                .provides
+                .as_ref()
+                .and_then(|provides| provides.functions.clone())
+                .unwrap_or_default(),
+            functions: contract
+                .functions
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|function| AmbientFunctionContractSpec {
+                    name: function.name,
+                    reads: function.reads.unwrap_or_default(),
+                    sets: function.sets.unwrap_or_default(),
+                })
+                .collect(),
+        },
+    })
+}
+
+fn ambient_contract_activation_from_config(
+    when: &LintContractWhenConfig,
+) -> Result<AmbientContractActivation> {
+    match when {
+        LintContractWhenConfig::Always(value) => {
+            if value == "always" {
+                Ok(AmbientContractActivation::Always)
+            } else {
+                Err(anyhow!(
+                    "unsupported ambient contract activation {value:?}; expected \"always\" or a typed activation"
+                ))
+            }
+        }
+        LintContractWhenConfig::Activation(activation) => match activation.activation_type {
+            LintContractActivationTypeConfig::ZshPlugin => {
+                Ok(AmbientContractActivation::ZshPlugin {
+                    framework: activation.framework.clone().ok_or_else(|| {
+                        anyhow!("ambient zsh_plugin contract is missing `framework`")
+                    })?,
+                    plugin: activation.plugin.clone().ok_or_else(|| {
+                        anyhow!("ambient zsh_plugin contract is missing `plugin`")
+                    })?,
+                })
+            }
+            LintContractActivationTypeConfig::ZshTheme => Ok(AmbientContractActivation::ZshTheme {
+                framework: activation
+                    .framework
+                    .clone()
+                    .ok_or_else(|| anyhow!("ambient zsh_theme contract is missing `framework`"))?,
+                theme: activation
+                    .theme
+                    .clone()
+                    .ok_or_else(|| anyhow!("ambient zsh_theme contract is missing `theme`"))?,
+            }),
+        },
+    }
 }
 
 fn parse_lint_config_layer(lint: &LintConfig) -> Result<RuleSelectionLayer> {
@@ -1336,6 +1497,7 @@ mod tests {
         ShellDialect,
     };
     use shuck_parser::parser::Parser;
+    use shuck_semantic::FileContract;
     use tempfile::tempdir;
 
     use super::*;
@@ -1366,7 +1528,15 @@ mod tests {
     };
     use crate::commands::project_runner::PendingProjectFile;
     use crate::discover::{FileKind, ProjectRoot, normalize_path};
-    use shuck_config::ConfigArguments;
+    use shuck_config::{
+        ConfigArguments, LintContractActivationConfig, LintContractActivationTypeConfig,
+        LintContractConsumesConfig, LintContractWhenConfig, LintContractsConfig,
+        LintCustomContractConfig,
+    };
+
+    fn default_ambient_contracts() -> Arc<ResolvedAmbientContracts> {
+        Arc::new(ResolvedAmbientContracts::default())
+    }
 
     #[test]
     fn select_replaces_default_rules() {
@@ -1738,6 +1908,7 @@ mod tests {
         let settings = ResolvedZshPluginSettings::resolve(
             PathBuf::from("/workspace"),
             false,
+            default_ambient_contracts(),
             BTreeMap::from([("oh-my-zsh".to_owned(), "~/.oh-my-zsh".to_owned())]),
             vec![ZshPluginLoadSpec {
                 pattern: "[".to_owned(),
@@ -1768,6 +1939,7 @@ mod tests {
         let settings = ResolvedZshPluginSettings::resolve(
             PathBuf::from("/workspace"),
             true,
+            default_ambient_contracts(),
             BTreeMap::from([("oh-my-zsh".to_owned(), "/workspace/.oh-my-zsh".to_owned())]),
             Vec::new(),
             Vec::new(),
@@ -1807,6 +1979,7 @@ mod tests {
         let settings = ResolvedZshPluginSettings::resolve(
             PathBuf::from("/workspace"),
             true,
+            default_ambient_contracts(),
             BTreeMap::from([("oh-my-zsh".to_owned(), "/workspace/.oh-my-zsh".to_owned())]),
             Vec::new(),
             Vec::new(),
@@ -1828,6 +2001,7 @@ mod tests {
         let settings = ResolvedZshPluginSettings::resolve(
             PathBuf::from("/workspace"),
             true,
+            default_ambient_contracts(),
             BTreeMap::from([("zinit".to_owned(), "/workspace/zinit".to_owned())]),
             Vec::new(),
             Vec::new(),
@@ -1863,6 +2037,7 @@ mod tests {
         let settings = ResolvedZshPluginSettings::resolve(
             PathBuf::from("/workspace"),
             true,
+            default_ambient_contracts(),
             BTreeMap::from([("zinit".to_owned(), "/workspace/zinit".to_owned())]),
             Vec::new(),
             Vec::new(),
@@ -1884,6 +2059,7 @@ mod tests {
         let settings = ResolvedZshPluginSettings::resolve(
             PathBuf::from("/workspace"),
             true,
+            default_ambient_contracts(),
             BTreeMap::from([("zi".to_owned(), "/workspace/zi".to_owned())]),
             Vec::new(),
             Vec::new(),
@@ -1905,6 +2081,7 @@ mod tests {
         let settings = ResolvedZshPluginSettings::resolve(
             PathBuf::from("/workspace"),
             true,
+            default_ambient_contracts(),
             BTreeMap::from([("zinit".to_owned(), "/workspace/zinit".to_owned())]),
             Vec::new(),
             Vec::new(),
@@ -1931,6 +2108,7 @@ mod tests {
         let settings = ResolvedZshPluginSettings::resolve(
             PathBuf::from("/workspace"),
             true,
+            default_ambient_contracts(),
             BTreeMap::from([("custom".to_owned(), "/workspace/custom".to_owned())]),
             Vec::new(),
             Vec::new(),
@@ -1961,6 +2139,7 @@ mod tests {
                     "/workspace/custom/plugins/prompt-tools/prompt-tools.plugin.zsh"
                 )],
                 file_entry_contracts: Vec::new(),
+                requesting_file_contract: FileContract::default(),
             }
         );
         assert_eq!(
@@ -1968,7 +2147,127 @@ mod tests {
             PluginResolution {
                 entrypoints: vec![PathBuf::from("/workspace/custom/themes/minimal.zsh-theme")],
                 file_entry_contracts: Vec::new(),
+                requesting_file_contract: FileContract::default(),
             }
+        );
+    }
+
+    #[test]
+    fn built_in_tmux_plugin_contract_marks_requesting_file_consumption() {
+        let settings = ResolvedZshPluginSettings::resolve(
+            PathBuf::from("/workspace"),
+            true,
+            default_ambient_contracts(),
+            BTreeMap::from([("oh-my-zsh".to_owned(), "/workspace/.oh-my-zsh".to_owned())]),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let request = PluginRequest {
+            framework: PluginFramework::OhMyZsh,
+            kind: PluginRequestKind::Plugin,
+            name: "tmux".to_owned(),
+            span: shuck_ast::Span::new(),
+            explicit: true,
+            root_hint: None,
+        };
+
+        let resolution = settings.resolve_plugin_request(Path::new("/workspace/.zshrc"), &request);
+
+        assert!(
+            resolution
+                .requesting_file_contract
+                .externally_consumed_binding_prefixes
+                .iter()
+                .any(|prefix| prefix.as_str() == "ZSH_TMUX_")
+        );
+    }
+
+    #[test]
+    fn resolve_ambient_contracts_builds_custom_plugin_contracts_from_config() {
+        let config = LintContractsConfig {
+            well_known: Some(false),
+            disabled: None,
+            custom: Some(vec![LintCustomContractConfig {
+                id: "custom-tmux".to_owned(),
+                replaces: None,
+                when: LintContractWhenConfig::Activation(LintContractActivationConfig {
+                    activation_type: LintContractActivationTypeConfig::ZshPlugin,
+                    framework: Some("oh-my-zsh".to_owned()),
+                    plugin: Some("tmux".to_owned()),
+                    theme: None,
+                }),
+                files: Some(vec!["**/.zshrc".to_owned()]),
+                reads: None,
+                consumes: Some(LintContractConsumesConfig {
+                    names: None,
+                    prefixes: Some(vec!["LOCAL_TMUX_".to_owned()]),
+                    all: None,
+                }),
+                provides: None,
+                functions: None,
+            }]),
+        };
+        let request = PluginRequest {
+            framework: PluginFramework::OhMyZsh,
+            kind: PluginRequestKind::Plugin,
+            name: "tmux".to_owned(),
+            span: shuck_ast::Span::new(),
+            explicit: true,
+            root_hint: None,
+        };
+
+        let resolved = resolve_ambient_contracts(Path::new("/workspace"), Some(&config)).unwrap();
+        let contracts =
+            resolved.request_contracts_for_plugin(Path::new("/workspace/config/.zshrc"), &request);
+
+        assert!(
+            contracts
+                .requesting_file_contract
+                .externally_consumed_binding_prefixes
+                .iter()
+                .any(|prefix| prefix.as_str() == "LOCAL_TMUX_")
+        );
+        assert!(contracts.imported_contracts.is_empty());
+    }
+
+    #[test]
+    fn effective_ambient_contract_settings_change_when_contract_effects_change() {
+        let request_contracts = |prefix: &str| LintContractsConfig {
+            well_known: Some(false),
+            disabled: None,
+            custom: Some(vec![LintCustomContractConfig {
+                id: "custom-tmux".to_owned(),
+                replaces: None,
+                when: LintContractWhenConfig::Activation(LintContractActivationConfig {
+                    activation_type: LintContractActivationTypeConfig::ZshPlugin,
+                    framework: Some("oh-my-zsh".to_owned()),
+                    plugin: Some("tmux".to_owned()),
+                    theme: None,
+                }),
+                files: Some(vec!["**/.zshrc".to_owned()]),
+                reads: None,
+                consumes: Some(LintContractConsumesConfig {
+                    names: None,
+                    prefixes: Some(vec![prefix.to_owned()]),
+                    all: None,
+                }),
+                provides: None,
+                functions: None,
+            }]),
+        };
+
+        let first =
+            resolve_ambient_contracts(Path::new("/workspace"), Some(&request_contracts("TMUX_A_")))
+                .unwrap();
+        let second =
+            resolve_ambient_contracts(Path::new("/workspace"), Some(&request_contracts("TMUX_B_")))
+                .unwrap();
+
+        assert_ne!(
+            EffectiveAmbientContractSettings::new(&first),
+            EffectiveAmbientContractSettings::new(&second)
         );
     }
 
@@ -1977,6 +2276,7 @@ mod tests {
         let settings = ResolvedZshPluginSettings::resolve(
             PathBuf::from("/workspace"),
             true,
+            default_ambient_contracts(),
             BTreeMap::from([("prezto".to_owned(), "/workspace/prezto".to_owned())]),
             Vec::new(),
             Vec::new(),
@@ -1997,6 +2297,7 @@ mod tests {
             PluginResolution {
                 entrypoints: vec![PathBuf::from("/workspace/prezto/modules/editor/init.zsh")],
                 file_entry_contracts: Vec::new(),
+                requesting_file_contract: FileContract::default(),
             }
         );
     }
@@ -2006,6 +2307,7 @@ mod tests {
         let settings = ResolvedZshPluginSettings::resolve(
             PathBuf::from("/workspace"),
             true,
+            default_ambient_contracts(),
             BTreeMap::from([("prezto".to_owned(), "/workspace/prezto".to_owned())]),
             Vec::new(),
             Vec::new(),
@@ -2032,6 +2334,7 @@ mod tests {
         let settings = ResolvedZshPluginSettings::resolve(
             PathBuf::from("/workspace"),
             true,
+            default_ambient_contracts(),
             BTreeMap::from([("zdot".to_owned(), "/workspace/zdot".to_owned())]),
             Vec::new(),
             Vec::new(),
@@ -2052,6 +2355,7 @@ mod tests {
             PluginResolution {
                 entrypoints: vec![PathBuf::from("/workspace/zdot/modules/fzf/fzf.zsh")],
                 file_entry_contracts: Vec::new(),
+                requesting_file_contract: FileContract::default(),
             }
         );
     }
@@ -2061,6 +2365,7 @@ mod tests {
         let settings = ResolvedZshPluginSettings::resolve(
             PathBuf::from("/workspace"),
             true,
+            default_ambient_contracts(),
             BTreeMap::from([("zdot".to_owned(), "/workspace/zdot".to_owned())]),
             Vec::new(),
             Vec::new(),

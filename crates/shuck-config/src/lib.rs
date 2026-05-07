@@ -41,8 +41,10 @@ const CONFIG_OVERRIDE_LINT_KEYS: &[&str] = &[
     "unfixable",
     "extend-fixable",
     "rule-options",
+    "contracts",
     "zsh",
 ];
+const CONFIG_OVERRIDE_LINT_CONTRACT_KEYS: &[&str] = &["well-known", "disabled", "custom"];
 const CONFIG_OVERRIDE_LINT_ZSH_KEYS: &[&str] = &["plugins"];
 const CONFIG_OVERRIDE_LINT_ZSH_PLUGIN_KEYS: &[&str] = &[
     "resolution",
@@ -102,7 +104,77 @@ pub struct LintConfig {
     pub unfixable: Option<Vec<String>>,
     pub extend_fixable: Option<Vec<String>>,
     pub rule_options: Option<LintRuleOptionsConfig>,
+    pub contracts: Option<LintContractsConfig>,
     pub zsh: Option<LintZshConfig>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LintContractsConfig {
+    pub well_known: Option<bool>,
+    pub disabled: Option<Vec<String>>,
+    pub custom: Option<Vec<LintCustomContractConfig>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LintCustomContractConfig {
+    pub id: String,
+    pub replaces: Option<Vec<String>>,
+    pub when: LintContractWhenConfig,
+    pub files: Option<Vec<String>>,
+    pub reads: Option<Vec<String>>,
+    pub consumes: Option<LintContractConsumesConfig>,
+    pub provides: Option<LintContractProvidesConfig>,
+    pub functions: Option<Vec<LintContractFunctionConfig>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum LintContractWhenConfig {
+    Always(String),
+    Activation(LintContractActivationConfig),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LintContractActivationConfig {
+    #[serde(rename = "type")]
+    pub activation_type: LintContractActivationTypeConfig,
+    pub framework: Option<String>,
+    pub plugin: Option<String>,
+    pub theme: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub enum LintContractActivationTypeConfig {
+    #[serde(rename = "zsh_plugin")]
+    ZshPlugin,
+    #[serde(rename = "zsh_theme")]
+    ZshTheme,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LintContractConsumesConfig {
+    pub names: Option<Vec<String>>,
+    pub prefixes: Option<Vec<String>>,
+    pub all: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LintContractProvidesConfig {
+    pub variables: Option<Vec<String>>,
+    pub functions: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LintContractFunctionConfig {
+    pub name: String,
+    pub reads: Option<Vec<String>>,
+    pub sets: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -303,6 +375,125 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 3] = [
             },
         ],
         sections: &[
+            ConfigSectionMetadata {
+                key: "contracts",
+                docs: "Ambient contract settings for runtime behavior that cannot be recovered from the source graph alone.",
+                fields: &[
+                    ConfigFieldMetadata {
+                        key: "well-known",
+                        docs: "Enable or disable Shuck's built-in ambient contract registry.",
+                        default: "true",
+                        value_type: "bool",
+                        example: "well-known = false",
+                    },
+                    ConfigFieldMetadata {
+                        key: "disabled",
+                        docs: "Disable built-in ambient contracts by exact ID, by group selector, or with `*` for every built-in contract.",
+                        default: "[]",
+                        value_type: "list[string]",
+                        example: r#"disabled = ["zsh/oh-my-zsh", "runtime/github-actions/env"]"#,
+                    },
+                ],
+                sections: &[ConfigSectionMetadata {
+                    key: "custom",
+                    docs: "User-authored ambient contracts layered on top of, or in place of, the built-in registry.",
+                    fields: &[
+                        ConfigFieldMetadata {
+                            key: "id",
+                            docs: "Stable identifier for the custom contract.",
+                            default: "required",
+                            value_type: "string",
+                            example: r#"id = "github-actions-env""#,
+                        },
+                        ConfigFieldMetadata {
+                            key: "replaces",
+                            docs: "Built-in contract selectors that this custom contract replaces.",
+                            default: "[]",
+                            value_type: "list[string]",
+                            example: r#"replaces = ["zsh/oh-my-zsh/plugin/tmux"]"#,
+                        },
+                        ConfigFieldMetadata {
+                            key: "when",
+                            docs: "Activation for the contract, either `\"always\"` or an object such as `{ type = \"zsh_plugin\", framework = \"oh-my-zsh\", plugin = \"tmux\" }`.",
+                            default: "required",
+                            value_type: "string | table",
+                            example: r#"when = { type = "zsh_plugin", framework = "oh-my-zsh", plugin = "tmux" }"#,
+                        },
+                        ConfigFieldMetadata {
+                            key: "files",
+                            docs: "Optional file globs that limit where the contract applies.",
+                            default: "[]",
+                            value_type: "list[glob]",
+                            example: r#"files = ["**/.zshrc"]"#,
+                        },
+                        ConfigFieldMetadata {
+                            key: "reads",
+                            docs: "Ambient names the activated runtime reads from the caller environment.",
+                            default: "[]",
+                            value_type: "list[name]",
+                            example: r#"reads = ["GITHUB_ENV", "GITHUB_OUTPUT"]"#,
+                        },
+                        ConfigFieldMetadata {
+                            key: "functions",
+                            docs: "Provided function contracts with caller reads and caller-visible sets.",
+                            default: "[]",
+                            value_type: "list[{ name, reads?, sets? }]",
+                            example: r#"functions = [{ name = "helper", reads = ["CALLER_VALUE"], sets = ["REPLY"] }]"#,
+                        },
+                    ],
+                    sections: &[
+                        ConfigSectionMetadata {
+                            key: "consumes",
+                            docs: "Assignments that stay live because external runtime behavior consumes them.",
+                            fields: &[
+                                ConfigFieldMetadata {
+                                    key: "names",
+                                    docs: "Exact names consumed by external runtime behavior.",
+                                    default: "[]",
+                                    value_type: "list[name]",
+                                    example: r#"names = ["HISTFILE", "SAVEHIST"]"#,
+                                },
+                                ConfigFieldMetadata {
+                                    key: "prefixes",
+                                    docs: "Name prefixes consumed by external runtime behavior.",
+                                    default: "[]",
+                                    value_type: "list[prefix]",
+                                    example: r#"prefixes = ["ZSH_TMUX_"]"#,
+                                },
+                                ConfigFieldMetadata {
+                                    key: "all",
+                                    docs: "Treat every assignment in the file as externally consumed.",
+                                    default: "false",
+                                    value_type: "bool",
+                                    example: "all = true",
+                                },
+                            ],
+                            sections: &[],
+                        },
+                        ConfigSectionMetadata {
+                            key: "provides",
+                            docs: "Bindings made available by the activated runtime at file entry or activation time.",
+                            fields: &[
+                                ConfigFieldMetadata {
+                                    key: "variables",
+                                    docs: "Variables provided by the contract.",
+                                    default: "[]",
+                                    value_type: "list[name]",
+                                    example: r#"variables = ["reply", "REPLY"]"#,
+                                },
+                                ConfigFieldMetadata {
+                                    key: "functions",
+                                    docs: "Callable function names provided by the contract.",
+                                    default: "[]",
+                                    value_type: "list[name]",
+                                    example: r#"functions = ["helper"]"#,
+                                },
+                            ],
+                            sections: &[],
+                        },
+                    ],
+                }],
+            },
             ConfigSectionMetadata {
                 key: "rule-options",
                 docs: "Rule-specific behavior overrides for diagnostics that intentionally support more than one analysis mode.",
@@ -737,8 +928,27 @@ impl LintConfig {
                 .get_or_insert_default()
                 .apply_overrides(rule_options);
         }
+        if let Some(contracts) = overrides.contracts {
+            self.contracts
+                .get_or_insert_default()
+                .apply_overrides(contracts);
+        }
         if let Some(zsh) = overrides.zsh {
             self.zsh.get_or_insert_default().apply_overrides(zsh);
+        }
+    }
+}
+
+impl LintContractsConfig {
+    fn apply_overrides(&mut self, overrides: LintContractsConfig) {
+        if overrides.well_known.is_some() {
+            self.well_known = overrides.well_known;
+        }
+        if overrides.disabled.is_some() {
+            self.disabled = overrides.disabled;
+        }
+        if let Some(custom) = overrides.custom {
+            self.custom.get_or_insert_default().extend(custom);
         }
     }
 }
@@ -840,6 +1050,9 @@ fn validate_override_table(table: &toml::Table) -> std::result::Result<(), Strin
         if let Some(rule_options_value) = lint.get("rule-options") {
             validate_lint_rule_options_override(rule_options_value)?;
         }
+        if let Some(contracts_value) = lint.get("contracts") {
+            validate_lint_contracts_override(contracts_value)?;
+        }
         if let Some(zsh_value) = lint.get("zsh") {
             validate_lint_zsh_override(zsh_value)?;
         }
@@ -847,6 +1060,22 @@ fn validate_override_table(table: &toml::Table) -> std::result::Result<(), Strin
 
     if let Some(run_value) = table.get("run") {
         validate_run_override(run_value)?;
+    }
+
+    Ok(())
+}
+
+fn validate_lint_contracts_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let contracts = value
+        .as_table()
+        .ok_or_else(|| "`[lint.contracts]` must be a TOML table".to_owned())?;
+    for key in contracts.keys() {
+        if !CONFIG_OVERRIDE_LINT_CONTRACT_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.contracts]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_LINT_CONTRACT_KEYS.join(", ")
+            ));
+        }
     }
 
     Ok(())

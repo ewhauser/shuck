@@ -31,6 +31,7 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::Arc;
 
 use shuck_ast::{Name, NormalizedCommand};
 use shuck_parser::ShellProfile;
@@ -38,6 +39,7 @@ use shuck_semantic::{FileContract, FileEntryContractCollector, FileEntryContract
 
 use crate::ShellDialect;
 
+mod contracts;
 mod path;
 mod signals;
 mod source_scan;
@@ -50,20 +52,25 @@ mod zsh_module_metadata;
 mod zsh_paths;
 mod zsh_runtime;
 
-struct AmbientContractProvider {
-    matches: fn(&AmbientContractCollector<'_>, ShellDialect) -> bool,
-    build: fn(&AmbientContractCollector<'_>, ShellDialect) -> FileContract,
-}
+pub(crate) use contracts::merge_contract;
+pub use contracts::{
+    AmbientContractActivation, AmbientContractConfig, AmbientContractEffects, AmbientContractSpec,
+    AmbientFunctionContractSpec, EffectiveAmbientContracts, ResolvedAmbientContracts,
+    ResolvedAmbientRequestContracts,
+};
 
 pub(crate) struct AmbientContractCollector<'a> {
     source: &'a str,
     shell: ShellDialect,
     signals: signals::AmbientSignals<'a>,
+    contracts: Arc<ResolvedAmbientContracts>,
     completion_initializer_invoked: bool,
     caller_scoped_array_length_names: BTreeSet<Name>,
 }
 
-pub(crate) struct AmbientContractCollectorFactory;
+pub(crate) struct AmbientContractCollectorFactory {
+    contracts: Arc<ResolvedAmbientContracts>,
+}
 
 impl FileEntryContractCollectorFactory for AmbientContractCollectorFactory {
     fn collector_for_file<'a>(
@@ -76,12 +83,18 @@ impl FileEntryContractCollectorFactory for AmbientContractCollectorFactory {
             source,
             path,
             shell_dialect_from_profile(shell_profile),
+            Arc::clone(&self.contracts),
         )))
     }
 }
 
 impl<'a> AmbientContractCollector<'a> {
-    pub(crate) fn new(source: &'a str, path: Option<&'a Path>, shell: ShellDialect) -> Self {
+    pub(crate) fn new(
+        source: &'a str,
+        path: Option<&'a Path>,
+        shell: ShellDialect,
+        contracts: Arc<ResolvedAmbientContracts>,
+    ) -> Self {
         let mut caller_scoped_array_length_names = BTreeSet::new();
         if shell == ShellDialect::Zsh {
             zsh_caller_arrays::collect_caller_scoped_array_length_names_from_source(
@@ -94,6 +107,7 @@ impl<'a> AmbientContractCollector<'a> {
             source,
             shell,
             signals: signals::AmbientSignals::new(source, path),
+            contracts,
             completion_initializer_invoked: false,
             caller_scoped_array_length_names,
         }
@@ -101,17 +115,26 @@ impl<'a> AmbientContractCollector<'a> {
 
     fn file_entry_contract(&self) -> Option<FileContract> {
         self.signals.path()?;
-        let mut merged = FileContract::default();
-        let mut matched = false;
+        let mut merged = self.contracts.file_entry_contract(self, self.shell);
+        let mut matched = merged.is_some();
+        let merged_contract = merged.get_or_insert_default();
 
-        for provider in providers() {
-            if (provider.matches)(self, self.shell) {
-                matched = true;
-                merge_contract(&mut merged, (provider.build)(self, self.shell));
-            }
+        if sourced_runtime::matches_sourced_runtime_contract(self, self.shell) {
+            matched = true;
+            merge_contract(
+                merged_contract,
+                sourced_runtime::build_sourced_runtime_contract(self, self.shell),
+            );
+        }
+        if zsh_caller_arrays::matches_zsh_caller_scoped_array_contract(self, self.shell) {
+            matched = true;
+            merge_contract(
+                merged_contract,
+                zsh_caller_arrays::build_zsh_caller_scoped_array_contract(self, self.shell),
+            );
         }
 
-        matched.then_some(merged)
+        matched.then_some(merged_contract.clone())
     }
 
     fn source_signals(&self) -> &signals::SourceSignals<'a> {
@@ -122,6 +145,12 @@ impl<'a> AmbientContractCollector<'a> {
         self.signals
             .path()
             .expect("ambient contracts are only built for path-backed files")
+    }
+}
+
+impl AmbientContractCollectorFactory {
+    pub(crate) fn new(contracts: Arc<ResolvedAmbientContracts>) -> Self {
+        Self { contracts }
     }
 }
 
@@ -144,50 +173,6 @@ impl FileEntryContractCollector for AmbientContractCollector<'_> {
 
     fn finish(&self) -> Option<FileContract> {
         self.file_entry_contract()
-    }
-}
-
-fn providers() -> &'static [AmbientContractProvider] {
-    &[
-        AmbientContractProvider {
-            matches: sourced_runtime::matches_sourced_runtime_contract,
-            build: sourced_runtime::build_sourced_runtime_contract,
-        },
-        AmbientContractProvider {
-            matches: zsh_runtime::matches_zsh_ambient_runtime_contract,
-            build: zsh_runtime::build_zsh_ambient_runtime_contract,
-        },
-        AmbientContractProvider {
-            matches: zsh_config::matches_zsh_config_contract,
-            build: zsh_config::build_zsh_config_contract,
-        },
-        AmbientContractProvider {
-            matches: zsh_module_metadata::matches_zsh_module_metadata_contract,
-            build: zsh_module_metadata::build_zsh_module_metadata_contract,
-        },
-        AmbientContractProvider {
-            matches: zsh_caller_arrays::matches_zsh_caller_scoped_array_contract,
-            build: zsh_caller_arrays::build_zsh_caller_scoped_array_contract,
-        },
-    ]
-}
-
-fn merge_contract(merged: &mut FileContract, contract: FileContract) {
-    merged.externally_consumed_bindings |= contract.externally_consumed_bindings;
-    for name in contract.required_reads {
-        merged.add_required_read(name);
-    }
-    for name in contract.externally_consumed_binding_names {
-        merged.add_externally_consumed_binding_name(name);
-    }
-    for binding in contract.provided_bindings {
-        merged.add_provided_binding(binding);
-    }
-    for function in contract.provided_functions {
-        merged.add_provided_function(function);
-    }
-    for prefix in contract.externally_consumed_binding_prefixes {
-        merged.add_externally_consumed_binding_prefix(prefix);
     }
 }
 

@@ -9126,6 +9126,7 @@ fn configured_zsh_plugin_entrypoint_reads_apply_after_file_assignments() {
                 PluginResolution {
                     entrypoints: vec![self.entrypoint.clone()],
                     file_entry_contracts: Vec::new(),
+                    requesting_file_contract: FileContract::default(),
                 }
             } else {
                 PluginResolution::default()
@@ -9160,6 +9161,54 @@ fn configured_zsh_plugin_entrypoint_reads_apply_after_file_assignments() {
 }
 
 #[test]
+fn plugin_request_contracts_mark_requesting_file_assignments_consumed() {
+    struct ContractOnlyResolver;
+
+    impl PluginResolver for ContractOnlyResolver {
+        fn additional_plugin_requests(&self, _source_path: &Path) -> Vec<PluginRequest> {
+            vec![PluginRequest {
+                framework: PluginFramework::OhMyZsh,
+                kind: PluginRequestKind::Plugin,
+                name: "tmux".to_owned(),
+                span: Span::new(),
+                explicit: true,
+                root_hint: None,
+            }]
+        }
+
+        fn resolve_plugin_request(
+            &self,
+            _source_path: &Path,
+            _request: &PluginRequest,
+        ) -> PluginResolution {
+            PluginResolution {
+                entrypoints: Vec::new(),
+                file_entry_contracts: Vec::new(),
+                requesting_file_contract: FileContract {
+                    externally_consumed_binding_prefixes: vec![Name::from("ZSH_TMUX_")],
+                    ..FileContract::default()
+                },
+            }
+        }
+    }
+
+    let temp = tempdir().unwrap();
+    let main = temp.path().join(".zshrc");
+    fs::write(
+        &main,
+        "ZSH_TMUX_AUTOQUIT=true\nZSH_TMUX_DEFAULT_SESSION_NAME=dev\nordinary=1\n",
+    )
+    .unwrap();
+
+    let model = model_at_path_with_plugin_resolver(&main, &ContractOnlyResolver);
+
+    assert_eq!(
+        binding_names(&model, model.analysis().unused_assignments()),
+        vec!["ordinary".to_owned()]
+    );
+}
+
+#[test]
 fn zsh_plugin_hook_callbacks_make_function_reads_required() {
     struct EntryResolver {
         entrypoint: PathBuf,
@@ -9186,6 +9235,7 @@ fn zsh_plugin_hook_callbacks_make_function_reads_required() {
                 PluginResolution {
                     entrypoints: vec![self.entrypoint.clone()],
                     file_entry_contracts: Vec::new(),
+                    requesting_file_contract: FileContract::default(),
                 }
             } else {
                 PluginResolution::default()
@@ -9257,6 +9307,7 @@ fn prezto_zstyle_pmodule_loads_static_module_entrypoints() {
                             .join("init.zsh"),
                     ],
                     file_entry_contracts: Vec::new(),
+                    requesting_file_contract: FileContract::default(),
                 }
             } else {
                 PluginResolution::default()
@@ -9322,6 +9373,7 @@ fn prezto_pmodload_loads_static_transitive_module_entrypoints() {
                             .join("init.zsh"),
                     ],
                     file_entry_contracts: Vec::new(),
+                    requesting_file_contract: FileContract::default(),
                 }
             } else {
                 PluginResolution::default()
@@ -9459,6 +9511,7 @@ fn zdot_load_module_loads_static_module_entrypoints() {
                             .join(format!("{}.zsh", request.name)),
                     ],
                     file_entry_contracts: Vec::new(),
+                    requesting_file_contract: FileContract::default(),
                 }
             } else {
                 PluginResolution::default()
@@ -9562,6 +9615,7 @@ fn zsh_plugin_eval_generated_callbacks_make_function_reads_required() {
                 PluginResolution {
                     entrypoints: vec![self.entrypoint.clone()],
                     file_entry_contracts: Vec::new(),
+                    requesting_file_contract: FileContract::default(),
                 }
             } else {
                 PluginResolution::default()
@@ -9648,6 +9702,7 @@ fn zsh_plugin_generated_callback_inference_ignores_non_eval_text() {
                 PluginResolution {
                     entrypoints: vec![self.entrypoint.clone()],
                     file_entry_contracts: Vec::new(),
+                    requesting_file_contract: FileContract::default(),
                 }
             } else {
                 PluginResolution::default()
@@ -9722,6 +9777,7 @@ fn zsh_plugin_generated_callback_inference_ignores_commented_eval_text() {
                 PluginResolution {
                     entrypoints: vec![self.entrypoint.clone()],
                     file_entry_contracts: Vec::new(),
+                    requesting_file_contract: FileContract::default(),
                 }
             } else {
                 PluginResolution::default()
@@ -9796,6 +9852,7 @@ fn zsh_plugin_eval_generated_callbacks_handle_quoted_positional_aliases() {
                 PluginResolution {
                     entrypoints: vec![self.entrypoint.clone()],
                     file_entry_contracts: Vec::new(),
+                    requesting_file_contract: FileContract::default(),
                 }
             } else {
                 PluginResolution::default()
@@ -9870,6 +9927,7 @@ fn zsh_plugin_deferred_file_scope_reads_ignore_declaration_names() {
                 PluginResolution {
                     entrypoints: vec![self.entrypoint.clone()],
                     file_entry_contracts: Vec::new(),
+                    requesting_file_contract: FileContract::default(),
                 }
             } else {
                 PluginResolution::default()
@@ -9937,6 +9995,7 @@ fn zsh_plugin_hook_listing_does_not_make_callback_reads_required() {
                 PluginResolution {
                     entrypoints: vec![self.entrypoint.clone()],
                     file_entry_contracts: Vec::new(),
+                    requesting_file_contract: FileContract::default(),
                 }
             } else {
                 PluginResolution::default()
@@ -10004,6 +10063,7 @@ fn zsh_plugin_hook_registration_collects_later_callbacks() {
                 PluginResolution {
                     entrypoints: vec![self.entrypoint.clone()],
                     file_entry_contracts: Vec::new(),
+                    requesting_file_contract: FileContract::default(),
                 }
             } else {
                 PluginResolution::default()
@@ -10074,6 +10134,7 @@ fn zsh_plugin_deferred_callback_uses_latest_function_definition() {
                 PluginResolution {
                     entrypoints: vec![self.entrypoint.clone()],
                     file_entry_contracts: Vec::new(),
+                    requesting_file_contract: FileContract::default(),
                 }
             } else {
                 PluginResolution::default()
@@ -10140,6 +10201,7 @@ fn zsh_plugin_hook_registration_inside_called_setup_function_is_deferred_root() 
                 PluginResolution {
                     entrypoints: vec![self.entrypoint.clone()],
                     file_entry_contracts: Vec::new(),
+                    requesting_file_contract: FileContract::default(),
                 }
             } else {
                 PluginResolution::default()

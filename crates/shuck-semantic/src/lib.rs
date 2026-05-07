@@ -290,7 +290,6 @@ use crate::dataflow::{DataflowContext, ExactVariableDataflow};
 use crate::function_resolution::FunctionBindingLookup;
 use crate::runtime::RuntimePrelude;
 use crate::scope::{ancestor_scopes, enclosing_function_scope};
-use crate::source_closure::ImportedBindingContractSite;
 use crate::zsh_options::ZshOptionAnalysis;
 
 const MAX_FUNCTIONS_FOR_TERMINATION_REACHABILITY: usize = 200;
@@ -548,6 +547,8 @@ pub struct PluginResolution {
     pub entrypoints: Vec<PathBuf>,
     /// Optional plugin contracts supplied without reading entrypoint files.
     pub file_entry_contracts: Vec<FileContract>,
+    /// Optional file-scoped caller contract applied to the file that requested the plugin.
+    pub requesting_file_contract: FileContract,
 }
 
 /// Resolver for zsh plugin loads discovered during semantic analysis.
@@ -1984,28 +1985,63 @@ impl SemanticModel {
 
     pub(crate) fn apply_source_contracts(
         &mut self,
-        synthetic_reads: Vec<SyntheticRead>,
-        imported_bindings: Vec<ImportedBindingContractSite>,
-        dependency_paths: Vec<PathBuf>,
-        source_ref_resolutions: Vec<SourceRefResolution>,
-        source_ref_explicitness: Vec<bool>,
-        source_ref_diagnostic_classes: Vec<SourceRefDiagnosticClass>,
+        contracts: source_closure::SourceClosureContracts,
     ) {
-        if synthetic_reads.is_empty()
-            && imported_bindings.is_empty()
-            && dependency_paths.is_empty()
-            && source_ref_resolutions.is_empty()
-            && source_ref_explicitness.is_empty()
-            && source_ref_diagnostic_classes.is_empty()
+        if contracts
+            .requesting_file_contract
+            .externally_consumed_bindings
+        {
+            self.mark_file_entry_consumed_bindings();
+        }
+        if !contracts
+            .requesting_file_contract
+            .externally_consumed_binding_names
+            .is_empty()
+        {
+            self.mark_file_entry_consumed_binding_names(
+                &contracts
+                    .requesting_file_contract
+                    .externally_consumed_binding_names,
+            );
+        }
+        if !contracts
+            .requesting_file_contract
+            .externally_consumed_binding_prefixes
+            .is_empty()
+        {
+            self.mark_file_entry_consumed_binding_prefixes(
+                &contracts
+                    .requesting_file_contract
+                    .externally_consumed_binding_prefixes,
+            );
+        }
+
+        if contracts.synthetic_reads.is_empty()
+            && contracts.imported_bindings.is_empty()
+            && !contracts
+                .requesting_file_contract
+                .externally_consumed_bindings
+            && contracts
+                .requesting_file_contract
+                .externally_consumed_binding_names
+                .is_empty()
+            && contracts
+                .requesting_file_contract
+                .externally_consumed_binding_prefixes
+                .is_empty()
+            && contracts.dependency_paths.is_empty()
+            && contracts.source_ref_resolutions.is_empty()
+            && contracts.source_ref_explicitness.is_empty()
+            && contracts.source_ref_diagnostic_classes.is_empty()
         {
             return;
         }
 
         let mut merged_reads = self.synthetic_reads.clone();
-        merged_reads.extend(synthetic_reads);
+        merged_reads.extend(contracts.synthetic_reads);
         self.set_synthetic_reads(dedup_synthetic_reads(merged_reads));
-        if !dependency_paths.is_empty() {
-            for path in dependency_paths {
+        if !contracts.dependency_paths.is_empty() {
+            for path in contracts.dependency_paths {
                 if !self.imported_dependency_paths.contains(&path) {
                     self.imported_dependency_paths.push(path);
                 }
@@ -2014,33 +2050,47 @@ impl SemanticModel {
             self.imported_dependency_paths.dedup();
         }
 
-        if !source_ref_resolutions.is_empty() {
-            debug_assert_eq!(source_ref_resolutions.len(), self.source_refs.len());
-            for (source_ref, resolution) in self.source_refs.iter_mut().zip(source_ref_resolutions)
+        if !contracts.source_ref_resolutions.is_empty() {
+            debug_assert_eq!(
+                contracts.source_ref_resolutions.len(),
+                self.source_refs.len()
+            );
+            for (source_ref, resolution) in self
+                .source_refs
+                .iter_mut()
+                .zip(contracts.source_ref_resolutions)
             {
                 source_ref.resolution = resolution;
             }
         }
-        if !source_ref_explicitness.is_empty() {
-            debug_assert_eq!(source_ref_explicitness.len(), self.source_refs.len());
-            for (source_ref, explicitly_provided) in
-                self.source_refs.iter_mut().zip(source_ref_explicitness)
+        if !contracts.source_ref_explicitness.is_empty() {
+            debug_assert_eq!(
+                contracts.source_ref_explicitness.len(),
+                self.source_refs.len()
+            );
+            for (source_ref, explicitly_provided) in self
+                .source_refs
+                .iter_mut()
+                .zip(contracts.source_ref_explicitness)
             {
                 source_ref.explicitly_provided = explicitly_provided;
             }
         }
-        if !source_ref_diagnostic_classes.is_empty() {
-            debug_assert_eq!(source_ref_diagnostic_classes.len(), self.source_refs.len());
+        if !contracts.source_ref_diagnostic_classes.is_empty() {
+            debug_assert_eq!(
+                contracts.source_ref_diagnostic_classes.len(),
+                self.source_refs.len()
+            );
             for (source_ref, diagnostic_class) in self
                 .source_refs
                 .iter_mut()
-                .zip(source_ref_diagnostic_classes)
+                .zip(contracts.source_ref_diagnostic_classes)
             {
                 source_ref.diagnostic_class = diagnostic_class;
             }
         }
 
-        for site in imported_bindings {
+        for site in contracts.imported_bindings {
             self.add_imported_binding(
                 &site.binding,
                 site.scope,
@@ -2386,14 +2436,7 @@ fn build_semantic_model<'a>(
         model.apply_file_entry_contract(contract, file);
     }
     if let Some(source_path) = source_path {
-        let (
-            synthetic_reads,
-            imported_bindings,
-            dependency_paths,
-            source_ref_resolutions,
-            source_ref_explicitness,
-            source_ref_diagnostic_classes,
-        ) = if resolve_source_closure {
+        let contracts = if resolve_source_closure {
             source_closure::collect_source_closure_contracts(
                 &model,
                 file,
@@ -2414,23 +2457,13 @@ fn build_semantic_model<'a>(
                     source_path_resolver,
                     analyzed_paths,
                 );
-            (
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
+            source_closure::SourceClosureContracts::from_source_ref_metadata(
                 source_ref_resolutions,
                 source_ref_explicitness,
                 source_ref_diagnostic_classes,
             )
         };
-        model.apply_source_contracts(
-            synthetic_reads,
-            imported_bindings,
-            dependency_paths,
-            source_ref_resolutions,
-            source_ref_explicitness,
-            source_ref_diagnostic_classes,
-        );
+        model.apply_source_contracts(contracts);
     }
     model
 }

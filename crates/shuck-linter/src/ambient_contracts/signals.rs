@@ -9,6 +9,7 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::path::PathBuf;
 
 use super::source_scan::{code_before_shell_comment, parse_shell_name_at};
 
@@ -35,14 +36,20 @@ impl<'a> AmbientSignals<'a> {
 }
 
 pub(super) struct PathSignals {
+    path: PathBuf,
     lower_path: String,
 }
 
 impl PathSignals {
     fn new(path: &Path) -> Self {
         Self {
+            path: path.to_path_buf(),
             lower_path: path.to_string_lossy().to_ascii_lowercase(),
         }
+    }
+
+    pub(super) fn path(&self) -> &Path {
+        &self.path
     }
 
     pub(super) fn lower_path(&self) -> &str {

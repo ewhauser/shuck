@@ -33,14 +33,12 @@ pub(super) fn matches_zsh_ambient_runtime_contract(
         && zsh_ambient_runtime_has_signal(collector.source_signals(), path)
 }
 
-pub(super) fn build_zsh_ambient_runtime_contract(
+pub(super) fn apply_zsh_ambient_runtime_contract(
+    contract: &mut FileContract,
     collector: &AmbientContractCollector<'_>,
-    _shell: ShellDialect,
-) -> FileContract {
+) {
     let path = collector.path_signals();
     let source = collector.source_signals();
-    let mut contract = FileContract::default();
-
     for name in zsh_initialized_runtime_names(source, path) {
         contract.add_provided_binding(ProvidedBinding::new_file_entry_initialized(
             Name::from(name),
@@ -56,8 +54,6 @@ pub(super) fn build_zsh_ambient_runtime_contract(
     for prefix in zsh_test_fixture_consumed_prefixes(source, path) {
         contract.add_externally_consumed_binding_prefix(Name::from(prefix));
     }
-
-    contract
 }
 
 fn shell_matches_zsh_runtime_context(shell: ShellDialect, path: &PathSignals) -> bool {
